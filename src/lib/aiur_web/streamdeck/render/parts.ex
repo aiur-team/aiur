@@ -36,7 +36,7 @@ defmodule AiurWeb.Streamdeck.Render.Parts do
     percent = field(part, :percent)
     label = field(part, :label, "")
     freshness = field(part, :freshness, "unknown")
-    reading = if is_number(percent) and to_string(freshness) != "unknown", do: "#{percent}%", else: "Unknown"
+    reading = if is_number(percent) and to_string(freshness) != "unknown", do: "#{percent}%#{field(part, :suffix, "")}", else: "Unknown"
 
     compact = field(part, :compact, false)
     age = field(part, :age_label, "")

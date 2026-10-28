@@ -223,6 +223,10 @@ returning exactly eight keys (empty slots are `nil`) and strip regions tiling
 800×100. `strip/1` composes regions from title/bar, meter, count, text and pager
 parts, so later views share the same drawing path.
 
+Key images use physical row order; ranked input agents fill each column top-to-bottom.
+
+The grid provider panels retain the current session-only layout and show remaining quota.
+
 Each image carries `svg`, a 16-character lowercase SHA-256 content `hash`, and a
 plain-text accessible `label`; strip images also carry `x` and `width`. Keys
 have width/height/viewBox 120×120; strip regions have their local width ×100.

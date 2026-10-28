@@ -1,6 +1,8 @@
 defmodule AiurWeb.Streamdeck.Render.Grid do
   @moduledoc false
 
+  alias AiurWeb.RemainingMeter
+
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2, field: 3]
 
   @spec compose(map()) :: {[map() | nil], [map()]}
@@ -9,7 +11,7 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     agents = field(grid, :agents, [])
     max_offset = max(ceil(length(agents) / 2) - 4, 0)
     offset = clamp_offset(field(model, :column_offset, 0), max_offset)
-    faces = Enum.map(0..7, &Enum.at(agents, offset * 2 + &1))
+    faces = Enum.map(0..7, &Enum.at(agents, (offset + rem(&1, 4)) * 2 + div(&1, 4)))
     providers = model |> field(:usage, %{}) |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
     regions = [summary(grid, agents)] ++ provider_regions(providers, field(model, :provider_offset, 0)) ++ [pager(offset, max_offset, length(agents))]
     {faces, regions}
@@ -63,25 +65,24 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
 
   defp provider_region(name, meter, x) do
     windows = field(meter, :windows, %{})
-    parts = [%{kind: :text_line, text: field(meter, :summary_label) || name, y: 15, size: 11}]
 
-    parts =
-      parts ++
-        Enum.map([{:session, 31}, {:weekly, 68}], fn {slot, y} ->
-          meter_part(String.capitalize(to_string(slot)), meter, field(windows, slot), y)
-        end)
+    parts = [
+      %{kind: :text_line, text: name, y: 20, size: 13},
+      %{kind: :text_line, text: field(meter, :summary_label) || "", y: 37, size: 9},
+      meter_part("Session", meter, field(windows, :session), 60)
+    ]
 
     region(x, 200, to_string(name), parts)
   end
 
   defp meter_part(name, meter, window, y) do
-    percent = field(window, :used_percent)
+    percent = window |> field(:used_percent) |> RemainingMeter.percent()
     freshness = field(window, :freshness, field(meter, :freshness, :unknown))
     percent = if to_string(field(meter, :state)) == "observed", do: percent
     age = field(window, :age_seconds, field(meter, :age_seconds))
     age_label = if is_number(age), do: "#{age}s old", else: ""
     stale_label = if to_string(freshness) == "stale", do: " stale", else: ""
-    %{kind: :meter_row, label: name, percent: percent, freshness: freshness, age_label: age_label <> stale_label, y: y}
+    %{kind: :meter_row, label: name, percent: percent, suffix: " left", freshness: freshness, age_label: age_label <> stale_label, y: y}
   end
 
   defp pager(offset, max_offset, total) do

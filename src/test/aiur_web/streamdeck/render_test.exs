@@ -72,14 +72,15 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     frame = Render.frame(model)
     assert length(frame.keys) == 8
     assert Enum.at(frame.keys, 0).label == "#5181 Running 40% — Fix strip squeeze"
-    assert Enum.at(frame.keys, 1).label =~ "#5182 Unstarted"
-    assert Enum.drop(frame.keys, 2) == List.duplicate(nil, 6)
+    assert Enum.at(frame.keys, 4).label =~ "#5182 Unstarted"
+    assert Enum.map([1, 2, 3, 5, 6, 7], &Enum.at(frame.keys, &1)) == List.duplicate(nil, 6)
     assert Enum.map(frame.strip, &{&1.x, &1.width}) == [{0, 200}, {200, 200}, {400, 200}, {600, 200}]
     assert hd(frame.strip).label == "1 live / 1 left; Build 41%"
     assert xpath(parse(hd(frame.strip).svg), "//rect[@data-part=\"progress-fill\"]/@width") == ["73.8"]
-    assert Enum.at(frame.strip, 1).svg =~ "Session 25%"
+    assert Enum.at(frame.strip, 1).svg =~ "Session 75% left"
     assert Enum.at(frame.strip, 1).svg =~ "35s old stale"
-    assert Enum.at(frame.strip, 1).svg =~ "Weekly Unknown"
+    refute Enum.at(frame.strip, 1).svg =~ "Weekly"
+    assert xpath(parse(Enum.at(frame.strip, 1).svg), ~s|//rect[@data-part="progress-fill"]/@width|) == ["135.0"]
 
     for image <- Enum.reject(frame.keys, &is_nil/1) do
       xml = parse(image.svg)
@@ -135,6 +136,7 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     frame = Render.frame(model)
     assert hd(frame.keys).label =~ "#5 Running"
     assert List.last(frame.keys).label =~ "#12 Running"
+    assert Enum.map(frame.keys, &hd(String.split(&1.label))) == ~w(#5 #7 #9 #11 #6 #8 #10 #12)
     assert Enum.map(frame.strip, &{&1.x, &1.width}) == [{0, 200}, {200, 400}, {600, 200}]
     xml = parse(Enum.at(frame.strip, 1).svg)
     assert xpath(xml, "//text/text()") == ["b Unknown", "c Unknown", "d Unknown", "Providers 2–4 / 4"]
