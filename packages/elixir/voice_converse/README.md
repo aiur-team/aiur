@@ -6,6 +6,11 @@ the host arrives through `VoiceConverse.Config` and the behaviours in `VoiceConv
 CI job `voice-converse-standalone` compiles and tests this package alone and fails on any
 reference to the host application (`scripts/check-voice-converse-isolation.sh`).
 
+Hosts may set `VoiceConverse.Config.allowed_tools` to a list of tool names for a
+restricted session. The default `nil` allows all supported tools; an empty list
+disables every tool. The session enforces the list on incoming calls as well as
+the advertised tool specifications.
+
 ## Asking the agent
 
 A host whose `AgentChannel.capabilities/1` reports `ask: true` or a fork exposes `ask_agent`

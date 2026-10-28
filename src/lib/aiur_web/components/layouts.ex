@@ -38,6 +38,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/ticket-context-dialog-hook.js"></script>
         <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/conversation-voice-controller.js"></script>
+        <script defer src="/executor-voice-controller.js"></script>
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/build-order-grid-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>

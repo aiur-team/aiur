@@ -15,12 +15,26 @@ defmodule VoiceConverse.Tools do
 
   @spec specs(Config.t(), term()) :: [VoiceConverse.Provider.tool_spec()]
   def specs(%Config{} = config, target) do
-    [status_spec()] ++
-      detail_specs(config.briefing_source, target) ++
-      command_specs(config) ++
-      [propose_instruction_spec()] ++
-      ask_specs(config, target) ++ [end_spec()]
+    specs =
+      [status_spec()] ++
+        detail_specs(config.briefing_source, target) ++
+        command_specs(config) ++
+        [propose_instruction_spec()] ++
+        ask_specs(config, target) ++ [end_spec()]
+
+    Enum.filter(specs, &allowed?(config, &1.name))
   end
+
+  @doc "Enforces the host's tool allowlist before invoking a session tool."
+  @spec dispatch(map(), Events.ToolCall.t(), (map(), Events.ToolCall.t() -> {result(), map()})) :: {result(), map()}
+  def dispatch(state, event, handler) do
+    if allowed?(state.config, event.name),
+      do: handler.(state, event),
+      else: {result("Tool is unavailable in this conversation.", state.config, is_error: true), state}
+  end
+
+  defp allowed?(%Config{allowed_tools: nil}, _name), do: true
+  defp allowed?(%Config{allowed_tools: tools}, name), do: name in tools
 
   @spec handle(map(), Events.ToolCall.t()) :: result()
   def handle(%{config: config, target: target}, %Events.ToolCall{name: "get_status"}),

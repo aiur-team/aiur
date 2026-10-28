@@ -266,7 +266,7 @@ defmodule VoiceConverse.Session do
     case persist(state, record) do
       {:ok, state} ->
         broadcast(state, broadcast_event)
-        {result, state} = handle_tool(state, event)
+        {result, state} = Tools.dispatch(state, event, &handle_tool/2)
 
         result_record = %{
           type: "tool_result",
