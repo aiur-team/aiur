@@ -14,6 +14,7 @@ defmodule AiurWeb.StreamdeckChannelNavTest do
 
   test "keys resolve on the server and priority effects follow selection" do
     put_endpoint_config(
+      streamdeck_build_queue_fun: fn -> %{status: :disabled} end,
       streamdeck_snapshot_fun: fn ->
         %{running: [AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Navigation"})], retrying: [], idle: []}
       end
@@ -25,7 +26,7 @@ defmodule AiurWeb.StreamdeckChannelNavTest do
     state = :sys.get_state(socket.channel_pid)
     assert state.assigns.deck_effects == [{:open_ticket, "AIUR-1"}]
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -2})
-    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0})
+    assert_reply(ref, :error, %{reason: "disabled"})
     assert :sys.get_state(socket.channel_pid).assigns.deck_effects == [{:priority, "AIUR-1", :up, 2}]
   end
 
