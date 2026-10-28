@@ -290,6 +290,8 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(desktopGeometry.pressShadow).toContain('rgba(255, 255, 255, 0.5) 0px 0px 0px 2px inset')
   await device.screenshot({ path: testInfo.outputPath('streamdeck-desktop.png') })
 
+  const readAiurInks = () => device.evaluate((el) => ['--fg', '--accent'].map((name) => getComputedStyle(el).getPropertyValue(name).trim()))
+
   const darkSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
     const style = getComputedStyle(document.querySelector(selector))
     return [selector, style.backgroundImage, style.borderColor, style.boxShadow, style.color]
@@ -310,6 +312,10 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   expect(await readTokens()).toEqual(gruvboxDarkTokens)
   await page.locator('html').evaluate((html) => html.removeAttribute('data-palette'))
+  const aiurLightInks = await readAiurInks()
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'))
+  expect(await readAiurInks()).toEqual(aiurLightInks)
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   await device.screenshot({ path: testInfo.outputPath('streamdeck-desktop-light.png') })
 
   await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'))

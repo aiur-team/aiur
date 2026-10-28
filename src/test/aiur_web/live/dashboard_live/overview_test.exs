@@ -241,7 +241,7 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
         selected_decision_id: decision.decision_id
       )
 
-    assert inbox_html =~ ~s(src="/aiur-logo.png")
+    assert inbox_html =~ ~s(src="/aiur-style/assets/aiur-logo.png")
     assert inbox_html =~ ~s(href="/commands/dec-safe-link")
     assert inbox_html =~ "Commands inbox"
     refute inbox_html =~ ~s(id="recent-title")
