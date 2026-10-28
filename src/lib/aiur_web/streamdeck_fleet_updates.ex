@@ -27,7 +27,7 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
     socket = TicketUpdates.refresh(socket)
     fleet = StreamdeckProjection.fleet_with_grid(AgentPubSub.latest_fleet_summaries())
     Phoenix.Channel.push(socket, "fleet", fleet)
-    socket = socket |> assign(:deck_grid, fleet["grid"]) |> FrameUpdates.push()
+    socket = socket |> assign(:deck_grid, fleet["grid"]) |> AiurWeb.Streamdeck.UsageUpdates.refresh() |> FrameUpdates.push()
     {:noreply, assign(socket, :fleet_flush, nil)}
   end
 

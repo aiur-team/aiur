@@ -14,6 +14,16 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
     |> Usage.order_families()
     |> Enum.zip(block.providers)
     |> Map.new(fn {family, row} -> {Atom.to_string(family), meter(family, row, inputs.accounts)} end)
+    |> Map.put("apis", Enum.map(block.apis, &api/1))
+  end
+
+  defp api(row) do
+    lines =
+      Enum.map(row.lines, fn line ->
+        %{tag: line.tag, remaining_percent: remaining(line, 0), reset_at: line.reset_at, hold_until: line.hold_until, tip: Enum.map_join(line.tip, " · ", &Enum.join(&1, ": "))}
+      end)
+
+    %{name: row.name, lines: lines, stale: row.stale, observed_at: row.observed_at}
   end
 
   defp meter(family, row, accounts) do

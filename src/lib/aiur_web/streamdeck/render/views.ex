@@ -18,7 +18,7 @@ defmodule AiurWeb.Streamdeck.Render.Views do
 
   @spec compose(map()) :: {[map() | nil], [map()]}
   def compose(%{nav: %{view: :fleet} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"] do
-    {faces, regions} = Fleet.compose(field(model, :grid) || model, nav)
+    {faces, regions} = Fleet.compose(field(model, :grid) || model, nav, field(model, :usage) || %{})
     toast = field(model, :toast)
     regions = if is_binary(toast), do: List.replace_at(regions, 0, %{x: 0, width: 200, label: toast, parts: [%{kind: :text_line, text: toast, y: 50, size: 12}]}), else: regions
     {faces, regions}
