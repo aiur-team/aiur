@@ -1,4 +1,3 @@
-# This module owns the Build Home LiveView shell, including its canonical URL state.
 defmodule AiurWeb.BuildLive do
   @moduledoc "Authenticated build home shell with hook-owned content and a bounded initial read."
 
@@ -16,12 +15,12 @@ defmodule AiurWeb.BuildLive do
   @route RouteRegistry.current_route(:build)
 
   @impl true
-  def mount(params, _session, socket) do
+  def mount(_params, session, socket) do
     connected = connected?(socket)
 
     socket =
       socket
-      |> assign(:build_fixture_dataset, fixture_dataset(params))
+      |> assign(:build_fixture_dataset, fixture_dataset(session))
       |> Protocol.init()
       |> Controls.init()
       |> Conversation.init()
@@ -52,11 +51,9 @@ defmodule AiurWeb.BuildLive do
     state = URLState.parse(home)
     previous = socket.assigns[:url_state]
     location = URI.parse(uri)
-    dataset = if fixture_query_enabled?(), do: params["fixture_dataset"] || socket.assigns[:build_fixture_dataset]
-    socket = assign(socket, url_path: location.path, url_state: state, build_fixture_dataset: dataset)
+    socket = assign(socket, url_path: location.path, url_state: state)
     socket = if previous != nil and previous != state and connected?(socket), do: push_event(socket, "build:url", %{state: state}), else: socket
     query = URLState.to_query(state)
-    query = if is_binary(dataset), do: URI.encode_query(Map.put(URI.decode_query(query), "fixture_dataset", dataset)), else: query
     {:noreply, socket |> refresh_controls() |> patch_url(location.query || "", query)}
   end
 
@@ -74,7 +71,7 @@ defmodule AiurWeb.BuildLive do
     Map.take(URI.decode_query(query), Map.keys(sent)) != sent
   end
 
-  defp fixture_dataset(params), do: if(fixture_query_enabled?(), do: params["fixture_dataset"])
+  defp fixture_dataset(session), do: if(fixture_query_enabled?(), do: session["fixture_dataset"])
   defp fixture_query_enabled?, do: Application.get_env(:aiur, :build_fixture_query, false)
 
   defp load_snapshot(socket) do

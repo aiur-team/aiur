@@ -55,7 +55,7 @@ test('fixture endpoint picks only known datasets and carries query strings', asy
   for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'hold', 'unavailable']) {
     const response = await request.get(`/build-fixture/${dataset}?ticket=12`, { maxRedirects: 0 })
     expect(response.status()).toBe(302)
-    expect(response.headers().location).toBe('/build?fixture_dataset=' + dataset + '&ticket=12')
+    expect(response.headers().location).toBe('/build?ticket=12')
   }
   for (const dataset of ['manifest', 'usage-sets', 'nope', '..%2Flive']) {
     expect((await request.get(`/build-fixture/${dataset}`, { maxRedirects: 0 })).status()).toBe(404)
@@ -182,7 +182,7 @@ test('B8 offline URL write reaches server after reconnect', async ({ page }) => 
     (await import('/build-home/state.js')).S.view = 'list'
     await (await import('/build-home/url.js')).writeURL(); window.liveSocket.connect()
   })
-  await expect(page).toHaveURL(/\?fixture_dataset=live&view=list$/)
+  await expect(page).toHaveURL(/\?view=list$/)
 })
 
 test('B9 canonical initial state; B10 corrected URL never echoes', async ({ page }) => {

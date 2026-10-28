@@ -5,8 +5,12 @@ defmodule Aiur.BrowserHarness.FixtureBuildDataset do
 
   def configure(conn, %{"dataset" => dataset}) do
     if dataset in FixtureSource.datasets() do
-      params = URI.encode_query(Map.put(Plug.Conn.fetch_query_params(conn).query_params, "fixture_dataset", dataset))
-      redirect(conn, to: "/build?" <> params)
+      conn = Plug.Conn.fetch_query_params(conn)
+      query = URI.encode_query(conn.query_params)
+
+      conn
+      |> Plug.Conn.put_session("fixture_dataset", dataset)
+      |> redirect(to: "/build" <> if(query == "", do: "", else: "?" <> query))
     else
       conn |> Plug.Conn.put_resp_content_type("text/plain") |> Plug.Conn.send_resp(404, "unknown build fixture dataset")
     end
