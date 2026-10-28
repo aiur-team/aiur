@@ -43,7 +43,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Serves ticket status, PR checks, Commands, conversations, queue priority moves and per-deck navigation to Stream Deck clients; exposes ticket actions and configured dashboard and pull request links.",
+  "summary": "Serves ticket status, Commands, queue controls and dashboard and pull request links to Stream Deck clients.",
   "status": "optional",
   "install": {
     "type": "included"
