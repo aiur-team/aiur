@@ -24,9 +24,12 @@ defmodule Aiur.Conversation.SubjectIndexTest do
     id = Ref.conversation_id(ref)
     good = Path.join(context.root, id)
     bad = Path.join(context.root, "conv_bad")
+    malformed = Path.join(context.root, "conv_malformed")
     File.mkdir_p!(good)
     File.mkdir_p!(bad)
+    File.mkdir_p!(malformed)
     File.write!(Path.join(bad, "subject.json"), "{")
+    File.write!(Path.join(malformed, "subject.json"), Jason.encode!(%{"v" => 1, "kind" => "worker"}))
 
     File.write!(
       Path.join(good, "subject.json"),
@@ -41,13 +44,12 @@ defmodule Aiur.Conversation.SubjectIndexTest do
     )
 
     log = capture_log(fn -> assert {:ok, ^id} = SubjectIndex.lookup(identity, server: context.server) end)
-    assert log =~ "skipped 1 unreadable subject.json file(s)"
+    assert log =~ "skipped 2 unreadable subject.json file(s)"
     assert {:ok, index} = SubjectIndex.index(server: context.server)
     assert Enum.count(index) == 1
   end
 
   test "repeated lookups reuse the scan until invalidated", context do
-    parent = self()
     counter = :atomics.new(1, [])
 
     {:ok, pid} =
@@ -55,7 +57,6 @@ defmodule Aiur.Conversation.SubjectIndexTest do
         root_fun: fn -> {:ok, context.root} end,
         scan_fun: fn _root ->
           :atomics.add_get(counter, 1, 1)
-          send(parent, :scanned)
           {:ok, %{}, 0}
         end
       )
@@ -63,12 +64,9 @@ defmodule Aiur.Conversation.SubjectIndexTest do
     identity = identity()
     assert {:error, :not_found} = SubjectIndex.lookup(identity, server: pid)
     assert {:error, :not_found} = SubjectIndex.lookup(identity, server: pid)
-    assert_receive :scanned, 1000
-    refute_receive :scanned, 50
     assert :atomics.get(counter, 1) == 1
     SubjectIndex.invalidate(server: pid)
     assert {:error, :not_found} = SubjectIndex.lookup(identity, server: pid)
-    assert_receive :scanned, 1000
     assert :atomics.get(counter, 1) == 2
     GenServer.stop(pid)
   end

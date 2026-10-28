@@ -171,20 +171,46 @@ defmodule Aiur.Conversation.SubjectIndex do
 
     path = Path.join(dir, "subject.json")
 
-    with {:ok, bytes} <- File.read(path),
-         {:ok, %{"v" => 1, "kind" => "worker", "conversation_id" => id, "owner" => owner, "repository" => repository, "provider_id" => provider_id}} <- Jason.decode(bytes),
-         {:ok, ref} <- Ref.worker(identity(owner, repository, provider_id)),
-         true <- Ref.conversation_id(ref) == id and Path.basename(dir) == id do
-      {:ok, id, TrackerIdentity.github_key(identity(owner, repository, provider_id))}
-    else
-      false -> :skip
+    case File.read(path) do
+      {:ok, bytes} -> read_subject_record(dir, bytes)
       {:error, _} -> :skip
-      _ -> :ignore
     end
   rescue
     _ -> :skip
   catch
     :ignore -> :ignore
+  end
+
+  defp read_subject_record(dir, bytes) do
+    case Jason.decode(bytes) do
+      {:ok, %{"v" => 1, "kind" => "executor", "conversation_id" => id}} when is_binary(id) ->
+        :ignore
+
+      {:ok,
+       %{
+         "v" => 1,
+         "kind" => "worker",
+         "conversation_id" => id,
+         "owner" => owner,
+         "repository" => repository,
+         "provider_id" => provider_id
+       }} ->
+        read_worker_subject(dir, id, owner, repository, provider_id)
+
+      _ ->
+        :skip
+    end
+  end
+
+  defp read_worker_subject(dir, id, owner, repository, provider_id) do
+    subject_identity = identity(owner, repository, provider_id)
+
+    with {:ok, ref} <- Ref.worker(subject_identity),
+         true <- Ref.conversation_id(ref) == id and Path.basename(dir) == id do
+      {:ok, id, TrackerIdentity.github_key(subject_identity)}
+    else
+      _ -> :skip
+    end
   end
 
   defp identity(owner, repository, provider_id) do

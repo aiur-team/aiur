@@ -3,9 +3,12 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
   import Plug.Conn
   import Plug.Test
+  import ExUnit.CaptureLog
 
   alias Aiur.{Claude.HookEvents, Config, DecisionStore, IssueLog}
+  alias Aiur.Conversation.{Ref, Store, SubjectIndex}
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TrackerIdentity
 
   defmodule ControlOrchestrator do
     use GenServer
@@ -163,6 +166,45 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
     Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, orchestrator)
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, dashboard_writable)
+  end
+
+  test "resolves a healthy worker after Store.prepare invalidates the index despite a corrupt sibling" do
+    root = Path.join(System.tmp_dir!(), "conversation-resolve-#{System.unique_integer([:positive])}")
+    previous_root = Application.get_env(:aiur, :conversation_state_dir)
+    Application.put_env(:aiur, :conversation_state_dir, root)
+
+    on_exit(fn ->
+      if previous_root, do: Application.put_env(:aiur, :conversation_state_dir, previous_root), else: Application.delete_env(:aiur, :conversation_state_dir)
+      if Process.whereis(SubjectIndex), do: SubjectIndex.invalidate()
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    unless Process.whereis(SubjectIndex) do
+      start_supervised!({SubjectIndex, name: SubjectIndex})
+    end
+
+    SubjectIndex.invalidate()
+    assert {:ok, %{}} = SubjectIndex.index()
+
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I_issue", "number" => 1}, {"acme", "app"}, {"acme", "app"})
+    {:ok, ref} = Ref.worker(identity)
+    conversation_id = Ref.conversation_id(ref)
+    assert {:ok, _head} = Store.prepare(Path.join(root, conversation_id), ref)
+
+    corrupt = Path.join(root, "conv_corrupt")
+    File.mkdir_p!(corrupt)
+    File.write!(Path.join(corrupt, "subject.json"), "{")
+
+    test_pid = self()
+
+    log =
+      capture_log(fn ->
+        conn = conn(:get, "/api/v1/conversations/resolve?owner=acme&repository=app&provider_id=I_issue") |> authed() |> call()
+        send(test_pid, {:resolved_worker, json_response(conn, 200)})
+      end)
+
+    assert_received {:resolved_worker, %{"conversation_id" => ^conversation_id, "subject" => "worker"}}
+    assert log =~ "skipped 1 unreadable subject.json file(s)"
   end
 
   describe "POST /api/v1/:id/claude-hook" do
