@@ -66,7 +66,7 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     reopened = streamdeck_assigns(view).deck_chat
     assert reopened.ref.id == "1352"
     assert {^pid, _} = List.keyfind(Registry.lookup(Aiur.PubSub, topic), pid, 0)
-    dial(view, 3, "long_press")
+    render_click(view, "command-press", %{"command" => "settings"})
     assert streamdeck_assigns(view).deck_nav.surface == :settings
     assert streamdeck_assigns(view).deck_chat == nil
     assert streamdeck_assigns(view).deck_chat_view == nil
