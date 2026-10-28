@@ -189,11 +189,7 @@ defmodule Aiur.TicketActivity do
 
     case fun.() do
       %{members: members} when is_list(members) ->
-        Enum.reduce(members, %{}, fn member, acc ->
-          identity = member_identity(member)
-          key = Map.get_lazy(cached, identity, fn -> TrackerIdentity.github_key(identity) end)
-          if key, do: Map.put(acc, key, identity), else: acc
-        end)
+        Enum.reduce(members, %{}, &index_member(&1, &2, cached))
 
       _ ->
         %{}
@@ -202,6 +198,12 @@ defmodule Aiur.TicketActivity do
     _ -> %{}
   catch
     _, _ -> %{}
+  end
+
+  defp index_member(member, acc, cached) do
+    identity = member_identity(member)
+    key = Map.get_lazy(cached, identity, fn -> TrackerIdentity.github_key(identity) end)
+    if key, do: Map.put(acc, key, identity), else: acc
   end
 
   defp member_identity(%{identity: identity}), do: identity

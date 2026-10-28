@@ -1,10 +1,14 @@
 defmodule Aiur.DaemonHotPathsTest do
+  # Keep the synchronous call-tracing regressions together so trace patterns share one lifecycle.
   use Aiur.TestSupport
 
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.CurrentRunMembership.{Reconciler, Store}
   alias Aiur.CurrentRunProjections.CheckpointPersistence
-  alias Aiur.{TicketActivity, TicketObservation, TrackerIdentity}
+  alias Aiur.{IssueSyncTestSupport, SystemCgroup, TestCleanup, TestSupport, TicketActivity, TicketObservation, TrackerIdentity}
+  alias Aiur.Orchestrator.{DispatchPolicy, State, WaitingReason}
+  alias Aiur.Orchestrator.IssueSync.CapacityConstraints
+  alias Aiur.Workspace.Ownership.Retention
 
   test "activity scans reuse ingested keys while membership changes remain visible" do
     now = DateTime.utc_now()
@@ -81,8 +85,8 @@ defmodule Aiur.DaemonHotPathsTest do
   end
 
   test "reconciliation persists multiple membership changes with one open and sync, and recovers them" do
-    dir = Aiur.TestSupport.tmp_root!("membership-batch")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    dir = TestSupport.tmp_root!("membership-batch")
+    on_exit(fn -> TestCleanup.rm_rf!(dir) end)
     owner = start_supervised!({Store, name: nil, state_dir: dir, run_id: "batch-run", checkpoint_interval: 32})
     trace_calls(owner, [{:file, :open, 2}, {:file, :sync, 1}])
     one = identity("one")
@@ -107,8 +111,8 @@ defmodule Aiur.DaemonHotPathsTest do
   end
 
   test "batch append failure exposes no unpersisted projection or lifecycle events" do
-    dir = Aiur.TestSupport.tmp_root!("membership-batch-failure")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    dir = TestSupport.tmp_root!("membership-batch-failure")
+    on_exit(fn -> TestCleanup.rm_rf!(dir) end)
     parent = self()
 
     owner =
@@ -134,8 +138,8 @@ defmodule Aiur.DaemonHotPathsTest do
   end
 
   test "a batch crossing the checkpoint cadence compacts and recovers all members" do
-    dir = Aiur.TestSupport.tmp_root!("membership-batch-checkpoint")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    dir = TestSupport.tmp_root!("membership-batch-checkpoint")
+    on_exit(fn -> TestCleanup.rm_rf!(dir) end)
     owner = start_supervised!({Store, name: nil, state_dir: dir, run_id: "batch-run", checkpoint_interval: 2})
     one = identity("one")
     two = identity("two")
@@ -151,8 +155,8 @@ defmodule Aiur.DaemonHotPathsTest do
   end
 
   test "invalid batch validates every row before persisting any row" do
-    dir = Aiur.TestSupport.tmp_root!("membership-invalid-batch")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    dir = TestSupport.tmp_root!("membership-invalid-batch")
+    on_exit(fn -> TestCleanup.rm_rf!(dir) end)
     parent = self()
 
     owner =
@@ -173,11 +177,11 @@ defmodule Aiur.DaemonHotPathsTest do
   end
 
   test "capacity scan normalizes terminal states once for the whole issue list" do
-    issues = for id <- 1..4, do: Aiur.IssueSyncTestSupport.issue(to_string(id), "todo")
+    issues = for id <- 1..4, do: IssueSyncTestSupport.issue(to_string(id), "todo")
 
     {ready, calls} =
-      run_traced([{Aiur.Orchestrator.DispatchPolicy, :terminal_state_set, 0}], fn ->
-        Aiur.Orchestrator.IssueSync.CapacityConstraints.routable_todo_issues(issues)
+      run_traced([{DispatchPolicy, :terminal_state_set, 0}], fn ->
+        CapacityConstraints.routable_todo_issues(issues)
       end)
 
     assert length(ready) == 4
@@ -188,8 +192,8 @@ defmodule Aiur.DaemonHotPathsTest do
     row = %{issue_id: "1", identifier: "1", waiting_reason: :active}
 
     {rendered, calls} =
-      run_traced([{Aiur.Workspace.Ownership.Retention, :for_ticket, 1}], fn ->
-        Aiur.Orchestrator.WaitingReason.attach(row, %Aiur.Orchestrator.State{})
+      run_traced([{Retention, :for_ticket, 1}], fn ->
+        WaitingReason.attach(row, %State{})
       end)
 
     assert rendered.waiting.reason == :active
@@ -198,22 +202,22 @@ defmodule Aiur.DaemonHotPathsTest do
   end
 
   test "cgroup values stay fresh without file-server reads" do
-    dir = Aiur.TestSupport.tmp_root!("raw-cgroup")
+    dir = TestSupport.tmp_root!("raw-cgroup")
     File.mkdir_p!(dir)
     previous = Application.get_env(:aiur, :cgroup_root_override)
     Application.put_env(:aiur, :cgroup_root_override, dir)
 
     on_exit(fn ->
       Application.put_env(:aiur, :cgroup_root_override, previous)
-      Aiur.TestCleanup.rm_rf!(dir)
+      TestCleanup.rm_rf!(dir)
     end)
 
     File.write!(Path.join(dir, "cpu.max"), "200000 100000")
-    {quota, calls} = run_traced([{:file, :read_file, 1}], fn -> Aiur.SystemCgroup.cpu_quota() end)
+    {quota, calls} = run_traced([{:file, :read_file, 1}], fn -> SystemCgroup.cpu_quota() end)
     assert quota == 2.0
     assert calls == []
     File.write!(Path.join(dir, "cpu.max"), "300000 100000")
-    assert Aiur.SystemCgroup.cpu_quota() == 3.0
+    assert SystemCgroup.cpu_quota() == 3.0
   end
 
   defp run_traced(patterns, fun) do

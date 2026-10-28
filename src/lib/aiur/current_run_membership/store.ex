@@ -10,7 +10,7 @@ defmodule Aiur.CurrentRunMembership.Store do
 
   alias Aiur.Boot
   alias Aiur.CurrentRunMembership.{Event, OutboundEvents, Projection}
-  alias Aiur.CurrentRunMembership.Store.{Recovery, Runtime}
+  alias Aiur.CurrentRunMembership.Store.{Batch, Recovery, Runtime}
   alias Aiur.TrackerIdentity
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -123,7 +123,7 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   def handle_call({:observe_many, observations, observed_at, source}, _from, state) do
-    Aiur.CurrentRunMembership.Store.Batch.observe(observations, observed_at, source, state)
+    Batch.observe(observations, observed_at, source, state)
   end
 
   def handle_call({:snapshot, limit}, _from, state) do
