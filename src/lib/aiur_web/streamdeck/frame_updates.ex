@@ -3,7 +3,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   alias AiurWeb.Streamdeck.{Deck, Render}
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
   alias AiurWeb.StreamdeckProjection
-  import Phoenix.Socket, only: [assign: 3]
+  import Phoenix.Socket, only: [assign: 2, assign: 3]
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def input(raw, socket) do

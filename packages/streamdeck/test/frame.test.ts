@@ -32,7 +32,7 @@ describe("daemon frame rasterization", () => {
     const initial = frame();
     await apply(renderer, device, initial);
     device.writes.length = 0; device.features.length = 0;
-    await apply(renderer, device, { ...initial, keys: [{ ...initial.keys[0]!, svg: svg("blue") }, ...initial.keys.slice(1)] });
+    await apply(renderer, device, { ...initial, keys: [{ ...initial.keys[0]!, svg: svg("blue") }, ...initial.keys.slice(1)], strip: [{ ...initial.strip[0]!, svg: svg("blue") }] });
     expect(device.writes).toEqual([]);
     expect(device.features).toEqual([]);
     await apply(renderer, device, { ...initial, strip: [{ x: 0, width: 800, svg: svg("blue"), hash: "blue" }] });
@@ -70,9 +70,15 @@ describe("daemon frame rasterization", () => {
     }
     const renderer = new FrameRenderer(); const device = backend();
     await apply(renderer, device, frame());
-    device.write.mockRejectedValueOnce(new Error("strip unplug"));
+    device.write.mockImplementation(async (data: Uint8Array) => {
+      if (data[1] === 12) throw new Error("strip unplug");
+      device.writes.push(Buffer.from(data));
+    });
     await expect(apply(renderer, device, frame("blue"))).rejects.toThrow();
+    device.write.mockImplementation(async (data: Uint8Array) => { device.writes.push(Buffer.from(data)); });
+    device.writes.length = 0;
     await apply(renderer, device, frame("blue"));
+    expect(device.writes.some((r) => r[1] === 12)).toBe(true);
   });
 
   it("evicts the least recently used JPEG and suppresses equal encoded bytes", async () => {

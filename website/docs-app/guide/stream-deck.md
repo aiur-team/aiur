@@ -96,7 +96,9 @@ is down. On reconnect, the daemon sends a full frame and resets navigation.
 
 The physical entry point currently shows the server grid. The legacy local
 voice, Commands, demo and instance-picker views await their server migrations;
-use the dashboard for those controls. The control and voice sections below
+use the dashboard for those controls.
+
+The control and voice sections below
 describe the emulator/legacy surfaces, not the current physical frame client.
 The saved instance is still selected at startup; hardware dial C no longer
 operates the legacy instance picker.
