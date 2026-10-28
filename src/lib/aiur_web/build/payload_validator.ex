@@ -57,7 +57,7 @@ defmodule AiurWeb.Build.PayloadValidator do
     end
   end
 
-  defp check(value, :row, path) when is_map(value), do: check(value, {:object, Schema.row(), ["general_epics"]}, path) ++ row_rules(value, path)
+  defp check(value, :row, path) when is_map(value), do: check(value, {:object, Schema.row(), []}, path) ++ row_rules(value, path)
   defp check(_value, _type, path), do: error(path, :type)
 
   defp field(value, key, type, optional, path) do

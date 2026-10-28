@@ -12,7 +12,6 @@ defmodule AiurWeb.Build.PayloadSchema do
       "title" => :string,
       "type" => enum(~w(bug feature chore docs)),
       "epic" => nullable(:string),
-      "general_epics" => list(:string),
       "feature" => nullable(:string),
       "also" => list(:string),
       "cx" => nullable({:integer_range, 1, 5}),

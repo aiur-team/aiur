@@ -53,6 +53,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     assert index.all["1"].epic == "f-deck"
     assert index.all["1"].general_epics == ["ui"]
     assert index.all["2"].general_epics == ["ui", "docs"]
+    refute Map.has_key?(AiurWeb.Build.Payload.scrub(index.all["1"]), "general_epics")
     section = index |> Index.base() |> Index.window("Etc/UTC", now()) |> then(&Epics.read(window: {:ok, &1}))
     sections = Deck.navigation(%{epics: section.keys})
     ui_index = Enum.find_index(sections.epic, &(&1.id == "ui"))
@@ -62,19 +63,6 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     assert {_, [{:open_ticket, id}]} = Input.reduce(nav, %{"kind" => "key_press", "index" => 0}, sections)
     assert id in ~w(1 2)
     assert {%Nav{stack: []}, []} = Input.reduce(nav, %{"kind" => "dial_long_press", "index" => 3}, sections)
-  end
-
-  test "label memberships travel in strict Build payloads while older rows remain valid" do
-    alias Aiur.TestSupport.BuildHome.FixtureSource
-    alias AiurWeb.Build.Payload
-    {:ok, data} = FixtureSource.full(dataset: "live")
-    snapshot = Payload.snapshot(data, "epic-test", 0)
-    # Compatibility guard: existing fixture rows intentionally omit the optional field.
-    assert Payload.validate(snapshot) == :ok
-    [row | rest] = snapshot["sections"]["now"]
-    updated = put_in(snapshot, ["sections", "now"], [Map.put(row, "general_epics", ["bugs"]) | rest])
-    assert Payload.validate(updated) == :ok
-    assert hd(updated["sections"]["now"])["general_epics"] == ["bugs"]
   end
 
   defp window do
