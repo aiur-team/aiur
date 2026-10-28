@@ -4,7 +4,7 @@
       this.hook = hook;
       this.generation = 0;
       this.waveform = window.AiurVoiceCapture && new window.AiurVoiceCapture.WaveformBuffer();
-      this.onMicClick = () => this.toggle("dictation");
+      this.choice = new window.AiurVoiceModeChoice(this);
       this.onConversationClick = () => this.toggle("conversation");
       this.onDeviceChange = () => this.rememberDevice();
     }
@@ -31,11 +31,8 @@
       const conversation = this.hook.el.querySelector("[data-voice-conversation]");
       const device = this.hook.el.querySelector("[data-voice-device]");
 
-      if (mic !== this.mic) {
-        this.mic?.removeEventListener("click", this.onMicClick);
-        this.mic = mic;
-        this.mic?.addEventListener("click", this.onMicClick);
-      }
+      this.mic = mic;
+      this.choice.bind();
       if (conversation !== this.conversation) {
         this.conversation?.removeEventListener("click", this.onConversationClick);
         this.conversation = conversation;
@@ -104,6 +101,7 @@
         this.status.hidden = false;
         this.status.classList.toggle("bad", this.statusFailed === true);
       }
+      this.choice.sync();
       this.drawWaveform();
     }
 
@@ -200,7 +198,8 @@
       const current = () => this.current(generation) && this.channel === transport.channel;
       const fail = (message) => this.handleTransportFailure(message, generation, transport.channel);
       transport = window.AiurVoiceTransport.open({
-        topic: mode === "conversation" ? "voice:conversation" : "voice:dictation",
+        topic: mode === "conversation" ? "voice:conversation" : "voice:dictate",
+        joinPayload: mode === "conversation" ? {} : this.choice.joinPayload(),
         handlers: {
           transcript: (payload) => current() && this.applyTranscript(payload),
           error: (payload) => current() && fail(payload?.reason || "Speech-to-text failed."),
@@ -476,7 +475,7 @@
       this.generation += 1;
       this.clearFinishTimer();
       this.resetConversationState();
-      this.mic?.removeEventListener("click", this.onMicClick);
+      this.choice.destroy();
       this.conversation?.removeEventListener("click", this.onConversationClick);
       this.device?.removeEventListener("change", this.onDeviceChange);
       this.disposeCapture();

@@ -67,11 +67,12 @@ Selecting an agent opens its live conversation without leaving Units.
 | Control | Behavior |
 | --- | --- |
 | Composer | A writable dashboard sends typed text to the selected agent. |
-| Microphone | Transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
+| Microphone | Opens a Dictate / Converse chooser without requesting microphone access. Dictate transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
 | Waveform | Confirms the browser is receiving audio. |
 | Spoken conversation | A separate half-duplex control: press, speak, press again; settled text is sent through the ordinary composer and enters the ticket transcript. |
 | Spoken reply | Aiur streams ElevenLabs text-to-speech audio back to the browser when the agent replies. |
-| Device selection | Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
+| Converse | Shown disabled with its reason until the assistant conversation capability is available. It is separate from legacy spoken conversation. |
+| Device selection | In the settings popover next to the mic. Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
 
 Dictation never sends a message automatically, and the browser never receives the API key.
 

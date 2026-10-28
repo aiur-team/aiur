@@ -180,7 +180,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   def run do
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
-
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))

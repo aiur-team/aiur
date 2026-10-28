@@ -27,7 +27,7 @@ defmodule AiurWeb.Components.VoiceInputTest do
     mic = one(document, "button[data-voice-mic]")
     assert attr(mic, "aria-label") == "Dictate message"
     assert attr(mic, "aria-pressed") == "false"
-    assert attr(mic, "data-conversation-focus") == "dictation"
+    assert attr(mic, "data-conversation-focus") == "dictate"
 
     conversation = one(document, "button[data-voice-conversation]")
     assert attr(conversation, "aria-label") == "Start interactive voice chat"
@@ -64,5 +64,35 @@ defmodule AiurWeb.Components.VoiceInputTest do
     status = one(render(%{status_copy: "Hold to talk."}), "[data-voice-status]")
 
     assert String.trim(Floki.text(status)) == "Hold to talk."
+  end
+
+  test "both modes remain visible with a reason when unavailable" do
+    for reason <- [:not_installed, :not_configured] do
+      document = render(%{capabilities: %{"voice.stt" => %{state: :unavailable, reason: reason}, "voice.conversation" => %{state: :unavailable, reason: reason}}})
+
+      for id <- ["dictate", "converse"] do
+        button = one(document, "[data-voice-mode=#{id}]")
+        assert attr(button, "aria-disabled") == "true"
+        assert attr(button, "aria-describedby") == "drawer-voice-#{id}-reason"
+        expected = if reason == :not_installed, do: "Voice input isn't installed in this Aiur. Typed messages work as usual.", else: "Voice input is not configured."
+        assert Floki.text(button) =~ expected
+      end
+    end
+  end
+
+  test "available and degraded modes are enabled in the buttons layout" do
+    document = render(%{layout: :buttons, capabilities: %{"voice.stt" => %{state: :available}, "voice.conversation" => %{state: :degraded}}})
+    assert Floki.find(document, "[data-voice-chooser]") == []
+
+    for id <- ["dictate", "converse"] do
+      assert attr(one(document, "[data-voice-mode=#{id}]"), "aria-disabled") == "false"
+    end
+  end
+
+  test "missing capability reports unknown and settings contain the device picker" do
+    document = render()
+    assert attr(one(document, "[data-voice-mode=dictate]"), "aria-disabled") == "true"
+    assert Floki.text(one(document, "#drawer-voice-dictate-reason")) == "Voice input availability is unknown."
+    assert [_] = Floki.find(document, "details select[data-voice-device]")
   end
 end
