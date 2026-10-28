@@ -213,6 +213,11 @@
       try { this.knobEl.releasePointerCapture(this._activePid); } catch (_) {}
     }
     if (preserveDrag && this.isDragging) {
+      // Release capture before LiveView removes this node; otherwise removal
+      // can cancel the active pointer before restoreState rebinds the gesture.
+      if (this._activePid != null) {
+        try { this.knobEl.releasePointerCapture(this._activePid); } catch (_) {}
+      }
       this._unbindDragListeners();
     } else {
       this._endDrag();
