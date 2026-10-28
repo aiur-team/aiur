@@ -22,10 +22,13 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
 
   defp sorted_sections(assigns) do
     grid = Settings.refresh_assigns(assigns).grid
-    agents = case Map.get(grid, :settings_snapshot) do
-      %{status: :ok, settings: settings} -> SettingsUpdates.sort(grid.agents, settings)
-      _unknown -> grid.agents
-    end
+
+    agents =
+      case Map.get(grid, :settings_snapshot) do
+        %{status: :ok, settings: settings} -> SettingsUpdates.sort(grid.agents, settings)
+        _unknown -> grid.agents
+      end
+
     Deck.navigation(%{grid | agents: agents})
   end
 
