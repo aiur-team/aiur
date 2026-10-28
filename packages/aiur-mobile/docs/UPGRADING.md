@@ -14,7 +14,9 @@ Use this checklist for each SDK upgrade:
   [upgrade guidance](https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/).
   Breaking changes reviewed: ___.
 - Run `npx expo install --fix`, replace any ranges with exact versions, and
-  commit `package.json` with `package-lock.json`.
+  regenerate `package-lock.json` with CI's npm 10:
+  `mise exec node@20 -- npm install --package-lock-only --ignore-scripts`.
+  Commit both files. The app continues to use Node 24.
 - Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, and
   `npm run prebuild:check`.
 - Review regenerated native diffs: ___. `ios/` and `android/` stay untracked;
