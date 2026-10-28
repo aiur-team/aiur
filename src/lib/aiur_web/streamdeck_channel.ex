@@ -5,8 +5,8 @@ defmodule AiurWeb.StreamdeckChannel do
   import AiurWeb.StreamdeckChannel.CommandAnswers
   import AiurWeb.StreamdeckChannel.Voice
 
-  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
