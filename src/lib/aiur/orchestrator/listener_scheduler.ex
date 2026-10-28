@@ -71,7 +71,6 @@ defmodule Aiur.Listener.Scheduler do
             dedupe_key: "listener-ping:#{item.id}"
           )
 
-        attrs = update_in(attrs.delivery, &Map.put(&1, :listener_mode_at_claim, :sync))
         AgentQueueStore.enqueue(state.queue_store, attrs)
       else
         {state.queue_store, item}
