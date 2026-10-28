@@ -102,6 +102,8 @@ defmodule Aiur.Conversation.JournalSessions do
 
   defp gap_matches?(_, _), do: false
 
+  defp restart(%{open_session: %Session{start_reason: "import"}} = state), do: {:ok, state}
+
   defp restart(%{open_session: %Session{} = session} = state) do
     if session.aiur_run_id == state.run_id do
       {:ok, state}
@@ -144,7 +146,9 @@ defmodule Aiur.Conversation.JournalSessions do
       aiur_run_id: state.run_id,
       first_pos: state.next_pos,
       started_at: state.clock.(),
-      start_reason: if(state.resume, do: "resume", else: to_string(source.start_reason))
+      start_reason: if(state.resume and source.start_reason != :import, do: "resume", else: to_string(source.start_reason)),
+      transcript_source: Map.get(source, :transcript_source),
+      meta: Map.get(source, :meta, %{})
     }
 
     with :ok <- state.store.append_session_line(state.dir, Session.start_line(session)) do
