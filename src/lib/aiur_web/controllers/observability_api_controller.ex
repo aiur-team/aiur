@@ -39,10 +39,7 @@ defmodule AiurWeb.ObservabilityApiController do
   def resolve_worker(conn, %{"owner" => owner, "repository" => repository, "provider_id" => provider_id}) do
     case worker_identity(owner, repository, provider_id) do
       {:ok, identity} ->
-        case live_worker(identity) do
-          {:ok, conversation_id} -> json(conn, %{conversation_id: conversation_id, subject: "worker"})
-          {:error, :not_found} -> render_indexed_worker(conn, identity)
-        end
+        render_worker_resolution(conn, SubjectIndex.lookup_or_live(identity, snapshot_fun: fn -> live_running_rows() end))
 
       {:error, _reason} ->
         error_response(conn, 422, "invalid_subject", "Worker subject is invalid")
@@ -60,17 +57,13 @@ defmodule AiurWeb.ObservabilityApiController do
 
   defp worker_identity(_owner, _repository, _provider_id), do: {:error, :invalid_subject}
 
-  defp render_indexed_worker(conn, identity) do
-    case SubjectIndex.lookup(identity) do
+  defp render_worker_resolution(conn, result) do
+    case result do
       {:ok, conversation_id} -> json(conn, %{conversation_id: conversation_id, subject: "worker"})
       {:error, :not_found} -> error_response(conn, 404, "subject_not_found", "Conversation subject not found")
       {:error, :ambiguous} -> error_response(conn, 409, "ambiguous_subject", "Conversation subject is ambiguous")
       {:error, _reason} -> error_response(conn, 503, "conversation_unavailable", "Conversation index is unavailable")
     end
-  end
-
-  defp live_worker(identity) do
-    SubjectIndex.lookup_or_live(identity, snapshot_fun: fn -> live_running_rows() end)
   end
 
   defp live_running_rows do

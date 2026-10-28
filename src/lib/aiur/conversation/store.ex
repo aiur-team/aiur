@@ -7,7 +7,7 @@ defmodule Aiur.Conversation.Store do
   records may survive an unacknowledged batch. Only head.json is replaceable.
   """
 
-  alias Aiur.Conversation.{Ref, StoreFiles, StoreReplay}
+  alias Aiur.Conversation.{Ref, StoreFiles, StoreReplay, SubjectIndex}
   alias Aiur.{Fs, Journal}
 
   @segment_bytes 8_388_608
@@ -27,7 +27,7 @@ defmodule Aiur.Conversation.Store do
     with :ok <- StoreFiles.check(dir),
          :ok <- Journal.ensure_directory(dir),
          :ok <- StoreFiles.subject(dir, ref, opts) do
-      Aiur.Conversation.SubjectIndex.invalidate()
+      SubjectIndex.invalidate()
       prepare(dir)
     end
   end

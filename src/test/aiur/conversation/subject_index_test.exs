@@ -2,8 +2,9 @@ defmodule Aiur.Conversation.SubjectIndexTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Conversation.{Ref, SubjectIndex}
-  alias Aiur.TrackerIdentity
   alias Aiur.TestCleanup
+  alias Aiur.TrackerIdentity
+  import ExUnit.CaptureLog
 
   setup do
     root = Path.join(System.tmp_dir!(), "subject-index-#{System.unique_integer([:positive])}")
@@ -39,7 +40,8 @@ defmodule Aiur.Conversation.SubjectIndexTest do
       })
     )
 
-    assert {:ok, ^id} = SubjectIndex.lookup(identity, server: context.server)
+    log = capture_log(fn -> assert {:ok, ^id} = SubjectIndex.lookup(identity, server: context.server) end)
+    assert log =~ "skipped 1 unreadable subject.json file(s)"
     assert {:ok, index} = SubjectIndex.index(server: context.server)
     assert Enum.count(index) == 1
   end

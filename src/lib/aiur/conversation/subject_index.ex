@@ -60,21 +60,21 @@ defmodule Aiur.Conversation.SubjectIndex do
 
     case snapshot_fun.() do
       {:ok, running} when is_list(running) ->
-        case Enum.find(running, &(TrackerIdentity.github_key(Map.get(&1, :tracker_identity)) == key)) do
-          %{tracker_identity: match} ->
-            case Ref.worker(match) do
-              {:ok, ref} -> {:ok, Ref.conversation_id(ref)}
-              _ -> :not_found
-            end
-
-          _ ->
-            :not_found
-        end
+        running |> Enum.find(&(TrackerIdentity.github_key(Map.get(&1, :tracker_identity)) == key)) |> live_match_result()
 
       _ ->
         :not_found
     end
   end
+
+  defp live_match_result(%{tracker_identity: match}) do
+    case Ref.worker(match) do
+      {:ok, ref} -> {:ok, Ref.conversation_id(ref)}
+      _ -> :not_found
+    end
+  end
+
+  defp live_match_result(_), do: :not_found
 
   @spec index(keyword()) :: {:ok, map()} | {:error, :unavailable}
   def index(opts \\ []) do
@@ -130,38 +130,24 @@ defmodule Aiur.Conversation.SubjectIndex do
   defp current_index(%{snapshot: {index, _bad_count}} = state), do: {index, state}
 
   defp current_index(state) do
-    case state.root_fun.() do
-      {:ok, root} ->
-        case state.scan_fun.(root) do
-          {:ok, index, bad_count} ->
-            if bad_count > 0 do
-              Logger.warning("Conversation subject index skipped #{bad_count} unreadable subject.json file(s)")
-            end
-
-            {index, %{state | snapshot: {index, bad_count}}}
-
-          {:error, _reason} ->
-            {:error, :unavailable, state}
-        end
-
-      {:error, _reason} ->
-        {:error, :unavailable, state}
+    with {:ok, root} <- state.root_fun.(),
+         {:ok, index, bad_count} <- state.scan_fun.(root) do
+      log_bad_count(bad_count)
+      {index, %{state | snapshot: {index, bad_count}}}
+    else
+      {:error, _reason} -> {:error, :unavailable, state}
     end
   end
+
+  defp log_bad_count(count) when count > 0,
+    do: Logger.warning("Conversation subject index skipped #{count} unreadable subject.json file(s)")
+
+  defp log_bad_count(_count), do: :ok
 
   defp scan(root) do
     case File.ls(root) do
       {:ok, dirs} ->
-        {index, bad_count} =
-          Enum.reduce(dirs, {%{}, 0}, fn name, {index, bad_count} ->
-            dir = Path.join(root, name)
-
-            case read_subject(dir) do
-              {:ok, id, key} -> {Map.update(index, key, [id], &[id | &1]), bad_count}
-              :skip -> {index, bad_count + 1}
-            end
-          end)
-
+        {index, bad_count} = Enum.reduce(dirs, {%{}, 0}, &add_subject(root, &1, &2))
         {:ok, index, bad_count}
 
       {:error, :enoent} ->
@@ -172,11 +158,20 @@ defmodule Aiur.Conversation.SubjectIndex do
     end
   end
 
+  defp add_subject(root, name, {index, bad_count}) do
+    case read_subject(Path.join(root, name)) do
+      {:ok, id, key} -> {Map.update(index, key, [id], &[id | &1]), bad_count}
+      :skip -> {index, bad_count + 1}
+      :ignore -> {index, bad_count}
+    end
+  end
+
   defp read_subject(dir) do
+    unless File.dir?(dir), do: throw(:ignore)
+
     path = Path.join(dir, "subject.json")
 
-    with true <- File.dir?(dir),
-         {:ok, bytes} <- File.read(path),
+    with {:ok, bytes} <- File.read(path),
          {:ok, %{"v" => 1, "kind" => "worker", "conversation_id" => id, "owner" => owner, "repository" => repository, "provider_id" => provider_id}} <- Jason.decode(bytes),
          {:ok, ref} <- Ref.worker(identity(owner, repository, provider_id)),
          true <- Ref.conversation_id(ref) == id and Path.basename(dir) == id do
@@ -184,10 +179,12 @@ defmodule Aiur.Conversation.SubjectIndex do
     else
       false -> :skip
       {:error, _} -> :skip
-      _ -> :skip
+      _ -> :ignore
     end
   rescue
     _ -> :skip
+  catch
+    :ignore -> :ignore
   end
 
   defp identity(owner, repository, provider_id) do
