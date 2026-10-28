@@ -38,7 +38,7 @@ defmodule Aiur.Machine.StoreRecords do
   end
 
   @spec put_pairing_secret(binary(), integer(), keyword()) :: term()
-  def put_pairing_secret(secret, expires_at, opts) when is_binary(secret) and is_integer(expires_at) do
+  def put_pairing_secret(secret, expires_at, opts) when is_binary(secret) do
     row = %{"hash" => digest(secret), "expires_at" => expires_at, "used" => false}
 
     Records.change(:pairing, opts, fn rows ->
@@ -46,7 +46,7 @@ defmodule Aiur.Machine.StoreRecords do
       retained = rows |> Records.prune(now) |> Enum.reject(&(&1["used"] or &1["hash"] == row["hash"]))
 
       cond do
-        expires_at <= now or expires_at > now + 600 -> {:error, :invalid_secret_expiry}
+        not is_integer(expires_at) or expires_at <= now or expires_at > now + 600 -> {:error, :invalid_secret_expiry}
         Enum.any?(rows, &(&1["hash"] == row["hash"])) -> {:error, :pair_secret_exists}
         true -> {:ok, Enum.take(retained ++ [row], -3)}
       end

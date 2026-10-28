@@ -171,7 +171,7 @@ defmodule Aiur.Machine.StoreLock do
   end
 
   defp alive?(pid) do
-    case System.cmd("kill", ["-0", pid], stderr_to_stdout: true) do
+    case System.cmd("kill", ["-0", pid], stderr_to_stdout: true, env: [{"LC_ALL", "C"}]) do
       {_, 0} -> true
       # EPERM is also a live process; conservatively retain ambiguous ownership.
       {output, _} -> not String.contains?(String.downcase(output), "no such process")

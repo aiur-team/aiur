@@ -72,6 +72,39 @@ defmodule Aiur.Machine.StoreLockTest do
     refute File.exists?(lock)
   end
 
+  test "dead holder is reclaimed regardless of the inherited locale", %{lock: lock} do
+    bin = Path.join(Path.dirname(lock), "bin")
+    File.mkdir!(bin)
+    executable = Path.join(bin, "kill")
+
+    File.write!(executable, """
+    #!/bin/sh
+    if [ "$LC_ALL" = C ]; then
+      printf 'No such process\\n' >&2
+    else
+      printf 'Aucun processus de ce type\\n' >&2
+    fi
+    exit 1
+    """)
+
+    File.chmod!(executable, 0o700)
+    old_env = Map.new(["PATH", "LC_ALL"], &{&1, System.get_env(&1)})
+
+    on_exit(fn ->
+      for name <- ["PATH", "LC_ALL"] do
+        if value = old_env[name], do: System.put_env(name, value), else: System.delete_env(name)
+      end
+    end)
+
+    System.put_env("PATH", bin <> ":" <> (old_env["PATH"] || ""))
+    System.put_env("LC_ALL", "POSIX")
+    File.mkdir!(lock)
+    File.write!(Path.join(lock, "owner"), "999999 cli")
+
+    assert Store.with_lock(fn -> :reclaimed end) == :reclaimed
+    refute File.exists?(lock)
+  end
+
   test "live holder times out with its role", %{lock: lock} do
     File.mkdir!(lock)
     File.write!(Path.join(lock, "owner"), "123 gateway")
@@ -81,8 +114,11 @@ defmodule Aiur.Machine.StoreLockTest do
 
   test "fresh ownerless lock is retained and old ownerless lock is reclaimed", %{lock: lock} do
     File.mkdir!(lock)
-    now = File.stat!(lock, time: :posix).mtime
+    original = File.stat!(lock, time: :posix)
+    now = original.mtime
     assert Store.with_lock(fn -> flunk("entered fresh lock") end, timeout: 0, now: now) == {:error, :store_locked, "unknown"}
+    assert {:ok, %{inode: inode}} = File.stat(lock)
+    assert inode == original.inode
     assert Store.with_lock(fn -> :reclaimed end, now: now + 120) == :reclaimed
   end
 

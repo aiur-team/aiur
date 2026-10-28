@@ -43,6 +43,10 @@ defmodule Aiur.Machine.StoreRecordsTest do
   end
 
   test "pairing expiry is bounded to ten minutes" do
+    for expiry <- [nil, "200", 200.0] do
+      assert Store.put_pairing_secret("s", expiry, now: 100) == {:error, :invalid_secret_expiry}
+    end
+
     assert Store.put_pairing_secret("s", 701, now: 100) == {:error, :invalid_secret_expiry}
     assert Store.put_pairing_secret("s", 100, now: 100) == {:error, :invalid_secret_expiry}
     assert Store.put_pairing_secret("s", 700, now: 100) == :ok
