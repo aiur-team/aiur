@@ -22,7 +22,7 @@ defmodule AiurWeb.StreamdeckFleet do
   @spec grid(term()) :: map()
   def grid(snapshot) do
     deck = Deck.read()
-    project_grid(snapshot) |> Map.merge(deck.build_order) |> Map.put(:counts, deck.counts)
+    project_grid(snapshot) |> Map.merge(deck.build_order) |> Map.put(:counts, deck.counts) |> Deck.Priority.decorate()
   end
 
   defp project_grid({status, snapshot, freshness}) when status in [:current, :stale] and is_map(snapshot),

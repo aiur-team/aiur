@@ -22,7 +22,7 @@ defmodule AiurWeb.Streamdeck.Render.Key do
       text(ticket_number(identifier), 111, 29, 14, "text-anchor": "end"),
       if(field(face, :priority, false), do: text("★", 66, 14, 9, fill: "#ffcf87"), else: []),
       title_lines(title),
-      text(style.label, 9, 99, 10, fill: style.accent),
+      text(state_label(face, style), 9, 99, 10, fill: style.accent),
       footer(face, percent, freshness)
     ]
 
@@ -32,7 +32,14 @@ defmodule AiurWeb.Streamdeck.Render.Key do
   defp label(face, style, percent, freshness) do
     reading = if is_number(percent) and to_string(freshness) != "unknown", do: " #{percent}%", else: " progress unknown"
     stale = if to_string(freshness) == "stale", do: " stale", else: ""
-    "#{field(face, :identifier)} #{style.label}#{reading}#{stale} — #{field(face, :title)}"
+    "#{field(face, :identifier)} #{state_label(face, style)}#{reading}#{stale} — #{field(face, :title)}"
+  end
+
+  defp state_label(face, style) do
+    case field(face, :queue_position) do
+      position when is_integer(position) and position >= 0 -> "Queued ##{position + 1}"
+      _ -> style.label
+    end
   end
 
   defp title_lines(title) do
