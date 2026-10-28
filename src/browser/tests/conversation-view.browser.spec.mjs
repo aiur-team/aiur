@@ -11,6 +11,12 @@ let bits = ''
 for (const byte of createHash('sha256').update('executor').digest()) bits += byte.toString(2).padStart(8, '0')
 const id = 'conv_' + bits.match(/.{5}/g).slice(0, 26).map(chunk => alphabet[parseInt(chunk, 2)]).join('')
 
+test.beforeEach(async ({ page }) => {
+  await openFixture(page)
+  const response = await page.request.post('/conversation-fixture/reset')
+  expect(response.ok()).toBe(true)
+})
+
 async function open (page) {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)

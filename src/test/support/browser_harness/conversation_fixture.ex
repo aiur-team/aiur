@@ -1,7 +1,20 @@
 defmodule Aiur.BrowserHarness.ConversationFixture do
   @moduledoc false
   use Phoenix.Controller, formats: []
+  alias Aiur.BrowserHarness.Fixtures
   alias Aiur.Conversation.{Ingest, Ref}
+
+  def reset(conn, _params) do
+    # Stop the cached writer before replacing its on-disk head and sessions.
+    id = Ref.conversation_id(Ref.executor())
+
+    for {pid, _} <- Registry.lookup(Aiur.Conversation.Registry, id) do
+      :ok = DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+    end
+
+    Fixtures.conversation(Application.fetch_env!(:aiur, :conversation_state_dir))
+    Plug.Conn.send_resp(conn, 200, "reset")
+  end
 
   def append(conn, _params) do
     ref = Ref.executor()

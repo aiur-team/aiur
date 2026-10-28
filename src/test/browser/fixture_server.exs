@@ -41,6 +41,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
   end
 
   scope "/" do
+    post("/conversation-fixture/reset", Aiur.BrowserHarness.ConversationFixture, :reset)
     get("/conversation-fixture/append", Aiur.BrowserHarness.ConversationFixture, :append)
     get("/health", Aiur.BrowserHarness.FixtureAssets, :health)
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
