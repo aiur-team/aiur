@@ -10,6 +10,9 @@ defmodule AiurWeb.StreamdeckLiveNavTest do
     render_hook(view, "grid-page", %{"page" => 1})
     render_hook(view, "dial-long-press", %{"index" => 3})
     assert nav(view).stack == []
+    assert nav(view).surface == :settings
+    render_hook(view, "dial-long-press", %{"index" => 3})
+    assert nav(view).surface == :grid
 
     for _ <- 1..3,
         do: render_hook(view, "input", %{"kind" => "dial_press", "index" => 3})
