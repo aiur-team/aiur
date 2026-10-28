@@ -34,11 +34,26 @@ defmodule Aiur.Machine.StoreLockTest do
       end)
 
     receive_barrier(:holding)
-    second = Task.async(fn -> Store.with_lock(fn -> :second end, on_wait: fn -> send(parent, :waiting) end) end)
-    receive_barrier(:waiting)
-    send(first.pid, :release)
-    assert Task.await(first) == :first
-    assert Task.await(second) == :second
+
+    second =
+      Task.async(fn ->
+        Store.with_lock(
+          fn ->
+            send(parent, {:contender_state, :entered})
+            :second
+          end,
+          on_wait: fn -> send(parent, {:contender_state, :waiting}) end
+        )
+      end)
+
+    try do
+      receive_barrier({:contender_state, state})
+      assert state == :waiting
+    after
+      send(first.pid, :release)
+      assert Task.await(first) == :first
+      assert Task.await(second) == :second
+    end
   end
 
   test "a separate OS holder excludes writers and is reclaimed after exiting", %{lock: lock} do
@@ -107,8 +122,9 @@ defmodule Aiur.Machine.StoreLockTest do
     assert Store.with_lock(fn -> :reclaimed end) == :reclaimed
   end
 
-  test "exceptions release the lock" do
+  test "exceptions release the lock", %{lock: lock} do
     assert_raise RuntimeError, "failed", fn -> Store.with_lock(fn -> raise "failed" end) end
+    refute File.exists?(lock)
     assert Store.with_lock(fn -> :released end) == :released
   end
 end
