@@ -49,6 +49,7 @@ defmodule AiurWeb.StreamdeckChannel do
      assign(socket,
        deck_nav: %Nav{},
        deck_effects: [],
+       deck_usage: %{},
        focused_agent: nil,
        focus_token: nil,
        transcript_relay: nil,
@@ -259,8 +260,9 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot())
-    {:noreply, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
+    snapshot = StreamdeckProjection.snapshot()
+    push(socket, "snapshot", snapshot)
+    {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> AiurWeb.Streamdeck.FrameUpdates.push()}
   end
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}

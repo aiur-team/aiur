@@ -27,7 +27,7 @@ describe("daemon frame rasterization", () => {
   });
 
   it("skips unchanged hashes even if SVG differs, and writes just the changed region", async () => {
-    const renderer = new FrameRenderer();
+    const renderer = new FrameRenderer(1);
     const device = backend();
     const initial = frame();
     await apply(renderer, device, initial);
@@ -40,6 +40,10 @@ describe("daemon frame rasterization", () => {
     expect(reports.every((report) => report[1] === 12)).toBe(true);
     expect(reports.filter((report) => report.readUInt16LE(11) === 0)).toHaveLength(1);
     expect(reports.filter((report) => report[10] === 1)).toHaveLength(1);
+    device.writes.length = 0;
+    await apply(renderer, device, { keys: [{ svg: svg("green"), hash: "green" }, ...Array(7).fill(null)], strip: [{ x: 0, width: 800, svg: svg("red"), hash: "blue" }] });
+    expect(device.writes.every((report) => report[1] === 7)).toBe(true);
+    expect(device.writes.length).toBeGreaterThan(0);
   });
 
   it("replaces the strip layout, reuses JPEGs and invalidates on reconnect/reset", async () => {

@@ -29,7 +29,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     sections = Deck.navigation(grid)
     nav = Nav.clamp(socket.assigns.deck_nav, Input.sizes(socket.assigns.deck_nav, sections))
     agents = visible_items(nav, sections, grid.agents)
-    model = %{grid: %{grid | agents: agents}, usage: AiurWeb.Streamdeck.Deck.Meters.read(), page: Nav.page(nav), provider_offset: nav.scroll}
+    model = %{grid: %{grid | agents: agents}, usage: socket.assigns.deck_usage, page: Nav.page(nav), provider_offset: nav.scroll}
     Phoenix.Channel.push(socket, "frame", Render.frame(model))
     assign(socket, :deck_nav, nav)
   end

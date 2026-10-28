@@ -52,6 +52,7 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
   end
 
   test "view changes and drills render the same items the reducer resolves" do
+    put_endpoint_config(streamdeck_snapshot_fun: fn -> %{running: [AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Drill"})], retrying: [], idle: []} end)
     socket = joined_socket()
     assert_push("frame", _initial)
 
