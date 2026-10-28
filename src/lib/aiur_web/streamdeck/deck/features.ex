@@ -22,7 +22,7 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
 
     slugs =
       (ordered ++ Enum.sort(Map.keys(entries) -- ordered))
-      |> Enum.map(fn key -> field(entries[key], :feature) || field(field(field(window, :epics, %{}), key), :feature) end)
+      |> Enum.map(fn key -> field(entries[key], :feature) || field(Map.get(field(window, :epics, %{}), key), :feature) end)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
@@ -32,7 +32,8 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
 
   defp key(slug, catalogue, entries, window, block, now) do
     feature = Map.get(catalogue, slug, %{})
-    lanes = Enum.map(field(feature, :epics, []), &Map.get(entries, &1, %{}))
+    epics = field(window, :epics, %{})
+    lanes = feature |> field(:epics, []) |> Enum.filter(&Map.has_key?(epics, &1)) |> Enum.map(&Map.get(entries, &1, %{}))
     entry = aggregate(lanes)
     key = slug
     known = Enum.all?([:closed, :open, :ci_wait, :unpublished, :total], &is_integer(field(entry, &1)))
@@ -44,7 +45,7 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
       key: key,
       feature: slug,
       label: field(feature, :label) || key,
-      pct: percent(entry, known),
+      pct: percent(entry),
       bar: if(known, do: Map.new([:closed, :open, :ci_wait, :unpublished, :total], &{&1, field(entry, &1)}), else: :unknown),
       ci_wait: badge(field(entry, :ci_wait)),
       reason: reason(entry, block, known),
@@ -54,8 +55,8 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
     }
   end
 
-  defp percent(%{closed: closed, total: total}, true) when total > 0, do: div(closed * 100, total)
-  defp percent(_entry, _known), do: :unknown
+  defp percent(%{closed: closed, total: total}) when is_integer(closed) and is_integer(total) and total > 0, do: div(closed * 100, total)
+  defp percent(_entry), do: :unknown
   defp badge(value) when is_integer(value) and value > 0, do: value
   defp badge(_value), do: nil
   defp age(observed, now) when is_integer(observed), do: "#{div(max(now - observed, 0), 60_000)}m"

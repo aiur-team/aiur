@@ -29,7 +29,10 @@ The current physical client uses the navigation controls described above.
 
 The server Feature view uses the Build Features snapshot's closed/total percentage,
 rounded down, with closed, published/open (including CI wait) and unpublished bar layers and a positive, known CI-wait
-badge. Missing counts show “—” and an empty bar with the source reason.
+badge.
+
+Missing closed or total counts show “—” with the source reason. Missing bar
+counts leave an empty bar while a known closed/total percentage stays visible.
 
 Each key represents a parent feature, summing its epic counts in snapshot order. Dial 4 pages eight keys;
 press a key to drill into the parent feature's tickets, then hold Dial 4 to return
