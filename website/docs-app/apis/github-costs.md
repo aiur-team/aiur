@@ -26,6 +26,8 @@ Withdrawal removes only `agent:todo` after holding dispatch and proving it uncla
 
 CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), changed paths and Actions attempts (`ci_recovery`). Fully annotated tests outside the diff and known flakes may be rerun once per head.
 
+Landing-watch degraded-runner classification reads failed Actions job logs. When a job has a compile step, it also reads up to five recent successful main push runs and their steps to compare against that job's median. These bounded reads use `landing_watch_runner_degradation` and are memoized per poll; they claim no quota saving.
+
 Cancelled runs and drafts are not rerun; changes-requested PRs get one attention. Failed CI leaves queued or auto-merging approved heads in `ci-wait`. New heads wait with blocking attention until review.
 
 Reruns default on; limits: `agent.ci_recovery_max_per_poll` (5) and `agent.ci_recovery_max_per_hour` (20). Disable with `agent.ci_recovery_enabled: false`. Hourly cap shared across tickets and restarts.
