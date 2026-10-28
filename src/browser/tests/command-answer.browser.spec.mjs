@@ -99,7 +99,8 @@ async function openCommand(page) {
   await page.goto('/voice-input-fixture?command=true')
   await expect(page.locator('#standalone-voice')).toBeVisible()
   await page.goto('/command-answer-control/answerable')
-  const form = page.locator('.decision-answer-form')
+  const decisionId = new URL(page.url()).pathname.split('/').pop()
+  const form = page.locator(`#decision-answer-form-${decisionId}`)
   await expect(form.getByRole('button', { name: 'Decision', exact: true })).toBeEnabled()
   await page.evaluate(() => {
     const open = window.AiurVoiceTransport.open
@@ -123,10 +124,10 @@ async function start(form) {
 
 for (const surface of ['detail', 'card']) {
   test(`Command ${surface} selects Custom response before capture and records reviewed text`, async ({ page }) => {
-    let form = await openCommand(page)
+    const form = await openCommand(page)
+    const decisionId = new URL(page.url()).pathname.split('/').pop()
     if (surface === 'card') {
       await page.getByRole('link', { name: 'Collapse details' }).click()
-      form = page.locator('.decision-answer-form').first()
     }
     expect(await page.evaluate(() => window.__micRequests)).toEqual([])
     await expect(form.locator('[data-voice-input]')).toHaveCount(0)
@@ -142,7 +143,8 @@ for (const surface of ['detail', 'card']) {
     expect((await (await page.request.get('/command-answer-state')).json()).decision_status).toBe('open')
     await form.locator('[data-voice-send]').click()
     await expect.poll(async () => (await (await page.request.get('/command-answer-state')).json()).decision_status).toBe('decided')
-    await expect(page.locator('.decision-answer-summary').first()).toContainText('Use the safer path')
+    const recorded = surface === 'card' ? page.locator(`#history-${decisionId} .history-decision`) : page.locator(`#decision-detail-${decisionId} .decision-answer-summary`)
+    await expect(recorded).toContainText('Use the safer path')
   })
 }
 
