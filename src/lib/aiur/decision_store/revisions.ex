@@ -1,9 +1,8 @@
 defmodule Aiur.DecisionStore.Revisions do
   @moduledoc false
 
-  alias Aiur.Commands.ConflictSummary
-  alias Aiur.DecisionStore.Overrides
   alias Aiur.Commands.Answering
+  alias Aiur.Commands.ConflictSummary
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionRevision
@@ -12,6 +11,7 @@ defmodule Aiur.DecisionStore.Revisions do
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Settlement
   alias Aiur.DecisionStore.Withdrawals

@@ -2,11 +2,11 @@ defmodule Aiur.DecisionOverrideStoreTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
-  alias Aiur.Events.Exchange
-  alias Aiur.DecisionStore.Retry
-  alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
   alias Aiur.{DecisionPubSub, DecisionRevisionDispatch, DecisionStore, Issue}
   alias Aiur.DecisionStore.Dispatch
+  alias Aiur.DecisionStore.Retry
+  alias Aiur.Events.Exchange
+  alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
 
   @ticket %{identifier: "6908", title: "Override", url: nil}
   @source %{agent_id: "worker", session_id: "session"}

@@ -3,11 +3,11 @@ defmodule Aiur.DecisionStore.Transport do
 
   require Logger
 
-  alias Aiur.DecisionStore.Overrides
   alias Aiur.Decision
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Settlement
 

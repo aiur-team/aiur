@@ -8,8 +8,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.Bodies do
   that module.
   """
 
-  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.Events.GithubWebhook.{Deposit, Triples}
+  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.TicketBranch
 
   @doc """

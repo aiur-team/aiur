@@ -3,13 +3,13 @@ defmodule Aiur.DecisionStore.Retry do
 
   require Logger
 
-  alias Aiur.DecisionStore.Overrides
   alias Aiur.Commands.Requester
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.Signal
 
   # One retry ladder for every answered Decision, revision or not. A target

@@ -3,7 +3,6 @@ defmodule Aiur.DecisionStore.Boot do
 
   require Logger
 
-  alias Aiur.DecisionStore.OverridePushes
   alias Aiur.Config
   alias Aiur.DecisionAnswerComment
   alias Aiur.DecisionDispatch
@@ -17,6 +16,7 @@ defmodule Aiur.DecisionStore.Boot do
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Index
+  alias Aiur.DecisionStore.OverridePushes
   alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot

@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.PollSnapshots do
-  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.GitHub.Access
+  alias Aiur.GitHub.PullRequestHeadUpdate
 
   @moduledoc """
   Complete, short-lived selection snapshots shared by webhook and poll reads.

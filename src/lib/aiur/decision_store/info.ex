@@ -3,9 +3,9 @@ defmodule Aiur.DecisionStore.Info do
 
   require Logger
 
-  alias Aiur.DecisionStore.OverridePushes
   alias Aiur.Decision
   alias Aiur.DecisionPubSub
+  alias Aiur.DecisionStore.OverridePushes
 
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery

@@ -8,8 +8,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
 
   require Logger
 
-  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.GitHub.{Access, PollSnapshots}
+  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.StartTrigger.ProgressStore
 
   @spec merge_review_thread(String.t(), term(), map()) :: [Access.key()]

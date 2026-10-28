@@ -1,8 +1,8 @@
 defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
-  alias Aiur.Commands.Overrides
   alias Aiur.Commands.ExecutorDelivery
+  alias Aiur.Commands.Overrides
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Facts
 
