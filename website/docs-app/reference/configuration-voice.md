@@ -41,22 +41,23 @@ voice:
     cloud_disclosure_accepted: true
 ```
 
-The credential uses the existing `elevenlabs.api_key` secret source, including
-its `ELEVENLABS_API_KEY` environment fallback. Keep the actual key in the daemon's
-environment or dotenv file. The browser receives neither the key nor the signed
-provider URL. Conversation audio uses mono 16-bit PCM at 16 kHz in both directions;
-configure the Agent's output format as `pcm_16000`.
-Choose the model on the ElevenLabs Agent itself and set `llm` to that model's
-name; the prototype does not override the Agent's model. Enable the Agent's
-[system prompt override](https://elevenlabs.io/docs/eleven-agents/customization/personalization/overrides)
-so Aiur can supply its read-only instructions and briefing. Enable the
-`audio`, `user_transcript`, `agent_response`, `interruption` and `client_tool_call`
-events. Set **expects response** on each client tool, so the Agent waits for
-the daemon's tool result. Restart Aiur after setting this configuration.
+The credential uses `elevenlabs.api_key`, including its `ELEVENLABS_API_KEY`
+environment fallback. Keep the key in the daemon's environment or dotenv file.
+The browser receives neither the key nor the signed provider URL.
 
-Configure these **client tools** on the ElevenLabs Agent with these exact names
-and JSON parameter shapes. Each tool returns its result to the Agent through the
-daemon; it is not a webhook or server tool.
+Audio uses mono 16-bit PCM at 16 kHz in both directions; configure the Agent's
+output as `pcm_16000`. Choose the model on the Agent itself and set `llm` to
+that model's name; the prototype does not override the Agent's model.
+
+Enable the Agent's
+[system prompt override](https://elevenlabs.io/docs/eleven-agents/customization/personalization/overrides)
+so Aiur can supply its read-only instructions and briefing.
+
+Enable `audio`, `user_transcript`, `agent_response`, `interruption` and
+`client_tool_call` events. Set **expects response** on each client tool, so the
+Agent waits for results. Restart Aiur after setting this configuration.
+
+Configure these client tools with the exact names and JSON parameter shapes:
 
 | Client tool name | Parameter shape |
 | --- | --- |
@@ -68,6 +69,7 @@ The prototype reads current agents, open decisions, and available retained
 Executor transcript turns for a live Claude Executor. The bounded transcript read
 uses the registered Executor session; Codex transcript context is unavailable in
 this prototype. A missing or unsupported source is reported as unavailable.
+
 The dedicated Executor briefing integration is tracked in #4125.
 Do not configure `propose_instruction` or `ask_agent`: this prototype has no
 instruction delivery or Confirm action. Spoken requests are handed to the
