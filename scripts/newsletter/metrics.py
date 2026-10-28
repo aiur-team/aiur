@@ -1,6 +1,6 @@
 """Pure newsletter report: compute(today, yesterday_or_none) returns JSON-safe data.
 
-See README.md for evidence extensions and the value/sources report contract.
+See metrics-contract.md for evidence extensions and the value/sources report contract.
 """
 from datetime import timedelta
 

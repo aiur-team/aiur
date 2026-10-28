@@ -187,4 +187,4 @@ and trend `unavailable`; merge timestamps alone never prove a change is live.
 
 Ancestry and Executor verification require explicit snapshot evidence, so their
 counts remain unavailable when the collector cannot supply it. The input and
-report contract is in `scripts/newsletter/README.md` in the repository.
+report contract is in `scripts/newsletter/metrics-contract.md` in the repository.
