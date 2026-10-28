@@ -89,8 +89,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
           usage: usage,
           page: Nav.page(nav),
           provider_offset: nav.scroll,
-          surface: nav.surface,
-          nav: nav
+          surface: nav.surface
         },
         context
       )

@@ -5,6 +5,7 @@ import { anchor, dragDialThroughAngles, openStreamdeck as openStreamdeckPage } f
 // Pointer coordinates must stay fixed after anchoring in this gesture spec.
 async function openStreamdeck(page, mode) {
   await openStreamdeckPage(page, mode)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await page.evaluate(() => {
     document.documentElement.style.scrollBehavior = 'auto'
     window.scrollTo({ top: window.scrollY, behavior: 'instant' })
