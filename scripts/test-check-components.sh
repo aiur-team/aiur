@@ -298,11 +298,11 @@ else:
         shipped = next(c for c in read_manifest(repo)['components'] if c['id'] == 'experiments')
         manifest['components'][0]['forbid'] = shipped['forbid']
         (root / 'components.json').write_text(json.dumps(manifest))
-
     reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1,
                     ('R-forbid experiments -> Aiur.Orchestrator',), change=use_experiments_contract)
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
     from components.github_access_fixtures import run as access_checks; access_checks(reference_check)
+    from components.package_reference_fixtures import run as package_checks; package_checks(reference_check)
     reference_check('declared_facade_passes', 'declared_facade_passes')
     # Future-regression guard: component routes import the kit, never the shell.
     reference_check('component_route_kit_passes', 'component_routes', messages=('R-down: 0',))
