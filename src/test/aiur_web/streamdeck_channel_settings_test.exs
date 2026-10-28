@@ -1,5 +1,6 @@
 defmodule AiurWeb.StreamdeckChannelSettingsTest do
   use AiurWeb.StreamdeckChannelCase
+  alias Aiur.TestSupport.StreamdeckBuildFixture
   alias AiurWeb.Streamdeck.Deck.Settings
   alias AiurWeb.Streamdeck.FrameUpdates
   @moduletag timeout: 15_000
@@ -87,7 +88,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     put_endpoint_config(
       streamdeck_build_queue_fun: fn -> %{status: :disabled} end,
       streamdeck_snapshot_fun: fn -> snapshot end,
-      streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(snapshot) end
+      streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(snapshot) end
     )
 
     socket = joined_socket()
