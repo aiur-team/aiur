@@ -170,7 +170,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await cycleToOpeningWindow(page, keys, openingPage)
 
   // ---------------------------------------------------------------- step 4 --
-  // Press the running agent's key: it enters cmd mode and pauses the agent.
+  // Selecting a ticket opens its controls; pause is a separate explicit action.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   // SD-303 replaces the Command summary and pager with one full-width chat
@@ -181,9 +181,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(chat).toHaveCSS('width', '800px')
   await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
   await expect(chat).toContainText('Conversation unavailable')
-  // Cmd mode replaces the key faces, it does not merely relabel the strip: the
-  // operator is looking at the command set. The press already paused the agent,
-  // so the first slot offers the resume rather than a second pause.
+  await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)
+  await page.locator('[data-streamdeck-command="pause"]').click()
   await expectCommandSurface(keys, CMD_COMMANDS_PAUSED, page)
 
   // Back out and confirm the fleet itself moved — the agent is now bucketed as
@@ -193,9 +192,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(controlled).toHaveAttribute('data-streamdeck-state', 'paused')
   await expect(controlled).toHaveAttribute('data-control-action', 'resume')
 
-  // Resume from the same key. The press both resumes the agent and re-enters
-  // cmd, so the operator continues into logs from here rather than pressing the
-  // key a third time — another press would toggle the control straight back.
+  // Select the paused ticket, then explicitly resume it from its controls.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   // Resuming reopens the same full-width conversation strip.
@@ -203,6 +200,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(chat).toHaveCSS('width', '800px')
   await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
   await expect(chat).toContainText('Conversation unavailable')
+  await expectCommandSurface(keys, CMD_COMMANDS_PAUSED, page)
+  await page.locator('[data-streamdeck-command="pause"]').click()
   // The resume landed before this render, so the same slot has flipped back to
   // Pause — the label is reading real state, not a fixed list.
   await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)

@@ -37,7 +37,7 @@ defmodule Aiur.CurrentRunMembership.Reconciler do
   def init(opts) do
     state = %{
       snapshot_fun: Keyword.get(opts, :snapshot_fun, &current_snapshot/0),
-      observe_fun: Keyword.get(opts, :observe_fun, &CurrentRunMembership.observe/2),
+      observe_fun: Keyword.get(opts, :observe_fun, &Store.observe_many/1),
       stored_lifecycles_fun: Keyword.get(opts, :stored_lifecycles_fun, &Store.lifecycles/0),
       terminal_states_fun: Keyword.get(opts, :terminal_states_fun, &DispatchPolicy.terminal_state_set/0),
       subscribe_fun: Keyword.get(opts, :subscribe_fun, &AgentPubSub.subscribe_running/0),

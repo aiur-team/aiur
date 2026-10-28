@@ -57,7 +57,25 @@ defmodule Aiur.SystemCgroup do
   end
 
   defp read(name) do
-    File.read(Path.join(cgroup_root(), name))
+    case :file.open(Path.join(cgroup_root(), name), [:read, :binary, :raw]) do
+      {:ok, fd} ->
+        try do
+          read_chunks(fd, [])
+        after
+          :file.close(fd)
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp read_chunks(fd, chunks) do
+    case :file.read(fd, 4_096) do
+      {:ok, chunk} -> read_chunks(fd, [chunk | chunks])
+      :eof -> {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary()}
+      error -> error
+    end
   end
 
   defp cgroup_root do

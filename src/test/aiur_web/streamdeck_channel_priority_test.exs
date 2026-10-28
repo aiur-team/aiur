@@ -24,11 +24,14 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
   test "raw input resolves selection, moves once and pushes the read-back frame" do
     socket = joined_socket()
+    :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "ticket"})
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -3})
-    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0, "chip_offset" => 0} = navigation)
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, navigation)
+    assert navigation == %{"view" => "ticket", "page" => 0, "chip_offset" => 0}
     refute Map.has_key?(navigation, "frame")
     frame = flushed_frame(socket)
     assert_received {:reorder, "4", 0}
@@ -42,6 +45,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
   test "physical input pushes priority feedback and read-back in a coalesced frame" do
     socket = joined_socket()
+    :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial)
     ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
     assert_reply(ref, :ok, %{"view" => "ticket"})
@@ -75,10 +79,12 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     )
 
     socket = joined_socket()
+    :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "ticket"})
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
+    :sys.get_state(socket.channel_pid)
     assert_reply(ref, :error, %{reason: "outcome_unknown"} = error)
     refute Map.has_key?(error, :frame)
     frame = flushed_frame(socket)
@@ -97,7 +103,8 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
         ] do
       put_endpoint_config(streamdeck_build_queue_fun: fn -> model end)
       socket = %Phoenix.Socket{assigns: %{deck_nav: %Nav{selected: "4"}, streamdeck_authenticated: true, fleet_flush: nil}}
-      assert {:reply, {:error, %{reason: ^reason}}, updated} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
+      assert {:reply, {:error, %{reason: ^reason} = reply}, updated} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
+      refute Map.has_key?(reply, :frame)
       assert updated.assigns.deck_toast == text
       assert is_reference(updated.assigns.fleet_flush)
       frame = FrameUpdates.frame(updated)
