@@ -343,23 +343,20 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     %{running: Enum.take(agents, 1), retrying: [], idle: Enum.drop(agents, 1)}
   end
 
-  def streamdeck_provider_meters do
-    %{
-      "claude" => %{
-        "state" => "observed",
-        "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
-        }
-      },
-      "codex" => %{
-        "state" => "observed",
-        "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
-        }
-      }
-    }
+  def streamdeck_usage_inputs(_context, _opts) do
+    now = DateTime.utc_now()
+
+    meters =
+      Map.new([{:claude, 30, 47}, {:codex, 50, 75}], fn {family, session, weekly} ->
+        windows =
+          Map.new([{"session", session, 300}, {"weekly", weekly, 10_080}], fn {slot, used, duration} ->
+            {slot, %{kind: :rate_limit, coverage: :supported, used_percent: used, duration_minutes: duration, resets_at: DateTime.add(now, 3600)}}
+          end)
+
+        {family, %Aiur.ProviderMeterSnapshot{provider: family, observed_at: now, health: %{state: :healthy, failure: nil}, windows: windows}}
+      end)
+
+    %{families: [:claude, :codex], meters: meters, accounts: %{}, durable: %{}, github: {:error, :unavailable}, elevenlabs: %{state: :unconfigured}}
   end
 
   # Seeded once per harness boot, not once per disk lifetime. `File.exists?/1`
@@ -447,7 +444,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
-        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
+        streamdeck_usage_load_fun: &__MODULE__.streamdeck_usage_inputs/2,
         agent_chat_capabilities_fun: &__MODULE__.build_capabilities/1,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
         agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1

@@ -1,6 +1,16 @@
 defmodule AiurWeb.StreamdeckChannelTest do
   use AiurWeb.StreamdeckChannelCase
 
+  setup do
+    inputs =
+      Aiur.TestSupport.BuildHome.UsageInputs.inputs(%{
+        meters: %{codex: Aiur.TestSupport.BuildHome.UsageInputs.snapshot(:codex, %{"primary" => Aiur.TestSupport.BuildHome.UsageInputs.window(42)})}
+      })
+
+    put_endpoint_config(streamdeck_usage_load_fun: fn _, _ -> inputs end)
+    :ok
+  end
+
   test "only a socket authenticated by dashboard credentials can join" do
     assert :error = StreamdeckSocket.connect(%{}, socket(StreamdeckSocket, "untrusted", %{}), %{})
     assert :error = StreamdeckSocket.connect(%{"token" => "not-a-token"}, socket(StreamdeckSocket, "untrusted", %{}), %{})
@@ -432,37 +442,30 @@ defmodule AiurWeb.StreamdeckChannelTest do
     refute_received %Message{event: "transcript"}
   end
 
-  test "provider changes reach the joined socket through the redacted usage projection" do
-    joined_socket()
+  test "provider changes coalesce and reload Build usage instead of using event payloads" do
+    socket = joined_socket()
+    parent = self()
 
-    snapshot = %{
-      ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation")
-      | observed_at: ~U[2026-07-30 12:00:00Z],
-        auth_mode: :subscription,
-        freshness: :fresh,
-        plan: %{tier: "updated"}
-    }
+    inputs =
+      Aiur.TestSupport.BuildHome.UsageInputs.inputs(%{meters: %{codex: Aiur.TestSupport.BuildHome.UsageInputs.snapshot(:codex, %{"primary" => Aiur.TestSupport.BuildHome.UsageInputs.window(88)})}})
 
-    ProviderMeterEvents.broadcast(snapshot)
+    put_endpoint_config(
+      streamdeck_usage_load_fun: fn _, _ ->
+        send(parent, :usage_loaded)
+        inputs
+      end
+    )
 
-    assert_push("usage", %{
-      "claude" => %{"state" => "unknown"},
-      "codex" => %{
-        "state" => "observed",
-        "provider" => "codex",
-        "auth_mode" => "subscription",
-        "freshness" => "stale",
-        "observed_at" => "2026-07-30T12:00:00Z",
-        "plan" => %{"tier" => "updated"}
-      }
-    })
-  end
-
-  test "unobserved provider events retain the current usage projection" do
-    joined_socket()
-    ProviderMeterEvents.broadcast(ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation"))
-
-    assert_push("usage", %{"claude" => %{"state" => "unknown"}, "codex" => %{"state" => "observed"}})
+    event = ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation")
+    ProviderMeterEvents.broadcast(event)
+    ProviderMeterEvents.broadcast(event)
+    state = :sys.get_state(socket.channel_pid)
+    assert is_reference(state.assigns.usage_flush)
+    receive_barrier(%Message{event: "usage", payload: %{"codex" => %{"windows" => %{"session" => %{"remaining_percent" => 12, "used_percent" => 88}}}}})
+    :sys.get_state(socket.channel_pid)
+    assert_received :usage_loaded
+    refute_received :usage_loaded
+    refute_received %Message{event: "usage"}
   end
 
   test "older provider events retain the newer usage projection" do

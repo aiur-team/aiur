@@ -126,7 +126,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
         dashboard_auth_required: false,
         streamdeck_snapshot_fun: fn -> snapshot() end,
         streamdeck_fleet_subscribe_fun: StreamdeckFleetFixture.subscription(),
-        streamdeck_provider_meters_fun: fn -> %{codex: %{state: :observed}, claude: %{state: :unknown}} end,
+        streamdeck_usage_load_fun: fn _, _ -> Aiur.TestSupport.BuildHome.UsageInputs.inputs() end,
         streamdeck_decisions_fun: fn -> %{count: 2} end,
         streamdeck_transcript_flush_ms: 20
       )

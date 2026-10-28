@@ -25,30 +25,14 @@
  *   freshness, health, windows }
  * ```
  *
- * `windows` is keyed by an opaque `limit_id` (e.g. `"session"`, `"5h"`,
- * `"7d"`); each value carries `used_percent`, `resets_at`, and — when known —
- * `duration_minutes`. We classify session vs weekly by duration rather than by
- * label string, because the label is provider-defined and not a stable
- * contract: the shortest-duration window is the session, the longest is the
- * weekly.
- *
- * ## Duration-less providers
- *
- * Not every adapter populates `duration_minutes`. Codex does
- * (`windowDurationMins`), but Claude's app-server adapter emits a single
- * `"rate-limit"` window with `used_percent`/`resets_at` and no duration
- * (`src/lib/aiur/claude/rate_limit_adapter.ex`). Duration is the ordering key,
- * so a lone duration-less window cannot be ordered against a peer — but it is
- * still the provider's one real reading. We therefore fall back to treating a
- * SINGLE unclassifiable window as the session (never a fabricated weekly), so
- * Claude shows its real usage instead of a permanent "awaiting data". Two or
- * more duration-less windows stay ambiguous and are reported as no data rather
- * than guessed.
+ * `windows.session` and `windows.weekly` are semantic Build.Usage slots.
+ * Legacy payloads fall back to duration classification.
  */
 
 /** One observed rate-limit window, as projected. */
 export interface ProviderMeterWindow {
-  readonly used_percent?: number;
+  readonly used_percent?: number | null;
+  readonly remaining_percent?: number | null;
   readonly resets_at?: string;
   readonly duration_minutes?: number;
 }
@@ -84,7 +68,7 @@ export interface ProviderSegmentModel {
   readonly hasData: boolean;
 }
 
-function clampPercent(value: number | undefined): number {
+function clampPercent(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   if (value < 0) return 0;
   if (value > 100) return 100;
@@ -111,6 +95,13 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
   session: ProviderMeterWindow | null;
   weekly: ProviderMeterWindow | null;
 } {
+  if ("session" in windows || "weekly" in windows) {
+    return {
+      session: windows.session && hasUsedPercent(windows.session) ? windows.session : null,
+      weekly: windows.weekly && hasUsedPercent(windows.weekly) ? windows.weekly : null,
+    };
+  }
+
   const all = Object.values(windows);
   let session: ProviderMeterWindow | null = null;
   let weekly: ProviderMeterWindow | null = null;

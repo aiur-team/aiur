@@ -38,7 +38,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
         streamdeck_fleet_subscribe_fun: subscriber,
         server: false,
         streamdeck_snapshot_fun: reader,
-        streamdeck_provider_meters_fun: fn -> %{} end,
+        streamdeck_usage_load_fun: fn _, _ -> Aiur.TestSupport.BuildHome.UsageInputs.inputs() end,
         streamdeck_decisions_fun: fn -> %{count: 0} end
       )
       |> EndpointStubs.scope()
