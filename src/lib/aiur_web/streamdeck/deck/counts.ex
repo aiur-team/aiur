@@ -5,11 +5,10 @@ defmodule AiurWeb.Streamdeck.Deck.Counts do
 
   @doc "Fleet categories over the exact filed, deduplicated Ticket view population."
   @spec categories(map()) :: map()
-  def categories(sections) do
-    keys = Tickets.keys(sections)
-    by_state = Enum.frequencies_by(keys, & &1.state)
+  def categories(counts) do
+    by_state = counts.by_state
     known = ~w(active command error retrying ci_wait usage_limited parked paused)
-    unknown = Enum.count(keys, &(&1.state != :queued and &1.state not in known))
+    unknown = counts.agents - Enum.sum(Map.values(Map.take(by_state, known)))
 
     %{
       active: Map.get(by_state, "active", 0) + unknown,
@@ -19,8 +18,8 @@ defmodule AiurWeb.Streamdeck.Deck.Counts do
       ci_wait: Map.get(by_state, "ci_wait", 0),
       usage_limited: Map.get(by_state, "usage_limited", 0),
       paused: Map.get(by_state, "parked", 0) + Map.get(by_state, "paused", 0),
-      queued: Map.get(by_state, :queued, 0),
-      live: Enum.count(keys, &(&1.state != :queued))
+      queued: counts.queued,
+      live: counts.agents
     }
   end
 
@@ -62,15 +61,15 @@ defmodule AiurWeb.Streamdeck.Deck.Counts do
 
   defp counts(window, source, status) do
     sections = field(window, :sections)
-    now = field(sections, :now)
-    by_state = Enum.frequencies_by(now, &(field(field(&1, :agent), :state) || "unknown"))
+    {plan, now} = sections |> Tickets.keys() |> Enum.split_with(&(&1.state == :queued))
+    by_state = Enum.frequencies_by(now, &(&1.state || "unknown"))
 
     %{
       status: status,
       observed_at: field(source, :observed_at),
       agents: length(now),
       live: Map.get(by_state, "active", 0),
-      queued: length(field(sections, :plan)),
+      queued: length(plan),
       not_queued: length(field(sections, :nq)),
       by_state: by_state
     }

@@ -7,6 +7,12 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
   test "categories partition the Ticket population, including unknown, duplicates and unfiled rows" do
     window = window()
     fleet = read(window)
+    deck = Deck.read(window: {:ok, window}, now_ms: 10_000, global_pause: true)
+    assert deck.fleet == fleet
+    assert deck.counts.agents == 9
+    assert deck.counts.queued == 3
+    assert deck.counts.live == 1
+    assert Enum.sum(Enum.map(Enum.take(fleet.keys, 7), & &1.count)) == deck.counts.agents + deck.counts.queued
     assert Enum.map(fleet.keys, & &1.count) == [2, 1, 2, 1, 1, 2, 3, nil]
     assert Enum.sum(Enum.map(Enum.take(fleet.keys, 7), & &1.count)) == length(Tickets.keys(window.sections))
     assert hd(fleet.keys).unknown == 1

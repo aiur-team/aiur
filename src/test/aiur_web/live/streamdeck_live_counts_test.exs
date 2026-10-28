@@ -6,7 +6,11 @@ defmodule AiurWeb.StreamdeckLiveCountsTest do
   test "emulator renders Build counts and dims stale observations" do
     window = %{
       sources: %{agents: %{state: "stale", observed_at: 123}},
-      sections: %{now: [%{agent: %{state: "active"}}, %{agent: %{state: "active"}}, %{agent: %{state: "ci_wait"}}], plan: List.duplicate(%{}, 5), nq: []}
+      sections: %{
+        now: [%{num: 1, sec: "now", agent: %{state: "active"}}, %{num: 2, sec: "now", agent: %{state: "active"}}, %{num: 3, sec: "now", agent: %{state: "ci_wait"}}],
+        plan: Enum.map(10..14, &%{num: &1, sec: "plan"}),
+        nq: []
+      }
     }
 
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, window} end)
