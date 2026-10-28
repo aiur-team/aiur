@@ -2,8 +2,8 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   @moduledoc "Channel-owned conversation tail, subscriptions and bounded refresh."
   import Phoenix.Socket, only: [assign: 2]
   import Phoenix.Channel, only: [push: 3]
-  alias AiurWeb.Streamdeck.Deck.ChatLogs
   alias AiurWeb.Build.{ConversationPayload, ConversationSource, Payload}
+  alias AiurWeb.Streamdeck.Deck.ChatLogs
 
   @spec init(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def init(socket), do: assign(socket, deck_chat: nil)

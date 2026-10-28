@@ -31,7 +31,9 @@ The physical Command ticket page keeps desktop Build status and PR/CI on its key
 The ticket page strip shows the newest agent message, tool call or operator
 reply across its full width, with an inline role glyph and wrapped text. It uses
 the same conversation source as the desktop modal and restores retained messages
-after a daemon restart. Missing history says “Conversation not retained”; read
+after a daemon restart.
+
+Missing history says “Conversation not retained”; read
 failures say “Conversation unavailable”; stale conversations show their age.
 
 Logs runs from oldest at the far left to newest at the far right.
@@ -46,8 +48,7 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 
 ### Selection and live typing
 
-On the ticket page, the first chat frame appears immediately. Subsequent live
-messages reveal progressively; historical messages are never typed out again.
+The ticket page shows history immediately and progressively reveals only new live messages.
 
 | Action | Result |
 | --- | --- |
