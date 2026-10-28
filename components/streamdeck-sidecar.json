@@ -22,7 +22,7 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Connects a physical Stream Deck for Build ticket status, pull requests and checks, conversations and Command responses.",
+  "summary": "Displays daemon-rendered SVG frames on a physical Stream Deck and forwards raw input with offline and device recovery.",
   "status": "optional",
   "install": {
     "type": "setup",

@@ -19,6 +19,29 @@ const socketHarness = (): WebSocketLike & { sent: string[]; open(): void; messag
 };
 
 describe("Stream Deck Phoenix channel", () => {
+  it("carries frame pushes and raw HID input without replaying offline presses", async () => {
+    const socket = socketHarness();
+    const show = vi.fn();
+    const channel = await connectStreamDeckChannel({
+      baseUrl: "http://aiur.test", fetch: async () => ({ ok: true, json: async () => ({ token: "token" }) }), websocket: () => socket,
+      events: { frame: show, snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(), voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn() },
+    });
+    const { createFrameInput } = await import("../src/frame-input.js");
+    const input = createFrameInput(channel.input);
+    const report = Uint8Array.from([1, 0, 0, 0, 1]);
+    input.handleReport(report);
+    socket.open(); socket.message(["4", "1", "streamdeck:fleet", "phx_reply", { status: "ok" }]);
+    expect(socket.sent).toHaveLength(1);
+    input.reset(); input.handleReport(report); input.handleReport(report);
+    expect(JSON.parse(socket.sent[1]!)).toEqual(["4", "2", "streamdeck:fleet", "input", { kind: "key", index: 0, action: "down" }]);
+    const frame = { keys: Array(8).fill(null), strip: [] };
+    socket.message(["4", null, "streamdeck:fleet", "frame", frame]);
+    expect(show).toHaveBeenCalledExactlyOnceWith(frame);
+    channel.close();
+    input.reset(); input.handleReport(report);
+    expect(socket.sent).toHaveLength(2);
+  });
+
   it("uses a configured client bearer token for the token exchange", async () => {
     const socket = socketHarness();
     const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ token: "signed-token" }) }));

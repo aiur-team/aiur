@@ -1,5 +1,6 @@
 defmodule AiurWeb.StreamdeckChannelPriorityTest do
   use AiurWeb.StreamdeckChannelCase
+  alias Aiur.TestSupport.StreamdeckBuildFixture
   alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.Render
 
@@ -9,6 +10,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
     put_endpoint_config(
       streamdeck_snapshot_fun: fn -> %{running: [], retrying: [], idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]} end,
+      streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(%{idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]}) end,
       streamdeck_build_queue_fun: fn -> Agent.get(queue, & &1) end,
       streamdeck_reorder_fun: fn id, at ->
         send(owner, {:reorder, id, at})
@@ -33,6 +35,24 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     assert face.svg =~ "Queued #1"
     assert hd(frame.strip).label == "Queued #1"
     assert hd(frame.strip).svg =~ "Queued #1"
+  end
+
+  test "physical input pushes priority feedback and read-back in a coalesced frame" do
+    socket = joined_socket()
+    assert_push("frame", _initial)
+    ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
+    assert_reply(ref, :ok, %{"view" => "ticket"})
+    ref = push(socket, "input", %{"kind" => "dial", "index" => 1, "action" => "turn", "delta" => -3})
+    assert_reply(ref, :ok, %{"position" => 0})
+    assert_received {:reorder, "4", 0}
+    refute_received {:reorder, _, _}
+    state = :sys.get_state(socket.channel_pid)
+    send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
+    :sys.get_state(socket.channel_pid)
+    assert_push("frame", %{keys: keys, strip: strip})
+    assert Enum.find(keys, & &1).label =~ "Queued #1"
+    assert hd(strip).label == "Queued #1"
+    assert hd(strip).svg =~ "Queued #1"
   end
 
   test "unauthenticated socket refuses priority without calling the queue" do
@@ -79,15 +99,15 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     refute_received {:reorder, _, _}
   end
 
-  test "unavailable positions never render a plausible queue number" do
+  test "unavailable queue positions preserve the authoritative Build backlog label" do
     for read <- [fn -> %{status: :disabled, queues: []} end, fn -> Map.put(model(3), :snapshot, %{carried_age_ms: 100}) end, fn -> raise "queue read failed" end] do
       put_endpoint_config(streamdeck_build_queue_fun: read)
       grid = StreamdeckProjection.grid()
       face = Enum.find(grid.agents, &(&1.identifier == "4"))
       assert face.queue_position == nil
       image = Render.key(face)
-      refute image.label =~ "Queued #"
-      refute image.svg =~ "Queued #"
+      assert image.label =~ "Queued #1"
+      assert image.svg =~ "Queued #1"
     end
   end
 

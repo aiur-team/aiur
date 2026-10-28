@@ -1,7 +1,7 @@
 import type { HidBackend } from "./backend.js";
 import { BLACK, buildKeyFillReport, DEFAULT_FILL_INDEX_BASE, type RgbColor } from "./keys/keyFill.js";
 import { layoutKeys, layoutPhysicalKeys, type AgentInput, type KeyDescriptor } from "./keys.js";
-import type { BucketId } from "./key-face-contract.js";
+import type { BucketId } from "./legacy-style.js";
 import { KeyRenderer } from "./keys/keyRenderer.js";
 import { KeyWriteQueue } from "./keys/writeQueue.js";
 import { createKeyReportWriter } from "./keys/keyWriter.js";
@@ -110,6 +110,8 @@ const colourFor = (agent: Readonly<Record<string, unknown>> | undefined): RgbCol
  */
 const agentDescriptor = (agent: Readonly<Record<string, unknown>>): AgentInput => ({
   identifier: String(agent.identifier ?? ""),
+  label: typeof agent.label === "string" ? agent.label : null,
+  face: typeof agent.face === "string" ? agent.face : null,
   title: typeof agent.title === "string" ? agent.title : "",
   vendor: typeof agent.vendor === "string" ? agent.vendor : "unknown",
   icon: typeof agent.icon === "string" ? agent.icon : "",
@@ -214,27 +216,7 @@ const commandKey = (identifier: string, name: string, title: string, icon: strin
   dependency_ready: true,
 });
 
-/**
- * The per-agent command keys: pause/play, logs, the hold-to-talk mic, settings,
- * and — only while there is transcribed text — Send and Cancel.
- *
- * The prioritise key that used to sit on key 1 is gone. The orchestrator ranks
- * tickets itself, so the key was a second and weaker way to say the same thing,
- * and the slot it freed is what settings now occupies. This order is mirrored
- * by `mode.ts` and by the Elixir emulator, which are under a parity contract
- * with this table.
- *
- * Send and Cancel are absent rather than dimmed: before the operator has
- * spoken there is nothing to send, and a permanently lit Send invites a press
- * that delivers an empty message.
- *
- * A ticket with no agent gets Implement on the last slot instead of Pause on
- * the first: there is nothing to pause, and the one action that surface owes
- * the operator is "put an agent on this". The key reports `QUEUED` after a
- * successful press and nothing more — the running face arrives with the next
- * snapshot, when the daemon has actually dispatched it, rather than being
- * faked here.
- */
+/** Ticket actions use server affordances; legacy grids retain their voice controls. */
 export const descriptorCommands = (
   agent: Readonly<Record<string, unknown>> | null | undefined,
   micHeld: boolean,
@@ -243,6 +225,23 @@ export const descriptorCommands = (
   implementQueued = false,
   ticket: StreamDeckTicket | null = null,
 ): (AgentInput | undefined)[] => {
+  if (ticket?.actions) {
+    const key = (name: string, title: string, icon: string, enabled = true, sub = "OPEN"): AgentInput =>
+      commandKey(ticket.id, name, title, icon, enabled ? sub : "DISABLED");
+    const resume = ticket.control?.action === "resume";
+    return [
+      agentLess(agent) && ticket.agent === null && ticket.title !== null
+        ? key("implement", "Implement", "robot", ticket.actions.mic !== "disabled", implementQueued ? "QUEUED" : "QUEUE")
+        : key("pause", resume ? "Resume" : "Pause", resume ? "play" : "pause", ticket.actions.pause === "enabled"),
+      key("priority_up", "Priority up", "up", ticket.actions.priority_up === "enabled", "QUEUE"),
+      key("priority_down", "Priority down", "down", ticket.actions.priority_down === "enabled", "QUEUE"),
+      key("commands", "Commands", "alert", true, pendingCommands > 0 ? `${pendingCommands} PENDING` : "OPEN"),
+      hasTranscript ? key("send", "Send", "send") : key("pr", "Open PR", "logs", !!ticket.links?.pr),
+      hasTranscript ? key("cancel", "Cancel", "cancel") : key("modal", "Dashboard", "logs", !!ticket.links?.modal),
+      key("mic", "Mic", "mic", ticket.actions.mic !== "disabled", micHeld ? "LIVE" : "HOLD"),
+      key("settings", "Settings", "settings"),
+    ];
+  }
   const identifier = String(agent?.identifier ?? "focused");
   // Only a paused agent offers Resume. Keying this off `bucket === "running"`
   // instead made every alert/stuck/queued agent show a Resume key that the
@@ -403,6 +402,8 @@ export const createPhysicalSurface = () => {
               ? detailKeyDescriptors(state.selectedCommand, state.optionOffset ?? 0, state.selectedOption ?? null, state.micHeld === true, state.commandDictation === true, state.commandFeedback)
               : historyKeyDescriptors(state.commandsPage ?? { items: [] }, state.historyOffset ?? 0, null),
           )
+        : grid.tickets_status === "unavailable"
+        ? layoutPhysicalKeys([commandKey("status", "unavailable", "Tickets unavailable", "alert", "UNAVAILABLE", "paused")])
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {

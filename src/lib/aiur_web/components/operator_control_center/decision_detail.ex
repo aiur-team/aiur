@@ -16,9 +16,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
+  attr(:conversation_link, :map, default: nil)
 
   @spec decision_detail(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_detail(assigns) do
@@ -33,11 +35,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
         <span class="requester-line">{DecisionPresenter.requester_label(@decision)}</span>
         <span :if={DecisionPresenter.executor?(@decision)} class="chip accent requester-badge">From Executor</span>
       </header>
+      <p :if={@conversation_link}>
+        <.link navigate={@conversation_link.href}>Open in conversation{if @conversation_link.precision == "observed", do: " (approximate)"}</.link>
+      </p>
+      <p :if={is_nil(@conversation_link)} class="decision-readonly-note">Conversation position unknown</p>
       <DecisionAction.decision_action
         decision={@decision}
         state={@action_state}
         writable={@writable}
         live_connected={@live_connected}
+        voice_capabilities={@voice_capabilities}
       />
       <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} />
 

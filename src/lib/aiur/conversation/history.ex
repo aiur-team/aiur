@@ -32,6 +32,13 @@ defmodule Aiur.Conversation.History do
     with {:ok, _} <- HistoryReader.snapshot(ref), do: {:ok, Ref.conversation_id(ref)}
   end
 
+  @spec snapshot(Ref.t() | String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
+  def snapshot(ref), do: HistoryReader.snapshot(ref)
+
+  @doc "Resolve a durable worker conversation to its verified listener target. Executor conversations are not worker targets."
+  @spec worker_identity(String.t()) :: {:ok, Aiur.TrackerIdentity.t()} | {:error, atom()}
+  defdelegate worker_identity(id), to: HistoryReader
+
   @doc "Pages durable entries by position. A principal is required; only loopback may reveal secrets."
   @spec list_entries(Ref.t() | String.t(), keyword()) :: {:ok, page()} | {:error, atom()}
   def list_entries(ref, opts) do
@@ -52,6 +59,22 @@ defmodule Aiur.Conversation.History do
   @spec list_anchors(Ref.t() | String.t(), keyword()) :: {:ok, [map()]} | {:error, atom()}
   def list_anchors(ref, opts \\ []) do
     with {:ok, snapshot} <- HistoryReader.snapshot(ref), do: HistoryAnchors.read(snapshot, opts)
+  end
+
+  @spec anchor_for_decision(String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
+  defdelegate anchor_for_decision(id), to: Aiur.Conversation.AnchorResolver
+
+  @doc "The strongest durable Command request position, or none when its position is unknown."
+  @spec command_anchor(String.t()) :: {:ok, %{conversation_id: String.t(), pos: pos_integer(), precision: String.t()}} | :none
+  def command_anchor(id) do
+    case anchor_for_decision(id) do
+      {:ok, %{"conversation_id" => conversation, "pos" => pos, "precision" => precision}}
+      when is_binary(conversation) and is_integer(pos) and pos > 0 and precision in ["observed", "causal", "exact"] ->
+        {:ok, %{conversation_id: conversation, pos: pos, precision: precision}}
+
+      _ ->
+        :none
+    end
   end
 
   @doc "Subscribe first, catch up, then discard live entries at or below the returned head. Live entries are raw."

@@ -85,6 +85,8 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "system.conversation.subject_index.unreadable":
+    message: Conversation index skipped unreadable subject files
   "system.dispatch.prewarm_blocked":
     message: Shared prewarm is blocking dispatch
     sound:

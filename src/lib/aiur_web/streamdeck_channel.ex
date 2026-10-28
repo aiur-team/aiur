@@ -9,10 +9,9 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, TicketUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Nav, PriorityInput, TicketUpdates}
 
-  alias AiurWeb.Streamdeck.UsageUpdates
+  alias AiurWeb.Streamdeck.{FrameUpdates, UsageUpdates}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -50,6 +49,8 @@ defmodule AiurWeb.StreamdeckChannel do
      assign(socket,
        deck_nav: %Nav{},
        deck_effects: [],
+       deck_usage: %{},
+       deck_grid: %{agents: []},
        focused_agent: nil,
        focus_token: nil,
        transcript_relay: nil,
@@ -65,16 +66,18 @@ defmodule AiurWeb.StreamdeckChannel do
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
-  def handle_in("input", input, socket) do
-    if Nav.valid_input?(input) do
-      sections = StreamdeckProjection.grid() |> Deck.navigation()
-      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
-      socket = assign(socket, deck_nav: nav, deck_effects: effects)
-      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
+  def handle_in("input", input, socket), do: FrameUpdates.input(input, socket)
+
+  def handle_in("priority", %{"identifier" => id, "direction" => direction}, socket)
+      when is_binary(id) and direction in ["up", "down"] do
+    if socket.assigns[:focused_agent] == id and EndpointConfig.get(:dashboard_writable) == true do
+      PriorityInput.reply(socket, %{}, [{:priority, id, if(direction == "up", do: :up, else: :down), 1}])
     else
-      {:reply, {:error, %{reason: "invalid_input"}}, socket}
+      {:reply, {:error, %{reason: "unavailable"}}, socket}
     end
   end
+
+  def handle_in("priority", _payload, socket), do: {:reply, {:error, %{reason: "invalid_priority"}}, socket}
 
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
@@ -97,21 +100,6 @@ defmodule AiurWeb.StreamdeckChannel do
 
     {:reply, {:ok, %{"focused" => nil}}, socket}
   end
-
-  @doc """
-  Routes a physical key toggle through the same AgentChat facade as the emulator.
-
-  Pause and resume are the action set for a ticket an agent already holds. The
-  deck's agent view no longer carries a prioritize key — its slots are pause,
-  logs, mic and settings — so the channel does not accept an action no surface
-  can send. Orchestrator priority itself is untouched and stays reachable from
-  the dashboard.
-
-  `implement` is the third action, and it belongs to the other half of the grid:
-  a ticket with **no** agent, whose command surface offers Implement where a
-  live agent offers Pause. See `handle_in("control", %{"action" => "implement"})`
-  below for why it goes through the CLI's own queue path.
-  """
 
   def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
@@ -269,8 +257,9 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot())
-    {:noreply, socket}
+    snapshot = StreamdeckProjection.snapshot()
+    push(socket, "snapshot", snapshot)
+    {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> assign(:deck_grid, snapshot["grid"]) |> FrameUpdates.push()}
   end
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}
