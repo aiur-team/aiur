@@ -183,7 +183,7 @@ secret handling, earlier history and jump-point precision.
 | Writable control | Where | Action |
 | --- | --- | --- |
 | Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
-| Unit | `/units` | Pause or resume one agent, or send it a message. |
+| Unit | `/units` | Pause or resume one agent, or send it a message. The mic opens an explicit Dictate / Converse choice; Dictate fills editable text for review and Send. Unavailable choices show their reason. Microphone selection is in the adjacent settings popover. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
