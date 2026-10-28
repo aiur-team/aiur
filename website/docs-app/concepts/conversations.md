@@ -105,9 +105,19 @@ secrets from disk and cannot guarantee that all secrets are detected.
 
 ## Jump points and precision
 
-Jump points associate events with transcript positions. The planned catalogue covers
+Jump points associate events with transcript positions. The catalogue covers
 progress, phase changes, pushes, PR opens and merges, CI results, review
 comments, Command requests and answers, attentions, and Executor progress.
+
+Labels name identifiers and enums, such as “Progress 60%”, “Pushed 3f9a1c0”,
+“PR #51 opened”, “CI failed”, and “Command answered”. Missing identifiers
+leave a plain label; labels never copy comment bodies, PR titles or Command
+text, and stop at 60 characters.
+
+The catalogue defaults enable progress, pushes, PR opens and merges, and
+Command requests and answers. Phase changes, CI results, comments, attentions
+and Executor progress default off. These are navigation defaults, not event
+recording filters.
 
 The full conversation view and event filters are separate integrations; a
 catalogue entry does not guarantee a visible link in every current surface.

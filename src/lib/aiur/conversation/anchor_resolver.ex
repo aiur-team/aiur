@@ -231,6 +231,7 @@ defmodule Aiur.Conversation.AnchorResolver do
       event_id: id,
       topic: field(raw, :topic),
       kind: kind,
+      label: JumpPoints.label(kind, raw),
       conversation_id: Ref.conversation_id(ref),
       observed_at: field(observation, :observed_at),
       occurred_at: field(observation, :occurred_at),
