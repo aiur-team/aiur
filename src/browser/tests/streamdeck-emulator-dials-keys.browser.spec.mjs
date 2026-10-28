@@ -97,37 +97,38 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
   }
 })
 
-test('wheel event adjusts the knob value and does not scroll the page', async ({ page }) => {
+test('wheel events adjust every dial, including C, without scrolling the page', async ({ page }) => {
   await openStreamdeck(page)
 
-  // Make the page scrollable so the scroll-prevention check is not trivially true.
+  // Keep the page scrollable, but finish the anchor helper's smooth scroll
+  // before aiming wheel events. Otherwise the knob can move off the pointer.
   await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = 'auto'
+    window.scrollTo({ top: window.scrollY, behavior: 'instant' })
     const spacer = document.createElement('div')
     spacer.style.height = '2000px'
     spacer.setAttribute('aria-hidden', 'true')
     document.querySelector('section.dashboard-shell').appendChild(spacer)
   })
-  await page.waitForTimeout(50)
 
-  const knob = page.locator('.sd-knob').first()
-  const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  const settledScroll = () => page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(window.scrollY)))
+  }))
+  for (const index of [0, 1, 2, 3]) {
+    const knob = page.locator('.sd-knob').nth(index)
+    await knob.hover()
+    const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+    const scrollBeforeWheel = await page.evaluate(() => window.scrollY)
 
-  await knob.hover()
-  const scrollBeforeWheel = await page.evaluate(() => window.scrollY)
-  // Scroll up → value should increase.
-  await page.mouse.wheel(0, -100)
+    await page.mouse.wheel(0, -100)
+    await expect.poll(async () => parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(initialValue)
+    const afterUp = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+    expect(await settledScroll()).toBe(scrollBeforeWheel)
 
-  const afterUp = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  expect(afterUp).toBeGreaterThan(initialValue)
-
-  // Scroll down → value should decrease.
-  await page.mouse.wheel(0, 100)
-  const afterDown = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  expect(afterDown).toBeLessThan(afterUp)
-
-  // Page must NOT have scrolled: the non-passive listener called preventDefault.
-  const scrollY = await page.evaluate(() => window.scrollY)
-  expect(scrollY).toBe(scrollBeforeWheel)
+    await page.mouse.wheel(0, 100)
+    await expect.poll(async () => parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBeLessThan(afterUp)
+    expect(await settledScroll()).toBe(scrollBeforeWheel)
+  }
 })
 
 test('keyboard arrow keys adjust the focused knob value', async ({ page }) => {
