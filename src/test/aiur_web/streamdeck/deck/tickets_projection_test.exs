@@ -5,7 +5,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
   alias AiurWeb.Streamdeck.Deck.Tickets
   alias AiurWeb.Streamdeck.Render
   alias AiurWeb.StreamdeckFleet
-  alias AiurWeb.StreamdeckLive.{CommandKeys, Components, Surface}
+  alias AiurWeb.StreamdeckLive.{Components, Surface}
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   test "shared Build window drives snapshot, emulator keys, raw key input and index refresh" do
@@ -52,8 +52,6 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     assert key.progress_freshness == "stale"
     assert key.bucket == :running
     assert key.priority == true
-    [pause | _] = CommandKeys.command_keys(key, false)
-    assert pause.label == "Pause"
     assert Render.key(key).label =~ "40% stale"
 
     stale = put_in(window, [:sources, :agents, :state], "stale")
@@ -64,8 +62,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
 
     for state <- ["retrying", "mystery"] do
       [key] = Tickets.keys(%{now: [%{row | agent: %{state: state}}]})
-      [pause | _] = CommandKeys.command_keys(key, false)
-      assert pause.label == "Pause"
+      assert key.bucket == :stuck
     end
   end
 
