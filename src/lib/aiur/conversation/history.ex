@@ -9,7 +9,7 @@ defmodule Aiur.Conversation.History do
   alias Aiur.AgentEventFeed
   alias Aiur.AgentLog
   alias Aiur.AgentLog.PageReader
-  alias Aiur.Conversation.{Anchors, HistoryAnchors, HistoryPage, HistoryReader, Ref}
+  alias Aiur.Conversation.{Anchors, HeadTable, HistoryAnchors, HistoryPage, HistoryReader, Ref}
   alias Aiur.LiveConversation
   alias Aiur.SecretRedactor
 
@@ -60,6 +60,15 @@ defmodule Aiur.Conversation.History do
     with {:ok, snapshot} <- HistoryReader.snapshot(ref) do
       pubsub = Application.get_env(:aiur, :conversation_journal, []) |> Keyword.get(:pubsub, Aiur.PubSub)
       Phoenix.PubSub.subscribe(pubsub, "conversation:" <> snapshot.id)
+    end
+  end
+
+  @doc "Whether the journal has reported an unresolved write failure in this daemon."
+  @spec degraded?(String.t()) :: boolean()
+  def degraded?(id) do
+    case HistoryReader.snapshot(id) do
+      {:ok, snapshot} -> HeadTable.degraded?(id, snapshot.dir)
+      {:error, _} -> false
     end
   end
 
