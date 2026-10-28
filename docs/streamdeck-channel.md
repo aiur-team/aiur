@@ -166,13 +166,13 @@ The Commands page is history-first: opening it shows the focused agent's past
 Commands newest first, with open and deferred ones answerable and completed
 ones read-only.
 
-Fleet input replies also include `frame` (eight optional key SVGs and strip regions).
+Input replies carry navigation only. Account images use the coalesced pushed
+`frame` event (eight optional key SVGs and strip regions).
 Turn dial 4 past the eight Fleet category keys to reach provider meter keys.
 Pressing one opens read-only account keys with 5h/weekly remaining values, per-account
 resets and stale/unknown indicators. Hold dial 4 to return to the provider page.
 While Fleet is open, coalesced usage observations push a `frame` event with fresh
-images, alongside the existing `usage` event. Clients adopting server navigation
-should apply these frames as well as input-reply frames.
+images, alongside the existing `usage` event. Clients apply only pushed frames.
 
 ### Device → Aiur
 

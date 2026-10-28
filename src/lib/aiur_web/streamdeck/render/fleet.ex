@@ -31,6 +31,11 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
     Enum.slice(field(category, :tickets) || [], Nav.page(nav) * 8, 8)
   end
 
+  defp faces(keys, %{stack: [{:fleet, id} | _rest]} = nav) do
+    category = Enum.find(keys, %{}, &(field(&1, :id) == id))
+    Enum.slice(field(category, :tickets) || [], Nav.page(nav) * 8, 8)
+  end
+
   defp faces(_keys, _nav), do: []
   defp pause(true), do: "Global pause: on"
   defp pause(false), do: "Global pause: off"

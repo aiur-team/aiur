@@ -1,6 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
-  alias AiurWeb.Streamdeck.Render.{Svg, ViewStrip}
+  alias AiurWeb.Streamdeck.Render.{MeterDetail, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
   @glyphs %{
@@ -17,6 +17,10 @@ defmodule AiurWeb.Streamdeck.Render.Views do
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{surface: :grid, nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
+    MeterDetail.compose(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, AiurWeb.Streamdeck.Deck.Nav.page(nav))
+  end
+
   def compose(model) do
     context = field(model, :view_context, %{})
     faces = keys(to_string(field(model, :surface)), context)

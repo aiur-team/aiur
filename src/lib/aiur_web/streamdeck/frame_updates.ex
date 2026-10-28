@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
+  alias AiurWeb.Streamdeck.{Deck, Render}
   alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput}
-  alias AiurWeb.Streamdeck.Render
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 
@@ -32,7 +32,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     with {:ok, input} <- normalize(raw),
          true <- Nav.valid_input?(input),
          {%Nav{} = nav, effects} <-
-           Input.reduce(nav, input, MeterPage.sections(prepare(grid, nav))) do
+           Input.reduce(nav, input, MeterPage.sections(normalize_grid(grid), nav)) do
       {:ok, nav, effects}
     else
       :noop -> :noop
@@ -66,8 +66,8 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @doc "Compose the same frame model for a channel socket or the browser emulator."
   @spec frame(Nav.t(), map(), map(), (map() -> map()), map()) :: {Nav.t(), map(), map()}
   def frame(nav, grid, usage, renderer \\ &Render.frame/1, context \\ %{}) do
-    grid = prepare(grid, nav)
-    sections = MeterPage.sections(grid)
+    {nav, grid} = MeterPage.prepare(normalize_grid(grid), nav, usage)
+    sections = Deck.navigation(grid)
     nav = Nav.clamp(nav, Input.sizes(nav, sections))
     agents = visible_items(nav, sections, grid.agents)
 
@@ -87,9 +87,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     {nav, model, renderer.(model)}
   end
 
-  defp grid(socket), do: normalize_grid(socket.assigns[:deck_grid] || StreamdeckProjection.grid())
-
-  defp prepare(grid, nav), do: grid |> normalize_grid() |> MeterPage.prepare(nav)
+  defp grid(socket), do: Map.put(socket.assigns[:deck_grid] || StreamdeckProjection.grid(), :meter_usage, socket.assigns[:deck_usage] || %{})
 
   defp normalize_grid(grid) do
     agents = Map.get(grid, :agents, Map.get(grid, "agents", []))

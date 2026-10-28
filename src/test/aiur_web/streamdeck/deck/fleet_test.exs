@@ -21,7 +21,7 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
     assert List.last(fleet.keys).label == "9 / —"
     assert Enum.map(List.last(fleet.keys).tickets, & &1.id) == ~w(3 2 4 1 5 6 7 8 9)
     assert {capacity_nav, []} = Input.reduce(%Nav{view: :fleet}, %{"kind" => "key_press", "index" => 7}, Deck.navigation(%{fleet: fleet}))
-    assert capacity_nav.stack == [{:state, [:live]}]
+    assert capacity_nav.stack == [{:fleet, "capacity"}]
     assert Enum.map(Enum.at(fleet.keys, 2).tickets, & &1.state) == ["error", "retrying"]
     assert Enum.map(Enum.at(fleet.keys, 5).tickets, & &1.state) == ["parked", "paused"]
   end
@@ -29,7 +29,7 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
   test "wire categories preserve canonical state filters and physical key positions" do
     fleet = window() |> read() |> Jason.encode!() |> Jason.decode!()
     {nav, []} = Input.reduce(%Nav{view: :fleet}, %{"kind" => "key_press", "index" => 7}, Deck.navigation(%{"fleet" => fleet}))
-    assert nav.stack == [{:state, [:live]}]
+    assert nav.stack == [{:fleet, "capacity"}]
     frame = Render.frame(%{grid: %{"fleet" => fleet}, nav: nav})
     assert hd(frame.keys).svg =~ "Ticket 3"
     root = Render.frame(%{grid: %{"fleet" => fleet}, nav: %Nav{view: :fleet}})
@@ -54,7 +54,7 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
     fleet = read(window())
     sections = Deck.navigation(%{fleet: fleet, agents: Tickets.keys(window().sections)})
     assert {nav, []} = Input.reduce(%Nav{view: :fleet}, %{"kind" => "key_press", "index" => 3}, sections)
-    assert nav.stack == [{:state, ["ci_wait"]}]
+    assert nav.stack == [{:fleet, "ci_wait"}]
     frame = Render.frame(%{grid: %{fleet: fleet}, nav: nav})
     assert hd(frame.keys).label =~ "Waiting for CI"
     assert Enum.drop(frame.keys, 1) == List.duplicate(nil, 7)

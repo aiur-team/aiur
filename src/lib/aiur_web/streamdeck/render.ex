@@ -11,7 +11,6 @@ defmodule AiurWeb.Streamdeck.Render do
   Coordinates inside a region are local. The same parts compose every group.
   """
 
-  alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.Render.{Card, Grid, Key, MeterDetail, Parts, Svg, Views}
   import Svg, only: [field: 2, field: 3]
 
@@ -26,7 +25,10 @@ defmodule AiurWeb.Streamdeck.Render do
 
   @spec key(map()) :: image()
   def key(face),
-    do: if(field(face, :kind) in [:card, "card"], do: Card.render(face), else: Key.render(face))
+    do: render_key(face)
+
+  defp render_key(%{kind: :account, account: account, now_ms: now}), do: MeterDetail.key(account, now)
+  defp render_key(face), do: if(field(face, :kind) in [:card, "card"], do: Card.render(face), else: Key.render(face))
 
   @spec strip([map()]) :: [region_image()]
   def strip(regions) do
@@ -50,16 +52,14 @@ defmodule AiurWeb.Streamdeck.Render do
   end
 
   @spec frame(map()) :: %{keys: [image() | nil], strip: [region_image()]}
-  def frame(%{surface: :grid, nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
-    MeterDetail.frame(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, Nav.page(nav))
-  end
-
   def frame(model) do
     {faces, regions} = compose(model)
     %{keys: Enum.map(faces, fn face -> if face, do: key(face) end), strip: strip(regions)}
   end
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{surface: :grid, nav: %{stack: [{:meter_detail, _} | _]}} = model), do: Views.compose(model)
+
   def compose(model) do
     if to_string(field(model, :surface, :grid)) == "grid",
       do: Grid.compose(model),

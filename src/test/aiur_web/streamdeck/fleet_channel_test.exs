@@ -44,7 +44,7 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     assert_push("frame", %{keys: [ci | rest]})
     assert ci.svg =~ "CI ticket"
     assert rest == List.duplicate(nil, 7)
-    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:state, ["ci_wait"]}]
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:fleet, "ci_wait"}]
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "fleet"})
     flush_frame(socket)

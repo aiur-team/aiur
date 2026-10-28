@@ -72,7 +72,7 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     flush_frame(socket)
     assert_push("frame", %{keys: drilled})
     assert Enum.any?(drilled, &is_map/1)
-    assert [{:state, ["active", :unknown]}] = :sys.get_state(socket.channel_pid).assigns.deck_nav.stack
+    assert [{:fleet, _id}] = :sys.get_state(socket.channel_pid).assigns.deck_nav.stack
   end
 
   test "a meter update behind a pending fleet flush reaches the last physical frame" do
