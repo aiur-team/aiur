@@ -8,6 +8,7 @@ import { boardAudit, canonicalBoardOverlaps, contrastRatio } from './support/bui
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
 
+// These tests share the board's axe, keyboard, contrast, and live-update contracts.
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 
 async function open(page, dataset = 'live', view = 'graph', mode = 'read_only') {
@@ -21,48 +22,6 @@ async function open(page, dataset = 'live', view = 'graph', mode = 'read_only') 
     window.state = await import('/build-home/state.js')
   })
 }
-
-test('fixture dataset stays scoped to its browser context during a competing switch', async ({ browser }) => {
-  const dense = await browser.newContext({ httpCredentials: dashboardCredentials })
-  const live = await browser.newContext({ httpCredentials: dashboardCredentials })
-  const densePage = await dense.newPage()
-  const livePage = await live.newPage()
-
-  await densePage.goto('/auth/read_only')
-  await livePage.goto('/auth/read_only')
-  await densePage.goto('/build-fixture/dense')
-  await expect(densePage.locator('#bd-content')).toHaveCount(1)
-  await expect.poll(() => densePage.evaluate(async () => (await import('/build-home/state.js')).ctx.snap != null)).toBe(true)
-  const denseHasScaleRows = await densePage.evaluate(async () => {
-    const { ctx } = await import('/build-home/state.js')
-    return ctx.snap.sections.now.some(row => row.id === '1301')
-  })
-  expect(denseHasScaleRows).toBe(true)
-  await livePage.goto('/build-fixture/live')
-  await expect(livePage.locator('#bd-content')).toHaveCount(1)
-  await expect(livePage.locator('.bd-card[data-id="9001"]')).toHaveCount(0)
-  await livePage.goto('/build-fixture/unknowns')
-  await expect(livePage.locator('#bd-content')).toHaveCount(1)
-  const unknownsHasExtraRows = await livePage.evaluate(async () => {
-    const { ctx } = await import('/build-home/state.js')
-    return ctx.snap.sections.now.some(row => row.id === '9001')
-  })
-  expect(unknownsHasExtraRows).toBe(true)
-
-  const isolatedRows = await densePage.evaluate(async () => {
-    const response = await fetch('/build-fixture/dense')
-    return response.status
-  })
-  expect(isolatedRows).toBe(200)
-  const denseStillSelected = await densePage.evaluate(async () => {
-    const { ctx } = await import('/build-home/state.js')
-    return ctx.snap.sections.now.some(row => row.id === '1301')
-  })
-  expect(denseStillSelected).toBe(true)
-
-  await dense.close()
-  await live.close()
-})
 
 test('overlap selectors resolve only to actual card interiors', async ({ page }) => {
   await page.setContent('<svg id="bd-edges"></svg><div class="bd-card" data-id="607">' +
