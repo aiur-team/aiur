@@ -60,7 +60,14 @@ defmodule Aiur.BrowserHarness.ConversationFixture do
     Ingest.anchor(ref, anchor)
     {:ok, writer} = Ingest.writer(ref)
     :ok = GenServer.call(writer, :flush)
-    # The writer casts the durable anchor before the read-side lookup below.
+
+    unless Process.whereis(Aiur.Conversation.AnchorResolver) do
+      {:ok, exchange} = Aiur.Events.Exchange.start_link(name: __MODULE__.Exchange)
+      Process.unlink(exchange)
+      {:ok, resolver} = Aiur.Conversation.AnchorResolver.start_link(exchange: __MODULE__.Exchange)
+      Process.unlink(resolver)
+    end
+
     {:ok, _} = Aiur.Conversation.History.command_anchor(decision_id)
     Plug.Conn.send_resp(conn, 200, "anchored")
   end

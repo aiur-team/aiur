@@ -49,7 +49,9 @@ hidden. On phones the rail sits above the transcript.
 Selecting an event opens `?pos=N`, loads the surrounding entries and brings
 that position into view. Observed events appear after an entry with an
 “approximate position” marker. Events without an anchor say “Not linked to a
-position” and have no jump. Command requests also link to their Command page;
+position” and have no jump.
+
+Command requests also link to their Command page;
 resolved Commands say “answered”. A missing position shows “Position not found”
 and the latest entries, with one retry after the next journal append.
 
