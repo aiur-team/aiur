@@ -3,6 +3,7 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Fleet, Input, Nav, Tickets}
   alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.Streamdeck.Render.Fleet, as: FleetRender
 
   test "categories partition the Ticket population, including unknown, duplicates and unfiled rows" do
     window = window()
@@ -34,6 +35,19 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
     assert hd(frame.keys).svg =~ "Ticket 3"
     root = Render.frame(%{grid: %{"fleet" => fleet}, nav: %Nav{view: :fleet}})
     assert Enum.at(root.keys, 5).svg =~ "Waiting for CI"
+  end
+
+  test "state drills retain the shared ticket metadata" do
+    data = window()
+    [queued | _rest] = Tickets.keys(data.sections, {:state, :queued})
+    agent = queued |> Map.put(:dependency_ready, true) |> Map.put(:queue_position, 0)
+    fleet = read(data)
+    {nav, []} = Input.reduce(%Nav{view: :fleet}, %{"kind" => "key_press", "index" => 6}, Deck.navigation(%{fleet: fleet}))
+    {[face | _rest], _strip} = FleetRender.compose(%{fleet: fleet, agents: [agent]}, nav)
+    assert face.dependency_ready == true
+    assert face.queue_position == 0
+    assert Render.key(face).svg =~ "Unblocked"
+    assert Render.key(face).label =~ "Queued #1 progress"
   end
 
   test "unknown capacity and stale heartbeat survive into the rendered frame with their values" do
