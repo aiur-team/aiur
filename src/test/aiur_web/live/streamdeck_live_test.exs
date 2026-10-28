@@ -105,9 +105,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Blocked"
     assert html =~ ~s(class="sd-ag-foot col")
     assert html =~ ~s(class="sd-ag-tag blocked")
-    # Every non-queued, non-empty key renders the status dot + progress footer.
-    assert html =~ ~s(class="sd-ag-dot")
-    assert html =~ ~s(class="sr-only">Running</span>)
+    # Ticket status text is visible above its progress bar.
+    refute html =~ ~s(class="sd-ag-dot")
+    assert html =~ ~s(class="sd-ag-stat">Running</span>)
     assert html =~ ~s(class="sd-ag-bar")
   end
 

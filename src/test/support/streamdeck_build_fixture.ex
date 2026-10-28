@@ -5,16 +5,17 @@ defmodule Aiur.TestSupport.StreamdeckBuildFixture do
   # facts into a Build window so they exercise the authoritative Ticket path.
   def window(snapshot) do
     rows =
-      (Map.get(snapshot, :agents, []) ++ Map.get(snapshot, :running, []) ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
+      [:agents, :running, :retrying, :idle]
+      |> Enum.flat_map(fn source -> Enum.map(Map.get(snapshot, source, []), &{&1, source}) end)
       |> Enum.with_index(1)
-      |> Enum.map(fn {agent, position} -> row(agent, position) end)
+      |> Enum.map(fn {{agent, source}, position} -> row(agent, position, source) end)
 
     {plan, now} = Enum.split_with(rows, &(&1.sec == "plan"))
     {:ok, %{sources: %{agents: %{state: "ok", observed_at: System.system_time(:millisecond)}}, sections: %{now: now, plan: plan, nq: []}}}
   end
 
-  defp row(agent, position) do
-    state = state(agent)
+  defp row(agent, position, source) do
+    state = state(agent, source)
     number = Regex.run(~r/(\d+)$/, agent.identifier, capture: :all_but_first)
     num = if number, do: number |> hd() |> String.to_integer(), else: position
 
@@ -29,9 +30,11 @@ defmodule Aiur.TestSupport.StreamdeckBuildFixture do
     }
   end
 
-  defp state(%{open_decision_count: count}) when count > 0, do: "command"
-  defp state(%{work_state: :paused}), do: "paused"
-  defp state(%{work_state: :error}), do: "error"
-  defp state(%{waiting_reason: :waiting_for_dependency}), do: "queued"
-  defp state(_agent), do: "active"
+  defp state(%{open_decision_count: count}, _source) when count > 0, do: "command"
+  defp state(%{work_state: :paused}, _source), do: "paused"
+  defp state(%{work_state: :error}, _source), do: "error"
+  defp state(%{waiting_reason: :waiting_for_dependency}, _source), do: "queued"
+  defp state(_agent, :idle), do: "queued"
+  defp state(_agent, :retrying), do: "retrying"
+  defp state(_agent, _source), do: "active"
 end

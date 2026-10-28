@@ -5,6 +5,7 @@ defmodule AiurWeb.Streamdeck.DeckCountsLifecycleTest do
   alias AiurWeb.Streamdeck.Deck.Counts
 
   test "deck reads keep the index active after another subscriber disconnects" do
+    Aiur.TestSupport.EndpointStubs.put(streamdeck_build_window_fun: nil)
     name = __MODULE__.Index
 
     index =
