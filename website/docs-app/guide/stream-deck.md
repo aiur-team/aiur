@@ -378,7 +378,9 @@ Aiur holds a streaming connection to ElevenLabs, so transcription results can ap
 
 Cycle dial D to Fleet for eight summary keys: active, needs command,
 error/retrying, waiting for CI, usage limited, parked/paused, queued backlog,
-and capacity. Counts use the same filed tickets as the Ticket view. Unrecognized
+and capacity.
+
+Counts use the same filed tickets as the Ticket view. Unrecognized
 states remain on Active with a visible unknown sub-count, such as `12 · 1?`.
 Press a category to list its tickets; hold dial D to return.
 
