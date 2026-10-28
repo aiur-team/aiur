@@ -36,7 +36,7 @@ defmodule AiurWeb.StreamdeckChannel do
     :ok = Commands.subscribe()
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
-    :ok = BuildIndex.subscribe()
+    :ok = BuildIndex.subscribe(metadata: {:fleet_refresh, latch})
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     send(self(), :streamdeck_snapshot)

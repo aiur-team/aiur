@@ -66,7 +66,6 @@ const drawSummary = (context: SKRSContext2D, width: number, model: SegmentConten
   const live = `${model.model.live ?? "—"}`;
   context.font = "700 18px sans-serif";
   const liveWidth = context.measureText(live).width;
-  context.fillStyle = TEXT;
   context.fillStyle = model.model.counts_status === "stale" ? MUTED : TEXT;
   context.fillText(live, width - PAD - liveWidth, TITLE_BASELINE);
   context.beginPath();

@@ -10,20 +10,28 @@ defmodule AiurWeb.Streamdeck.DeckCountsLifecycleTest do
     index =
       start_supervised!(
         {Index,
-         name: name, idle_without_subscribers?: true, subscribe: fn -> :ok end, read: fn _, _, _ -> parts() end, daemon_read: fn _ -> %{state: "unknown", heartbeat_at: nil, observed_at: now()} end}
+         name: name,
+         idle_without_subscribers?: true,
+         subscribe: fn -> :ok end,
+         clock: &now/0,
+         read: fn _, _, _ -> parts() end,
+         daemon_read: fn _ -> %{state: "unknown", heartbeat_at: nil, observed_at: now()} end}
       )
 
     parent = self()
 
     other =
-      spawn(fn ->
-        :ok = Index.subscribe(name)
-        send(parent, :subscribed)
+      start_supervised!(
+        {Task,
+         fn ->
+           :ok = Index.subscribe(name)
+           send(parent, :subscribed)
 
-        receive do
-          :stop -> :ok
-        end
-      end)
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
 
     monitor = Process.monitor(other)
     receive_barrier(:subscribed)
