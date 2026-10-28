@@ -59,20 +59,18 @@ defmodule Aiur.Machine.InstanceRecord do
     end
   end
 
-  defp put_value(record, key, value) do
-    if Map.has_key?(@keys, key) or key in @discarded do
-      case decode(value) do
-        {:ok, decoded} ->
-          updated = if field = @keys[key], do: Map.put(record, field, decoded), else: record
-          {:cont, {:ok, updated}}
+  defp put_value(record, key, value) when is_map_key(@keys, key) or key in @discarded do
+    case decode(value) do
+      {:ok, decoded} ->
+        updated = if field = @keys[key], do: Map.put(record, field, decoded), else: record
+        {:cont, {:ok, updated}}
 
-        :error ->
-          {:halt, {:error, {:unsupported_value, key}}}
-      end
-    else
-      {:cont, {:ok, record}}
+      :error ->
+        {:halt, {:error, {:unsupported_value, key}}}
     end
   end
+
+  defp put_value(record, _key, _value), do: {:cont, {:ok, record}}
 
   defp complete({:ok, record}) do
     if Enum.all?(@required, &(Map.get(record, &1, "") != "")), do: {:ok, record}, else: {:error, :incomplete}
