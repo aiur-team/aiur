@@ -9,8 +9,10 @@ The Claude provider meter names the selected account and shows “worst of N acc
 The server also maintains independent Ticket, Feature, Epic and Fleet navigation
 for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
 hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
-Dial 3 is reserved for the sidecar's instance switch. The current controls below
-remain visible until the sidecar and emulator renderer adopt this model.
+Dial 3 is reserved for the sidecar's instance switch.
+
+The current controls below remain visible until the sidecar and emulator
+renderer adopt this model.
 
 ## Drive the four modes
 
