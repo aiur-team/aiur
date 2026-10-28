@@ -1,9 +1,11 @@
 defmodule Aiur.Orchestrator.FeatureSupply do
   @moduledoc "Observes feature supply without changing admission or dispatch order."
 
-  alias Aiur.{RunTelemetry, Signal}
-  alias Aiur.Orchestrator.{FeatureSupplySnapshot, State}
+  alias Aiur.Orchestrator.FeatureSupplySnapshot
   alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
+  alias Aiur.Orchestrator.State
+  alias Aiur.RunTelemetry
+  alias Aiur.Signal
 
   @topic "system.feature_supply_low"
   @hold_ms 30 * 60_000
