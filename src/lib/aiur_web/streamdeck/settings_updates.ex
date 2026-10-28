@@ -59,6 +59,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @spec input(map(), Phoenix.Socket.t()) :: :pass | {:reply, tuple(), Phoenix.Socket.t()}
   def input(%{"kind" => "dial_long_press", "index" => 3}, %{assigns: %{settings_menu: nil, deck_nav: %Nav{stack: []}}} = socket), do: show(socket, %{section: nil, cursor: 0})
   def input(_input, %{assigns: %{settings_menu: nil}}), do: :pass
+  def input(_input, %{assigns: assigns}) when not is_map_key(assigns, :settings_menu), do: :pass
 
   def input(%{"kind" => "dial_long_press", "index" => 3}, socket) do
     menu = socket.assigns.settings_menu
