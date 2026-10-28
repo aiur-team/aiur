@@ -111,7 +111,8 @@ export default withMermaid(defineConfig({
             { text: 'Overview', link: '/' },
             { text: 'Quick start', link: '/guide/quick-start' },
             { text: 'Accounts by backend', link: '/guide/claude-accounts' },
-            { text: 'Railway deployments', link: '/guide/railway' }
+            { text: 'Railway deployments', link: '/guide/railway' },
+            { text: 'Push relay', link: '/guide/push-relay' }
           ]
         },
         {

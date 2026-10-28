@@ -20,12 +20,14 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Provides a standalone encrypted notification relay with persistent handles and asynchronous provider delivery.",
+  "summary": "Delivers encrypted Apple notifications through a standalone relay with persistent device handles.",
   "status": "experimental",
   "install": {
     "type": "included"
   },
-  "docs": [],
+  "docs": [
+    "guide/push-relay.md"
+  ],
   "config": [],
   "env": [],
   "capabilities": [],
