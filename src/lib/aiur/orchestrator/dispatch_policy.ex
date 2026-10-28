@@ -327,27 +327,29 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def dispatch_candidate_decision(issue, state),
     do: dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set(), state.blocked_ticket_ids)
 
-  defp dispatch_candidate_decision(
-         %Issue{} = issue,
-         %State{} = state,
-         active_states,
-         terminal_states,
-         blocked_ticket_ids
-       ) do
+  @doc false
+  @spec dispatch_candidate_decision(term(), State.t(), MapSet.t(), MapSet.t(), term()) :: :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_candidate_decision(
+        %Issue{} = issue,
+        %State{} = state,
+        active_states,
+        terminal_states,
+        blocked_ticket_ids
+      ) do
     case issue_eligibility_decision(issue, active_states, terminal_states) do
       :dispatch -> dispatch_state_decision(issue, state, terminal_states, blocked_ticket_ids)
       {:skip, _reason} = declined -> declined
     end
   end
 
-  defp dispatch_candidate_decision(
-         _issue,
-         _state,
-         _active_states,
-         _terminal_states,
-         _blocked_ticket_ids
-       ),
-       do: {:skip, :invalid_issue}
+  def dispatch_candidate_decision(
+        _issue,
+        _state,
+        _active_states,
+        _terminal_states,
+        _blocked_ticket_ids
+      ),
+      do: {:skip, :invalid_issue}
 
   defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
     is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)

@@ -127,8 +127,8 @@ defmodule AiurWeb.StreamdeckLive.ScreenComponents do
                 <span :if={segment.kind == :provider and segment.provider == "claude"} class="sd-mic" aria-hidden="true"></span>
               </div>
 
-              <div :if={segment.kind == :summary} class="sd-info-live">
-                <b>{segment.live}</b> live · <b>{segment.remaining}</b> left
+              <div :if={segment.kind == :summary} class="sd-info-live" style={if segment.counts_status == "stale", do: "opacity: 0.5"}>
+                <b>{segment.live || "—"}</b> live · <b>{segment.remaining || "—"}</b> left
               </div>
 
               <div :if={segment.kind == :summary} class="sd-mini" data-meter="build" data-observed={to_string(is_map(segment.build) and is_number(segment.build.percent))}>

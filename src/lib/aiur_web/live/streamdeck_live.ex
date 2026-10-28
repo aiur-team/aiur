@@ -23,6 +23,7 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Grid
   import AiurWeb.StreamdeckLive.Modes
 
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
   alias AiurWeb.StreamdeckLogs
 
@@ -96,6 +97,7 @@ defmodule AiurWeb.StreamdeckLive do
       if connected?(socket) do
         :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
         :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
+        :ok = BuildIndex.subscribe()
         socket = AiurWeb.RefreshSubscriptions.fleet(socket, &maybe_subscribe_fixture_fleet/0)
 
         socket
@@ -224,7 +226,7 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed], do: {:noreply, refresh_grid(socket)}
+  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed, :build_changes], do: {:noreply, refresh_grid(socket)}
 
   def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh_grid(socket)}
   def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}

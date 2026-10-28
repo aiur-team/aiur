@@ -38,9 +38,10 @@ export interface BuildProgress {
 export interface SummaryModel {
   readonly build_status?: "ok" | "none" | "unavailable";
   /** Number of live (running) agents; clamped to >= 0. */
-  readonly live: number;
+  readonly live: number | null;
   /** Number of agents/tickets still queued; clamped to >= 0. */
-  readonly remaining: number;
+  readonly remaining: number | null;
+  readonly counts_status?: "ok" | "stale" | "unavailable";
   /** Build mini-bar, or null when no build order is in progress. */
   readonly build: BuildProgress | null;
 }
@@ -92,15 +93,17 @@ function toBuildProgress(build: BuildProgressInput | null | undefined): BuildPro
  * fabricated bar.
  */
 export function summaryModel(
-  live: number,
-  remaining: number,
+  live: number | null,
+  remaining: number | null,
   build?: BuildProgressInput | null,
   build_status?: SummaryModel["build_status"],
+  counts_status?: SummaryModel["counts_status"],
 ): SummaryModel {
   return {
     build_status,
-    live: toCount(live),
-    remaining: toCount(remaining),
+    counts_status,
+    live: live === null ? null : toCount(live),
+    remaining: remaining === null ? null : toCount(remaining),
     build: toBuildProgress(build),
   };
 }

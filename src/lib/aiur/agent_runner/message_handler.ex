@@ -19,6 +19,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   alias Aiur.AgentRunner.LiveObserver
   alias Aiur.AgentRunner.RepeatedCommandGuard
   alias Aiur.AgentRunner.TurnProgress
+  alias Aiur.AgentRunner.WorkerJournal
   alias Aiur.Protocol.MapAccess
   alias Aiur.Signal
   alias Aiur.Usage.Headless.Emitter
@@ -59,6 +60,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, transcript_event)
       LiveObserver.maybe_observe_live_conversation(issue, transcript_event, lifecycle_opts)
+      WorkerJournal.observe(issue, transcript_event, backend, lifecycle_opts, message)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
     end
