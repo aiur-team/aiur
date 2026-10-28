@@ -206,10 +206,11 @@ test('live rendering keeps the focused card node when its detail tier changes', 
 
 test('keyboard tree highlighting ends when card focus leaves the board', async ({ page }) => {
   await open(page)
-  const planId = await page.evaluate(() => {
+  const planId = await page.evaluate(async () => {
     state.S.trees = true
     state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop
     state.fx.update()
+    await new Promise(requestAnimationFrame)
     return state.ctx.L.secs.plan.items[0]?.t.id
   })
   // markScrolling clears tree hover; settle the programmatic scroll before testing keyboard highlight.
