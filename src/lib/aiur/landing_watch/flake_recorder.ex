@@ -42,6 +42,9 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
 
   defp record_issue_and_emit(identity, evidence, owner, repo, token, opts) do
     case find_or_create(owner, repo, token, identity, evidence, opts) do
+      {:ok, :already_quarantined} ->
+        :ok
+
       {:ok, issue} ->
         case emit(evidence, issue, opts) do
           :ok -> notify_issue_recorded(issue, opts)
@@ -63,6 +66,18 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   defp find_or_create(owner, repo, token, identity, evidence, opts) do
     request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
+    with {:ok, issues} <- open_flake_issues(request, token, owner, repo, identity),
+         {:ok, skip} <- matching_skip(identity, opts) do
+      case Enum.find(issues, &matching_issue?(&1, identity)) do
+        %{"number" => number} when is_integer(number) -> comment_existing(number, evidence, request, token, owner, repo)
+        nil when skip -> {:ok, :already_quarantined}
+        nil -> create_issue(identity, evidence, request, token, owner, repo)
+        _ -> {:error, :invalid_flake_issue}
+      end
+    end
+  end
+
+  defp open_flake_issues(request, token, owner, repo, identity) do
     query =
       URI.encode_query(%{
         "q" => "repo:#{owner}/#{repo} is:issue is:open in:title,body \"#{identity}\"",
@@ -72,28 +87,32 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     url = "#{Access.base_url()}/search/issues?#{query}"
 
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_flake_search"}) do
-      {:ok, %{status: 200, body: %{"items" => issues}}} when is_list(issues) ->
-        resolve_issue(issues, identity, evidence, request, token, owner, repo)
-
-      {:ok, response} ->
-        {:error, Access.github_status_error(response)}
-
-      {:error, _} = error ->
-        error
+      {:ok, %{status: 200, body: %{"items" => issues}}} when is_list(issues) -> {:ok, issues}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
+      {:error, _} = error -> error
     end
   end
 
-  defp resolve_issue(issues, identity, evidence, request, token, owner, repo) do
-    case Enum.find(issues, &matching_issue?(&1, identity)) do
-      %{"number" => number} when is_integer(number) ->
-        comment_existing(number, evidence, request, token, owner, repo)
-
-      nil ->
-        create_issue(identity, evidence, request, token, owner, repo)
-
-      _ ->
-        {:error, :invalid_flake_issue}
+  defp matching_skip("BrowserSpec :: " <> rest, opts) do
+    case Regex.run(~r/\A(.+\.spec\.mjs) :: (.+) :: (\d+)\z/, rest, capture: :all_but_first) do
+      [spec, title, _line] -> browser_skip(spec, title, opts)
+      _ -> {:ok, false}
     end
+  end
+
+  defp matching_skip(_identity, _opts), do: {:ok, false}
+
+  defp browser_skip(spec, title, opts) do
+    case Keyword.get(opts, :browser_spec_source_fun, &read_browser_spec/2).(spec, opts) do
+      {:ok, source} when is_binary(source) -> {:ok, Regex.match?(~r/\btest\.skip\s*\(\s*["']#{Regex.escape(title)}["']/, source)}
+      {:error, :enoent} -> {:ok, false}
+      {:error, reason} -> {:error, {:browser_spec_unavailable, reason}}
+    end
+  end
+
+  defp read_browser_spec(spec, opts) do
+    root = Keyword.get(opts, :repo_root, Aiur.Codeowners.repo_root())
+    File.read(Path.join(root, spec))
   end
 
   defp comment_existing(number, evidence, request, token, owner, repo) do
@@ -177,7 +196,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
       "Job: #{failure.job}",
       "Failing test: #{failure.module} :: #{failure.name}",
       cascade_line(failure),
-      "Error excerpt: #{failure.excerpt}",
+      "Error excerpt: #{error_excerpt(failure)}",
       "PRs that passed this test in another merge group containing the PR: #{Enum.map_join(passed_prs, ", ", &"##{&1}")}"
     ]
     |> Enum.reject(&is_nil/1)
@@ -188,6 +207,9 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     do: "Likely cascade modules (not quarantined): #{Enum.join(modules, ", ")}"
 
   defp cascade_line(_failure), do: nil
+
+  defp error_excerpt(%{excerpt: excerpt}) when is_binary(excerpt) and byte_size(excerpt) > 0, do: excerpt
+  defp error_excerpt(_failure), do: "No error excerpt was available in the GitHub check annotation."
 
   defp marker(identity), do: "<!-- aiur-flake-key: #{marker_hash(identity)} -->"
   defp marker_hash(identity), do: Base.encode16(:crypto.hash(:sha256, identity), case: :lower)

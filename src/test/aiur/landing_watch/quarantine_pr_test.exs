@@ -68,6 +68,13 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
              )
   end
 
+  test "browser quarantine entry names one title and source line" do
+    identity = "BrowserSpec :: src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs :: an active dial drag commits its final value after a LiveView patch :: 187"
+    assert {:ok, contents} = QuarantinePR.entry(identity, 7020, "# Browser quarantine\n", nil)
+    assert contents =~ "BrowserSpec\tsrc/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs\tan active dial drag commits its final value after a LiveView patch\t187\t#7020"
+    refute contents =~ "\t#7020\nBrowserSpec\tsrc/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs\t#7020"
+  end
+
   test "a retry after a partial attempt moves the existing branch and reuses the open PR" do
     parent = self()
 

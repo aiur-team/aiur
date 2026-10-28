@@ -19,7 +19,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   }
   """
 
-  @doc "The quarantine list for a test identity: Playwright specs (`BrowserSpec :: src/browser/tests/<spec>`) use the browser list."
+  @doc "The quarantine list for a test identity: Playwright tests use the browser list."
   @spec list_path(String.t()) :: String.t()
   def list_path(identity),
     do: if(String.starts_with?(identity, "BrowserSpec :: "), do: @browser_list, else: @exunit_list)
@@ -77,11 +77,12 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   def already_quarantined?(_, _), do: {:error, :invalid_quarantine_identity}
 
-  defp entry(identity, ticket, contents, expires) do
+  @doc false
+  @spec entry(String.t(), pos_integer(), String.t(), Date.t() | nil) :: {:ok, String.t()} | {:error, term()}
+  def entry(identity, ticket, contents, expires) do
     case String.split(identity, " :: ", parts: 2) do
       [module, name] ->
-        fields =
-          [module, name, "##{ticket}"] ++ if(expires, do: [Date.to_iso8601(expires)], else: [])
+        fields = quarantine_fields(module, name, ticket, expires)
 
         line = Enum.join(fields, "\t")
 
@@ -93,6 +94,16 @@ defmodule Aiur.LandingWatch.QuarantinePR do
         {:error, :invalid_quarantine_identity}
     end
   end
+
+  defp quarantine_fields("BrowserSpec", name, ticket, _expires) do
+    case Regex.run(~r/\A(src\/browser\/tests\/.+\.spec\.mjs) :: (.+) :: (\d+)\z/, name, capture: :all_but_first) do
+      [spec, title, line] -> ["BrowserSpec", spec, title, line, "##{ticket}"]
+      _ -> ["BrowserSpec", name, "##{ticket}"]
+    end
+  end
+
+  defp quarantine_fields(module, name, ticket, expires),
+    do: [module, name, "##{ticket}"] ++ if(expires, do: [Date.to_iso8601(expires)], else: [])
 
   defp expiry(%{path: @browser_list}, _opts), do: nil
   defp expiry(_ctx, opts), do: Keyword.fetch!(opts, :quarantine_expires_on)
@@ -309,9 +320,12 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   defp expiry_description(%{path: @browser_list}), do: ""
   defp expiry_description(ctx), do: " through #{Keyword.fetch!(ctx.opts, :quarantine_expires_on)}"
 
-  # A browser entry skips every test in its spec file, so the body names the file.
-  defp skip_scope("BrowserSpec :: " <> spec),
-    do: {"the flaky spec file `#{spec}`", "every test in `#{spec}`"}
+  defp skip_scope("BrowserSpec :: " <> rest) do
+    case Regex.run(~r/\A(.+\.spec\.mjs) :: (.+) :: (\d+)\z/, rest, capture: :all_but_first) do
+      [spec, title, line] -> {"`#{title}` at `#{spec}:#{line}`", "that test"}
+      _ -> {"the flaky spec file `#{rest}`", "every test in `#{rest}`"}
+    end
+  end
 
   defp skip_scope(_identity), do: {"one flaky test", "the test"}
 

@@ -259,6 +259,65 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
     File.rm(journal)
   end
 
+  test "comments on an open flake for the same browser test and reports missing excerpt explicitly" do
+    parent = self()
+    journal = temp_path("flake-browser-duplicate")
+    identity = "BrowserSpec :: src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs :: an active dial drag commits its final value after a LiveView patch :: 187"
+
+    failure = %{
+      module: "BrowserSpec",
+      name: "src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs :: an active dial drag commits its final value after a LiveView patch :: 187",
+      job: "browser smoke 5/9",
+      excerpt: ""
+    }
+
+    request = fn
+      %{method: :get, url: url} ->
+        query = URI.decode_query(URI.parse(url).query || "")
+        assert query["q"] =~ "is:open"
+        {:ok, %{status: 200, body: %{"items" => [%{"number" => 7020, "title" => "Flaky test: #{identity}", "body" => "prior skip"}]}}}
+
+      %{method: :post, url: url, body: %{"labels" => ["flake"]}} ->
+        if String.ends_with?(url, "/issues/7020/labels"), do: {:ok, %{status: 200, body: []}}, else: flunk("unexpected label update #{url}")
+
+      %{method: :post, url: url, body: body} ->
+        if String.ends_with?(url, "/issues/7020/comments") do
+          send(parent, {:commented, body["body"]})
+          {:ok, %{status: 201, body: %{}}}
+        else
+          flunk("duplicate must not create a new issue or mutate labels: #{url}")
+        end
+    end
+
+    assert :ok = FlakeRecorder.record(failure, %{"id" => 40_735_796_217}, [], token: "test-gh-token", request_fun: request, journal_path: journal, alert_emitter: fn _, _ -> :ok end)
+    assert_received {:commented, comment}
+    assert comment =~ "Run ID: 40735796217"
+    assert comment =~ "No error excerpt was available"
+    File.rm(journal)
+  end
+
+  test "does not create another ticket when a matching browser test is already skipped" do
+    journal = temp_path("flake-browser-skipped")
+    failure = %{module: "BrowserSpec", name: "src/browser/tests/example.spec.mjs :: skips only this test :: 187", job: "browser", excerpt: "failed"}
+
+    request = fn
+      %{method: :get} -> {:ok, %{status: 200, body: %{"items" => []}}}
+      request -> flunk("unexpected request #{inspect(request)}")
+    end
+
+    assert :ok =
+             FlakeRecorder.record(failure, %{"id" => 40_735_796_217}, [],
+               token: "test-gh-token",
+               request_fun: request,
+               journal_path: journal,
+               repo_root: "/repo",
+               browser_spec_source_fun: fn _spec, _opts -> {:ok, "test.skip('skips only this test', async () => {})"} end,
+               alert_emitter: fn _, _ -> flunk("existing skip must not publish a new flake") end
+             )
+
+    File.rm(journal)
+  end
+
   defp temp_path(prefix),
     do: Path.join(System.tmp_dir!(), "#{prefix}-#{System.unique_integer([:positive])}.json")
 end
