@@ -25,7 +25,7 @@ sealing each due job (also after restart and after a relay outage):
 
 | Job | Check | Result |
 | --- | --- | --- |
-| `command.needs_you` | Command still open and human-visible (`DecisionStore.get/2`) | `:send`, else `{:drop, :resolved}` |
+| `command.needs_you` | Command still open and human-visible (public `Aiur.Commands.get/1,2`; adapter pending CR-N5-PATH-1) | `:send`, else `{:drop, :resolved}` |
 | any | a newer job on the same `(device, stream)` is queued | `{:drop, :superseded}` |
 | progress / opt-in / pr.merged | age > `push.outbox.max_age_seconds` (default 24 h) | `{:drop, :stale}` |
 | several still-open Commands older than max age for one (device, instance) | — | `{:fold, digest}`: one digest naming the count |
@@ -40,11 +40,18 @@ MP-N4-C3-T02 (hook behaviour), C3-T01 (digest builder). DESIGN-N5 no-UI release.
 
 ## Verified starting point
 
-Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
+Path refresh at `3b00b8f2cd0bfc9acdffe3b07ee5f1c6ca2ab56a` (2026-10-27).
+See [plan §10](../plan.md#10-notification-policy-starting-point) for the complete
+mapping, topic catalog and integration gates. Historical `base_sha` is retained.
+All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
+`push-relay`; this refresh does not assert they shipped.
 
-- `Aiur.DecisionStore.get/2 :: {:ok, Decision.t()} | {:error, :not_found}`
-  (`decision_store.ex:388`); `decision_status` values (`decision.ex:39`).
-- Plan §5.6; contract v2 §6 device rules catch what the daemon cannot.
+- Private `DecisionStore.get/2` is now `src/lib/aiur/decision_store.ex:365`.
+  Public `Aiur.Commands.get/1,2` (`commands.ex:36-37`) returns a retained-read
+  envelope, not a bare Decision; see CR-N5-PATH-1 before implementing the lookup.
+- Unavailable/indeterminate reads must remain distinct from `:not_found`.
+- Outbox `StalenessHook` and supervisor registration remain PROPOSED MP-N4 APIs;
+  device open-time reconciliation remains MP-N6-C6-T02.
 
 ## Chosen design
 

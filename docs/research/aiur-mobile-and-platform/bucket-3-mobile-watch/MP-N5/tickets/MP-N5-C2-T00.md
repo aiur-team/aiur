@@ -21,7 +21,7 @@ researched: 2026-10-06
 
 Bucket 3, MP-N5, chunk C2. Documentation-only: map every pre-refactor symbol the N5
 tickets cite to its post-refactor package and confirm the names that predecessor features
-actually shipped (they are proposals today):
+actually shipped. Historical input at `45a290e3` (replacements in plan §10):
 
 | Cited now | Confirm against |
 | --- | --- |
@@ -38,15 +38,20 @@ Listed in frontmatter; each predecessor must have landed (or been explicitly def
 
 ## Verified starting point
 
-Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
+Path refresh at `3b00b8f2cd0bfc9acdffe3b07ee5f1c6ca2ab56a` (2026-10-27).
+See [plan §10](../plan.md#10-notification-policy-starting-point) for the complete
+mapping, topic catalog and integration gates. Historical `base_sha` is retained.
+All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
+`push-relay`; this refresh does not assert they shipped.
 
-As in the table (all `45a290e3`).
+The mapping below is historical input; [plan §10](../plan.md#10-notification-policy-starting-point) supplies the landed replacements and downstream contract requests.
 
 ## Chosen design
 
 Record the mapping in MP-N5 `plan.md` §10 and update each C2/C3 ticket's starting point.
-A topic-name mismatch (the `.agent.` segment) is resolved by reading the MP-R2-C5 catalog
-entry, not by guessing; CR-N5-3 asks the coordinator to fix the RC-08 spelling.
+The landed catalog confirms the `.agent.` segment; the RC-08 spelling without it
+is superseded by plan §10. Changed interfaces and private progress access are
+recorded in `../CONTRACT-REQUESTS.md`; downstream integration stops at those points.
 
 ## Implementation steps
 
@@ -67,4 +72,4 @@ Reviewer checklist: every symbol in C2/C3 tickets resolves at the refresh SHA.
 
 ## Completion and handoff
 
-- [ ] Mapping committed. Dependents: C2-T01..T04, C3-*.
+- [x] Mapping recorded in plan §10; all C2/C3 starting points refreshed. Dependents: C2-T01..T04, C3-*.
