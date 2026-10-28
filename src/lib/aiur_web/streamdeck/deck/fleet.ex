@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.Fleet do
   @moduledoc "Eight Fleet categories, sharing the Ticket population and Deck counting module."
-  alias AiurWeb.Streamdeck.Deck.{Counts, Tickets}
   alias AiurWeb.OperatorControlCenter.PauseState
+  alias AiurWeb.Streamdeck.Deck.{Counts, Tickets}
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2]
 
   @categories [
