@@ -45,7 +45,9 @@ defmodule Aiur.Config do
       same map.
   """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings do
+  def settings, do: Aiur.Config.SettingsSnapshot.read(&live_settings/0)
+
+  defp live_settings do
     case Workflow.current_with_cache_identity() do
       {:ok, workflow, generation, publication} when is_integer(generation) and is_reference(publication) ->
         cached_settings(workflow, {generation, publication})
