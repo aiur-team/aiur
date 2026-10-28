@@ -289,7 +289,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec dispatch_candidate_poll(State.t(), keyword()) :: State.t()
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
-    SettingsSnapshot.run(fn -> do_dispatch_candidate_poll(state, opts) end)
+    SettingsSnapshot.run(fn -> Aiur.Orchestrator.IssueSync.AttentionSnapshot.run(fn -> do_dispatch_candidate_poll(state, opts) end) end)
   end
 
   defp do_dispatch_candidate_poll(state, opts) do
