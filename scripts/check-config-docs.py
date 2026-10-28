@@ -24,14 +24,13 @@ from __future__ import annotations
 
 import re
 import sys
-from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-@dataclass(frozen=True)
-class Root:
+class Root(NamedTuple):
     root_file: Path
     module: str
     prefix: str = ""
