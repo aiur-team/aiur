@@ -46,6 +46,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   let state = initialState;
   let pressed = new Set<string>();
   let chordActive = false;
+  let instancePress = false;
 
   const publish = (next: ControllerState): void => {
     if (JSON.stringify(next) === JSON.stringify(state)) return;
@@ -180,7 +181,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (steps === 0) return;
     const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value));
 
-    if (input.index === 0 && state.mode === "logs") {
+    if (input.index === 2) {
+      options.turnInstance?.(steps);
+    } else if (input.index === 0 && state.mode === "logs") {
       const next = clamp(state.chatOffset + steps, logs.chatMaxOffset());
       setLogsOffsets(state.eventOffset, next);
     } else if (input.index === 3 && state.mode === "logs") {
@@ -289,6 +292,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         decoded.some((input) => input.type === "encoder-button" && input.index === index && input.pressed),
       );
     if (chordHeld) {
+      instancePress = false;
       // Latch, or holding the pair would toggle once per poll.
       if (!chordActive) {
         chordActive = true;
@@ -302,7 +306,14 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       }
       return;
     }
-    chordActive = false;
+    const instanceHeld = decoded.some((input) => input.type === "encoder-button" && input.index === 2 && input.pressed);
+    const instanceReleased = decoded.some((input) => input.type === "encoder-button" && input.index === 2 && !input.pressed);
+    if (instancePress && instanceReleased) {
+      instancePress = false;
+      options.switchInstance?.();
+    }
+    if (!chordActive && edges.events.some((input) => input.type === "encoder-button" && input.index === 2) && instanceHeld) instancePress = true;
+    if (!instanceHeld && !decoded.some((input) => input.type === "encoder-button" && input.index === 1 && input.pressed)) chordActive = false;
 
     for (const input of edges.events) {
       if (input.type === "key") pressKey(input.index);
@@ -312,6 +323,11 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
 
   return {
     state: (): ControllerState => state,
+    resetInstance: (): void => {
+      leaveVoice();
+      forgetLogs();
+      publish({ ...initialState });
+    },
     handleReport,
     setLogs: logs.setLogs,
     tickTyping: logs.tickTyping,
@@ -329,6 +345,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     },
     cancel: (): void => {
       pressed = new Set();
+      instancePress = false;
       // The device went away mid-hold. Stop capture, or `parec` keeps recording
       // against a deck that is no longer there.
       stopVoice();
