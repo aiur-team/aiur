@@ -28,7 +28,7 @@ defmodule AiurWeb.Components.VoiceInput do
     assigns = assign(assigns, :stt, Map.get(assigns.capabilities, "voice.stt", %{}))
 
     ~H"""
-    <div id={@id} phx-hook={@hook} class="agent-voice-tools" data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]}>
+    <div id={@hook && @id} phx-hook={@hook} class="agent-voice-tools" data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]}>
       {render_slot(@inner_block)}
       <div class="agent-voice-controls">
         <button

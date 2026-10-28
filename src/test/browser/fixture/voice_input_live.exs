@@ -25,7 +25,9 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
       <form :if={@visible} id="standalone-voice" phx-hook="VoiceInput" phx-submit="send">
         <textarea id="standalone-input" name="draft" aria-label="Draft" data-voice-input>{@draft}</textarea>
         <button type="submit" data-voice-send>Send</button>
-        <.voice_input id={"standalone-controls-#{@patch}"} legacy_conversation={false} />
+        <div id={"standalone-controls-#{@patch}"}>
+          <.voice_input id="standalone-controls" legacy_conversation={false} />
+        </div>
       </form>
       <form id="component-form" phx-submit="send">
         <.voice_input id="component-voice" hook="VoiceInput" legacy_conversation={false}>
