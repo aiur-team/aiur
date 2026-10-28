@@ -32,6 +32,9 @@ defmodule Aiur.Conversation.History do
     with {:ok, _} <- HistoryReader.snapshot(ref), do: {:ok, Ref.conversation_id(ref)}
   end
 
+  @spec snapshot(Ref.t() | String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
+  def snapshot(ref), do: HistoryReader.snapshot(ref)
+
   @doc "Resolve a durable worker conversation to its verified listener target. Executor conversations are not worker targets."
   @spec worker_identity(String.t()) :: {:ok, Aiur.TrackerIdentity.t()} | {:error, atom()}
   defdelegate worker_identity(id), to: HistoryReader
