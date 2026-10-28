@@ -136,7 +136,7 @@ defmodule AiurWeb.StreamdeckLive.ScreenComponents do
                   <span class="sd-mini-lbl">{build_label(segment)}</span>
                   <span class="sd-mini-r"></span>
                 </span>
-                <span class="sd-mini-bar" role="img" aria-label={build_label(segment)}><i style={build_style(segment)}></i></span>
+                <span class="sd-mini-bar" role="img" aria-label={build_label(segment)}><i :if={is_map(segment.build) and is_number(segment.build.percent)} style={build_style(segment)}></i></span>
               </div>
 
               <div

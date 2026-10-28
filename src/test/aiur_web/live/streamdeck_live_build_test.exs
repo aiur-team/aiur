@@ -20,12 +20,15 @@ defmodule AiurWeb.StreamdeckLiveBuildTest do
     EndpointStubs.put(streamdeck_build_queue_fun: fn -> %{status: :running, queues: []} end)
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     assert has_element?(view, ~s([data-meter="build"][data-observed="false"] [aria-label="No build order"]))
+    refute has_element?(view, ~s([data-meter="build"] i))
     EndpointStubs.put(streamdeck_build_queue_fun: fn -> %{status: :disabled} end)
     send(view.pid, {:build_queue_changed, :disabled})
     assert has_element?(view, ~s([data-meter="build"][data-observed="false"] [aria-label="Build unavailable"]))
+    refute has_element?(view, ~s([data-meter="build"] i))
     EndpointStubs.put(streamdeck_build_queue_fun: fn -> queue_model(nil) end)
     send(view.pid, {:build_progress_changed, %{}})
     assert has_element?(view, ~s([data-meter="build"][data-observed="false"] [aria-label="Build progress unavailable"]))
+    refute has_element?(view, ~s([data-meter="build"] i))
   end
 
   defp queue_model(percent) do

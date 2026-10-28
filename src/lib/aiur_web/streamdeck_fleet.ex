@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckFleet do
   @moduledoc false
-  alias AiurWeb.{StreamDeckGrid, StreamdeckProjection}
   alias AiurWeb.Streamdeck.Deck
+  alias AiurWeb.{StreamDeckGrid, StreamdeckProjection}
 
   @spec fleet(term()) :: map()
   def fleet(snapshot), do: %{"agents" => agents(snapshot)}
