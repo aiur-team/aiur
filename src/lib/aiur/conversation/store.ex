@@ -64,6 +64,19 @@ defmodule Aiur.Conversation.Store do
   @spec append_anchor_line(Path.t(), map()) :: :ok | {:error, term()}
   def append_anchor_line(dir, line), do: append_line(dir, "anchors.jsonl", line)
 
+  @doc "Syncs recovered anchor records before the writer acknowledges or broadcasts them."
+  @spec sync_anchors(Path.t()) :: :ok | {:error, term()}
+  def sync_anchors(dir) do
+    with :ok <- StoreFiles.check(dir),
+         {:ok, fd} <- :file.open(Path.join(dir, "anchors.jsonl"), [:read, :write, :binary, :raw]) do
+      try do
+        :file.sync(fd)
+      after
+        :file.close(fd)
+      end
+    end
+  end
+
   @spec read_head(Path.t()) :: {:ok, map()} | {:error, term()}
   def read_head(dir) do
     with :ok <- StoreFiles.check(dir),

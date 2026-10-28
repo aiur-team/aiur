@@ -9,12 +9,18 @@ defmodule Aiur.Conversation.AnchorResolverTest do
   import TestSupport
 
   defmodule RecoveringStore do
-    alias Aiur.Conversation.Store
+    alias Aiur.Conversation.{Store, TestSupport}
     defdelegate prepare(dir, ref), to: Store
     defdelegate rebuild_head(dir), to: Store
     defdelegate stream_entries(dir, from, to), to: Store
     defdelegate append_entries(dir, head, entries), to: Store
     defdelegate append_session_line(dir, line), to: Store
+
+    def sync_anchors(dir) do
+      control = Application.fetch_env!(:aiur, :conversation_test_control)
+      action = Agent.get_and_update(control, &{Map.get(&1, :anchor_sync_action), Map.delete(&1, :anchor_sync_action)})
+      if action == :fail, do: {:error, :eio}, else: Store.sync_anchors(dir)
+    end
 
     def append_anchor_line(dir, line) do
       control = Application.fetch_env!(:aiur, :conversation_test_control)
@@ -22,8 +28,9 @@ defmodule Aiur.Conversation.AnchorResolverTest do
 
       case action do
         :uncertain ->
-          Store.append_anchor_line(dir, line)
-          {:error, :eio}
+          Agent.update(control, &Map.put(&1, :anchor_sync_action, :fail))
+          {:ambiguous, reason} = Aiur.Journal.append(Path.join(dir, "anchors.jsonl"), line, file_ops: TestSupport.FailedSync)
+          {:error, reason}
 
         :partial ->
           File.write!(Path.join(dir, "anchors.jsonl"), "{torn", [:append])
@@ -223,6 +230,15 @@ defmodule Aiur.Conversation.AnchorResolverTest do
       Agent.update(ctx.control, &Map.put(&1, :anchor_action, action))
       publish(ctx, bus(ctx, id, "branch.push"))
       assert {:error, :degraded} = flush(ctx.ref)
+      conversation_id = Ref.conversation_id(ctx.ref)
+      refute_received {:anchor_added, ^conversation_id, %{"event" => %{"event_id" => ^id}}}
+
+      if action == :uncertain do
+        # A complete line is still unacknowledged until recovery fsync succeeds.
+        assert {:error, :degraded} = flush(ctx.ref)
+        refute_received {:anchor_added, ^conversation_id, %{"event" => %{"event_id" => ^id}}}
+      end
+
       assert :ok = flush(ctx.ref)
       assert Enum.count(anchors(ctx), &(&1["event"]["event_id"] == id)) == 1
       conversation_id = Ref.conversation_id(ctx.ref)

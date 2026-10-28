@@ -25,9 +25,14 @@ defmodule Aiur.Conversation.JournalAnchors do
     end
 
     case Aiur.Journal.replay(Path.join(state.dir, "anchors.jsonl"), validator) do
-      {:ok, ids, nil} -> {:ok, MapSet.new(ids)}
-      {:ok, _, corruption} -> {:error, corruption}
-      error -> error
+      {:ok, ids, nil} ->
+        with :ok <- state.store.sync_anchors(state.dir), do: {:ok, MapSet.new(ids)}
+
+      {:ok, _, corruption} ->
+        {:error, corruption}
+
+      error ->
+        error
     end
   end
 
