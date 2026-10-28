@@ -13,6 +13,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
 
   alias Aiur.{Conversation.History, Orchestrator, PollCadence}
   alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.Streamdeck.Deck.TicketPage
   alias Phoenix.LiveView.Socket
 
   @spec refresh_grid(Socket.t()) :: Socket.t()
@@ -69,6 +70,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     |> assign(:grid_dial_value, dial_value)
     |> assign(:selected_identifier, selected_identifier)
     |> assign(:sd_active, sd_active)
+    |> assign(:sd_ticket, if(sd_active, do: TicketPage.read(to_string(sd_active.identifier))))
     |> assign(:keys, key_descriptors(grid.agents, column_offset))
     |> assign(:screen, screen_descriptors(grid, usage, page, mode_pager_focus(socket.assigns.sd_mode, sd_active)))
     |> refresh_knobs()

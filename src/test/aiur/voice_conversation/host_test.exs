@@ -22,7 +22,8 @@ defmodule Aiur.VoiceConversation.HostTest do
     assert config.provider == {Aiur.VoiceConversation.Provider, [agent_id: "agent_demo"]}
     assert config.credentials == Aiur.VoiceConversation.Credentials
     assert config.agent_channel == nil
-    assert config.command_source == nil
+    assert config.briefing_source == Aiur.VoiceConverse.Host.BriefingSource
+    assert config.command_source == Aiur.VoiceConverse.Host.CommandSource
     assert config.llm == "chosen-model"
     assert config.roles_dir == "/tmp/voice-roles"
     assert config.transcript_root == "/tmp/voice-transcripts"
@@ -36,6 +37,18 @@ defmodule Aiur.VoiceConversation.HostTest do
     assert Enum.map(specs, & &1.name) == ["get_status", "get_details", "record_summary", "end_conversation"]
     details = Enum.find(specs, &(&1.name == "get_details"))
     assert details.parameters["properties"]["section"]["enum"] == ["transcript", "agents", "decisions"]
+  end
+
+  test "selects OpenAI without an Agent id and keeps the shared read-only tools" do
+    changeset = Settings.changeset(%Settings{}, %{"provider" => "openai_realtime", "llm" => "gpt-realtime-2.1", "cloud_disclosure_accepted" => true, "voice_id" => "cedar"})
+    assert changeset.valid?
+    settings = Ecto.Changeset.apply_changes(changeset)
+    assert {:ok, config} = VoiceConversation.build_config(settings, "/tmp/voice-transcripts")
+    assert config.provider == {Aiur.VoiceConversation.OpenAIProvider, [voice_id: "cedar"]}
+    assert config.llm == "gpt-realtime-2.1"
+    assert Enum.map(VoiceConverse.Tools.specs(config, :executor), & &1.name) == ["get_status", "get_details", "record_summary", "end_conversation"]
+    assert VoiceConverse.availability(config) == :ok
+    refute Settings.changeset(%Settings{}, %{"provider" => "unknown"}).valid?
   end
 
   test "an absent Agent id leaves the feature unavailable" do

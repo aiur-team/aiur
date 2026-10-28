@@ -2,7 +2,9 @@
 
 ## elevenlabs
 
-Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
+Dashboard and Stream Deck dictation stream audio to Aiur, which calls ElevenLabs with this credential. Agent conversation can stream synthesized replies back to the browser. Neither client holds the key.
+
+The separate Executor voice prototype can also use OpenAI; see [voice configuration](/reference/configuration-voice).
 
 This optional section configures voice features; `aiur init` records declines as `enabled: false` and skips them on resume.
 

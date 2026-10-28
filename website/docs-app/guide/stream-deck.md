@@ -18,10 +18,10 @@ renderer adopt this model.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
-| **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
+| **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
@@ -30,9 +30,14 @@ The physical Command ticket page shares the desktop Build status and PR/CI, leav
 | --- | --- |
 | Pause | The label reflects the selected agent's current state. |
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
-| Read-only Dashboard | Pause and Mic are disabled; Logs and Settings stay available because they change what you see, not what the fleet does. |
+| Read-only Dashboard | Pause, priority and Mic are disabled; Commands, links, Logs and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
-| Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star and in Grid ranking. |
+| Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. Server-rendered keys show `Queued #k`. The orchestrator priority star is separate. |
+
+Multiple detents in one frame produce one move. The strip reports “not in a queue”,
+“plan order is fixed”, “queue disabled”, or “outcome unknown”; unknown outcomes are
+never retried. Physical dial routing requires the server-input sidecar update
+(SD-103).
 
 ## Read the Logs surface
 
@@ -72,20 +77,27 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | State | Meaning | Display |
 | --- | --- | --- |
 | Fresh | Recent reading | Solid green bar, slightly brighter at 100%. |
-| Unknown | No reading has ever arrived | Full-width flat grey bar and dot, distinct from measured progress. |
+| Unknown | No reading has arrived | Ticket keys show no bar; other progress surfaces use a neutral grey track. |
 | 0% | A real zero reading | Short solid stub, so "just started" never looks like "no reading". |
 
 A bar that drops to an empty track and back is a bug; report it.
 
-## How Grid chooses agent keys
+## Ticket view
 
 | Rule | Order |
 | --- | --- |
-| State buckets | `alert` → `stuck` → `running` → `paused` → `queued` |
-| Queued tickets | Dependency-ready before blocked. |
+| Agent states | `error` → `command` → `retrying` → `active` → `ci_wait` → `usage_limited` → `parked` → `paused` → reason states → unknown |
+| Ties | Ticket number ascending within each state group. |
+| Queued backlog | Filed Build `plan` rows follow agents, in queue position order; duplicates appear once. |
 | Slot order | Column-major: 1/2, then 3/4, then 5/6, then 7/8. |
 | Paging | Moves by columns so each pair stays together. |
 
+The default Ticket view reads the same Now and planned rows as the Build page.
+If that read fails, the key area shows “Tickets unavailable” until it recovers.
+Agent-state labels match Build, including “Waiting for CI”, “Awaiting command” and “State unknown”.
+
+Missing progress draws no bar and never becomes 0%. Tickets without an agent appear
+only when queued; pressing a key opens that ticket’s deck page.
 The order is the same in the browser emulator and on the physical deck.
 
 ## Physical sidecar status
@@ -172,13 +184,16 @@ Voice lives in the agent view, reached by pressing an agent key in Grid.
 
 | Key | Slot | Behavior |
 | --- | --- | --- |
-| Pause/Play | First | Pauses or resumes the selected agent. |
-| Logs | Second | Opens the Logs surface. |
-| Mic | Third | Press-and-hold; live only while held. |
-| Settings | Fourth | Opens the microphone picker on the deck, or a text pane in the emulator; dial A backs out of either. |
-| Commands | Fifth | Opens the agent's Command history; always present, so its absence can never be mistaken for "no Commands". |
-| Send | Sixth, once dictation has text | Delivers the accumulated text to the agent. |
-| Cancel | Seventh, once dictation has text | Discards the accumulated text. |
+| Pause/Play | First | Pauses or resumes the selected agent; physical tickets without an agent offer Implement here. |
+| Priority up/down | Second/third | Moves a ticket one place in a list queue; disabled at edges or outside a list queue. |
+| Mic | Seventh | Press-and-hold; live only while held. |
+| Settings | Eighth | Opens the microphone picker on the deck, or a text pane in the emulator; dial A backs out of either. |
+| Commands | Fourth | Opens the agent's Command history; always present, so its absence can never be mistaken for "no Commands". |
+| Open PR / Dashboard | Fifth/sixth | Opens the configured PR or Build ticket modal on the sidecar host; browser emulator uses a new tab. |
+| Send | Fifth, once dictation has text | Delivers the accumulated text to the agent. |
+| Cancel | Sixth, once dictation has text | Discards the accumulated text. |
+
+Dial D opens Logs. A missing PR disables Open PR. Link keys accept only HTTP(S) URLs. Rebuild the sidecar after updating Aiur to use the ticket action layout.
 
 The emulator shows a text pane because the microphones are attached to the machine running the sidecar, which a browser tab cannot see.
 
@@ -308,7 +323,7 @@ PipeWire and PulseAudio microphones are supported, including ALSA, USB, and Blue
 
 ## Answer agent Commands
 
-The Commands key on the agent row opens the focused agent's Command history — past Commands newest-first, active ones highlighted — and is always present, so its absence can never be mistaken for "no Commands".
+The Commands key on the ticket page opens the focused agent's Command history — past Commands newest-first, active ones highlighted — and is always present, so its absence can never be mistaken for "no Commands".
 
 | Key | Meaning |
 | --- | --- |

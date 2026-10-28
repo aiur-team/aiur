@@ -33,6 +33,35 @@ defmodule Aiur.VoiceConversation.CredentialsTest do
     assert Credentials.fetch(:unknown, :connect) == {:error, :missing}
   end
 
+  test "OpenAI probe returns presence and connect resolves only the daemon key", %{path: path} do
+    previous = System.get_env("OPENAI_API_KEY")
+
+    on_exit(fn ->
+      if previous, do: System.put_env("OPENAI_API_KEY", previous), else: System.delete_env("OPENAI_API_KEY")
+    end)
+
+    File.write!(path, """
+    tracker:
+      kind: memory
+    elevenlabs:
+      enabled: false
+    voice:
+      conversation:
+        provider: openai_realtime
+        llm: gpt-realtime-2.1
+        cloud_disclosure_accepted: true
+    """)
+
+    Workflow.set_workflow_file_path(path)
+    System.put_env("OPENAI_API_KEY", "test-openai-voice")
+    assert Credentials.fetch(:openai_realtime, :probe) == {:ok, :present}
+    assert Credentials.fetch(:openai_realtime, :connect) == {:ok, "test-openai-voice"}
+    assert Aiur.VoiceConversation.availability() == :ok
+    System.put_env("OPENAI_API_KEY", " ")
+    assert Credentials.fetch(:openai_realtime, :probe) == {:error, :missing}
+    assert Aiur.VoiceConversation.availability() == {:unavailable, :missing_credentials}
+  end
+
   test "disabled host credential refuses sessions even with configured secret", %{path: path} do
     File.write!(path, """
     tracker:

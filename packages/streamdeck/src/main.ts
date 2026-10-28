@@ -268,6 +268,8 @@ export const main = async (): Promise<void> => {
   setInterval(() => controller.tickTyping(), TYPING_TICK_MS).unref();
 
   const controller = createPhysicalController({
+    spawn,
+    openError: (reason) => debug("ticket.open.failed", { reason }),
     grid: () => latestGrid,
     channel: () => channel,
     voice: () => voicePort,
