@@ -10,8 +10,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
   import Aiur.Orchestrator.StatusReport.RowFacts
 
-  alias Aiur.Config.SettingsSnapshot
   alias Aiur.CodingAgent
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.CapacityBinding
