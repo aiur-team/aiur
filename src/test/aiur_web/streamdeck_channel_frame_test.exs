@@ -1,5 +1,7 @@
 defmodule AiurWeb.StreamdeckChannelFrameTest do
   use AiurWeb.StreamdeckChannelCase
+  alias Aiur.TestSupport.BuildHome.UsageInputs
+  alias AiurWeb.Streamdeck.FrameUpdates
 
   test "join sends a full SVG frame and raw inputs coalesce into one full frame" do
     socket = joined_socket()
@@ -72,12 +74,52 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     assert [{:fleet, _id}] = :sys.get_state(socket.channel_pid).assigns.deck_nav.stack
   end
 
+  test "a meter update behind a pending fleet flush reaches the last physical frame" do
+    meter = start_supervised!({Agent, fn -> 20 end})
+
+    put_endpoint_config(
+      streamdeck_usage_load_fun: fn _, _ ->
+        percent = Agent.get(meter, & &1)
+        UsageInputs.inputs(%{meters: %{codex: UsageInputs.snapshot(:codex, %{"primary" => UsageInputs.window(percent)})}})
+      end
+    )
+
+    socket = joined_socket()
+    assert_push("frame", initial)
+    send(socket.channel_pid, :fleet_changed)
+    fleet = :sys.get_state(socket.channel_pid).assigns.fleet_flush
+    assert is_reference(fleet)
+    Agent.update(meter, fn _ -> 90 end)
+    send(socket.channel_pid, {:provider_meter_changed, %ProviderMeterSnapshot{}})
+    pending = :sys.get_state(socket.channel_pid)
+    assert pending.assigns.fleet_flush == fleet
+
+    send(socket.channel_pid, {:flush_fleet, fleet})
+    :sys.get_state(socket.channel_pid)
+    assert_push("frame", before_usage)
+    assert before_usage.strip == initial.strip
+
+    send(socket.channel_pid, {:flush_usage, pending.assigns.usage_flush})
+    updated = :sys.get_state(socket.channel_pid)
+    assert updated.assigns.deck_usage["codex"]["windows"]["session"]["used_percent"] == 90
+    assert_push("usage", %{"codex" => %{"windows" => %{"session" => %{"used_percent" => 90}}}})
+    assert is_reference(updated.assigns.fleet_flush)
+    flush_frame(socket)
+    assert_push("frame", latest)
+    assert latest == FrameUpdates.frame(:sys.get_state(socket.channel_pid))
+    refute latest.strip == initial.strip
+    assert Enum.find(latest.strip, &(&1.x == 200)).svg =~ "10%"
+  end
+
   test "usage and fleet changes refresh frames and stale flushes are ignored" do
     socket = joined_socket()
     assert_push("frame", _initial)
     send(socket.channel_pid, {:provider_meter_changed, %ProviderMeterSnapshot{}})
     state = :sys.get_state(socket.channel_pid)
     assert is_reference(state.assigns.usage_flush)
+    assert state.assigns.fleet_flush == nil
+    send(socket.channel_pid, {:flush_usage, state.assigns.usage_flush})
+    state = :sys.get_state(socket.channel_pid)
     assert is_reference(state.assigns.fleet_flush)
     send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
     :sys.get_state(socket.channel_pid)
