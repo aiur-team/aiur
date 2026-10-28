@@ -40,10 +40,11 @@ defmodule AiurWeb.Streamdeck.Deck.MetersDetailTest do
     assert image.svg =~ "— · —"
     assert image.svg =~ "unknown-hatch"
     assert length(Regex.scan(~r/data-part="remaining-fill"/, image.svg)) == 1
-    frame = MeterDetail.frame(result, %{"summary_label" => "personal · closest of 1"}, DateTime.to_unix(I.now(), :millisecond))
-    assert length(frame.keys) == 8
-    assert Enum.count(frame.keys, & &1) == 2
-    assert hd(frame.strip).label == "claude · personal · closest of 1"
+    {faces, regions} = MeterDetail.compose(result, %{"summary_label" => "personal · closest of 1"}, DateTime.to_unix(I.now(), :millisecond), 0)
+    assert hd(faces).account == account
+    assert length(faces) == 8
+    assert Enum.count(faces, & &1) == 2
+    assert hd(regions).label == "claude · personal · closest of 1"
   end
 
   test "single-account provider uses its own observation and ages it with the shared cutoff" do
