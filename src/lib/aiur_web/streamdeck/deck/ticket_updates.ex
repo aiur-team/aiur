@@ -32,7 +32,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketUpdates do
   @spec failed(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def failed(socket), do: complete(socket, TicketPage.unavailable(socket.assigns.ticket_task.id))
 
-  @spec stop(Phoenix.Socket.t()) :: :ok
+  @spec stop(term()) :: :ok
   def stop(%{assigns: %{ticket_task: %{task: task}}}) do
     Task.shutdown(task, :brutal_kill)
     :ok

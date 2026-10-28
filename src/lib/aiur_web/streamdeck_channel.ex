@@ -258,8 +258,6 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed, :build_changes], do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
 
-  def handle_info({:build_changes, _changes}, socket), do: {:noreply, TicketUpdates.refresh(socket)}
-
   def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
 
@@ -270,7 +268,6 @@ defmodule AiurWeb.StreamdeckChannel do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
     socket = assign(socket, transcript_relay: relay)
-    :ok = BuildIndex.subscribe()
     socket = TicketUpdates.refresh(socket)
     push(socket, "logs", logs_projection(identifier))
     push(socket, "commands", commands_projection(identifier))
