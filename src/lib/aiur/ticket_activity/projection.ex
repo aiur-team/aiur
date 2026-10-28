@@ -45,12 +45,13 @@ defmodule Aiur.TicketActivity.Projection do
   @spec refresh_members(t(), [TrackerIdentity.t()], DateTime.t()) :: t()
   def refresh_members(%__MODULE__{} = state, identities, now \\ DateTime.utc_now())
       when is_list(identities) do
-    keys =
-      identities
-      |> Enum.filter(&TrackerIdentity.joinable?/1)
-      |> Enum.map(&key/1)
-      |> MapSet.new()
+    keys = identities |> Enum.map(&key/1) |> Enum.reject(&is_nil/1) |> MapSet.new()
+    refresh_keys(state, keys, now)
+  end
 
+  @doc false
+  @spec refresh_keys(t(), MapSet.t(), DateTime.t()) :: t()
+  def refresh_keys(state, keys, now) do
     entries =
       Map.new(state.entries, fn {entry_key, entry} ->
         retention = if MapSet.member?(keys, entry_key), do: :current, else: :recent
@@ -190,9 +191,8 @@ defmodule Aiur.TicketActivity.Projection do
   def snapshots(%__MODULE__{} = state, now \\ DateTime.utc_now()) do
     entries =
       state.entries
-      |> Map.values()
-      |> Enum.sort_by(fn entry -> key(entry.identity) end)
-      |> Enum.map(&Snapshot.entry(&1, state, now))
+      |> Enum.sort_by(fn {key, _entry} -> key end)
+      |> Enum.map(fn {_key, entry} -> Snapshot.entry(entry, state, now) end)
 
     %{
       generation: state.generation,
