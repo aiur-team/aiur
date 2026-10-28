@@ -87,8 +87,9 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   def sort(agents, settings) do
     case settings["default_sort"] do
       "title" -> Enum.sort_by(agents, &String.downcase(to_string(&1[:title] || &1["title"] || "")))
-      "priority" -> Enum.sort_by(agents, &{(&1[:priority] || &1["priority"]) != true, to_string(&1.identifier)})
-      _state -> Enum.sort_by(agents, &{to_string(&1.bucket), to_string(&1.identifier)})
+      "priority" -> Enum.sort_by(agents, &((&1[:priority] || &1["priority"]) != true))
+      # The grid already owns bucket order and queue ranks.
+      _state -> agents
     end
   end
 

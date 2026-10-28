@@ -1,6 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.SettingsTest do
   use ExUnit.Case, async: true
   alias AiurWeb.Streamdeck.Deck.{Settings, SettingsMenu}
+  alias AiurWeb.Streamdeck.SettingsUpdates
 
   setup do
     root = Path.join(System.tmp_dir!(), "deck-settings-#{System.unique_integer([:positive])}")
@@ -52,5 +53,19 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsTest do
     devices = %{"mics" => [%{"id" => "first", "label" => "First microphone"}]}
     assert SettingsMenu.summary("mic_id", settings, devices) == "missing: unplugged"
     assert SettingsMenu.choices("mic_id", settings, devices) == [%{label: "missing: unplugged", value: "unplugged"}, %{label: "First microphone", value: "first"}]
+  end
+
+  test "state and priority sorts retain canonical bucket and queue order within groups" do
+    agents = [
+      %{identifier: "AIUR-3", bucket: :alert, priority: false},
+      %{identifier: "AIUR-9", bucket: :stuck, priority: true},
+      %{identifier: "AIUR-10", bucket: :running, priority: true},
+      %{identifier: "AIUR-2", bucket: :queued, priority: false},
+      %{identifier: "AIUR-1", bucket: :queued, priority: false}
+    ]
+
+    assert SettingsUpdates.sort(agents, %{"default_sort" => "state"}) == agents
+    sorted = SettingsUpdates.sort(agents, %{"default_sort" => "priority"})
+    assert Enum.map(sorted, & &1.identifier) == ["AIUR-9", "AIUR-10", "AIUR-3", "AIUR-2", "AIUR-1"]
   end
 end
