@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckChannelSettingsTest do
   use AiurWeb.StreamdeckChannelCase
   alias AiurWeb.Streamdeck.Deck.Settings
+  alias AiurWeb.Streamdeck.FrameUpdates
   @moduletag timeout: 15_000
 
   setup do
@@ -19,8 +20,8 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     ref = push(socket, "input", %{"kind" => "dial_long_press", "index" => 3})
     assert_reply(ref, :ok, %{}, 1_000)
     state = :sys.get_state(socket.channel_pid)
-    frame = AiurWeb.Streamdeck.FrameUpdates.frame(state)
-    assert Enum.map(frame.keys, & &1.label) |> Enum.join(" ") =~ "Brightness"
+    frame = FrameUpdates.frame(state)
+    assert Enum.map_join(frame.keys, " ", & &1.label) =~ "Brightness"
     refute Enum.any?(frame.keys, &String.contains?(&1.label, "TestMic"))
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{}, 1_000)
@@ -72,7 +73,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
       assert File.read!(path) == original
       state = :sys.get_state(socket.channel_pid)
       assert state.assigns.deck_settings["brightness"] == 70
-      frame = AiurWeb.Streamdeck.FrameUpdates.frame(state)
+      frame = FrameUpdates.frame(state)
       assert hd(frame.strip).label =~ "Not saved"
       assert hd(frame.strip).svg =~ "Not saved"
     after
@@ -93,7 +94,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     ref = push(socket, "settings_set", %{"default_sort" => "title"})
     assert_reply(ref, :ok, %{"default_sort" => "title"}, 1_000)
     state = :sys.get_state(socket.channel_pid)
-    frame = AiurWeb.Streamdeck.FrameUpdates.frame(state)
+    frame = FrameUpdates.frame(state)
     assert hd(frame.keys).label =~ "AIUR-2"
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "ticket"}, 1_000)
@@ -134,7 +135,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     assert_reply(ref, :ok, %{}, 1_000)
     state = :sys.get_state(socket.channel_pid)
     assert state.assigns.settings_menu.cursor == 1
-    frame = AiurWeb.Streamdeck.FrameUpdates.frame(state)
+    frame = FrameUpdates.frame(state)
     assert hd(frame.keys).label == "missing: mic-20 · Selected"
     assert hd(frame.keys).svg =~ ">missing:"
   end
