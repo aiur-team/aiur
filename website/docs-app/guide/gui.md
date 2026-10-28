@@ -225,27 +225,33 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 
 Open a conversation drawer, choose **ElevenLabs** or **OpenAI**, enter its model,
 and press **Talk to Executor** to start a continuous spoken session. Change the
-provider between sessions without editing config or restarting. Both credentials
-and the ElevenLabs Agent id must be configured for a two-provider comparison. The voice control
+provider between sessions without editing config or restarting.
+
+Both credentials and the ElevenLabs Agent id must be configured for a two-provider comparison. The voice control
 always targets the Executor, regardless of the worker shown in the drawer.
 
 The drawer shows each provider's cumulative used or reserved minutes. Comparison
 limits are 45 minutes each for OpenAI and ElevenLabs on this runtime, separate
 from the existing shared daily cap. Starts at the comparison cap are refused;
-remaining minutes also shorten the session's automatic stop. A reservation is
+remaining minutes also shorten the session's automatic stop.
+
+A reservation is
 written before connecting. Failed starts and interrupted sessions without a saved
 end line charge the whole reservation, including after a daemon restart.
 
 Expand **Compare providers and record Kevin’s rating** for side-by-side session
 lines: model, first audio, duration, budget cost estimate, rating (1–5) and note.
+
 First audio measures server session startup to first received agent audio, before
-browser playback; sessions with no audio show unavailable. Ratings and redacted
-notes survive reloads. The private `comparison.json` sits beside the transcripts;
+browser playback; sessions with no audio show unavailable.
+
+Ratings and redacted notes survive reloads. The private `comparison.json` sits beside the transcripts;
 no audio is stored. Stop the current session before choosing another provider.
 
 The estimates allocate USD 8 / 45 OpenAI minutes and USD 8 / 45 ElevenLabs
 minutes; these are evaluation budget rates, not vendor tariffs or invoice limits.
 The ledger starts at deployment and excludes earlier provider/account usage.
+
 Before each attended comparison, reconcile actual prior spend and account usage
 against the USD 25 approval on #4084; record each delta there. End both sessions
 after evaluation and disable the demo. Kevin's choice (or “not yet”) belongs on
