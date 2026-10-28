@@ -102,6 +102,12 @@ defmodule Aiur.Conversation.AnchorResolverTest do
     Map.merge(ctx, %{ref: ref, identity: identity, dir: Path.join(ctx.root, Ref.conversation_id(ref)), exchange: exchange, resolver: resolver})
   end
 
+  test "payload-aware labels are persisted in journal anchors", ctx do
+    publish(ctx, Map.put(bus(ctx, 101, "branch.push"), :sha, "3f9a1c012345"))
+    assert :ok = flush(ctx.ref)
+    assert [%{"label" => "Pushed 3f9a1c0", "kind" => "push"}] = anchors(ctx)
+  end
+
   test "live progress with an existing tool entry persists one exact anchor and notifies after fsync", ctx do
     append_tool(ctx, "tool-one")
     subscribe(ctx)
