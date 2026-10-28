@@ -23,7 +23,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
   @spec start(pid(), String.t(), [{String.t(), String.t()}], keyword()) :: {:ok, pid()} | {:error, term()}
   def start(session, url, headers, opts \\ []) do
     with {:ok, target} <- target(url),
-         {:ok, socket} <- GenServer.start(__MODULE__, session) do
+         {:ok, socket} <- GenServer.start(__MODULE__, {session, Keyword.get(opts, :message_tag, @message_tag)}) do
       # Parse before starting and use a redacted target struct in the cast, so
       # neither init nor the GenServer's last message can expose the signed URL.
       connect_fun = Keyword.get(opts, :connect_fun, &mint_connect/4)
@@ -59,12 +59,14 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
   end
 
   @impl true
-  def init(session) do
+  def init({session, message_tag}) do
+    Process.flag(:sensitive, true)
     Process.monitor(session)
 
     {:ok,
      %{
        session: session,
+       message_tag: message_tag,
        conn: nil,
        ref: nil,
        websocket: nil,
@@ -210,7 +212,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
   defp deliver(state, frames) do
     Enum.reduce_while(frames, {:ok, state}, fn
       {:text, text}, {:ok, state} ->
-        send(state.session, {@message_tag, :text, text})
+        send(state.session, {state.message_tag, :text, text})
         {:cont, {:ok, state}}
 
       {:ping, data}, {:ok, state} ->
@@ -221,7 +223,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
 
       {:close, code, reason}, {:ok, state} ->
         state = send_close_frame(state, code || 1_000, reason || "")
-        send(state.session, {@message_tag, :closed, code})
+        send(state.session, {state.message_tag, :closed, code})
         {:halt, {:closed, state}}
 
       _frame, result ->
@@ -252,7 +254,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
   defp notify_transport_failed(state) do
     cancel_timer(state.handshake_timer)
     close_connection(state.conn)
-    send(state.session, {@message_tag, :error, :transport})
+    send(state.session, {state.message_tag, :error, :transport})
     %{state | handshake_timer: nil}
   end
 
