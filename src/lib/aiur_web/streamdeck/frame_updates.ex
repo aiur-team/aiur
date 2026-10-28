@@ -75,6 +75,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     model =
       Map.merge(
         %{
+          nav: nav,
           grid: %{grid | agents: agents},
           usage: usage,
           page: Nav.page(nav),
@@ -102,6 +103,8 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
     Map.put(grid, :agents, agents)
   end
+
+  defp visible_items(%{view: :fleet}, _sections, agents), do: agents
 
   defp visible_items(%{view: :ticket, stack: []}, _sections, agents), do: agents
 

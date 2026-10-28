@@ -1,5 +1,4 @@
-# BrowserSpec, spec path (as the failure annotation names it), and tracking ticket. Tabs delimit fields.
+# BrowserSpec rows use spec path, title, line, and tracking ticket; legacy whole-spec rows use spec path and ticket. Tabs delimit fields.
 BrowserSpec	src/browser/tests/build-home-composer.browser.spec.mjs	#6089	2026-11-07
 BrowserSpec	src/browser/tests/build-home-render.browser.spec.mjs	#6153	2026-11-07
 BrowserSpec	src/browser/tests/build-home-conversation.browser.spec.mjs	#6089	2026-11-07
-BrowserSpec	src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs	#7027

@@ -109,8 +109,10 @@ turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
 out-of-range values reply `error` with `{reason: "invalid_input"}`.
 
 Accepted navigation replies `ok` with only `{view, page, chip_offset}` (zero-based page
-and chip offset). Queue-move refusals reply with an error `reason`; feedback
-arrives in the coalesced pushed `frame`, never in the input reply.
+and chip offset). Refused effects reply with an error `reason`; feedback
+and queue position changes arrive in the coalesced pushed `frame`, never in
+the input reply. This includes Fleet categories and their state-filtered drills.
+
 Each connection starts at `ticket`, page 0 and chip offset 0; reconnects reset
 navigation.
 
@@ -137,10 +139,16 @@ Open-ticket execution belongs to SD-301.
 `Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
 `%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
 plus the current drill count. The current grid supplies tickets and fleet
-categories; Feature/Epic section producers and the new renderer follow in
-SD-202–205. Physical pixels now use the server grid renderer; additional server views follow
-in the later view tickets. Emulator pixels switch in SD-104. Legacy channel
-controls remain available for emulator clients during that transition.
+categories. Fleet category IDs resolve `{:state, states}` ticket filters using the same
+filed, deduplicated population as `Tickets.keys/2`. `grid.fleet` contains the
+eight summary keys and daemon/capacity/global-pause strip metadata. Unknown
+states remain visible in Active; unavailable counts stay explicitly unavailable.
+
+Physical and emulator pixels use the shared server renderer, including Fleet.
+In the emulator grid, dial D press cycles Ticket → Feature → Epic → Fleet;
+turn, drag, wheel or arrow keys page the current view with clamped bounds.
+The focused command/log controls retain their mode-specific actions.
+The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
 

@@ -56,8 +56,10 @@ defmodule AiurWeb.Streamdeck.Render do
 
   @spec compose(map()) :: {[map() | nil], [map()]}
   def compose(model) do
-    if to_string(field(model, :surface, :grid)) == "grid",
-      do: Grid.compose(model),
-      else: Views.compose(model)
+    case {to_string(field(model, :surface, :grid)), field(field(model, :nav), :view)} do
+      {"grid", view} when view in [:fleet, "fleet"] -> Views.compose(model)
+      {"grid", _view} -> Grid.compose(model)
+      _focused -> Views.compose(model)
+    end
   end
 end

@@ -98,6 +98,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
       put_endpoint_config(streamdeck_build_queue_fun: fn -> model end)
       socket = %Phoenix.Socket{assigns: %{deck_nav: %Nav{selected: "4"}, streamdeck_authenticated: true, fleet_flush: nil}}
       assert {:reply, {:error, %{reason: ^reason}}, updated} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
+      assert updated.assigns.deck_toast == text
       assert is_reference(updated.assigns.fleet_flush)
       frame = FrameUpdates.frame(updated)
       assert hd(frame.strip).label == text

@@ -174,7 +174,7 @@ test('Units dictation streams a waveform into the composer and waits for Send', 
   await expect(drawer.getByRole('button', { name: 'Stop dictation' })).toHaveAttribute('aria-pressed', 'true')
   await page.evaluate(() => window.__voiceChannel.closeHandler())
   await expect(drawer.locator('[data-voice-status]')).toContainText(
-    'Speech-to-text connection closed. Try dictation again.'
+    'Speech-to-text connection was lost. Try dictation again.'
   )
   await expect(drawer.locator('[data-voice-mic]')).toHaveAttribute('aria-pressed', 'false')
   await expect.poll(() => page.evaluate(() => window.__voiceTrackStops)).toBe(2)
@@ -379,7 +379,7 @@ test('Units dictation recovers when the voice connection closes while capture st
   await page.evaluate(() => window.__finishWorkletLoad())
 
   await expect(drawer.locator('[data-voice-status]')).toContainText(
-    'Speech-to-text connection closed. Try dictation again.'
+    'Speech-to-text connection was lost. Try dictation again.'
   )
   await expect(drawer.locator('[data-voice-mic]')).toHaveAttribute('aria-pressed', 'false')
   await expect(drawer.locator('[data-voice-mic]')).toBeEnabled()
