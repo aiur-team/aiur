@@ -1,7 +1,8 @@
 defmodule AiurWeb.StreamdeckLogsTest do
   use ExUnit.Case, async: true
 
-  alias AiurWeb.{StreamdeckKeyFaceContract, StreamdeckLogs}
+  alias AiurWeb.Streamdeck.Render.Style
+  alias AiurWeb.StreamdeckLogs
 
   test "projects one key per bus event, an origin anchor first and LIVE last" do
     logs =
@@ -122,7 +123,7 @@ defmodule AiurWeb.StreamdeckLogsTest do
   test "every projected direction has a colour in the shared key-face contract" do
     colors =
       Map.new(~w(EMIT CONSUME INFO AGENT SYSTEM), fn direction ->
-        {direction, StreamdeckKeyFaceContract.direction_badge!(direction)["color"]}
+        {direction, Style.direction_badge!(direction)["color"]}
       end)
 
     assert Enum.all?(colors, fn {_direction, color} -> is_binary(color) and color != "" end),

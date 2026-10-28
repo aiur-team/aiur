@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state; the physical sidecar status below lists its current controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. The browser also retains its Command, Logs, Settings and Commands controls, drawn by that shared renderer.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -11,20 +11,21 @@ for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
 hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
 Dial 3 is reserved for the sidecar's instance switch.
 
-The current controls below remain visible until the sidecar and emulator
-renderer adopt this model.
+The browser retains the focused controls below. Its grid dial D turns pages
+and presses for the next window; dial A scrolls the shared provider panel.
+The current physical client uses the navigation controls described above.
 
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: scroll browser provider panel. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page tickets; press for next window. |
 | **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
-| **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
+| **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
-Physical ticket frames show the latest masked conversation across the strip; legacy Command pages retain Build status and PR/CI controls.
+Physical and emulator ticket frames show the latest masked conversation across the strip, with ticket controls on the keys.
 
 | Control state | Behavior |
 | --- | --- |
@@ -55,7 +56,7 @@ Logs runs from oldest at the far left to newest at the far right.
 | --- | --- |
 | Ticket opened | Leftmost origin; owns transcript lines before the first event. |
 | Event key | One ticket event: progress, phase, comment, CI, PR, decision, or attention. |
-| LIVE | Rightmost current view; uses the selected agent's lane, provider, ticket, and progress face. |
+| LIVE | Rightmost current view; opens the newest transcript row and uses green selection ink. |
 
 Transcript lines stay beneath the event active when they arrived; agent prose is not promoted into extra event keys.
 
@@ -80,7 +81,7 @@ The physical ticket strip updates retained and live entries through server frame
 | Tool call | Glyph gutter; muted after completion. |
 | Shell command | `$` prefix. |
 | Operator message | Coloured bar. |
-| File edit | Unified diff with tinted added and removed rows. |
+| File edit | File path, addition/deletion counts and changed lines. |
 
 ### Progress bars
 
@@ -90,7 +91,7 @@ The physical ticket strip updates retained and live entries through server frame
 | Unknown | No reading has arrived | Ticket keys show no bar; other progress surfaces use a neutral grey track. |
 | 0% | A real zero reading | Short solid stub, so "just started" never looks like "no reading". |
 
-A bar that drops to an empty track and back is a bug; report it.
+Stale readings retain their values with a dimmed bar.
 
 ## Ticket view
 
@@ -100,7 +101,7 @@ A bar that drops to an empty track and back is a bug; report it.
 | Ties | Ticket number ascending within each state group. |
 | Queued backlog | Filed Build `plan` rows follow agents, in queue position order; duplicates appear once. |
 | Slot order | Column-major: 1/2, then 3/4, then 5/6, then 7/8. |
-| Paging | Moves by columns so each pair stays together. |
+| Paging | Shared server pages hold eight keys; the last page leaves unused slots empty. |
 
 The default Ticket view reads the same Now and planned rows as the Build page.
 If that read fails, the key area shows “Tickets unavailable” until it recovers.

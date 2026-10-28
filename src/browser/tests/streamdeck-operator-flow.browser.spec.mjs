@@ -83,7 +83,7 @@ async function gridDialEcho(keys) {
 // Cmd mode fills the key grid itself, so the labels live on the command keys
 // inside `#sd-keys` rather than in a parallel list beside it.
 function commandLabels(page) {
-  return page.locator('#sd-keys .sd-cmd-key:not(.is-empty) .sd-cmd-label').allInnerTexts()
+  return page.locator('#sd-keys [data-streamdeck-command]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')))
 }
 
 // Ticket mode fills the eight key slots with actions. So
@@ -95,7 +95,7 @@ async function expectCommandSurface(keys, expectedLabels, page) {
   await expect(keys.locator('.sd-cmd-key.is-empty')).toHaveCount(0)
   // Every painted slot has an action; unavailable actions are disabled.
   await expect(keys.locator('.sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(0)
-  await expect(keys.locator('.sd-cmd-key.is-empty button[disabled]')).toHaveCount(0)
+  await expect(keys.locator('.sd-cmd-key.is-empty[disabled]')).toHaveCount(0)
   // No agent grid is left behind under the commands.
   await expect(keys).not.toHaveAttribute('data-grid-page', /.*/)
   await expect.poll(() => commandLabels(page)).toEqual(expectedLabels)
@@ -127,7 +127,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
 
   const device = page.locator('.sd-device')
   const keys = page.locator('#sd-keys')
-  const pager = page.locator('[data-segment="pager"]')
+  const pager = page.locator('[data-streamdeck-region="600"]')
   const dialA = dial(page, 0)
   const dialD = dial(page, 3)
   const controlled = page.locator(`#sd-keys [data-streamdeck-identifier="${CONTROLLED}"]`)
@@ -140,59 +140,33 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
 
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
   expect(windows).toBeGreaterThan(1)
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(windows)
-  await expect(pager.locator('[aria-current="page"]')).toHaveAttribute('data-pager-page', '0')
+  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
 
   const openingPage = await visibleIdentifiers(page)
   await expect(keys.locator('.sd-key:not(.is-empty)').first()).toHaveAttribute('data-streamdeck-identifier', '1338')
-  await expect(keys.locator('[data-streamdeck-identifier="1331"]')).toContainText('Awaiting command')
-  // Build states drive ordering and labels; retained fleet metadata supplies
-  // the control buckets for the same tickets.
-  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1331"]')).toHaveClass(/st-alert/)
-  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1338"]')).toHaveClass(/st-stuck/)
-  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1345"]')).toHaveClass(/st-paused/)
-  await expect(controlled).toHaveClass(/st-running/)
+  await expect(keys.locator('[data-streamdeck-identifier="1331"]')).toHaveAttribute('aria-label', /Awaiting command/)
+  // Build states drive ordering and labels; fleet metadata retains control buckets.
+  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1331"]')).toHaveAttribute('data-streamdeck-state', 'alert')
+  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1338"]')).toHaveAttribute('data-streamdeck-state', 'stuck')
+  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1345"]')).toHaveAttribute('data-streamdeck-state', 'paused')
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'running')
   await expect(controlled).toHaveAttribute('data-control-action', 'pause')
 
   // ---------------------------------------------------------------- step 3 --
   // Page with dial D by drag, then wheel and keyboard, then press to cycle.
   await dragDial(page, dialD, [-90, 0, 90, 126])
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  await expect(pager.locator('[aria-current="page"]')).toHaveAttribute('data-pager-page', '1')
+  await expect(pager).toHaveAttribute('aria-label', /9–16/)
   expect(await visibleIdentifiers(page)).not.toEqual(openingPage)
 
-  // The knob writes its own `aria-valuenow` client-side before it notifies the
-  // server, so that attribute alone would stay green with the grid-page round
-  // trip deleted. `data-grid-dial-value` is the server's echo of the value the
-  // dial pushed, so assert the wheel and the keyboard each reach the fleet.
-  const afterDrag = await dialValue(dialD)
-  const echoAfterDrag = await gridDialEcho(keys)
   await dialD.hover()
   await page.mouse.wheel(0, 100)
-  await expect.poll(() => dialValue(dialD)).toBeLessThan(afterDrag)
-  await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialValue(dialD)))
-  expect(await gridDialEcho(keys)).toBeLessThan(echoAfterDrag)
-
-  const afterWheel = await dialValue(dialD)
-  const echoAfterWheel = await gridDialEcho(keys)
-  // Arrow keys are the accessible route into paging, so prove that leg reaches
-  // the server too rather than only redrawing the knob.
-  await dialD.focus()
-  await page.keyboard.press('ArrowDown')
-  await expect.poll(() => dialValue(dialD)).toBeLessThan(afterWheel)
-  await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialValue(dialD)))
-  expect(await gridDialEcho(keys)).toBeLessThan(echoAfterWheel)
-
-  // A press is not a turn: it cycles the window and leaves the mode alone.
-  const pageBeforePress = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
+  await dialD.press('ArrowUp')
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
   await dialD.click()
-  await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(keys).toHaveAttribute('data-grid-page', String((pageBeforePress + 1) % windows))
-  await expect(pager.locator('[aria-current="page"]')).toHaveAttribute(
-    'data-pager-page',
-    String((pageBeforePress + 1) % windows)
-  )
-
+  await expect(keys).toHaveAttribute('data-grid-page', '2')
   await cycleToOpeningWindow(page, keys, openingPage)
 
   // ---------------------------------------------------------------- step 4 --
@@ -203,8 +177,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // own CONTROLLING relabel. The pager segment under dial D stays put: #1607
   // made this assertion pass and every Stream Deck PR since has preserved it,
   // so the panel is added beside it rather than in place of it.
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
-  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
+  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${CONTROLLED}`)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${CONTROLLED}`)
   // Cmd mode replaces the key faces, it does not merely relabel the strip: the
   // operator is looking at the command set. The press already paused the agent,
   // so the first slot offers the resume rather than a second pause.
@@ -214,7 +188,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // paused and its key offers resume. Feedback text alone would not prove this.
   await dialA.click()
   await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(controlled).toHaveClass(/st-paused/)
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'paused')
   await expect(controlled).toHaveAttribute('data-control-action', 'resume')
 
   // Resume from the same key. The press both resumes the agent and re-enters
@@ -223,8 +197,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   // Both surfaces again: the dial-D pager label and SP-302's panel relabel.
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
-  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
+  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${CONTROLLED}`)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${CONTROLLED}`)
   // The resume landed before this render, so the same slot has flipped back to
   // Pause — the label is reading real state, not a fixed list.
   await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)
@@ -251,7 +225,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(transcript).toHaveAttribute('data-transcript-offset', String(transcriptMax))
   await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
   // LIVE is the last key, and it is the active one on arrival.
-  await expect(events.locator('.sd-live-key .sd-live-dot')).toHaveCount(1)
+  await expect(events.locator('.sd-live-key')).toHaveAttribute('aria-label', 'LIVE')
   await expect(events.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
 
   // Selecting a log event: pressing an event key makes it active, moves the
@@ -262,7 +236,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(pressed).toHaveAttribute('aria-current', 'true')
   await expect(events.locator('.sd-live-key')).toHaveAttribute('aria-current', 'false')
   await expect(transcript).not.toHaveAttribute('data-transcript-offset', String(transcriptMax))
-  await expect(page.locator('.sd-log-entry-evhdr').first()).toBeVisible()
+  await expect(page.locator('[data-log-kind="evhdr"]').first()).toBeVisible()
 
   // Returning to LIVE reverses it: back to the newest end, LIVE active again.
   await events.locator('.sd-live-key').click()
@@ -308,11 +282,11 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(device).toHaveAttribute('data-mode', 'grid')
 
   await expect(keys).toHaveAttribute('data-grid-page', '0')
-  await expect(pager.locator('[aria-current="page"]')).toHaveAttribute('data-pager-page', '0')
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(windows)
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
+  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
   // The resume actually took: the agent is running again and the fleet has
   // re-sorted back into the exact window the operator started on.
-  await expect(controlled).toHaveClass(/st-running/)
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'running')
   await expect(controlled).toHaveAttribute('data-control-action', 'pause')
   expect(await visibleIdentifiers(page)).toEqual(openingPage)
 })

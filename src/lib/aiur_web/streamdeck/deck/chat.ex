@@ -1,22 +1,21 @@
 defmodule AiurWeb.Streamdeck.Deck.Chat do
-  @moduledoc "Channel-owned conversation tail, subscriptions and bounded refresh."
-  import Phoenix.Socket, only: [assign: 2]
-  import Phoenix.Channel, only: [push: 3]
+  @moduledoc "Owner-process conversation tail, subscriptions and bounded refresh."
+  import AiurWeb.Streamdeck.Deck.ChatOwner, only: [assign: 2]
   alias Aiur.Conversation.History
   alias AiurWeb.Build.{ConversationPayload, ConversationSource, Payload}
-  alias AiurWeb.Streamdeck.Deck.ChatLogs
+  alias AiurWeb.Streamdeck.Deck.ChatOwner
 
-  @spec init(Phoenix.Socket.t()) :: Phoenix.Socket.t()
+  @spec init(ChatOwner.socket()) :: ChatOwner.socket()
   def init(socket), do: assign(socket, deck_chat: nil, deck_chat_view: nil)
 
-  @spec open(Phoenix.Socket.t(), String.t()) :: Phoenix.Socket.t()
+  @spec open(ChatOwner.socket(), String.t()) :: ChatOwner.socket()
   def open(socket, id) do
     socket = clear(socket)
     state = %{source: ConversationSource.source(), ref: %{id: id}, last: nil, latest: nil, entries: [], timer: nil, token: make_ref(), dirty: false, polls: 0, subscribed: false}
     socket |> assign(deck_chat: state) |> refresh(true) |> schedule()
   end
 
-  @spec clear(Phoenix.Socket.t()) :: Phoenix.Socket.t()
+  @spec clear(ChatOwner.socket()) :: ChatOwner.socket()
   def clear(socket) do
     if state = socket.assigns[:deck_chat] do
       call(state, :unsubscribe, [state.ref])
@@ -26,7 +25,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
     init(socket)
   end
 
-  @spec info(Phoenix.Socket.t(), term()) :: Phoenix.Socket.t()
+  @spec info(ChatOwner.socket(), term()) :: ChatOwner.socket()
   def info(%{assigns: %{deck_chat: nil}} = socket, _), do: socket
 
   def info(socket, {:deck_chat_tick, token}) do
@@ -72,7 +71,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
       incoming = Enum.map(view.entries, &mask_entry/1)
       entries = if reset?, do: [], else: state.entries
       entries = (entries ++ incoming) |> Enum.reverse() |> Enum.uniq_by(& &1.id) |> Enum.take(100) |> Enum.reverse()
-      ChatLogs.push(socket, state.ref.id, entries)
+      ChatOwner.logs(socket, state.ref.id, entries)
       latest = List.last(incoming) || if(reset?, do: nil, else: state.latest)
       last = view[:last] || if(reset?, do: nil, else: state.last)
       socket |> assign(deck_chat: %{state | last: last, latest: latest, entries: entries}) |> push_view(view, latest)
@@ -121,9 +120,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
     state = socket.assigns.deck_chat
     # Entries come only from the shared source's allowlisted wire projection.
     message = Payload.scrub(%{v: 1, kind: "chat", id: state.ref.id, state: view.state, observed_at: ConversationPayload.millis(view[:observed_at]), latest: latest})
-    push(socket, "chat", message)
-    {:noreply, socket} = socket |> assign(deck_chat_view: message) |> AiurWeb.StreamdeckFleetUpdates.schedule()
-    socket
+    ChatOwner.publish(socket, message)
   end
 
   defp schedule(socket) do

@@ -10,7 +10,7 @@ defmodule AiurWeb.StreamDeckGrid do
   """
 
   alias Aiur.{AgentEvents, AgentList.Summaries, BuildOrder.Metadata, CodingAgent, Orchestrator}
-  alias AiurWeb.StreamdeckKeyFaceContract
+  alias AiurWeb.Streamdeck.Render.Style
 
   @columns_per_page 4
   @rows_per_column 2
@@ -47,7 +47,7 @@ defmodule AiurWeb.StreamDeckGrid do
     agents =
       fleet
       |> Enum.map(fn entry -> {entry, AgentEvents.streamdeck_bucket(entry)} end)
-      |> Enum.filter(fn {_entry, bucket} -> StreamdeckKeyFaceContract.known_state?(bucket) end)
+      |> Enum.filter(fn {_entry, bucket} -> Style.known_state?(bucket) end)
       |> Enum.map(fn {entry, bucket} -> {agent_payload(entry, bucket, readiness_fun), priority_rank(entry)} end)
       |> stable_rank()
 
@@ -153,7 +153,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp sort_key(%{bucket: bucket, identifier: identifier} = agent, priority_rank) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {StreamdeckKeyFaceContract.bucket_rank!(bucket), if(bucket == :queued and dependency_ready == true, do: 0, else: 1), priority_rank, Summaries.identifier_sort_key(identifier)}
+    {Style.bucket_rank!(bucket), if(bucket == :queued and dependency_ready == true, do: 0, else: 1), priority_rank, Summaries.identifier_sort_key(identifier)}
   end
 
   defp provider(entry) do

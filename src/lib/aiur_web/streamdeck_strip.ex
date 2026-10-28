@@ -7,11 +7,11 @@ defmodule AiurWeb.StreamdeckStrip do
   remains owned by its dedicated renderer.
 
   The command panel's accent, status wording and progress fill all come from
-  `AiurWeb.StreamdeckKeyFaceContract`, so the strip cannot say one thing while
+  `AiurWeb.Streamdeck.Render.Style`, so the strip cannot say one thing while
   the key for the same agent says another.
   """
 
-  alias AiurWeb.StreamdeckKeyFaceContract
+  alias AiurWeb.Streamdeck.Render.Style
   alias AiurWeb.StreamdeckLogs
 
   @type hint :: %{label: String.t(), older?: boolean(), newer?: boolean()}
@@ -22,7 +22,7 @@ defmodule AiurWeb.StreamdeckStrip do
     percent = agent |> Map.get(:progress_percent) |> percent()
     freshness = progress_freshness(percent, Map.get(agent, :progress_freshness))
     bucket = Map.fetch!(agent, :bucket)
-    state = StreamdeckKeyFaceContract.state!(bucket)
+    state = Style.state(bucket)
 
     %{
       icon: agent_icon(bucket),
@@ -30,8 +30,8 @@ defmodule AiurWeb.StreamdeckStrip do
       provider: Map.get(agent, :vendor, "unknown") |> to_string(),
       provider_logo: provider_logo(Map.get(agent, :vendor, "unknown")),
       title: Map.get(agent, :title, "Untitled agent") |> to_string(),
-      status: state["label"],
-      accent: state["accent"],
+      status: state.label,
+      accent: state.accent,
       percent: percent,
       progress_freshness: freshness,
       progress_colour: progress_colour(percent)
@@ -57,7 +57,7 @@ defmodule AiurWeb.StreamdeckStrip do
     %{
       shape: :evhdr,
       direction: direction,
-      colour: StreamdeckKeyFaceContract.direction_badge!(direction)["color"],
+      colour: Style.direction_badge!(direction)["color"],
       text: to_string(body),
       time: relative_time(timestamp)
     }
@@ -117,7 +117,7 @@ defmodule AiurWeb.StreamdeckStrip do
   defp percent(_value), do: nil
 
   defp progress_colour(nil), do: nil
-  defp progress_colour(percent), do: StreamdeckKeyFaceContract.progress_color(percent)
+  defp progress_colour(percent), do: Style.progress_color(percent)
 
   defp progress_freshness(nil, _freshness), do: :unknown
   defp progress_freshness(_percent, freshness) when freshness in [:stale, "stale"], do: :stale

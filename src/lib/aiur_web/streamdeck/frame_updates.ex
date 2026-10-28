@@ -8,33 +8,52 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def input(raw, socket) do
-    with {:ok, input} <- normalize(raw),
-         true <- Nav.valid_input?(input) do
-      sections = socket |> grid() |> Deck.navigation()
-      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
+    case transition(socket.assigns.deck_nav, raw, grid(socket)) do
+      {:ok, nav, effects} ->
+        dispatch(effects)
+        socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
+        {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
-      Enum.each(effects, fn
-        {:open_ticket, id} -> send(self(), {:streamdeck_frame_focus, id})
-        _effect -> :ok
-      end)
+        PriorityInput.reply(
+          socket,
+          %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)},
+          effects
+        )
 
-      if input["kind"] in ["dial_press", "dial_long_press", "dial_turn"] and input["index"] == 3, do: send(self(), :streamdeck_frame_unfocus)
-      socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
-      {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
-      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
-    else
       :noop ->
         {:reply, {:ok, %{}}, socket}
 
-      _invalid ->
+      :error ->
         {:reply, {:error, %{reason: "invalid_input"}}, socket}
     end
   end
 
+  @doc "Apply raw deck input to channel or browser navigation using the same mapping."
+  @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
+  def transition(previous, raw, grid) do
+    with {:ok, input} <- normalize(raw),
+         true <- Nav.valid_input?(input),
+         {%Nav{} = nav, effects} <-
+           Input.reduce(previous, input, Deck.navigation(normalize_grid(grid))) do
+      effects = focus_effects(previous, input, effects)
+      {:ok, nav, effects}
+    else
+      :noop -> :noop
+      _invalid -> :error
+    end
+  end
+
+  defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
+    if nav.surface in [:logs, :settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
+  end
+
+  defp focus_effects(_nav, %{"kind" => kind, "index" => 3}, effects) when kind in ["dial_press", "dial_long_press", "dial_turn"], do: [:close_ticket | effects]
+  defp focus_effects(_nav, _input, effects), do: effects
+
   @spec push(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def push(socket) do
-    {nav, frame} = render(socket)
-    Phoenix.Channel.push(socket, "frame", frame)
+    {nav, images} = render(socket)
+    Phoenix.Channel.push(socket, "frame", images)
     assign(socket, deck_nav: nav, deck_toast: nil)
   end
 
@@ -42,24 +61,63 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   def frame(socket), do: socket |> render() |> elem(1)
 
   defp render(socket) do
-    grid = grid(socket)
-    sections = Deck.navigation(grid)
-    nav = Nav.clamp(socket.assigns.deck_nav, Input.sizes(socket.assigns.deck_nav, sections))
-    agents = visible_items(nav, sections, grid.agents)
-    model = %{grid: %{grid | agents: agents}, usage: socket.assigns[:deck_usage] || %{}, page: Nav.page(nav), provider_offset: nav.scroll, toast: socket.assigns[:deck_toast]}
-    frame = Render.frame(model)
-    chat = socket.assigns[:deck_chat_view]
-    frame = if chat && not is_binary(model.toast), do: Map.put(frame, :strip, ChatRender.strip(chat, System.system_time(:millisecond))), else: frame
-    {nav, frame}
+    {nav, _model, images} =
+      frame(
+        socket.assigns.deck_nav,
+        grid(socket),
+        socket.assigns[:deck_usage] || %{},
+        &Render.frame/1,
+        %{toast: socket.assigns[:deck_toast], chat: socket.assigns[:deck_chat_view]}
+      )
+
+    {nav, images}
   end
 
-  defp grid(socket) do
-    grid = socket.assigns[:deck_grid] || StreamdeckProjection.grid()
+  @doc "Compose the same frame model for a channel socket or the browser emulator."
+  @spec frame(Nav.t(), map(), map(), (map() -> map()), map()) :: {Nav.t(), map(), map()}
+  def frame(nav, grid, usage, renderer \\ &Render.frame/1, context \\ %{}) do
+    grid = normalize_grid(grid)
+    sections = Deck.navigation(grid)
+    nav = Nav.clamp(nav, Input.sizes(nav, sections))
+    agents = visible_items(nav, sections, grid.agents)
+
+    model =
+      Map.merge(
+        %{
+          grid: %{grid | agents: agents},
+          usage: usage,
+          page: Nav.page(nav),
+          provider_offset: nav.scroll,
+          surface: nav.surface
+        },
+        context
+      )
+
+    images = renderer.(model)
+    images = if context[:chat] && not is_binary(context[:toast]), do: Map.put(images, :strip, ChatRender.strip(context.chat, System.system_time(:millisecond))), else: images
+    {nav, model, images}
+  end
+
+  @doc "Deliver shared focus effects in the owning channel or LiveView process."
+  @spec dispatch([Nav.effect()]) :: :ok
+  def dispatch(effects) do
+    Enum.each(effects, fn
+      {:open_ticket, id} -> send(self(), {:streamdeck_frame_focus, id})
+      :close_ticket -> send(self(), :streamdeck_frame_unfocus)
+      _ -> :ok
+    end)
+  end
+
+  defp grid(socket), do: normalize_grid(socket.assigns[:deck_grid] || StreamdeckProjection.grid())
+
+  defp normalize_grid(grid) do
     agents = Map.get(grid, :agents, Map.get(grid, "agents", []))
 
     agents =
       Enum.map(agents, fn face ->
-        face |> Map.put(:identifier, face[:identifier] || face["identifier"]) |> Map.put(:bucket, face[:bucket] || face["bucket"])
+        face
+        |> Map.put(:identifier, face[:identifier] || face["identifier"])
+        |> Map.put(:bucket, face[:bucket] || face["bucket"])
       end)
 
     Map.put(grid, :agents, agents)
@@ -70,12 +128,16 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   defp visible_items(%{view: view, stack: stack}, sections, agents) do
     items =
       case stack do
-        [] -> Map.get(sections, view, [])
-        [{kind, id} | _rest] -> sections |> Map.get(kind, []) |> Enum.find(%{}, &(&1.id == id)) |> Map.get(:tickets, [])
+        [] ->
+          Map.get(sections, view, [])
+
+        [{kind, id} | _rest] ->
+          sections |> Map.get(kind, []) |> Enum.find(%{}, &(&1.id == id)) |> Map.get(:tickets, [])
       end
 
     Enum.map(items, fn item ->
-      Enum.find(agents, &(&1.identifier == item.id)) || %{identifier: item.id, title: item.id, bucket: Map.get(item, :bucket, item.id)}
+      Enum.find(agents, &(&1.identifier == item.id)) ||
+        %{identifier: item.id, title: item.id, bucket: Map.get(item, :bucket, item.id)}
     end)
   end
 
@@ -87,7 +149,8 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     end
   end
 
-  defp normalize(%{"kind" => "dial", "index" => index, "action" => action} = input) when index in 0..3 do
+  defp normalize(%{"kind" => "dial", "index" => index, "action" => action} = input)
+       when index in 0..3 do
     case action do
       "turn" -> {:ok, %{"kind" => "dial_turn", "index" => index, "ticks" => input["delta"]}}
       "press" -> {:ok, %{"kind" => "dial_press", "index" => index}}
