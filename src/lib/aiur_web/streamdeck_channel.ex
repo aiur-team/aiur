@@ -11,7 +11,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.Streamdeck.Deck.{Nav, PriorityInput, TicketUpdates}
 
-  alias AiurWeb.Streamdeck.{FocusUpdates, FrameUpdates, SettingsUpdates, UsageUpdates}
+  alias AiurWeb.Streamdeck.{FrameUpdates, SettingsUpdates, UsageUpdates}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -53,7 +53,6 @@ defmodule AiurWeb.StreamdeckChannel do
        deck_grid: %{agents: []},
        focused_agent: nil,
        focus_token: nil,
-       focus_task: nil,
        transcript_relay: nil,
        voice_session: nil,
        fleet_flush: nil,
@@ -68,16 +67,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
-  def handle_in("input", input, socket) do
-    case FrameUpdates.input(input, socket) do
-      {:reply, {:ok, _navigation} = reply, %{assigns: %{deck_effects: [{:open_ticket, id}]}} = updated} ->
-        {:reply, _focus_reply, focused} = handle_in("focus", %{"identifier" => id}, updated)
-        {:reply, reply, focused}
-
-      result ->
-        result
-    end
-  end
+  def handle_in("input", input, socket), do: FrameUpdates.input(input, socket)
 
   def handle_in("devices", payload, socket), do: SettingsUpdates.devices(payload, socket)
   def handle_in("settings_set", patch, socket), do: SettingsUpdates.set(patch, socket)
@@ -98,7 +88,6 @@ defmodule AiurWeb.StreamdeckChannel do
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
     # Relay setup/teardown and projections may wait on other processes. Keep
     # them behind the acknowledgement so focus remains responsive under load.
-    socket = FocusUpdates.stop(socket)
     focus_token = make_ref()
     send(self(), {:streamdeck_focus_changed, identifier, focus_token, socket})
     socket = assign(socket, focused_agent: identifier, focus_token: focus_token, transcript_relay: nil, voice_session: nil)
@@ -111,7 +100,6 @@ defmodule AiurWeb.StreamdeckChannel do
     socket =
       socket
       |> stop_voice_session()
-      |> FocusUpdates.stop()
       |> unsubscribe_focused()
       |> assign(focused_agent: nil, focus_token: nil)
 
@@ -172,7 +160,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_in("commands_page", %{"cursor" => cursor}, %{assigns: %{focused_agent: identifier}} = socket)
       when is_binary(identifier) and is_binary(cursor) and cursor != "" do
     case StreamdeckCommands.history(identifier, cursor, store: command_store(socket)) do
-      {:ok, page} -> {:reply, {:ok, Map.put(page, "identifier", identifier)}, FocusUpdates.supersede(socket, :commands)}
+      {:ok, page} -> {:reply, {:ok, Map.put(page, "identifier", identifier)}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
@@ -200,7 +188,7 @@ defmodule AiurWeb.StreamdeckChannel do
          :ok <- validate_focused_command(socket, decision_id, identifier),
          :ok <- StreamdeckCommands.validate_deck_answer(decision_id, store: command_store(socket)),
          {:ok, result} <- record_command_answer(decision_id, answer) do
-      {:reply, {:ok, result}, FocusUpdates.supersede(socket, :commands)}
+      {:reply, {:ok, result}, socket}
     else
       {:error, %{reason: _reason} = result} -> {:reply, {:error, result}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
@@ -301,7 +289,9 @@ defmodule AiurWeb.StreamdeckChannel do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
     socket = assign(socket, transcript_relay: relay)
-    socket = socket |> TicketUpdates.refresh() |> FocusUpdates.refresh()
+    socket = TicketUpdates.refresh(socket)
+    push(socket, "logs", logs_projection(identifier))
+    push(socket, "commands", commands_projection(identifier))
     {:noreply, socket}
   end
 
@@ -322,7 +312,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
     if focused_command?(socket, decision_id, identifier) do
       push(socket, "commands", commands_projection(identifier))
-      {:noreply, FocusUpdates.supersede(socket, :commands)}
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
@@ -334,7 +324,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info({:streamdeck_transcript, identifier, event}, %{assigns: %{focused_agent: identifier}} = socket) do
     push(socket, "transcript", StreamdeckProjection.transcript(identifier, event))
     push(socket, "logs", logs_projection(identifier))
-    {:noreply, FocusUpdates.supersede(socket, :logs)}
+    {:noreply, socket}
   end
 
   def handle_info({:streamdeck_alert, identifier, event}, %{assigns: %{focused_agent: identifier}} = socket) do
@@ -371,10 +361,6 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, assign(socket, :voice_session, nil)}
   end
 
-  def handle_info({:streamdeck_focus_logs, id, token, payload}, socket), do: {:noreply, FocusUpdates.logs(socket, id, token, payload)}
-  def handle_info({ref, payload}, %{assigns: %{focus_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, FocusUpdates.complete(socket, payload)}
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{assigns: %{focus_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, FocusUpdates.failed(socket)}
-
   def handle_info({ref, dto}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.complete(socket, dto)}
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.failed(socket)}
 
@@ -383,13 +369,13 @@ defmodule AiurWeb.StreamdeckChannel do
   @impl true
   def terminate(_reason, socket) do
     TicketUpdates.stop(socket)
-    FocusUpdates.stop(socket)
     socket |> assigns() |> Map.get(:transcript_relay) |> stop_child()
     socket |> assigns() |> Map.get(:voice_session) |> voice_pid() |> stop_child()
     :ok
   end
 
   defp assigns(%{assigns: assigns}) when is_map(assigns), do: assigns
+  defp assigns(_socket), do: %{}
 
   defp voice_pid(%{pid: pid}), do: pid
   defp voice_pid(_session), do: nil

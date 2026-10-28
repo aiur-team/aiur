@@ -118,17 +118,6 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     assert hd(frame.keys).svg =~ ">missing:"
   end
 
-  test "ticket key input focuses the agent and starts its transcript relay" do
-    socket = settings_socket()
-    input(socket, "input", %{"kind" => "key_press", "index" => 0})
-    state = :sys.get_state(socket.channel_pid)
-    assert state.assigns.focused_agent == "AIUR-1"
-    assert is_pid(state.assigns.transcript_relay)
-    assert Process.alive?(state.assigns.transcript_relay)
-    input(socket, "input", %{"kind" => "key", "index" => 0, "action" => "up"})
-    assert :sys.get_state(socket.channel_pid).assigns.focus_token == state.assigns.focus_token
-  end
-
   test "voice status is rendered on the strip and oversized status is refused" do
     socket = settings_socket()
     input(socket, "voice_status", %{"text" => "Listening"})

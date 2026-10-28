@@ -140,7 +140,6 @@ action in the reducer. Keys resolve from server-owned sections:
 feature, epic and fleet keys drill into tickets; ticket keys select and produce
 an open-ticket effect. Priority moves execute against editable list queues;
 fixed-order queues and unavailable reads return feedback without a write.
-Selecting a ticket also focuses its existing transcript/alert relay.
 
 `Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
 `%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
