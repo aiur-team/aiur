@@ -10,7 +10,7 @@ defmodule AiurWeb.Streamdeck.Render.FeatureGrid do
     nav = Nav.clamp(nav, %{feature: length(features), drill: drill_size(features, nav)})
     feature = selected(features, nav)
     items = if nav.stack == [], do: features, else: field(feature, :tickets, [])
-    faces = Enum.map(0..7, &Enum.at(items, Nav.page(nav) * 8 + &1))
+    faces = Enum.map(0..7, &Enum.at(items, Nav.page(nav) * 8 + rem(&1, 4) * 2 + div(&1, 4)))
     faces = if nav.stack == [], do: Enum.map(faces, &feature_face/1), else: faces
     details = if feature, do: field(feature, :strip), else: "Features · #{length(features)}"
     details = if field(grid, :features_status) == "unavailable", do: "Features unavailable", else: details

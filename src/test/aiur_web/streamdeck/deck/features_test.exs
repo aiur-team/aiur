@@ -15,8 +15,8 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     assert hd(frame.keys).svg =~ ">60%</text>"
     assert hd(frame.keys).svg =~ ">CI 2</text>"
     assert hd(frame.keys).svg =~ ~s(data-layer="unpublished")
-    assert Enum.at(frame.keys, 1).svg =~ ">0%</text>"
-    refute Enum.at(frame.keys, 1).svg =~ ">CI "
+    assert Enum.at(frame.keys, 4).svg =~ ">0%</text>"
+    refute Enum.at(frame.keys, 4).svg =~ ">CI "
     assert hd(frame.strip).svg =~ "12/20 closed · 3 not published · age 2m"
   end
 
@@ -67,7 +67,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     assert drill.stack == [{:feature, "parent9"}]
     assert Enum.map(List.last(keys).tickets, & &1.id) == ["1", "2"]
     assert hd(frame(keys, drill).keys).label =~ "Member one"
-    assert Enum.at(frame(keys, drill).keys, 1).label =~ "Member two"
+    assert Enum.at(frame(keys, drill).keys, 4).label =~ "Member two"
     {_, effects} = Input.reduce(drill, %{"kind" => "key_press", "index" => 1}, sections)
     assert effects == [{:open_ticket, "2"}]
     {back, []} = Input.reduce(drill, %{"kind" => "dial_long_press", "index" => 3}, sections)

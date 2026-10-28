@@ -43,8 +43,8 @@ with the feature page preserved.
 The strip names closed/total, unpublished count and
 observation age in minutes for the first visible feature (the selected feature while drilled in).
 
-These frames are returned by the server navigation input protocol; the legacy controls
-above remain until the sidecar and emulator adopt that protocol.
+The browser emulator and physical deck use the same SVG frames, pushed through the
+shared frame updates. Input acknowledgements carry navigation; images arrive in frame events.
 
 The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 
