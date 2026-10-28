@@ -81,6 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModalTest do
     assert Floki.find(form, "[data-voice-conversation]") == []
   end
 
+  # Future regression guard: also passes before voice exists; constrains where new controls render.
   test "no voice controls on a read-only, non-unique, or unavailable modal" do
     entry = %{issue_identifier: "42"}
     unique = AgentLogModal.build(entry)
