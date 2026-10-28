@@ -17,7 +17,7 @@ defmodule AiurWeb.Streamdeck.Deck do
     fleet = tickets |> Enum.group_by(& &1.bucket) |> Enum.sort_by(&elem(&1, 0))
 
     %{
-      counts: Map.get(grid, :counts),
+      counts: Map.get(grid, :counts, Map.get(grid, "counts")),
       ticket: tickets,
       feature: Map.get(grid, :features, []),
       epic: Map.get(grid, :epics, []),

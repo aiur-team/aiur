@@ -9,6 +9,19 @@ Each stored entry has an increasing position (`pos`). A position identifies an
 entry within one conversation, across sessions and daemon restarts. It is not a
 line number in a provider's log.
 
+## Resolve a worker conversation
+
+`GET /api/v1/conversations/resolve?subject=worker&owner=OWNER&repository=REPOSITORY&identifier=ID`
+returns the matching `conversation_id`. Use `subject=executor` to resolve the
+current Executor conversation. Worker resolution checks the current run first,
+then the cached durable subject index.
+
+An unreadable `subject.json` is skipped and logged, so it does not prevent
+other workers from resolving. A missing subject returns 404, duplicate matches
+return 409, and an unavailable conversation index returns 503.
+
+The route uses the dashboard's read authorization.
+
 ## Where transcripts live
 
 The daemon stores journals beneath its decision-state directory:
@@ -76,18 +89,31 @@ This removes the journal copy only. Provider logs, workspace logs, backups and
 exported copies can still contain the same text. A later session can create a
 new journal for that subject; deletion is not a recording opt-out.
 
+## Reading entries
+
+The full conversation chronology renders agent messages as Markdown. Reasoning
+and command or tool output start collapsed; select their summaries to expand.
+Commands show their exit code when nonzero, and tools distinguish success,
+failure and unknown status. File edits show unified diffs, with lines after the
+first 200 under an expandable summary.
+
+Operator messages appear in a bubble; Executor messages carry an **Executor**
+label. Provider input stays a labelled system row. Session dividers show the
+start reason and time; recording gaps show their interval and reason. A
+truncation note explicitly identifies output whose middle was not stored.
+
 ## Secrets
 
 Transcripts can contain secrets printed by an agent or tool. Treat the raw
 journal as sensitive even with owner-only permissions. Never commit or share
 the directory.
 
-The planned conversation display masks likely secrets by default, permits
-reveal only in loopback dashboard sessions, and keeps device-principal bodies
-redacted.
+The full conversation display masks likely secrets by default. Entries changed
+by masking show **masked**. **Show raw** re-reads one entry and is available only
+for loopback dashboard sessions with dashboard writing enabled. Device principals
+always receive redacted bodies.
 
-That display integration is separate from journal storage; do not
-assume every current view implements it. Display masking does not remove
+The quick drawer remains a separate view. Display masking does not remove
 secrets from disk and cannot guarantee that all secrets are detected.
 
 ## Jump points and precision

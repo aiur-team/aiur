@@ -13,6 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
@@ -105,6 +106,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
         state={@action_state}
         writable={@writable}
         live_connected={@live_connected}
+        voice_capabilities={@voice_capabilities}
         compact
       />
 
@@ -116,6 +118,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           action_state={@action_state}
           writable={@writable}
           live_connected={@live_connected}
+          voice_capabilities={@voice_capabilities}
           filter={@filter}
           query={@query}
         />

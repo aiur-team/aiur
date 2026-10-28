@@ -1,27 +1,28 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. The browser also retains its Command, Logs, Settings and Commands controls, drawn by that shared renderer.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
-The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
+The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
 The server also maintains independent Ticket, Feature, Epic and Fleet navigation
 for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
 hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
 Dial 3 is reserved for the sidecar's instance switch.
 
-The current controls below remain visible until the sidecar and emulator
-renderer adopt this model.
+The browser retains the focused controls below. Its grid dial D turns pages
+and presses for the next window; dial B scrolls the category chips.
+The current physical client uses the navigation controls described above.
 
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips in the server-rendered list. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page tickets; press for next window. |
 | **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
-| **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
+| **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 The server-rendered Ticket strip uses three bands: build progress at the left
@@ -43,7 +44,7 @@ ticket, dial B retains the priority action.
 Physical display and raw dial routing
 require the server-image sidecar update (SD-103).
 
-The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
+The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 
 | Control state | Behavior |
 | --- | --- |
@@ -66,7 +67,7 @@ Logs runs from oldest at the far left to newest at the far right.
 | --- | --- |
 | Ticket opened | Leftmost origin; owns transcript lines before the first event. |
 | Event key | One ticket event: progress, phase, comment, CI, PR, decision, or attention. |
-| LIVE | Rightmost current view; uses the selected agent's lane, provider, ticket, and progress face. |
+| LIVE | Rightmost current view; opens the newest transcript row and uses green selection ink. |
 
 Transcript lines stay beneath the event active when they arrived; agent prose is not promoted into extra event keys.
 
@@ -89,7 +90,7 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | Tool call | Glyph gutter; muted after completion. |
 | Shell command | `$` prefix. |
 | Operator message | Coloured bar. |
-| File edit | Unified diff with tinted added and removed rows. |
+| File edit | File path, addition/deletion counts and changed lines. |
 
 ### Progress bars
 
@@ -99,7 +100,7 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | Unknown | No reading has arrived | Ticket keys show no bar; other progress surfaces use a neutral grey track. |
 | 0% | A real zero reading | Short solid stub, so "just started" never looks like "no reading". |
 
-A bar that drops to an empty track and back is a bug; report it.
+Stale readings retain their values with a dimmed bar.
 
 ## Ticket view
 
@@ -109,7 +110,7 @@ A bar that drops to an empty track and back is a bug; report it.
 | Ties | Ticket number ascending within each state group. |
 | Queued backlog | Filed Build `plan` rows follow agents, in queue position order; duplicates appear once. |
 | Slot order | Column-major: 1/2, then 3/4, then 5/6, then 7/8. |
-| Paging | Moves by columns so each pair stays together. |
+| Paging | Shared server pages hold eight keys; the last page leaves unused slots empty. |
 
 The default Ticket view reads the same Now and planned rows as the Build page.
 If that read fails, the key area shows “Tickets unavailable” until it recovers.
@@ -120,6 +121,20 @@ only when queued; pressing a key opens that ticket’s deck page.
 The order is the same in the browser emulator and on the physical deck.
 
 ## Physical sidecar status
+
+The daemon draws every image. The sidecar rasterizes its SVG frames to JPEG,
+forwards raw input, and shows **Aiur offline** with blank keys when the channel
+is down. On reconnect, the daemon sends a full frame and resets navigation.
+
+The physical entry point currently shows the server grid. The legacy local
+voice, Commands, browser links, demo and instance-picker views await server migrations;
+use the dashboard for those controls.
+
+The control and voice sections below
+describe the emulator/legacy surfaces, not the current physical frame client.
+The saved instance is still selected at startup; hardware dial C no longer
+operates the legacy instance picker.
+
 
 The dashboard's `/streamdeck` page emulates the deck without the sidecar; nothing in the dashboard needs it installed.
 
@@ -150,13 +165,10 @@ The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
 dashboard credentials to mint a short-lived channel token. Neither credential
 enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
 
-Turn **dial 3** to browse registered instances without connecting. Press and
-release it to follow the highlighted instance. Holding **dial 2 + dial 3**
-toggles the demo instead.
-
-The strip names the followed instance and shows
-`connecting`, `connected`, `auth failed`, or `unreachable`; browsing also names
-the candidate. A failed connection stays on that target and never falls back.
+The physical frame client forwards dials to the daemon's navigation reducer.
+It loads the saved instance at startup and retries that target after a channel
+failure. Authentication failures require corrected credentials and a restart.
+The offline strip does not display connection details; consult service logs.
 
 The sidecar reads the CLI's `~/.aiur/remote-instances.yaml` registry at startup:
 
@@ -177,8 +189,8 @@ paths, queries, or fragments.
 
 Each remote sets exactly one `token_file` (absolute
 or `~/`, readable and mode **0600**) or `token_env` (an `AIUR_TOKEN_*` variable).
-Invalid URLs or credentials show an error on the strip and keep the current
-connection.
+Invalid URLs or credentials prevent that connection; the physical strip shows
+**Aiur offline** until a channel supplies a frame.
 
 Tokens are resolved when connecting and never shown on the strip
 or in debug logs.

@@ -43,7 +43,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Serves Build ticket keys, Commands, queue controls and dashboard and pull request links to Stream Deck clients.",
+  "summary": "Renders shared Stream Deck frames with Build ticket states, PR checks, Commands, conversations, queue controls and links.",
   "status": "optional",
   "install": {
     "type": "included"

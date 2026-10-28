@@ -21,7 +21,16 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     refute image.svg =~ "<script"
     assert image.label =~ "#51<& Running 40%"
 
-    [region] = Render.strip([%{x: 0, width: 200, label: "\"<script>", parts: [%{kind: :text_line, text: "<script>&\""}]}])
+    [region] =
+      Render.strip([
+        %{
+          x: 0,
+          width: 200,
+          label: "\"<script>",
+          parts: [%{kind: :text_line, text: "<script>&\""}]
+        }
+      ])
+
     assert xpath(parse(region.svg), "//text/text()") == ["<script>&\""]
     refute region.svg =~ "<script"
 
@@ -40,7 +49,12 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     assert Enum.all?(lines, &(String.length(&1) <= budget))
     assert List.last(lines) |> String.ends_with?("…")
     assert Svg.wrap("one two three", 7, 3) == ["one two", "three"]
-    assert Svg.wrap(String.duplicate("界", 60), budget, 3) == [String.duplicate("界", 12), String.duplicate("界", 12), String.duplicate("界", 11) <> "…"]
+
+    assert Svg.wrap(String.duplicate("界", 60), budget, 3) == [
+             String.duplicate("界", 12),
+             String.duplicate("界", 12),
+             String.duplicate("界", 11) <> "…"
+           ]
   end
 
   test "unknown progress has only a grey track; measured zero has a visible fill and complete is brighter" do
@@ -100,7 +114,11 @@ defmodule AiurWeb.Streamdeck.RenderTest do
       refute image.svg =~ ~r/href=["'](?:https?:|\/)/
       refute image.svg =~ "<script"
       assert image.svg =~ "JetBrains Mono, monospace"
-      assert image.hash == :crypto.hash(:sha256, image.svg) |> Base.encode16(case: :lower) |> binary_part(0, 16)
+
+      assert image.hash ==
+               :crypto.hash(:sha256, image.svg)
+               |> Base.encode16(case: :lower)
+               |> binary_part(0, 16)
     end
 
     assert Render.frame(model) == frame
@@ -124,7 +142,14 @@ defmodule AiurWeb.Streamdeck.RenderTest do
 
   test "pages agents by columns with backlog pager dots" do
     agents = for id <- 1..12, do: face(%{identifier: "##{id}"})
-    model = %{grid: %{agents: agents}, column_offset: 99, usage: %{d: nil, a: nil, c: nil, b: nil}, provider_offset: 99}
+
+    model = %{
+      grid: %{agents: agents},
+      column_offset: 99,
+      usage: %{d: nil, a: nil, c: nil, b: nil},
+      provider_offset: 99
+    }
+
     frame = Render.frame(model)
     assert hd(frame.keys).label =~ "#5 Running"
     assert List.last(frame.keys).label =~ "#12 Running"
@@ -136,16 +161,53 @@ defmodule AiurWeb.Streamdeck.RenderTest do
   end
 
   defp face(extra) do
-    Map.merge(%{identifier: "#5181", title: "Fix strip squeeze", bucket: :running, icon: "runtime", vendor: "claude", progress_percent: 40, progress_freshness: "fresh"}, extra)
+    Map.merge(
+      %{
+        identifier: "#5181",
+        title: "Fix strip squeeze",
+        bucket: :running,
+        icon: "runtime",
+        vendor: "claude",
+        progress_percent: 40,
+        progress_freshness: "fresh"
+      },
+      extra
+    )
   end
 
   defp model do
     # The real SD-101 adapter output is merged into StreamdeckFleet.grid/1.
     grid =
-      AiurWeb.StreamDeckGrid.project(%{running: [%{identifier: "#5181", title: "Fix strip squeeze", backend: :claude, progress_percent: 40}], idle: [%{identifier: "#5182", title: "Next ticket"}]})
+      AiurWeb.StreamDeckGrid.project(%{
+        running: [
+          %{
+            identifier: "#5181",
+            title: "Fix strip squeeze",
+            backend: :claude,
+            progress_percent: 40
+          }
+        ],
+        idle: [%{identifier: "#5182", title: "Next ticket"}]
+      })
 
-    grid = Map.merge(grid, %{build: %{queue_id: "a", name: "X", completed: nil, resolved: 9, total: 22, percent: 41}, build_status: "ok"})
-    %{grid: grid, usage: %{claude: %{state: :observed, freshness: :stale, age_seconds: 35, windows: %{session: %{used_percent: 25}}}, codex: %{state: :unknown}}}
+    grid =
+      Map.merge(grid, %{
+        build: %{queue_id: "a", name: "X", completed: nil, resolved: 9, total: 22, percent: 41},
+        build_status: "ok"
+      })
+
+    %{
+      grid: grid,
+      usage: %{
+        claude: %{
+          state: :observed,
+          freshness: :stale,
+          age_seconds: 35,
+          windows: %{session: %{used_percent: 25}}
+        },
+        codex: %{state: :unknown}
+      }
+    }
   end
 
   defp wire(model), do: model |> Jason.encode!() |> Jason.decode!()

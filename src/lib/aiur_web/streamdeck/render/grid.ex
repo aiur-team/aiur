@@ -11,18 +11,24 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     agents = field(grid, :agents, [])
     max_offset = max(ceil(length(agents) / 2) - 4, 0)
     offset = clamp_offset(field(model, :column_offset, 0), max_offset)
+    page = field(model, :page)
+    start = if is_integer(page) and page >= 0, do: page * 8, else: offset * 2
     unavailable = field(grid, :tickets_status) == "unavailable"
-    faces = Enum.map(0..7, &Enum.at(agents, (offset + rem(&1, 4)) * 2 + div(&1, 4)))
-    faces = if unavailable, do: [%{title: "Tickets unavailable", label: "Unavailable", face: :unknown, bucket: :stuck} | List.duplicate(nil, 7)], else: faces
+    faces = Enum.map(0..7, &Enum.at(agents, start + rem(&1, 4) * 2 + div(&1, 4)))
+    faces = if unavailable, do: [%{title: "Tickets unavailable", label: "Unavailable", face: :unknown, bucket: :stuck, disabled: true} | List.duplicate(nil, 7)], else: faces
     chip_offset = field(model, :chip_offset, field(field(model, :nav), :chip_offset, 0))
     counts = StripCounts.model(field(grid, :counts), chip_offset)
-    regions = [summary(grid) | StripBand.regions(counts, offset, length(agents))]
+    regions = [summary(grid) | StripBand.regions(counts, div(start, 2), length(agents))]
 
     {faces, feedback(regions, field(model, :toast))}
   end
 
   defp feedback(regions, toast) when is_binary(toast) do
-    List.replace_at(regions, 0, region(0, 200, toast, [%{kind: :text_line, text: toast, y: 50, size: 12}]))
+    List.replace_at(
+      regions,
+      0,
+      region(0, 200, toast, [%{kind: :text_line, text: toast, y: 50, size: 12}])
+    )
   end
 
   defp feedback(regions, _toast), do: regions
