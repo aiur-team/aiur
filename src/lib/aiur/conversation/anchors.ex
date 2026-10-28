@@ -39,6 +39,15 @@ defmodule Aiur.Conversation.Anchors do
   def decision_source(event, entries),
     do: tool_anchor(event, entries, Map.get(event, :decision_tool_call_id), "decision_source")
 
+  @doc "Finds the latest successful command with a matching event key in the prior ten minutes."
+  @spec causal(event(), [entry()]) :: {:ok, anchor()} | :none
+  def causal(event, entries) do
+    case Aiur.Conversation.CausalAnchors.command(event, entries) do
+      nil -> :none
+      entry -> {:ok, anchor(event, entry.pos, "at", "causal", "command_text")}
+    end
+  end
+
   @doc "Places an event after the greatest observed position, or leaves it unanchored."
   @spec position(event(), [entry()], [session()]) :: {:ok, anchor()}
   def position(event, entries, sessions) do

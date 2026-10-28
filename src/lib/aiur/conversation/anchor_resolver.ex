@@ -147,7 +147,8 @@ defmodule Aiur.Conversation.AnchorResolver do
     # Subscribe before reading: racing appends are in the snapshot or mailbox.
     state = subscribe(state, event.conversation_id)
     {entries, sessions} = window(ref)
-    resolve_anchor(state, ref, event, entries, sessions)
+    state = resolve_anchor(state, ref, event, entries, sessions)
+    resolve_executor(state, ref, event)
   end
 
   defp resolve_anchor(state, ref, event, entries, sessions) do
@@ -157,11 +158,33 @@ defmodule Aiur.Conversation.AnchorResolver do
         unsubscribe_if_empty(state, event.conversation_id)
 
       :none ->
-        {:ok, anchor} = Anchors.position(event, entries, sessions)
+        {:ok, anchor} =
+          case Anchors.causal(event, entries) do
+            :none -> Anchors.position(event, entries, sessions)
+            result -> result
+          end
+
         Ingest.anchor(ref, anchor)
         pending(state, ref, event)
     end
   end
+
+  defp resolve_executor(state, %Ref{subject: {:worker, _}}, %{kind: kind} = event)
+       when kind in ["push", "pr_opened", "pr_merged"] do
+    ref = Ref.executor()
+
+    case History.list_sessions(ref) do
+      {:ok, [_ | _]} ->
+        state = subscribe(state, Ref.conversation_id(ref))
+        {entries, sessions} = window(ref)
+        resolve_anchor(state, ref, %{event | conversation_id: Ref.conversation_id(ref)}, entries, sessions)
+
+      _ ->
+        state
+    end
+  end
+
+  defp resolve_executor(state, _ref, _event), do: state
 
   defp window(ref) do
     entries =
@@ -236,6 +259,7 @@ defmodule Aiur.Conversation.AnchorResolver do
       occurred_at: field(observation, :occurred_at),
       source_tool_call_id: field(field(observation, :provenance) || %{}, :source_event_id),
       decision_tool_call_id: field(field(raw, :source) || %{}, :event_id),
+      payload: raw,
       subject_ref: %{"head_sha" => field(raw, :sha), "pr_number" => field(field(raw, :pr) || %{}, :number), "decision_id" => field(raw, :decision_id)}
     }
   end
