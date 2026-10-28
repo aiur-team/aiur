@@ -33,7 +33,9 @@ function show({ focusTitle = true } = {}) {
   const modal = $('#tk-modal');
   modal.classList.add('bdm'); modal.removeAttribute('aria-label'); modal.setAttribute('aria-labelledby', 'bm-title');
   $('#tk-backdrop').classList.add('show'); document.body.style.overflow = 'hidden';
-  if (focusTitle) ctx.life.frame('modal-focus', () => { if (shown()) $('#bm-title')?.focus(); });
+  if (focusTitle) ctx.life.frame('modal-focus', () => {
+    if (shown() && !$('#tk-modal').contains(document.activeElement)) $('#bm-title')?.focus();
+  });
 }
 export function renderHead(t) {
   const active = document.activeElement, inside = $('#tk-head').contains(active);

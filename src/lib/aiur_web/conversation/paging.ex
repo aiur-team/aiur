@@ -3,7 +3,7 @@ defmodule AiurWeb.Conversation.Paging do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [stream: 4, stream_insert: 4]
   alias Aiur.Conversation.History
-  alias AiurWeb.Conversation.Presenter
+  alias AiurWeb.Conversation.{Access, Presenter}
 
   defp opts(socket), do: [principal: socket.assigns.principal, limit: 50]
 
@@ -15,7 +15,7 @@ defmodule AiurWeb.Conversation.Paging do
     end
   end
 
-  @spec load(Phoenix.LiveView.Socket.t(), atom()) :: Phoenix.LiveView.Socket.t()
+  @spec load(Phoenix.LiveView.Socket.t(), atom() | {:around, pos_integer()}) :: Phoenix.LiveView.Socket.t()
   def load(socket, direction) do
     case History.list_entries(socket.assigns.id, opts(socket) ++ cursor(socket, direction)) do
       {:ok, page} -> apply_page(socket, page, direction) |> refresh_sessions()
@@ -25,12 +25,12 @@ defmodule AiurWeb.Conversation.Paging do
 
   @spec reveal(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   def reveal(socket, pos) when is_binary(pos) do
-    with true <- AiurWeb.Conversation.Access.can_reveal?(socket.assigns.principal),
+    with true <- Access.can_reveal?(socket.assigns.principal),
          {position, ""} <- Integer.parse(pos),
          true <- position in socket.assigns.positions,
          {:ok, page} <- History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: position, limit: 1, reveal: true)),
          entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == position)) do
-      stream_insert(socket, :entries, entry, [])
+      socket |> assign(:revealed_positions, MapSet.put(socket.assigns.revealed_positions, position)) |> stream_insert(:entries, entry, [])
     else
       _ -> socket
     end
@@ -38,13 +38,39 @@ defmodule AiurWeb.Conversation.Paging do
 
   def reveal(socket, _pos), do: socket
 
+  @spec refresh_positions(Phoenix.LiveView.Socket.t(), [pos_integer()]) :: Phoenix.LiveView.Socket.t()
+  def refresh_positions(socket, positions) do
+    socket = assign(socket, :can_reveal, Access.can_reveal?(socket.assigns.principal))
+
+    positions
+    |> Enum.uniq()
+    |> Enum.filter(&(&1 in socket.assigns.positions))
+    |> Enum.reduce(socket, &refresh_entry(&2, &1))
+  end
+
+  defp refresh_entry(socket, pos) do
+    reveal? = socket.assigns.can_reveal and MapSet.member?(socket.assigns.revealed_positions, pos)
+    options = [principal: socket.assigns.principal, around: pos, limit: 1, reveal: reveal?]
+
+    with {:ok, page} <- History.list_entries(socket.assigns.id, options),
+         entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == pos)) do
+      stream_insert(socket, :entries, entry, [])
+    else
+      _ -> assign(socket, :commands_error, "Conversation entries unavailable. Reload this conversation to retry.")
+    end
+  end
+
+  defp cursor(_socket, {:around, pos}), do: [around: pos]
   defp cursor(socket, :older), do: [before: List.first(socket.assigns.positions, 1)]
   defp cursor(socket, :newer), do: [after: List.last(socket.assigns.positions, 0)]
   defp cursor(_socket, :start), do: [from_start: true]
   defp cursor(_socket, :tail), do: [tail: true]
 
+  defp reset_window?({:around, _}), do: true
+  defp reset_window?(direction), do: direction in [:start, :tail]
+
   defp apply_page(socket, page, direction) do
-    reset? = direction in [:start, :tail]
+    reset? = reset_window?(direction)
     entries = if direction == :older, do: Enum.reverse(page.entries), else: page.entries
     socket = if reset?, do: stream(socket, :entries, page.entries, reset: true, limit: -500), else: insert(socket, entries, direction)
     positions = if reset?, do: [], else: socket.assigns.positions
@@ -57,6 +83,7 @@ defmodule AiurWeb.Conversation.Paging do
     assign(socket,
       page: page,
       positions: positions,
+      revealed_positions: revealed_positions(socket, positions),
       last_entry: last,
       live_head: live_head,
       mode: direction,
@@ -65,7 +92,12 @@ defmodule AiurWeb.Conversation.Paging do
       read_error: nil,
       degraded: History.degraded?(socket.assigns.id)
     )
+    |> restore_reveals(reset?)
   end
+
+  defp revealed_positions(socket, positions), do: MapSet.intersection(socket.assigns.revealed_positions, MapSet.new(positions))
+  defp restore_reveals(socket, true), do: refresh_positions(socket, MapSet.to_list(socket.assigns.revealed_positions))
+  defp restore_reveals(socket, false), do: socket
 
   defp insert(socket, entries, :older), do: Enum.reduce(entries, socket, &stream_insert(&2, :entries, &1, at: 0, limit: 500))
   defp insert(socket, entries, _direction), do: Enum.reduce(entries, socket, &stream_insert(&2, :entries, &1, at: -1, limit: -500))
@@ -92,7 +124,7 @@ defmodule AiurWeb.Conversation.Paging do
 
   defp append_window(socket, entries) do
     positions = Enum.take(socket.assigns.positions ++ Enum.map(entries, & &1.pos), -500)
-    socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions)
+    socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions, revealed_positions: revealed_positions(socket, positions))
   end
 
   defp count_new(socket, count, at_tail?), do: assign(socket, :new_below, if(at_tail? and socket.assigns.at_bottom, do: 0, else: socket.assigns.new_below + count))
