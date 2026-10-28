@@ -16,7 +16,7 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     unavailable = field(grid, :tickets_status) == "unavailable"
     faces = Enum.map(0..7, &Enum.at(agents, start + rem(&1, 4) * 2 + div(&1, 4)))
     faces = if unavailable, do: [%{title: "Tickets unavailable", label: "Unavailable", face: :unknown, bucket: :stuck, disabled: true} | List.duplicate(nil, 7)], else: faces
-    chip_offset = field(model, :chip_offset, field(field(model, :nav), :chip_offset, 0))
+    chip_offset = field(model, :chip_offset, 0)
     counts = StripCounts.model(field(grid, :counts), chip_offset)
     regions = [summary(grid) | StripBand.regions(counts, div(start, 2), length(agents))]
 

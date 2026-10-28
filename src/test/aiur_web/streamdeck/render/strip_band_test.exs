@@ -26,8 +26,8 @@ defmodule AiurWeb.Streamdeck.Render.StripBandTest do
     input = %{"kind" => "dial_turn", "index" => 1, "ticks" => 1}
     {nav, []} = Input.reduce(%Nav{}, input, Deck.navigation(grid))
     assert nav.chip_offset == 1
-    before = Render.frame(%{grid: grid, nav: %Nav{}}).strip |> Enum.at(1)
-    after_tick = Render.frame(%{grid: grid, nav: nav}).strip |> Enum.at(1)
+    before = Render.frame(%{grid: grid, chip_offset: 0}).strip |> Enum.at(1)
+    after_tick = Render.frame(%{grid: grid, chip_offset: nav.chip_offset}).strip |> Enum.at(1)
     assert before.svg =~ ~s(data-state="error")
     refute after_tick.svg =~ ~s(data-state="error")
     assert after_tick.svg =~ ~s(data-state="paused")
