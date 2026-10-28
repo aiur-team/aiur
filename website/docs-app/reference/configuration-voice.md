@@ -24,3 +24,80 @@ The `daily_minutes_cap` default is a proposed default you may change. Minutes fr
 Standalone VoiceConverse hosts can set `ask_requires_confirm` in `VoiceConverse.Config` to
 `:first_in_session` (the default), `:always`, or `:never`. This package setting is separate
 from Aiur's `voice.conversation` configuration.
+
+## Executor voice prototype setup
+
+The Executor conversation prototype uses the **ElevenLabs Agents** provider.
+It is enabled by `voice.conversation.agent_id`; there is no separate provider
+selection key. Create the Agent in ElevenLabs, then set:
+
+```yaml
+elevenlabs:
+  api_key: $ELEVENLABS_API_KEY
+voice:
+  conversation:
+    agent_id: agent_your_agent_id
+    llm: your_chosen_model
+    cloud_disclosure_accepted: true
+```
+
+The credential uses `elevenlabs.api_key`, including its `ELEVENLABS_API_KEY`
+environment fallback. Keep the key in the daemon's environment or dotenv file.
+The browser receives neither the key nor the signed provider URL.
+
+Audio uses mono 16-bit PCM at 16 kHz in both directions; configure the Agent's
+output as `pcm_16000`. Choose the model on the Agent itself and set `llm` to
+that model's name; the prototype does not override the Agent's model.
+
+Enable the Agent's
+[system prompt override](https://elevenlabs.io/docs/eleven-agents/customization/personalization/overrides)
+so Aiur can supply its read-only instructions and briefing.
+
+Enable `audio`, `user_transcript`, `agent_response`, `interruption` and
+`client_tool_call` events. Set **expects response** on each client tool, so the
+Agent waits for results. Restart Aiur after setting this configuration.
+
+Configure these client tools with the exact names and JSON parameter shapes:
+
+| Client tool name | Parameter shape |
+| --- | --- |
+| `get_status` | `{}`; object with no properties and `additionalProperties: false` |
+| `get_details` | `{"section":"agents","n":10}`; required `section` is one of `transcript`, `agents`, `decisions`; optional integer `n` is 1–30, default 10; `additionalProperties: false` |
+| `record_summary` | `{"decisions":[],"open_questions":[],"ideas":[]}`; all three fields required; each array has up to 20 nonblank strings of up to 500 characters; no additional properties |
+| `end_conversation` | `{}`; object with no properties and `additionalProperties: false` |
+
+The prototype reads current agents, open decisions, and available retained
+Executor transcript turns for a live Claude Executor. The bounded transcript read
+uses the registered Executor session; Codex transcript context is unavailable in
+this prototype. A missing or unsupported source is reported as unavailable.
+
+The dedicated Executor briefing integration is tracked in #4125.
+Briefing sections use short excerpts; transcript snippets put the newest turns
+first so long older answers cannot crowd out current run facts.
+
+Do not configure `propose_instruction` or `ask_agent`: this prototype has no
+instruction delivery or Confirm action. Spoken requests are handed to the
+Executor after the conversation ends.
+
+At session end the transcript and summary handoff publishes on
+**`executor.voice.session_ended`**. Add that exact topic to the Executor's wake
+filter. The event is context for the Executor to act on through its ordinary
+workflow; ending the voice session does not itself dispatch instructions.
+
+Before ending, the Agent calls `record_summary`: explicit choices go in
+`decisions`, unanswered questions in `open_questions`, and brainstorming or
+revised ideas in `ideas`. Empty arrays mean none. The payload keeps these
+categories separate beside the full transcript; all summary text is untrusted.
+
+If no valid summary was recorded, the payload contains
+`summary: {status: "unstructured"}` and the drawer labels it unstructured.
+Ending a session never promotes the transcript into decisions or instructions.
+
+Each handoff keeps its **sent** event id and timestamp in the drawer after the
+session ends. **Received** appears only after the Executor acknowledges the
+matching durable wake id. While waiting, the item says sent, not received;
+missing or unavailable acknowledgment evidence is shown explicitly.
+
+Received means the wake was acknowledged, not that its contents were approved
+or executed. The displayed acknowledgment timestamp is when Aiur observed the
+acknowledgment. Starting another voice session does not erase earlier receipts.

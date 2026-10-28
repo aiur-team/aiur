@@ -29,7 +29,9 @@
     "src/lib/aiur_web/routes/control.ex",
     "src/lib/aiur_web/routes/events.ex",
     "src/lib/aiur_web/sockets/events.ex",
-    "src/lib/aiur_web/supervisor_auth.ex"
+    "src/lib/aiur_web/sockets/voice.ex",
+    "src/lib/aiur_web/supervisor_auth.ex",
+    "src/lib/aiur_web/voice_socket.ex"
   ],
   "facades": [
     "*"
@@ -54,6 +56,7 @@
     "github-listeners",
     "pairing-discovery",
     "streamdeck-server",
+    "voice-conversation",
     "voice-stt"
   ],
   "owns": {
