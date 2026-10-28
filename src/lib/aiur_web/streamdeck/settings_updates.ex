@@ -23,7 +23,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @spec devices(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def devices(payload, socket) do
     if valid_devices?(payload) do
-      socket = assign(socket, deck_devices: Map.take(payload, ~w(mics speakers instances)))
+      socket = assign(socket, deck_devices: Map.take(payload, ~w(mics speakers instances))) |> clamp_menu()
       socket = migrate(payload["legacy_mic_id"], socket)
       push(socket)
       {:reply, {:ok, %{}}, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
@@ -31,6 +31,14 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
       {:reply, {:error, %{reason: "invalid_devices"}}, socket}
     end
   end
+
+  @spec status(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
+  def status(%{"text" => text}, socket) when is_binary(text) and byte_size(text) in 1..200 do
+    socket = assign(socket, deck_toast: text, settings_toast: text)
+    {:reply, {:ok, %{}}, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
+  end
+
+  def status(_payload, socket), do: {:reply, {:error, %{reason: "invalid_status"}}, socket}
 
   @spec set(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def set(patch, socket) do
@@ -98,6 +106,14 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
       nil -> {:reply, {:ok, %{}}, socket}
       choice -> set(%{socket.assigns.settings_menu.section => choice.value}, socket)
     end
+  end
+
+  defp clamp_menu(%{assigns: %{settings_menu: nil}} = socket), do: socket
+  defp clamp_menu(%{assigns: %{settings_menu: %{section: nil}}} = socket), do: socket
+
+  defp clamp_menu(socket) do
+    menu = socket.assigns.settings_menu
+    assign(socket, settings_menu: %{menu | cursor: SettingsMenu.move(menu.cursor, 0, length(choices(socket)))})
   end
 
   defp choices(socket), do: SettingsMenu.choices(socket.assigns.settings_menu.section, socket.assigns.deck_settings, socket.assigns.deck_devices)

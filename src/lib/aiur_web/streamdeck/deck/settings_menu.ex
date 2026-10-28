@@ -19,7 +19,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsMenu do
   def choices(section, settings, devices) when section in ["mic_id", "speaker_id"] do
     available = Map.get(devices, if(section == "mic_id", do: "mics", else: "speakers"), [])
     saved = settings[section]
-    missing = if saved && not Enum.any?(available, &(&1["id"] == saved)), do: [%{label: "#{saved} (missing)", value: saved}], else: []
+    missing = if saved && not Enum.any?(available, &(&1["id"] == saved)), do: [%{label: "missing: #{saved}", value: saved}], else: []
     missing ++ Enum.map(available, &%{label: &1["label"], value: &1["id"]})
   end
 

@@ -285,6 +285,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   socket.onclose = () => notifyClosed(new Error("Stream Deck channel closed"));
 
   return {
+    voiceStatus: (text) => send("voice_status", { text }),
     devices: (devices) => send("devices", { ...devices }),
     settingsSet: (patch) => send("settings_set", { ...patch }),
     input: (input) => { if (joined && !stopped) send("input", { ...input }); },

@@ -67,9 +67,20 @@ defmodule AiurWeb.StreamdeckChannel do
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
-  def handle_in("input", input, socket), do: FrameUpdates.input(input, socket)
+  def handle_in("input", input, socket) do
+    case FrameUpdates.input(input, socket) do
+      {:reply, {:ok, _navigation} = reply, %{assigns: %{deck_effects: [{:open_ticket, id}]}} = updated} ->
+        {:reply, _focus_reply, focused} = handle_in("focus", %{"identifier" => id}, updated)
+        {:reply, reply, focused}
+
+      result ->
+        result
+    end
+  end
+
   def handle_in("devices", payload, socket), do: SettingsUpdates.devices(payload, socket)
   def handle_in("settings_set", patch, socket), do: SettingsUpdates.set(patch, socket)
+  def handle_in("voice_status", payload, socket), do: SettingsUpdates.status(payload, socket)
 
   def handle_in("priority", %{"identifier" => id, "direction" => direction}, socket)
       when is_binary(id) and direction in ["up", "down"] do

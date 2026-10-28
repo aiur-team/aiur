@@ -23,6 +23,7 @@ import { createDeviceInventory } from "./device-inventory.js";
 import { createNodeSystem, createFilePreferenceStore } from "./audio/index.js";
 import { type DeckSettings, type DeckDevices } from "./deck-settings.js";
 import { createDeckAlerts, deckChime } from "./deck-alerts.js";
+import { createDeckDictation } from "./deck-dictation.js";
 import { createDeckAudio } from "./deck-audio.js";
 import { spawn } from "node:child_process";
 import net from "node:net";
@@ -55,6 +56,9 @@ export const main = async (): Promise<void> => {
   let devices: DeckDevices = { mics: [], speakers: [], instances: [] };
   const system = createNodeSystem();
   const audio = createDeckAudio({ settings: () => settings, devices: () => devices, system });
+  const dictation = createDeckDictation({ channel: () => channel, capture: audio.capture,
+    setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  });
   const alert = createDeckAlerts({
     choices: () => settings?.alerts ?? {},
     flash: () => runtime?.flash(),
@@ -63,7 +67,7 @@ export const main = async (): Promise<void> => {
       void Promise.resolve().then(() => port.write(deckChime())).finally(() => port.close()).catch((error: unknown) => console.warn("[streamdeck] chime failed", error));
     },
   });
-  const input = createFrameInput((event) => { instances.resetSelectionChain(); channel?.input(event); });
+  const input = createFrameInput((event) => { instances.resetSelectionChain(); if (event.kind === "key" && event.action === "down") dictation.focus(null); dictation.input(event); channel?.input(event); });
   const handleInput = (data: Uint8Array): void => { traceInput(data); input.handleReport(data); };
   const repaint = async (backend: HidBackend): Promise<void> => {
     activeBackend = backend;
@@ -94,7 +98,7 @@ export const main = async (): Promise<void> => {
     preferencePath: path.join(path.dirname(micPreferencePath()), "streamdeck-instance.json"),
     changed: () => undefined,
     channel: (connected) => { channel = connected; if (connected !== null) void inventory.refresh(); },
-    disconnect: () => { input.reset(); show(offline); },
+    disconnect: () => { dictation.disconnect(); input.reset(); show(offline); },
     resetInstance: () => show(offline),
     connect: (target, lifecycle) => connectStreamDeckChannel({
       baseUrl: target.baseUrl,
@@ -109,6 +113,7 @@ export const main = async (): Promise<void> => {
           if (value.instance !== null) instances.select(value.instance);
         },
         alert,
+        ticket: (ticket) => dictation.focus(ticket.id),
         frame: show,
         fleet: () => undefined,
         grid: () => undefined,
@@ -119,11 +124,11 @@ export const main = async (): Promise<void> => {
         commands: () => undefined,
         commandAnswered: () => undefined,
         commandsError: () => undefined,
-        voiceStarted: () => undefined,
-        voice: () => undefined,
-        voiceError: () => undefined,
-        voiceClosed: () => undefined,
-        voiceAvailability: () => undefined,
+        voiceStarted: dictation.started,
+        voice: dictation.voice,
+        voiceError: dictation.error,
+        voiceClosed: dictation.closed,
+        voiceAvailability: dictation.availability,
         closed: () => lifecycle.closed(),
       }, lifecycle.current),
     }),
@@ -153,6 +158,7 @@ export const main = async (): Promise<void> => {
     repaint,
     onBackendClosed: (backend) => {
       if (backend !== null && activeBackend === backend) activeBackend = null;
+      dictation.disconnect();
       input.reset();
       renderer.invalidate();
     },

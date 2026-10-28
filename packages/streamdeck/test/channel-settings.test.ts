@@ -17,5 +17,7 @@ it("queues inventory until join and delivers daemon settings and deck alerts", a
   expect(events.settings).toHaveBeenCalledWith({ brightness: 30 });
   socket.onmessage?.({ data: JSON.stringify(["4", null, "streamdeck:fleet", "alert", { name: "error" }]) });
   expect(events.alert).toHaveBeenCalledWith({ name: "error" });
+  channel.voiceStatus("Listening");
+  expect(JSON.parse(sent[3]!)).toEqual(["4", "4", "streamdeck:fleet", "voice_status", { text: "Listening" }]);
   channel.close();
 });

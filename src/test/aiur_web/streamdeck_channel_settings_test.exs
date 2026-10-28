@@ -117,5 +117,53 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     assert :sys.get_state(socket.channel_pid).assigns.settings_menu == nil
   end
 
+  test "device removal clamps choice paging so missing selection remains visible" do
+    socket = joined_socket()
+    inventory = %{inventory() | "mics" => Enum.map(1..20, &%{"id" => "mic-#{&1}", "label" => "Microphone #{&1}"})}
+    ref = push(socket, "devices", inventory)
+    assert_reply(ref, :ok, %{}, 1_000)
+    ref = push(socket, "settings_set", %{"mic_id" => "mic-20"})
+    assert_reply(ref, :ok, %{"mic_id" => "mic-20"}, 1_000)
+
+    for input <- [%{"kind" => "dial_long_press", "index" => 3}, %{"kind" => "key_press", "index" => 0}, %{"kind" => "dial_turn", "index" => 0, "ticks" => 19}] do
+      ref = push(socket, "input", input)
+      assert_reply(ref, :ok, %{}, 1_000)
+    end
+
+    ref = push(socket, "devices", %{inventory | "mics" => [%{"id" => "first", "label" => "First"}]})
+    assert_reply(ref, :ok, %{}, 1_000)
+    state = :sys.get_state(socket.channel_pid)
+    assert state.assigns.settings_menu.cursor == 1
+    frame = AiurWeb.Streamdeck.FrameUpdates.frame(state)
+    assert hd(frame.keys).label == "missing: mic-20 · Selected"
+    assert hd(frame.keys).svg =~ ">missing:"
+  end
+
+  test "ticket key input focuses the agent and starts its transcript relay" do
+    socket = joined_socket()
+    ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
+    assert_reply(ref, :ok, %{"view" => "ticket"}, 1_000)
+    state = :sys.get_state(socket.channel_pid)
+    assert state.assigns.focused_agent == "AIUR-1"
+    assert is_pid(state.assigns.transcript_relay)
+    assert Process.alive?(state.assigns.transcript_relay)
+    ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "up"})
+    assert_reply(ref, :ok, %{}, 1_000)
+    assert :sys.get_state(socket.channel_pid).assigns.focus_token == state.assigns.focus_token
+  end
+
+  test "voice status is rendered on the strip and oversized status is refused" do
+    socket = joined_socket()
+    ref = push(socket, "voice_status", %{"text" => "Listening"})
+    assert_reply(ref, :ok, %{}, 1_000)
+    # Drain the initial frame first, then inspect the actual pushed status frame.
+    assert_push("frame", _initial)
+    assert_push("frame", %{strip: [region | _rest]})
+    assert region.label == "Listening"
+    assert region.svg =~ ">Listening<"
+    ref = push(socket, "voice_status", %{"text" => String.duplicate("x", 201)})
+    assert_reply(ref, :error, %{reason: "invalid_status"}, 1_000)
+  end
+
   defp inventory, do: %{"mics" => [%{"id" => "first", "label" => "First"}, %{"id" => "second", "label" => "Second"}], "speakers" => [], "instances" => ["pc"]}
 end

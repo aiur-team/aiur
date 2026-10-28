@@ -300,6 +300,7 @@ export interface StreamDeckChannelOptions {
 }
 
 export interface StreamDeckChannel {
+  voiceStatus(text: string): void;
   devices(devices: DeckDevices): void;
   settingsSet(patch: Partial<DeckSettings>): void;
   input(input: RawInput): void;

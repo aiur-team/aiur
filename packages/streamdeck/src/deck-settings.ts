@@ -29,6 +29,7 @@ export function createDeckBrightness(options: {
   clearTimer(handle: unknown): void;
   write(brightness: number): void;
 }) {
+  let initialized = false;
   let brightness = options.defaultBrightness;
   let dimAfter = 0;
   let timer: unknown = null;
@@ -53,9 +54,13 @@ export function createDeckBrightness(options: {
   };
   return {
     apply(settings: Pick<DeckSettings, "brightness" | "dim_after_seconds">): void {
+      const nextBrightness = Math.round(Math.min(100, Math.max(0, settings.brightness ?? options.defaultBrightness)));
+      const nextDimAfter = Math.max(0, settings.dim_after_seconds);
+      if (initialized && nextBrightness === brightness && nextDimAfter === dimAfter) return;
+      initialized = true;
       cancelFlash();
-      brightness = Math.round(Math.min(100, Math.max(0, settings.brightness ?? options.defaultBrightness)));
-      dimAfter = Math.max(0, settings.dim_after_seconds);
+      brightness = nextBrightness;
+      dimAfter = nextDimAfter;
       dimmed = false;
       options.write(brightness);
       schedule();

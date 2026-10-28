@@ -7,6 +7,8 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def input(raw, socket) do
+    socket = assign(socket, deck_effects: [])
+
     with {:ok, input} <- normalize(raw),
          true <- Nav.valid_input?(input) do
       case SettingsUpdates.input(input, socket) do

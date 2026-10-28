@@ -125,14 +125,15 @@ Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
 root pages and clearing drills. Turning it moves one eight-key page per tick,
 clamped against the current list, including after a shrink. Holding it for
 500 ms emits **one** `dial_long_press`; clients suppress the release press.
-That input pops the drill stack; at root it does nothing. Dial 1 scrolls and
-its press is reserved. Dial 2 turns produce selected-ticket priority effects
+That input pops the drill stack; at root it opens Settings. In Settings it
+returns from choices to sections, then closes Settings. Dial 1 scrolls; its
+press selects the current setting choice. Dial 2 turns produce selected-ticket priority effects
 (negative = up); with no selection they do nothing. Dial 3 has no navigation
 action in the reducer. Keys resolve from server-owned sections:
 feature, epic and fleet keys drill into tickets; ticket keys select and produce
 an open-ticket effect. Priority moves execute against editable list queues;
 fixed-order queues and unavailable reads return feedback without a write.
-Open-ticket execution belongs to SD-301.
+Selecting a ticket also focuses its existing transcript/alert relay.
 
 `Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
 `%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
@@ -143,6 +144,11 @@ in the later view tickets. Emulator pixels switch in SD-104. Legacy channel
 controls remain available for emulator clients during that transition.
 
 ## Focus and transcript rate
+
+On the physical sidecar, a 500 ms hold of dial 3 records from the selected
+microphone; release stops capture, and a short tap sends settled text via `say`.
+This uses the existing `voice_start`, `voice_audio` and `voice_stop` protocol;
+it adds no conversation or text-to-speech path.
 
 Send `focus` with `{identifier}` to watch one agent, or `unfocus` to stop. A
 channel subscribes to only that one `agent:<identifier>` source; it never fans
@@ -212,6 +218,7 @@ environment, or its configuration; there is no second place to configure it.
 | `voice_start` | `{}` | `{"session": id}` or `{"reason": r}` |
 | `voice_audio` | `{"session": id, "audio": base64}` | none |
 | `voice_stop` | `{"session": id}` | `{}` |
+| `voice_status` | `{"text": text}` (up to 200 bytes) | `{}`; renders dictation status on the strip |
 
 ### Aiur → device
 

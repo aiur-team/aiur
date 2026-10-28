@@ -82,4 +82,20 @@ describe("daemon deck settings on the PC", () => {
     brightness.stop();
   });
 
+  it("does not reset idle timing or wake for repeated unchanged inventory settings", () => {
+    vi.useFakeTimers();
+    const { brightness, write } = setup();
+    const settings = { brightness: 30, dim_after_seconds: 5 };
+    brightness.apply(settings);
+    vi.advanceTimersByTime(4000);
+    brightness.apply(settings);
+    vi.advanceTimersByTime(1000);
+    expect(write.mock.calls).toEqual([[30], [0]]);
+    brightness.apply(settings);
+    expect(write.mock.calls).toEqual([[30], [0]]);
+    brightness.opened();
+    expect(write).toHaveBeenLastCalledWith(30);
+    brightness.stop();
+  });
+
 });

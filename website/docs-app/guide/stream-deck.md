@@ -6,15 +6,15 @@ Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or inst
 
 The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
-The server also maintains independent Ticket, Feature, Epic and Fleet navigation
-for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
-hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
-Dial 3 is reserved for the sidecar's instance switch.
-
-The current controls below remain visible until the sidecar and emulator
-renderer adopt this model.
+The physical deck uses server-rendered Ticket, Feature, Epic and Fleet views.
+Dial 4 cycles views, turns page by eight keys, and a 500 ms hold goes back or
+opens Settings at the root. Dial 1 scrolls and dial 2 changes ticket priority.
+After selecting a ticket, hold dial 3 for 500 ms to dictate; release stops
+capture, and a short tap sends the settled transcript. Choose instances in Settings.
 
 ## Drive the deck modes
+
+The legacy modes below retain their controls; Settings lists the physical entry.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
@@ -189,9 +189,10 @@ The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/s
 
 Voice input captures speech from a microphone attached to the sidecar machine, transcribes it to English text, and sends that text to the selected agent as an operator message.
 
-### The keys
+### Legacy command keys
 
-Voice lives in the agent view, reached by pressing an agent key in Grid.
+The emulator and legacy command layout retain these keys. The server-rendered
+physical deck uses dial 3 for dictation after selecting a ticket.
 
 | Key | Slot | Behavior |
 | --- | --- | --- |
@@ -210,7 +211,12 @@ The emulator shows a text pane because the microphones are attached to the machi
 
 ### Dictate to an agent
 
-Select an agent in Grid, then hold Mic and speak.
+On the physical deck, select a ticket, hold dial 3 for 500 ms and speak. Release
+to stop capture; short-tap dial 3 to send the settled text to that ticket. This
+uses the microphone chosen in Settings and the Dashboard message path. It does
+not start a spoken conversation or play agent replies.
+
+In the legacy command layout, hold Mic and use Send/Cancel:
 
 | Step | What happens |
 | --- | --- |
@@ -245,7 +251,8 @@ entry point; its browser cannot enumerate the PC's audio devices.
 
 ### Voice replies are out of scope
 
-The deck transcribes and does not speak, so it needs only the `Speech to Text` and `User` permissions.
+Agent replies are not spoken; only alert chimes use the chosen speaker. Dictation
+needs the `Speech to Text` and `User` permissions.
 
 The Dashboard [agent conversation](/concepts/units#agent-conversation-and-voice) uses the same server-held credential for interactive spoken replies when `Text to Speech` permission and `elevenlabs.voice_id` are configured.
 

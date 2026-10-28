@@ -50,7 +50,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsTest do
   test "unknown saved microphone remains marked missing" do
     settings = Map.put(Settings.defaults(), "mic_id", "unplugged")
     devices = %{"mics" => [%{"id" => "first", "label" => "First microphone"}]}
-    assert SettingsMenu.summary("mic_id", settings, devices) == "unplugged (missing)"
-    assert SettingsMenu.choices("mic_id", settings, devices) == [%{label: "unplugged (missing)", value: "unplugged"}, %{label: "First microphone", value: "first"}]
+    assert SettingsMenu.summary("mic_id", settings, devices) == "missing: unplugged"
+    assert SettingsMenu.choices("mic_id", settings, devices) == [%{label: "missing: unplugged", value: "unplugged"}, %{label: "First microphone", value: "first"}]
   end
 end
