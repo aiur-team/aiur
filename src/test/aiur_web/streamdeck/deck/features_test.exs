@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
   use ExUnit.Case, async: true
-  alias AiurWeb.Streamdeck.Deck.{Features, Input, Nav}
   alias AiurWeb.Streamdeck.{Deck, Render}
+  alias AiurWeb.Streamdeck.Deck.{Features, Input, Nav}
 
   test "snapshot order, percentages, layers, badges and age reach the rendered frame" do
     [a, b] = Features.read(window: {:ok, window()}, now: 180_000).keys

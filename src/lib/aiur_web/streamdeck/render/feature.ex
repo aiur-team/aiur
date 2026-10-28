@@ -37,7 +37,7 @@ defmodule AiurWeb.Streamdeck.Render.Feature do
     if total > 0 do
       [{:closed, "#88e0a6"}, {:open, "#86bfff"}, {:unpublished, "#737983"}]
       |> Enum.map_reduce(9, fn {kind, color}, x ->
-        count = field(bar, kind) + if(kind == :open, do: field(bar, :ci_wait), else: 0)
+        count = layer_count(bar, kind)
         width = 102 * count / total
         {element("rect", x: x, y: 100, width: width, height: 4, fill: color, "data-layer": kind), x + width}
       end)
@@ -48,4 +48,6 @@ defmodule AiurWeb.Streamdeck.Render.Feature do
   end
 
   defp bar(_unknown), do: Parts.bar(nil, :unknown, 9, 114, 102)
+  defp layer_count(bar, :open), do: field(bar, :open) + field(bar, :ci_wait)
+  defp layer_count(bar, kind), do: field(bar, kind)
 end
