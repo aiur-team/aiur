@@ -5,6 +5,19 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
 
   @doc "Sections map each view to ordered `%{id: id, tickets: [...]}` items (tickets need only `id`)."
   @spec reduce(Nav.t(), map(), map()) :: {Nav.t(), [Nav.effect()]} | {:error, map()}
+  def reduce(%{chat: chat, surface: :chat} = nav, input, _sections) when is_map(chat) do
+    case input do
+      %{"kind" => kind, "index" => 3} when kind in ["dial_press", "dial_long_press"] ->
+        Nav.reduce(%{nav | chat: nil, surface: :grid}, input, %{})
+
+      %{"kind" => "dial_press", "index" => 0} ->
+        {%{nav | chat: nil, surface: :grid}, []}
+
+      _ ->
+        AiurWeb.Streamdeck.Deck.ChatNavigation.reduce(nav, input)
+    end
+  end
+
   def reduce(nav, input, sections) do
     sizes = sizes(nav, sections)
     nav = Nav.clamp(nav, sizes)

@@ -169,6 +169,11 @@
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
 
+          if (key.hasAttribute("data-chat-turn") || key.hasAttribute("data-chat-live")) {
+            self.pushEvent("input", { kind: "key_press", index: Number(key.getAttribute("data-streamdeck-key")) });
+            return;
+          }
+
           var logEventIndex = key.getAttribute("data-log-event-index");
 
           // Log keys index the flattened transcript instead of selecting an
@@ -183,7 +188,7 @@
 
           var identifier = key.getAttribute("data-streamdeck-identifier");
           if (identifier) {
-            self.pushEvent("key-press", { identifier: identifier });
+            self.pushEvent("input", { kind: "key", index: Number(key.getAttribute("data-streamdeck-key")), action: "down" });
           }
         };
         var keydownHandler = function (event) {
