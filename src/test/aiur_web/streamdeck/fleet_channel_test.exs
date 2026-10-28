@@ -5,6 +5,7 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     owner = self()
 
     put_endpoint_config(
+      streamdeck_build_queue_fun: fn -> %{status: :disabled} end,
       streamdeck_build_window_fun: fn _, _, _ ->
         send(owner, :window_read)
 
@@ -37,5 +38,16 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     assert ci.svg =~ "CI ticket"
     assert rest == List.duplicate(nil, 7)
     assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:state, ["ci_wait"]}]
+    ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
+    assert_reply(ref, :ok, %{"view" => "fleet"})
+    ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
+    assert_reply(ref, :error, %{reason: "disabled", frame: %{keys: [ci | rest], strip: strip}})
+    assert ci.svg =~ "CI ticket"
+    assert rest == List.duplicate(nil, 7)
+    assert hd(strip).svg =~ "queue disabled"
+    ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
+    assert_reply(ref, :ok, %{"view" => "ticket", "frame" => %{keys: ticket_keys}})
+    assert Enum.any?(ticket_keys, &(&1 != nil and &1.svg =~ "CI ticket"))
+    refute Enum.any?(ticket_keys, &(&1 != nil and &1.svg =~ "Needs command"))
   end
 end
