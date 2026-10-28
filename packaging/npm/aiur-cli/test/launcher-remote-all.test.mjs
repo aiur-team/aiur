@@ -172,7 +172,8 @@ test("the reserved all name is rejected as a registry entry", () => {
 
 test("fleet executor wait defers acknowledgement and persists one cursor per instance", () => {
   const pc = startServer({ name: "pc", body: { ...successBody('{"status":"timeout","role":"owner","records":[]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/pc" } });
-  const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":41},{"wake_id":44}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" } });
+  // Let the no-wake timeout be recorded before the other instance wakes the fleet wait.
+  const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":41},{"wake_id":44}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" }, delayMs: 500 });
   try {
     const setup = setupRemoteLauncher(registry({ pc: pc.url, nuc: nuc.url }));
     const result = runRemote(setup, ["--instance", "all", "executor-wait", "--timeout", "1", "--as", "fleet-executor", "--json"]);
@@ -220,14 +221,19 @@ test("not_owner acknowledge failures stay errors and preserve that instance curs
   } finally { server.stop(); }
 });
 
-// Quarantined: owner #6540, expires 2026-11-30. The first woken instance can cancel the other before it answers.
-test.skip("colliding wake ids advance each instance cursor independently", () => {
+test("colliding wake ids advance each instance cursor independently", () => {
   const pc = startServer({ name: "pc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":3}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/pc" } });
   const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":3},{"wake_id":44}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" } });
   try {
-    const setup = setupRemoteLauncher(registry({ pc: pc.url, nuc: nuc.url }));
-    const result = runRemote(setup, ["--instance", "all", "executor-wait", "--timeout", "1", "--as", "fleet", "--json"]);
-    expect(result.status).toBe(0);
+    const setup = setupRemoteLauncher(registry({ pc: pc.url }));
+    const pcResult = runRemote(setup, ["--instance", "all", "executor-wait", "--timeout", "1", "--as", "fleet", "--json"]);
+    expect(pcResult.status).toBe(0);
+    expect(readFileSync(path.join(setup.home, ".aiur/remote-state/pc.wake-ack"), "utf8")).toBe("run/pc\t3\n");
+
+    // A separate wait lets nuc's colliding ID prove its cursor is instance-scoped.
+    writeFileSync(path.join(setup.home, ".aiur/remote-instances.yaml"), registry({ nuc: nuc.url }));
+    const nucResult = runRemote(setup, ["--instance", "all", "executor-wait", "--timeout", "1", "--as", "fleet", "--json"]);
+    expect(nucResult.status).toBe(0);
     expect(readFileSync(path.join(setup.home, ".aiur/remote-state/pc.wake-ack"), "utf8")).toBe("run/pc\t3\n");
     expect(readFileSync(path.join(setup.home, ".aiur/remote-state/nuc.wake-ack"), "utf8")).toBe("run/nuc\t44\n");
   } finally { pc.stop(); nuc.stop(); }
