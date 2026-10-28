@@ -42,6 +42,9 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   defp rank(state), do: Enum.find_index(@order, &(&1 == state)) || if(state in @states, do: 8, else: 9)
   defp matches?(_row, :all), do: true
   defp matches?(row, {:state, :queued}), do: field(row, :sec) == "plan"
+  defp matches?(row, {:state, states}) when is_list(states), do: Enum.any?(states, &matches?(row, {:state, &1}))
+  defp matches?(row, {:state, :unknown}), do: field(row, :sec) == "now" and state(row) not in ~w(active command error retrying ci_wait usage_limited parked paused)
+  defp matches?(row, {:state, :live}), do: field(row, :sec) == "now"
   defp matches?(row, {:state, state}), do: field(row, :sec) == "now" and state(row) == state
   defp matches?(row, {kind, key}) when kind in [:feature, :epic], do: field(row, kind) == key
 

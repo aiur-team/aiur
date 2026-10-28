@@ -20,13 +20,6 @@ defmodule AiurWeb.StreamdeckLive.Input do
           socket
         )
 
-      {:grid, 3} ->
-        StreamdeckLive.handle_event(
-          "grid-page",
-          %{"page" => socket.assigns.grid_page + delta},
-          socket
-        )
-
       _ ->
         StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
     end
@@ -39,7 +32,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
         %{"kind" => "dial", "index" => 3, "action" => "press"},
         %{assigns: %{sd_mode: :grid}} = socket
       ),
-      do: StreamdeckLive.handle_event("grid-page", %{"action" => "cycle"}, socket)
+      do: StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => 3, "action" => "press"}, socket)
 
   def handle(%{"kind" => "dial", "index" => 3, "action" => "press"}, socket),
     do:

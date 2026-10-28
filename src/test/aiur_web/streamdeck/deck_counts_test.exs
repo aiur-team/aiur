@@ -7,7 +7,7 @@ defmodule AiurWeb.Streamdeck.DeckCountsTest do
   test "counts NowRows and planned sections preserving unknown and reason states" do
     stub(window())
     assert Counts.read() == %{status: "ok", observed_at: 123, agents: 3, live: 2, queued: 5, not_queued: 2, by_state: %{"active" => 2, "ci_wait" => 1}}
-    stub(put_in(window(), [:sections, :now], [%{"agent" => %{"state" => nil}}, %{agent: %{state: "merge-queued"}}]))
+    stub(put_in(window(), [:sections, :now], [%{"num" => 4, "sec" => "now", "agent" => %{"state" => nil}}, %{num: 5, sec: "now", agent: %{state: "merge-queued"}}]))
     assert %{agents: 2, live: 0, by_state: %{"unknown" => 1, "merge-queued" => 1}} = Counts.read()
   end
 
@@ -59,7 +59,11 @@ defmodule AiurWeb.Streamdeck.DeckCountsTest do
   defp window do
     %{
       sources: %{agents: %{state: "ok", observed_at: 123}},
-      sections: %{now: [%{agent: %{state: "active"}}, %{agent: %{state: "active"}}, %{agent: %{state: "ci_wait"}}], plan: List.duplicate(%{}, 5), nq: List.duplicate(%{}, 2)}
+      sections: %{
+        now: [%{num: 1, sec: "now", agent: %{state: "active"}}, %{num: 2, sec: "now", agent: %{state: "active"}}, %{num: 3, sec: "now", agent: %{state: "ci_wait"}}],
+        plan: Enum.map(10..14, &%{num: &1, sec: "plan"}),
+        nq: List.duplicate(%{}, 2)
+      }
     }
   end
 end

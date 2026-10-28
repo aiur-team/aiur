@@ -398,7 +398,7 @@ defmodule AiurWeb.StreamdeckLive do
            socket.assigns.grid,
            0,
            socket.assigns.usage,
-           socket.assigns.grid_dial_value
+           Nav.page(nav)
          )}
 
       _unchanged ->
