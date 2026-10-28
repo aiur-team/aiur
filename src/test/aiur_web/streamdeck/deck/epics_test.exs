@@ -6,14 +6,14 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
   alias AiurWeb.Build.Payload
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Epics, Input, Nav}
-  alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.Streamdeck.FrameUpdates
 
   test "remaining descending, label ties, and unknown counts render last without zero" do
     window = window()
     section = Epics.read(window: {:ok, window})
     assert Enum.map(section.keys, & &1.title) == ["Docs", "UI", "CI"]
     assert Enum.map(section.keys, &{&1.remaining, &1.of, &1.pct}) == [{12, "12/15", 20}, {12, "12/42", 71}, {:unknown, "—", nil}]
-    [_, _, unknown] = Render.frame(%{grid: %{epics: section.keys}, nav: %Nav{view: :epic}}).keys |> Enum.take(3)
+    unknown = Enum.find(frame(section).keys, &(&1 && &1.label =~ "history incomplete"))
     assert unknown.svg =~ "—"
     assert unknown.svg =~ "history incomplete"
     refute unknown.svg =~ "progress-fill"
@@ -28,11 +28,11 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     section = Epics.read(window: {:ok, %{epics: %{"unsorted" => %{label: "Unsorted"}}, epic_progress: %{}}})
     assert section.keys == []
     assert section.message == "No epics configured. Define build_order.general_epics"
-    frame = Render.frame(%{grid: %{epics: [], epics_message: section.message}, nav: %Nav{view: :epic}})
-    assert hd(frame.keys).svg =~ "No epics"
+    frame = frame(section)
+    assert hd(frame.strip).svg =~ "No epics"
     assert hd(frame.strip).label =~ "build_order.general_epics"
-    refute hd(frame.keys).label =~ "0 remaining"
-    assert Enum.all?(tl(frame.keys), &is_nil/1)
+    refute hd(frame.strip).label =~ "0 remaining"
+    assert Enum.all?(frame.keys, &is_nil/1)
     assert Epics.read(window: {:error, :offline}) == %{status: "unavailable", keys: [], message: "Epics unavailable"}
   end
 
@@ -42,9 +42,9 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     empty = Epics.read(window: {:ok, %{window | epic_progress: progress}})
     assert empty.keys == []
     assert empty.message == "No epics configured. Define build_order.general_epics"
-    frame = Render.frame(%{grid: %{epics: empty.keys, epics_message: empty.message}, nav: %Nav{view: :epic}})
+    frame = frame(empty)
     assert hd(frame.strip).label =~ "No epics configured"
-    refute hd(frame.keys).label =~ "0 remaining"
+    refute hd(frame.strip).label =~ "0 remaining"
 
     progress = Map.put(progress, "ci", %{closed: nil, open: nil, total: nil})
     unknown = Epics.read(window: {:ok, %{window | epic_progress: progress}})
@@ -81,6 +81,11 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     assert {_, [{:open_ticket, id}]} = Input.reduce(nav, %{"kind" => "key_press", "index" => 0}, sections)
     assert id in ~w(1 2)
     assert {%Nav{stack: []}, []} = Input.reduce(nav, %{"kind" => "dial_long_press", "index" => 3}, sections)
+  end
+
+  defp frame(section) do
+    {_nav, _model, images} = FrameUpdates.frame(%Nav{view: :epic}, %{epics: section.keys, epics_message: section.message}, %{})
+    images
   end
 
   defp window do

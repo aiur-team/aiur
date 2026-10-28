@@ -8,8 +8,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicFrame do
     items = items(grid, nav)
     page = Nav.page(nav)
     message = grid[:epics_message]
-    faces = Enum.map(0..7, &Enum.at(items, page * 8 + &1))
-    faces = if items == [] and message, do: [%{title: message, label: "Epics", face: :unknown, bucket: :stuck} | List.duplicate(nil, 7)], else: faces
+    faces = Enum.map(0..7, &Enum.at(items, page * 8 + rem(&1, 4) * 2 + div(&1, 4)))
     label = if items == [] and message, do: message, else: "Epics · #{page + 1}/#{max(ceil(length(items) / 8), 1)}"
     region = %{x: 0, width: 800, label: label, parts: [%{kind: :text_line, text: label, y: 50, size: 12}]}
     {faces, [region]}

@@ -1,5 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
+  alias AiurWeb.Streamdeck.Deck.EpicFrame
   alias AiurWeb.Streamdeck.Render.{Fleet, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
@@ -17,6 +18,9 @@ defmodule AiurWeb.Streamdeck.Render.Views do
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{nav: %{view: :epic} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"],
+    do: EpicFrame.compose(field(model, :grid) || model, nav)
+
   def compose(%{nav: %{view: :fleet} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"] do
     {faces, regions} = Fleet.compose(field(model, :grid) || model, nav)
     toast = field(model, :toast)

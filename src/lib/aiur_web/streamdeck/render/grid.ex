@@ -2,13 +2,10 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
   @moduledoc false
 
   alias AiurWeb.RemainingMeter
-  alias AiurWeb.Streamdeck.Deck.EpicFrame
 
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2, field: 3]
 
   @spec compose(map()) :: {[map() | nil], [map()]}
-  def compose(%{grid: grid, nav: %{view: :epic} = nav}), do: EpicFrame.compose(grid, nav)
-
   def compose(model) do
     grid = field(model, :grid) || model
     agents = field(grid, :agents, [])
