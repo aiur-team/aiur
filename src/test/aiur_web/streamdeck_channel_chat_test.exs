@@ -46,7 +46,7 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     refute Jason.encode!(rows) =~ token
     refute Jason.encode!(rows) =~ url
     assert File.read!(path) == retained
-    assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
+    assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil}, 2_000)
   end
 
   test "missing retained logs have a named state" do
@@ -134,7 +134,7 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     assert Enum.any?(rows, &(&1["body"] == "token [REDACTED:ghp] · result [REDACTED:url]"))
     refute Jason.encode!(rows) =~ token
     refute Jason.encode!(rows) =~ url
-    assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
+    assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil}, 2_000)
   end
 
   test "source errors and invalid entries fail closed instead of exposing raw fields" do

@@ -2,7 +2,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   @moduledoc "Channel-owned conversation tail, subscriptions and bounded refresh."
   import Phoenix.Socket, only: [assign: 2]
   import Phoenix.Channel, only: [push: 3]
-  alias Aiur.SecretRedactor
+  alias Aiur.Conversation.History
   alias AiurWeb.Build.{ConversationPayload, ConversationSource, Payload}
   alias AiurWeb.Streamdeck.Deck.ChatLogs
 
@@ -84,7 +84,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   defp mask_entry(entry) do
     Enum.reduce([:text, :arg, :res], entry, fn field, masked ->
       case Map.get(masked, field) do
-        text when is_binary(text) -> Map.put(masked, field, text |> SecretRedactor.redact() |> SecretRedactor.redact_urls())
+        text when is_binary(text) -> Map.put(masked, field, History.mask_for(%{body: text}, {:device, "streamdeck"}).body)
         _ -> masked
       end
     end)
