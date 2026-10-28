@@ -85,7 +85,7 @@ defmodule Aiur.InstanceSummaryTest do
   end
 
   test "30 agents and 32 ordered roots fit JSON budget by retaining latest three" do
-    roots = Enum.map(32..1//-1, fn n -> %{identity: String.duplicate("x", 100) <> to_string(n), progress: n, resolution: "resolved"} end)
+    roots = Enum.map(32..1//-1, fn n -> %{identity: String.duplicate("root ", 20) <> to_string(n), progress: n, resolution: "resolved"} end)
     result = summary(%{active: fn -> available(30) end, build_orders: fn -> available(%{count: 32, roots: roots}) end})
     assert byte_size(Jason.encode!(result)) <= 4_096
     assert result.build_orders.value.roots == Enum.take(roots, 3)
@@ -94,16 +94,19 @@ defmodule Aiur.InstanceSummaryTest do
   end
 
   test "irreducible oversize fails closed" do
-    assert_raise ArgumentError, ~r/exceeds 4096/, fn -> summary(%{executor: fn -> available(%{identity: String.duplicate("x", 5_000)}) end}) end
+    assert_raise ArgumentError, ~r/exceeds 4096/, fn -> summary(%{executor: fn -> available(%{identity: String.duplicate("executor ", 600)}) end}) end
   end
 
-  test "nested forbidden keys and degraded values are rejected" do
+  test "nested forbidden keys are rejected and degraded values become unknown" do
     for key <- [:title, "question", "token", "unexpected"] do
       assert_raise ArgumentError, ~r/forbidden key/, fn -> summary(%{executor: fn -> available(%{consumers: [%{key => "private"}]}) end}) end
     end
 
     for status <- [:unavailable, :disabled, :unknown] do
-      assert_raise ArgumentError, ~r/carries a value/, fn -> summary(%{active: fn -> Fact.unavailable("offline") |> Map.merge(%{status: status, value: 0}) end}) end
+      fact = summary(%{active: fn -> Fact.unavailable("offline") |> Map.merge(%{status: status, value: 0}) end}).agents.active
+      assert fact.status == :unknown
+      assert fact.reason == "provider_failed"
+      refute Map.has_key?(fact, :value)
     end
   end
 

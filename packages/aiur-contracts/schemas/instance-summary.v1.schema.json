@@ -117,7 +117,9 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "pattern": "^[a-z_]{1,64}(?![\\s\\S])",
+          "maxLength": 64
         },
         "freshness": {
           "enum": [

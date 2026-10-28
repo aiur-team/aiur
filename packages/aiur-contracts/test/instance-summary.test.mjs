@@ -26,3 +26,17 @@ test('summary facts reject degraded values and private nested fields', () => {
   delete privateRoot.build_orders.value.roots[0].title;
   assert.equal(validate(privateRoot), true, JSON.stringify(validate.errors));
 });
+
+
+test('summary reasons accept only bounded lowercase codes', () => {
+  for (const reason of ['/home/operator/private', 'offline/path', 'Offline', '', 'a'.repeat(65), 'offline\n']) {
+    const invalid = structuredClone(fixture);
+    invalid.agents.active.reason = reason;
+    assert.equal(validate(invalid), false, JSON.stringify(reason));
+  }
+  for (const reason of [null, 'a'.repeat(64), 'not_running']) {
+    const valid = structuredClone(fixture);
+    valid.agents.active.reason = reason;
+    assert.equal(validate(valid), true, JSON.stringify(validate.errors));
+  }
+});

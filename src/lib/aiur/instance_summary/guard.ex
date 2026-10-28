@@ -2,6 +2,8 @@ defmodule Aiur.InstanceSummary.Guard do
   @moduledoc false
   require Logger
 
+  alias Aiur.InstanceSummary.ValueGuard
+
   @keys ~w(contract version instance_id observed_at agents fleet commands executor build_orders background_agents capabilities status value reason age_ms freshness lower_bound active capacity globally_paused awaiting awaiting_blocking state consumers roots identity progress resolution truncated count)
   @strict Mix.env() == :test
   @budget 4_096
@@ -39,13 +41,15 @@ defmodule Aiur.InstanceSummary.Guard do
         raise ArgumentError, "instance summary contains a forbidden key"
       end
 
-      walk!(value)
+      if to_string(key) == "reason", do: ValueGuard.reason!(value), else: walk!(value)
     end)
 
     if Map.has_key?(map, :status) or Map.has_key?(map, "status"), do: validate_fact!(map)
   end
 
   defp walk!(list) when is_list(list), do: Enum.each(list, &walk!/1)
+  defp walk!(value) when is_binary(value), do: ValueGuard.check!(value)
+  defp walk!(value) when is_atom(value) and value not in [nil, true, false], do: value |> Atom.to_string() |> ValueGuard.check!()
   defp walk!(_value), do: :ok
 
   defp validate_fact!(map) do

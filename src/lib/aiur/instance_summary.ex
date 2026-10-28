@@ -71,6 +71,6 @@ defmodule Aiur.InstanceSummary do
 
   defp result_value({:ok, {:value, id}}, :instance_id) when is_binary(id) or is_nil(id), do: id
   defp result_value(_, :instance_id), do: nil
-  defp result_value({:ok, {:value, fact}}, _field), do: fact
+  defp result_value({:ok, {:value, fact}}, _field), do: if(Fact.valid?(fact), do: fact, else: Fact.unknown("provider_failed"))
   defp result_value(_, _field), do: Fact.unknown("provider_failed")
 end
