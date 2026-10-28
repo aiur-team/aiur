@@ -10,10 +10,10 @@ The Claude provider meter names the selected account and shows “worst of N acc
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Fleet summary, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B/C: no action. D: press for Logs. |
+| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Fleet summary, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
-| **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B/C: no action. D: scroll event keys. |
+| **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 | Control state | Behavior |
@@ -111,7 +111,9 @@ enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
 
 Turn **dial 3** to browse registered instances without connecting. Press and
 release it to follow the highlighted instance. Holding **dial 2 + dial 3**
-toggles the demo instead. The strip names the followed instance and shows
+toggles the demo instead.
+
+The strip names the followed instance and shows
 `connecting`, `connected`, `auth failed`, or `unreachable`; browsing also names
 the candidate. A failed connection stays on that target and never falls back.
 
@@ -127,16 +129,24 @@ instances:
 
 The environment daemon is always first, named `local` (`AIUR_PHOENIX_URL`, or
 loopback port 4000 when unset). Registry names must be unique; `local` is
-reserved. URLs require HTTPS except on loopback and cannot contain credentials,
-paths, queries, or fragments. Each remote sets exactly one `token_file` (absolute
+reserved.
+
+URLs require HTTPS except on loopback and cannot contain credentials,
+paths, queries, or fragments.
+
+Each remote sets exactly one `token_file` (absolute
 or `~/`, readable and mode **0600**) or `token_env` (an `AIUR_TOKEN_*` variable).
 Invalid URLs or credentials show an error on the strip and keep the current
-connection. Tokens are resolved when connecting and never shown on the strip
+connection.
+
+Tokens are resolved when connecting and never shown on the strip
 or in debug logs.
 
 The last activated name is remembered in `streamdeck-instance.json` next to
 `streamdeck-mic.json` under the sidecar's config directory (`$XDG_CONFIG_HOME/aiur`,
-or `~/.config/aiur`). Restart the sidecar after editing the registry. The browser
+or `~/.config/aiur`). Restart the sidecar after editing the registry.
+
+The browser
 emulator shows its current instance name only; open the other dashboard's
 `/streamdeck` page to change instances there.
 

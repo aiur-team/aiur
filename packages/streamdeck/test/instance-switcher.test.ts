@@ -113,3 +113,21 @@ it("times out a connection that never supplies a joined snapshot", async () => {
   expect(opened.close).toHaveBeenCalledOnce();
   switcher.close();
 });
+
+
+it("keeps credentials out of debug output while a target rejects authentication", async () => {
+  vi.stubEnv("AIUR_STREAMDECK_DEBUG", "1");
+  const outputs = [vi.spyOn(console, "debug"), vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+  const options = setup(); const switcher = createInstanceSwitcher(options);
+  try {
+    switcher.start(); await switcher.idle();
+    options.connect.mockRejectedValueOnce(new InstanceAuthError("bearer-secret"));
+    switcher.turn(1); switcher.press(); await switcher.idle();
+    expect(switcher.label()).toBe("remote · auth failed");
+    const printed = JSON.stringify(outputs.map((output) => output.mock.calls));
+    expect(printed).not.toContain("bearer-secret");
+    expect(printed).not.toContain("private");
+  } finally {
+    switcher.close(); outputs.forEach((output) => output.mockRestore()); vi.unstubAllEnvs();
+  }
+});
