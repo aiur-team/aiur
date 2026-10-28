@@ -84,6 +84,7 @@ The `settings_set` event carries a patch of the settings fields. The daemon
 validates it and atomically saves the per-instance private file before pushing
 `settings`. Failed writes reply with an error, retain the old settings and show
 “not saved”. Brightness is clamped to 0–100; a zero idle timeout never dims.
+Alert patches preserve omitted categories; files with omitted categories use their defaults.
 
 `grid.build_status` is `ok`, `none` (no lane with a positive total), or
 `unavailable` (queue model could not be read). `grid.build` is null unless

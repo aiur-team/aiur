@@ -51,6 +51,7 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
   @spec merge(map(), term()) :: {:ok, map()} | {:error, :invalid_settings}
   def merge(current, patch) when is_map(patch) do
     if map_size(patch) <= map_size(@defaults) and Enum.all?(patch, &valid?/1) do
+      patch = Map.update(patch, "alerts", current["alerts"], &Map.merge(current["alerts"], &1))
       candidate = Map.merge(current, patch)
       candidate = if is_integer(candidate["brightness"]), do: Map.update!(candidate, "brightness", &min(max(&1, 0), 100)), else: candidate
       {:ok, candidate}
@@ -68,7 +69,7 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
   defp valid?({"dim_after_seconds", value}), do: is_integer(value) and value in 0..86_400
 
   defp valid?({"alerts", value}) when is_map(value) do
-    Enum.sort(Map.keys(value)) == Enum.sort(@categories) and
+    map_size(value) > 0 and Enum.all?(Map.keys(value), &(&1 in @categories)) and
       Enum.all?(value, fn {_key, flags} -> is_map(flags) and Enum.sort(Map.keys(flags)) == ~w(chime flash) and Enum.all?(Map.values(flags), &is_boolean/1) end)
   end
 
