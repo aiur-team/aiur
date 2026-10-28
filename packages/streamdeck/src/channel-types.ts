@@ -45,6 +45,8 @@ export interface StreamDeckTicket {
   readonly agent: { readonly model: string | null; readonly name: string | null; readonly effort: string | null; readonly pct: number | null; readonly start: number | null } | null;
   readonly pr: { readonly num: number; readonly state: string; readonly ci?: string | null } | null;
   readonly control: { readonly action: string | null; readonly state: string; readonly title: string | null } | null;
+  readonly links?: { readonly modal: string | null; readonly pr: string | null };
+  readonly actions?: { readonly pause: string; readonly priority_up: string; readonly priority_down: string; readonly mic?: string };
   readonly qpos: number | null;
   readonly observed_at: number | null;
 }
@@ -292,6 +294,7 @@ export interface StreamDeckChannelOptions {
 }
 
 export interface StreamDeckChannel {
+  priority(identifier: string, direction: "up" | "down"): void;
   focus(identifier: string): void;
   /**
    * The two fleet verbs the deck can perform.

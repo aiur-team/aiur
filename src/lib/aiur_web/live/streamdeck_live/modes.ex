@@ -11,6 +11,7 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   import AiurWeb.StreamdeckLive.Grid, only: [assign_grid: 5, focus_logs: 3, refresh_knobs: 1, refresh_pager: 1]
 
   alias Aiur.AgentChat
+  alias AiurWeb.Streamdeck.Deck.TicketPage
   alias AiurWeb.StreamdeckCommands
   alias Phoenix.LiveView.Socket
 
@@ -33,13 +34,13 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   def select_agent_from_params(socket, _params), do: socket
 
   defp maybe_assign_active(%{assigns: %{sd_mode: :grid}} = socket, _agent), do: socket
-  defp maybe_assign_active(socket, agent), do: socket |> assign(:sd_active, agent) |> refresh_pager()
+  defp maybe_assign_active(socket, agent), do: socket |> assign(:sd_active, agent) |> assign(:sd_ticket, TicketPage.read(to_string(agent.identifier))) |> refresh_pager()
 
   @spec enter_cmd(Socket.t(), map()) :: Socket.t()
   def enter_cmd(socket, %{"identifier" => identifier}) when socket.assigns.sd_mode == :grid do
     case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
       nil -> socket
-      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent) |> refresh_pager() |> refresh_knobs()
+      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent) |> assign(:sd_ticket, TicketPage.read(identifier)) |> refresh_pager() |> refresh_knobs()
     end
   end
 

@@ -336,7 +336,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
 
   def enter_logs(view, identifier \\ "1352") do
     render_hook(view, "key-press", %{"identifier" => identifier})
-    render_click(view, "command-press", %{"command" => "logs"})
+    render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
   end
 
   def slot_identifiers(html) do

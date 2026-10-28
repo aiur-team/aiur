@@ -187,7 +187,7 @@ defmodule Aiur.Conversation.HistoryReader do
   defp merge_session(sessions, ended) do
     case Map.fetch(sessions, ended.session_seq) do
       {:ok, session} ->
-        session = %{session | last_pos: ended.last_pos, ended_at: ended.ended_at, end_reason: ended.end_reason}
+        session = %{session | last_pos: ended.last_pos, ended_at: ended.ended_at, end_reason: ended.end_reason, meta: Map.merge(session.meta, ended.meta)}
         {:cont, {:ok, Map.put(sessions, ended.session_seq, session)}}
 
       :error ->
