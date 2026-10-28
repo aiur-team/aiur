@@ -72,6 +72,7 @@ defmodule Aiur.LandingWatch.RunnerDegradationTest do
       assert opts[:caller] == "landing_watch_runner_degradation"
 
       if String.contains?(path, "/actions/runs?") do
+        assert path =~ "branch=trunk"
         assert path =~ "event=push"
         assert path =~ "per_page=5"
         {:ok, %{"workflow_runs" => [%{"id" => 9, "conclusion" => "success"}]}}
@@ -92,7 +93,7 @@ defmodule Aiur.LandingWatch.RunnerDegradationTest do
       "steps" => [%{"name" => "Compile", "started_at" => "2026-10-27T10:00:00Z", "completed_at" => "2026-10-27T10:03:00Z"}]
     }
 
-    assert RunnerDegradation.degraded?([job], actions_read_fun: actions_read, actions_jobs_fun: actions_jobs)
+    assert RunnerDegradation.degraded?([job], base_branch: "trunk", actions_read_fun: actions_read, actions_jobs_fun: actions_jobs)
   end
 
   defp failed_job, do: [%{"id" => 1, "name" => "test", "conclusion" => "failure"}]

@@ -65,7 +65,7 @@ defmodule Aiur.LandingWatch.RunnerDegradation do
   end
 
   defp recent_compile_median(job_name, step_name, opts) do
-    base = Keyword.get(opts, :base_branch, "main")
+    base = Aiur.Config.base_branch(opts)
     url = "/actions/runs?branch=#{URI.encode_www_form(base)}&event=push&status=completed&per_page=#{@compile_history_runs}"
 
     case Keyword.get(opts, :actions_read_fun, &unavailable_read/2).(url, Keyword.put(opts, :caller, "landing_watch_runner_degradation")) do
