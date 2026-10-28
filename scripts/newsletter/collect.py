@@ -161,6 +161,14 @@ def write_snapshot(snapshot, directory):
     return target
 
 
+def discover_repo():
+    remote = command(["git", "-C", str(Path.cwd()), "remote", "get-url", "origin"]).strip().rstrip("/")
+    match = re.fullmatch(r"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)([^/]+/[^/]+?)(?:\.git)?", remote)
+    if not match:
+        raise RuntimeError("Cannot derive a GitHub repository from origin; specify --repo owner/repo")
+    return match[1]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", help="owner/repo; defaults to the current repository")
@@ -168,7 +176,7 @@ def main():
     parser.add_argument("--out", type=Path, help="snapshot directory (default: <state-dir>/newsletter/snapshots)")
     parser.add_argument("--instance", action="append", default=[], help="additional configured daemon instance; repeatable")
     args = parser.parse_args()
-    repo = args.repo or json.loads(command(["gh", "repo", "view", "--json", "nameWithOwner"]))["nameWithOwner"]
+    repo = args.repo or discover_repo()
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or any(part in (".", "..") for part in repo.split("/")):
         parser.error("repo must be owner/repo")
     state_dir = args.state_dir or Path.home() / ".aiur" / "repo" / repo

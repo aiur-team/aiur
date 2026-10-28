@@ -179,6 +179,16 @@ class CollectorTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "repeated"):
             list(gh.pages(lambda c: {"nodes": [], "pageInfo": {"hasNextPage": True, "endCursor": "same"}}))
 
+    def test_repo_discovery_uses_local_git_without_unrecorded_graphql(self):
+        for remote, expected in (("https://github.com/owner/repo.git", "owner/repo"),
+                                 ("git@github.com:second/project.git", "second/project")):
+            with patch.object(collect, "command", return_value=remote) as run:
+                self.assertEqual(collect.discover_repo(), expected)
+            self.assertEqual(run.call_args.args[0], ["git", "-C", str(Path.cwd()), "remote", "get-url", "origin"])
+        with patch.object(collect, "command", return_value="https://example.invalid/owner/repo.git"):
+            with self.assertRaisesRegex(RuntimeError, "specify --repo"):
+                collect.discover_repo()
+
     def test_budget_and_incomplete_cost(self):
         gh = GitHub("owner/repo", lambda args: json.dumps({"data": {"rateLimit": {"cost": 1}}}))
         for _ in range(24):
