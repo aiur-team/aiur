@@ -9,9 +9,9 @@ defmodule Aiur.Conversation.History do
   alias Aiur.AgentEventFeed
   alias Aiur.AgentLog
   alias Aiur.AgentLog.PageReader
-  alias Aiur.Conversation.{Anchors, HistoryPage, HistoryReader, Ref}
-  alias Aiur.SecretRedactor
+  alias Aiur.Conversation.{Anchors, HistoryAnchors, HistoryPage, HistoryReader, Ref}
   alias Aiur.LiveConversation
+  alias Aiur.SecretRedactor
 
   @type page :: %{
           entries: [map()],
@@ -42,7 +42,7 @@ defmodule Aiur.Conversation.History do
 
   @spec list_anchors(Ref.t() | String.t(), keyword()) :: {:ok, [map()]} | {:error, atom()}
   def list_anchors(ref, opts \\ []) do
-    with {:ok, snapshot} <- HistoryReader.snapshot(ref), do: Aiur.Conversation.HistoryAnchors.read(snapshot, opts)
+    with {:ok, snapshot} <- HistoryReader.snapshot(ref), do: HistoryAnchors.read(snapshot, opts)
   end
 
   @doc "Subscribe first, catch up, then discard live entries at or below the returned head. Live entries are raw."

@@ -47,41 +47,41 @@ defmodule Aiur.Conversation.HistoryReader do
 
   defp valid_head(%{"v" => 1, "last_pos" => last, "segments" => segments, "sessions_bytes" => bytes})
        when is_integer(last) and last >= 0 and is_list(segments) and is_integer(bytes) and bytes >= 0 do
-    result =
-      Enum.reduce_while(segments, {0, 0}, fn
-        %{"n" => n, "first_pos" => first, "last_pos" => final, "bytes" => size}, {previous, count}
-        when n == count + 1 and is_integer(first) and first == previous + 1 and is_integer(final) and final >= first and is_integer(size) and size > 0 ->
-          {:cont, {final, n}}
-
-        %{"n" => n, "first_pos" => nil, "last_pos" => previous, "bytes" => 0}, {previous, count} when n == count + 1 ->
-          {:cont, {previous, n}}
-
-        _, _ ->
-          {:halt, :invalid}
-      end)
+    result = Enum.reduce_while(segments, {0, 0}, &next_segment/2)
 
     if match?({^last, _}, result), do: :ok, else: {:error, :unavailable}
   end
 
   defp valid_head(_), do: {:error, :unavailable}
 
+  defp next_segment(%{"n" => n, "first_pos" => first, "last_pos" => final, "bytes" => size}, {previous, count})
+       when n == count + 1 and is_integer(first) and first == previous + 1 and is_integer(final) and final >= first and is_integer(size) and size > 0,
+       do: {:cont, {final, n}}
+
+  defp next_segment(%{"n" => n, "first_pos" => nil, "last_pos" => previous, "bytes" => 0}, {previous, count}) when n == count + 1,
+    do: {:cont, {previous, n}}
+
+  defp next_segment(_segment, _previous), do: {:halt, :invalid}
+
   @doc "Reads exactly the acknowledged prefix, ignoring an append in progress."
   @spec prefix(Path.t(), non_neg_integer()) :: {:ok, binary()} | {:error, :unavailable}
   def prefix(path, size) do
-    with {:ok, fd} <- :file.open(path, [:read, :binary, :raw]) do
-      try do
-        case if(size == 0, do: {:ok, ""}, else: :file.read(fd, size)) do
-          {:ok, bytes} when byte_size(bytes) == size ->
-            if bytes == "" or String.ends_with?(bytes, "\n"), do: {:ok, bytes}, else: {:error, :unavailable}
+    case :file.open(path, [:read, :binary, :raw]) do
+      {:ok, fd} ->
+        try do
+          case if(size == 0, do: {:ok, ""}, else: :file.read(fd, size)) do
+            {:ok, bytes} when byte_size(bytes) == size ->
+              if bytes == "" or String.ends_with?(bytes, "\n"), do: {:ok, bytes}, else: {:error, :unavailable}
 
-          _ ->
-            {:error, :unavailable}
+            _ ->
+              {:error, :unavailable}
+          end
+        after
+          :file.close(fd)
         end
-      after
-        :file.close(fd)
-      end
-    else
-      _ -> {:error, :unavailable}
+
+      _ ->
+        {:error, :unavailable}
     end
   end
 
@@ -110,14 +110,16 @@ defmodule Aiur.Conversation.HistoryReader do
       rows = lines |> Enum.with_index(first) |> Enum.filter(fn {_line, pos} -> pos >= from and pos <= to end)
       rows = if direction == :backward, do: Enum.reverse(rows), else: rows
 
-      Stream.map(rows, fn {line, expected} ->
-        case Entry.from_json(line) do
-          {:ok, %{pos: ^expected} = entry} -> {:ok, entry}
-          _ -> {:error, :unavailable}
-        end
-      end)
+      Stream.map(rows, &decode_entry/1)
     else
       [{:error, :unavailable}]
+    end
+  end
+
+  defp decode_entry({line, expected}) do
+    case Entry.from_json(line) do
+      {:ok, %{pos: ^expected} = entry} -> {:ok, entry}
+      _ -> {:error, :unavailable}
     end
   end
 
@@ -145,18 +147,22 @@ defmodule Aiur.Conversation.HistoryReader do
           {:cont, {:ok, Map.put(sessions, session.session_seq, session)}}
 
         {:ok, ended} ->
-          case Map.fetch(sessions, ended.session_seq) do
-            {:ok, session} ->
-              session = %{session | last_pos: ended.last_pos, ended_at: ended.ended_at, end_reason: ended.end_reason}
-              {:cont, {:ok, Map.put(sessions, ended.session_seq, session)}}
-
-            :error ->
-              {:halt, {:error, :unavailable}}
-          end
+          merge_session(sessions, ended)
 
         _ ->
           {:halt, {:error, :unavailable}}
       end
     end)
+  end
+
+  defp merge_session(sessions, ended) do
+    case Map.fetch(sessions, ended.session_seq) do
+      {:ok, session} ->
+        session = %{session | last_pos: ended.last_pos, ended_at: ended.ended_at, end_reason: ended.end_reason}
+        {:cont, {:ok, Map.put(sessions, ended.session_seq, session)}}
+
+      :error ->
+        {:halt, {:error, :unavailable}}
+    end
   end
 end

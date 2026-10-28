@@ -74,17 +74,7 @@ defmodule Aiur.Conversation.HistoryPage do
     result =
       snapshot
       |> HistoryReader.entries(from, to, direction)
-      |> Enum.reduce_while({[], 0, 0, nil}, fn
-        {:ok, entry}, {acc, matched, scanned, _last} ->
-          keep? = is_nil(kinds) or entry.kind == "gap" or entry.kind in kinds
-          acc = if keep?, do: [Map.from_struct(entry) | acc], else: acc
-          matched = if keep?, do: matched + 1, else: matched
-          state = {acc, matched, scanned + 1, entry.pos}
-          if matched == limit or scanned + 1 == cap, do: {:halt, state}, else: {:cont, state}
-
-        _, _ ->
-          {:halt, {:error, :unavailable}}
-      end)
+      |> Enum.reduce_while({[], 0, 0, nil}, &collect(&1, &2, kinds, limit, cap))
 
     case result do
       {:error, _} = error ->
@@ -92,13 +82,30 @@ defmodule Aiur.Conversation.HistoryPage do
 
       {acc, _matched, _scanned, last} ->
         entries = if direction == :forward, do: Enum.reverse(acc), else: acc
-        low = if direction == :backward, do: last || from, else: from
-        high = if direction == :forward, do: last || to, else: to
-        # Continuations advance over filtered positions, even when the page is empty.
-        low = if entries != [] and direction == :forward, do: hd(entries).pos, else: low
-        high = if entries != [] and direction == :backward, do: List.last(entries).pos, else: high
+        {low, high} = boundaries(entries, direction, last, from, to)
         {:ok, entries, low, high}
     end
+  end
+
+  defp collect({:ok, entry}, {acc, matched, scanned, _last}, kinds, limit, cap) do
+    keep? = is_nil(kinds) or entry.kind == "gap" or entry.kind in kinds
+    acc = if keep?, do: [Map.from_struct(entry) | acc], else: acc
+    matched = if keep?, do: matched + 1, else: matched
+    state = {acc, matched, scanned + 1, entry.pos}
+    if matched == limit or scanned + 1 == cap, do: {:halt, state}, else: {:cont, state}
+  end
+
+  defp collect(_error, _state, _kinds, _limit, _cap), do: {:halt, {:error, :unavailable}}
+
+  # Continuations advance over filtered positions, even when the page is empty.
+  defp boundaries(entries, :forward, last, from, to) do
+    low = if entries == [], do: from, else: hd(entries).pos
+    {low, last || to}
+  end
+
+  defp boundaries(entries, :backward, last, from, to) do
+    high = if entries == [], do: to, else: List.last(entries).pos
+    {last || from, high}
   end
 
   defp overlapping(_sessions, []), do: []
