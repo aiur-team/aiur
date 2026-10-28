@@ -3,8 +3,8 @@ Code.require_file("journal_support.exs", __DIR__)
 defmodule Aiur.Conversation.AnchorResolverTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
-  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, ResolverState, ResolverSupervisor, Store, TestSupport}
   alias Aiur.Application.Children
+  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, ResolverState, ResolverSupervisor, Store, TestSupport}
   alias Aiur.Events.Exchange
   import TestSupport
 
