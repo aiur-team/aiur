@@ -6,6 +6,9 @@ defmodule Aiur.BuildOrder.TicketStatus do
   @taxonomy @taxonomy_path |> File.read!() |> Jason.decode!()
   @unknown {@taxonomy["unknown"]["label"], "idle"}
 
+  @spec agent_states() :: [String.t()]
+  def agent_states, do: Map.keys(@taxonomy["agent"])
+
   @spec encode(map() | nil) :: %{label: String.t(), tone: String.t(), agent_state: String.t() | nil}
   def encode(row) do
     state = if row && row[:sec] == "now", do: get_in(row, [:agent, :state])
