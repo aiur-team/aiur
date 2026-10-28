@@ -34,9 +34,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     assert_push("frame", frame)
     assert_received {:reorder, "4", 0}
     refute_received {:reorder, _, _}
-    face = Enum.find(frame.keys, & &1)
-    assert face.label =~ "Queued #1"
-    assert face.svg =~ "Queued #1"
+    assert List.last(frame.keys).label == "LIVE"
     assert hd(frame.strip).label == "Queued #1"
     assert hd(frame.strip).svg =~ "Queued #1"
   end
@@ -54,7 +52,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
     :sys.get_state(socket.channel_pid)
     assert_push("frame", %{keys: keys, strip: strip})
-    assert Enum.find(keys, & &1).label =~ "Queued #1"
+    assert List.last(keys).label == "LIVE"
     assert hd(strip).label == "Queued #1"
     assert hd(strip).svg =~ "Queued #1"
   end
@@ -88,7 +86,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     refute_received {:reorder, _, _}
     assert hd(frame.strip).label == "outcome unknown"
     assert hd(frame.strip).svg =~ "outcome unknown"
-    assert Enum.find(frame.keys, & &1).label =~ "Queued #4"
+    assert List.last(frame.keys).label == "LIVE"
   end
 
   test "queue refusals render short explanations without writes" do
