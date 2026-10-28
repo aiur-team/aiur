@@ -27,6 +27,10 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsTest do
       image = Render.key(key)
       assert image.svg =~ key.label
       assert image.label =~ key.label
+      colors = %{active: "#9fd0ff", stuck: "#ff9a90", idle: "#c2c6cf", queued: "#9096a4", unknown: "#c2c6cf"}
+      assert image.svg =~ Map.fetch!(colors, key.face)
+      [emulator | _] = AiurWeb.StreamdeckLive.Surface.key_descriptors([key], 0)
+      assert emulator.style =~ "--sd-accent: #{Map.fetch!(colors, key.face)}"
       expected_face = if expected["cls"], do: String.to_existing_atom(expected["cls"]), else: :unknown
       assert key.face == expected_face
       if state in [nil, "mystery"], do: assert(key.face == :unknown)

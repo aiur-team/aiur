@@ -68,10 +68,12 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
   end
 
   test "failed window publishes an unavailable empty ticket list rather than legacy running state" do
-    EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:error, :offline} end)
-    grid = AiurWeb.StreamdeckFleet.grid(%{running: [%{identifier: "77", title: "Old running fact"}]})
-    assert grid.agents == []
-    assert grid.total == 0
-    assert grid.tickets_status == "unavailable"
+    for read <- [fn _, _, _ -> {:error, :offline} end, fn _, _, _ -> raise "offline" end, fn _, _, _ -> exit(:offline) end] do
+      EndpointStubs.put(streamdeck_build_window_fun: read)
+      grid = AiurWeb.StreamdeckFleet.grid(%{running: [%{identifier: "77", title: "Old running fact"}]})
+      assert grid.agents == []
+      assert grid.total == 0
+      assert grid.tickets_status == "unavailable"
+    end
   end
 end
