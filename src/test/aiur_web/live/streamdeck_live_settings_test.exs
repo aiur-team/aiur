@@ -88,15 +88,17 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     assert html =~ "Unavailable"
 
     owner =
-      spawn(fn ->
-        SettingsSnapshot.devices(%{"mics" => [%{"id" => "pc-mic", "label" => "PC microphone"}], "speakers" => [], "instances" => ["local"]}, path)
+      start_supervised!(
+        {Task,
+         fn ->
+           SettingsSnapshot.devices(%{"mics" => [%{"id" => "pc-mic", "label" => "PC microphone"}], "speakers" => [], "instances" => ["local"]}, path)
 
-        receive do
-          :stop -> :ok
-        end
-      end)
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
 
-    on_exit(fn -> Process.exit(owner, :kill) end)
     monitor = Process.monitor(owner)
     assert eventually(fn -> SettingsSnapshot.read(path).devices != nil end)
     assert eventually(fn -> :sys.get_state(view.pid).socket.assigns.grid.settings_snapshot.devices != nil end)

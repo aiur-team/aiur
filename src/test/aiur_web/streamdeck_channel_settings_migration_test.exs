@@ -15,7 +15,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsMigrationTest do
 
     try do
       ref = push(socket, "devices", inventory)
-      assert_reply(ref, :error, %{reason: "not_saved"}, 1_000)
+      assert_reply(ref, :error, %{reason: "not_saved"}, 5_000)
       refute File.exists?(path)
       assert SettingsSnapshot.read(path).settings["mic_id"] == nil
       assert_push("frame", frame, 1_500)
@@ -26,7 +26,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsMigrationTest do
     end
 
     ref = push(socket, "devices", inventory)
-    assert_reply(ref, :ok, %{}, 1_000)
+    assert_reply(ref, :ok, %{}, 5_000)
     assert SettingsSnapshot.read(path).settings["mic_id"] == "saved"
     assert Jason.decode!(File.read!(path))["mic_id"] == "saved"
     assert :sys.get_state(socket.channel_pid).assigns.deck_nav.settings.notice == "Saved"

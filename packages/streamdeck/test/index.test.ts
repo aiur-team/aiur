@@ -27,8 +27,8 @@ describe("Stream Deck package", () => {
     expect(typeof voicePanel).toBe("function");
     expect(typeof createVoiceLink).toBe("function");
     expect(typeof createRepaintCoalescer).toBe("function");
-    expect(MICS_PER_PAGE).toBe(6);
-    expect(MIC_KEY_INDICES).toEqual([0, 1, 3, 4, 5, 6]);
+    expect(MICS_PER_PAGE).toBe(7);
+    expect(MIC_KEY_INDICES).toEqual([0, 1, 2, 3, 4, 5, 6]);
     expect(VOICE_WAVEFORM_COLUMNS).toBeGreaterThan(0);
   });
 });

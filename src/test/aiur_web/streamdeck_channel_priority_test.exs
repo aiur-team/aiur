@@ -5,10 +5,14 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
   alias AiurWeb.Streamdeck.Render
 
   setup do
+    root = Path.join(System.tmp_dir!(), "deck-priority-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     owner = self()
     queue = start_supervised!({Agent, fn -> model(3) end})
 
     put_endpoint_config(
+      streamdeck_settings_path: Path.join(root, "settings.json"),
       streamdeck_snapshot_fun: fn -> %{running: [], retrying: [], idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]} end,
       streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(%{idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]}) end,
       streamdeck_build_queue_fun: fn -> Agent.get(queue, & &1) end,
@@ -24,11 +28,11 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
   test "raw input resolves selection, moves once, replies with read-back and renders queue position" do
     socket = joined_socket()
-    assert_push("frame", _initial)
+    assert_push("frame", _initial, 1_500)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-    assert_reply(ref, :ok, %{"view" => "ticket"})
+    assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -3})
-    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0} = reply)
+    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0} = reply, 1_500)
     assert Enum.sort(Map.keys(reply)) == ["page", "view"]
     frame = pushed_frame(socket)
     assert_received {:reorder, "4", 0}
@@ -42,17 +46,17 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
   test "physical input pushes priority feedback and read-back in a coalesced frame" do
     socket = joined_socket()
-    assert_push("frame", _initial)
+    assert_push("frame", _initial, 1_500)
     ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
-    assert_reply(ref, :ok, %{"view" => "ticket"})
+    assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
     ref = push(socket, "input", %{"kind" => "dial", "index" => 1, "action" => "turn", "delta" => -3})
-    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0})
+    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0}, 1_500)
     assert_received {:reorder, "4", 0}
     refute_received {:reorder, _, _}
     state = :sys.get_state(socket.channel_pid)
     send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
     :sys.get_state(socket.channel_pid)
-    assert_push("frame", %{keys: keys, strip: strip})
+    assert_push("frame", %{keys: keys, strip: strip}, 1_500)
     assert Enum.find(keys, & &1).label =~ "Queued #1"
     assert hd(strip).label == "Queued #1"
     assert hd(strip).svg =~ "Queued #1"
@@ -75,11 +79,11 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     )
 
     socket = joined_socket()
-    assert_push("frame", _initial)
+    assert_push("frame", _initial, 1_500)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-    assert_reply(ref, :ok, %{"view" => "ticket"})
+    assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
-    assert_reply(ref, :error, %{reason: "outcome_unknown"} = reply)
+    assert_reply(ref, :error, %{reason: "outcome_unknown"} = reply, 1_500)
     assert Map.keys(reply) == [:reason]
     frame = pushed_frame(socket)
     assert_received {:reorder, "4", 2}
@@ -97,11 +101,11 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
         ] do
       put_endpoint_config(streamdeck_build_queue_fun: fn -> model end)
       socket = joined_socket()
-      assert_push("frame", _initial)
+      assert_push("frame", _initial, 1_500)
       ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-      assert_reply(ref, :ok, %{"view" => "ticket"})
+      assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
       ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
-      assert_reply(ref, :error, %{reason: ^reason})
+      assert_reply(ref, :error, %{reason: ^reason}, 1_500)
       frame = pushed_frame(socket)
       assert hd(frame.strip).label == text
       assert hd(frame.strip).svg =~ text

@@ -49,16 +49,18 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshotTest do
     inventory = %{"mics" => [%{"id" => "usb", "label" => "USB mic"}], "speakers" => [], "instances" => ["local"]}
 
     owner =
-      spawn(fn ->
-        SettingsSnapshot.devices(inventory, path)
-        send(observer, :inventory_reported)
+      start_supervised!(
+        {Task,
+         fn ->
+           SettingsSnapshot.devices(inventory, path)
+           send(observer, :inventory_reported)
 
-        receive do
-          :stop -> :ok
-        end
-      end)
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
 
-    on_exit(fn -> Process.exit(owner, :kill) end)
     assert_receive :inventory_reported, 1_000
     assert_receive {:streamdeck_settings_changed, ^path}, 1_000
     assert SettingsSnapshot.read(path).devices == inventory
