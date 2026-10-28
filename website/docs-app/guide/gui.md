@@ -178,6 +178,30 @@ forward, so measuring the gate never perturbs a real build acquisition.
 See [Conversations](/concepts/conversations) for journal storage, retention,
 secret handling, earlier history and jump-point precision.
 
+### Send a message
+
+On a worker's full conversation page, writable dashboards offer a **Message to
+agent** composer. Its read-only mode indicator shows the effective listener
+mode, or **mode unknown** when it cannot be observed. Legacy routing retains
+the existing send behavior.
+
+**Accepted** means the message was accepted for processing. **Queued** means
+the harness queued it (Sync: next boundary), not that the agent read it.
+**Saved** in Async means the agent reads it when it chooses. The local delivery
+item disappears when the matching operator message enters the journal.
+
+**Failed** shows the reason and restores the message when the draft is empty;
+an existing draft is preserved. **Outcome unknown** means delivery cannot be
+confirmed: check the agent before retrying. A send with an unknown outcome keeps
+the draft; sending the same text again reuses its request ID.
+
+Lost receipts or ten minutes without a journal entry also become unknown; held Async messages
+have no ten-minute expiry.
+
+Delivery observations belong to the browser tab and disappear on reconnect.
+The journal is the durable record. Read-only dashboards show a notice in place
+of the composer.
+
 ## Writable controls
 
 | Writable control | Where | Action |
