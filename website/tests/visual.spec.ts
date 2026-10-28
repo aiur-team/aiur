@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { seedTheme, settle, routeFonts, screenshotMask } from './support/visual'
+import { seedTheme, settle, screenshotMask } from './support/visual'
 
 const themes = ['light', 'dark'] as const
 const viewports = [
@@ -10,7 +10,6 @@ const viewports = [
 
 test.describe.configure({ mode: 'parallel' })
 test.beforeEach(async ({ page }) => {
-  await routeFonts(page)
 })
 
 for (const theme of themes) {

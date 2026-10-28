@@ -9,6 +9,7 @@
     "src/lib/aiur/client_tokens.ex",
     "src/lib/aiur/identity.ex",
     "src/lib/aiur/identity/**",
+    "src/lib/aiur/machine/**",
     "src/lib/aiur_web/controllers/capabilities_controller.ex",
     "src/lib/aiur_web/routes/capabilities.ex"
   ],
@@ -17,6 +18,8 @@
     "Aiur.Capabilities.Provider",
     "Aiur.ClientTokens",
     "Aiur.Identity",
+    "Aiur.Machine.Paths",
+    "Aiur.Machine.Store",
     "AiurWeb.Routes.Capabilities"
   ],
   "facade_pending": null,

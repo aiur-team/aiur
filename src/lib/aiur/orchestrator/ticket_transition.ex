@@ -193,7 +193,9 @@ defmodule Aiur.Orchestrator.TicketTransition do
     result
   end
 
-  defp with_writer(writer, fun) do
+  @doc "Attributes a tracker operation to its owning writer, restoring the previous scope afterward."
+  @spec with_writer(atom(), (-> result)) :: result when result: term()
+  def with_writer(writer, fun) do
     previous = Process.get(:aiur_ticket_writer)
     Process.put(:aiur_ticket_writer, writer)
 

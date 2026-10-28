@@ -198,10 +198,11 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    assert Aiur.Application.child_specs(@opts) == @foreground
+    expected = @foreground ++ [Aiur.BuildOrder.History.LabelBackfill]
+    assert Aiur.Application.child_specs(@opts) == expected
 
     without_dashboard =
-      @foreground
+      expected
       |> Enum.reject(
         &(&1 in [
             AiurWeb.ControlCenterCache,

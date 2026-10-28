@@ -139,7 +139,7 @@ defmodule AiurWeb.StaticAssets do
   @spec fetch(String.t()) :: {:ok, String.t(), binary()} | :error
   def fetch("/aiur-logo.png") do
     :aiur
-    |> Application.app_dir("priv/static/aiur-logo.png")
+    |> Application.app_dir("priv/static/aiur-style/assets/aiur-logo.png")
     |> File.read()
     |> case do
       {:ok, body} -> {:ok, "image/png", body}

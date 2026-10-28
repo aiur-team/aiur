@@ -35,12 +35,21 @@ covering the DESIGN-N4 §4 machine-side states: notifications off, relay not con
 
 ## Verified starting point
 
+Path refresh at `1080f8a109ca6c2aaff3259e83c5600e9abb36ef` (2026-10-27):
+see [plan §12](../plan.md#12-daemon-push-relay-starting-point) for current paths,
+public facades and the planned-import audit. All `src/lib/aiur/push/**` paths
+in this ticket (including abbreviated filenames) are PROPOSED in `push-relay`;
+the old proposed paths are unchanged, and no source ownership is registered yet.
+Historical refresh notes below retain their original scope; this path audit
+supersedes their daemon locations only, not design or other dependency gates.
+
 Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Mechanical matches were byte-checked; current starting-point ranges still need the named source review `REFRESH-MP-N4-C3-T07-4fbe1095`. Do not implement from the historical ranges below. base_sha and all prior gates are retained; this is not a design rejection.
 
-- `aiur status` → `cmd_status` (`packaging/npm/aiur-cli/libexec/aiur-engine.sh:2612`,
-  dispatch at `:4110`) → `Aiur.AgentControlCli.status/1`
-  (`src/lib/aiur/agent_control_cli.ex:9`), which prints load then
-  `print_status_report/3` (`:189`).
+- `aiur status` → `cmd_status` in
+  `packaging/npm/aiur-cli/libexec/engine/commands.sh:40` (old engine `:2612`)
+  → `Aiur.AgentControlCLI.status/1` (`src/lib/aiur/agent_control_cli.ex:9`)
+  → `Aiur.Orchestrator.StatusCLI.status/1` (`src/lib/aiur/orchestrator/status_cli.ex:31`)
+  → private `print_status_report/3` there (`:104`, old AgentControlCli `:189`).
 - AGENTS.md: a surface that computes an age renders it (`observed_at`, `age_ms`,
   `freshness`).
 
@@ -67,7 +76,7 @@ and §4 states (put them in one module so the approved copy is a one-file change
    `push_health: keys_lost`, contract §7; Phase D M6 — "phone notifications broken"),
    `:unknown`. Copy lives in `src/lib/aiur/push/status_copy.ex` with placeholder strings
    marked `# DESIGN-N4 §4 pending`.
-2. `print_status_report/3` (`agent_control_cli.ex:189`) calls `line/1` when the status
+2. `print_status_report/3` (`src/lib/aiur/orchestrator/status_cli.ex:104`) calls `line/1` when the status
    payload carries a `push` key; absent key → no line.
 3. MP-N2-C3-T03's `aiur mobile status --json` embeds `build/3` under `"push"`, plus per
    device `push_health`.
