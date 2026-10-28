@@ -44,9 +44,20 @@ defmodule Aiur.GitHub.PullRequestHeadUpdateTest do
     deposit("synchronize", body("sha-1", pushed))
     assert :ok = PollSnapshots.put_executor_sweep_pr("owner/repo", "42", body("sha-1", now |> DateTime.add(10) |> DateTime.to_iso8601()))
     assert {:ok, %{data: %{"head_updated_at" => ^pushed}}} = ResourceStore.fetch(key(:branch_pull_request, "42"))
+    assert {:ok, %{head_sha: "sha-1", head_updated_at: ^pushed}} = Tracker.ticket_pull_request("42")
     assert :ok = PollSnapshots.put_executor_sweep_pr("owner/repo", "42", body("sha-2", now |> DateTime.add(20) |> DateTime.to_iso8601()))
     assert {:ok, %{data: changed}} = ResourceStore.fetch(key(:branch_pull_request, "42"))
     refute Map.has_key?(changed, "head_updated_at")
+    assert {:ok, nil} = Tracker.ticket_pull_request("42")
+  end
+
+  test "poll-only and malformed head evidence stays unavailable" do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    for pr <- [body("sha-1", now), Map.put(body("sha-1", now), "head_updated_at", "invalid")] do
+      ResourceStore.put_resource(key(:branch_pull_request, "42"), pr, source: :poll)
+      assert {:ok, nil} = Tracker.ticket_pull_request("42")
+    end
   end
 
   defp deposit(action, pr), do: Deposit.deposit("pull_request", %{"action" => action, "pull_request" => pr}, "owner/repo")

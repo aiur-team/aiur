@@ -23,6 +23,10 @@ defmodule Aiur.GitHub.PullRequestHeadUpdate do
 
   def inherit(_held, body), do: body
 
+  @doc "Whether a held body retains head-specific delivery evidence after a partial poll write."
+  @spec proven?(map()) :: boolean()
+  def proven?(body), do: valid_head?(body) and valid_timestamp?(body[@field])
+
   defp same_head?(held, body), do: valid_head?(body) and held["number"] == body["number"] and get_in(held, ["head", "sha"]) == get_in(body, ["head", "sha"])
   defp valid_head?(body), do: is_binary(get_in(body, ["head", "sha"])) and get_in(body, ["head", "sha"]) != ""
 
