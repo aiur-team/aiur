@@ -28,8 +28,8 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Sends encrypted event notifications to paired devices through a relay.",
-  "status": "planned",
+  "summary": "Checks runtime crypto support for planned encrypted device notifications.",
+  "status": "experimental",
   "install": {
     "type": "included"
   },
