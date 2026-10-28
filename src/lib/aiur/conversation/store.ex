@@ -27,6 +27,7 @@ defmodule Aiur.Conversation.Store do
     with :ok <- StoreFiles.check(dir),
          :ok <- Journal.ensure_directory(dir),
          :ok <- StoreFiles.subject(dir, ref, opts) do
+      Aiur.Conversation.SubjectIndex.invalidate()
       prepare(dir)
     end
   end
