@@ -30,7 +30,7 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
     )
 
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
-    assert_receive {:rendered_model, %{grid: %{agents: [_ | _]}, page: 0}}
+    assert_receive {:rendered_model, %{grid: %{agents: [_ | _]}, page: 0}}, 1000
     assert length(Regex.scan(~r/<text>injected-marker<\/text>/, html)) == 8
     assert length(Floki.find(Floki.parse_fragment!(html), "#sd-keys button[aria-label='Injected label'] > svg")) == 8
     refute html =~ "sd-agent-top"

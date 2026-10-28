@@ -281,12 +281,12 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
 
   const readAiurInks = () => device.evaluate((el) => ['--fg', '--accent'].map((name) => getComputedStyle(el).getPropertyValue(name).trim()))
 
-  const darkSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
+  const darkSurface = await page.evaluate(() => ['.sd-device', '[data-streamdeck-state]', '[data-streamdeck-state] > svg', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
     const style = getComputedStyle(document.querySelector(selector))
     return [selector, style.backgroundImage, style.borderColor, style.boxShadow, style.color]
   }))
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
-  const lightSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
+  const lightSurface = await page.evaluate(() => ['.sd-device', '[data-streamdeck-state]', '[data-streamdeck-state] > svg', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
     const style = getComputedStyle(document.querySelector(selector))
     return [selector, style.backgroundImage, style.borderColor, style.boxShadow, style.color]
   }))
