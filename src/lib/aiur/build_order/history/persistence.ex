@@ -103,8 +103,9 @@ defmodule Aiur.BuildOrder.History.Persistence do
     with {:ok, json} <- Jason.encode_to_iodata(record),
          true <- IO.iodata_length(json) <= @max_file_bytes,
          :ok <- regular_path(state.path),
-         :ok <- Fs.atomic_write(state.path, json, fsync: true, mode: 0o600) do
-      with :ok <- if(state.synced?, do: :ok, else: Fs.sync_filesystem()), do: {:ok, encoded_rows}
+         :ok <- Fs.atomic_write(state.path, json, fsync: true, mode: 0o600),
+         :ok <- sync_filesystem(state) do
+      {:ok, encoded_rows}
     else
       false -> {:error, :record_too_large}
       {:error, _reason} = error -> error
@@ -123,6 +124,9 @@ defmodule Aiur.BuildOrder.History.Persistence do
       {number, encoded}
     end)
   end
+
+  defp sync_filesystem(%{synced?: true}), do: :ok
+  defp sync_filesystem(_state), do: Fs.sync_filesystem()
 
   defp regular_path(path) do
     case File.lstat(path) do

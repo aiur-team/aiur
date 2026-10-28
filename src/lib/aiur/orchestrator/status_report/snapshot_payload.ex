@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
   import Aiur.Orchestrator.StatusReport.RowFacts
 
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Listener.Scheduler
@@ -28,7 +29,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   @doc false
   @spec snapshot_payload(State.t()) :: map()
   def snapshot_payload(%State{} = state) do
-    Aiur.Config.SettingsSnapshot.run(fn -> do_snapshot_payload(state) end)
+    SettingsSnapshot.run(fn -> do_snapshot_payload(state) end)
   end
 
   defp do_snapshot_payload(state) do
