@@ -4,7 +4,7 @@ Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or inst
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
-The Claude provider meter names the selected account and shows “worst of N accounts” when every account was read. Partial readings show the observed account count. See [Claude accounts](/guide/claude-accounts) for the selection rule and individual dashboard bars.
+The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
 The server also maintains independent Ticket, Feature, Epic and Fleet navigation
 for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms

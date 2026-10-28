@@ -12,6 +12,8 @@ defmodule Aiur.AgentResourceGuard.RunawayGroups do
 
   require Logger
 
+  alias Aiur.AgentResourceGuard.ProcStat
+
   @alert "system.host.runaway_process_group"
   @threshold 1_000
   @interval_ms 30_000
@@ -82,13 +84,10 @@ defmodule Aiur.AgentResourceGuard.RunawayGroups do
     )
   end
 
-  # `/proc/<pid>/stat` is `pid (comm) state ppid pgrp ...`; comm may itself
-  # contain spaces and parentheses, so match greedily to the last `)`.
   defp group_key(proc_root, entry) do
-    with {_pid, ""} <- Integer.parse(entry),
-         {:ok, stat} <- File.read(Path.join([proc_root, entry, "stat"])),
-         [_all, comm, pgid] <- Regex.run(~r/^\d+ \((.*)\) \S -?\d+ (\d+) /s, stat) do
-      [{String.to_integer(pgid), comm}]
+    with {pid, ""} <- Integer.parse(entry),
+         %{comm: comm, pgid: pgid} <- ProcStat.read(proc_root, pid) do
+      [{pgid, comm}]
     else
       _other -> []
     end
