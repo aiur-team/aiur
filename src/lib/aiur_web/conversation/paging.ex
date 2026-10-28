@@ -80,7 +80,7 @@ defmodule AiurWeb.Conversation.Paging do
     socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions)
   end
 
-  defp count_new(socket, count, at_tail? \\ true), do: assign(socket, :new_below, if(at_tail? and socket.assigns.at_bottom, do: 0, else: socket.assigns.new_below + count))
+  defp count_new(socket, count, at_tail?), do: assign(socket, :new_below, if(at_tail? and socket.assigns.at_bottom, do: 0, else: socket.assigns.new_below + count))
 
   @spec refresh_sessions(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def refresh_sessions(socket) do
