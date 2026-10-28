@@ -68,8 +68,7 @@ export interface ProviderSegmentModel {
   readonly hasData: boolean;
 }
 
-function clampPercent(value: number | null | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+function clampPercent(value: number): number {
   if (value < 0) return 0;
   if (value > 100) return 100;
   return value;
@@ -81,7 +80,7 @@ function hasUsedPercent(window: ProviderMeterWindow): boolean {
 
 function toUsageWindow(window: ProviderMeterWindow): UsageWindow {
   return {
-    usedPercent: clampPercent(window.used_percent),
+    usedPercent: clampPercent(window.used_percent as number),
     resetsAt: typeof window.resets_at === "string" ? window.resets_at : null,
   };
 }
@@ -128,7 +127,7 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
   // multiple duration-less windows stay ambiguous, never guessed.
   //
   // The lone window must also carry a finite `used_percent`. Without it,
-  // `clampPercent(undefined)` renders a confident "0% used" — which reads as
+  // a fabricated "0% used" reading would imply
   // "plenty of headroom" when the truth is unknown (#1436). An honest "no data"
   // beats a fabricated zero on a glanceable surface, so a duration-less window
   // with no percentage stays unclassified and the segment reports hasData:false.
