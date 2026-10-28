@@ -3,8 +3,8 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.Index
   alias Aiur.Config.Schema.GeneralEpic
-  alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Build.Payload
+  alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Epics, Input, Nav}
   alias AiurWeb.Streamdeck.Render
 
