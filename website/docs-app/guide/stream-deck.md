@@ -29,10 +29,14 @@ renderer adopt this model.
 The server Feature view uses the Build Features snapshot's closed/total percentage,
 rounded down, with closed, published/open (including CI wait) and unpublished bar layers and a positive, known CI-wait
 badge. Missing counts show “—” and an empty bar with the source reason.
+
 Each key represents a parent feature, summing its epic counts in snapshot order. Dial 4 pages eight keys;
 press a key to drill into the parent feature's tickets, then hold Dial 4 to return
-with the feature page preserved. The strip names closed/total, unpublished count and
+with the feature page preserved.
+
+The strip names closed/total, unpublished count and
 observation age in minutes for the first visible feature (the selected feature while drilled in).
+
 These frames are returned by the server navigation input protocol; the legacy controls
 above remain until the sidecar and emulator adopt that protocol.
 
