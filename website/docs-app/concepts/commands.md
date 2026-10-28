@@ -217,13 +217,17 @@ or supervisor cannot replace either human-attributed kind.
 An override retains its original Command, prior/new action IDs, ticket, and the
 PR number and merged state observed when routed. Unknown PR state stays explicit.
 `aiur commands --json` includes an `overrides` array with route, state and timestamps.
+
+
 A newer override supersedes the previous one; stale queued messages cannot deliver.
 Records survive daemon restart.
 
 Active-worker overrides progress from `queued` to `delivered` after confirmed
 delivery, then `implemented` when the worker acknowledges the override or a later
 branch push is confirmed as a changed head on the same PR. The record names the
-evidence. Push evidence needs a verified PR head-update timestamp later than
+evidence.
+
+Push evidence needs a verified PR head-update timestamp later than
 delivery; unknown or same-second chronology stays unproven until acknowledgement
 or a later proven push. Queue acceptance alone does not mean implementation.
 

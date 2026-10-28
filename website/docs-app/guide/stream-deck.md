@@ -311,6 +311,8 @@ Aiur holds a streaming connection to ElevenLabs, so transcription results can ap
 The channel's `answer_command` operation also accepts `override: true` with a
 nonblank `rationale` (up to 4,000 characters) to override an existing answer,
 including after delivery. Ordinary answer submissions retain first-answer-wins
-semantics. The override record and routing state are visible in
+semantics. 
+
+The override record and routing state are visible in
 `aiur commands --json`; only active-worker delivery currently runs automatically.
 Physical override controls are separate from this transport operation.
