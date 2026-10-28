@@ -53,8 +53,10 @@ defmodule Aiur.Machine.Store do
 
     with :ok <- check_dir(paths.dir),
          {:ok, uid} <- Permissions.uid(),
-         :ok <- ensure_schema(paths.store, uid) do
-      ensure_key(paths, uid)
+         :ok <- ensure_schema(paths.store, uid),
+         {:ok, pub} <- ensure_key(paths, uid),
+         :ok <- Aiur.Fs.sync_filesystem() do
+      {:ok, pub}
     end
   end
 

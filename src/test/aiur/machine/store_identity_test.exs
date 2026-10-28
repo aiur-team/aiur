@@ -88,6 +88,18 @@ defmodule Aiur.Machine.StoreIdentityTest do
     refute File.exists?(p.identity)
   end
 
+  test "initialization cannot report success before directory entries are durable", %{root: root} do
+    bin = Path.join(root, "bin")
+    File.mkdir_p!(bin)
+    sync = Path.join(bin, "sync")
+    File.write!(sync, "#!/bin/sh\nprintf 'disk sync refused'\nexit 1\n")
+    File.chmod!(sync, 0o700)
+    previous = System.fetch_env!("PATH")
+    on_exit(fn -> System.put_env("PATH", previous) end)
+    System.put_env("PATH", bin <> ":" <> previous)
+    assert Store.init_machine_key() == {:error, {:sync_failed, 1, "disk sync refused"}}
+  end
+
   test "public key is recovered from seed", %{paths: p} do
     assert {:ok, pub} = Store.init_machine_key()
     seed = File.read!(p.machine_key)
