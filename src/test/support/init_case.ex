@@ -41,6 +41,7 @@ defmodule Aiur.InitCase do
     "system.dispatch.prewarm_blocked",
     "system.dispatch.prewarm_blocked.resolved",
     "system.dispatch.capacity_starved",
+    "system.conversation.subject_index.unreadable",
     "system.dispatch.capacity_starved.resolved",
     "system.fleet.capacity.starved",
     "system.fleet.capacity.starved.resolved",
