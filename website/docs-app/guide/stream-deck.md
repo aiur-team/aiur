@@ -32,7 +32,12 @@ The physical Command ticket page shares the desktop Build status and PR/CI, leav
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
 | Read-only Dashboard | Pause and Mic are disabled; Logs and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
-| Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star and in Grid ranking. |
+| Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. Server-rendered keys show `Queued #k`. The orchestrator priority star is separate. |
+
+Multiple detents in one frame produce one move. The strip reports “not in a queue”,
+“plan order is fixed”, “queue disabled”, or “outcome unknown”; unknown outcomes are
+never retried. Physical dial routing requires the server-input sidecar update
+(SD-103).
 
 ## Read the Logs surface
 
