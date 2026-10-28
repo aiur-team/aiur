@@ -116,7 +116,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 
   @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
 
-  socket("/live", Aiur.BrowserHarness.FixtureLiveSocket, websocket: [connect_info: [session: @session_options]], longpoll: false)
+  socket("/live", Aiur.BrowserHarness.FixtureLiveSocket, websocket: [connect_info: [:user_agent, session: @session_options]], longpoll: false)
 
   socket("/voice", AiurWeb.VoiceSocket,
     websocket: [connect_info: [session: @session_options], max_frame_size: 400_000],

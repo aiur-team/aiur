@@ -8,8 +8,13 @@ defmodule AiurWeb.Build.Read do
   def source_opts(socket) do
     context = FinancialDataAccess.context(socket)
     financial = if FinancialDataAccess.authorize(context) == :ok, do: {:ok, context}, else: :locked
+
     [time_zone: socket.assigns.build_time_zone, financial: financial]
+    |> maybe_fixture_dataset(socket)
   end
+
+  defp maybe_fixture_dataset(opts, %{assigns: %{build_fixture_dataset: dataset}}) when is_binary(dataset), do: Keyword.put(opts, :dataset, dataset)
+  defp maybe_fixture_dataset(opts, _socket), do: opts
 
   @spec safe_read((-> term())) :: {:ok, map()} | {:error, term()}
   def safe_read(fun) do
