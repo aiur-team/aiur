@@ -1,7 +1,7 @@
 defmodule Aiur.Listener.Effective do
   @moduledoc "Pure requested-to-effective listener mode projection from running harness facts."
 
-  @type mode :: :steer | :sync | :async
+  @type mode :: :steer | :sync | :async | :mute
   @type support :: %{
           status: :proven | :experimental | :blocked_without_wrapper | :unsupported | :unknown,
           carrier: :native | :emulated_interrupt | nil,
@@ -23,7 +23,7 @@ defmodule Aiur.Listener.Effective do
   def compute(mode_record, harness, opts \\ []) do
     {support, unavailable_reason} = derive_support(harness, opts)
     requested = mode_record.requested
-    effective = Enum.find([requested, :sync, :async], &usable?(support[&1]))
+    effective = if requested == :mute, do: :mute, else: Enum.find([requested, :sync, :async], &usable?(support[&1]))
     reason = unavailable_reason || if(effective != requested, do: support[requested].reason)
 
     %{

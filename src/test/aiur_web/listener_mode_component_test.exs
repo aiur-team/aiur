@@ -34,6 +34,14 @@ defmodule AiurWeb.ListenerModeComponentTest do
     assert read_only =~ "disabled"
   end
 
+  test "mute is selectable and the selected value and badge use canonical silent copy" do
+    assert :mute in ListenerMode.modes()
+    html = render_mode(view(%{requested: :mute, effective: :mute}))
+    assert html =~ ~s(value="mute" selected)
+    assert html =~ ~s(data-requested-mode="mute">Requested: Mute · silent)
+    assert render_badge(view(%{requested: :mute})) =~ ~s(data-requested-mode="mute">Mute · silent)
+  end
+
   test "legacy routing hides the selector" do
     html = render_mode(view(%{routing: :legacy}))
     assert html =~ "Legacy routing"
@@ -60,14 +68,14 @@ defmodule AiurWeb.ListenerModeComponentTest do
 
     html = render_badge(view(%{requested: :async, unread_count: 2}))
     assert html =~ ~s(class="u-pill u-listener")
-    assert html =~ ~s(data-requested-mode="async">Async</span>)
+    assert html =~ ~s(data-requested-mode="async">Async · pings only</span>)
     assert html =~ ~s(data-unread-count="2")
     assert html =~ "Unread 2"
     refute html =~ "role="
     refute html =~ "Observed"
     refute html =~ "Effective"
     refute html =~ "oldest"
-    refute html =~ "on demand"
+    refute html =~ "Async · on demand"
     refute html =~ "<select"
   end
 

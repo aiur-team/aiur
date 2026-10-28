@@ -73,7 +73,7 @@ defmodule Aiur.Listener do
   def set_mode(target, mode, opts) do
     cond do
       not valid_target?(target) -> {:error, :invalid_target}
-      mode not in [:sync, :steer, :async] -> {:error, :invalid_mode}
+      mode not in [:sync, :steer, :async, :mute] -> {:error, :invalid_mode}
       not (is_integer(opts[:expected_version]) and opts[:expected_version] >= 0) -> {:error, :invalid_expected_version}
       Keyword.get(opts, :actor, :human) not in [:human, :executor, :system] -> {:error, :invalid_actor}
       not (is_nil(opts[:idempotency_key]) or is_binary(opts[:idempotency_key])) -> {:error, :invalid_idempotency_key}

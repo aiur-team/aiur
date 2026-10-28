@@ -43,6 +43,14 @@ defmodule Aiur.Listener.EffectiveTest do
     end
   end
 
+  test "mute stays effective without a delivery primitive or pull tool" do
+    for facts <- [nil, %{source: :session, primitives: :unknown}, harness("claude-repl")] do
+      result = Effective.compute(record(:mute), facts)
+      assert result.requested == :mute
+      assert result.effective == :mute
+    end
+  end
+
   test "default options do not authorize interrupt or install the pull tool" do
     for {requested, reason} <- [steer: :steer_not_wired, async: :pull_tool_unavailable] do
       assert %{effective: :sync, effective_reason: ^reason} = Effective.compute(record(requested), harness("claude"))

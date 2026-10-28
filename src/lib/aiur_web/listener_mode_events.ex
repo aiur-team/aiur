@@ -51,7 +51,7 @@ defmodule AiurWeb.ListenerModeEvents do
          true <- view[:freshness] not in [:stale, :offline],
          false <- socket.assigns[:listener_feedback][:state] == :pending,
          {version, ""} <- parse_version(params["expected_version"]),
-         mode when mode in [:sync, :steer, :async] <- parse_mode(params["mode"]) do
+         mode when mode in [:sync, :steer, :async, :mute] <- parse_mode(params["mode"]) do
       key = "dashboard-mode-" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
       result = safe(fn -> Listener.set_mode(OperatorSend.target(composer), mode, expected_version: version, idempotency_key: key, actor: :human) end)
       {:noreply, changed(socket, result, mode)}
@@ -89,6 +89,7 @@ defmodule AiurWeb.ListenerModeEvents do
 
   defp parse_mode("sync"), do: :sync
   defp parse_mode("async"), do: :async
+  defp parse_mode("mute"), do: :mute
   defp parse_mode("steer"), do: :steer
   defp parse_mode(_invalid), do: nil
 

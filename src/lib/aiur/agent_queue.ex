@@ -30,7 +30,7 @@ defmodule Aiur.AgentQueue do
 
   defp listener_delivery(:sync, opts), do: legacy_delivery(Keyword.put(opts, :delivery_policy, :checkpoint))
 
-  defp listener_delivery(:async, opts) do
+  defp listener_delivery(mode, opts) when mode in [:async, :mute] do
     opts
     |> Keyword.put(:delivery_policy, :checkpoint)
     |> legacy_delivery()

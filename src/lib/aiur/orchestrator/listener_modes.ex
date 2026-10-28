@@ -53,7 +53,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @doc "Re-stamp pending listener rows after a serialized mode or harness-view change."
   @spec mode_view_changed(State.t(), String.t(), map()) :: State.t()
   def mode_view_changed(state, id, view) do
-    store = AgentQueueStore.update_pending_delivery(state.queue_store, id, Scheduler.restamp_fun(view))
+    store = state.queue_store |> AgentQueueStore.update_pending_delivery(id, Scheduler.restamp_fun(view)) |> Scheduler.silence_nudges(id, view)
     pending = AgentQueueStore.list_pending(store, id)
     changed = Enum.find(pending, fn item -> item.delivery != AgentQueueStore.get(state.queue_store, item.id).delivery end)
     Unread.broadcast_change(state.queue_store, store, id)

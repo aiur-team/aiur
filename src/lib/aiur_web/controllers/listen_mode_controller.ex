@@ -14,7 +14,7 @@ defmodule AiurWeb.ListenModeController do
 
     result =
       cond do
-        mode not in ["steer", "sync", "async"] ->
+        mode not in ["steer", "sync", "async", "mute"] ->
           {:error, :invalid_mode}
 
         actor not in ["human", "executor"] ->

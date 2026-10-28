@@ -12,7 +12,7 @@ defmodule Aiur.Listener.ModeStore do
   alias Aiur.JsonStore
 
   @type path_error :: {:runtime_state_dir_unavailable, atom()}
-  @type mode :: :sync | :steer | :async
+  @type mode :: :sync | :steer | :async | :mute
   @type record :: %{
           required(:requested) => mode(),
           required(:version) => non_neg_integer(),
@@ -37,7 +37,7 @@ defmodule Aiur.Listener.ModeStore do
           {:ok, record()} | {:error, :invalid_mode | {:mode_conflict, record()} | {:write_failed, term()} | path_error()}
   def put(identifier, mode, expected_version, meta, opts \\ [])
 
-  def put(identifier, mode, expected_version, meta, opts) when mode in [:sync, :steer, :async] do
+  def put(identifier, mode, expected_version, meta, opts) when mode in [:sync, :steer, :async, :mute] do
     with path when is_binary(path) <- path_for(identifier, opts) do
       compare_and_set(identifier, mode, expected_version, meta, opts, path)
     end
@@ -130,6 +130,7 @@ defmodule Aiur.Listener.ModeStore do
   defp decode_mode("sync", _identifier), do: :sync
   defp decode_mode("steer", _identifier), do: :steer
   defp decode_mode("async", _identifier), do: :async
+  defp decode_mode("mute", _identifier), do: :mute
 
   defp decode_mode(_unknown, identifier) do
     unless Process.get({__MODULE__, :warned, identifier}, false) do
