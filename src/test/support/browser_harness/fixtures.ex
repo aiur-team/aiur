@@ -12,6 +12,35 @@ defmodule Aiur.BrowserHarness.Fixtures do
           diagnostics: [map()]
         }
 
+  @spec conversation(Path.t()) :: String.t()
+  def conversation(root) do
+    alias Aiur.Conversation.{Entry, HeadTable, Ref, Session, Store}
+    ref = Ref.executor()
+    id = Ref.conversation_id(ref)
+    dir = Path.join(root, id)
+    File.mkdir_p!(dir)
+    now = DateTime.utc_now()
+    session = %Session{session_seq: 1, harness: "codex", first_pos: 1, started_at: now, start_reason: "start"}
+    sessions = Jason.encode!(Session.start_line(session)) <> "\n"
+    File.write!(Path.join(dir, "sessions.jsonl"), sessions)
+    File.write!(Path.join(dir, "anchors.jsonl"), "")
+    entries = Enum.map(1..2000, &%Entry{pos: &1, session_seq: 1, kind: "message", role: "agent", observed_at: now, body: "Synthetic entry #{&1}: " <> String.duplicate("conversation ", 20)})
+    bytes = Enum.map_join(entries, "", &(Jason.encode!(Entry.to_json(&1)) <> "\n"))
+    File.write!(Store.segment_path(dir, 1), bytes)
+
+    head = %{
+      "v" => 1,
+      "last_pos" => 2000,
+      "last_session_seq" => 1,
+      "sessions_bytes" => byte_size(sessions),
+      "segments" => [%{"n" => 1, "first_pos" => 1, "last_pos" => 2000, "bytes" => byte_size(bytes)}]
+    }
+
+    File.write!(Path.join(dir, "head.json"), Jason.encode!(head))
+    HeadTable.put(id, dir, head)
+    id
+  end
+
   @spec supported_sizes() :: [non_neg_integer()]
   def supported_sizes, do: @supported_sizes
 
