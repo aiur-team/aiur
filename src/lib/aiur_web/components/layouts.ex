@@ -4,7 +4,6 @@ defmodule AiurWeb.Layouts do
   """
 
   use Phoenix.Component
-
   @spec root(map()) :: Phoenix.LiveView.Rendered.t()
   def root(assigns) do
     assigns =
@@ -19,8 +18,8 @@ defmodule AiurWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <link rel="icon" type="image/png" href="/aiur-logo.png" />
-        <link rel="apple-touch-icon" href="/aiur-logo.png" />
+        <link rel="icon" type="image/png" href="/aiur-style/assets/aiur-logo.png" />
+        <link rel="apple-touch-icon" href="/aiur-style/assets/aiur-logo.png" />
         <title>{@page_title}</title>
         <script>
           (function () {
@@ -45,6 +44,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/streamdeck-emulator-knob.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
         <script defer src="/sortable-table-hook.js"></script>
+        <script defer src="/decision-questions-validation.js"></script>
         <script defer src="/build-home/loader.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {

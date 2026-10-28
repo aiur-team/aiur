@@ -326,6 +326,75 @@ defmodule AiurWeb.VoiceChannelTest do
     assert_push("transcript", %{"kind" => "final", "text" => "hello world"})
   end
 
+  test "cancel stops the transcriber without committing" do
+    {socket, _client} = voice_socket()
+    assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictation")
+
+    fake = joined.assigns.stt.pid
+    push(joined, "cancel", %{})
+
+    assert_push("stopped", %{"cancelled" => true})
+    assert_receive {:fake_stt_stop, ^fake}, 2_000
+    assert FakeSTT.stopped?(fake)
+    refute FakeSTT.committed?(fake)
+    refute_receive {:fake_stt_commit, ^fake}, 100
+  end
+
+  test "cancel drops late transcript frames" do
+    {socket, _client} = voice_socket()
+    assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictation")
+
+    fake = joined.assigns.stt.pid
+    push(joined, "cancel", %{})
+    assert_push("stopped", %{"cancelled" => true})
+
+    :ok = FakeSTT.transcript(fake, :final, "late transcript")
+    await_channel(joined)
+
+    refute_push("transcript", _, 100)
+  end
+
+  test "cancel releases the dictation session lease" do
+    {first_socket, _client} = voice_socket()
+    {second_socket, _client} = voice_socket()
+    {third_socket, _client} = voice_socket()
+
+    assert {:ok, _reply, first} = subscribe_and_join(first_socket, "voice:dictation")
+    assert {:ok, _reply, second} = subscribe_and_join(second_socket, "voice:dictation")
+    assert {:error, %{reason_code: "capacity"}} = subscribe_and_join(third_socket, "voice:dictation")
+
+    push(first, "cancel", %{})
+    assert_push("stopped", %{"cancelled" => true})
+
+    assert {:ok, _reply, _third} = subscribe_and_join(third_socket, "voice:dictation")
+
+    push(second, "cancel", %{})
+    assert_push("stopped", %{"cancelled" => true})
+  end
+
+  test "cancel with no active session is idempotent" do
+    {socket, _client} = voice_socket()
+    assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictation")
+
+    push(joined, "cancel", %{})
+    assert_push("stopped", %{"cancelled" => true})
+    push(joined, "cancel", %{})
+    assert_push("stopped", %{"cancelled" => true})
+    assert Process.alive?(joined.channel_pid)
+  end
+
+  test "refuses audio after cancel without crashing" do
+    {socket, _client} = voice_socket()
+    assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictation")
+
+    push(joined, "cancel", %{})
+    assert_push("stopped", %{"cancelled" => true})
+    push(joined, "audio", %{"data" => Base.encode64(<<1, 2, 3>>)})
+
+    assert_push("error", %{"reason" => "Dictation is not active.", "reason_code" => "invalid_payload"})
+    assert Process.alive?(joined.channel_pid)
+  end
+
   test "relays a session error to the client" do
     {socket, _client} = voice_socket()
     assert {:ok, _reply, joined} = subscribe_and_join(socket, "voice:dictation")

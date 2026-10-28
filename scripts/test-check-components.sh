@@ -3,8 +3,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo_root" "$@" <<'PY'
-import json
-import os
+import json, os
 from pathlib import Path
 import shutil
 import subprocess
@@ -131,8 +130,8 @@ if with_node:
         if any(file.startswith('src/lib/') for file in files):
             components.append(component('daemon', ['src/lib/**']))
         check(name, components, files, code, messages, rules='all', links=links)
-
     imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('self_reference_passes', 'import "a";')
     imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
             ('R-client', 'src/lib/foo.js'))
     imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),
@@ -169,6 +168,7 @@ if with_node:
     imports('relative_symlink_into_src_fails', 'import "./leak/index.js";', 1, ('R-client', 'src/lib/leak/index.js'),
             extra={'src/lib/leak/index.js': ''}, links={'packages/a/src/leak': 'src/lib/leak'})
     imports('non_js_package_dir_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': ''})
+    imports('mix_package_static_js_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': '', 'packages/elixir/voice_converse/priv/static/client.js': ''})
     imports('missing_package_json_exits_2', '', 2, ('package.json',), extra={'packages/b/src/x.ts': ''})
     imports('external_resource_into_packages_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
@@ -197,7 +197,6 @@ if with_node:
     imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@external_resource "../../../packages/a/other.json"'})
-
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
     'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',
@@ -292,7 +291,6 @@ else:
             if verify:
                 verify(root, command)
             print(f'PASS: {name}')
-
     def use_experiments_contract(root):
         manifest = json.loads((root / 'components.json').read_text())
         sys.path.insert(0, str(repo / 'scripts'))
@@ -312,6 +310,7 @@ else:
                     ('R-down commands -> AiurWeb.Router',),
                     source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
     from components.harness_fixtures import run as harness_checks; harness_checks(reference_check, repo)
+    from components.event_bus_fixtures import run as bus_checks; bus_checks(reference_check, repo)
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))
@@ -497,4 +496,5 @@ if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
   python3 "$repo_root/scripts/test-github-components.py"
 fi
+python3 "$repo_root/scripts/test-component-goals.py"
 printf '%s\n' 'check-components guard: all selected cases passed'

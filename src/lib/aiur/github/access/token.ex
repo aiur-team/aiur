@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.Access.Token do
   @moduledoc "Resolves GitHub credentials and their daemon identity."
   require Logger
-  alias Aiur.GitHub.{Access.Settings, AppCredentials, AppToken, AppTokenRefresher, AuthPolicy, Transport}
+  alias Aiur.GitHub.{Access.Settings, AppCredentials, AppToken, AppTokenRefresher, Transport}
 
   @spec token() :: String.t() | nil
   def token do
@@ -127,16 +127,9 @@ defmodule Aiur.GitHub.Access.Token do
     end
   end
 
-  defp hosted_mode? do
-    case Aiur.Config.settings() do
-      {:ok, settings} -> AuthPolicy.hosted_auth_required?(settings, System.get_env())
-      _error -> AuthPolicy.hosted_auth_required?(nil, System.get_env())
-    end
-  rescue
-    _error -> AuthPolicy.hosted_auth_required?(nil, System.get_env())
-  end
+  defp hosted_mode?, do: Settings.current().hosted_auth_required?
 
-  defp pat_opted_in?, do: Aiur.Secrets.truthy?(System.get_env("AIUR_GITHUB_ALLOW_PAT"))
+  defp pat_opted_in?, do: Settings.current().pat_opted_in?
 
   defp nonblank_token?(value) when is_binary(value), do: String.trim(value) != ""
   defp nonblank_token?(_value), do: false

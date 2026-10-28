@@ -62,15 +62,16 @@ if [[ "${EVENT_NAME}" == pull_request ]] && grep -qx 'full_ci=false' "$scratch/c
     selection="$(tail -n 1 <<< "$result_lines")"
   fi
   case "$selection" in
-    # The affected-tests job defers an unsafe selection to the merge queue.
-    full) [[ "$approval_gated" == true ]] || printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification" ;;
+    # Broad selections need the parallel coverage jobs even on approval-gated
+    # PRs; otherwise pre-handoff repeats all four partitions serially.
+    full) printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification" ;;
     scoped:*)
       selected_count="${selection#scoped:}"
       if [[ ! "$selected_count" =~ ^[0-9]+$ ]]; then
         echo "unsupported affected selection count: $selection" >&2
         exit 1
       fi
-      if (( selected_count > 400 )) && [[ "$approval_gated" != true ]]; then
+      if (( selected_count > 400 )); then
         echo "affected test selection exceeded 400 files ($selected_count); forcing full CI" >&2
         printf 'full_ci=true\ndocs_only=false\n' > "$scratch/classification"
       fi

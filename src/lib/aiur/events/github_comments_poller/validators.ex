@@ -7,7 +7,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Validators do
   """
 
   alias Aiur.Events.GithubKeys
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
 
   @doc false
   @spec normalize_since(term(), [String.t()], keyword()) :: map()
@@ -50,7 +50,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Validators do
   @doc false
   @spec request_etag(term(), term()) :: {String.t() | nil, :cycle | :store}
   def request_etag(_resource, etag) when is_binary(etag) and etag != "", do: {etag, :cycle}
-  def request_etag(resource, _etag), do: {ResourceStore.etag(resource), :store}
+  def request_etag(resource, _etag), do: {Access.etag(resource), :store}
 
   # The list *and* its validator, deposited together and only after the comments
   # in it were published.
@@ -79,13 +79,13 @@ defmodule Aiur.Events.GithubCommentsPoller.Validators do
   @doc false
   @spec remember_list(term(), term(), String.t() | nil) :: String.t() | nil
   def remember_list(resource, comments, nil) when is_list(comments) do
-    ResourceStore.put_resource(resource, comments, etag: nil, source: :poll)
-    ResourceStore.drop_etag(resource)
+    Access.put_resource(resource, comments, etag: nil, source: :poll)
+    Access.drop_etag(resource)
     nil
   end
 
   def remember_list(resource, comments, etag) when is_list(comments) do
-    ResourceStore.put_resource(resource, comments, etag: etag, source: :poll)
+    Access.put_resource(resource, comments, etag: etag, source: :poll)
     etag
   end
 
@@ -109,7 +109,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Validators do
   @doc false
   @spec unchanged_list(term(), :cycle | :store) :: {:ok, list()} | :nothing_to_recover | :unusable_validator
   def unchanged_list(resource, provenance) do
-    case ResourceStore.fetch(resource) do
+    case Access.fetch_resource(resource) do
       {:ok, %{data: comments}} when is_list(comments) -> {:ok, comments}
       _other when provenance == :cycle -> :nothing_to_recover
       _other -> :unusable_validator
@@ -124,7 +124,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Validators do
   @doc false
   @spec forget_validator(term()) :: nil
   def forget_validator(resource) do
-    ResourceStore.drop_etag(resource)
+    Access.drop_etag(resource)
     nil
   end
 

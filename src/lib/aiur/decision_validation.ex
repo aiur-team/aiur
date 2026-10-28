@@ -35,6 +35,7 @@ defmodule Aiur.DecisionValidation do
   product direction must declare that explicitly or it will be Executor-answerable.
   """
 
+  alias Aiur.Commands.Requester
   alias Aiur.{Config, Decision, DecisionArtifact, DecisionCommandType, DecisionProvenance, SecretRedactor}
   alias Aiur.DecisionValidation.Context
 
@@ -78,6 +79,7 @@ defmodule Aiur.DecisionValidation do
     safe_roots = Keyword.get(opts, :safe_roots, default_safe_roots())
 
     with {:ok, normalized_ticket} <- normalize_ticket(ticket),
+         :ok <- Requester.validate_ticket(normalized_ticket, opts),
          {:ok, legacy_attention} <-
            normalize_legacy_attention(Keyword.get(opts, :legacy_attention), normalized_ticket),
          {:ok, provenance} <- DecisionProvenance.normalize(provenance, now),
@@ -104,12 +106,13 @@ defmodule Aiur.DecisionValidation do
              :reversibility
            ),
          {:ok, context} <- Context.normalize(payload),
+         # Trusted Executor requests need the human by origin, without implying a product/spend/security cause.
          :ok <-
            validate_authority_basis(
              authority,
              kind,
              context,
-             Keyword.get(opts, :legacy_replay, false)
+             Keyword.get(opts, :legacy_replay, false) or Requester.executor?(%{requester: Keyword.get(opts, :requester)})
            ),
          {:ok, options} <- fetch_options(payload),
          {:ok, recommendation} <- fetch_recommendation(payload, options),

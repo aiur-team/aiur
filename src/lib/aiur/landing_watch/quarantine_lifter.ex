@@ -5,7 +5,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   alias Aiur.Config.TrackerSettings
   alias Aiur.Events
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.Access
   alias Aiur.LandingWatch.Journal
   alias Aiur.LandingWatch.QuarantineNightlyResults
   alias Aiur.TestQuarantine
@@ -155,22 +155,22 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp add_priority_label(context, number, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{number}/labels"
+    url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{number}/labels"
 
     case request(opts).(%{method: :post, url: url, token: context.token, caller: "quarantine_expiry_priority", body: %{"labels" => ["priority:1"]}}) do
       {:ok, %{status: status}} when status in [200, 201] -> :ok
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
       {:error, _} = error -> error
     end
   end
 
   defp change_label(context, number, method, label, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{number}/labels/#{URI.encode(label)}"
+    url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{number}/labels/#{URI.encode(label)}"
 
     case request(opts).(%{method: method, url: url, token: context.token, caller: "quarantine_expiry_priority"}) do
       {:ok, %{status: status}} when status in [200, 201, 204] -> :ok
       {:ok, %{status: 404}} when method == :delete -> :ok
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
       {:error, _} = error -> error
     end
   end
@@ -205,11 +205,11 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   defp issue_state(ticket, opts) do
     with {:ok, context} <- context(hd(@list_paths), opts) do
-      url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{ticket}"
+      url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{ticket}"
 
       case request(opts).(%{method: :get, url: url, token: context.token, caller: "quarantine_lift_ticket_state"}) do
         {:ok, %{status: 200, body: %{"state" => state}}} when is_binary(state) -> {:ok, state}
-        {:ok, response} -> {:error, Errors.github_status_error(response)}
+        {:ok, response} -> {:error, Access.github_status_error(response)}
         {:error, _} = error -> error
       end
     end
@@ -293,14 +293,14 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp context(path, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
       {:ok, %{path: path, owner: owner, repo: repo, token: token, base: Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0)}}
     end
   end
 
   defp get_contents(context, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{context.path}?ref=#{context.base}"
+    url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{context.path}?ref=#{context.base}"
 
     case request(opts).(%{method: :get, url: url, token: context.token, caller: "quarantine_lift_contents"}) do
       {:ok, %{status: 200, body: %{"content" => encoded, "sha" => sha, "encoding" => "base64"}}} ->
@@ -310,7 +310,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
         end
 
       {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, _} = error ->
         error
@@ -345,29 +345,29 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp base_sha(context, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/git/ref/heads/#{context.base}"
+    url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/git/ref/heads/#{context.base}"
 
     case request(opts).(%{method: :get, url: url, token: context.token, caller: "quarantine_lift_base"}) do
       {:ok, %{status: 200, body: %{"object" => %{"sha" => sha}}}} -> {:ok, sha}
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
       {:error, _} = error -> error
     end
   end
 
   defp create_branch(context, branch, sha, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/git/refs"
+    url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/git/refs"
     body = %{"ref" => "refs/heads/#{branch}", "sha" => sha}
     expect_write(request(opts).(%{method: :post, url: url, token: context.token, caller: "quarantine_lift_branch", body: body}), [201])
   end
 
   defp update_file(context, branch, sha, contents, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{context.path}"
+    url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/contents/#{context.path}"
     body = %{"message" => "Lift fixed test quarantine", "content" => Base.encode64(contents), "branch" => branch, "sha" => sha}
     expect_write(request(opts).(%{method: :put, url: url, token: context.token, caller: "quarantine_lift_file", body: body}), [200])
   end
 
   defp create_pr(context, branch, ticket, opts) do
-    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/pulls"
+    url = "#{Access.base_url()}/repos/#{context.owner}/#{context.repo}/pulls"
 
     body = %{
       "title" => "Lift fixed test quarantine",
@@ -380,9 +380,9 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp expect_write({:ok, %{status: status} = response}, accepted) do
-    if status in accepted, do: :ok, else: {:error, Errors.github_status_error(response)}
+    if status in accepted, do: :ok, else: {:error, Access.github_status_error(response)}
   end
 
   defp expect_write({:error, _} = error, _accepted), do: error
-  defp request(opts), do: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+  defp request(opts), do: Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 end

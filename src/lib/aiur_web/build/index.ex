@@ -8,18 +8,20 @@ defmodule AiurWeb.Build.Index do
   @window 250
   @max_backoff 60_000
   @signals %{
-    build_order_history_changed: ~w(history health catch_up planned not_queued)a,
-    build_order_features_changed: [:features],
+    build_order_history_changed: ~w(history health catch_up planned not_queued packs)a,
+    build_order_features_changed: [:features, :packs],
+    build_order_planning_pack_changed: [:pack_metadata],
     build_estimates_changed: [:estimates],
     poll_state_changed: [:capacity],
     epic_overrides_changed: [:overrides],
-    build_progress_changed: ~w(queue planned not_queued)a,
-    build_queue_changed: ~w(queue planned not_queued)a,
-    open_tickets_updated: ~w(open planned not_queued)a,
+    build_progress_changed: ~w(queue planned not_queued packs)a,
+    build_queue_changed: ~w(queue planned not_queued packs)a,
+    open_tickets_updated: ~w(open planned not_queued packs)a,
+    build_order_pack_status_changed: [:packs],
     ticket_activity_changed: ~w(now planned not_queued)a,
     running_changed: ~w(now planned not_queued)a
   }
-  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued estimates capacity)a
+  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued estimates capacity packs pack_metadata)a
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []),
@@ -48,6 +50,8 @@ defmodule AiurWeb.Build.Index do
   def subscribe(server \\ __MODULE__), do: GenServer.call(server, {:subscribe, self()})
 
   # Only the table reads mean a dead index; a fault in the cut itself must propagate.
+  defp find_ticket(all, id), do: all[id] || Enum.find_value(all, fn {_key, row} -> if row[:was] == id, do: row end)
+
   defp read_table(table) do
     # Generation is published after its data, so reading it first never pairs it with older data.
     [{:generation, generation}] = :ets.lookup(table, :generation)
@@ -152,10 +156,8 @@ defmodule AiurWeb.Build.Index do
   def handle_call({:ticket, id}, _from, state) do
     reply =
       with {:ok, index} <- state.index do
-        case Map.fetch(index.all, to_string(id)) do
-          {:ok, row} -> {:ok, row}
-          :error -> {:error, :not_found}
-        end
+        row = find_ticket(index.all, to_string(id))
+        if row, do: {:ok, row}, else: {:error, :not_found}
       end
 
     {:reply, reply, state}
@@ -331,13 +333,10 @@ defmodule AiurWeb.Build.Index do
     :ets.insert(state.table, {:daemon, block})
     :ets.insert(state.table, {:generation, generation})
 
-    %{
-      state
-      | daemon_task: nil,
-        daemon_timer_ref: timer_ref,
-        daemon: block,
-        generation: generation
-    }
+    next = %{state | daemon_task: nil, daemon_timer_ref: timer_ref, daemon: block, generation: generation}
+
+    # Results require a matching daemon_task; deactivation clears it atomically.
+    if state.daemon != nil, do: dirty(next, [:packs]), else: next
   end
 
   # An unread snapshot keeps the last good heartbeat so the footer can state its age (#4770).

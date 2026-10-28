@@ -61,8 +61,11 @@ per-account meter read as unknown. Unknown is never shown as a number.
 Each dispatch records the chosen backend and account and every alternative's
 score: in the daemon log (`headroom_dispatch`), in the ticket's agent event
 stream (`dispatch_selection`), in the `dispatch` telemetry point, and as the
-account reason in `aiur status` and `aiur agents`. `aiur accounts` shows the
-remaining percent for every backend it can read.
+account reason in `aiur status` and `aiur agents`.
+
+`aiur usage` shows the shared provider snapshot, including remaining
+percentages and freshness where the backend exposes them. The `aiur accounts`
+compatibility alias is deprecated and now prints that same provider summary.
 
 See also [`agent.account_selection`](/reference/configuration) and
 [Accounts by backend](/guide/claude-accounts).

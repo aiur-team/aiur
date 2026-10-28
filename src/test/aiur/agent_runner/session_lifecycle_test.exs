@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   alias Aiur.Accounts.UsageReadings
   alias Aiur.AgentRunner
   alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.SessionOptions
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.SessionHandle
@@ -67,6 +68,41 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "fresh session continuation options" do
+    test "run_session reports and saves pull tool installation for a fresh session" do
+      root = Aiur.TestSupport.tmp_root!("session-lifecycle-pull-installation")
+      workspace = Path.join(root, "workspace")
+      File.mkdir_p!(workspace)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+      identifier = "SESSION-PULL-#{System.unique_integer([:positive])}"
+      issue_id = "gid-#{identifier}"
+      active_state = Enum.at(Aiur.Config.settings!().tracker.active_states, 0)
+      issue = %Issue{id: issue_id, identifier: identifier, state: active_state, selected_backend: "codex", labels: ["agent:#{active_state}"]}
+      handle_opts = [dir: Path.join(root, "session-handles"), hostname: "test-host", repo_name: "session-lifecycle-test"]
+      port = start_supervised!(ResumeTestPort)
+      orchestrator = start_supervised!(ResumeTestOrchestrator)
+
+      assert {:error, :test_finished} =
+               SessionLifecycle.run_session(
+                 workspace,
+                 issue,
+                 self(),
+                 [
+                   orchestrator: orchestrator,
+                   max_turns: 1,
+                   session_handle_opts: handle_opts,
+                   session_start_fun: fn session_workspace, _opts ->
+                     {:ok, %{backend: "codex", resumed: false, thread_id: "fresh-with-pull", workspace: session_workspace, port: port}}
+                   end,
+                   run_turn: fn _session, _prompt, _issue, _opts -> {:error, :test_finished} end
+                 ],
+                 nil
+               )
+
+      assert_received {:session_execution_info, ^issue_id, %{backend: "codex", pull_tool_installed: true}}
+      assert {:ok, %{thread_id: "fresh-with-pull", pull_tool_installed: true}} = SessionHandle.load(identifier, "codex", handle_opts)
+    end
+
     test "run_session passes abandoned-thread continuation options to the first turn" do
       root = Aiur.TestSupport.tmp_root!("session-lifecycle-abandoned-thread")
       workspace = Path.join(root, "workspace")
@@ -113,6 +149,28 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "model resolution in resolve_session_options/3" do
+    test "deployment auth env contains only the selected backend credential" do
+      inherited = %{
+        "CLAUDE_CODE_OAUTH_TOKEN" => "subscription-token",
+        "ANTHROPIC_API_KEY" => "anthropic-key",
+        "OPENAI_API_KEY" => "openai-key",
+        "CODEX_HOME" => "/state/codex"
+      }
+
+      assert [{"CLAUDE_CODE_OAUTH_TOKEN", "subscription-token"}] =
+               SessionOptions.deployment_auth_env("claude", "operator", inherited)
+
+      assert [{"ANTHROPIC_API_KEY", "anthropic-key"}] =
+               SessionOptions.deployment_auth_env("claude", "consumer", inherited)
+
+      assert [{"CODEX_HOME", "/state/codex"}, {"OPENAI_API_KEY", "openai-key"}] =
+               SessionOptions.deployment_auth_env("codex", "consumer", inherited)
+
+      assert [] = SessionOptions.deployment_auth_env("codex", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "consumer", inherited, false)
+    end
+
     test "a generic codex tag reaches the backend as the newest version in that family" do
       issue = %Issue{id: "issue-alias", identifier: "ALIAS", selected_backend: "codex", labels: ["model:codex-sol"]}
 

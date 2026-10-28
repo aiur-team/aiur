@@ -32,6 +32,7 @@
    so the pair fills the row without a fourth pane wrapping below it. */
 .rs-models {
   grid-column: span 2;
+  align-self: start;
 }
 
 .rs-apis-rows {

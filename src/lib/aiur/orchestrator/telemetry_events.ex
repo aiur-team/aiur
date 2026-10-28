@@ -12,13 +12,13 @@ defmodule Aiur.Orchestrator.TelemetryEvents do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, IssueSync}
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @spec observe(term(), Issue.t() | nil, Issue.t(), keyword()) :: term()
   def observe(state, previous_issue, issue, opts \\ [])
 
   def observe(state, %Issue{} = previous, %Issue{} = issue, opts) do
-    if Lifecycle.enabled?(opts) do
+    if Signal.lifecycle_enabled?(opts) do
       record_state_change(state, previous, issue, opts)
       record_cleared_blockers(previous, issue, opts)
     end
@@ -43,7 +43,7 @@ defmodule Aiur.Orchestrator.TelemetryEvents do
           _other -> nil
         end
 
-      Lifecycle.record(issue.identifier, attempt_id, :state_change, :point, %{from_state: from, to_state: to, cause: :observed}, opts)
+      Signal.lifecycle(issue.identifier, attempt_id, :state_change, :point, %{from_state: from, to_state: to, cause: :observed}, opts)
     end
   end
 
@@ -52,7 +52,7 @@ defmodule Aiur.Orchestrator.TelemetryEvents do
     current_blockers = IssueSync.blocker_map(issue)
 
     for {id, blocker} <- previous_blockers, cause = clearance_cause(blocker, Map.get(current_blockers, id)) do
-      Lifecycle.record(issue.identifier, nil, :dependency_cleared, :point, %{blocker: blocker_identifier(blocker, id), cause: cause}, opts)
+      Signal.lifecycle(issue.identifier, nil, :dependency_cleared, :point, %{blocker: blocker_identifier(blocker, id), cause: cause}, opts)
     end
   end
 

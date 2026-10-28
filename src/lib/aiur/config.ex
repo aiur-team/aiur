@@ -21,6 +21,15 @@ defmodule Aiur.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc "Whether the operator explicitly permits recording relayed answers."
+  @spec relay_operator_answers?() :: boolean()
+  def relay_operator_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.relay_operator_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   The parsed config.
 
@@ -199,11 +208,18 @@ defmodule Aiur.Config do
   defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_webhook_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_days(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_max_events(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings
   defdelegate max_vertical_panes(), to: Aiur.Config.TrackerSettings
   defdelegate max_log_history_mb(), to: Aiur.Config.TrackerSettings
+  @spec netlify_settings() :: Aiur.Config.Schema.Netlify.t()
+  def netlify_settings, do: settings!().netlify
   defdelegate workspace_hooks(), to: Aiur.Config.TrackerSettings
   defdelegate hook_timeout_ms(), to: Aiur.Config.TrackerSettings
   defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings
@@ -219,6 +235,13 @@ defmodule Aiur.Config do
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  @spec decisions_native_capture?(:codex | :claude) :: boolean()
+  def decisions_native_capture?(harness) when harness in [:codex, :claude], do: Map.get(settings!().decisions.native_capture, harness, false)
+
+  @spec decisions_require_suggested_responses?() :: boolean()
+  def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
+
+  defdelegate decision_escalation(), to: Aiur.Config.ObservabilitySettings
   defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_render_interval_ms(), to: Aiur.Config.ObservabilitySettings

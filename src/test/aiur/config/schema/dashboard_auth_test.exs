@@ -40,4 +40,12 @@ defmodule Aiur.Config.Schema.DashboardAuthTest do
 
     assert age_error =~ "session_max_age_days"
   end
+
+  test "trusted proxy entries accept CIDRs and platform, and reject malformed networks" do
+    assert {:ok, settings} = Schema.parse(%{"server" => %{"trusted_proxies" => ["10.0.0.0/8", "2001:db8::/32", "platform"]}})
+    assert settings.server.trusted_proxies == ["10.0.0.0/8", "2001:db8::/32", "platform"]
+
+    assert {:error, {:invalid_workflow_config, error}} = Schema.parse(%{"server" => %{"trusted_proxies" => ["10.0.0.0/99"]}})
+    assert error =~ "trusted_proxies"
+  end
 end

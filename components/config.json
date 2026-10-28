@@ -12,6 +12,9 @@
     "src/lib/aiur/handoff/record.ex",
     "src/lib/aiur/instance.ex",
     "src/lib/aiur/instance/**",
+    "src/lib/aiur/machine/settings.ex",
+    "src/lib/aiur/machine/settings/**",
+    "src/lib/aiur/machine/yaml.ex",
     "src/lib/aiur/merge_policy.ex",
     "src/lib/aiur/workflow.ex",
     "src/lib/aiur/workflow_store.ex",
@@ -31,7 +34,9 @@
       "executor",
       "instance",
       "merge_policy",
-      "prompt_file"
+      "netlify",
+      "prompt_file",
+      "usage"
     ],
     "env": [
       "AIUR_CI_CHANGED_PATHS_B64",
@@ -52,7 +57,7 @@
     "CFG"
   ],
   "dependency_kind": "required",
-  "summary": "Loads workflow settings and applies the configured rules for a run.",
+  "summary": "Loads workflow and machine settings and applies the configured rules for a run.",
   "status": "core",
   "install": {
     "type": "included"
@@ -61,7 +66,9 @@
     "reference/configuration.md"
   ],
   "config": [
-    "executor"
+    "executor",
+    "netlify",
+    "usage"
   ],
   "env": [
     "AIUR_SECRETS_FROM_ENV",
@@ -73,5 +80,6 @@
   ],
   "capabilities": [
     "merge_policy"
-  ]
+  ],
+  "goal": "run-agents"
 }

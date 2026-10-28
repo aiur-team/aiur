@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.HostCommand do
   Runs `gh` from host-side Elixir code through the budget guard wrapper.
 
   The daemon installs a guard wrapper at `~/.aiur/bin/gh`
-  (`Aiur.AgentGitHubGuard.install_host/0`), but agent workspaces are the only
+  (`Aiur.GitHub.Access.Wrapper.install_host/1`), but agent workspaces are the only
   place `gh` resolves to a wrapper through `PATH`. Host-side code that calls
   `System.cmd("gh", ...)` — the test reset, the init wizard, workspace teardown,
   the keyring checks — resolves the *real* `gh` instead, bypassing the broker
@@ -26,8 +26,7 @@ defmodule Aiur.GitHub.HostCommand do
   that shell resolves.
   """
 
-  alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.Access.Token
+  alias Aiur.GitHub.Access.{Token, Wrapper}
 
   @doc """
   The host `gh` executable to use for daemon-side calls.
@@ -131,7 +130,7 @@ defmodule Aiur.GitHub.HostCommand do
   end
 
   defp installed_host_wrapper(bin_dir) do
-    bin_dir = bin_dir || AgentGitHubGuard.host_bin_dir()
+    bin_dir = bin_dir || Wrapper.host_bin_dir()
     path = Path.join(bin_dir, "gh")
 
     case File.stat(path) do

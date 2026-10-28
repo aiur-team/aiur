@@ -19,6 +19,22 @@ const socketHarness = (): WebSocketLike & { sent: string[]; open(): void; messag
 };
 
 describe("Stream Deck Phoenix channel", () => {
+  it("uses a configured client bearer token for the token exchange", async () => {
+    const socket = socketHarness();
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ token: "signed-token" }) }));
+    await connectStreamDeckChannel({
+      baseUrl: "https://aiur.test",
+      token: "client-token",
+      fetch,
+      websocket: vi.fn(() => socket),
+      events: { snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(), voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn() },
+    });
+
+    expect(fetch).toHaveBeenCalledWith("https://aiur.test/api/v1/streamdeck/token", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer client-token" }),
+    }));
+  });
+
   it("mints a token, joins, consumes projected state, and sends control", async () => {
     const socket = socketHarness();
     const events = {
@@ -33,6 +49,7 @@ describe("Stream Deck Phoenix channel", () => {
       websocket: vi.fn(() => socket),
       events,
     });
+
 
     socket.open();
     expect(JSON.parse(socket.sent[0])).toEqual(["4", "1", "streamdeck:fleet", "phx_join", {}]);
@@ -298,6 +315,18 @@ describe("Stream Deck Phoenix channel", () => {
         ["streamdeck:fleet", "answer_command", { decision_id: "dec-9", version: 7, idempotency_key: "sd-key-1", option_id: "ship" }],
         ["streamdeck:fleet", "answer_command", { decision_id: "dec-9", version: 7, idempotency_key: "sd-key-2", custom_response: "Hold everything" }],
       ]);
+    });
+
+    it.each([
+      { reason: "already_answered", winner: { actor_kind: "operator", summary: "Ship it", accepted_at: "2026-10-26T00:00:00Z" } },
+      { reason: "withdrawn", status: "expired" },
+      { reason: "stale" },
+    ])("preserves structured answer outcome $reason", async (outcome) => {
+      const events = commandsEvents();
+      const { socket, channel } = await joined(events);
+      channel.answerCommand("dec-9", 7, "sd-key", { option_id: "ship" });
+      socket.message(["4", JSON.parse(socket.sent[1])[1], "streamdeck:fleet", "phx_reply", { status: "error", response: outcome }]);
+      expect(events.commandsError).toHaveBeenCalledWith(outcome.reason, outcome, "sd-key");
     });
 
     it("routes the answer_command reply to commandAnswered or commandsError", async () => {

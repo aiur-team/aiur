@@ -1,12 +1,12 @@
 defmodule Aiur.RunTelemetry.FeatureEpics do
   @moduledoc false
-  alias Aiur.GitHub.{ResourceEvents, ResourceStore}
+  alias Aiur.GitHub.Access
   alias Aiur.RunTelemetry.EpicMembers
 
   @spec subscribe(String.t()) :: :ok
   def subscribe(repo) do
-    :ok = ResourceEvents.subscribe(:issue_labels, repo)
-    ResourceEvents.subscribe(:sub_issue, repo)
+    :ok = Access.subscribe_repo(:issue_labels, repo)
+    Access.subscribe_repo(:sub_issue, repo)
   end
 
   @spec discover(String.t(), String.t(), keyword()) :: {:ok, [integer()]} | {:error, term()}
@@ -22,7 +22,7 @@ defmodule Aiur.RunTelemetry.FeatureEpics do
   def labels(repo, label, discovered_at) do
     [owner, name] = String.split(repo, "/")
 
-    ResourceStore.list(:issue_labels, owner, name)
+    Access.list(:issue_labels, owner, name)
     |> Enum.filter(fn {_key, entry} -> (entry.fetched_at_ms || 0) > discovered_at * 1_000 end)
     |> Map.new(fn {{_type, _owner, _name, id}, entry} -> {to_string(id), Enum.any?(entry.data || [], &(label_name(&1) == label))} end)
   end

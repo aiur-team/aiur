@@ -39,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <div class="ax-frame aiur-shell aiur-shell--dashboard" id="ax-frame">
       <header class="ax-top aiur-shell__topbar">
         <div class="ax-brand aiur-shell__brand">
-          <img class="brand-logo aiur-shell__logo" src="/aiur-logo.png" alt="Aiur" />
+          <img class="brand-logo aiur-shell__logo" src="/aiur-style/assets/aiur-logo.png" alt="Aiur" />
           <span class="wm aiur-shell__wordmark">aiur</span>
           <div class="ax-set aiur-shell__settings" id="ax-set" phx-hook="AxMenu"
             phx-mounted={JS.ignore_attributes(["class"]) |> JS.ignore_attributes(["aria-expanded"], to: "#ax-cog") |> JS.ignore_attributes(["inert"], to: "#ax-menu")}>
@@ -234,10 +234,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   defp nav_icon(:commands) do
     Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>))
-  end
-
-  defp nav_icon(:build_order) do
-    Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg>))
   end
 
   defp nav_icon(:analytics) do

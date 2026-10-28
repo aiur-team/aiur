@@ -5,7 +5,13 @@ defmodule AiurWeb.Build.PayloadValidator do
 
   @spec validate(map()) :: :ok | {:error, [{String.t(), atom()}]}
   def validate(message) do
-    optional = if message["kind"] == "ticket", do: ~w(row control chat by_you_at), else: []
+    optional =
+      case message["kind"] do
+        "ticket" -> ~w(row control chat by_you_at)
+        "snapshot" -> ["icons"]
+        _ -> []
+      end
+
     errors = check(message, {:object, Schema.message(message["kind"]), optional}, "") ++ references(message) ++ page_rules(message)
     if errors == [], do: :ok, else: {:error, errors}
   end
@@ -32,7 +38,12 @@ defmodule AiurWeb.Build.PayloadValidator do
   defp check(value, :nonnegative, _path) when is_integer(value) and value >= 0, do: []
   defp check(value, :number, _path) when is_number(value), do: []
   defp check(value, :boolean, _path) when is_boolean(value), do: []
-  defp check(value, :id, path) when is_binary(value), do: if(Regex.match?(~r/^(?:[1-9][0-9]*|pack:[a-z0-9][a-z0-9-]{0,63})$/, value), do: [], else: error(path, :id))
+
+  defp check(value, :id, path) when is_binary(value),
+    do: if(Regex.match?(~r"\A(?:[1-9][0-9]*|pack:(?!\.{1,2}/)[A-Za-z0-9._-]{1,64}/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64})\z", value), do: [], else: error(path, :id))
+
+  defp check(value, :pack_id, path) when is_binary(value), do: if(Regex.match?(~r"\Apack:(?!\.{1,2}/)[A-Za-z0-9._-]{1,64}/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64}\z", value), do: [], else: error(path, :id))
+  defp check(value, :display_path, path) when is_binary(value), do: if(Path.type(value) == :relative and not String.starts_with?(value, "~"), do: [], else: error(path, :path))
   defp check(value, :model, path) when is_binary(value), do: if(Regex.match?(~r/^[a-z0-9][a-z0-9._-]{0,31}$/, value), do: [], else: error(path, :model))
   defp check(value, :usage, path) when is_map(value), do: check(value, {:object, Schema.usage(value["state"]), []}, path)
 
@@ -68,7 +79,11 @@ defmodule AiurWeb.Build.PayloadValidator do
   end
 
   defp identity_rules(errors, row, path) do
+    pack? = is_binary(row["id"]) and String.starts_with?(row["id"], "pack:")
+
     errors
+    |> rule(pack? != is_map(row["src"]), join(path, "src"), :identity)
+    |> rule(pack? and (row["sec"] != "plan" or row["qpos"] != nil or row["was"] != nil), join(path, "id"), :identity)
     |> rule(is_binary(row["id"]) and String.starts_with?(row["id"], "pack:") and row["num"] != nil, join(path, "num"), :identity)
     |> rule(is_binary(row["id"]) and not String.starts_with?(row["id"], "pack:") and row["id"] != to_string(row["num"]), join(path, "num"), :identity)
   end
@@ -82,7 +97,7 @@ defmodule AiurWeb.Build.PayloadValidator do
   defp references(%{"kind" => "snapshot", "epics" => epics, "features" => features, "order" => order, "sections" => sections} = msg)
        when is_map(epics) and is_map(features) and is_list(order) and is_map(sections) do
     refs = Enum.flat_map(Enum.with_index(order), fn {key, i} -> reference(epics, key, "order.#{i}") end)
-    refs ++ feature_refs(features, epics) ++ row_refs(sections, epics, features) ++ count_refs(msg["counts"], order, epics)
+    refs ++ feature_refs(features, epics) ++ row_refs(sections, epics, features) ++ count_refs(msg["counts"], order, epics) ++ progress_refs(msg["feature_progress"], epics)
   end
 
   defp references(_message), do: []
@@ -119,6 +134,8 @@ defmodule AiurWeb.Build.PayloadValidator do
   end
 
   defp count_refs(_counts, _order, _epics), do: []
+  defp progress_refs(%{"features" => progress}, epics) when is_map(progress), do: Enum.flat_map(Map.keys(progress) -- Map.keys(epics), &error("feature_progress.features.#{&1}", :reference))
+  defp progress_refs(_, _), do: []
   defp reference(_map, nil, _path), do: []
   defp reference(map, key, path), do: if(Map.has_key?(map, key), do: [], else: error(path, :reference))
   defp rule(errors, true, path, reason), do: errors ++ error(path, reason)

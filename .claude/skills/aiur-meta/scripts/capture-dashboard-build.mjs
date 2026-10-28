@@ -2,7 +2,6 @@ export const PAGES = [
   ['build-home', '/'],
   ['units', '/units'],
   ['commands', '/commands'],
-  ['build-orders', '/build-orders'],
   ['build', '/build'],
   ['analytics', '/analytics']
 ]

@@ -4,9 +4,9 @@ defmodule Aiur.Orchestrator.IssueSync.DecisionStoreOutage do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @spec sync_decision_store_unavailable_alert(State.t(), list()) :: State.t()
   def sync_decision_store_unavailable_alert(%State{} = state, issues) when is_list(issues),
@@ -52,7 +52,7 @@ defmodule Aiur.Orchestrator.IssueSync.DecisionStoreOutage do
   end
 
   defp emit_decision_store_unavailable_alert(%State{} = state) do
-    case Alerts.emit_system("system.dispatch.decision_store_unavailable",
+    case Signal.alert("system.dispatch.decision_store_unavailable",
            reason:
              "The DecisionStore could not be read; dispatch is admitting nothing and capacity-starvation " <>
                "alerting is suppressed while this holds. Recovery restores dispatch and normal capacity alerting.",
@@ -85,7 +85,7 @@ defmodule Aiur.Orchestrator.IssueSync.DecisionStoreOutage do
         AlertFeed.active_system_attention?("system.dispatch.decision_store_unavailable")
 
     if active? do
-      case Alerts.emit_system("system.dispatch.decision_store_unavailable.resolved",
+      case Signal.alert("system.dispatch.decision_store_unavailable.resolved",
              reason: "The DecisionStore is reachable again; dispatch and normal capacity alerting have resumed.",
              needs_attention: false,
              severity: "info"

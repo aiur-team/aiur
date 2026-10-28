@@ -1,0 +1,7 @@
+{
+  "secret": "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+  "msg_id": "host/default/101",
+  "timestamp": 1792886400,
+  "body": "{\"anchor\":null,\"attrs\":{\"lifecycle\":\"running\",\"lifecycle_source\":\"tracker\"},\"class\":\"live\",\"id\":101,\"instance\":\"host/default\",\"observed_at\":\"2026-10-25T00:00:00Z\",\"occurred_at\":\"2026-10-25T00:00:00Z\",\"payload_version\":1,\"refs\":{\"job_id\":\"run-5695-1\",\"ticket\":\"5695\"},\"seq\":1,\"source\":\"legacy\",\"topic\":\"ticket.5695.lifecycle.changed\",\"v\":1}",
+  "signature": "v1,AMeDHsQnunjDAaXb9UkZ2N26t1CragO3VW1mczNNUpk="
+}

@@ -10,12 +10,11 @@ function buildSnapshot(overrides = {}) {
   }
 }
 
-test('the dashboard capture inventory gives Build routes distinct identities', () => {
+test('the dashboard capture inventory gives current Build routes distinct identities', () => {
   assert.deepEqual(PAGES, [
     ['build-home', '/'],
     ['units', '/units'],
     ['commands', '/commands'],
-    ['build-orders', '/build-orders'],
     ['build', '/build'],
     ['analytics', '/analytics']
   ])

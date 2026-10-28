@@ -1,0 +1,38 @@
+{
+  "method": "item/commandExecution/requestApproval",
+  "id": 1,
+  "params": {
+    "kind": "command",
+    "threadId": "<uuid>",
+    "turnId": "<uuid>",
+    "itemId": "exec-<uuid>",
+    "startedAtMs": 1793026528970,
+    "environmentId": "local",
+    "command": "/usr/bin/zsh -lc 'cat README.md'",
+    "cwd": "<workspace>",
+    "commandActions": [
+      {
+        "type": "read",
+        "command": "cat README.md",
+        "name": "README.md",
+        "path": "<workspace>/README.md"
+      }
+    ],
+    "proposedExecpolicyAmendment": [
+      "cat",
+      "README.md"
+    ],
+    "availableDecisions": [
+      "accept",
+      {
+        "acceptWithExecpolicyAmendment": {
+          "execpolicy_amendment": [
+            "cat",
+            "README.md"
+          ]
+        }
+      },
+      "cancel"
+    ]
+  }
+}

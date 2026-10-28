@@ -19,6 +19,7 @@
     "src/lib/aiur/decision_query/**",
     "src/lib/aiur/decision_store/**",
     "src/lib/aiur/decision_validation/**",
+    "src/lib/aiur/operator_relay.ex",
     "src/lib/aiur/supervisor_token.ex",
     "src/lib/aiur/supervisor_token/**",
     "src/lib/aiur_web/controllers/decision*.ex",
@@ -26,7 +27,12 @@
   ],
   "facades": [
     "Aiur.Commands",
+    "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.NativeCapture",
+    "Aiur.Commands.NativeCapture.Claude",
+    "Aiur.Commands.NativeCapture.Codex",
+    "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",
@@ -39,6 +45,7 @@
   "requires": [
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel",
     "signal",
@@ -78,5 +85,6 @@
     "AIUR_CI_READINESS_TOKEN",
     "AIUR_SUPERVISOR_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

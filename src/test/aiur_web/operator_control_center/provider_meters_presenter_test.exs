@@ -49,6 +49,16 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Muse", "Fake"]
     end
 
+    test "attaches the shared usage read model to registered provider cards" do
+      view = Presenter.present(authorized(), %{codex: healthy(:codex)})
+      usage = card(view, :codex).usage
+
+      assert %Aiur.Usage.Provider.Codex{provider: :codex, freshness: :fresh, source: "provider_meter_projection"} = usage
+      assert usage.observed_at == @observed
+      assert is_integer(usage.age_ms)
+      assert usage.fields.windows == card(view, :codex).windows
+    end
+
     test "names the generic transport backend" do
       snapshot = %{healthy(:deepseek) | backend: :openai_compat}
       view = Presenter.present(authorized(), %{deepseek: snapshot})

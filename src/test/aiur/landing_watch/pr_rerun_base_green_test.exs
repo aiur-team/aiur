@@ -50,6 +50,9 @@ defmodule Aiur.LandingWatch.PrRerunBaseGreenTest do
       base_branch: "main",
       rerun_fun: fn _, _ -> send(parent, :rerun) && {:ok, %{}} end,
       base_changes_fun: fn _head, "main", _ -> {:ok, ["README.md"]} end,
+      refresh_observation_fun: fn 17, _ ->
+        {:ok, %{"state" => "OPEN", "headRefOid" => "head-sha", "isDraft" => false, "reviewDecision" => "APPROVED", "mergeQueueEntry" => nil}}
+      end,
       update_branch_fun: fn 17, "head-sha", _ -> send(parent, :updated) && {:ok, %{}} end,
       observe_refresh_fun: fn _, _ -> {:ok, %{"headRefOid" => "refreshed-head"}} end,
       approval_carry_classifier: fn _, _, _, _ -> :identical end,

@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
   @moduledoc false
 
-  alias Aiur.GitHub.{CIRecovery, Client, Errors, FailureEvidence, Transport}
+  alias Aiur.GitHub.{Access, CIRecovery, Client, FailureEvidence}
 
   require Logger
 
@@ -82,13 +82,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
   end
 
   defp fetch_recent_main_failure_paths(base, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
       since = Keyword.get(opts, :now_ms, System.system_time(:millisecond)) - 24 * 60 * 60_000
       created = DateTime.from_unix!(since, :millisecond) |> DateTime.to_iso8601()
 
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
           URI.encode_query(%{
             branch: base,
             event: "push",
@@ -97,7 +97,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
             per_page: 100
           })
 
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       with {:ok, runs} <- read_pages(request, token, url, [], 0) do
         {:ok, Enum.flat_map(runs, &failed_main_run_paths(&1, opts)) |> Enum.uniq()}
@@ -249,16 +249,16 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
            caller: "landing_watch_merge_group_runs"
          }) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
           nil -> {:ok, acc ++ runs}
           next -> read_pages(request, token, next, acc ++ runs, page + 1)
         end
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 end

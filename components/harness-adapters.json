@@ -13,6 +13,7 @@
     "src/lib/aiur/coding_agent/**",
     "src/lib/aiur/harness/**",
     "src/lib/aiur/model_availability.ex",
+    "src/lib/aiur/model_availability/**",
     "src/lib/aiur/model_catalog.ex",
     "src/lib/aiur/model_discovery.ex",
     "src/lib/aiur/model_discovery/**",
@@ -31,6 +32,7 @@
     "Aiur.AppServer.RelayPort",
     "Aiur.AppServer.ToolCallLedger",
     "Aiur.AppServer.TurnLoop",
+    "Aiur.Codex.UserInputAnswers",
     "Aiur.CodexProber",
     "Aiur.CodingAgent",
     "Aiur.CodingAgent.Backend",
@@ -58,7 +60,12 @@
     "config": [
       "agent"
     ],
-    "env": [],
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CODEX_HOME",
+      "OPENAI_API_KEY"
+    ],
     "state": [],
     "capabilities": [
       "remote_control"
@@ -85,7 +92,12 @@
   "config": [
     "agent"
   ],
-  "env": [],
+  "env": [
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CODEX_HOME",
+    "OPENAI_API_KEY"
+  ],
   "capabilities": [
     "remote_control"
   ],
@@ -94,5 +106,6 @@
     "Aiur.Codex.",
     "Aiur.Muse.",
     "Aiur.OpenAICompat."
-  ]
+  ],
+  "goal": "run-agents"
 }

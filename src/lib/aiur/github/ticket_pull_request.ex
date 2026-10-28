@@ -1,11 +1,11 @@
 defmodule Aiur.GitHub.TicketPullRequest do
   @moduledoc "Delivered PR state for build queue prerequisites; never fetches GitHub."
-  alias Aiur.GitHub.{DeliveredPullRequest, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, DeliveredPullRequest}
 
   @spec read(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
   def read(issue_id) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, %{source: :webhook, fetched_at_ms: fetched, data: body, version: version}} <- ResourceStore.fetch(ResourceStore.key(:branch_pull_request, owner, repo, issue_id)),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, %{source: :webhook, fetched_at_ms: fetched, data: body, version: version}} <- Access.fetch_resource(Access.key(:branch_pull_request, owner, repo, issue_id)),
          true <- is_integer(fetched) and System.system_time(:millisecond) - fetched < DeliveredPullRequest.max_age_ms() do
       {:ok, parse(body, version)}
     else

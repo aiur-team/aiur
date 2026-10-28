@@ -120,7 +120,7 @@ defmodule Aiur.DecisionWithdrawalTest do
       assert superseded.answer == original
       assert Decision.active_answer(superseded) == replacement.answer
       assert replacement.prior_action_id == original.action_id
-      assert replacement.answer.actor == @executor
+      assert replacement.answer.actor == Map.put(@executor, :source, :rpc)
       assert replacement.reason == "Operator changed direction"
 
       # Exact retry replays; the audit holds one revision.

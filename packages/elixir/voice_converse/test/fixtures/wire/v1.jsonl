@@ -1,0 +1,16 @@
+{"target":{"id":"ticket-42"},"type":"start","v":1}
+{"data_b64":"AA==","type":"audio","v":1}
+{"text":"hello","type":"text","v":1}
+{"draft_id":"draft-1","edited_text":"edited","type":"confirm_draft","v":1}
+{"draft_id":"draft-1","type":"discard_draft","v":1}
+{"type":"end","v":1}
+{"state":"listening","type":"state","v":1}
+{"kind":"final","text":"hello","type":"transcript","v":1}
+{"final":true,"text":"hi","turn_id":"turn-1","type":"agent_text","v":1}
+{"data_b64":"AA==","format":"pcm_16000","turn_id":"turn-1","type":"agent_audio","v":1}
+{"turn_id":"turn-1","type":"interrupted","v":1}
+{"draft_id":"draft-1","kind":"instruction","status":"proposed","target":{"id":"ticket-42"},"text":"do it","type":"draft","v":1}
+{"draft_id":"draft-1","message_id":"message-1","status":"delivered","type":"delivery","v":1}
+{"message":"Context is stale.","source":"briefing","type":"context_gap","v":1}
+{"code":"provider_error","message":"Provider error.","type":"error","v":1}
+{"reason":"user_end","type":"ended","v":1}

@@ -9,7 +9,7 @@ defmodule Aiur.Events.GithubKeys do
 
   @pre_boot_buffer_seconds 60
 
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
   alias Aiur.TicketBranch
 
   @doc false
@@ -25,7 +25,7 @@ defmodule Aiur.Events.GithubKeys do
   @spec last_review(String.t(), pos_integer(), String.t() | nil) :: map() | nil
   def last_review(repo, pr_number, pr_author)
       when is_binary(repo) and is_integer(pr_number) and pr_number > 0 and is_binary(pr_author) do
-    case ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request_reviews, repo, pr_number)) do
+    case Access.fetch_resource(Access.key_for_repo(:pull_request_reviews, repo, pr_number)) do
       {:ok, %{data: reviews}} when is_list(reviews) ->
         reviews
         |> Enum.filter(fn review ->

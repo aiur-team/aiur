@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.History.Backfill do
   alias Aiur.BuildOrder.GitHubGraph.Request
   alias Aiur.BuildOrder.History
   alias Aiur.BuildOrder.History.{BackfillQuery, IssueNode}
-  alias Aiur.GitHub.{Config, Errors, LocalHold, Transport}
+  alias Aiur.GitHub.{Access, Config}
 
   # ponytail: fixed pacing and one query version; add tuning only if large repositories need it.
   @query_version 1
@@ -33,7 +33,7 @@ defmodule Aiur.BuildOrder.History.Backfill do
     state = %{
       status: {:unavailable, %{reason: :initializing}},
       history: [server: Keyword.get(opts, :history, History)],
-      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       schedule_fun: Keyword.get(opts, :schedule_fun, &Process.send_after/3),
       prefix: Keyword.get_lazy(opts, :label_prefix, &safe_prefix/0),
@@ -54,7 +54,7 @@ defmodule Aiur.BuildOrder.History.Backfill do
     with true <- Keyword.get(opts, :enabled?, true),
          "github" <- safe_call(Keyword.get(opts, :tracker_kind_fun, &Aiur.Config.tracker_kind/0)),
          {:ok, {owner, repo}} <- safe_call(Keyword.get(opts, :repo_fun, &Config.configured_repo/0)),
-         {:ok, token} <- safe_call(Keyword.get(opts, :token_fun, &Transport.require_token/0)) do
+         {:ok, token} <- safe_call(Keyword.get(opts, :token_fun, &Access.require_token/0)) do
       schedule(%{state | repo: %{owner: owner, repository: repo}, token: token}, @start_delay_ms, :running, %{pages: 0, issues: 0, points: 0})
     else
       {:error, reason} -> %{state | status: {:unavailable, %{reason: reason}}}
@@ -312,12 +312,12 @@ defmodule Aiur.BuildOrder.History.Backfill do
   defp handle_error(state, error), do: retry_or_fail(state, error)
 
   defp retry_or_fail(state, reason) do
-    if (reason == :graphql_partial or Errors.retryable_github_error?(reason)) and state.retries < @max_retries,
+    if (reason == :graphql_partial or Access.retryable_github_error?(reason)) and state.retries < @max_retries,
       do: schedule(%{state | retries: state.retries + 1}, backoff(state), :running, Map.put(detail(state.checkpoint), :retry, state.retries + 1)),
       else: fail(state, reason)
   end
 
-  defp backoff(state), do: LocalHold.backoff_base_ms() * Integer.pow(2, state.retries)
+  defp backoff(state), do: Access.backoff_base_ms() * Integer.pow(2, state.retries)
   defp retry_after(%{retry_after: seconds}, now) when is_integer(seconds) and seconds >= 0, do: DateTime.add(now, seconds, :second)
   defp retry_after(_detail, _now), do: nil
   defp reset_at(%DateTime{} = at), do: at

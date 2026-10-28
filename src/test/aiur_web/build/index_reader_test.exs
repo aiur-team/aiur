@@ -35,6 +35,14 @@ defmodule AiurWeb.Build.IndexReaderTest do
     def handle_call(:snapshot, _from, snapshot), do: {:reply, snapshot, snapshot}
   end
 
+  test "index reader includes configured workstream metadata for catalogue projection" do
+    metadata = %{"workstreams" => [%{"id" => "queue", "title" => "Build queue", "icon" => "queue-list", "summary" => "Queue work", "wave" => 1}]}
+    read = IndexReader.read(:all, parts(), pack_metadata_fun: fn -> metadata end)
+
+    assert read.pack_metadata == metadata
+    assert read.pack_metadata["workstreams"] |> hd() |> Map.fetch!("wave") == 1
+  end
+
   test "first cold index read projects an adopted running agent from the orchestrator snapshot" do
     {:ok, identity} =
       Aiur.TrackerIdentity.from_github(%{"node_id" => "I_kwDOExample12", "number" => 12}, {"aiur-team", "aiur"}, {"aiur-team", "aiur"})
@@ -162,6 +170,56 @@ defmodule AiurWeb.Build.IndexReaderTest do
     assert read.now == {:error, :running_snapshot_timeout}
     assert {:ok, index} = assemble(read)
     assert index.sources.agents.state == "unavailable"
+  end
+
+  test "running row read failure is isolated from other index parts" do
+    read =
+      IndexReader.read(MapSet.new([:now]), parts(),
+        units_fun: fn -> raise "unavailable" end,
+        pack_loader: fn -> [] end
+      )
+
+    assert read.now == {:error, :read_failed}
+    assert read.open.status == :available
+  end
+
+  test "pack manifests are read as a safe reader part and retained on unrelated diffs" do
+    parent = self()
+    packs = [%{root_number: 99, tickets: []}]
+
+    read =
+      IndexReader.read(:all, parts(),
+        pack_loader: fn ->
+          send(parent, :packs_loaded)
+          packs
+        end
+      )
+
+    assert_receive :packs_loaded, 100
+    assert read.feature_packs == packs
+
+    cached = IndexReader.read(MapSet.new([:now]), read, pack_loader: fn -> flunk("unrelated diff reread packs") end)
+    assert cached.feature_packs == packs
+  end
+
+  test "pack manifest reader failure is isolated as unavailable" do
+    parent = self()
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        read =
+          IndexReader.read(:all, parts(),
+            pack_loader: fn ->
+              send(parent, :pack_read)
+              raise "unavailable"
+            end
+          )
+
+        assert read.feature_packs == {:error, :read_failed}
+      end)
+
+    assert_receive :pack_read, 100
+    assert log =~ "build_index part=packs read_failed="
   end
 
   test "cached open and queue facts keep every open id with no duplicate history read" do

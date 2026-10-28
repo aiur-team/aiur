@@ -3,9 +3,9 @@ defmodule Aiur.GitHub.Listeners.Firehose do
   use GenServer
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Events.GithubFirehose
   alias Aiur.GitHub.Listeners.Firehose.Window
+  alias Aiur.Signal
 
   @type t :: %__MODULE__{}
   defstruct events_etag: nil,
@@ -168,7 +168,7 @@ defmodule Aiur.GitHub.Listeners.Firehose do
         "#{failures} attempts (#{inspect(reason)}). " <>
         "GitHub event delivery is continuing without durable outcome records until storage recovers."
 
-    alert_fun = Keyword.get(opts, :recent_merge_alert_fun, &Alerts.emit_custom/3)
+    alert_fun = Keyword.get(opts, :recent_merge_alert_fun, &Signal.agent_alert/3)
 
     _ =
       alert_fun.("recent_merge_store.persistence_failed", message,

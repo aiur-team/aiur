@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue}
+  alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
 
   @interrupted_turn_grace_ms 30_000
@@ -88,6 +88,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # that the worker actually parked.
   @doc false
   @spec maybe_pause_overrunning_entry(State.t(), term(), map(), DateTime.t(), non_neg_integer()) :: State.t()
+  def maybe_pause_overrunning_entry(state, _issue_id, %{native_hold: hold}, _now, _max_seconds) when is_map(hold), do: state
+
   def maybe_pause_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
     if overrunning_entry?(running_entry, now, max_seconds) do
       identifier = Map.get(running_entry, :identifier, issue_id)
@@ -213,7 +215,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   defp restart_unhealthy_issue(state, issue_id, running_entry, reason, alert_slug, opts) do
     identifier = Map.get(running_entry, :identifier, issue_id)
-    emit_alert = Keyword.get(opts, :emit_alert, &Alerts.emit_custom/3)
+    emit_alert = Keyword.get(opts, :emit_alert, &Signal.agent_alert/3)
 
     _ =
       emit_alert.(
@@ -324,6 +326,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     AgentTeardown.terminate_running_issue(state, issue_id, false)
   end
 
+  defp maybe_restart_stalled_entry(state, _issue_id, %{native_hold: hold}, _now, _timeout_ms) when is_map(hold), do: state
+
   defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
     elapsed_ms = stall_elapsed_ms(running_entry, now)
 
@@ -336,7 +340,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
 
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{identifier}.agent.stalled",
           "#{backend} backend command (#{command}) made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
           issue: Map.get(running_entry, :issue),

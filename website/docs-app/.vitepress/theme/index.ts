@@ -2,6 +2,9 @@ import DefaultTheme from 'vitepress/theme'
 import VPButton from 'vitepress/dist/client/theme-default/components/VPButton.vue'
 import type { Theme } from 'vitepress'
 import { defineComponent, h, onMounted, onUnmounted } from 'vue'
+import 'aiur-style/tokens.css'
+import 'aiur-style/fonts.css'
+import 'aiur-style/vitepress.css'
 import './custom.css'
 
 const Layout = defineComponent({
@@ -10,7 +13,11 @@ const Layout = defineComponent({
 
     onMounted(() => {
       const persistVisibleTheme = () => {
-        localStorage.setItem('aiur-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light')
+        const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+        document.documentElement.dataset.theme = theme
+        try {
+          localStorage.setItem('aiur-theme', theme)
+        } catch {}
       }
 
       persistVisibleTheme()

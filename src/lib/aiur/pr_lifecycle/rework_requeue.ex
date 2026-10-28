@@ -57,9 +57,9 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   use Aiur.PeriodicWorker
 
   require Logger
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.LocalHold
   alias Aiur.{Issue, Signal, Tracker}
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.PRLifecycle.PostAgentRouting
@@ -103,7 +103,7 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
       # Re-queue write failures already alerted once (the thread-clearance gate
       # refused the human-review write); pruned when they leave rework.
       requeue_failed_alerted: MapSet.new(),
-      # `local_hold_*` options threaded into `Aiur.GitHub.LocalHold.run/2`
+      # `local_hold_*` options threaded into `Access.with_transient_retry/2`
       # around the re-queue state write, so a short self-clearing local budget
       # hold is waited out instead of refusing the write (#2444). Defaults to
       # the real sleep; tests inject a no-op.
@@ -327,9 +327,9 @@ defmodule Aiur.PRLifecycle.ReworkRequeue do
   defp write_addressed_rework(key, head_sha, state, target) do
     # The write is a GitHub call, and a short local budget hold used to refuse
     # it outright (#2444). LocalHold waits it out before retrying.
-    case LocalHold.run(
+    case Access.with_transient_retry(
            fn -> state.state_writer.(to_string(key), target) end,
-           LocalHold.caller_opts(state.local_hold_opts)
+           Access.transient_retry_opts(state.local_hold_opts)
          ) do
       :ok ->
         Logger.info("ReworkRequeue re-queued reworked PR: issue=#{key} -> agent:#{target}")

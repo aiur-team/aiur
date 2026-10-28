@@ -171,9 +171,15 @@ run_session() {
     release_aiur_launch_lock "$launch_lock"
     _session_launch_lock=""
     [ "$mode" = "foreground" ] && return 1
+    preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     exit 1
   fi
+
+  # A restart may need to publish its rollback alert from the still-running
+  # parent shell. Preserve the successful daemon's resolved ledger path too;
+  # the failed release may have crashed before writing its path handoff.
+  preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
 
   printf 'ready\n' >>"$supervisor_file"
   write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
@@ -361,6 +367,7 @@ run_session_write_pane_launcher() {
       AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION AIUR_CI_READINESS_TOKEN; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
+    if [ -n "${AIUR_CLIENT_TOKEN:-}" ]; then printf 'export AIUR_CLIENT_TOKEN=%q\n' "$AIUR_CLIENT_TOKEN"; fi
     printf 'capture=%q\n' "$startup_capture"
     printf 'source %q\n' "$engine_dir/aiur-engine.sh"
     printf 'supervise_daemon %q %q %q ' "$supervisor_file" "$startup_capture" "$crash_dump_baseline_file"
@@ -413,6 +420,7 @@ run_session_start_tmux() {
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
+    preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     release_aiur_launch_lock "$launch_lock"
     exit 1
@@ -426,6 +434,7 @@ run_session_start_tmux() {
     if [ ! -x "$ctrlc_helper" ] ||
        ! "$tmux_bin" -L "$socket" -f "$conf" set-option -g @aiur_ctrlc "$ctrlc_helper"; then
       "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
       rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
       release_aiur_launch_lock "$launch_lock"
       die "aiur pane control helper is unavailable at $ctrlc_helper"

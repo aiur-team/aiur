@@ -6,33 +6,36 @@ defmodule Aiur.Harness.CapabilitiesTest do
 
   # future adapter: gemini (PR #2870)
   @rows [
-    {"codex", :app_server_stdio, :none, :in_band, false, true, []},
+    {"codex", :app_server_stdio, :native, :in_band, false, true, []},
     {"claude", :app_server_stdio, :none, :in_band, false, true, []},
     {"claude-repl", :tmux_pane, :native, :out_of_band, true, false, [:prompt, :tool, :stop]},
-    {"muse", :msp_stdio, :none, :in_band, false, true, []},
+    {"muse", :msp_stdio, :native, :in_band, false, true, []},
     {"kimi", :in_process_http, :native, :none, false, true, []},
     {"deepseek", :in_process_http, :native, :none, false, true, []},
     {"openrouter", :in_process_http, :native, :none, false, true, []},
-    {"fake", :unknown, :none, :none, false, false, []}
+    {"fake", :unknown, :native, :none, false, false, []}
   ]
 
   test "delivery primitives match the declared table for every registered harness" do
     assert Enum.sort(Map.keys(Registry.entries())) == Enum.sort(Enum.map(@rows, &elem(&1, 0)))
 
     for {key, transport, inject, interrupt, queue, pull, hooks} <- @rows do
+      expected = %{
+        harness_id: key,
+        transport: transport,
+        turn_boundary_start: true,
+        mid_turn_inject: inject,
+        hard_interrupt: interrupt,
+        native_queue: queue,
+        pull_tool: pull,
+        hook_boundaries: hooks,
+        native_question: :none
+      }
+
+      expected = if key == "codex", do: Map.put(expected, :native_question_reason, :gate_off), else: expected
+
       assert Capabilities.delivery_primitives(key) ==
-               {:ok,
-                %{
-                  harness_id: key,
-                  transport: transport,
-                  turn_boundary_start: true,
-                  mid_turn_inject: inject,
-                  hard_interrupt: interrupt,
-                  native_queue: queue,
-                  pull_tool: pull,
-                  hook_boundaries: hooks,
-                  native_question: :none
-                }}
+               {:ok, expected}
     end
   end
 

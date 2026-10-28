@@ -45,6 +45,21 @@ defmodule Aiur.Config.OverridesTest do
     refute File.exists?(path)
   end
 
+  test "ownership rules and pool can be changed through runtime overrides" do
+    ensure_workflow_store_running()
+    write_workflow_file!(Workflow.workflow_file_path())
+
+    assert {:ok, %{key: "instance.owns", value: [%{"label" => "build-lane:voice"}], applies: "live"}} =
+             Overrides.set("instance.owns", [%{"label" => "build-lane:voice"}], "local:test")
+
+    assert {:ok, %{key: "instance.pool", value: false, applies: "live"}} =
+             Overrides.set("instance.pool", false, "local:test")
+
+    assert {:ok, settings} = Aiur.Config.settings_uncached()
+    assert settings.instance.owns == [%{"label" => "build-lane:voice"}]
+    refute settings.instance.pool
+  end
+
   test "a schema-invalid value is rejected without changing the active file", %{override_path: path} do
     assert {:ok, _entry} = Overrides.set("agent.max_concurrent_builds", 2, "local:test")
     before = File.read!(path)
@@ -160,6 +175,41 @@ defmodule Aiur.Config.OverridesTest do
                alert["message"] =~ "agent.max_concurrent_buildz" and
                alert["message"] =~ "agent.routing"
            end)
+  end
+
+  test "concurrent applies quarantine a rejected entry once", %{override_path: path} do
+    {:ok, workflow} = Workflow.load_base()
+    rounds = 8
+    concurrency = 4
+    parent = self()
+
+    for round <- 1..rounds do
+      write_override!(path, %{"agent.max_concurrent_buildz" => entry(9, round)})
+
+      tasks =
+        for _ <- 1..concurrency do
+          Task.async(fn ->
+            send(parent, :ready)
+
+            receive do
+              :go -> Overrides.apply(workflow)
+            end
+          end)
+        end
+
+      for _ <- 1..concurrency, do: assert_receive(:ready, 5_000)
+      Enum.each(tasks, &send(&1.pid, :go))
+      assert Enum.all?(Task.await_many(tasks, :infinity), &match?({:ok, _workflow}, &1))
+
+      rejected_paths = Path.wildcard(Path.join(Path.dirname(path), "config-overrides.rejected-*.json"))
+      assert length(rejected_paths) == round
+    end
+
+    alerts =
+      AlertFeed.list(ledger_paths: [AlertLedger.path()])
+      |> Enum.filter(&(&1["topic"] == "config.override_rejected"))
+
+    assert length(alerts) == rounds
   end
 
   test "missing instance identity disables boot overrides and names set refusal" do

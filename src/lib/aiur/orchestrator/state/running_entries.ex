@@ -204,24 +204,41 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
   @spec find_unique_running_by_identity(map(), TrackerIdentity.t()) ::
           {:ok, map(), String.t()} | {:error, :no_running_agent | :ambiguous_identifier}
   def find_unique_running_by_identity(running, %TrackerIdentity{} = identity) when is_map(running) do
+    case find_unique_running_key_by_identity(running, identity) do
+      {:ok, _issue_id, entry} -> unique_identifier_target(running, entry)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def find_unique_running_by_identity(_running, _identity), do: {:error, :no_running_agent}
+
+  @doc false
+  @spec find_unique_running_key_by_identity(map(), TrackerIdentity.t()) ::
+          {:ok, term(), map()} | {:error, :no_running_agent | :ambiguous_identifier}
+  def find_unique_running_key_by_identity(running, %TrackerIdentity{} = identity)
+      when is_map(running) do
     identity_key = TrackerIdentity.github_key(identity)
 
     exact_matches =
       Enum.flat_map(running, fn
-        {_issue_id, entry} when is_map(entry) ->
-          if running_identity_key(entry) == identity_key and not is_nil(identity_key), do: [entry], else: []
+        {issue_id, entry} when is_map(entry) ->
+          if running_identity_key(entry) == identity_key and not is_nil(identity_key),
+            do: [{issue_id, entry}],
+            else: []
 
         _entry ->
           []
       end)
 
     case exact_matches do
-      [entry] -> unique_identifier_target(running, entry)
-      _matches -> {:error, if(exact_matches == [], do: :no_running_agent, else: :ambiguous_identifier)}
+      [{issue_id, entry}] -> {:ok, issue_id, entry}
+      [] -> {:error, :no_running_agent}
+      _matches -> {:error, :ambiguous_identifier}
     end
   end
 
-  def find_unique_running_by_identity(_running, _identity), do: {:error, :no_running_agent}
+  def find_unique_running_key_by_identity(_running, _identity),
+    do: {:error, :no_running_agent}
 
   defp unique_identifier_target(running, entry) do
     identifier = entry |> Map.get(:identifier) |> to_string()

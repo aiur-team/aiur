@@ -1,0 +1,442 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 16,
+  "first_id": "nonelixir-shell-31",
+  "last_id": "orch-a-14",
+  "findings": [
+    {
+      "id": "nonelixir-shell-31",
+      "status": "changed",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:2084",
+      "note": "session_cleanup still captures status after assignment and bare USER/HOME handling remains inconsistent; flaky-test reporting script changed substantially, so its old exit-policy subclaim needs separate revalidation.",
+      "source_ids": [
+        "nonelixir-shell-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-32",
+      "status": "unchanged",
+      "anchor": "analytics/lib/analytics/reduce.py:224",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-32"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "nonelixir-shell-33",
+      "status": "unchanged",
+      "anchor": "packaging/scripts/check-layout-assets-release.mjs:23",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "nonelixir-shell-34",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:327",
+      "note": "Shared cookie creation still checks absence then replaces via mv, while launch locking is keyed by instance; distinct first launches can race.",
+      "source_ids": [
+        "nonelixir-shell-34"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-web-01",
+      "status": "unchanged",
+      "anchor": "website/scripts/assert-sim.ts:16",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-01"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-02",
+      "status": "unchanged",
+      "anchor": "website/scripts/capture-dashboard.mjs:170",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-02"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-03",
+      "status": "present",
+      "anchor": "website/src/main.ts:104",
+      "note": "Website copy click still voids copyText promise and adds copied/next-step state immediately; fallback execCommand return remains ignored. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-web-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-web-04",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/line-source.ts:67",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-04"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-05",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/udev-source.ts:58",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-05"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-06",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/controller.ts:743",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-06"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-07",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/controller.ts:634",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-07"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-08",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/controller.ts:819",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-08"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-09",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/audio/session.ts:107",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-09"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-10",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/voiceHost.ts:85",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-10"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-11",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/audio/capture.ts:99",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-11"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-12",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/audio/node-playback.ts:84",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-12"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "nonelixir-web-13",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/audio/node-fetch.ts:19",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-13"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "nonelixir-web-14",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/surface.ts:409",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-14"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-15",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/touchStrip/providerSegment.ts:113",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-15"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-web-16",
+      "status": "unchanged",
+      "anchor": "packages/streamdeck/src/controller.ts:945",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-web-16"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "orch-a-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/issue_sync.ex:1051",
+      "note": "Terminal verification wrapper still invokes supplied function for any identity without joinable guard, converting nil failure to error and retaining pending ticket. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:1666",
+      "note": "Dispatcher.active_trip still re-evaluates lifetime against current cap while IssueSync treats memory tripped:lifetime as authoritative; duplicate latch policy diverges after config changes. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-02"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:1010",
+      "note": "Pinned-tree grep finds no resolved counterpart for selected provider_delivery_failed/merged_pr_reconciliation_failed/stranded-requeued/state-label-missing topics. Dispatcher still prunes decline map without resolution and todo-capacity only clears its local flag. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-04",
+      "status": "changed",
+      "anchor": "src/lib/aiur/orchestrator/comment_wake.ex:1377",
+      "note": "Deactivated write/fetch failure paths now emit attention before returning state, so Logger-only claim is stale; no retry appears there and retry exhaustion still logs only. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:2538",
+      "note": "Dispatcher still constructs a large untyped running-entry map and sibling modules add pause/control/budget keys; shared mutable entry ownership remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/comment_wake.ex:60",
+      "note": "CommentWake still injects Orchestrator facade forwards and Orchestrator delegates back into siblings; facade/submodule dependency cycles remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:57",
+      "note": "Dispatcher still co-owns poll/config admission, prewarm/readiness, lifetime budgets and worker spawning; original exact line/function census is historical. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/issue_sync.ex:28",
+      "note": "IssueSync still co-owns tracker healing/polled-state sync and broad fleet capacity/attention reconciliation; issue synchronization boundary remains mixed. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-09",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:608",
+      "note": "Dispatcher and CommentPolling retain independent alert latch/debounce/resolution state machines; todo-capacity still clears state without resolved emission. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/operator_messages.ex:206",
+      "note": "Digest enqueue still scans historical queue store for event dedup; item retention is unbounded in current store. Population and latency remain unmeasured. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-10",
+        "loose-3-17"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/issue_sync.ex:848",
+      "note": "IssueSync still builds active_attention_topics via AlertFeed.list during polled-state sync; AlertFeed read rescue still returns empty on errors, retaining scan and hidden-failure behavior. Provisional action retained; static code review only.",
+      "source_ids": [
+        "orch-a-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/issue_sync.ex:1693",
+      "note": "Capacity alert derivations separately rebuild capacity_constraint_entries and ready_dispatch_issues; repeated ready/capacity traversal remains. Historical pass counts are not current timing measurements. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-14",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/event_topics.ex:90",
+      "note": "EventTopics has independent topic regexes; CiLifecycle.active_pr_alert_target separately splits ticket topics. Topic construction/parsing remains distributed; historical literal census is not a new count. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-14",
+        "agent-runtime-22",
+        "loose-3-38",
+        "dup-by-concept-02",
+        "dup-by-name-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

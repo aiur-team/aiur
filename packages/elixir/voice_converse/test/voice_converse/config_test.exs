@@ -7,6 +7,13 @@ defmodule VoiceConverse.ConfigTest do
   @base [transcript_root: "/tmp/vc", credentials: StaticCredentials, briefing_source: FakeBriefingSource]
   @ready @base ++ [provider: {Nope, []}, llm: "some-model", cloud_disclosure_accepted: true]
 
+  test "ask confirmation policy defaults to first and rejects unknown policies" do
+    assert {:ok, %{ask_requires_confirm: :first_in_session}} = Config.new(@base)
+
+    assert {:error, %{field: :ask_requires_confirm, reason: :invalid}} =
+             Config.new(@base ++ [ask_requires_confirm: :sometimes])
+  end
+
   # The LLM and the cloud disclosure are operator decisions (E6-OQ7) with no default, so an
   # instance boots without them but no session may start until both are set.
   describe "session start without the operator's decisions" do

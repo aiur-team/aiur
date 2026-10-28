@@ -72,6 +72,14 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
   # anything about) and continue the ordinary checks, so the ticket stays
   # dispatchable.
   describe "contradictory state labels (#2075)" do
+    test "budget exhaustion wins over stale active labels" do
+      assert DispatchPolicy.resolve_state_labels(["budget-exhausted", "in-progress"]) ==
+               "budget-exhausted"
+
+      assert DispatchPolicy.resolve_state_labels(["agent:todo", "agent:budget-exhausted"]) ==
+               "budget-exhausted"
+    end
+
     test "resolve_state_labels makes todo win over rework, in either label shape" do
       assert DispatchPolicy.resolve_state_labels(["todo", "rework"]) == "todo"
       assert DispatchPolicy.resolve_state_labels(["rework", "todo"]) == "todo"

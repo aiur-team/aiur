@@ -1,5 +1,8 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
-for file <- ~w(earlier_control scale fixture_source fixture_conversation_source control_fixture ticket_docs index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
+for file <- ~w(earlier_control scale unfiled_fixture fixture_source fixture_conversation_source control_fixture ticket_docs index_parts index_seed),
+    do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
@@ -10,7 +13,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support voice_provider build_order_source meters_live optimistic_control experiments index_live base_navigation
+      support voice_provider build_order_source meters_live experiments index_live
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -54,7 +57,6 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
-    get("/optimistic-control/:mode", Aiur.BrowserHarness.OptimisticControl, :configure)
     get("/build-fixture/index-live", Aiur.BrowserHarness.IndexLiveFixture, :configure)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
@@ -65,7 +67,6 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/build-command-control/answer/:option", Aiur.BrowserHarness.BuildCommandFixture, :answer)
     get("/build-command-control/state", Aiur.BrowserHarness.BuildCommandFixture, :state)
     get("/build-command-control/:scenario", Aiur.BrowserHarness.BuildCommandFixture, :configure)
-    get("/build-queue-control/:state", Aiur.BrowserHarness.BuildQueueFixture, :configure)
     get("/experiments-control/:scenario", Aiur.BrowserHarness.ExperimentsFixture, :configure)
   end
 
@@ -155,7 +156,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{BaseNavigation, ExperimentsFixture, FixtureEndpoint}
+  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
   alias Aiur.BrowserHarness.FixtureEndpointStart
   alias Aiur.Experiments
   alias Aiur.IssueLog
@@ -182,7 +183,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
-    Application.put_env(:aiur, :workflow_file_path, BaseNavigation.workflow_path(Path.expand("../fixtures/test.yaml", __DIR__)))
+    Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
