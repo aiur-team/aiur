@@ -6,6 +6,14 @@ Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or inst
 
 The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
+The server also maintains independent Ticket, Feature, Epic and Fleet navigation
+for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
+hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
+Dial 3 is reserved for the sidecar's instance switch.
+
+The current controls below remain visible until the sidecar and emulator
+renderer adopt this model.
+
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
