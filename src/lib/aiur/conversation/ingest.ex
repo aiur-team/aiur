@@ -4,6 +4,11 @@ defmodule Aiur.Conversation.Ingest do
   alias Aiur.Conversation.{Entry, Journal, Ref}
 
   @type source :: %{
+          optional(:import_hint) => %{
+            workspace: Path.t() | nil,
+            backend: String.t(),
+            identifier: Aiur.TrackerIdentity.t() | String.t()
+          },
           harness: String.t(),
           role: :worker | :executor,
           provider_session_id: String.t() | nil,
