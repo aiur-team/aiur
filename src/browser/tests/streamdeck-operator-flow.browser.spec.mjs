@@ -171,12 +171,14 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // Press the running agent's key: it enters cmd mode and pauses the agent.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  // SP-302 gives cmd mode a full-width agent panel, and the panel carries its
-  // own CONTROLLING relabel. The pager segment under dial D stays put: #1607
-  // made this assertion pass and every Stream Deck PR since has preserved it,
-  // so the panel is added beside it rather than in place of it.
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${CONTROLLED}`)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${CONTROLLED}`)
+  // SD-303 replaces the Command summary and pager with one full-width chat
+  // region. This fixture has no available conversation source, so the strip
+  // names that state rather than showing an empty panel that looks live.
+  const chat = page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
+  await expect(chat).toContainText('Conversation unavailable')
   // Cmd mode replaces the key faces, it does not merely relabel the strip: the
   // operator is looking at the command set. The press already paused the agent,
   // so the first slot offers the resume rather than a second pause.
@@ -194,9 +196,11 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // key a third time — another press would toggle the control straight back.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  // Both surfaces again: the dial-D pager label and SP-302's panel relabel.
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${CONTROLLED}`)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${CONTROLLED}`)
+  // Resuming reopens the same full-width conversation strip.
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
+  await expect(chat).toContainText('Conversation unavailable')
   // The resume landed before this render, so the same slot has flipped back to
   // Pause — the label is reading real state, not a fixed list.
   await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)

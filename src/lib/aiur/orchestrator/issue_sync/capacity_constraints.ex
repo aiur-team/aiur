@@ -18,6 +18,8 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
   @doc false
   @spec routable_todo_issues(list()) :: [Issue.t()]
   def routable_todo_issues(issues) when is_list(issues) do
+    terminal_states = DispatchPolicy.terminal_state_set()
+
     issues
     |> Enum.filter(fn
       %Issue{} = issue ->
@@ -25,7 +27,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
           not Issue.paused?(issue) and
           not Issue.held?(issue) and
           DispatchPolicy.issue_routable_to_worker?(issue) and
-          !DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set())
+          !DispatchPolicy.issue_held_by_dependency?(issue, terminal_states)
 
       _ ->
         false

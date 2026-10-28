@@ -4,7 +4,6 @@ import { dialButton, dialButtons, dialTurn, keyReport } from "./support/deckRepo
 import { render } from "./art/renderSegment.js";
 import { StripRenderer } from "../src/touchStrip/stripRenderer.js";
 import type { SegmentContent } from "../src/touchStrip/stripLayout.js";
-import { agentDetailModel } from "../src/touchStrip/agentDetail.js";
 
 const grid = () => ({ agents: [{ identifier: "LOCAL-1", bucket: "running" }], total: 1, windows: 1, max_column_offset: 0 });
 it("routes dial 3 turns and releases, but suppresses both chord press orders", () => {
@@ -36,13 +35,13 @@ it("clears old instance focus, logs, commands and held voice on reset", () => {
 it("carries instance status through renderer into actual painted text in any mode", () => {
   const painted: SegmentContent[] = [];
   const renderer = new StripRenderer((content) => { painted.push(content); return new TextEncoder().encode(JSON.stringify(content)); });
-  const data = { mode: "cmd" as const, data: { detail: agentDetailModel({ identifier: "REMOTE-1" }) } };
+  const data = { mode: "cmd" as const, data: {  } };
   renderer.render(data, "local · connected | ◀ remote ▶ · press to connect");
   expect(painted[0]).toMatchObject({ kind: "instance", label: "local · connected | ◀ remote ▶ · press to connect" });
   const { ink } = render(painted[0]!, 800);
   expect(ink.map((entry) => entry.text)).toContain("local · connected");
   expect(ink.map((entry) => entry.text)).toContain("◀ remote ▶ · press to connect");
-  expect(ink.map((entry) => entry.text)).toContain("REMOTE-1");
+  expect(ink.map((entry) => entry.text)).toContain("Conversation unavailable");
   const failure = render({ kind: "instance", label: "remote · auth failed", content: { kind: "blank" } }, 800);
   expect(failure.ink.map((entry) => entry.text)).toContain("remote · auth failed");
   expect(renderer.render(data, "remote · auth failed")).toHaveLength(1);

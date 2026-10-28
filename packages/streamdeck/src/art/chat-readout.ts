@@ -1,3 +1,4 @@
+import { drawTicketChat } from "./ticket-chat.js";
 /** The logs-mode chat readout: the transcript painted in opencode's grammar. */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
@@ -355,6 +356,10 @@ export const drawHint = (
  * there is something further in that direction.
  */
 export const drawChatLog = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "chatLog" }, now: number): void => {
+  if (content.fullWidth) {
+    drawTicketChat(context, width, content.chat ?? null, now);
+    return;
+  }
   if (content.rows.length === 0) {
     context.font = CHAT_BODY_FONT;
     context.fillStyle = OPENCODE.textMuted;
