@@ -1,16 +1,17 @@
 defmodule AiurWeb.Streamdeck.Render.StripBandTest do
   use ExUnit.Case, async: true
+  alias Aiur.BuildOrder.TicketStatus
   alias AiurWeb.Streamdeck.{Deck, Render}
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
-  alias AiurWeb.Streamdeck.Render.{StripCounts, Style}
+  alias AiurWeb.Streamdeck.Render.{StripBand, StripCounts, Style}
 
   test "shared taxonomy supplies labels, face colors and glyphs for every category" do
-    states = Aiur.BuildOrder.TicketStatus.agent_states()
+    states = TicketStatus.agent_states()
     model = StripCounts.model(counts(Map.new(states, &{&1, 1})))
     assert length(model.chips) == length(states)
 
     for chip <- model.chips do
-      status = Aiur.BuildOrder.TicketStatus.encode(%{sec: "now", agent: %{state: chip.state}})
+      status = TicketStatus.encode(%{sec: "now", agent: %{state: chip.state}})
       assert chip.label == status.label
       assert chip.color == Style.state(status.tone).accent
       refute chip.glyph in [nil, "?"]
@@ -48,7 +49,7 @@ defmodule AiurWeb.Streamdeck.Render.StripBandTest do
     model = StripCounts.model(counts(%{"active" => 1}))
 
     for {offset, pages, selected} <- [{0, Enum.to_list(0..8), 0}, {36, Enum.to_list(5..13), 9}, {999, Enum.to_list(9..17), 17}] do
-      svg = AiurWeb.Streamdeck.Render.StripBand.backlog(%{model: model, offset: offset, total: 144}) |> IO.iodata_to_binary()
+      svg = StripBand.backlog(%{model: model, offset: offset, total: 144}) |> IO.iodata_to_binary()
       assert Regex.scan(~r/data-page="(\d+)"/, svg, capture: :all_but_first) |> Enum.map(fn [page] -> String.to_integer(page) end) == pages
       assert svg =~ ~s(fill="#9fd0ff" data-page="#{selected}")
     end
