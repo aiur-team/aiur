@@ -124,7 +124,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   def claim_next_steer_queue_item_call(%State{} = state, identifier) do
     {store, item} =
       AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn item ->
-        item.category == :operator_message and item.delivery[:steer_requested] == true
+        item.category in [:operator_message, :system_notice] and item.delivery[:steer_requested] == true
       end)
 
     queue_claim_reply(state, store, item)
@@ -156,7 +156,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
       AgentQueueStore.claim_next_deliverable_matching(
         state.queue_store,
         issue_identifier,
-        fn item -> item.category == :operator_message and not (active_turn? and item.delivery[:listener_mode_at_claim] == :sync) end
+        fn item -> item.category in [:operator_message, :system_notice] and not (active_turn? and item.delivery[:listener_mode_at_claim] == :sync) end
       )
 
     queue_claim_reply(state, queue_store, item)
