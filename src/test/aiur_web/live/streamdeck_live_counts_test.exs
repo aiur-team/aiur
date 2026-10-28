@@ -6,12 +6,8 @@ defmodule AiurWeb.StreamdeckLiveCountsTest do
     window = %{
       sources: %{agents: %{state: "stale", observed_at: 123}},
       sections: %{
-        now: [
-          %{agent: %{state: "active"}},
-          %{agent: %{state: "active"}},
-          %{agent: %{state: "ci_wait"}}
-        ],
-        plan: List.duplicate(%{}, 5),
+        now: [%{num: 1, sec: "now", agent: %{state: "active"}}, %{num: 2, sec: "now", agent: %{state: "active"}}, %{num: 3, sec: "now", agent: %{state: "ci_wait"}}],
+        plan: Enum.map(10..14, &%{num: &1, sec: "plan"}),
         nq: []
       }
     }

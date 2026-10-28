@@ -1,6 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
-  alias AiurWeb.Streamdeck.Render.{Settings, Svg, ViewStrip}
+  alias AiurWeb.Streamdeck.Render.{Fleet, Settings, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
   @glyphs %{
@@ -17,6 +17,13 @@ defmodule AiurWeb.Streamdeck.Render.Views do
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{nav: %{view: :fleet} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"] do
+    {faces, regions} = Fleet.compose(field(model, :grid) || model, nav)
+    toast = field(model, :toast)
+    regions = if is_binary(toast), do: List.replace_at(regions, 0, %{x: 0, width: 200, label: toast, parts: [%{kind: :text_line, text: toast, y: 50, size: 12}]}), else: regions
+    {faces, regions}
+  end
+
   def compose(model) do
     context = field(model, :view_context, %{})
     compose(to_string(field(model, :surface)), model, context)

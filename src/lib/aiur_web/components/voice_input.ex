@@ -34,12 +34,13 @@ defmodule AiurWeb.Components.VoiceInput do
     assigns =
       assigns
       |> assign(:stt, Map.get(assigns.capabilities, "voice.stt", %{}))
+      |> assign(:dictate, mode({"dictate", "Dictate", "voice.stt"}, assigns.capabilities))
       |> assign(:modes, Enum.map([{"dictate", "Dictate", "voice.stt"}, {"converse", "Converse", "voice.conversation"}], &mode(&1, assigns.capabilities)))
       |> assign(:legacy_conversation, assigns.legacy_conversation and to_string(get_in(assigns.capabilities, ["voice.conversation", :state])) not in ["available", "degraded"])
 
     ~H"""
     <div id={@id} phx-hook={@hook} class="agent-voice-tools" data-voice-root data-voice-surface={@surface} data-voice-target={Jason.encode!(@target)}
-      data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]}>
+      data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]} data-voice-state={if @dictate.available, do: "idle", else: "unavailable"}>
       {render_slot(@inner_block)}
       <div class="agent-voice-controls">
         <div class="agent-voice-choice">
@@ -62,7 +63,7 @@ defmodule AiurWeb.Components.VoiceInput do
               {mode.label}
               <span :if={!mode.available} id={"#{@id}-#{mode.id}-reason"}>{mode.reason}</span>
             </button>
-            <a :if={Enum.any?(@modes, & &1.setup)} href="https://aiur.team/docs/reference/configuration-integrations#elevenlabs" target="_blank" rel="noopener">Set up voice input</a>
+            <a :if={Enum.any?(@modes, & &1.setup)} href="https://aiur.team/docs/apis/elevenlabs#configure-the-key" target="_blank" rel="noopener">Set up voice input</a>
           </div>
         </div>
         <button
@@ -99,7 +100,7 @@ defmodule AiurWeb.Components.VoiceInput do
         data-voice-waveform
       ></canvas>
       <p class="agent-voice-status" role="status" aria-live="polite" data-voice-status>
-        {@status_copy}
+        {if @dictate.available, do: @status_copy, else: @dictate.reason}
       </p>
     </div>
     """

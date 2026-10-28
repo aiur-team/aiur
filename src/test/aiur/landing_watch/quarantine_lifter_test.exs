@@ -53,6 +53,35 @@ defmodule Aiur.LandingWatch.QuarantineLifterTest do
     refute_received {:request, :put, "https://api.github.com/repos/test-org/test-repo/contents/src/test/quarantine.txt", _}
   end
 
+  test "a merged fix ticket lifts a per-test browser row and list_tickets reads its ticket" do
+    parent = self()
+    journal = Path.join(System.tmp_dir!(), "quarantine-lifter-per-test-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
+    browser = "# Spec list\nBrowserSpec\tsrc/browser/tests/build-home-list.browser.spec.mjs\tone test fails\t187\t#5119\n"
+
+    request = fn %{method: method, url: url} = call ->
+      send(parent, {:request, method, url, Map.get(call, :body)})
+
+      if url == "https://api.github.com/repos/test-org/test-repo/issues/5119",
+        do: {:ok, %{status: 200, body: %{"state" => "closed"}}},
+        else: browser_response(method, url, browser)
+    end
+
+    assert :ok =
+             QuarantineLifter.lift_closed(
+               request_fun: request,
+               token: "test-gh-token",
+               base_branch: "main",
+               journal_path: journal,
+               nightly_quarantine_results_fun: fn _ -> {:ok, []} end
+             )
+
+    assert_received {:request, :get, "https://api.github.com/repos/test-org/test-repo/issues/5119", _}
+    assert_received {:request, :put, "https://api.github.com/repos/test-org/test-repo/contents/src/browser/quarantine.txt", body}
+    {:ok, content} = Base.decode64(body["content"])
+    refute content =~ "one test fails"
+  end
+
   test "a ticket closed without a merged fix PR has its entry lifted; an open ticket keeps its entry" do
     parent = self()
     journal = Path.join(System.tmp_dir!(), "quarantine-lifter-closed-#{System.unique_integer([:positive])}.json")

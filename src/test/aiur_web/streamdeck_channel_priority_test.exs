@@ -79,7 +79,8 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "ticket"})
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
-    assert_reply(ref, :error, %{reason: "outcome_unknown"})
+    assert_reply(ref, :error, %{reason: "outcome_unknown"} = reply)
+    assert Map.keys(reply) == [:reason]
     frame = pushed_frame(socket)
     assert_received {:reorder, "4", 2}
     refute_received {:reorder, _, _}

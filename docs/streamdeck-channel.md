@@ -122,7 +122,11 @@ The emulator also accepts `input` with `{kind, index, ticks?}`. Kinds are `key_p
 `dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
 turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
 out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
-navigation replies `ok` with `{view, page}` (zero-based page), including queue moves; refusals return an error `reason`. Replies never contain a frame. Images arrive only as coalesced `frame` pushes, with at most one pending refresh. Connections use the saved default view at page 0; reconnects reset transient navigation.
+navigation replies `ok` with `{view, page}` (zero-based page), never images.
+Refused effects return an error `reason`; feedback and queue position changes
+appear in the coalesced `frame` push, including Fleet categories and their
+state-filtered drills.
+Images have at most one pending refresh. Connections use the saved default view at page 0; reconnects reset transient navigation.
 
 Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
 root pages and clearing drills. Turning it moves one eight-key page per tick,
@@ -141,10 +145,16 @@ Selecting a ticket also focuses its existing transcript/alert relay.
 `Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
 `%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
 plus the current drill count. The current grid supplies tickets and fleet
-categories; Feature/Epic section producers and the new renderer follow in
-SD-202–205. Physical pixels now use the server grid renderer; additional server views follow
-in the later view tickets. Emulator pixels switch in SD-104. Legacy channel
-controls remain available for emulator clients during that transition.
+categories. Fleet category IDs resolve `{:state, states}` ticket filters using the same
+filed, deduplicated population as `Tickets.keys/2`. `grid.fleet` contains the
+eight summary keys and daemon/capacity/global-pause strip metadata. Unknown
+states remain visible in Active; unavailable counts stay explicitly unavailable.
+
+Physical and emulator pixels use the shared server renderer, including Fleet.
+In the emulator grid, dial D press cycles Ticket → Feature → Epic → Fleet;
+turn, drag, wheel or arrow keys page the current view with clamped bounds.
+The focused command/log controls retain their mode-specific actions.
+The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
 
