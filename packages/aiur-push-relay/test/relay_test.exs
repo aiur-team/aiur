@@ -105,7 +105,7 @@ defmodule AiurPushRelay.RelayTest do
       |> Enum.to_list()
 
     assert responses == List.duplicate({:ok, 202}, 8)
-    assert_receive {:delivery, pid, _, _}
+    assert_receive {:delivery, pid, _, _}, 2_000
     refute_receive {:delivery, _, _, _}
     send(pid, {:result, :ok})
   end
@@ -113,11 +113,11 @@ defmodule AiurPushRelay.RelayTest do
   test "gone handle answers 410 and authenticated deletion removes it", ctx do
     c = credentials(ctx)
     assert request(ctx, :post, "/v1/send", envelope(ctx, c), c["send_secret"]).status == 202
-    assert_receive {:delivery, pid, _, _}
+    assert_receive {:delivery, pid, _, _}, 2_000
     send(pid, {:result, {:gone, :invalid_token}})
     # A monitor gives a deterministic barrier after finish has persisted the provider result.
     ref = Process.monitor(pid)
-    assert_receive {:DOWN, ^ref, :process, ^pid, _}
+    assert_receive {:DOWN, ^ref, :process, ^pid, _}, 2_000
     assert request(ctx, :post, "/v1/send", envelope(ctx, c), c["send_secret"]).status == 410
     assert request(ctx, :delete, "/v1/handles/#{c["handle"]}", %{}, "wrong").status == 401
     assert request(ctx, :delete, "/v1/handles/#{c["handle"]}", %{}, c["send_secret"]).status == 204
@@ -144,7 +144,7 @@ defmodule AiurPushRelay.RelayTest do
     assert request(ctx, :post, "/v1/send", Map.put(e, "unexpected", "discard"), c["send_secret"]).status ==
              202
 
-    assert_receive {:delivery, pid, _, delivered}
+    assert_receive {:delivery, pid, _, delivered}, 2_000
     assert delivered["fallback"] == ctx.pin
     refute Map.has_key?(delivered, "unexpected")
     send(pid, {:result, :ok})
@@ -187,10 +187,10 @@ defmodule AiurPushRelay.RelayTest do
     log =
       capture_log(fn ->
         assert request(ctx, :post, "/v1/send", envelope(ctx, c), c["send_secret"]).status == 202
-        assert_receive {:delivery, pid, _, _}
+        assert_receive {:delivery, pid, _, _}, 2_000
         ref = Process.monitor(pid)
         send(pid, {:result, :raise})
-        assert_receive {:DOWN, ^ref, :process, ^pid, _}
+        assert_receive {:DOWN, ^ref, :process, ^pid, _}, 2_000
       end)
 
     assert log =~ "relay_delivery"
@@ -240,7 +240,7 @@ defmodule AiurPushRelay.RelayTest do
 
     ctx = %{ctx | opts: Map.put(ctx.opts, :sender, sender)}
     assert request(ctx, :post, "/v1/send", e, c["send_secret"]).status == 202
-    assert_receive {:delivery, pid, _, _}
+    assert_receive {:delivery, pid, _, _}, 2_000
     send(pid, {:result, :ok})
   end
 
