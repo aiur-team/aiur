@@ -47,7 +47,7 @@ defmodule AiurWeb.Streamdeck.Render.ViewStrip do
         label: state.label,
         percent: percent,
         freshness: field(agent, :progress_freshness, :unknown),
-        suffix: "%",
+        suffix: "",
         y: 65
       }
     ]

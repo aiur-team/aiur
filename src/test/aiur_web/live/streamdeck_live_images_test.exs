@@ -95,6 +95,7 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
   end
 
   test "existing focused controls, logs, settings and Commands use the common frame" do
+    EndpointStubs.put(dashboard_writable: false)
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_grid_images(view, html)

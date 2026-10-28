@@ -122,7 +122,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     # provider has no reading of any kind. It must still get its own segment,
     # and both of its meters must say so rather than showing an invented value.
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    html = render_hook(view, "input", %{"kind" => "dial_turn", "index" => 0, "ticks" => 32})
+    html = render_hook(view, "input", %{"kind" => "dial", "index" => 0, "action" => "turn", "delta" => 32})
 
     assert streamdeck_assigns_from_html(html, "kimi") =~ "Unknown"
     refute streamdeck_assigns_from_html(html, "kimi") =~ ~s(data-part="progress-fill")

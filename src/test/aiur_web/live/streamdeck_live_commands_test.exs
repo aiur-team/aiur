@@ -197,7 +197,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
              {"mic", "Mic", "HOLD"},
              {"settings", "Settings", "OPEN"},
              {"commands", "Commands", "OPEN"}
-           ] == rendered_command_keys(html)
+           ] == svg_command_keys(html)
 
     # Mic is the only press-and-hold key, so it is the only one the hook drives
     # from pointer events rather than a click.
@@ -371,5 +371,16 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     assert_receive {:streamdeck_pause, "1352"}, 1000
     html = render_hook(view, "command-press", %{"command" => "commands"})
     assert html =~ "UNAVAILABLE"
+  end
+
+  defp svg_command_keys(html) do
+    html
+    |> Floki.parse_fragment!()
+    |> Floki.find("[data-streamdeck-command]")
+    |> Enum.map(fn node ->
+      [command] = Floki.attribute(node, "data-streamdeck-command")
+      [label] = Floki.attribute(node, "aria-label")
+      {command, label, Floki.find(node, "[data-part='caption']") |> Floki.text()}
+    end)
   end
 end

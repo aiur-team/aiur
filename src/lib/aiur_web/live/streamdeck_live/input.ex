@@ -28,7 +28,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
         )
 
       _ ->
-        {:noreply, socket}
+        StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
     end
   end
 

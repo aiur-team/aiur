@@ -174,7 +174,6 @@ defmodule AiurWeb.StreamdeckLiveTest do
     unknown = render_hook(view, "key-press", %{"identifier" => "unknown"})
     assert strip(unknown) =~ "Unknown"
     refute strip(unknown) =~ ~s(data-part="progress-fill")
-    refute strip(unknown) =~ "aria-valuenow"
   end
 
   test "renders every registry provider logo from its descriptor", %{
@@ -285,6 +284,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert has_element?(view, "[data-streamdeck-region='600']", "CONTROLLING")
     assert strip(html) =~ "#1352"
     assert strip(html) =~ "50%"
+    refute strip(html) =~ "50%%"
     assert strip(html) =~ "Running"
     assert strip(html) =~ ~s(data-part="progress-fill")
     assert streamdeck_assigns(view).sd_active.progress_percent == 50

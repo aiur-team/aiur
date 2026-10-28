@@ -155,23 +155,34 @@ test('keyboard arrow keys adjust the focused knob value', async ({ page }) => {
   expect(afterDown).toBeLessThan(afterUp)
 })
 
-test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ page }) => {
+test('dial taps and long holds send one raw action, including a patch during the hold', async ({ page }) => {
   await openStreamdeck(page)
-
-  // Dial 0 is the first knob (Focus); a press should trigger the .press class.
   const knob = page.locator('.sd-knob').first()
-  await anchor(knob)
-  const box = await knob.boundingBox()
-  const cx = box.x + box.width / 2
-  const cy = box.y + box.height / 2
-
-  // Very short click-like gesture: down and up nearly in place (< 8° accumulated).
-  await page.mouse.move(cx, cy)
-  await page.mouse.down()
-  await page.mouse.up()
-
-  // The press class should appear transiently; poll quickly.
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__dialActions = []
+    const push = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'input') window.__dialActions.push(payload)
+      return push(name, payload)
+    }
+  })
+  await knob.click()
   await expect(knob).toHaveClass(/press/, { timeout: 500 })
+  expect(await page.evaluate(() => window.__dialActions)).toEqual([{ kind: 'dial', index: 0, action: 'press' }])
+
+  await knob.hover()
+  await page.mouse.down()
+  const nav = page.locator('#ax-drag')
+  const before = await nav.getAttribute('data-nav-collapsed')
+  await nav.dispatchEvent('keydown', { key: 'Enter' })
+  await expect(nav).not.toHaveAttribute('data-nav-collapsed', before)
+  await page.waitForTimeout(550)
+  await page.mouse.up()
+  expect(await page.evaluate(() => window.__dialActions)).toEqual([
+    { kind: 'dial', index: 0, action: 'press' },
+    { kind: 'dial', index: 0, action: 'long_press' }
+  ])
 })
 
 test('grid key press enters command mode and replaces grid keys', async ({ page }) => {

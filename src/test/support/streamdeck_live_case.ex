@@ -82,14 +82,9 @@ defmodule AiurWeb.StreamdeckLiveCase do
   end
 
   def rendered_command_keys(html) do
-    html
-    |> Floki.parse_fragment!()
-    |> Floki.find("[data-streamdeck-command]")
-    |> Enum.map(fn node ->
-      [command] = Floki.attribute(node, "data-streamdeck-command")
-      [label] = Floki.attribute(node, "aria-label")
-      {command, label, Floki.find(node, "[data-part='caption']") |> Floki.text()}
-    end)
+    ~r/data-streamdeck-command="([a-z]+)".*?<span class="sd-cmd-label">([^<]*)<\/span>\s*<span class="sd-cmd-sub">([^<]*)<\/span>/s
+    |> Regex.scan(html)
+    |> Enum.map(fn [_match, command, label, sub] -> {command, label, sub} end)
   end
 
   def fixture_snapshot do
@@ -119,10 +114,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
 
   def put_fixture_agent(snapshot, identifier, attrs) do
     Map.new(snapshot, fn {bucket, entries} ->
-      {bucket,
-       Enum.map(entries, fn entry ->
-         if entry.identifier == identifier, do: Map.merge(entry, Map.new(attrs)), else: entry
-       end)}
+      {bucket, Enum.map(entries, fn entry -> if entry.identifier == identifier, do: Map.merge(entry, Map.new(attrs)), else: entry end)}
     end)
   end
 
@@ -149,35 +141,15 @@ defmodule AiurWeb.StreamdeckLiveCase do
       "claude" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{
-            "kind" => "rate_limit",
-            "used_percent" => 30,
-            "remaining" => "22m",
-            "freshness" => "fresh"
-          },
-          "weekly" => %{
-            "kind" => "rate_limit",
-            "used_percent" => 47,
-            "resets_at" => "2026-08-13T18:00:00Z",
-            "freshness" => "fresh"
-          }
+          "session" => %{"kind" => "rate_limit", "used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
         }
       },
       "codex" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{
-            "kind" => "rate_limit",
-            "used_percent" => 50,
-            "remaining" => "1h",
-            "freshness" => "fresh"
-          },
-          "weekly" => %{
-            "kind" => "rate_limit",
-            "used_percent" => 75,
-            "resets_at" => "2026-08-14T20:00:00Z",
-            "freshness" => "fresh"
-          }
+          "session" => %{"kind" => "rate_limit", "used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
         }
       }
     }
@@ -325,7 +297,10 @@ defmodule AiurWeb.StreamdeckLiveCase do
   # from the `#sd-screen` tag to the well that follows it. A non-greedy
   # `</div>` would stop at the first strip entry.
   def strip(html) do
-    html |> Floki.parse_fragment!() |> Floki.find("#sd-screen") |> Floki.raw_html()
+    case Regex.run(~r{id="sd-screen".*?class="sd-well"}s, html) do
+      [pane | _] -> pane
+      nil -> flunk("missing #sd-screen touch strip")
+    end
   end
 
   def strip_offset(html) do
