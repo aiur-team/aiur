@@ -2,12 +2,11 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.BuildOrder.Index
   alias Aiur.TestSupport.EndpointStubs
-  alias AiurWeb.Streamdeck.Deck.Tickets
   alias AiurWeb.Streamdeck.Render
   alias AiurWeb.StreamdeckFleet
   alias AiurWeb.StreamdeckLive.ImageComponents
   alias AiurWeb.Streamdeck.FrameUpdates
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{Nav, Tickets}
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   test "shared Build window drives snapshot, emulator keys, raw key input and index refresh" do
