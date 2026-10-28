@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('0.1.0 tarball installs and every exported file resolves from a clean consumer', () => {
+test('future regression: tarball installs and every exported file resolves from a clean consumer', () => {
   const scratch = mkdtempSync(join(tmpdir(), 'aiur-style-pack-'));
   const run = (command, args, cwd = scratch) => execFileSync(command, args, { cwd, encoding: 'utf8' });
   try {
@@ -18,7 +18,7 @@ test('0.1.0 tarball installs and every exported file resolves from a clean consu
     run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(scratch, pack.filename), `react@${source.devDependencies.react}`]);
     const installed = join(scratch, 'node_modules/aiur-style');
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
-    assert.equal(manifest.version, '0.1.0');
+    assert.equal(manifest.version, source.version);
     assert.deepEqual(manifest.exports, source.exports);
     const exports = [];
     for (const [key, value] of Object.entries(source.exports)) {
