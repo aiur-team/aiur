@@ -140,7 +140,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
 
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
   expect(windows).toBeGreaterThan(1)
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  await expect(pager).toHaveAttribute('aria-label', 'Queued 15; Not queued 0')
+  await expect(pager.locator('circle[data-page="0"]')).toHaveAttribute('fill', '#9fd0ff')
   await expect(keys).toHaveAttribute('data-grid-page', '0')
 
   const openingPage = await visibleIdentifiers(page)
@@ -157,7 +158,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // Page with dial D by drag, then wheel and keyboard, then press to cycle.
   await dragDial(page, dialD, [-90, 0, 90, 126])
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  await expect(pager).toHaveAttribute('aria-label', /9–16/)
+  await expect(pager).toHaveAttribute('aria-label', 'Queued 15; Not queued 0')
+  await expect(pager.locator('circle[data-page="1"]')).toHaveAttribute('fill', '#9fd0ff')
   expect(await visibleIdentifiers(page)).not.toEqual(openingPage)
 
   await dialD.hover()
@@ -283,7 +285,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
 
   await expect(keys).toHaveAttribute('data-grid-page', '0')
   await expect(keys).toHaveAttribute('data-grid-page', '0')
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  await expect(pager).toHaveAttribute('aria-label', 'Queued 15; Not queued 0')
+  await expect(pager.locator('circle[data-page="0"]')).toHaveAttribute('fill', '#9fd0ff')
   // The resume actually took: the agent is running again and the fleet has
   // re-sorted back into the exact window the operator started on.
   await expect(controlled).toHaveAttribute('data-streamdeck-state', 'running')

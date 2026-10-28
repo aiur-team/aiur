@@ -296,7 +296,7 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
   await dragDialThroughAngles(page, dialD, [-90, 0, 90])
   await expect(keys).toHaveAttribute('data-grid-page', '1')
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /9–16/)
+  await expect(page.locator('[data-streamdeck-region="600"] circle[data-page="1"]')).toHaveAttribute('fill', '#9fd0ff')
   const angle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
   await dialD.click()
   await expect(keys).toHaveAttribute('data-grid-page', '2')
