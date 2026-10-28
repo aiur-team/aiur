@@ -41,7 +41,7 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     ref = push(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "turn", "delta" => 1})
     assert_reply(ref, :ok, %{"page" => 1})
     flush_frame(socket)
-    assert_push("frame", %{keys: later, strip: strip})
+    %{keys: later, strip: strip} = page_frame("9–12 / 12", System.monotonic_time(:millisecond) + 2_000)
     assert List.last(strip).label == "9–12 / 12"
     ref = push(socket, "input", %{"kind" => "key", "index" => 1, "action" => "down"})
     assert_reply(ref, :ok, _reply)
@@ -166,6 +166,12 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
       ref = push(socket, "input", input)
       assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0})
     end
+  end
+
+  defp page_frame(label, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+    assert_receive %Message{event: "frame", payload: %{strip: strip} = frame}, remaining
+    if List.last(strip).label == label, do: frame, else: page_frame(label, deadline)
   end
 
   defp put_rows(rows) do
