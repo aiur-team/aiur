@@ -15,7 +15,11 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   end
 
   @spec push(Phoenix.Socket.t()) :: :ok
-  def push(socket), do: Phoenix.Channel.push(socket, "settings", SettingsSnapshot.read(socket.assigns.deck_settings_path).settings)
+  def push(socket) do
+    snapshot = SettingsSnapshot.read(socket.assigns.deck_settings_path)
+    payload = if snapshot.selection_id, do: Map.put(snapshot.settings, "instance_selection_id", snapshot.selection_id), else: snapshot.settings
+    Phoenix.Channel.push(socket, "settings", payload)
+  end
 
   @spec save(map(), Path.t()) :: {:ok, map()} | {:error, term()}
   def save(patch, path \\ Settings.path()), do: SettingsSnapshot.save(patch, path)
@@ -23,7 +27,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @spec devices(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def devices(payload, socket) do
     if valid_devices?(payload) do
-      SettingsSnapshot.devices(Map.take(payload, ~w(mics speakers instances)), socket.assigns.deck_settings_path)
+      SettingsSnapshot.devices(Map.take(payload, ~w(mics speakers instances availability)), socket.assigns.deck_settings_path)
 
       case migrate(payload["legacy_mic_id"], socket) do
         {:error, _reason} ->
@@ -118,11 +122,15 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   defp migrate(_id, _socket), do: :ok
 
   defp valid_devices?(%{"mics" => mics, "speakers" => speakers} = payload) do
-    valid_list?(mics) and valid_list?(speakers) and is_list(payload["instances"] || []) and length(payload["instances"] || []) <= 100 and
+    valid_list?(mics) and valid_list?(speakers) and valid_availability?(payload["availability"]) and is_list(payload["instances"] || []) and length(payload["instances"] || []) <= 100 and
       Enum.all?(payload["instances"] || [], &(is_binary(&1) and byte_size(&1) in 1..256))
   end
 
   defp valid_devices?(_payload), do: false
+
+  defp valid_availability?(nil), do: true
+  defp valid_availability?(%{"mics" => mics, "speakers" => speakers} = flags), do: map_size(flags) == 2 and is_boolean(mics) and is_boolean(speakers)
+  defp valid_availability?(_flags), do: false
 
   defp valid_list?(devices) when is_list(devices) and length(devices) <= 100 do
     Enum.all?(devices, fn

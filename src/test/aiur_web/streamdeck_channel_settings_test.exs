@@ -158,6 +158,22 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     assert Enum.any?(pushed_frame(socket).keys, &(&1.label == "Instance · Unavailable"))
   end
 
+  test "explicit instance choices push new selection metadata without changing navigation replies" do
+    socket = settings_socket()
+    join_ref = socket.join_ref
+    assert_receive %Message{event: "settings", join_ref: ^join_ref, payload: initial}, 1_500
+    refute Map.has_key?(initial, "instance_selection_id")
+    input(socket, "settings_set", %{"instance" => "local"})
+    assert_push("settings", %{"instance" => "local", "instance_selection_id" => first}, 1_500)
+    assert is_binary(first)
+    assert first != ""
+    input(socket, "settings_set", %{"instance" => "local"})
+    assert_receive %Message{event: "settings", join_ref: ^join_ref, payload: %{"instance" => "local", "instance_selection_id" => second}} when second != first, 1_500
+    refute second == ""
+    input(socket, "input", %{"kind" => "dial_long_press", "index" => 3})
+    assert Enum.any?(pushed_frame(socket).keys, &String.starts_with?(&1.label, "Instance ·"))
+  end
+
   defp settings_socket do
     socket = joined_socket()
     assert_push("frame", _frame, 1_500)

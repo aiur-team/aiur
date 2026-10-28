@@ -26,7 +26,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshot do
   def subscribe(path \\ Settings.path()), do: Phoenix.PubSub.subscribe(Aiur.PubSub, topic(path))
 
   @spec unavailable() :: map()
-  def unavailable, do: %{settings: Settings.defaults(), devices: nil, status: :unavailable}
+  def unavailable, do: %{settings: Settings.defaults(), devices: nil, status: :unavailable, selection_id: nil}
 
   @impl true
   def init(state), do: {:ok, state}
@@ -43,7 +43,8 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshot do
     case Settings.set(patch, path) do
       {:ok, settings} ->
         entry = Map.get(state, path, entry(unavailable()))
-        state = put_entry(state, path, %{entry | payload: %{entry.payload | settings: settings, status: :ok}})
+        selection_id = if Map.has_key?(patch, "instance"), do: Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false), else: entry.payload.selection_id
+        state = put_entry(state, path, %{entry | payload: %{entry.payload | settings: settings, status: :ok, selection_id: selection_id}})
         notify(path)
         {:reply, {:ok, payload(state, path)}, state}
 
@@ -83,7 +84,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshot do
     else
       snapshot =
         case Settings.read(path) do
-          {:ok, settings} -> %{settings: settings, devices: nil, status: :ok}
+          {:ok, settings} -> %{settings: settings, devices: nil, status: :ok, selection_id: nil}
           {:error, _reason} -> unavailable()
         end
 

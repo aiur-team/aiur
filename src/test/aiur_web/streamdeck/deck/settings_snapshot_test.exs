@@ -68,4 +68,30 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshotTest do
     assert SettingsSnapshot.read(hd(paths)).status == :unavailable
     assert SettingsSnapshot.read(List.last(paths)).status == :ok
   end
+  test "only successful explicit instance saves renew ephemeral selection tokens", %{root: root, path: path} do
+    assert SettingsSnapshot.load(path).selection_id == nil
+    assert {:ok, first} = SettingsSnapshot.save(%{"instance" => "local"}, path)
+    assert is_binary(first.selection_id)
+    assert first.selection_id != ""
+    assert first.settings["instance"] == "local"
+    persisted = Jason.decode!(File.read!(path))
+    assert persisted["instance"] == "local"
+    refute Map.has_key?(persisted, "instance_selection_id")
+    refute Map.has_key?(persisted, "selection_id")
+    assert {:ok, brightness} = SettingsSnapshot.save(%{"brightness" => 40}, path)
+    assert brightness.selection_id == first.selection_id
+    assert {:ok, repeated} = SettingsSnapshot.save(%{"instance" => "local"}, path)
+    assert repeated.selection_id != first.selection_id
+    old_file = File.read!(path)
+    File.chmod!(root, 0o500)
+    try do
+      assert {:error, :eacces} = SettingsSnapshot.save(%{"instance" => "remote"}, path)
+      assert SettingsSnapshot.read(path).selection_id == repeated.selection_id
+      assert SettingsSnapshot.read(path).settings["instance"] == "local"
+      assert File.read!(path) == old_file
+    after
+      File.chmod!(root, 0o700)
+    end
+  end
+
 end
