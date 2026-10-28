@@ -39,6 +39,30 @@ defmodule Aiur.Config.Schema do
 end
 EOF
 
+  mkdir -p "$root/src/lib/aiur/machine/settings/schema"
+  cat >"$root/src/lib/aiur/machine/settings/schema.ex" <<'EOF'
+defmodule Aiur.Machine.Settings.Schema do
+  embedded_schema do
+    embeds_one(:transport, Transport)
+  end
+end
+EOF
+  cat >"$root/src/lib/aiur/machine/settings/schema/transport.ex" <<'EOF'
+defmodule Aiur.Machine.Settings.Schema.Transport do
+  embedded_schema do
+    embeds_one(:tls, Aiur.Machine.Settings.Schema.Tls)
+  end
+end
+
+defmodule Aiur.Machine.Settings.Schema.Tls do
+  embedded_schema do
+    field(:cert_file, :string)
+  end
+end
+EOF
+  echo '| `machine:transport.tls.cert_file` | path | null | Certificate. |' \
+    >"$root/website/docs-app/reference/configuration-machine.md"
+
   # Two modules in one file, and a field name reused across sections — the two
   # shapes the first version of this check got wrong.
   cat >"$root/src/lib/aiur/config/schema/tracker.ex" <<'EOF'
@@ -83,8 +107,36 @@ EOF
 if ! output="$(run_check "$root")"; then
   fail "fully documented schema should pass, got: $output"
 fi
-grep -q "all 5 config keys are documented" <<<"$output" ||
-  fail "expected all 5 keys to be counted, got: $output"
+grep -q "all 6 config keys are documented" <<<"$output" ||
+  fail "expected all 6 keys to be counted, got: $output"
+
+# Machine keys must be present and carry their file-specific prefix.
+for mode in missing unprefixed; do
+  root="$work/machine-$mode"
+  cp -R "$work/pass" "$root"
+  page="$root/website/docs-app/reference/configuration-machine.md"
+  if [[ "$mode" == missing ]]; then
+    : >"$page"
+  else
+    sed -i 's/machine://g' "$page"
+  fi
+  if output="$(run_check "$root")"; then
+    fail "$mode machine key must fail the check, got: $output"
+  fi
+  grep -Fq 'machine:transport.tls.cert_file' <<<"$output" ||
+    fail "$mode machine key must be named with its prefix, got: $output"
+  echo "check-config-docs guard: $mode machine key passed"
+done
+
+root="$work/machine-no-schema"
+cp -R "$work/pass" "$root"
+rm "$root/src/lib/aiur/machine/settings/schema.ex"
+if output="$(run_check "$root")"; then
+  fail "a missing machine schema must fail the check, got: $output"
+fi
+grep -Fq 'expected path is missing:' <<<"$output" ||
+  fail "a missing machine schema must say so, got: $output"
+echo "check-config-docs guard: missing machine schema passed"
 
 # A split topic contributes keys; deleting it must still report those keys.
 root="$work/split-topic"
@@ -97,7 +149,7 @@ mv "$root/index.md" "$reference_file"
 if ! output="$(run_check "$root")"; then
   fail "a key documented only in a topic should pass, got: $output"
 fi
-grep -q "all 5 config keys are documented" <<<"$output" ||
+grep -q "all 6 config keys are documented" <<<"$output" ||
   fail "split topics must preserve the complete key count, got: $output"
 rm "$topic_file"
 if output="$(run_check "$root")"; then
