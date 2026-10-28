@@ -18,10 +18,13 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
     |> Map.put(:drill, if(nav.stack == [], do: nil, else: length(items(nav, sections))))
   end
 
+  defp target(%{stack: [{:meter_detail, _provider} | _]}, _input, _sections), do: nil
+
   defp target(nav, %{"kind" => "key_press", "index" => index}, sections) when is_integer(index) and index in 0..7 do
     kind = if nav.stack == [], do: nav.view, else: :ticket
 
     case Enum.at(items(nav, sections), Nav.page(nav) * 8 + index) do
+      %{id: id, kind: :meter_detail} when kind == :fleet -> {:meter_detail, id}
       %{id: id} when is_binary(id) -> {kind, id}
       _empty -> nil
     end
@@ -29,6 +32,8 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
 
   defp target(_nav, _input, _sections), do: nil
   defp items(%{stack: [], view: view}, sections), do: Map.get(sections, view, [])
+
+  defp items(%{stack: [{:meter_detail, id} | _rest]}, sections), do: Map.get(sections, {:meter_detail, id}, [])
 
   defp items(%{stack: [{view, id} | _rest]}, sections) do
     sections |> Map.get(view, []) |> Enum.find(%{}, &(&1.id == id)) |> Map.get(:tickets, [])

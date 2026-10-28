@@ -16,6 +16,13 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
     |> Map.new(fn {family, row} -> {Atom.to_string(family), meter(family, row, inputs.accounts)} end)
   end
 
+  @spec detail(String.t(), keyword()) :: map()
+  def detail(provider, opts \\ []) do
+    load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
+    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, MeterSource))
+    AiurWeb.Streamdeck.Deck.MeterDetail.from_inputs(provider, inputs, Keyword.get(opts, :now, DateTime.utc_now()))
+  end
+
   defp meter(family, row, accounts) do
     names = row.accounts || if(family == :claude, do: Enum.sort(Map.keys(accounts)))
     {index, label} = closest(%{row | accounts: names})

@@ -81,7 +81,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   defp transition(nav, %{"kind" => "key_press", target: {:ticket, id}}) when is_binary(id),
     do: {%{nav | selected: id}, [{:open_ticket, id}]}
 
-  defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :epic, :fleet] and is_binary(id),
+  defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :epic, :fleet, :meter_detail] and is_binary(id),
     do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
 
   defp transition(nav, _input), do: {nav, []}

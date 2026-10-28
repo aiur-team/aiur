@@ -14,6 +14,17 @@ Dial 3 is reserved for the sidecar's instance switch.
 The current controls below remain visible until the sidecar and emulator
 renderer adopt this model.
 
+## Read provider accounts
+
+In the server navigation model, a Fleet provider meter key opens one key per
+account, sorted by name, with 5h and weekly remaining percentages and reset
+countdowns. Missing windows show “—” with a hatched bar. Stale values stay
+visible, dimmed and labelled “stale”. The touch strip names the provider and
+its summary account; hold dial 4 to return. Account keys are read-only.
+
+This entry depends on the Fleet summary layout; the current sidecar controls
+below remain in use until that layout is connected.
+
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
