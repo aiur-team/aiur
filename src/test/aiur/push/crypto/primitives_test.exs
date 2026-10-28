@@ -1,6 +1,8 @@
 defmodule Aiur.Push.Crypto.PrimitivesTest do
   use ExUnit.Case, async: false
 
+  import Aiur.TestSupport, only: [receive_barrier: 1]
+
   alias Aiur.Push.Crypto.Primitives
 
   @required [
@@ -56,6 +58,32 @@ defmodule Aiur.Push.Crypto.PrimitivesTest do
     assert Primitives.missing(supports) == []
     for kind <- [:public_keys, :curves, :ciphers, :macs, :hashs], do: assert(Process.get(kind) == 1)
     assert Primitives.supported?(fn kind -> for {^kind, primitive} <- @required, do: primitive end)
+  end
+
+  test "cached gaps reach both zero-arity guard functions" do
+    gaps = [{:curves, :x25519}]
+    :persistent_term.put(@cache_key, gaps)
+
+    assert Primitives.missing() == gaps
+    refute Primitives.supported?()
+  end
+
+  test "the cold runtime path calls crypto supports once per category and then reuses the cache" do
+    probe = start_supervised!({Agent, fn -> nil end})
+    session = :trace.session_create(:push_crypto_probe, self(), [])
+    on_exit(fn -> :trace.session_destroy(session) end)
+    :trace.function(session, {:crypto, :supports, 1}, true, [:local])
+    :trace.process(session, probe, true, [:call])
+
+    assert {[], []} == Agent.get(probe, fn _ -> {Primitives.missing(), Primitives.missing()} end)
+    delivery = :trace.delivered(session, probe)
+    receive_barrier({:trace_delivered, ^probe, ^delivery})
+
+    for kind <- [:public_keys, :curves, :ciphers, :macs, :hashs] do
+      assert_received {:trace, ^probe, :call, {:crypto, :supports, [^kind]}}
+    end
+
+    refute_received {:trace, ^probe, :call, {:crypto, :supports, _}}
   end
 
   test "caches the runtime result and keeps injected probes isolated" do
