@@ -44,7 +44,12 @@ defmodule Aiur.Conversation.ImporterTest do
     assert {start["start_reason"], start["transcript_source"]["kind"], ended["end_reason"], live_start["start_reason"]} == {"import", "provider_file", "superseded", "start"}
   end
 
-  test "no workspace falls back to current launch IssueLog and flags the exact truncation cut", c do
+  test "IssueLog fallback follows operator-owned parent links and flags truncation", c do
+    launch = Path.join(c.root, "launch")
+    linked_launch = Path.join(c.root, "linked-launch")
+    File.mkdir_p!(launch)
+    File.ln_s!(launch, linked_launch)
+    Application.put_env(:aiur, :log_file, Path.join(linked_launch, "daemon.log"))
     path = Aiur.IssueLog.transcript_path(c.hint.identifier)
     File.write!(path, Jason.encode!(%{role: "assistant", body: String.duplicate("é", 1000), msg_id: "old"}) <> "\n")
     assert {:issue_log, ^path} = Importer.plan(%{c.hint | workspace: nil})
@@ -123,7 +128,7 @@ defmodule Aiur.Conversation.ImporterTest do
     assert Enum.map(rows(c.dir), & &1["body"]) == ["", "old", "message 1"]
   end
 
-  test "symlinked file and parent directory cannot redirect workspace reads", c do
+  test "symlinked agent.ndjson cannot redirect workspace reads", c do
     secret = Path.join(c.root, "secret")
     File.write!(secret, Jason.encode!(codex("secret", "secret", c.now)) <> "\n")
     File.ln_s!(secret, Path.join(c.workspace, "logs/agent.ndjson"))
@@ -131,9 +136,46 @@ defmodule Aiur.Conversation.ImporterTest do
     Ingest.append(c.ref, c.source, [event(1)])
     assert :ok = flush(c.ref)
     assert Enum.map(rows(c.dir), & &1["body"]) == ["", "message 1"]
-    other = Path.join(c.root, "linked-workspace")
-    File.ln_s!(c.workspace, other)
-    refute Importer.safe_file?(Path.join(other, "logs/agent.ndjson"))
+  end
+
+  test "future regression guard: symlinked logs directory with a regular leaf is refused", c do
+    # Existing protection must reject the worker-owned directory independently of its leaf.
+    redirected = Path.join(c.root, "redirected-logs")
+    File.mkdir_p!(redirected)
+    File.write!(Path.join(redirected, "agent.ndjson"), Jason.encode!(codex("redirected", "must not import", c.now)) <> "\n")
+    logs = Path.join(c.workspace, "logs")
+    File.rmdir!(logs)
+    File.ln_s!(redirected, logs)
+    path = Path.join(logs, "agent.ndjson")
+    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(logs)
+    assert {:ok, %File.Stat{type: :regular}} = File.lstat(path)
+    assert Importer.plan(c.hint) == :none
+    assert [{:skipped, 1}] = Enum.to_list(Importer.stream({:workspace, path}, "codex"))
+    Ingest.append(c.ref, c.source, [event(1)])
+    assert :ok = flush(c.ref)
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "message 1"]
+  end
+
+  test "operator-owned symlink ancestors permit full-body workspace history import", c do
+    body = String.duplicate("full history ", 200)
+    write_workspace(c, [codex("old", body, c.now)])
+    linked_parent = Path.join(c.root, "linked-parent")
+    File.ln_s!(c.root, linked_parent)
+    linked_workspace = Path.join(linked_parent, "workspace")
+    hint = %{c.hint | workspace: linked_workspace}
+    logs = Path.join(linked_workspace, "logs")
+    path = Path.join(logs, "agent.ndjson")
+    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(linked_parent)
+    assert {:ok, %File.Stat{type: :directory}} = File.lstat(linked_workspace)
+    assert {:ok, %File.Stat{type: :directory}} = File.lstat(logs)
+    assert {:ok, %File.Stat{type: :regular}} = File.lstat(path)
+    assert {:workspace, ^path} = Importer.plan(hint)
+    Ingest.append(c.ref, %{c.source | import_hint: hint}, [event(1)])
+    assert :ok = flush(c.ref)
+    assert [gap, imported, live] = rows(c.dir)
+    assert gap["meta"]["reason"] == "pre_journal"
+    assert {imported["body"], imported["body_truncated"], imported["meta"]["import_source"]} == {body, false, "workspace"}
+    assert live["body"] == "message 1"
   end
 
   test "a regular-file replacement after planning cannot change the opened import source", c do

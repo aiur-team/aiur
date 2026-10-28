@@ -10,7 +10,7 @@ defmodule Aiur.Conversation.Importer do
   def plan(hint) do
     workspace = hint[:workspace]
     path = if is_binary(workspace), do: Path.join(workspace, "logs/agent.ndjson")
-    if safe_file?(path), do: {:workspace, path}, else: fallback(hint)
+    if match?({:ok, %File.Stat{type: :regular}}, source_stat(:workspace, path)), do: {:workspace, path}, else: fallback(hint)
   end
 
   @spec fallback(map()) :: plan()
@@ -27,10 +27,10 @@ defmodule Aiur.Conversation.Importer do
 
   def stream({kind, path}, backend) do
     # Snapshot the boundary: the source may continue receiving live records.
-    case safe_stat(path) do
+    case source_stat(kind, path) do
       {:ok, %File.Stat{type: :regular} = stat} ->
         Stream.resource(
-          fn -> open_snapshot(path, stat) end,
+          fn -> open_snapshot(kind, path, stat) end,
           fn
             nil -> {:halt, nil}
             {:error, _reason} -> {[{:skipped, 1}], nil}
@@ -47,8 +47,8 @@ defmodule Aiur.Conversation.Importer do
     end
   end
 
-  defp open_snapshot(path, expected) do
-    with true <- safe_file?(path),
+  defp open_snapshot(kind, path, expected) do
+    with {:ok, %File.Stat{type: :regular}} <- source_stat(kind, path),
          {:ok, io} <- File.open(path, [:read, :binary]) do
       case :file.read_file_info(io) do
         {:ok, record} ->
@@ -87,14 +87,20 @@ defmodule Aiur.Conversation.Importer do
   def safe_file?(path), do: match?({:ok, %File.Stat{type: :regular}}, safe_stat(path))
 
   defp safe_stat(nil), do: {:error, :enoent}
+  defp safe_stat(path), do: File.lstat(path)
 
-  defp safe_stat(path) do
-    components = path |> Path.expand() |> Path.split() |> Enum.scan(&Path.join(&2, &1))
+  defp source_stat(:workspace, nil), do: {:error, :enoent}
 
-    if Enum.any?(components, &match?({:ok, %File.Stat{type: :symlink}}, File.lstat(&1))),
-      do: {:error, :symlink},
-      else: File.lstat(path)
+  defp source_stat(:workspace, path) do
+    # Only the worker-owned logs directory and leaf must refuse symlinks.
+    case File.lstat(Path.dirname(path)) do
+      {:ok, %File.Stat{type: :directory}} -> safe_stat(path)
+      {:ok, _stat} -> {:error, :unsafe_logs_directory}
+      error -> error
+    end
   end
+
+  defp source_stat(:issue_log, path), do: safe_stat(path)
 
   defp with_line({:entry, entry}, index), do: {:entry, %{entry | meta: Map.put(entry.meta, :import_line, index)}}
   defp with_line(result, _index), do: result
