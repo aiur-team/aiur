@@ -30,6 +30,7 @@ use the shared domain sources directly.
 | --- | --- | --- | --- |
 | `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | No non-deck consumer yet; MP-E4 conversations planned. `History` re-exports it; production caller: `StreamdeckLogs`. |
 | `AiurWeb.StreamdeckProjection` | Fleet, voice availability, decisions and transcript DTOs for the deck channel | No | `/streamdeck` emulator |
+| `AiurWeb.Streamdeck.Deck` | Guarded deck sections over shared read models; focus lane from `BuildQueue.show/0` | No | Emulator |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
 | `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
 | `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
@@ -56,15 +57,21 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
-| `snapshot` | `{version, fleet, usage, decisions, voice}` | Complete state sent immediately after a successful join. |
-| `fleet` | `{agents}` | Complete fleet replacement after a fleet change. |
-| `usage` | `{codex, claude}` | Redacted provider-meter projection for the touch-strip usage segments. |
+| `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build` and `build_status`. |
+| `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build` and `build_status`. |
+| `usage` | `{provider_family: meter}` | One entry per provider family; redacted provider-meter projection for the touch-strip usage segments. |
 | `decisions` | `{count}` | Updated decision summary. |
 | `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
 | `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Pushed on focus and again whenever a new transcript line lands. |
 | `alert` | `{identifier, name, message, severity, needs_attention, timestamp}` | Focused agent alert. |
 | `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
 | `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
+
+`grid.build_status` is `ok`, `none` (no lane with a positive total), or
+`unavailable` (queue model could not be read). `grid.build` is null unless
+status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
+identity, progress fields and `eta_seconds: null`. Unknown percent and completed
+counts stay null. Build changes share the channel’s 250 ms fleet coalescing.
 
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,
