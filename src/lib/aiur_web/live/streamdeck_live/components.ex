@@ -71,9 +71,10 @@ defmodule AiurWeb.StreamdeckLive.Components do
   @spec grid_keys(map()) :: Phoenix.LiveView.Rendered.t()
   def grid_keys(assigns) do
     ~H"""
-          <div id="sd-keys" class="sd-keys" role="group" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
+          <div id="sd-keys" class="sd-keys" role="group" data-mode-view="grid" aria-label="Agent keys" data-grid-total={if @grid[:tickets_status] != "unavailable", do: @grid.total} data-tickets-status={@grid[:tickets_status]} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
+            <div :if={@grid[:tickets_status] == "unavailable"} class="sd-key" role="status">Tickets unavailable</div>
             <button
-              :for={key <- @keys}
+              :for={key <- if @grid[:tickets_status] == "unavailable", do: [], else: @keys}
               type="button"
               class={["sd-key", "sd-agent-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
               disabled={key.empty?}
@@ -106,13 +107,12 @@ defmodule AiurWeb.StreamdeckLive.Components do
                 <div
                   :if={!key.empty? and key.bucket != "queued"}
                   class={[
-                    "sd-ag-foot",
+                    "sd-ag-foot col",
                     is_nil(key.progress) && "is-progress-unknown"
                   ]}
                 >
-                  <span class="sd-ag-dot" aria-hidden="true"></span>
-                  <span class="sr-only">{key.label}</span>
-                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
+                  <span class="sd-ag-stat">{key.label}</span>
+                  <span :if={not is_nil(key.progress)} class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
             </button>

@@ -105,9 +105,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Blocked"
     assert html =~ ~s(class="sd-ag-foot col")
     assert html =~ ~s(class="sd-ag-tag blocked")
-    # Every non-queued, non-empty key renders the status dot + progress footer.
-    assert html =~ ~s(class="sd-ag-dot")
-    assert html =~ ~s(class="sr-only">Running</span>)
+    # Ticket status text is visible above its progress bar.
+    refute html =~ ~s(class="sd-ag-dot")
+    assert html =~ ~s(class="sd-ag-stat">Running</span>)
     assert html =~ ~s(class="sd-ag-bar")
   end
 
@@ -136,7 +136,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s|--sd-progress-fill: #74d47f|
     assert html =~ ~s|<i style="width: 0%">|
     assert html =~ ~s|<i style="width: 100%">|
-    assert html =~ ~s(class="sd-ag-foot is-progress-unknown")
+    assert html =~ ~s(class="sd-ag-foot col is-progress-unknown")
     refute html =~ "is-progress-stale"
     assert html =~ ~s(class="sd-ag-vendor-fallback")
     # Unblocked is drawn as the open-padlock glyph in the key's bottom-right
