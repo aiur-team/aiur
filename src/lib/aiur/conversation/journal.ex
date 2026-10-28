@@ -2,7 +2,7 @@ defmodule Aiur.Conversation.Journal do
   @moduledoc "Serialized, recoverable writer for one conversation. All disk work stays in this process."
   use GenServer, restart: :transient
   alias Aiur.Config.Paths
-  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalImport, JournalSessions, ProviderReplay, Ref}
+  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalAnchors, JournalImport, JournalSessions, ProviderReplay, Ref}
 
   @spec start_link(Ref.t()) :: GenServer.on_start()
   def start_link(ref), do: GenServer.start_link(__MODULE__, ref, name: via(ref))
@@ -24,6 +24,7 @@ defmodule Aiur.Conversation.Journal do
       next_pos: 1,
       session_seq: 0,
       open_session: nil,
+      anchor_ids: nil,
       dedup: MapSet.new(),
       dedup_order: :queue.new(),
       buffer: :queue.new(),
@@ -78,6 +79,8 @@ defmodule Aiur.Conversation.Journal do
     if state.importing, do: send(self(), :import_step)
     {:noreply, state}
   end
+
+  def handle_cast({:anchor, anchor}, state), do: {:noreply, enqueue(state, [{:anchor, anchor}])}
 
   def handle_cast({:end_session, provider_id, reason}, state), do: {:noreply, enqueue(state, [{:end_session, provider_id, reason}])}
   def handle_cast({:gap, reason, from, to}, state), do: {:noreply, enqueue(state, [{:gap, reason, stamp(from), stamp(to)}])}
@@ -246,10 +249,7 @@ defmodule Aiur.Conversation.Journal do
   end
 
   defp drain(state) do
-    {inputs, rest} = take(state.buffer)
-
-    {inputs, rest} =
-      if match?([{:end_session, _, _}], inputs) and (state.failed_since || state.dropped_span), do: {[], state.buffer}, else: {inputs, rest}
+    {inputs, rest} = next_batch(state)
 
     if inputs == [] and is_nil(state.failed_since) and is_nil(state.dropped_span) do
       recovered(state)
@@ -257,13 +257,22 @@ defmodule Aiur.Conversation.Journal do
       case write(state, inputs) do
         {:ok, updated, entries, sessions} ->
           publish(updated, entries, sessions)
-          updated = recovered(%{updated | buffer: rest, retries: 0, failed_since: nil, dropped_span: nil})
+          # Keep recovery latched until every retained entry and anchor is durable.
+          updated = %{updated | buffer: rest, retries: if(inputs == [], do: state.retries, else: 0), failed_since: nil, dropped_span: nil}
           drain(updated)
 
         {:error, reason} ->
           failure(state, reason)
       end
     end
+  end
+
+  defp next_batch(state) do
+    {inputs, rest} = take(state.buffer)
+    # Persist a retained gap before acknowledging session or anchor metadata.
+    if (match?([{:end_session, _, _}], inputs) or match?([{:anchor, _}], inputs)) and (state.failed_since || state.dropped_span),
+      do: {[], state.buffer},
+      else: {inputs, rest}
   end
 
   defp reply_import_waiters(state, result) do
@@ -302,6 +311,8 @@ defmodule Aiur.Conversation.Journal do
       _ -> {Enum.reverse(acc), queue}
     end
   end
+
+  defp write(state, [{:anchor, anchor}]), do: JournalAnchors.write(state, anchor)
 
   defp write(state, [{:end_session, id, reason}]) do
     if state.open_session && (is_nil(id) or state.open_session.provider_session_id == id) do
@@ -381,7 +392,7 @@ defmodule Aiur.Conversation.Journal do
   defp failure(state, reason) do
     unless state.outage, do: alert(state, "system.conversation.journal.degraded", true, error_class(reason))
     span = span_inputs(state.failed_since, :queue.to_list(state.buffer), state.clock.())
-    state = %{state | outage: true, recover: true, failed_since: span, retries: state.retries + 1}
+    state = %{state | outage: true, recover: true, anchor_ids: nil, failed_since: span, retries: state.retries + 1}
 
     if corrupt?(reason) do
       Ingest.count_dropped(state.id, :queue.len(state.buffer))
@@ -407,7 +418,7 @@ defmodule Aiur.Conversation.Journal do
   defp recovered(%{outage: true} = state) do
     :persistent_term.erase({__MODULE__, state.id, :pending_gaps})
     alert(state, "system.conversation.journal.degraded.resolved", false, "recovered")
-    %{state | outage: false}
+    %{state | outage: false, retries: 0}
   end
 
   defp recovered(state) do
