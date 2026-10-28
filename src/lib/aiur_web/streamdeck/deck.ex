@@ -1,13 +1,13 @@
 defmodule AiurWeb.Streamdeck.Deck do
   @moduledoc "Deck adapter over shared read models, with isolated section failures."
 
-  alias AiurWeb.Streamdeck.Deck.{BuildOrder, Counts, Tickets}
+  alias AiurWeb.Streamdeck.Deck.{BuildOrder, Counts, Epics, Tickets}
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     opts = Keyword.put_new_lazy(opts, :window, fn -> Counts.window(opts) end)
     {positions, build_order} = Map.pop(read_section(BuildOrder, opts), :queue_positions, %{})
-    %{build_order: build_order, queue_positions: positions, counts: Counts.read(opts), tickets: Tickets.read(opts)}
+    %{build_order: build_order, queue_positions: positions, counts: Counts.read(opts), tickets: Tickets.read(opts), epics: Epics.read(opts)}
   end
 
   @doc "Navigation sections use ordered items with an id and optional child tickets."

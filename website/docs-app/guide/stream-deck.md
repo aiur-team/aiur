@@ -100,6 +100,19 @@ Missing progress draws no bar and never becomes 0%. Tickets without an agent app
 only when queued; pressing a key opens that ticket’s deck page.
 The order is the same in the browser emulator and on the physical deck.
 
+## Epic view
+
+Epic keys show remaining open tickets, open/total, and the percentage closed.
+They use Build's `epic_progress`: most remaining first, then epic label;
+unknown counts show “—” with a reason and sort last. A ticket counts under every
+matching general epic, including tickets owned by a feature.
+
+Press an epic key to list its matching tickets; hold dial 4 for 500 ms to go
+back. With `build_order.general_epics: []`, the view says “No epics configured”
+and names that setting, without showing a zero remaining count.
+The section is available to server navigation; physical display routing awaits
+SD-103, as described above.
+
 ## Physical sidecar status
 
 The dashboard's `/streamdeck` page emulates the deck without the sidecar; nothing in the dashboard needs it installed.

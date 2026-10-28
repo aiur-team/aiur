@@ -6,6 +6,8 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2, field: 3]
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{grid: grid, nav: %{view: :epic} = nav}), do: AiurWeb.Streamdeck.Deck.EpicFrame.compose(grid, nav)
+
   def compose(model) do
     grid = field(model, :grid) || model
     agents = field(grid, :agents, [])

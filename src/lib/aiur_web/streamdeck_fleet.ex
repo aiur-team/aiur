@@ -32,6 +32,8 @@ defmodule AiurWeb.StreamdeckFleet do
     |> Map.merge(deck.build_order)
     |> Map.put(:tickets_status, deck.tickets.status)
     |> Map.put(:counts, deck.counts)
+    |> Map.put(:epics, deck.epics.keys)
+    |> Map.put(:epics_message, deck.epics.message)
     |> Deck.Priority.decorate(deck.queue_positions)
   end
 

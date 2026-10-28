@@ -67,10 +67,12 @@ defmodule AiurWeb.StreamdeckChannel do
   @impl true
   def handle_in("input", input, socket) do
     if Nav.valid_input?(input) do
-      sections = StreamdeckProjection.grid() |> Deck.navigation()
+      grid = StreamdeckProjection.grid()
+      sections = Deck.navigation(grid)
       {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
       socket = assign(socket, deck_nav: nav, deck_effects: effects)
-      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
+      frame = AiurWeb.Streamdeck.Render.frame(%{grid: grid, nav: nav})
+      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "frame" => frame}, effects)
     else
       {:reply, {:error, %{reason: "invalid_input"}}, socket}
     end
