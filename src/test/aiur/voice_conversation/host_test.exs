@@ -33,7 +33,7 @@ defmodule Aiur.VoiceConversation.HostTest do
     assert VoiceConverse.availability(config) == :ok
 
     specs = VoiceConverse.Tools.specs(config, :executor)
-    assert Enum.map(specs, & &1.name) == ["get_status", "get_details", "end_conversation"]
+    assert Enum.map(specs, & &1.name) == ["get_status", "get_details", "record_summary", "end_conversation"]
     details = Enum.find(specs, &(&1.name == "get_details"))
     assert details.parameters["properties"]["section"]["enum"] == ["transcript", "agents", "decisions"]
   end

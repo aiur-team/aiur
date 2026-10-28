@@ -2,7 +2,7 @@ defmodule Aiur.VoiceConversation.SessionTest do
   use Aiur.TestSupport
 
   alias Aiur.VoiceConversation.Session
-  alias VoiceConverse.{Config, Events, SessionRegistry}
+  alias VoiceConverse.{Config, Events, SessionRegistry, TranscriptStore}
   alias VoiceConverse.Testing.{FakeBriefingSource, FakeProvider, StaticCredentials}
 
   setup do
@@ -93,6 +93,34 @@ defmodule Aiur.VoiceConversation.SessionTest do
     assert event["session_id"] == id
     assert event["ended_at"] == at
     assert event["transcript"] == [%{"role" => "user", "text" => "Review the release"}]
-    assert event["summary"] == "1 transcript turns: user: Review the release"
+    assert event["summary"] == %{"status" => "unstructured"}
+  end
+
+  test "validated summary keeps categories separate through tool result and session handoff", %{opts: opts, instance: instance} do
+    :ok = Aiur.ExecutorEvents.subscribe("executor.voice.session_ended")
+    {:ok, monitor, id} = Session.start(self(), Keyword.delete(opts, :deliver))
+    ref = Process.monitor(monitor)
+    {:ok, session} = SessionRegistry.lookup(instance, id)
+    core = :sys.get_state(session)
+    summary = %{decisions: ["Ship the approved release"], open_questions: ["Who deploys?"], ideas: ["Use [redacted]"]}
+    params = %{"decisions" => summary.decisions, "open_questions" => summary.open_questions, "ideas" => ["Use Bearer abcdefgh12345"]}
+    FakeProvider.emit(core.provider_ref, %Events.ToolCall{call_id: "summary", name: "record_summary", params: params})
+    receive_barrier({:executor_voice, {:summary_recorded, recorded_summary}})
+    assert recorded_summary == summary
+    FakeProvider.emit(core.provider_ref, %Events.ToolCall{call_id: "invalid-summary", name: "record_summary", params: %{}})
+    receive_barrier({:fake_provider, :tool_result, "invalid-summary", %{is_error: is_error}})
+    assert is_error
+    Session.stop(monitor)
+    receive_barrier({:executor_voice, {:receipt, %{id: event_id, summary_status: summary_status}}})
+    assert summary_status == "structured"
+    receive_barrier({:DOWN, ^ref, :process, ^monitor, :normal})
+    assert {:ok, events} = Aiur.ExecutorEvents.replay(["executor.voice.session_ended"], 0)
+    event = Enum.find(events, &(&1["id"] == event_id))
+    assert event["summary"] == %{"status" => "structured", "decisions" => summary.decisions, "open_questions" => summary.open_questions, "ideas" => summary.ideas}
+    assert event["untrusted_fields"] == ["transcript", "summary"]
+    assert {:ok, records, _meta} = TranscriptStore.read(Path.dirname(core.store.path), id)
+    call = Enum.find(records, &(&1["type"] == "tool_call" and &1["call_id"] == "summary"))
+    assert call["params"]["ideas"] == ["Use [redacted]"]
+    refute Jason.encode!(event) =~ "abcdefgh12345"
   end
 end

@@ -11,6 +11,14 @@ restricted session. The default `nil` allows all supported tools; an empty list
 disables every tool. The session enforces the list on incoming calls as well as
 the advertised tool specifications.
 
+## Recording a session summary
+
+The `record_summary` client tool accepts three required string arrays:
+`decisions`, `open_questions`, and `ideas`. It validates and redacts their
+contents before broadcasting `{:summary_recorded, summary}` to subscribers.
+Hosts treat this classification as untrusted context, not delivery authority.
+An invalid call returns an error without replacing an accepted summary.
+
 ## Asking the agent
 
 A host whose `AgentChannel.capabilities/1` reports `ask: true` or a fork exposes `ask_agent`

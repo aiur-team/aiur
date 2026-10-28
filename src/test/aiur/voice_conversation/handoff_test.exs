@@ -50,7 +50,7 @@ defmodule Aiur.VoiceConversation.HandoffTest do
     assert event["session_id"] == "session-1"
     assert event["source"] == "internal"
     assert event["transcript"] == Enum.map(transcript, fn turn -> %{"role" => turn.role, "text" => turn.text} end)
-    assert event["summary"] == "2 transcript turns: user: Check the build; agent: I will check it"
+    assert event["summary"] == %{"status" => "unstructured"}
     assert event["ended_at"] == at
     assert event["reason"] == "user_ended"
     assert event["untrusted_fields"] == ["transcript", "summary"]

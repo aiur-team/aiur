@@ -12,7 +12,8 @@ function fixture() {
     if (!fields.has(selector)) fields.set(selector, {textContent: ''});
     return fields.get(selector);
   }};
-  const window = {atob: value => Buffer.from(value, 'base64').toString('binary')};
+  const window = {atob: value => Buffer.from(value, 'base64').toString('binary'),
+    AiurVoiceTransport: {open: () => ({joined: Promise.resolve(), push() {}, close() {}})}};
   vm.runInNewContext(script, {window, Uint8Array, DataView});
   const controller = new window.AiurExecutorVoiceController({querySelector: () => el});
   controller.bindElements();
@@ -44,9 +45,10 @@ test('session end preserves queued receipt and never claims Executor has read it
   controller.ended();
   assert.equal(el.dataset.state, 'ended');
   const text = fields.get('[data-executor-voice-receipt]').textContent;
-  assert.match(text, /Queued for Executor/);
+  assert.match(text, /SENT — receipt/);
   assert.match(text, /receipt 42 at 2026-10-27T10:00:00Z/);
-  assert.match(text, /does not confirm it has been read/);
+  assert.match(text, /SENT NOT RECEIVED/);
+  assert.equal(controller.receipts.get(42).ack_status, 'waiting');
 });
 
 test('ending retains the transport until the handoff receipt arrives', () => {
@@ -125,13 +127,13 @@ function prepareStart(f, onOpen = () => {}) {
   return {get options() { return options; }, get captureStarted() { return captureStarted; }};
 }
 
-test('new session clears the previous receipt and transcript', async () => {
+test('new session retains previous receipt items and clears only the transcript', async () => {
   const f = fixture();
   prepareStart(f);
   f.controller.receipt({id: 13, at: 'previous'});
   f.el.querySelector('[data-executor-voice-transcript]').textContent = 'previous transcript';
   await f.controller.start();
-  assert.equal(f.fields.get('[data-executor-voice-receipt]').textContent, '');
+  assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /receipt 13/);
   assert.equal(f.fields.get('[data-executor-voice-transcript]').textContent, '');
 });
 
@@ -171,7 +173,7 @@ test('ending during microphone startup preserves the pending handoff receipt', a
     }
   };
   const transport = {joined: Promise.resolve(), close() { closed = true; }, push() {}};
-  f.window.AiurVoiceTransport = {open(opts) { options = opts; return transport; }};
+  f.window.AiurVoiceTransport = {open(opts) { if (opts.topic === "voice:executor") options = opts; return transport; }};
   const starting = f.controller.start();
   await ready;
   f.controller.stop();
@@ -184,4 +186,44 @@ test('ending during microphone startup preserves the pending handoff receipt', a
   options.handlers.ended();
   assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /receipt 99/);
   assert.equal(closed, true);
+});
+
+
+test('Executor acknowledgment updates its own persisted item after session end and later sessions', async () => {
+  const f = fixture();
+  let receiptOptions, receiptClosed = false;
+  f.window.AiurVoiceTransport = {open(options) {
+    receiptOptions = options;
+    return {joined: Promise.resolve(), push() {}, close() { receiptClosed = true; }};
+  }};
+  f.controller.receipt({id: 101, at: 'sent-at', summary_status: 'unstructured'});
+  f.controller.ended();
+  assert.equal(receiptClosed, false);
+  assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /SENT NOT RECEIVED/);
+  assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /unstructured/);
+  f.controller.receipt({id: 102, at: 'second-sent'});
+  receiptOptions.handlers.receipt_status({id: 101, wake_id: 8, ack_status: 'received', observed_at: 'ack-at'});
+  f.controller.receipt({id: 101, at: 'sent-at', summary_status: 'unstructured'});
+  assert.equal(f.controller.receipts.get(101).wake_id, 8);
+  const text = f.fields.get('[data-executor-voice-receipt]').textContent;
+  assert.match(text, /receipt 101 at sent-at/);
+  assert.match(text, /RECEIVED — wake 8; ack observed at ack-at/);
+  assert.match(text, /receipt 102 at second-sent/);
+  assert.equal(f.controller.receipts.get(102).ack_status, 'waiting');
+  f.controller.bindElements();
+  assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /ack observed at ack-at/);
+  f.controller.destroy();
+  assert.equal(receiptClosed, true);
+});
+
+test('missing acknowledgments and disconnected receipt transport remain explicit', () => {
+  const f = fixture();
+  let options;
+  f.window.AiurVoiceTransport = {open(value) { options = value; return {joined: Promise.resolve(), push() {}, close() {}}; }};
+  f.controller.receipt({id: 103, at: 'sent'});
+  options.handlers.receipt_status({id: 103, ack_status: 'missing'});
+  assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /handoff wake missing; no acknowledgement/);
+  options.onError();
+  assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /acknowledgement unavailable/);
+  assert.equal(f.controller.receipts.get(103).ack_status, 'unavailable');
 });

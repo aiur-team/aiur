@@ -30,7 +30,7 @@ defmodule Aiur.VoiceConversation do
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
       roles_dir: settings.roles_dir,
       limits: Map.take(settings, @limit_keys),
-      allowed_tools: ["get_status", "get_details", "end_conversation"]
+      allowed_tools: ["get_status", "get_details", "record_summary", "end_conversation"]
     )
   end
 

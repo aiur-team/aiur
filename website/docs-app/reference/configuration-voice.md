@@ -63,6 +63,7 @@ Configure these client tools with the exact names and JSON parameter shapes:
 | --- | --- |
 | `get_status` | `{}`; object with no properties and `additionalProperties: false` |
 | `get_details` | `{"section":"agents","n":10}`; required `section` is one of `transcript`, `agents`, `decisions`; optional integer `n` is 1–30, default 10; `additionalProperties: false` |
+| `record_summary` | `{"decisions":[],"open_questions":[],"ideas":[]}`; all three fields required; each array has up to 20 nonblank strings of up to 500 characters; no additional properties |
 | `end_conversation` | `{}`; object with no properties and `additionalProperties: false` |
 
 The prototype reads current agents, open decisions, and available retained
@@ -82,3 +83,21 @@ At session end the transcript and summary handoff publishes on
 **`executor.voice.session_ended`**. Add that exact topic to the Executor's wake
 filter. The event is context for the Executor to act on through its ordinary
 workflow; ending the voice session does not itself dispatch instructions.
+
+Before ending, the Agent calls `record_summary`: explicit choices go in
+`decisions`, unanswered questions in `open_questions`, and brainstorming or
+revised ideas in `ideas`. Empty arrays mean none. The payload keeps these
+categories separate beside the full transcript; all summary text is untrusted.
+
+If no valid summary was recorded, the payload contains
+`summary: {status: "unstructured"}` and the drawer labels it unstructured.
+Ending a session never promotes the transcript into decisions or instructions.
+
+Each handoff keeps its **sent** event id and timestamp in the drawer after the
+session ends. **Received** appears only after the Executor acknowledges the
+matching durable wake id. While waiting, the item says sent, not received;
+missing or unavailable acknowledgment evidence is shown explicitly.
+
+Received means the wake was acknowledged, not that its contents were approved
+or executed. The displayed acknowledgment timestamp is when Aiur observed the
+acknowledgment. Starting another voice session does not erase earlier receipts.

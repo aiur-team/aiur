@@ -73,6 +73,10 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   @doc false
   @spec pending_key(map()) :: {String.t(), String.t() | nil}
   def pending_key(%{"topic" => "executor.decision.answered"} = record), do: {record["topic_class"], record["decision_id"]}
+
+  def pending_key(%{"topic" => "executor.voice.session_ended", "event_id" => id} = record),
+    do: {record["topic_class"], "event:#{id}"}
+
   def pending_key(record), do: {record["topic_class"], record["ticket"]}
 
   @doc false

@@ -223,9 +223,17 @@ spoken session with the Executor through ElevenLabs Agents. The voice control
 always targets the Executor, regardless of the worker shown in the drawer.
 
 The control shows not configured, connecting, live, ended or failed. Press
-**End Executor conversation** to queue the transcript and summary. The receipt
-shows the durable event id and timestamp; it confirms queueing, not that the
-Executor has read the message. A failed handoff shows an error.
+**End Executor conversation** to send the transcript and categorized summary.
+Each item keeps its sent event id and timestamp after the session ends.
+
+Receipts say **sent, not received** until the Executor acknowledges the
+matching wake. **Received** confirms acknowledgment, not approval or execution.
+A missing acknowledgment stays visible; re-rendering the drawer or starting
+another session preserves earlier receipts. A failed handoff shows an error.
+
+The summary separates decisions, open questions and ideas. If the Agent did
+not record one before ending, the drawer says **unstructured**; the transcript
+is still sent without inventing decisions.
 
 Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)

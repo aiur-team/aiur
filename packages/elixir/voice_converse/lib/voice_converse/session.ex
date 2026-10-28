@@ -345,7 +345,7 @@ defmodule VoiceConverse.Session do
   defp redact_tool_call(state, %Events.ToolCall{name: "ask_agent", params: params} = event),
     do: %{event | params: VoiceConverse.Session.Consult.redact_question(state, params)}
 
-  defp redact_tool_call(_state, event), do: event
+  defp redact_tool_call(state, event), do: VoiceConverse.SummaryTool.redact_event(state.config, event)
 
   defp redact_text(state, text) when is_binary(text), do: redact(state, text)
   defp redact_text(_state, text), do: text

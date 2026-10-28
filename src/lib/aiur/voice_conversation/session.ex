@@ -31,7 +31,7 @@ defmodule Aiur.VoiceConversation.Session do
     with {:ok, id} <- start.(self(), Keyword.drop(opts, [:instance, :start_session, :deliver])),
          {:ok, session} <- SessionRegistry.lookup(instance, id) do
       monitor = Process.monitor(session)
-      {:ok, %{owner: owner, id: id, instance: instance, monitor: monitor, turns: [], pending_user: nil, deliver: Keyword.get(opts, :deliver, &Handoff.deliver/3), stopping?: false}}
+      {:ok, %{owner: owner, id: id, instance: instance, monitor: monitor, turns: [], pending_user: nil, deliver: Keyword.get(opts, :deliver), summary: nil, stopping?: false}}
     else
       {:error, reason} -> {:stop, reason}
     end
@@ -86,7 +86,7 @@ defmodule Aiur.VoiceConversation.Session do
   defp finish(state, reason) do
     turns = if state.pending_user, do: state.turns ++ [%{role: "user", text: state.pending_user}], else: state.turns
 
-    case state.deliver.(state.id, turns, reason) do
+    case deliver(state, turns, reason) do
       {:ok, receipt} ->
         notify(state, {:receipt, receipt})
 
@@ -98,6 +98,13 @@ defmodule Aiur.VoiceConversation.Session do
     notify(state, {:ended, reason})
     {:stop, :normal, state}
   end
+
+  defp deliver(%{deliver: deliver} = state, turns, reason) when is_function(deliver, 3),
+    do: deliver.(state.id, turns, reason)
+
+  defp deliver(state, turns, reason), do: Handoff.deliver(state.id, turns, reason, Map.get(state, :summary))
+
+  defp record(state, {:summary_recorded, summary}), do: %{state | summary: summary}
 
   defp record(state, %Events.UserTranscript{text: text, final?: false}),
     do: %{state | pending_user: Redact.redact(text)}

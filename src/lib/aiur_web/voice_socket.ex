@@ -18,6 +18,7 @@ defmodule AiurWeb.VoiceSocket do
   channel("voice:dictation", AiurWeb.VoiceChannel)
   channel("voice:conversation", AiurWeb.VoiceChannel)
   channel("voice:executor", AiurWeb.ExecutorVoiceChannel)
+  channel("voice:executor_receipts", AiurWeb.ExecutorVoiceReceiptChannel)
 
   @impl true
   def connect(%{"_csrf_token" => csrf_token}, socket, %{session: session})

@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.ExecutorVoice do
         {if @available, do: "Executor voice ready.", else: "Executor voice not configured."}
       </p>
       <p data-executor-voice-transcript></p>
-      <p data-executor-voice-receipt></p>
+      <pre class="agent-voice-status" data-executor-voice-receipt role="status" aria-live="polite"></pre>
     </section>
     """
   end
