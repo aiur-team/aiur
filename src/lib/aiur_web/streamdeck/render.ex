@@ -58,8 +58,6 @@ defmodule AiurWeb.Streamdeck.Render do
   end
 
   @spec compose(map()) :: {[map() | nil], [map()]}
-  def compose(%{surface: :grid, nav: %{stack: [{:meter_detail, _} | _]}} = model), do: Views.compose(model)
-
   def compose(model) do
     case {to_string(field(model, :surface, :grid)), field(field(model, :nav), :view)} do
       {"grid", view} when view in [:fleet, "fleet"] -> Views.compose(model)

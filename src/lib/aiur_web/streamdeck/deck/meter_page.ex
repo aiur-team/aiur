@@ -2,9 +2,6 @@ defmodule AiurWeb.Streamdeck.Deck.MeterPage do
   @moduledoc "Attach cached provider keys and load selected account detail once per frame."
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Meters, Nav}
-  alias AiurWeb.Streamdeck.Render
-  alias AiurWeb.StreamdeckProjection
-  alias Phoenix.{Channel, Socket}
 
   @spec prepare(map(), Nav.t(), map()) :: {Nav.t(), map()}
   def prepare(grid, nav, usage) do

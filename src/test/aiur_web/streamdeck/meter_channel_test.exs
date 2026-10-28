@@ -10,7 +10,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     inputs = inputs(%{"work" => work, "personal" => personal}, now)
     source = start_supervised!({Agent, fn -> inputs end})
     put_endpoint_config(streamdeck_usage_load_fun: fn _, _ -> Agent.get(source, & &1) end)
-    socket = joined_socket()
+    socket = meter_socket()
 
     assert %{"page" => 0, :frame => %{keys: [first, second | empty], strip: strip}} = open_detail(socket)
     assert first.label == "personal"
@@ -26,9 +26,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     send(socket.channel_pid, {:provider_meter_changed, inputs.meters.claude})
     token = :sys.get_state(socket.channel_pid).assigns.usage_flush
     if is_reference(token), do: send(socket.channel_pid, {:flush_usage, token})
-    # The state call proves the flush completed before checking the transport mailbox.
-    :sys.get_state(socket.channel_pid)
-    assert_received %Message{event: "frame", payload: %{keys: [updated | _]}}
+    %{keys: [updated | _]} = flush_frame(socket)
     assert updated.svg =~ "40% left"
 
     assert %{"page" => 1, :frame => %{keys: [meter | _]}} = input_frame(socket, %{"kind" => "dial_long_press", "index" => 3})
@@ -61,7 +59,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
       streamdeck_build_queue_fun: fn -> %{status: :disabled, queues: []} end
     )
 
-    socket = joined_socket()
+    socket = meter_socket()
     assert %{"focused" => "AIUR-1"} = request(socket, "focus", %{"identifier" => "AIUR-1"})
     assert %{:frame => %{keys: [first | _]}} = open_detail(socket)
     assert first.label == "a01"
@@ -70,7 +68,9 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     assert last.svg =~ "81% left"
     assert empty == List.duplicate(nil, 7)
     assert %{"page" => 1} = input_frame(socket, %{"kind" => "dial_turn", "index" => 3, "ticks" => 1})
-    assert %{reason: "disabled", frame: %{keys: [preserved | _]}} = request(socket, "priority", %{"identifier" => "AIUR-1", "direction" => "up"}, :error)
+    assert %{reason: "disabled"} = reply = request(socket, "priority", %{"identifier" => "AIUR-1", "direction" => "up"}, :error)
+    refute Map.has_key?(reply, :frame)
+    %{keys: [preserved | _]} = flush_frame(socket)
     assert preserved.label == "a09"
     assert preserved.svg =~ "81% left"
     assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:meter_detail, "claude"}]
@@ -88,7 +88,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
 
     window = start_supervised!({Agent, fn -> {:ok, data} end})
     put_endpoint_config(streamdeck_build_window_fun: fn _, _, _ -> Agent.get(window, & &1) end)
-    socket = joined_socket()
+    socket = meter_socket()
     open_fleet(socket)
     assert %{:frame => %{keys: [ci | _]}} = input_frame(socket, %{"kind" => "key_press", "index" => 3})
     assert ci.svg =~ "CI source"

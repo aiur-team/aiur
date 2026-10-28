@@ -8,6 +8,7 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
   def compose(grid, nav) do
     fleet = field(grid, :fleet) || %{}
     faces = faces(FleetModel.navigation(fleet), nav) |> ticket_faces(grid, nav)
+
     faces =
       if unavailable?(fleet, nav), do: [%{title: "Fleet unavailable", label: "Unavailable", face: :unknown, bucket: :paused}], else: faces
 
@@ -33,11 +34,6 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
 
   defp region({x, text}), do: %{x: x, width: 200, label: text, parts: [%{kind: :text_line, text: text, y: 50, size: 12}]}
   defp faces(keys, %{stack: []} = nav), do: Enum.slice(keys, Nav.page(nav) * 8, 8)
-
-  defp faces(keys, %{stack: [{:fleet, id} | _rest]} = nav) do
-    category = Enum.find(keys, %{}, &(field(&1, :id) == id))
-    Enum.slice(field(category, :tickets) || [], Nav.page(nav) * 8, 8)
-  end
 
   defp faces(keys, %{stack: [{:fleet, id} | _rest]} = nav) do
     category = Enum.find(keys, %{}, &(field(&1, :id) == id))
