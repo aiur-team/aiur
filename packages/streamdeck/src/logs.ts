@@ -32,7 +32,7 @@
  * event has exactly one entry.
  */
 
-import { directionBadgeColor, type DirectionBadge } from "./key-face-contract.js";
+import { directionBadgeColor, type DirectionBadge } from "./legacy-style.js";
 import type { StreamDeckEventProjection } from "./mode.js";
 
 // ---------------------------------------------------------------------------

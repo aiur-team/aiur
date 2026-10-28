@@ -4,7 +4,7 @@ import { type AgentKeyFace, type KeyFace } from "./keys/keyFace.js";
 import { KEY_IMAGE_SIZE } from "./keys/keyImage.js";
 import { createPaint } from "./art/gradient.js";
 import { commandFragment, commandIsFilled, drawIcon, iconFragment, UNBLOCKED_ICON } from "./art/icons.js";
-import { KEY_FACE_CONTRACT } from "./key-face-contract.js";
+import { LEGACY_STYLE } from "./legacy-style.js";
 import { drawVendorMark } from "./art/vendorMark.js";
 
 /* Key geometry, scaled from the mock's proportions to the 120px key. */
@@ -55,7 +55,7 @@ const TAG_BLOCKED_TEXT = "#ff9a90";
  * direction falls back to the neutral INFO colour.
  */
 const directionColor = (direction: string): string => {
-  const badges = KEY_FACE_CONTRACT.direction_badges as Readonly<Record<string, { color: string }>>;
+  const badges = LEGACY_STYLE.direction_badges as Readonly<Record<string, { color: string }>>;
   return (badges[direction.toUpperCase()] ?? badges.INFO).color;
 };
 

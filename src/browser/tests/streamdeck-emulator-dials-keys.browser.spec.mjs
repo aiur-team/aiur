@@ -196,33 +196,12 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(5)
   await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
   await expect(page.locator('[data-streamdeck-command]')).toHaveCount(5)
-  await expect(page.locator('.sd-strip-cmd')).toBeVisible()
-  await expect(page.locator('.sd-strip-cmd-pager')).toContainText('CONTROLLING')
-  await expect(page.locator('.sd-cmd-provider-logo')).toBeVisible()
-  await expect(page.locator('.sd-strip-cmd-progress')).toHaveAttribute('aria-valuenow', /\d+/)
-
-  const panel = page.locator('.sd-strip-cmd')
-  await expect(panel.locator('.sd-strip-cmd-status')).toHaveText(keyStatus)
-
-  const accents = await panel.evaluate((element) => ({
-    panel: getComputedStyle(element).getPropertyValue('--sd-accent').trim(),
-    icon: getComputedStyle(element.querySelector('.sd-strip-cmd-agent-icon')).color,
-    status: getComputedStyle(element.querySelector('.sd-strip-cmd-status')).color
-  }))
-
-  const dot = await panel.locator('.sd-strip-cmd-status').evaluate((element) => {
-    const marker = getComputedStyle(element, '::before')
-    return { background: marker.backgroundColor, width: marker.width, radius: marker.borderTopLeftRadius }
-  })
-
-  expect(accents.panel).toBe(keyAccent)
-  // The design's leading state dot tracks the status ink via currentColor.
-  expect(dot.background).toBe(accents.status)
-  expect(parseFloat(dot.width)).toBeGreaterThan(0)
-  expect(dot.radius).not.toBe('0px')
-  // Both inks resolve from --sd-accent, so neither can be a hardcoded green.
-  expect(accents.icon).toBe(accents.status)
-  expect(accents.icon).not.toBe('rgb(0, 0, 0)')
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')).toBeVisible()
+  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('CONTROLLING')
+  const panel = page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')
+  await expect(panel).toContainText(keyStatus)
+  await expect(panel.locator(`text[fill="${keyAccent}"]`)).toContainText(keyStatus)
+  await expect(panel.locator('[data-part="progress-fill"]')).toBeVisible()
 
   await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
@@ -289,7 +268,7 @@ test('command mic activates on pointerdown and deactivates on pointerup', async 
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
-  const micFace = micKey.locator('.sd-key-face')
+  const micFace = micKey.locator('svg rect').first()
   await expect(micKey).toBeVisible()
 
   await micKey.hover()
@@ -298,11 +277,11 @@ test('command mic activates on pointerdown and deactivates on pointerup', async 
 
   // The hold must actually pulse, not merely carry the class: .sd-mic-key
   // .mic-live is only meaningful if the face resolves the design's animation.
-  await expect(micFace).toHaveCSS('animation-name', 'sd-mic-pulse')
+  await expect(micFace).toHaveAttribute('stroke', '#ff9a90')
 
   await page.mouse.up()
   await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
-  await expect(micFace).not.toHaveCSS('animation-name', 'sd-mic-pulse')
+  await expect(micFace).not.toHaveAttribute('stroke', '#ff9a90')
 })
 
 test('command mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
@@ -331,10 +310,10 @@ test('cmd mode renders the design\'s five command keys with Mic excluded from th
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
-  const buttons = page.locator('.sd-cmd-key .sd-key-face[data-streamdeck-command]')
+  const buttons = page.locator('.sd-cmd-key[data-streamdeck-command]')
   await expect(buttons).toHaveCount(5)
-  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Logs', 'Mic', 'Settings', 'Commands'])
-  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'SCROLL', 'HOLD', 'OPEN', 'OPEN'])
+  expect(await buttons.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')))).toEqual(['Pause', 'Logs', 'Mic', 'Settings', 'Commands'])
+  await expect(buttons.locator('[data-part="caption"]')).toHaveText(['HOLD', 'SCROLL', 'HOLD', 'OPEN', 'OPEN'])
 
   // Mic is the only press-and-hold key; the hook drives it from pointer events
   // rather than the click handler it binds to the others.
@@ -359,11 +338,11 @@ test('read-only mode disables the fleet-control command keys and a mic hold does
 
   for (const command of ['pause', 'mic']) {
     await expect(page.locator(`[data-streamdeck-command="${command}"]`)).toBeDisabled()
-    await expect(page.locator(`.sd-cmd-key:has([data-streamdeck-command="${command}"])`)).toHaveClass(/is-disabled/)
+    await expect(page.locator(`.sd-cmd-key[data-streamdeck-command="${command}"]`)).toHaveAttribute('aria-disabled', 'true')
   }
 
   const micKey = page.locator('.sd-mic-key')
-  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  const micButton = micKey
 
   // The hook skips disabled keys, so the hold never binds and the key cannot
   // latch live no matter how long the pointer is held down.
@@ -380,7 +359,7 @@ test('command mic deactivates on pointercancel', async ({ page }) => {
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
-  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  const micButton = micKey
   await micButton.dispatchEvent('pointerdown')
   await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
 
@@ -393,7 +372,7 @@ test('command mic deactivates when a mode transition removes the held key', asyn
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
-  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  const micButton = micKey
   await micButton.dispatchEvent('pointerdown')
   await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
 

@@ -105,27 +105,41 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
   test "read-only mode renders the command keys disabled and refuses the control call" do
     endpoint_config = Application.get_env(:aiur, Endpoint)
-    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    Endpoint.config_change(
+      %{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)},
+      []
+    )
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
-      html = render_hook(view, "key-press", %{"identifier" => "1352"})
+      render_hook(view, "key-press", %{"identifier" => "1352"})
 
-      assert html =~ "sd-cmd-key is-disabled"
+      assert has_element?(
+               view,
+               "[data-streamdeck-command='pause'][disabled][aria-disabled='true']"
+             )
 
       # Element selectors rather than substring checks: a bare `html =~ "disabled"`
       # also matches the `is-disabled` class, so it would pass on a button that is
       # still clickable. The hook skips `disabled` keys, so a disabled attribute
       # is what actually stops the press from ever being emitted.
       for command <- ~w(pause mic) do
-        assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][disabled][aria-disabled="true"]))
+        assert has_element?(
+                 view,
+                 ~s(button[data-streamdeck-command="#{command}"][disabled][aria-disabled="true"])
+               )
       end
 
       # Logs and Settings are navigation rather than fleet control, so they stay
       # available. They are the negative control: they prove the disabling above
       # is the read-only gate and not simply every key being rendered inert.
       for command <- ~w(logs settings) do
-        assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][aria-disabled="false"]))
+        assert has_element?(
+                 view,
+                 ~s(button[data-streamdeck-command="#{command}"][aria-disabled="false"])
+               )
+
         refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][disabled]))
       end
 
@@ -190,7 +204,10 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     assert has_element?(view, ~s(button[data-streamdeck-command="mic"][data-command-hold="true"]))
 
     for command <- ~w(pause logs settings) do
-      refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][data-command-hold]))
+      refute has_element?(
+               view,
+               ~s(button[data-streamdeck-command="#{command}"][data-command-hold])
+             )
     end
 
     # A click-shaped command-press for mic is inert server-side, so the
@@ -220,13 +237,20 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
   test "read-only mode disables the mic key and refuses the hold" do
     endpoint_config = Application.get_env(:aiur, Endpoint)
-    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    Endpoint.config_change(
+      %{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)},
+      []
+    )
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
       render_hook(view, "key-press", %{"identifier" => "1352"})
 
-      assert has_element?(view, ~s(button[data-streamdeck-command="mic"][disabled][aria-disabled="true"]))
+      assert has_element?(
+               view,
+               ~s(button[data-streamdeck-command="mic"][disabled][aria-disabled="true"])
+             )
 
       html = render_hook(view, "mic-hold", %{"active" => true})
 

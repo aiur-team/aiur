@@ -20,8 +20,8 @@ test('clicking a logs event key positions the flattened transcript at that event
   // off-screen behind it.
   const liveIndex = await logKeys.locator('.sd-live-key').getAttribute('data-log-event-index')
   await expect(logKeys.locator('.sd-live-key')).toContainText('LIVE')
-  await expect(logKeys.locator('.sd-live-key .sd-live-dot')).toHaveCount(1)
-  await expect(logKeys.locator('.sd-live-key .sd-log-dir')).toHaveCount(0)
+  await expect(logKeys.locator('.sd-live-key svg rect').first()).toHaveAttribute('fill', '#14291f')
+  await expect(logKeys.locator('.sd-live-key [data-dir]')).toHaveAttribute('data-dir', '')
   await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
 
   // The fixture's bus kinds cover four of the five directions on the four
@@ -31,10 +31,10 @@ test('clicking a logs event key positions the flattened transcript at that event
   const directions = { 7: 'AGENT', 8: 'CONSUME', 9: 'SYSTEM', 10: 'EMIT' }
   const inks = new Set()
   for (const [index, direction] of Object.entries(directions)) {
-    const badge = logKeys.locator(`[data-log-event-index="${index}"] .sd-log-dir`)
+    const badge = logKeys.locator(`[data-log-event-index="${index}"] [data-dir]`)
     await expect(badge).toContainText(direction)
     await expect(badge).toHaveAttribute('data-dir', direction)
-    inks.add(await badge.evaluate((el) => getComputedStyle(el).color))
+    inks.add(await badge.evaluate((el) => getComputedStyle(el).fill))
   }
   // EMIT and AGENT share one blue by design; the other two are distinct.
   expect(inks.size).toBe(3)
@@ -45,10 +45,10 @@ test('clicking a logs event key positions the flattened transcript at that event
   const dialDKnob = page.locator('.sd-knob').nth(3)
   for (let i = 0; i < 6; i += 1) await dragDialThroughAngles(page, dialDKnob, [90, 0, -90])
   await expect(logKeys).toHaveAttribute('data-offset', '0')
-  const origin = logKeys.locator('[data-log-event-index="0"] .sd-log-dir')
+  const origin = logKeys.locator('[data-log-event-index="0"] [data-dir]')
   await expect(origin).toContainText('INFO')
-  await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('Ticket opened')
-  inks.add(await origin.evaluate((el) => getComputedStyle(el).color))
+  await expect(logKeys.locator('[data-log-event-index="0"]')).toHaveAttribute('aria-label', /Ticket opened/)
+  inks.add(await origin.evaluate((el) => getComputedStyle(el).fill))
   expect(inks.size).toBe(4)
   // LIVE is pinned: even scrolled fully left to the origin, it still occupies
   // the last (bottom-right) key rather than scrolling away.
@@ -67,7 +67,7 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
 
   // Three entry shapes, not a single flattened line per row.
-  await expect(page.locator('.sd-log-entry-message').first()).toBeVisible()
+  await expect(page.locator('[data-log-kind="message"]').first()).toBeVisible()
 
   // Dial A's hint arrows are state: pinned at the newest end there is nothing
   // newer, so the down arrow is hidden and the up one is not.
@@ -81,7 +81,7 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(logKeys.locator('[data-log-event-index="8"]')).toHaveAttribute('aria-current', 'true')
   await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'false')
   await expect(strip).not.toHaveAttribute('data-transcript-offset', maxOffset)
-  await expect(page.locator('.sd-log-entry-evhdr').first()).toBeVisible()
+  await expect(page.locator('[data-log-kind="evhdr"]').first()).toBeVisible()
   const atEventEight = await transcript.getAttribute('data-offset')
 
   // A different event key moves it somewhere else again.
@@ -138,80 +138,20 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await expect(logKeys).toHaveAttribute('data-offset', maxOffset)
 })
 
-test('touch strip renders two provider meters and design segment geometry', async ({ page }) => {
+test('touch strip renders common provider SVGs at native device coordinates', async ({ page }) => {
   await openStreamdeck(page)
-
-  const providers = page.locator('[data-segment="provider"]')
-  const providerCount = await providers.count()
-  expect(providerCount).toBeGreaterThan(0)
-
-  for (let index = 0; index < providerCount; index += 1) {
-    const provider = providers.nth(index)
-    await expect(provider.locator('[data-meter="session"]')).toHaveCount(1)
-    await expect(provider.locator('[data-meter="weekly"]')).toHaveCount(1)
-    await expect(provider.locator('.sd-mini')).toHaveCount(2)
-  }
-
-  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="session"]')).toContainText('70% left')
-  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="weekly"]')).toContainText('53% left')
-  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="session"]')).toContainText('50% left')
-  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="weekly"]')).toContainText('25% left')
-
-  const pagerDots = page.locator('[data-segment="pager"] .sd-pager-dot')
-  const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
-  await expect(pagerDots).toHaveCount(pageCount)
-
-  const segmentRows = await page.locator('#sd-screen > [data-segment]').evaluateAll((segments) => segments.map((segment) => Math.round(segment.getBoundingClientRect().top)))
-  expect(new Set(segmentRows)).toEqual(new Set([segmentRows[0]]))
-
-  const geometry = await providers.first().evaluate((segment) => {
-    const heading = segment.querySelector('.sd-info-hd')
-    const mini = segment.querySelector('.sd-mini')
-
-    return {
-      direction: getComputedStyle(segment).flexDirection,
-      padding: getComputedStyle(segment).padding,
-      headingFont: getComputedStyle(heading).fontFamily,
-      barHeight: getComputedStyle(mini.querySelector('.sd-mini-bar')).height
-    }
-  })
-
-  expect(geometry.direction).toBe('column')
-  expect(geometry.padding).toBe('5.12px 8px')
-  expect(geometry.headingFont).toContain('JetBrains Mono')
-  expect(geometry.barHeight).toBe('8px')
-
-  // Both segment headings hold one ink. The design specifies 0.42, which
-  // measures under 4.5:1 here and fails the axe check below, so they sit at
-  // 0.55 together rather than one heading drifting from the other.
-  expect(await providers.first().locator('.sd-info-hd').evaluate((heading) => getComputedStyle(heading).color)).toBe('rgba(255, 255, 255, 0.55)')
-
-  // The pager is the design's dial segment (.sd-seg-d, streamdeck.design.css:153-154):
-  // a centred column on the brighter 0.04 ground, labelled by its own text and
-  // carrying no logo header.
-  const pagerShape = await page.locator('[data-segment="pager"]').evaluate((segment) => {
-    const label = segment.querySelector('.sd-seg-dlabel')
-
-    return {
-      align: getComputedStyle(segment).alignItems,
-      gap: getComputedStyle(segment).gap,
-      background: getComputedStyle(segment).backgroundColor,
-      labelSize: getComputedStyle(label).fontSize,
-      labelWeight: getComputedStyle(label).fontWeight,
-      labelColor: getComputedStyle(label).color,
-      headings: segment.querySelectorAll('.sd-info-hd').length,
-      logos: segment.querySelectorAll('.sd-hd-logo').length
-    }
-  })
-
-  expect(pagerShape.align).toBe('center')
-  expect(pagerShape.gap).toBe('5.12px')
-  expect(pagerShape.background).toBe('rgba(255, 255, 255, 0.04)')
-  expect(pagerShape.labelSize).toBe('8.64px')
-  expect(pagerShape.labelWeight).toBe('700')
-  expect(pagerShape.labelColor).toBe('rgba(255, 255, 255, 0.55)')
-  expect(pagerShape.headings).toBe(0)
-  expect(pagerShape.logos).toBe(0)
+  const strip = page.locator('#sd-screen')
+  await expect(strip).toBeVisible()
+  const box = await strip.boundingBox()
+  expect(box.width).toBe(800)
+  expect(box.height).toBe(100)
+  await expect(strip.locator('[data-provider="claude"]')).toContainText('70% left')
+  await expect(strip.locator('[data-provider="codex"]')).toContainText('50% left')
+  const regions = await strip.locator(':scope > [data-streamdeck-region]').evaluateAll((nodes) => nodes.map((node) => ({
+    x: Number(node.dataset.streamdeckRegion), left: parseFloat(node.style.left), svgs: node.querySelectorAll('svg').length
+  })))
+  expect(regions.every((region) => region.x === region.left && region.svgs === 1)).toBe(true)
+  await expect(strip.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
 })
 
 test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {
@@ -255,8 +195,8 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
     }
   })
 
-  expect(desktopGeometry.device.width).toBeCloseTo(620, 0)
-  expect(desktopGeometry.device.maxWidth).toBe('620px')
+  expect(desktopGeometry.device.width).toBeCloseTo(860, 0)
+  expect(desktopGeometry.device.maxWidth).toBe('860px')
   expect(desktopGeometry.device.borderRadius).toBe('34px')
   expect(desktopGeometry.device.borderColor).toBe('rgba(255, 255, 255, 0.06)')
   expect(desktopGeometry.device.backgroundImage).toContain('rgb(42, 43, 46)')
@@ -266,7 +206,7 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(desktopGeometry.device.boxShadow).toContain('rgba(0, 0, 0, 0.5) 0px 30px 70px 0px')
   expect(desktopGeometry.device.boxShadow).toContain('rgba(255, 255, 255, 0.06) 0px 1px 0px 0px inset')
   expect(desktopGeometry.columns).toBe(4)
-  expect(desktopGeometry.columnGap).toBe('8px')
+  expect(desktopGeometry.columnGap).toBe('0px')
   expect(desktopGeometry.rowGap).toBe('16px')
   expect(desktopGeometry.keyRatio).toBeCloseTo(1, 2)
   const colours = {
@@ -344,8 +284,8 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(mobileGeometry.gap).toBe('16px')
   expect(mobileGeometry.wellPadding).toBe('14.4px 12.8px')
   expect(mobileGeometry.columns).toBe(4)
-  expect(mobileGeometry.columnGap).toBe('8px')
-  expect(mobileGeometry.rowGap).toBe('8.8px')
+  expect(mobileGeometry.columnGap).toBe('0px')
+  expect(mobileGeometry.rowGap).toBe('16px')
   expect(mobileGeometry.keyRatio).toBeCloseTo(1, 2)
   expect(mobileGeometry.svgCount).toBe(1)
   expect(mobileGeometry.svgViewBox).toBe('0 0 120 120')

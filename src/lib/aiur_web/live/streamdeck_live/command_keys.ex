@@ -40,16 +40,38 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
   end
 
   defp pause_command_key(true, writable?),
-    do: command_key("pause", "Play", "RESUME", icon: "play", state: "paused", disabled?: not writable?)
+    do:
+      command_key("pause", "Play", "RESUME",
+        icon: "play",
+        state: "paused",
+        disabled?: not writable?
+      )
 
   defp pause_command_key(false, writable?),
-    do: command_key("pause", "Pause", "HOLD", icon: "pause", state: "running", disabled?: not writable?)
+    do:
+      command_key("pause", "Pause", "HOLD",
+        icon: "pause",
+        state: "running",
+        disabled?: not writable?
+      )
 
   defp mic_command_key(true, writable?),
-    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "live", disabled?: not writable?)
+    do:
+      command_key("mic", "Mic", "HOLD",
+        icon: "mic",
+        mic?: true,
+        state: "live",
+        disabled?: not writable?
+      )
 
   defp mic_command_key(false, writable?),
-    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "idle", disabled?: not writable?)
+    do:
+      command_key("mic", "Mic", "HOLD",
+        icon: "mic",
+        mic?: true,
+        state: "idle",
+        disabled?: not writable?
+      )
 
   defp command_key(command, label, sub, opts) do
     %{
@@ -108,10 +130,14 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
     |> pad_slots(4, %{empty?: true})
   end
 
-  defp pad_slots(list, count, filler), do: list ++ List.duplicate(filler, max(0, count - length(list)))
+  defp pad_slots(list, count, filler),
+    do: list ++ List.duplicate(filler, max(0, count - length(list)))
 
   defp command_status_badge(status) when status in ["open", "deferred"], do: "OPEN"
-  defp command_status_badge(status) when status in ["decided", "acknowledged", "resolved"], do: "ANSWERED"
+
+  defp command_status_badge(status) when status in ["decided", "acknowledged", "resolved"],
+    do: "ANSWERED"
+
   defp command_status_badge(status) when status in ["dismissed", "expired"], do: "CLOSED"
   defp command_status_badge(_status), do: "UNKNOWN"
 
@@ -152,9 +178,14 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
 
   defp option_reading(command, option_index) when is_integer(option_index) do
     case Enum.at(command["options"] || [], option_index) do
-      %{"description" => description} when is_binary(description) and description != "" -> description
-      %{"label" => label} when is_binary(label) -> label
-      _ -> "No description"
+      %{"description" => description} when is_binary(description) and description != "" ->
+        description
+
+      %{"label" => label} when is_binary(label) ->
+        label
+
+      _ ->
+        "No description"
     end
   end
 

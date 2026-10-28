@@ -1,158 +1,9 @@
 defmodule AiurWeb.StreamdeckLive.Surface do
   @moduledoc """
-  Legacy descriptors for the Stream Deck emulator: the
-  touch-strip segments (summary, provider meters, pager), the dial math that
-  maps a dial value onto a grid window, and the knob readouts.
+  Dial math and HTML knob readouts for the Stream Deck emulator.
   """
 
-  alias Aiur.{CodingAgent, Config}
   alias AiurWeb.StreamdeckStrip
-
-  @spec screen_descriptors(map(), map(), integer(), map() | nil) :: [map()]
-  def screen_descriptors(grid, usage, current_page, focus) do
-    counts = Map.get(grid, :counts) || %{}
-    families = configured_provider_families()
-
-    [
-      %{
-        kind: :summary,
-        label: "SUMMARY",
-        logo: "/aiur-logo.png",
-        observed?: get_value(counts, "status") == "ok",
-        counts_status: get_value(counts, "status"),
-        live: get_value(counts, "live"),
-        remaining: get_value(counts, "queued"),
-        build: Map.get(grid, :build),
-        build_status: Map.get(grid, :build_status),
-        meters: []
-      }
-      | CodingAgent.provider_descriptors()
-        |> Enum.filter(&MapSet.member?(families, &1.provider))
-        |> Enum.map(&provider_segment(&1, usage))
-    ] ++ [pager_segment(grid, current_page, focus)]
-  end
-
-  # Provider segments reflect only the backends actually configured for this
-  # run (agent.priority / agent.backend_configs), matching the dispatchable
-  # set the Units page resolves. Unconfigured providers are hidden entirely.
-  defp configured_provider_families do
-    provider_families(CodingAgent.dispatchable_backends(Config.agent_backend_configs()))
-  rescue
-    _error -> provider_families(CodingAgent.dispatchable_backends())
-  end
-
-  defp provider_families(backends) do
-    backends
-    |> Enum.map(&CodingAgent.family_for/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(&String.to_atom/1)
-    |> MapSet.new()
-  end
-
-  # A focused command takes the pager segment over: the dots give way to the
-  # agent being controlled, matching the design's CONTROLLING relabel.
-  @spec pager_segment(map(), integer(), map() | nil) :: map()
-  def pager_segment(_grid, current_page, focus) when not is_nil(focus) do
-    %{
-      kind: :pager,
-      label: "CONTROLLING",
-      observed?: true,
-      pages: [],
-      current_page: current_page,
-      focus_label: "##{focus.identifier}",
-      meters: []
-    }
-  end
-
-  def pager_segment(grid, current_page, _focus) do
-    %{
-      kind: :pager,
-      label: "MORE AGENTS",
-      observed?: grid.windows > 1,
-      pages: pager_pages(grid.windows),
-      current_page: current_page,
-      focus_label: nil,
-      meters: []
-    }
-  end
-
-  @spec mode_pager_focus(atom(), map() | nil) :: map() | nil
-  def mode_pager_focus(mode, active) when mode in [:cmd, :logs, :settings] and not is_nil(active), do: active
-  def mode_pager_focus(_mode, _active), do: nil
-
-  defp provider_segment(descriptor, usage) do
-    provider = Atom.to_string(descriptor.provider)
-    meter = Map.get(usage, provider)
-
-    %{
-      kind: :provider,
-      provider: provider,
-      label: Enum.join(Enum.filter([descriptor.label, StreamdeckStrip.summary_label(meter)], &is_binary/1), " · "),
-      logo: descriptor.logo,
-      observed?: observed_provider?(meter),
-      meters: [provider_meter("session", "Session", meter), provider_meter("weekly", "Weekly", meter)]
-    }
-  end
-
-  defp provider_meter(key, label, meter) do
-    window = if observed_provider?(meter), do: meter |> get_value("windows", %{}) |> get_value(key), else: nil
-    percent = window_percentage(window)
-    freshness = window_freshness(window)
-
-    %{
-      key: key,
-      label: label,
-      percent: percent,
-      metadata: meter_metadata(window, freshness),
-      observed?: is_integer(percent),
-      freshness: freshness
-    }
-  end
-
-  defp observed_provider?(%{} = meter), do: get_value(meter, "state") in [:observed, "observed"]
-  defp observed_provider?(_meter), do: false
-
-  defp window_metadata(window) when is_map(window) do
-    case get_value(window, "remaining") do
-      remaining when is_binary(remaining) and remaining != "" -> remaining
-      _ -> window |> get_value("resets_at") |> reset_label()
-    end
-  end
-
-  defp window_metadata(_window), do: nil
-
-  defp window_freshness(window) when is_map(window) do
-    case get_value(window, "freshness") do
-      freshness when freshness in [:fresh, "fresh", :partial, "partial", :stale, "stale"] -> to_string(freshness)
-      _ -> "unknown"
-    end
-  end
-
-  defp window_freshness(_window), do: "unknown"
-
-  defp meter_metadata(window, _freshness) do
-    [window_metadata(window)]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-    |> case do
-      "" -> nil
-      metadata -> metadata
-    end
-  end
-
-  defp reset_label(%DateTime{} = reset), do: "#{weekday(reset)} #{hour_label(reset)}"
-
-  defp reset_label(reset) when is_binary(reset) do
-    case DateTime.from_iso8601(reset) do
-      {:ok, datetime, _offset} -> reset_label(datetime)
-      _ -> nil
-    end
-  end
-
-  defp reset_label(_reset), do: nil
-
-  defp weekday(%DateTime{} = datetime), do: Enum.at(~w(Mon Tue Wed Thu Fri Sat Sun), Date.day_of_week(DateTime.to_date(datetime)) - 1)
-  defp hour_label(%DateTime{hour: hour}), do: "#{rem(hour + 11, 12) + 1}#{if(hour < 12, do: "AM", else: "PM")}"
 
   @spec clamp_page(term(), integer()) :: integer()
   def clamp_page(page, windows) when is_integer(page), do: clamp(page, 0, max(windows - 1, 0))
@@ -161,9 +12,12 @@ defmodule AiurWeb.StreamdeckLive.Surface do
   @spec max_column_offset(non_neg_integer()) :: non_neg_integer()
   def max_column_offset(agent_count), do: max(0, ceil(agent_count / 2) - 4)
   @spec clamp_column_offset(number(), non_neg_integer()) :: number()
-  def clamp_column_offset(offset, agent_count), do: clamp(offset, 0, max_column_offset(agent_count))
+  def clamp_column_offset(offset, agent_count),
+    do: clamp(offset, 0, max_column_offset(agent_count))
+
   @spec column_offset_from_dial(number(), non_neg_integer()) :: integer()
-  def column_offset_from_dial(value, agent_count), do: round(clamp(value, 0, 100) / 100 * max_column_offset(agent_count))
+  def column_offset_from_dial(value, agent_count),
+    do: round(clamp(value, 0, 100) / 100 * max_column_offset(agent_count))
 
   @spec dial_value_from_offset(number(), non_neg_integer()) :: integer()
   def dial_value_from_offset(offset, agent_count) do
@@ -181,41 +35,41 @@ defmodule AiurWeb.StreamdeckLive.Surface do
       else: min(div(max(column_offset, 0), 4), windows - 1)
   end
 
-  defp pager_pages(0), do: []
-  defp pager_pages(windows), do: 0..(windows - 1)
-
   @spec clamp(number(), number(), number()) :: number()
   def clamp(value, min, max), do: value |> max(min) |> min(max)
-
-  defp get_value(map, key, default \\ nil) do
-    Map.get(map, key, Map.get(map, String.to_existing_atom(key), default))
-  rescue
-    _ -> Map.get(map, key, default)
-  end
-
-  defp window_percentage(window) when is_map(window) do
-    case get_value(window, "remaining_percent") do
-      percent when is_number(percent) -> round(percent)
-      _ -> nil
-    end
-  end
-
-  defp window_percentage(_window), do: nil
 
   @spec knob_descriptors(number(), integer(), atom(), map()) :: [map()]
   def knob_descriptors(dial_value \\ 0, windows \\ 0, mode \\ :grid, logs \\ %{}) do
     back_hint =
       case mode do
-        :cmd -> StreamdeckStrip.hint(0, 0, "BACK")
-        :settings -> StreamdeckStrip.hint(0, 0, "BACK")
-        :commands -> StreamdeckStrip.hint(0, 0, "BACK")
-        :logs -> StreamdeckStrip.hint(Map.get(logs, :transcript_offset, 0), Map.get(logs, :transcript_max_offset, 0), "BACK")
-        _ -> nil
+        :cmd ->
+          StreamdeckStrip.hint(0, 0, "BACK")
+
+        :settings ->
+          StreamdeckStrip.hint(0, 0, "BACK")
+
+        :commands ->
+          StreamdeckStrip.hint(0, 0, "BACK")
+
+        :logs ->
+          StreamdeckStrip.hint(
+            Map.get(logs, :transcript_offset, 0),
+            Map.get(logs, :transcript_max_offset, 0),
+            "BACK"
+          )
+
+        _ ->
+          nil
       end
 
     events_hint =
       if mode == :logs,
-        do: StreamdeckStrip.hint(Map.get(logs, :events_offset, 0), Map.get(logs, :events_max_offset, 0), "EVENTS"),
+        do:
+          StreamdeckStrip.hint(
+            Map.get(logs, :events_offset, 0),
+            Map.get(logs, :events_max_offset, 0),
+            "EVENTS"
+          ),
         else: nil
 
     [

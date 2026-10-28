@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckStripTest do
   use ExUnit.Case, async: true
 
-  alias AiurWeb.StreamdeckKeyFaceContract
+  alias AiurWeb.Streamdeck.Render.Style
   alias AiurWeb.StreamdeckStrip
 
   test "describes the focused command panel with the key progress colour" do
@@ -52,7 +52,7 @@ defmodule AiurWeb.StreamdeckStripTest do
 
     assert command.percent == 70
     assert command.progress_freshness == :stale
-    assert command.progress_colour == StreamdeckKeyFaceContract.progress_color(70)
+    assert command.progress_colour == Style.progress_color(70)
   end
 
   test "rounds a float percentage rather than dropping it" do

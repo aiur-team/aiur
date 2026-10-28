@@ -4,13 +4,16 @@ defmodule AiurWeb.StreamdeckLiveNavTest do
   test "existing emulator events update its own reducer state" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     {:ok, other, _html} = live(build_conn(), "/streamdeck")
-    render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "press"})
+    render_hook(view, "input", %{"kind" => "dial_press", "index" => 3})
     assert nav(view).view == :feature
     assert nav(other).view == :ticket
     render_hook(view, "grid-page", %{"page" => 1})
     render_hook(view, "dial-long-press", %{"index" => 3})
     assert nav(view).stack == []
-    for _ <- 1..3, do: render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "press"})
+
+    for _ <- 1..3,
+        do: render_hook(view, "input", %{"kind" => "dial_press", "index" => 3})
+
     render_hook(view, "key-press", %{"identifier" => "1352"})
     assert nav(view).selected == "1352"
   end
@@ -23,7 +26,9 @@ defmodule AiurWeb.StreamdeckLiveNavTest do
     assert nav(view).pages.ticket == 1
   end
 
-  test "legacy selection resolves the identifier against the shared server list", %{snapshot_agent: snapshot} do
+  test "legacy selection resolves the identifier against the shared server list", %{
+    snapshot_agent: snapshot
+  } do
     Agent.update(snapshot, fn _ -> fleet_snapshot(9) end)
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     render_hook(view, "grid-page", %{"page" => 1})

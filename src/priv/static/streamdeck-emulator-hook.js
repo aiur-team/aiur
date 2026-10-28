@@ -18,7 +18,6 @@
 
   // The dial controller lives in streamdeck-emulator-knob.js, loaded first.
   var Knob = window.AiurStreamdeckKnob.Knob;
-  var clamp = window.AiurStreamdeckKnob.clamp;
 
   window.AiurStreamdeckEmulatorHook = {
     mounted() {
@@ -135,20 +134,7 @@
 
     _handleDialStep(index, delta) {
       if (!delta) return;
-      var dial = this._knobs && this._knobs[index];
-      var value = dial ? dial.value : 0;
-      if (this._mode === "grid" && index === 3) {
-        this._requestGridPage(value);
-      } else if (this._mode === "logs" && index === 3) {
-        this.pushEvent("logs-scroll", { axis: "events", delta: delta > 0 ? 1 : -1 });
-      } else if (this._mode === "logs" && index === 0) {
-        this.pushEvent("logs-scroll", { axis: "transcript", delta: delta > 0 ? 1 : -1 });
-      }
-    },
-
-    _requestGridPage(value) {
-      if (!Number.isFinite(value)) return;
-      this.pushEvent("grid-page", { value: clamp(value, 0, 100) });
+      this.pushEvent("input", { kind: "dial", index: index, action: "turn", delta: delta > 0 ? 1 : -1 });
     },
 
     _syncPageKnob() {
@@ -172,6 +158,7 @@
         this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty), #sd-log-keys .sd-key:not(.is-empty)")
       );
       keys.forEach(function (key) {
+        if (key.hasAttribute("data-streamdeck-command") || key.disabled) return;
         var timer = null;
         var handler = function () {
           // Cancel any outstanding removal timer so rapid clicks don't race.
@@ -309,32 +296,6 @@
       }
     },
 
-    // Grid page cycling remains optimistic; all mode transitions wait for the
-    // server-rendered data-mode so the active panel is never temporarily absent.
-    _handleLocalDialPress(action) {
-      if (action === "cycle-window" && this._mode === "grid") {
-        this._requestGridWindowCycle();
-      }
-    },
-
-    _requestGridWindowCycle() {
-      var keys = this.el.querySelector("#sd-keys");
-      var dial = this._knobs && this._knobs[3];
-      if (keys && dial) {
-        var total = parseInt(keys.getAttribute("data-grid-total") || "0", 10);
-        var windows = parseInt(keys.getAttribute("data-grid-page-count") || "1", 10);
-        var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
-        var maxOffset = Math.max(0, Math.ceil(total / 2) - 4);
-        var nextPage = (page + 1) % Math.max(windows, 1);
-        var offset = Math.min(nextPage * 4, maxOffset);
-        var value = maxOffset === 0 ? 0 : Math.round((offset / maxOffset) * 100);
-        // A page cycle changes logical value, not the physical marker.
-        this._pendingPageDialValue = value;
-        dial._setLogicalValue(value);
-      }
-      this.pushEvent("grid-page", { action: "cycle" });
-    },
-
     // Set the active mode. Updates data-mode on .sd-device and aria-hidden on
     // each data-mode-view panel. Pass pushHistory=false when restoring state.
     _setMode(mode, pushHistory) {
@@ -347,7 +308,7 @@
       if (device) device.setAttribute("data-mode", mode);
       var views = Array.prototype.slice.call(this.el.querySelectorAll("[data-mode-view]"));
       views.forEach(function (view) {
-        var isActive = view.getAttribute("data-mode-view") === mode;
+        var isActive = view.getAttribute("data-mode-view") === mode || view.getAttribute("data-mode-view") === mode + "-strip";
         view.setAttribute("aria-hidden", isActive ? "false" : "true");
       });
     }

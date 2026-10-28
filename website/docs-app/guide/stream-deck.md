@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Fleet keys on both surfaces use the same daemon-rendered SVG images. The browser retains its existing command, logs, settings and touch-strip controls during the remaining shared-view migrations.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. The browser also retains its Command, Logs, Settings and Commands controls, drawn by that shared renderer.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -11,17 +11,18 @@ for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
 hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
 Dial 3 is reserved for the sidecar's instance switch.
 
-The current controls below remain visible until the sidecar and emulator
-renderer adopt this model.
+The browser retains the focused controls below. Its grid dial D turns pages
+and presses for the next window; dial A scrolls the shared provider panel.
+The current physical client uses the navigation controls described above.
 
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: scroll provider panel. B: no action. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
 | **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
-| **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
+| **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
@@ -47,7 +48,7 @@ Logs runs from oldest at the far left to newest at the far right.
 | --- | --- |
 | Ticket opened | Leftmost origin; owns transcript lines before the first event. |
 | Event key | One ticket event: progress, phase, comment, CI, PR, decision, or attention. |
-| LIVE | Rightmost current view; uses the selected agent's lane, provider, ticket, and progress face. |
+| LIVE | Rightmost current view; opens the newest transcript row and uses green selection ink. |
 
 Transcript lines stay beneath the event active when they arrived; agent prose is not promoted into extra event keys.
 
@@ -70,17 +71,17 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | Tool call | Glyph gutter; muted after completion. |
 | Shell command | `$` prefix. |
 | Operator message | Coloured bar. |
-| File edit | Unified diff with tinted added and removed rows. |
+| File edit | File path, addition/deletion counts and changed lines. |
 
 ### Progress bars
 
 | State | Meaning | Display |
 | --- | --- | --- |
 | Fresh | Recent reading | Solid green bar, slightly brighter at 100%. |
-| Unknown | No reading has ever arrived | Full-width flat grey bar and dot, distinct from measured progress. |
+| Unknown | No reading has ever arrived | Grey track with no green fill, distinct from measured progress. |
 | 0% | A real zero reading | Short solid stub, so "just started" never looks like "no reading". |
 
-A bar that drops to an empty track and back is a bug; report it.
+Stale readings retain their values with a dimmed bar.
 
 ## How Grid chooses agent keys
 

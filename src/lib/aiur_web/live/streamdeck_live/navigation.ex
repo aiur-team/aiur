@@ -25,7 +25,11 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
     do: %{"kind" => "dial_long_press", "index" => integer(params["index"], 3)}
 
   defp frame(_socket, "dial-turn", params, _sections),
-    do: %{"kind" => "dial_turn", "index" => integer(params["index"], -1), "ticks" => integer(params["ticks"], 0)}
+    do: %{
+      "kind" => "dial_turn",
+      "index" => integer(params["index"], -1),
+      "ticks" => integer(params["ticks"], 0)
+    }
 
   # The legacy hook emits this before dial-press for the same physical press.
   defp frame(_socket, "grid-page", %{"action" => "cycle"}, _sections),
@@ -34,16 +38,25 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   defp frame(socket, "grid-page", params, _sections) do
     ticks =
       cond do
-        Map.has_key?(params, "page") -> integer(params["page"], socket.assigns.grid_page) - socket.assigns.grid_page
-        Map.has_key?(params, "value") -> sign(integer(params["value"], 0) - socket.assigns.grid_dial_value)
-        true -> 1
+        Map.has_key?(params, "page") ->
+          integer(params["page"], socket.assigns.grid_page) - socket.assigns.grid_page
+
+        Map.has_key?(params, "value") ->
+          sign(integer(params["value"], 0) - socket.assigns.grid_dial_value)
+
+        true ->
+          1
       end
 
     %{"kind" => "dial_turn", "index" => 3, "ticks" => max(-32, min(32, ticks))}
   end
 
   defp frame(_socket, "logs-scroll", params, _sections),
-    do: %{"kind" => "dial_turn", "index" => if(params["axis"] == "events", do: 3, else: 0), "ticks" => integer(params["delta"], 0)}
+    do: %{
+      "kind" => "dial_turn",
+      "index" => if(params["axis"] == "events", do: 3, else: 0),
+      "ticks" => integer(params["delta"], 0)
+    }
 
   defp frame(socket, "key-press", params, sections) do
     nav = socket.assigns.deck_nav

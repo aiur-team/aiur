@@ -1,12 +1,12 @@
 import {
   bucketContract,
   type BucketId,
-  KEY_FACE_CONTRACT,
+  LEGACY_STYLE,
   progressBarColor,
   UNKNOWN_PROGRESS_COLOR,
-} from "./key-face-contract.js";
+} from "./legacy-style.js";
 
-export type { BucketId } from "./key-face-contract.js";
+export type { BucketId } from "./legacy-style.js";
 export { progressBarColor, UNKNOWN_PROGRESS_COLOR };
 export type Vendor = string;
 
@@ -129,7 +129,7 @@ export const agentIndexForKey = (columnOffset: number, key: number): number =>
  */
 export const BUCKET_STYLES: Readonly<Record<BucketId, Readonly<BucketStyle>>> = Object.freeze(
   Object.fromEntries(
-    Object.entries(KEY_FACE_CONTRACT.states).map(([bucket, style]) => [
+    Object.entries(LEGACY_STYLE.states).map(([bucket, style]) => [
       bucket,
       Object.freeze({
         accent: style.accent,
@@ -175,7 +175,7 @@ export function progressFreshness(reported: unknown, percent: number | null): Pr
 
 function buildFooter(agent: AgentInput): Footer {
   if (agent.bucket === "queued") {
-    const footer = KEY_FACE_CONTRACT.footers.queued;
+    const footer = LEGACY_STYLE.footers.queued;
     const unblocked = agent.dependency_ready === footer.ready_when;
 
     return {
@@ -193,7 +193,7 @@ function buildFooter(agent: AgentInput): Footer {
   // state a measurement that was never taken.
   const pct = freshness === "unknown" ? null : clamped;
   return {
-    kind: KEY_FACE_CONTRACT.footers.progress.kind,
+    kind: LEGACY_STYLE.footers.progress.kind,
     barColor: pct === null ? UNKNOWN_PROGRESS_COLOR : progressBarColor(pct),
     percent: pct,
     freshness,

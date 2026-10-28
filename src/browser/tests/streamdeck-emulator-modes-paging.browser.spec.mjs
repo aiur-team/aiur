@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { anchor, openStreamdeck, openUnits } from './support/streamdeck-emulator.mjs'
+import { anchor, dragDialThroughAngles, openStreamdeck, openUnits } from './support/streamdeck-emulator.mjs'
 
 test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
   await openStreamdeck(page)
@@ -7,7 +7,7 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   const device = page.locator('.sd-device')
   const keysView = page.locator('#sd-keys[data-mode-view="grid"]')
   const cmdView = page.locator('#sd-keys[data-mode-view="cmd"]')
-  const logsView = page.locator('[data-mode-view="logs"]')
+  const logsView = page.locator('#sd-logs-view')
 
   // Initial state: grid mode, keys visible, cmd and logs hidden.
   await expect(device).toHaveAttribute('data-mode', 'grid')
@@ -81,12 +81,11 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
 test('CONTROLLING relabel rides the cmd page and the pager dots return on back', async ({ page }) => {
   await openStreamdeck(page)
 
-  const pager = page.locator('[data-segment="pager"]')
-  const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
+  const pager = page.locator('[data-streamdeck-region="600"]')
 
   await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
-  expect(await pager.locator('.sd-seg-dlabel').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
+  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  expect(await pager.locator('svg > text').first().evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
 
   const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
   await page.locator('.sd-key:not(.is-empty)').first().click()
@@ -96,16 +95,16 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   // screen to indicate. The dots go, and the CONTROLLING relabel rides the cmd
   // page. The dial-D column itself stays — #1607 identifies the controlled
   // agent there, and `streamdeck-operator-flow.browser.spec.mjs` asserts that
-  // `.sd-pager-label` reads `#<id>` at this exact point in the flow.
+  // `[data-streamdeck-region="600"] text:nth-child(2)` reads `#<id>` at this exact point in the flow.
   await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
-  await expect(pager.locator('.sd-seg-dlabel')).toHaveText('CONTROLLING')
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
-  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
+  await expect(pager.locator('svg > text').first()).toHaveText('CONTROLLING')
+  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${identifier}`)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${identifier}`)
 
   // The cmd page takes every column left of dial D rather than sharing the
   // strip with the info segments: it starts at the strip's content edge and
   // stops where the pager column begins.
-  const cmdBox = await page.locator('.sd-strip-cmd').boundingBox()
+  const cmdBox = await page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]').boundingBox()
   const pagerBox = await pager.boundingBox()
   const stripBox = await page.locator('#sd-screen').boundingBox()
   expect(cmdBox.x + cmdBox.width).toBeLessThanOrEqual(pagerBox.x + 1)
@@ -115,22 +114,22 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('.sd-strip-logs')).toBeVisible()
+  await expect(page.locator('[data-mode-view="logs-strip"] [data-streamdeck-region="0"]')).toBeVisible()
   await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${identifier}`)
   await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   // Dial A is the back press: logs -> cmd -> grid.
   const dialA = page.locator('.sd-knob').first()
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${identifier}`)
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
   await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
-  await expect(page.locator('.sd-strip-cmd-pager')).toHaveCount(0)
+  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
@@ -194,7 +193,7 @@ test('an active dial drag commits its final value after a LiveView patch', async
     window.__streamdeckGridEvents = []
     const pushEvent = hook.pushEvent.bind(hook)
     hook.pushEvent = (name, payload) => {
-      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      if (name === 'input') window.__streamdeckGridEvents.push({ name, payload })
       return pushEvent(name, payload)
     }
   })
@@ -217,10 +216,11 @@ test('an active dial drag commits its final value after a LiveView patch', async
   await page.mouse.up()
 
   const finalValue = await dialD.getAttribute('aria-valuenow')
-  await expect(keys).toHaveAttribute('data-grid-dial-value', finalValue, { timeout: 1000 })
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  expect(Number(finalValue)).toBeGreaterThan(0)
   const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
   expect(releaseEvents).toHaveLength(eventCountBeforeDrag + 1)
-  expect(releaseEvents.at(-1)).toMatchObject({ name: 'grid-page', payload: { value: Number(finalValue) } })
+  expect(releaseEvents.at(-1)).toMatchObject({ name: 'input', payload: { kind: 'dial', index: 3, action: 'turn', delta: 1 } })
 })
 
 test('a cancelled dial drag emits no release commit', async ({ page }) => {
@@ -232,7 +232,7 @@ test('a cancelled dial drag emits no release commit', async ({ page }) => {
     window.__streamdeckGridEvents = []
     const pushEvent = hook.pushEvent.bind(hook)
     hook.pushEvent = (name, payload) => {
-      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      if (name === 'input') window.__streamdeckGridEvents.push({ name, payload })
       return pushEvent(name, payload)
     }
   })
@@ -266,7 +266,7 @@ test('destroying a dial without drag preservation emits no release commit', asyn
     window.__streamdeckGridEvents = []
     const pushEvent = hook.pushEvent.bind(hook)
     hook.pushEvent = (name, payload) => {
-      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      if (name === 'input') window.__streamdeckGridEvents.push({ name, payload })
       return pushEvent(name, payload)
     }
   })
@@ -286,79 +286,26 @@ test('destroying a dial without drag preservation emits no release commit', asyn
   expect(await page.evaluate(() => window.__streamdeckGridEvents)).toHaveLength(0)
 })
 
-test('dial D pages live fleet keys and pager dots', async ({ page }) => {
+test('dial D pages live fleet keys using raw input from drag, wheel and keyboard', async ({ page }) => {
   await openStreamdeck(page)
-
   const keys = page.locator('#sd-keys')
+  const dialD = page.locator('.sd-knob').nth(3)
   await expect(keys).toHaveAttribute('data-grid-page-count', '3')
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
-  await expect(keys.locator('[data-streamdeck-identifier="1376"]')).toHaveCount(0)
-
-  const dialD = page.locator('.sd-knob').nth(3)
-  await dialD.hover()
-  await anchor(dialD)
-  const dialBox = await dialD.boundingBox()
-  const cx = dialBox.x + dialBox.width / 2
-  const cy = dialBox.y + dialBox.height / 2
-  const radius = Math.min(dialBox.width, dialBox.height) / 3
-  const point = (degrees) => {
-    const radians = (degrees * Math.PI) / 180
-    return { x: cx + Math.cos(radians) * radius, y: cy + Math.sin(radians) * radius }
-  }
-
-  await page.mouse.move(...Object.values(point(-90)))
-  await page.mouse.down()
-  await page.mouse.move(...Object.values(point(0)))
-  await page.mouse.move(...Object.values(point(90)))
-  await page.mouse.move(...Object.values(point(126)))
-  await page.mouse.up()
-
+  await dragDialThroughAngles(page, dialD, [-90, 0, 90])
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  const dialValue = parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
-  expect(dialValue).toBeGreaterThanOrEqual(75)
-  expect(dialValue).toBeLessThanOrEqual(85)
-  await expect(dialD).toHaveAttribute('aria-valuenow', String(dialValue))
-  await expect(keys.locator('.sd-key:not(.is-empty)')).toHaveCount(8)
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
-  await expect(page.locator('[data-segment="pager"] [aria-current="page"]')).toHaveAttribute('data-pager-page', '1')
-
-  const angleBeforeCycle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
+  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /9–16/)
+  const angle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
   await dialD.click()
   await expect(keys).toHaveAttribute('data-grid-page', '2')
-  await expect(keys).toHaveAttribute('data-grid-dial-value', '100')
-  await expect(dialD).toHaveAttribute('aria-valuenow', '100')
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
-  expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angleBeforeCycle)
-
+  expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angle)
   await dialD.hover()
   await page.mouse.wheel(0, 100)
-  await expect(dialD).toHaveAttribute('aria-valuenow', '96')
-  const angleAfterWheel = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
-  expect(angleAfterWheel).toBeLessThan(parseFloat(angleBeforeCycle))
-
-  await dialD.focus()
-  await page.keyboard.press('ArrowDown')
-  await expect(dialD).toHaveAttribute('aria-valuenow', '92')
-  const angleAfterKey = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
-  expect(angleAfterKey).toBeLessThan(angleAfterWheel)
-
-  await anchor(dialD)
-  const dragBox = await dialD.boundingBox()
-  const dragCx = dragBox.x + dragBox.width / 2
-  const dragCy = dragBox.y + dragBox.height / 2
-  const dragRadius = Math.min(dragBox.width, dragBox.height) / 3
-  const dragPoint = (degrees) => {
-    const radians = (degrees * Math.PI) / 180
-    return { x: dragCx + Math.cos(radians) * dragRadius, y: dragCy + Math.sin(radians) * dragRadius }
-  }
-  await page.mouse.move(...Object.values(dragPoint(0)))
-  await page.mouse.down()
-  await page.mouse.move(...Object.values(dragPoint(-30)))
-  await page.mouse.up()
-  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeLessThan(92)
-  const angleAfterDrag = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
-  expect(angleAfterDrag).toBeLessThan(angleAfterKey)
-
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  await dialD.press('ArrowDown')
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
 })
 
 test('an acknowledged grid cycle cannot overwrite a later server page patch', async ({ page }) => {

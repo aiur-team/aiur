@@ -136,7 +136,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   const startedAt = new Date().toISOString()
   const device = page.locator('.sd-device')
   const keys = page.locator('#sd-keys')
-  const pager = page.locator('[data-segment="pager"]')
+  const pager = page.locator('[data-streamdeck-region="600"]')
   const dialA = dial(page, 0)
   const dialD = dial(page, 3)
 
