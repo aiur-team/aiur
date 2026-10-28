@@ -219,4 +219,20 @@ defmodule Aiur.Conversation.JournalTest do
     assert length(rows(dir)) == 1
     assert Journal.via(ref) == {:via, Registry, {Aiur.Conversation.Registry, Ref.conversation_id(ref)}}
   end
+
+  test "an uncertain restart closure preserves the next session's resume reason", %{ref: ref, dir: dir, control: control} do
+    Ingest.append(ref, source(), [event(1)])
+    assert :ok = flush(ref)
+    {:ok, pid} = Ingest.writer(ref)
+    :ok = DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+    opts = Application.fetch_env!(:aiur, :conversation_journal)
+    Application.put_env(:aiur, :conversation_journal, Keyword.put(opts, :run_id, "run-two"))
+    actions(control, :session, [:uncertain])
+    Ingest.append(ref, source(), [event(2)])
+    assert :ok = flush(ref)
+    assert [_, ended, resumed] = sessions(dir)
+    assert ended["end_reason"] == "daemon_restart_unknown"
+    assert resumed["start_reason"] == "resume"
+    assert resumed["session_seq"] == 2
+  end
 end

@@ -5,7 +5,8 @@ defmodule Aiur.Conversation.JournalSessions do
   @spec load(map(), map()) :: {:ok, map()} | {:error, term()}
   def load(state, head) do
     with {:ok, bytes} <- File.read(Path.join(state.dir, "sessions.jsonl")),
-         {:ok, session} <- replay(String.split(bytes, "\n", trim: true)),
+         lines = String.split(bytes, "\n", trim: true),
+         {:ok, session} <- replay(lines),
          from = if(session, do: session.first_pos, else: head["last_pos"] + 1),
          from = if(state.recover, do: min(from, state.next_pos), else: from),
          {:ok, entries} <- state.store.stream_entries(state.dir, from, :infinity) do
@@ -15,8 +16,16 @@ defmodule Aiur.Conversation.JournalSessions do
       session = if session, do: %{session | last_pos: last_pos(entries, session.session_seq)}, else: nil
       state = %{state | segment_state: head, next_pos: head["last_pos"] + 1, session_seq: head["last_session_seq"], open_session: session, dedup: MapSet.new(), dedup_order: :queue.new()}
       state = Enum.reduce(entries, state, &recover_entry/2)
+      state = %{state | resume: state.resume or (is_nil(session) and restart_resume?(List.last(lines)))}
       restart(state)
     end
+  end
+
+  defp restart_resume?(nil), do: false
+
+  defp restart_resume?(line) do
+    {:ok, session} = Session.from_json(line)
+    session.end_reason == "daemon_restart_unknown"
   end
 
   defp publish_recovered(state, bytes, entries) do

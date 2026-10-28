@@ -45,6 +45,10 @@ defmodule Aiur.Conversation.TestSupport do
             :release_store -> fun.()
           end
 
+        :uncertain ->
+          fun.()
+          {:error, :eio}
+
         :partial ->
           {dir, state, entries} = args
           Store.append_entries(dir, state, entries, file_ops: TestSupport.PartialFile)

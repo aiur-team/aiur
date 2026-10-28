@@ -97,6 +97,34 @@ Directories use mode 0700; files use 0600. Symlinked conversation paths and
 files are refused. Only `head.json` is replaced atomically. Recovery syncs surviving complete
 entry and session records before publishing their positions.
 
+## §7 — Serialized ingestion
+
+`Ingest.append(ref, source, events)`, `end_session(ref, provider_id, reason)`
+and `gap(ref, reason, from, to)` return `:ok` without waiting for disk. The
+facade converts transcript events before casting to a Registry-named writer.
+Each conversation has one `Journal` process under `JournalSupervisor`; initial
+file preparation runs after process startup. Producers are wired separately.
+
+The writer assigns dense positions, batches at most 50 transcript inputs from
+one source per entry append, and flushes small batches after 200 ms. Session
+identity is `{harness, provider_session_id}`. A changed identity closes the old
+session as `superseded`. An explicit end applies only to the matching provider
+(or any open session when its provider ID argument is null). Deduplication is
+scoped to the open session and retains the latest 50,000 distinct keys.
+
+On reload, a session from the current BEAM run continues with dedup rebuilt
+from its durable entries. A session from another run closes as
+`daemon_restart_unknown`; the next source starts a `resume` session. An idle
+writer flushes and stops after 15 minutes. Detected loss spans survive idle
+eviction in BEAM-local memory; a later input starts another writer.
+
+Failed writes require head reconstruction before any retry. Complete surviving
+records are retained and deduplicated; only the store's eligible torn final
+entry tail is repaired. Interior corruption leaves the writer read-only.
+Readers that use the store's recovering APIs must serialize those calls with
+this writer; calling `read_head` or `stream_entries` independently during an
+append is unsafe. This writer does not add a journal page-reading API.
+
 ## §8 — Segments and recovery
 
 Segments are named `entries.000001.jsonl`, `entries.000002.jsonl`, and so on,
@@ -159,34 +187,6 @@ and the first anchor at equal precision. Causal inference belongs to C3-T03.
 with SHA-256 and returns `anc_` plus the first 26 lowercase, unpadded Base32
 characters. Position and labels do not affect identity; upgraded precision
 creates a new identity for append-only resolution.
-
-## §7 — Serialized ingestion
-
-`Ingest.append(ref, source, events)`, `end_session(ref, provider_id, reason)`
-and `gap(ref, reason, from, to)` return `:ok` without waiting for disk. The
-facade converts transcript events before casting to a Registry-named writer.
-Each conversation has one `Journal` process under `JournalSupervisor`; initial
-file preparation runs after process startup. Producers are wired separately.
-
-The writer assigns dense positions, batches at most 50 transcript inputs from
-one source per entry append, and flushes small batches after 200 ms. Session
-identity is `{harness, provider_session_id}`. A changed identity closes the old
-session as `superseded`. An explicit end applies only to the matching provider
-(or any open session when its provider ID argument is null). Deduplication is
-scoped to the open session and retains the latest 50,000 distinct keys.
-
-On reload, a session from the current BEAM run continues with dedup rebuilt
-from its durable entries. A session from another run closes as
-`daemon_restart_unknown`; the next source starts a `resume` session. An idle
-writer flushes and stops after 15 minutes. Detected loss spans survive idle
-eviction in BEAM-local memory; a later input starts another writer.
-
-Failed writes require head reconstruction before any retry. Complete surviving
-records are retained and deduplicated; only the store's eligible torn final
-entry tail is repaired. Interior corruption leaves the writer read-only.
-Readers that use the store's recovering APIs must serialize those calls with
-this writer; calling `read_head` or `stream_entries` independently during an
-append is unsafe. This writer does not add a journal page-reading API.
 
 ## §11 — Gaps and durable notifications
 

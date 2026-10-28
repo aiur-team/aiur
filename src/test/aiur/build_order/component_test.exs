@@ -30,6 +30,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Opencode.ActiveTurns,
     {Aiur.PubSub.Boot, [name: Aiur.PubSub]},
     Aiur.AgentPubSub.FleetRefresh,
+    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     {Registry, [keys: :unique, name: Aiur.IssueLog.Registry]},
     {Registry, [keys: :unique, name: Aiur.Opencode.PaneRegistry]},
     {Registry, [keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry]},
