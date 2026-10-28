@@ -107,10 +107,10 @@ The emulator also accepts `input` with `{kind, index, ticks?}`. Kinds are `key_p
 `dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
 turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
 out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
-navigation replies `ok` with `{view, page}` (zero-based page). Queue moves
-include read-back `position`, `queue` and a feedback frame, or an error
-`reason` and feedback frame on refusal. Physical clients receive the coalesced
-`frame` push, including Fleet categories and their state-filtered drills.
+navigation replies `ok` with `{view, page}` (zero-based page), never images.
+Refused effects return an error `reason`; feedback and queue position changes
+appear in the coalesced `frame` push, including Fleet categories and their
+state-filtered drills.
 Each connection starts at `ticket`, page 0; reconnects reset navigation.
 
 Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
