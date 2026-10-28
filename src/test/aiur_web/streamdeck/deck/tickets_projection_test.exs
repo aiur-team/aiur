@@ -79,9 +79,13 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
       assert status.label =~ "Unavailable"
       refute status.svg =~ "progress-track"
       assert Enum.all?(rest, &is_nil/1)
-      assert hd(frame.strip).label =~ "Tickets unavailable"
-      refute hd(frame.strip).label =~ "0 live"
-      assert List.last(frame.strip).label == "Tickets unavailable"
+      assert grid.counts.status == "unavailable"
+      assert grid.counts.queued == nil
+      assert grid.counts.not_queued == nil
+      assert hd(frame.strip).label == "Build unavailable"
+      assert Enum.at(frame.strip, 1).label == "Counts unavailable"
+      assert List.last(frame.strip).label == "Queued unknown; Not queued unknown"
+      refute List.last(frame.strip).svg =~ "Queued 0"
     end
   end
 end
