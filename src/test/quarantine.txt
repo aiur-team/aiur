@@ -30,3 +30,4 @@ Aiur.Workspace.RestackGitTest	cancelled git retains the workspace lock until its
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
 AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31
+AiurWeb.StreamdeckPackageIndependenceTest	daemon compile inputs never reference the sidecar package source tree	#6888	2027-01-26
