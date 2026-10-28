@@ -242,12 +242,12 @@ missing audit history is explicitly unavailable rather than an empty timeline.
 
 ## Native questions
 
-Codex native capture is opt-in through `decisions.native_capture.codex` (default
-`false`, experimental). It turns the worker's native question into a Command
+Codex native capture is on by default; set `decisions.native_capture.codex` to
+`false` to opt out. It turns the worker's native question into a Command
 using the same routing and authority rules.
 
-Claude capture is opt-in through `decisions.native_capture.claude` (default
-`false`) and requires aiur-claude 1.3.0 or newer. Supported questions are deferred
+Claude capture is on by default; set `decisions.native_capture.claude` to `false`
+to opt out. It requires aiur-claude 1.3.0 or newer. Questions are deferred
 until answered. Questions the sibling cannot defer are recorded and released
 immediately; their answers arrive as messages.
 See the [configuration reference](/reference/configuration-daemon#decisions).
