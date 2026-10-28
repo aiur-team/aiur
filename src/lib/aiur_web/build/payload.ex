@@ -4,11 +4,11 @@ defmodule AiurWeb.Build.Payload do
   All fields defined by PayloadSchema are required unless explicitly optional.
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
-  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), optional
-  icons catalog, epics, features, order, counts (whole-index totals or nil), feature_progress
-  (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation
-  time; plan version and extras), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/packs/estimates),
+  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
+  epic_progress (general-epic closed/open/total counts and observation time; incomplete figures are nil with a reason),
+  epic_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
+  features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 

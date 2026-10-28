@@ -29,13 +29,13 @@ defmodule Aiur.Commands.NativeCapture.ClaudeTest do
     %{root: root, store: store}
   end
 
-  test "default-off Claude gate validates and reloads", c do
+  test "default-on Claude gate validates and allows explicit opt-out", c do
     assert {:ok, settings} = Schema.parse(%{})
-    assert settings.decisions.native_capture.claude == false
-    assert Config.decisions_native_capture?(:claude) == false
-    assert {:error, {:invalid_workflow_config, _}} = Schema.parse(%{"decisions" => %{"native_capture" => %{"claude" => "bad"}}})
-    configure(c, true, "false")
+    assert settings.decisions.native_capture.claude == true
     assert Config.decisions_native_capture?(:claude) == true
+    assert {:error, {:invalid_workflow_config, _}} = Schema.parse(%{"decisions" => %{"native_capture" => %{"claude" => "bad"}}})
+    configure(c, false, "false")
+    assert Config.decisions_native_capture?(:claude) == false
   end
 
   for {name, gate, version, reason} <- [
