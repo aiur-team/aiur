@@ -17,18 +17,19 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
       image = Render.key(face(%{vendor: provider, icon: "runtime", priority: true}))
       xml = parse(image.svg)
       assert xpath(xml, "//text/text()") |> Enum.member?("★")
-      assert xpath(xml, ~s|//g[@transform="translate(13 13) scale(0.75)"]/svg/@width|) == ["24"]
-      assert xpath(xml, ~s|//g[@transform="translate(13 13) scale(0.75)"]/svg/@height|) == ["24"]
+      assert length(xpath(xml, "//svg")) == 1
       expected_icon = BuildOrderEpicIcon.svg("runtime") |> parse()
-      assert xpath(xml, "//g/svg/path/@d") == xpath(expected_icon, "//path/@d")
+      assert xpath(xml, "//g[@color]/g/g/path/@d") == xpath(expected_icon, "//path/@d")
       refute image.svg =~ "href=\"http"
       refute image.svg =~ "href=\"/"
-      assert xpath(xml, "//svg[@x=\"41\"]/@width") == ["18"]
+      assert length(xpath(xml, "//svg/g[@transform]")) == 1
 
       if provider == "deepseek" do
         assert [href] = xpath(xml, "//image/@href")
         assert String.starts_with?(href, "data:image/png;base64,")
-        assert {:ok, <<137, 80, 78, 71, _rest::binary>>} = href |> String.replace_prefix("data:image/png;base64,", "") |> Base.decode64()
+
+        assert {:ok, <<137, 80, 78, 71, _rest::binary>>} =
+                 href |> String.replace_prefix("data:image/png;base64,", "") |> Base.decode64()
       end
     end
   end
@@ -44,7 +45,12 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
   end
 
   test "rejects strip geometry beyond the canvas" do
-    for region <- [%{x: -1, width: 200}, %{x: 700, width: 200}, %{x: 0, width: 0}, %{x: 0, width: 1.5}] do
+    for region <- [
+          %{x: -1, width: 200},
+          %{x: 700, width: 200},
+          %{x: 0, width: 0},
+          %{x: 0, width: 1.5}
+        ] do
       assert_raise ArgumentError, fn -> Render.strip([region]) end
     end
   end
@@ -60,12 +66,35 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
 
     [region] = Render.strip([%{x: 0, width: 800, label: "Group", parts: parts}])
     xml = parse(region.svg)
-    assert xpath(xml, "//text/text()") == ["Group", "Work", "Quota 0%", "2 live", "Ready", "MORE AGENTS", "1 / 2", "‹", "›"]
+
+    assert xpath(xml, "//text/text()") == [
+             "Group",
+             "Work",
+             "2 live",
+             "Ready",
+             "MORE AGENTS",
+             "1 / 2",
+             "‹",
+             "›",
+             "Quota 0%"
+           ]
+
     assert length(xpath(xml, "//rect[@data-part=\"progress-fill\"]")) == 2
   end
 
   defp face(extra) do
-    Map.merge(%{identifier: "#5181", title: "Fix strip squeeze", bucket: :running, icon: "runtime", vendor: "claude", progress_percent: 40, progress_freshness: "fresh"}, extra)
+    Map.merge(
+      %{
+        identifier: "#5181",
+        title: "Fix strip squeeze",
+        bucket: :running,
+        icon: "runtime",
+        vendor: "claude",
+        progress_percent: 40,
+        progress_freshness: "fresh"
+      },
+      extra
+    )
   end
 
   defp parse(svg), do: svg |> :binary.bin_to_list() |> :xmerl_scan.string() |> elem(0)

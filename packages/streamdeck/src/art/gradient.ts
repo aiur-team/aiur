@@ -1,7 +1,7 @@
 /**
  * CSS gradient tokens -> canvas paint.
  *
- * The shared key-face contract (`key-face-contract.json`) carries each bucket's
+ * The shared key-face contract (`legacy-style.json`) carries each bucket's
  * `glow` and `face` as CSS gradient strings, because the browser emulator and
  * the Claude Design mock consume them directly as `style="background: ..."`.
  * Canvas cannot: assigning a `linear-gradient(...)` string to `fillStyle` is
