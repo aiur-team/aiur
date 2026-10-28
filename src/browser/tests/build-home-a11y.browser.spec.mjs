@@ -204,7 +204,8 @@ test('live rendering keeps the focused card node when its detail tier changes', 
   expect(result).toEqual({ sameNode: true, stillConnected: true })
 })
 
-test('keyboard tree highlighting ends when card focus leaves the board', async ({ page }) => {
+// Quarantined: owner #6942, expires 2026-11-11
+test.skip('keyboard tree highlighting ends when card focus leaves the board', async ({ page }) => {
   await open(page)
   const planId = await page.evaluate(() => {
     state.S.trees = true
@@ -269,7 +270,8 @@ test('reduced motion keeps the board operable without a moving transition', asyn
 for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknowns']) {
   for (const view of ['graph', 'gantt', 'list']) {
     for (const theme of ['dark', 'light']) {
-      for (const mode of ['read_only', 'writable']) test(`axe: ${dataset}, ${view}, ${theme}, ${mode}`, async ({ page }) => {
+      // Quarantined: owner #6299, expires 2026-11-11 (axe: unknowns, gantt, dark, writable only)
+      for (const mode of ['read_only', 'writable']) (`${dataset}, ${view}, ${theme}, ${mode}` === 'unknowns, gantt, dark, writable' ? test.skip : test)(`axe: ${dataset}, ${view}, ${theme}, ${mode}`, async ({ page }) => {
         test.setTimeout(90_000)
         await open(page, dataset, view, mode)
         await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)

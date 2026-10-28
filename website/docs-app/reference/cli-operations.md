@@ -62,6 +62,14 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur cleanup-stale --dry-run` | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
 | `aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]` | Requires an allowlisted human identity and ten-minute gates for head, draft, approval, changes, CI, conflicts, attribution and merge result. Agents, Apps and self-review refuse. Queues report `ENQUEUED`; rerun after merge. Exit 0: merged/enqueued/observed/dry run; 2: refusal; 1: tool error. Records: `~/.aiur/logs/pr-merge/`; observed merges notify `system.pr.merged`. | `aiur pr merge 42 --reviewed-sha <40-character-sha> --dry-run` |
 
+### Units
+
+`aiur units --json` includes `auxiliary.running_build` with the running daemon's
+release-stamp `sha` and `built_at` (UTC). Missing stamp fields are `null`; the
+collector never substitutes the current checkout's commit or file time.
+
+### Fleet status and messages
+
 Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason, owner and elapsed age, for example `· backing_off · RetryEngine · 45s`. `aiur agents` summarizes ordinary idle tickets in one count; use `aiur agents --all` to print every idle row.
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
