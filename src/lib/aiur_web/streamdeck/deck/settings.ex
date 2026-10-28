@@ -81,5 +81,4 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
       {:error, :instance_key_invalid} -> raise ArgumentError, "invalid instance key for deck settings"
     end
   end
-
 end
