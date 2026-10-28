@@ -37,6 +37,24 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     assert hd(frame.strip).svg =~ "Queued #1"
   end
 
+  test "physical input pushes priority feedback and read-back in a coalesced frame" do
+    socket = joined_socket()
+    assert_push("frame", _initial)
+    ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
+    assert_reply(ref, :ok, %{"view" => "ticket"})
+    ref = push(socket, "input", %{"kind" => "dial", "index" => 1, "action" => "turn", "delta" => -3})
+    assert_reply(ref, :ok, %{"position" => 0})
+    assert_received {:reorder, "4", 0}
+    refute_received {:reorder, _, _}
+    state = :sys.get_state(socket.channel_pid)
+    send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
+    :sys.get_state(socket.channel_pid)
+    assert_push("frame", %{keys: keys, strip: strip})
+    assert Enum.find(keys, & &1).label =~ "Queued #1"
+    assert hd(strip).label == "Queued #1"
+    assert hd(strip).svg =~ "Queued #1"
+  end
+
   test "unauthenticated socket refuses priority without calling the queue" do
     socket = %Phoenix.Socket{assigns: %{deck_nav: %Nav{selected: "4"}, streamdeck_authenticated: false}}
     assert {:reply, {:error, %{reason: "unauthorized"}}, _} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
