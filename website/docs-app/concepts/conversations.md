@@ -118,9 +118,19 @@ secrets from disk and cannot guarantee that all secrets are detected.
 
 ## Jump points and precision
 
-Jump points associate events with transcript positions. The planned catalogue covers
+Jump points associate events with transcript positions. The catalogue covers
 progress, phase changes, pushes, PR opens and merges, CI results, review
 comments, Command requests and answers, attentions, and Executor progress.
+
+Labels name identifiers and enums, such as “Progress 60%”, “Pushed 3f9a1c0”,
+“PR #51 opened”, “CI failed”, and “Command answered”. Missing identifiers
+leave a plain label; labels never copy comment bodies, PR titles or Command
+text, and stop at 60 characters.
+
+The catalogue defaults enable progress, pushes, PR opens and merges, and
+Command requests and answers. Phase changes, CI results, comments, attentions
+and Executor progress default off. These are navigation defaults, not event
+recording filters.
 
 The full conversation view and event filters are separate integrations; a
 catalogue entry does not guarantee a visible link in every current surface.
@@ -130,9 +140,21 @@ Precision describes the strength of the link:
 | Precision | Meaning |
 | --- | --- |
 | Exact | A tool-call identifier identifies the transcript entry that produced the event. |
-| Linked to a Command (causal) | A Command's recorded source connects the event to its request; this is a causal link. |
+| Causal | A successful push or PR command matches an event key within the prior ten minutes. |
 | Approximate (observed) | The position is based on when the daemon observed the event, not proof of what produced it. |
 | Not linked (unanchored) | No safe position is available; the event has no transcript jump target. |
+
+Pushes match an output SHA range or new-branch destination; PR creation and
+merges match the PR number in a URL or merge command. The latest matching
+command wins; missing keys fall back to observed placement.
+
+The same event can be observed in a worker conversation and causal in an
+existing Executor conversation. Worker events without a matching Executor
+command do not add Executor jump points.
+
+Git `-C`/`-c` options and merge flags are supported. Merge body keys come from
+the merge command's first positional target; a targetless merge can match its
+output URL. PR number matching does not verify repository identity.
 
 Missing tool provenance, unavailable timestamps, events outside a known
 session, and gaps in recording can prevent a position. An approximate anchor
