@@ -3,9 +3,9 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
   use Aiur.TestSupport
   import Aiur.TestSupport.BuildHome.IndexParts, only: [parts: 0]
 
-  test "index is last after every interactive child and absent without dashboard" do
+  test "index follows interactive children before the optional backfill writer and is absent without dashboard" do
     modules = modules(build_index?: true)
-    assert List.last(modules) == AiurWeb.Build.IndexSupervisor
+    assert Enum.take(modules, -2) == [AiurWeb.Build.IndexSupervisor, Aiur.BuildOrder.History.LabelBackfill]
     assert Aiur.Tmux in modules
 
     without =
@@ -31,13 +31,14 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
 
   test "repeated index crashes do not stop the application supervisor" do
     entry =
-      List.last(
+      Enum.find(
         Aiur.Application.child_specs(
           interactive_cli?: true,
           headless?: false,
           dashboard?: true,
           build_index?: true
-        )
+        ),
+        &(&1 == AiurWeb.Build.IndexSupervisor)
       )
 
     parent = self()
@@ -74,13 +75,14 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
 
   test "application supervisor restarts the build index supervisor" do
     entry =
-      List.last(
+      Enum.find(
         Aiur.Application.child_specs(
           interactive_cli?: true,
           headless?: false,
           dashboard?: true,
           build_index?: true
-        )
+        ),
+        &(&1 == AiurWeb.Build.IndexSupervisor)
       )
 
     parent = self()

@@ -3,15 +3,15 @@ defmodule Aiur.Events.Export.WiringTest do
   alias Aiur.Events.{Catalog, Export}
   alias Aiur.Events.Export.Exporter
 
-  test "exporter is last in every run shape and disabled adds no child" do
+  test "exporter precedes the optional backfill writer in every run shape and disabled adds no child" do
     for interactive? <- [false, true], dashboard? <- [false, true] do
       opts = [interactive_cli?: interactive?, headless?: not interactive?, dashboard?: dashboard?]
       disabled = Aiur.Application.child_specs(opts ++ [export_enabled?: false])
       enabled = Aiur.Application.child_specs(opts ++ [export_enabled?: true])
-      assert {Exporter, callbacks} = List.last(enabled)
+      assert [{Exporter, callbacks}, Aiur.BuildOrder.History.LabelBackfill] = Enum.take(enabled, -2)
       assert is_function(callbacks[:on_unavailable], 1)
       assert is_function(callbacks[:on_appended], 2)
-      assert Enum.drop(enabled, -1) == disabled
+      assert Enum.reject(enabled, &match?({Exporter, _}, &1)) == disabled
       refute Enum.any?(disabled, &match?({Exporter, _}, &1))
     end
   end
