@@ -32,7 +32,7 @@ defmodule Aiur.Harness.CapabilitiesTest do
         native_question: :none
       }
 
-      expected = if key == "codex", do: Map.put(expected, :native_question_reason, :gate_off), else: expected
+      expected = if key == "codex", do: Map.merge(expected, %{native_question: :in_band_hold, native_question_reason: nil}), else: expected
 
       assert Capabilities.delivery_primitives(key) ==
                {:ok, expected}
