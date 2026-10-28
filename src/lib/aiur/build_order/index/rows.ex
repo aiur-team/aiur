@@ -4,7 +4,6 @@ defmodule Aiur.BuildOrder.Index.Rows do
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
   alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
   alias Aiur.StartTrigger.ProgressStore
-  alias AiurWeb.Build.TicketStatus
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
   def build(parts, general) do
@@ -128,7 +127,6 @@ defmodule Aiur.BuildOrder.Index.Rows do
     |> Map.update!(:created, &SourceFreshness.ms/1)
     |> align_dependencies()
     |> Estimates.row(parts[:estimates])
-    |> then(&Map.put(&1, :display_status, Map.take(TicketStatus.encode(&1), [:label, :tone])))
   end
 
   defp align_dependencies(row) do

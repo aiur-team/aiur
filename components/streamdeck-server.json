@@ -1,7 +1,7 @@
 {
   "id": "streamdeck-server",
   "name": "Stream Deck connection",
-  "layer": 3,
+  "layer": 4,
   "kind": "in-app",
   "paths": [
     "src/lib/aiur_web/controllers/streamdeck*.ex",
@@ -28,6 +28,7 @@
   "optional": [
     "build-orders",
     "build-queue",
+    "dashboard-ui",
     "voice-stt"
   ],
   "owns": {

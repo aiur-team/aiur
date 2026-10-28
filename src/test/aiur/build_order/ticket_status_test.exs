@@ -1,6 +1,6 @@
-defmodule AiurWeb.Build.TicketStatusTest do
+defmodule Aiur.BuildOrder.TicketStatusTest do
   use ExUnit.Case, async: true
-  alias AiurWeb.Build.TicketStatus
+  alias Aiur.BuildOrder.TicketStatus
 
   test "agent states preserve the desktop taxonomy" do
     for {state, label, tone} <- [

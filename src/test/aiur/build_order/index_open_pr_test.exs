@@ -16,7 +16,6 @@ defmodule Aiur.BuildOrder.IndexOpenPrTest do
     :sys.get_state(ProgressStore)
     assert {:ok, index} = assemble(put_in(parts(), [:now, :rows], %{"77" => Map.put(now_row(77), :agent, %{state: "ci_wait", model: "codex", name: "Codex", effort: "high"})}))
     assert index.all["77"].pr == %{num: 88, state: "open", ci: "pr_opened"}
-    assert index.all["77"].display_status == %{label: "Waiting for CI", tone: "idle"}
     payload = Payload.ticket(index.all["77"], "epoch", 1)
     assert payload["row"]["pr"] == %{"num" => 88, "state" => "open", "ci" => "pr_opened"}
     assert :ok = Payload.validate(payload)

@@ -1,6 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.TicketPage do
   @moduledoc "Bounded focused-ticket reads over the desktop Build source."
-  alias AiurWeb.Build.{DataSource, Payload, Read, TicketControl, TicketStatus}
+  alias Aiur.BuildOrder.TicketStatus
+  alias AiurWeb.Build.{DataSource, Payload, Read, TicketControl}
   alias AiurWeb.EndpointConfig
 
   @spec subscribe() :: :ok

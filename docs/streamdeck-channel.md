@@ -75,7 +75,7 @@ status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
 identity, progress fields and `eta_seconds: null`. Unknown percent and completed
 counts stay null. Build changes share the channel’s 250 ms fleet coalescing.
 
-`ticket.status` carries the shared Build `{label, tone, agent_state}`. The desktop modal consumes the same server presentation (`display_status`). `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the physical strip renders its age after 60 seconds. A missing ticket becomes an explicit unknown frame for that focused id.
+`ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the physical strip renders its age after 60 seconds. A missing ticket becomes an explicit unknown frame for that focused id.
 
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,
