@@ -33,7 +33,7 @@ def verified(snapshot):
               "running_build", "verification[].feature", "verification[].verified_at", "sources.verification")
     features, records, members = snapshot.get("features"), snapshot.get("verification"), tickets(snapshot)
     merges = unique(snapshot.get("merges"))
-    if features is None or records is None or members is None or merges is None or not available(snapshot, "verification"):
+    if features is None or records is None or members is None or merges is None or not available(snapshot, "verification") or not available(snapshot, "github_merges"):
         return metric(UNAVAILABLE, *fields)
     verified_ids = {r["feature"] for r in records if r.get("executor") and r.get("verified_at")
                     and parse_time(r["verified_at"]) <= parse_time(snapshot["captured_at"])}
@@ -78,7 +78,8 @@ def evidence(snapshot):
         linked = [a for a in actions or [] if row.get("id") and a.get("bottleneck_id") == row["id"]
                   and parse_time(a["at"]) >= parse_time(row["timestamp"])]
         bottlenecks.append({"bottleneck": row["bottleneck"], "timestamp": row["timestamp"],
-                            "actions": [action_result(a, measures, snapshot) for a in linked] or "no action recorded"})
+                            "actions": UNAVAILABLE if actions is None else
+                            [action_result(a, measures, snapshot) for a in linked] or "no action recorded"})
     return {"bottlenecks": bottlenecks if logs is not None else UNAVAILABLE,
             "actions": [action_result(a, measures, snapshot) for a in actions] if actions is not None else UNAVAILABLE,
             "meta_patterns": {"logs": metric(len(logs) if logs is not None else UNAVAILABLE, "meta[].timestamp", "sources.meta"),

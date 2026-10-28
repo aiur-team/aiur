@@ -129,6 +129,9 @@ class MetricsTest(unittest.TestCase):
         report = compute(today, yesterday)
         self.assertEqual(value(report["outcomes"]["finished_verified"]), 1)
         self.assertTrue(value(report["program"]["lanes"]["feature:mail"]["finished"]))
+        today["sources"]["github_merges"] = {"state": "stale"}
+        self.assertEqual(value(compute(today)["outcomes"]["finished_verified"]), "unavailable")
+        today["sources"] = {}
         today["verification"] = []
         self.assertEqual(value(compute(today, yesterday)["outcomes"]["finished_verified"]), 0)
         today["features"][0]["merges_complete"] = False
@@ -145,6 +148,8 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(report["actions"][0]["result"], "impact not measured")
         today["measures"] = [{"action_id": "act", "at": stamp(-0.5), "result": "queue cleared"}]
         self.assertEqual(compute(today)["actions"][0]["result"][0]["result"], "queue cleared")
+        today["executor_actions"] = None
+        self.assertEqual(compute(today)["bottlenecks"][0]["actions"], "unavailable")
         today["meta"] = [{"timestamp": stamp(-25), "bottleneck": "old"}]
         report = compute(today)["meta_patterns"]
         self.assertEqual(report["status"], "no logs in window")

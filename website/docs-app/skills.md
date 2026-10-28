@@ -181,8 +181,10 @@ from merged changes; a merge alone does not establish deployment or verification
 Newsletter metrics use `scripts/newsletter/metrics.py`'s pure
 `compute(today, yesterday_or_none)` function. The report separates merge outcomes,
 instantaneous allocation, program scope changes, lanes, and meta/action evidence.
+
 Each metric includes source-field paths. Missing daily baselines keep every delta
 and trend `unavailable`; merge timestamps alone never prove a change is live.
+
 Ancestry and Executor verification require explicit snapshot evidence, so their
 counts remain unavailable when the collector cannot supply it. The input and
 report contract is in `scripts/newsletter/README.md` in the repository.
