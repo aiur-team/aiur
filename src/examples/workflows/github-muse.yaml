@@ -275,7 +275,7 @@ netlify:
 
 # Command escalation policy (defaults; routing consumes these settings).
 # decisions:
-#   native_capture: {codex: false, claude: false} # Claude requires aiur-claude >= 1.3.0
+#   native_capture: {codex: true, claude: true} # Claude requires aiur-claude >= 1.3.0
 #   require_suggested_responses: false # opt in after reviewing informational warnings
 #   escalation:
 #     enabled: true
