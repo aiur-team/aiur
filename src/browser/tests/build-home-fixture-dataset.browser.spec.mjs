@@ -25,6 +25,8 @@ test('fixture dataset stays scoped to its page during a competing switch', async
     return ctx.snap?.sections.now.some(row => row.id === '9001')
   })).toBe(true)
 
+  await densePage.goto('/build?fixture_dataset=dense')
+  await expect(densePage.locator('#bd-content')).toHaveCount(1)
   await expect.poll(() => densePage.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js')
     return ctx.snap?.sections.now.some(row => row.id === '1301')
