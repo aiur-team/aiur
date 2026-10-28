@@ -72,7 +72,8 @@ defmodule Aiur.Push.Crypto.PrimitivesTest do
     probe = start_supervised!({Agent, fn -> nil end})
     session = :trace.session_create(:push_crypto_probe, self(), [])
     on_exit(fn -> :trace.session_destroy(session) end)
-    :trace.function(session, {:crypto, :supports, 1}, true, [:local])
+    Code.ensure_loaded!(:crypto)
+    assert :trace.function(session, {:crypto, :supports, 1}, true, [:local]) == 1
     :trace.process(session, probe, true, [:call])
 
     assert {[], []} == Agent.get(probe, fn _ -> {Primitives.missing(), Primitives.missing()} end)
