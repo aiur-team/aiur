@@ -61,6 +61,9 @@ defmodule AiurWeb.Streamdeck.FocusUpdatesTest do
   test "live projection data cannot be overwritten by delayed initial data for the same focus" do
     owner = self()
     identifier = write_transcript("FOCUS-FRESH", "old history", "freshness-turn")
+    path = Aiur.IssueLog.transcript_path(identifier)
+    entry = path |> File.read!() |> Jason.decode!() |> Map.put("timestamp", DateTime.to_iso8601(DateTime.utc_now()))
+    File.write!(path, Jason.encode!(entry) <> "\n")
     decision = command_decision(identifier)
     store = start_supervised!(%{id: :focus_commands, start: {FakeDecisionStore, :start_link, [decision, owner]}})
 
@@ -90,7 +93,6 @@ defmodule AiurWeb.Streamdeck.FocusUpdatesTest do
     assert_receive {:initial_focus_read, :logs, reader}, 1_500
     on_exit(fn -> Process.exit(reader, :kill) end)
     monitor = Process.monitor(reader)
-    path = Aiur.IssueLog.transcript_path(identifier)
     File.write!(path, String.replace(File.read!(path), "old history", "new history"))
     send(socket.channel_pid, {:streamdeck_transcript, identifier, AgentEvents.transcript_event(:assistant, "new history")})
     assert_push("logs", fresh_logs, 1_500)
