@@ -49,10 +49,15 @@ defmodule Aiur.Conversation.JumpPointsTest do
   end
 
   test "unknown journal kinds and nil have non-raising fallbacks" do
-    for kind <- ["future_jump_kind_from_journal", :unknown_jump_kind, nil] do
+    unknown = "future_jump_kind_from_journal_#{System.unique_integer([:positive])}"
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
+
+    for kind <- [unknown, :unknown_jump_kind, nil] do
       assert JumpPoints.entry(kind) == nil
       assert JumpPoints.label(kind, %{}) == "Event"
     end
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown) end
   end
 
   test "payload labels use identifiers and enums with bounded missing-field fallbacks" do
