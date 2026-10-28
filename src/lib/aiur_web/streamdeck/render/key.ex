@@ -6,7 +6,9 @@ defmodule AiurWeb.Streamdeck.Render.Key do
 
   @spec render(map()) :: map()
   def render(face) do
-    style = Style.state(field(face, :bucket, "queued"))
+    style = Style.state(field(face, :face, field(face, :bucket, "queued")))
+    style = Map.put(style, :label, field(face, :label, style.label))
+    state_label = state_label(face, style)
     title = field(face, :title) || ""
     identifier = field(face, :identifier) || ""
     percent = field(face, :progress_percent)
@@ -22,7 +24,7 @@ defmodule AiurWeb.Streamdeck.Render.Key do
       text(ticket_number(identifier), 111, 29, 14, "text-anchor": "end"),
       if(field(face, :priority, false), do: text("★", 66, 14, 9, fill: "#ffcf87"), else: []),
       title_lines(title),
-      text(state_label(face, style), 9, 99, 10, fill: style.accent),
+      text(state_label, 9, 99, min(10, div(170, max(String.length(state_label), 1))), fill: style.accent),
       footer(face, percent, freshness)
     ]
 
@@ -36,8 +38,8 @@ defmodule AiurWeb.Streamdeck.Render.Key do
   end
 
   defp state_label(face, style) do
-    case field(face, :queue_position) do
-      position when is_integer(position) and position >= 0 -> "Queued ##{position + 1}"
+    case {field(face, :queue_position), field(face, :state), field(face, :face)} do
+      {position, state, palette} when is_integer(position) and position >= 0 and (state in [:queued, "queued"] or is_nil(palette)) -> "Queued ##{position + 1}"
       _ -> style.label
     end
   end
@@ -54,7 +56,7 @@ defmodule AiurWeb.Streamdeck.Render.Key do
       label = if field(face, :dependency_ready) == true, do: "Unblocked", else: "Blocked"
       text(label, 9, 112, 9, fill: if(label == "Unblocked", do: "#88e0a6", else: "#ff9a90"))
     else
-      Parts.bar(percent, freshness, 9, 106, 102)
+      if is_number(percent) or is_nil(field(face, :face)), do: Parts.bar(percent, freshness, 9, 106, 102), else: []
     end
   end
 

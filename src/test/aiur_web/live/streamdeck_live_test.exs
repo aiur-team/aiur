@@ -105,9 +105,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Blocked"
     assert html =~ ~s(class="sd-ag-foot col")
     assert html =~ ~s(class="sd-ag-tag blocked")
-    # Every non-queued, non-empty key renders the status dot + progress footer.
-    assert html =~ ~s(class="sd-ag-dot")
-    assert html =~ ~s(class="sr-only">Running</span>)
+    # Ticket status text is visible above its progress bar.
+    refute html =~ ~s(class="sd-ag-dot")
+    assert html =~ ~s(class="sd-ag-stat">Running</span>)
     assert html =~ ~s(class="sd-ag-bar")
   end
 
@@ -136,7 +136,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s|--sd-progress-fill: #74d47f|
     assert html =~ ~s|<i style="width: 0%">|
     assert html =~ ~s|<i style="width: 100%">|
-    assert html =~ ~s(class="sd-ag-foot is-progress-unknown")
+    assert html =~ ~s(class="sd-ag-foot col is-progress-unknown")
     refute html =~ "is-progress-stale"
     assert html =~ ~s(class="sd-ag-vendor-fallback")
     # Unblocked is drawn as the open-padlock glyph in the key's bottom-right
@@ -221,7 +221,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "data-grid-total"
     refute html =~ ~s(id="sd-logs-view")
 
-    html = render_click(view, "command-press", %{"command" => "logs"})
+    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
 
     assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="logs")

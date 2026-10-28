@@ -76,18 +76,31 @@ This removes the journal copy only. Provider logs, workspace logs, backups and
 exported copies can still contain the same text. A later session can create a
 new journal for that subject; deletion is not a recording opt-out.
 
+## Reading entries
+
+The full conversation chronology renders agent messages as Markdown. Reasoning
+and command or tool output start collapsed; select their summaries to expand.
+Commands show their exit code when nonzero, and tools distinguish success,
+failure and unknown status. File edits show unified diffs, with lines after the
+first 200 under an expandable summary.
+
+Operator messages appear in a bubble; Executor messages carry an **Executor**
+label. Provider input stays a labelled system row. Session dividers show the
+start reason and time; recording gaps show their interval and reason. A
+truncation note explicitly identifies output whose middle was not stored.
+
 ## Secrets
 
 Transcripts can contain secrets printed by an agent or tool. Treat the raw
 journal as sensitive even with owner-only permissions. Never commit or share
 the directory.
 
-The planned conversation display masks likely secrets by default, permits
-reveal only in loopback dashboard sessions, and keeps device-principal bodies
-redacted.
+The full conversation display masks likely secrets by default. Entries changed
+by masking show **masked**. **Show raw** re-reads one entry and is available only
+for loopback dashboard sessions with dashboard writing enabled. Device principals
+always receive redacted bodies.
 
-That display integration is separate from journal storage; do not
-assume every current view implements it. Display masking does not remove
+The quick drawer remains a separate view. Display masking does not remove
 secrets from disk and cannot guarantee that all secrets are detected.
 
 ## Jump points and precision

@@ -62,13 +62,13 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   await expect(keysView).toBeVisible()
 })
 
-test('Logs command transitions from cmd to logs mode', async ({ page }) => {
+test('Dial D transitions from cmd to logs mode', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await page.locator('[data-streamdeck-command="logs"]').click()
+  await page.locator('.sd-knob').nth(3).click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toBeVisible()
   await expect(page.locator('#sd-keys')).toHaveCount(0)
@@ -385,49 +385,59 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await openStreamdeck(page)
 
   const units = await context.newPage()
-  // Apply the "Select all preceding filters" selection at mount instead of
-  // clicking the button. The click is a phx-click LiveView drops silently when
-  // the socket is still settling under CI load (the handler returns without
-  // pushing when the view is momentarily disconnected), which left the view on
-  // the default `:live` scope. Removing a unit against that stale scope
-  // collapses `#units-rows` to the single remaining live unit and the sync
-  // assertions below fail even though the emulator never desynced. Loading the
-  // selection from the URL keeps the scope deterministic.
-  const allConditions = encodeURIComponent('active,alert,paused,queued,finished')
-  await openUnits(units, `/units-fixture?v=1&scope=unfinished&conditions=${allConditions}`)
+  const originalTotal = await page.locator('#sd-keys').getAttribute('data-grid-total')
+  try {
+    // Apply the "Select all preceding filters" selection at mount instead of
+    // clicking the button. The click is a phx-click LiveView drops silently when
+    // the socket is still settling under CI load (the handler returns without
+    // pushing when the view is momentarily disconnected), which left the view on
+    // the default `:live` scope. Removing a unit against that stale scope
+    // collapses `#units-rows` to the single remaining live unit and the sync
+    // assertions below fail even though the emulator never desynced. Loading the
+    // selection from the URL keeps the scope deterministic.
+    const allConditions = encodeURIComponent('active,alert,paused,queued,finished')
+    await openUnits(units, `/units-fixture?v=1&scope=unfinished&conditions=${allConditions}`)
 
-  const rows = units.locator('#units-rows tr.units-row')
-  // The fixture exposes 7 units, of which 6 are unfinished. Confirming the
-  // rendered scope before mutating makes the assumption this test asserts on
-  // explicit, so a stale selection fails loudly here instead of as a one-row
-  // table later.
-  await expect(units.locator('.units-header p').nth(1)).toContainText('7 observed · 6 in selected scope')
-  const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
-  await rows.first().locator('td.ut-id-cell').click()
-  await units.locator('#remove-selected-unit').evaluate((button) => button.click())
+    const rows = units.locator('#units-rows tr.units-row')
+    // The fixture exposes 7 units, of which 6 are unfinished. Confirming the
+    // rendered scope before mutating makes the assumption this test asserts on
+    // explicit, so a stale selection fails loudly here instead of as a one-row
+    // table later.
+    await expect(units.locator('.units-header p').nth(1)).toContainText('7 observed · 6 in selected scope')
+    const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
+    await rows.first().locator('td.ut-id-cell').click()
+    await units.locator('#remove-selected-unit').evaluate((button) => button.click())
 
-  await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
+    await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
 
-  // The header count and the row list are separate patches from the same
-  // LiveView diff, so the header settling does not mean the tbody has. Wait on
-  // the rows themselves before snapshotting them: `evaluateAll` is a one-shot
-  // read with no retry, and reading mid-patch returned 1 row of 5 in CI.
-  await expect(rows).toHaveCount(5)
+    // The header count and the row list are separate patches from the same
+    // LiveView diff, so the header settling does not mean the tbody has. Wait on
+    // the rows themselves before snapshotting them: `evaluateAll` is a one-shot
+    // read with no retry, and reading mid-patch returned 1 row of 5 in CI.
+    await expect(rows).toHaveCount(5)
 
-  const unitIdentifiers = await rows.evaluateAll((elements) =>
-    elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
-  )
-  expect(unitIdentifiers).toHaveLength(5)
-  await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
+    const unitIdentifiers = await rows.evaluateAll((elements) =>
+      elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
+    )
+    expect(unitIdentifiers).toHaveLength(5)
+    await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
 
-  const streamdeckSlots = await page.locator('#sd-keys .sd-key').evaluateAll((keys) =>
-    keys.map((key) => key.classList.contains('is-empty') ? null : key.getAttribute('data-streamdeck-identifier'))
-  )
-  const expectedSlots = Array.from({ length: 8 }, (_, slot) => {
-    const index = (slot % 4) * 2 + Math.floor(slot / 4)
-    return unitIdentifiers[index] ?? null
-  })
+    const streamdeckSlots = await page.locator('#sd-keys .sd-key').evaluateAll((keys) =>
+      keys.map((key) => key.classList.contains('is-empty') ? null : key.getAttribute('data-streamdeck-identifier'))
+    )
+    const expectedSlots = Array.from({ length: 8 }, (_, slot) => {
+      const index = (slot % 4) * 2 + Math.floor(slot / 4)
+      return unitIdentifiers[index] ?? null
+    })
 
-  expect(streamdeckSlots).toEqual(expectedSlots)
-  await units.close()
+    expect(streamdeckSlots).toEqual(expectedSlots)
+  } finally {
+    try {
+      const reset = await page.request.get('/streamdeck-control/read_only')
+      expect(reset.status()).toBe(200)
+      await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', originalTotal)
+    } finally {
+      await units.close()
+    }
+  }
 })

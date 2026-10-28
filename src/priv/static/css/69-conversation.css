@@ -4,3 +4,23 @@
 .conversation-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .conversation-divider { border-top: 1px solid var(--aiur-color-line); padding-top: 12px; color: var(--aiur-color-muted); }
 .conversation-skeleton { min-height: 160px; background: var(--aiur-color-surface); }
+.conversation-entry { min-width: 0; margin-bottom: 16px; overflow-wrap: anywhere; }
+.conversation-entry article, .conversation-entry details, .conversation-markdown { min-width: 0; max-width: 100%; }
+.conversation-entry pre, .conversation-operator-bubble p { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.conversation-entry pre { max-width: 100%; box-sizing: border-box; }
+.conversation-markdown { overflow-x: auto; }
+.conversation-entry summary { cursor: pointer; color: var(--aiur-color-muted); padding: 8px 0; }
+.conversation-entry summary:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.conversation-operator-bubble { margin-left: auto; max-width: 85%; padding: 12px; border-radius: 8px; background: var(--aiur-color-surface); border: 1px solid var(--aiur-color-line); }
+.conversation-system, .conversation-masked, .conversation-truncation, .conversation-gap { color: var(--aiur-color-muted); }
+.conversation-gap { width: 100%; padding: 12px 0; }
+.conversation-failure, .conversation-alert, .conversation-diff-remove { color: var(--aiur-color-blocking); }
+.conversation-diff-add { color: var(--good); }
+.conversation-diff-hunk { color: var(--aiur-color-muted); }
+#conversation-composer { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+#conversation-text { width: 100%; box-sizing: border-box; resize: vertical; min-width: 0; padding: 12px; color: var(--aiur-color-fg); background: var(--aiur-color-surface); border: 1px solid var(--aiur-color-line); font: inherit; }
+#conversation-composer button { align-self: flex-start; padding: 8px 12px; }
+#conversation-composer :focus-visible { outline: 2px solid var(--aiur-color-fg); outline-offset: 2px; }
+#conversation-delivery { padding: 0; list-style: none; }
+#conversation-delivery li { padding: 12px; margin: 8px 0; border: 1px solid var(--aiur-color-line); overflow-wrap: anywhere; }
+.conversation-mode { color: var(--aiur-color-muted); }
