@@ -23,6 +23,15 @@ defmodule Aiur.Conversation.History do
           observed_at: DateTime.t()
         }
 
+  @spec resolve_worker(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, atom()} | {:error, :ambiguous_subject, [String.t()]}
+  defdelegate resolve_worker(owner, repository, identifier), to: Aiur.Conversation.SubjectIndex, as: :resolve
+
+  @spec resolve_executor() :: {:ok, String.t()} | {:error, atom()}
+  def resolve_executor do
+    ref = Ref.executor()
+    with {:ok, _} <- HistoryReader.snapshot(ref), do: {:ok, Ref.conversation_id(ref)}
+  end
+
   @doc "Pages durable entries by position. A principal is required; only loopback may reveal secrets."
   @spec list_entries(Ref.t() | String.t(), keyword()) :: {:ok, page()} | {:error, atom()}
   def list_entries(ref, opts) do

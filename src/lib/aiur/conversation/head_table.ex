@@ -10,6 +10,7 @@ defmodule Aiur.Conversation.HeadTable do
   @impl true
   def init(_opts) do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+    :ets.new(:aiur_conversation_subjects, [:named_table, :public, :set, read_concurrency: true])
     {:ok, nil}
   end
 
