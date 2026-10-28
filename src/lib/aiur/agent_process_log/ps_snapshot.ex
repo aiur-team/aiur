@@ -40,9 +40,11 @@ defmodule Aiur.AgentProcessLog.PsSnapshot do
     end)
   end
 
-  defp parse_ps(out) do
+  @doc false
+  @spec parse_ps(binary()) :: map()
+  def parse_ps(out) do
     out
-    |> String.split("\n", trim: true)
+    |> :binary.split("\n", [:global, :trim_all])
     |> Enum.reduce(%{}, fn line, acc ->
       case parse_ps_line(line) do
         nil -> acc
@@ -52,7 +54,7 @@ defmodule Aiur.AgentProcessLog.PsSnapshot do
   end
 
   defp parse_ps_line(line) do
-    with [pid_s, ppid_s, comm | args] <- String.split(String.trim_leading(line), ~r/\s+/, parts: 4),
+    with [pid_s, ppid_s, comm | args] <- split_fields(line, 4),
          {pid, ""} <- Integer.parse(pid_s),
          {ppid, ""} <- Integer.parse(ppid_s),
          true <- pid > 0 do
@@ -66,9 +68,11 @@ defmodule Aiur.AgentProcessLog.PsSnapshot do
   # parsed as the whole remainder of the line after the pid. The raw string is
   # used as an identity, not a timestamp: a reused pid is distinguished by its
   # start time differing, which needs no timezone or locale parsing.
-  defp parse_lstarts(out) do
+  @doc false
+  @spec parse_lstarts(binary()) :: map()
+  def parse_lstarts(out) do
     out
-    |> String.split("\n", trim: true)
+    |> :binary.split("\n", [:global, :trim_all])
     |> Enum.reduce(%{}, fn line, acc ->
       case parse_lstart_line(line) do
         {pid, lstart} when is_integer(pid) -> Map.put(acc, pid, lstart)
@@ -78,7 +82,7 @@ defmodule Aiur.AgentProcessLog.PsSnapshot do
   end
 
   defp parse_lstart_line(line) do
-    case String.split(String.trim_leading(line), ~r/\s+/, parts: 2) do
+    case split_fields(line, 2) do
       [pid_s, lstart] -> parse_lstart_pid(pid_s, lstart)
       _malformed -> nil
     end
@@ -91,10 +95,25 @@ defmodule Aiur.AgentProcessLog.PsSnapshot do
     end
   end
 
+  defp split_fields(line, count) do
+    line = String.trim_leading(line)
+
+    case {count, :binary.match(line, [" ", "\t", "\r", "\v", "\f"])} do
+      {_, :nomatch} ->
+        [line]
+
+      {1, _} ->
+        [line]
+
+      {_, {offset, size}} ->
+        [binary_part(line, 0, offset) | split_fields(binary_part(line, offset + size, byte_size(line) - offset - size), count - 1)]
+    end
+  end
+
   @spec proc_cwd(term()) :: String.t()
   def proc_cwd(pid) when is_integer(pid) and pid > 0 do
-    case File.read_link("/proc/#{pid}/cwd") do
-      {:ok, path} -> path
+    case :prim_file.read_link("/proc/#{pid}/cwd") do
+      {:ok, path} -> to_string(path)
       _ -> ""
     end
   end

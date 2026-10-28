@@ -6,6 +6,8 @@ defmodule Aiur.ExecutorBindings do
 
   @defaults [
     {"executor.#", "commands:auto"},
+    {"system.feature_supply_low", "dispatch:auto"},
+    {"system.feature_supply_low.resolved", "dispatch:auto"},
     {"system.dispatch.capacity_starved", "dispatch:auto"},
     {"system.dispatch.capacity_starved.resolved", "dispatch:auto"},
     {"system.fleet.capacity.starved", "dispatch:auto"},

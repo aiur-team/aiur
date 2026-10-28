@@ -204,23 +204,26 @@ test('live rendering keeps the focused card node when its detail tier changes', 
   expect(result).toEqual({ sameNode: true, stillConnected: true })
 })
 
-// Quarantined: owner #6942, expires 2026-11-11
-test.skip('keyboard tree highlighting ends when card focus leaves the board', async ({ page }) => {
+test('keyboard tree highlighting ends when card focus leaves the board', async ({ page }) => {
   await open(page)
-  const planId = await page.evaluate(() => {
+  const planId = await page.evaluate(async () => {
     state.S.trees = true
     state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop
     state.fx.update()
-    const card = [...state.ctx.R.values()].find(card => card.closest('#bd-sec-plan'))
-    state.ctx.a11y.roving = card.dataset.id
-    for (const rendered of state.ctx.R.values()) rendered.tabIndex = rendered === card ? 0 : -1
-    return card.dataset.id
+    await new Promise(requestAnimationFrame)
+    return state.ctx.L.secs.plan.items[0]?.t.id
   })
-  await page.locator('.bd-card[data-id="' + planId + '"]').focus()
-  await page.keyboard.press('ArrowDown')
+  // markScrolling clears tree hover; settle the programmatic scroll before testing keyboard highlight.
+  await expect(page.locator('.bd-content')).not.toHaveClass(/scrolling/)
+  const card = page.locator('.bd-card[data-id="' + planId + '"]')
+  await expect(card).toBeVisible()
+  await card.focus()
+  await expect(card).toBeFocused()
+  await card.press('ArrowDown')
   await expect(page.locator('.bd-content')).toHaveClass(/hovering/)
   await page.locator('#bd-nowbtn').focus()
-  expect(await page.locator('.bd-content').getAttribute('class')).not.toContain('hovering')
+  await expect(page.locator('#bd-nowbtn')).toBeFocused()
+  await expect(page.locator('.bd-content')).not.toHaveClass(/hovering/)
 })
 
 test('view switches retain the focused ticket when it is still visible', async ({ page }) => {

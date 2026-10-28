@@ -10,6 +10,8 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
+  alias AiurWeb.Streamdeck.UsageUpdates
+
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
   # device that regroups differently still works, while a frame that could only
@@ -42,7 +44,7 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
+    {:ok, assign(socket, focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, usage_flush: nil, fleet_latch: latch)}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
@@ -274,10 +276,8 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
-    push(socket, "usage", StreamdeckProjection.provider_meters(snapshot))
-    {:noreply, socket}
-  end
+  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{}}, socket), do: UsageUpdates.schedule(socket)
+  def handle_info({:flush_usage, token}, socket), do: UsageUpdates.flush(socket, token)
 
   def handle_info({:decision_changed, decision_id, _version}, %{assigns: %{focused_agent: identifier}} = socket)
       when is_binary(identifier) do

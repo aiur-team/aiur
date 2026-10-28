@@ -38,6 +38,10 @@ defmodule Aiur.CurrentRunMembership.Store do
   @spec generation(GenServer.server()) :: non_neg_integer()
   def generation(server \\ __MODULE__), do: GenServer.call(server, :generation)
 
+  @doc false
+  @spec lifecycles(GenServer.server()) :: map() | {:error, :membership_unavailable}
+  def lifecycles(server \\ __MODULE__), do: GenServer.call(server, :lifecycles)
+
   @spec health(GenServer.server()) :: term()
   def health(server \\ __MODULE__), do: GenServer.call(server, :health)
 
@@ -121,6 +125,14 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   def handle_call(:generation, _from, state), do: {:reply, state.projection.generation, state}
+
+  def handle_call(:lifecycles, _from, %{writable?: false} = state), do: {:reply, {:error, :membership_unavailable}, state}
+
+  def handle_call(:lifecycles, _from, state) do
+    lifecycles = Map.new(state.projection.members, fn {_key, member} -> {member.identity, member.lifecycle} end)
+    {:reply, lifecycles, state}
+  end
+
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
 
   def handle_call(:freshness, _from, state) do

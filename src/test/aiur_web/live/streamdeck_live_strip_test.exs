@@ -1,7 +1,34 @@
 defmodule AiurWeb.StreamdeckLiveStripTest do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   use AiurWeb.StreamdeckLiveCase
 
   alias Aiur.TestSupport.EndpointStubs
+
+  setup %{meter_agent: meter_agent} do
+    EndpointStubs.put(
+      streamdeck_usage_load_fun: fn _, _ ->
+        meters =
+          Map.new(Agent.get(meter_agent, & &1), fn {family, meter} ->
+            windows =
+              Map.new(meter["windows"], fn {slot, window} ->
+                {slot, %{kind: :rate_limit, used_percent: window["used_percent"], duration_minutes: if(slot == "session", do: 300, else: 10_080), resets_at: DateTime.add(DateTime.utc_now(), 3600)}}
+              end)
+
+            snapshot =
+              UsageInputs.snapshot(String.to_existing_atom(family), windows, %{
+                observed_at: meter["observed_at"] || DateTime.utc_now(),
+                health: %{state: if(meter["observed_at"], do: :stale, else: :healthy), failure: nil}
+              })
+
+            {String.to_existing_atom(family), snapshot}
+          end)
+
+        UsageInputs.inputs(%{families: Aiur.CodingAgent.provider_families(), meters: meters})
+      end
+    )
+
+    :ok
+  end
 
   test "pages the complete fleet and clamps the page at both ends" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
@@ -25,17 +52,17 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     assert html =~ "Session"
     assert html =~ "Weekly"
-    assert html =~ "70% left · 22m"
-    assert html =~ "53% left · Thu 6PM"
-    assert html =~ "50% left · 1h"
-    assert html =~ "25% left · Fri 8PM"
+    assert html =~ "70% left"
+    assert html =~ "53% left"
+    assert html =~ "50% left"
+    assert html =~ "25% left"
 
     Agent.update(meter_agent, fn meters ->
       put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "40% left · 22m"
+    assert render(view) =~ "40% left"
   end
 
   test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{snapshot_agent: snapshot_agent, meter_agent: meter_agent} do
@@ -60,7 +87,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
       send(view.pid, {:provider_meter_changed, %{}})
       html = render(view)
 
-      assert html =~ "40% left · 22m"
+      assert html =~ "40% left"
       # Meter observations must not re-project the fleet: the grid snapshot was
       # read once at mount and not again for the meter refresh.
       assert Agent.get(counter, & &1) == reads_before

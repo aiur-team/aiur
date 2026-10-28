@@ -176,7 +176,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
         units_activity_fun: &Data.units_activity/0,
         # Never the real projection — see MeterSource's documentation-safety note.
         provider_meter_source: MeterSource,
-        streamdeck_provider_meters_fun: &MeterSource.streamdeck_meters/0,
+        streamdeck_usage_load_fun: &MeterSource.streamdeck_inputs/2,
         # The Stream Deck emulator projects its own fleet snapshot rather than
         # the Units orchestrator bucket list, so it gets a dedicated synthetic
         # fleet wide enough to fill the eight-key grid and its pager.
