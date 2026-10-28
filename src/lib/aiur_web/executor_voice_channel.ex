@@ -2,7 +2,7 @@ defmodule AiurWeb.ExecutorVoiceChannel do
   @moduledoc "Authenticated, bounded dashboard transport for Executor conversations."
   use Phoenix.Channel
 
-  alias Aiur.VoiceConversation.Session
+  alias Aiur.VoiceConversation.{Selection, Session}
   alias AiurWeb.{EndpointConfig, FinancialDataAccess, VoiceSessionLimiter}
 
   @max_chunk 262_144
@@ -10,24 +10,26 @@ defmodule AiurWeb.ExecutorVoiceChannel do
   @max_total 9_600_000
 
   @impl true
-  def join("voice:executor", _payload, %{assigns: %{voice_authority: authority}} = socket) do
+  def join("voice:executor", payload, %{assigns: %{voice_authority: authority}} = socket) do
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     with true <- EndpointConfig.get(:dashboard_writable) == true,
          {:ok, generation} <- FinancialDataAccess.current_configuration_generation(),
          true <- generation == authority.configuration_generation,
+         {:ok, opts} <- Selection.options(payload),
          {:ok, lease} <- VoiceSessionLimiter.acquire(authority.connection_generation) do
-      start_session(socket, generation, lease)
+      start_session(socket, generation, lease, opts)
     else
       {:error, :capacity} -> refuse("Too many voice sessions are active.", "capacity")
+      {:error, :unconfigured} -> refuse("Choose a configured provider and model; accept cloud disclosure in voice settings.", "unavailable")
       _ -> refuse("Dashboard authentication changed or writing is disabled.", "auth_changed")
     end
   end
 
   def join(_topic, _payload, _socket), do: refuse("Unauthorized voice session.", "auth_changed")
 
-  defp start_session(socket, generation, lease) do
-    case Session.start(self()) do
+  defp start_session(socket, generation, lease, opts) do
+    case Session.start(self(), opts) do
       {:ok, pid, id} ->
         {:ok, %{session_id: id}, socket |> assign(:session, pid) |> assign(:monitor, Process.monitor(pid)) |> assign(:generation, generation) |> assign(:lease, lease) |> assign(:bytes, 0)}
 
@@ -76,6 +78,11 @@ defmodule AiurWeb.ExecutorVoiceChannel do
   end
 
   @impl true
+  def handle_info({:executor_voice, {:comparison_saved, id}}, socket) do
+    push(socket, "comparison_saved", %{id: id})
+    {:noreply, socket}
+  end
+
   def handle_info({:executor_voice, {:receipt, receipt}}, socket) do
     push(socket, "receipt", receipt)
     {:noreply, socket}
@@ -146,6 +153,7 @@ defmodule AiurWeb.ExecutorVoiceChannel do
 
   defp start_error(:unconfigured), do: "Executor voice is not configured."
   defp start_error(:not_installed), do: "Executor voice is not installed."
+  defp start_error(:cost_cap), do: "This provider has reached its comparison minute cap."
   defp start_error(_), do: "Executor voice could not start."
   defp refuse(reason, code), do: {:error, %{reason: reason, reason_code: code}}
 end

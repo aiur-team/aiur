@@ -39,7 +39,6 @@ defmodule Aiur.VoiceConversation do
   @spec child_specs() :: [Supervisor.child_spec() | {module(), term()}]
   def child_specs do
     case config() do
-      {:ok, %{provider: nil}} -> []
       {:ok, config} -> [{VoiceConverse, config}]
       {:error, reason} -> raise ArgumentError, "invalid voice conversation configuration: #{inspect(reason)}"
     end
@@ -60,9 +59,12 @@ defmodule Aiur.VoiceConversation do
 
   @spec start_session(pid(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def start_session(owner, opts \\ []) when is_pid(owner) do
-    case availability() do
-      :ok -> VoiceConverse.start_session(@instance, :executor, Keyword.put(opts, :client, owner))
-      {:unavailable, reason} -> {:error, reason}
+    with {:ok, config} <- config(),
+         provider when not is_nil(provider) <- Keyword.get(opts, :provider, config.provider),
+         {:ok, :present} <- Credentials.fetch(provider_id(provider), :probe) do
+      VoiceConverse.start_session(@instance, :executor, Keyword.put(opts, :client, owner))
+    else
+      _ -> {:error, :unconfigured}
     end
   end
 
