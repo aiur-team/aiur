@@ -1,0 +1,6 @@
+.conversation-page { width: 100%; max-width: 960px; margin: 0 auto; padding: 16px; box-sizing: border-box; min-width: 0; }
+.conversation-page nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.conversation-scroll { height: 65vh; overflow-y: auto; overflow-anchor: none; border: 1px solid var(--aiur-color-line); padding: 12px; }
+.conversation-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.conversation-divider { border-top: 1px solid var(--aiur-color-line); padding-top: 12px; color: var(--aiur-color-muted); }
+.conversation-skeleton { min-height: 160px; background: var(--aiur-color-surface); }

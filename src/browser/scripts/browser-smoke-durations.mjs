@@ -12,6 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
+  'test:conversation-view': 36,
   // Governed functional run (2026-10-23), including startup: 57.170 seconds.
   'test:build-home-unfiled': 58,
   'test:parity': 16,

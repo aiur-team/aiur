@@ -10,12 +10,22 @@ defmodule Aiur.Conversation.HeadTable do
   @impl true
   def init(_opts) do
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+    :ets.new(:aiur_conversation_subjects, [:named_table, :public, :set, read_concurrency: true])
     {:ok, nil}
   end
 
   @spec put(String.t(), Path.t(), map()) :: :ok
   def put(id, dir, head) do
     :ets.insert(@table, {{dir, id}, head})
+    :ok
+  end
+
+  @spec degraded?(String.t(), Path.t()) :: boolean()
+  def degraded?(id, dir), do: :ets.member(@table, {:degraded, dir, id})
+
+  @spec degraded(String.t(), Path.t() | nil, boolean()) :: :ok
+  def degraded(id, dir, value) do
+    if value, do: :ets.insert(@table, {{:degraded, dir, id}, true}), else: :ets.delete(@table, {:degraded, dir, id})
     :ok
   end
 
