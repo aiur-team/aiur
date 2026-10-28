@@ -25,7 +25,9 @@ The current physical client uses the navigation controls described above.
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
-Physical and emulator ticket frames show the same masked turn keys and full-width conversation strip. The legacy browser modes below retain their own controls.
+Physical and emulator ticket frames show the same masked turn keys and full-width conversation strip.
+
+The legacy browser modes below retain their own controls.
 
 | Legacy control state | Behavior |
 | --- | --- |
@@ -58,17 +60,19 @@ labelled stale. Fleet only displays global pause.
 
 ## Read ticket conversation turns
 
-Press a ticket key to read its conversation. The keys and strip use the same
-conversation source, entry IDs and chronological order as the desktop Build
-modal, including retained messages after a daemon restart.
+The keys and strip use the same conversation source, entry IDs and chronological
+order as the desktop Build modal, including retained messages after a daemon restart.
+
+Press a ticket key to read its conversation.
 
 | Key | Meaning |
 | --- | --- |
 | Turn | One agent reply plus the tool/system entries since the previous reply or operator message. An operator message is its own turn. |
 | LIVE | Pinned eighth key; returns to the newest entry. |
 
-The seven turn keys run from oldest to newest, with the newest next to LIVE.
 Bus events such as CI and PR updates do not become conversation keys.
+
+The seven turn keys run from oldest to newest, with the newest next to LIVE.
 
 | Action | Result |
 | --- | --- |
@@ -205,7 +209,9 @@ Voice input captures speech from a microphone attached to the sidecar machine, t
 
 ### The keys
 
-The legacy browser Command controls retain the voice layout below. Shared ticket frames use the conversation keys described above; these slots do not describe the physical frame keys.
+Shared ticket frames use the conversation keys described above; these slots do not describe the physical frame keys.
+
+The legacy browser Command controls retain the voice layout below.
 
 | Key | Slot | Behavior |
 | --- | --- | --- |
