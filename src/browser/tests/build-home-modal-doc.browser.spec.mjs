@@ -208,8 +208,7 @@ for (const settleBeforeDiff of [true, false]) {
   })
 }
 
-// Quarantined: owner #6860, expires 2026-11-10
-test.skip('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
+test('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
   const t = await display(page, { sec: 'nq', deps: ['999'] })
   const dep = page.locator('.bm-dep[data-goto="999"]')
   const button = page.getByRole('button', { name: 'Add to queue' })
@@ -240,6 +239,7 @@ test('clearing another ticket queue state does not repaint the open modal', asyn
   await page.keyboard.press('Escape')
 
   await display(page, { deps: ['999'] })
+  await expect(page.locator('#bm-title')).toBeFocused()
   const dep = page.locator('.bm-dep[data-goto="999"]')
   await dep.focus()
   await dep.evaluate(element => { window.focusedDependency = element })
