@@ -1,6 +1,6 @@
 defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @moduledoc false
-  alias AiurWeb.Streamdeck.Deck.{Settings, SettingsSnapshot}
+  alias AiurWeb.Streamdeck.Deck.{Nav, Settings, SettingsSnapshot}
   alias AiurWeb.StreamdeckFleetUpdates
   import Phoenix.Socket, only: [assign: 2]
 
@@ -10,7 +10,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
     snapshot = SettingsSnapshot.load(path)
     :ok = SettingsSnapshot.subscribe(path)
     nav = socket.assigns.deck_nav
-    view = Enum.find([:ticket, :feature, :epic, :fleet], &(Atom.to_string(&1) == snapshot.settings["default_view"]))
+    view = default_view(snapshot.settings)
     assign(socket, deck_settings_path: path, deck_nav: %{nav | view: view})
   end
 
@@ -24,6 +24,20 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @spec save(map(), Path.t()) :: {:ok, map()} | {:error, term()}
   def save(patch, path \\ Settings.path()), do: SettingsSnapshot.save(patch, path)
 
+  @spec default_view(map()) :: :ticket | :feature | :epic | :fleet
+  def default_view(settings), do: String.to_existing_atom(settings["default_view"])
+
+  @doc "Apply a persisted settings result identically to channel and emulator navigation."
+  @spec apply_result(Nav.t(), map(), {:ok, map()} | {:error, term()}) :: %{nav: Nav.t(), toast: String.t() | nil, result: :ok | {:error, String.t()}}
+  def apply_result(nav, patch, {:ok, snapshot}) do
+    nav = if Map.has_key?(patch, "default_view"), do: %{nav | view: default_view(snapshot.settings), stack: [], drill_pages: [], scroll: 0}, else: nav
+    %{nav: %{nav | settings: %{nav.settings | notice: "Saved"}}, toast: nil, result: :ok}
+  end
+
+  def apply_result(nav, _patch, {:error, _reason}) do
+    %{nav: %{nav | settings: %{nav.settings | notice: "Not saved"}}, toast: "Not saved", result: {:error, "not_saved"}}
+  end
+
   @spec devices(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def devices(payload, socket) do
     if valid_devices?(payload) do
@@ -34,8 +48,8 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
           {:error, reason, socket} = not_saved(socket)
           reply(socket, {:error, %{reason: reason}})
 
-        {:ok, _snapshot} ->
-          socket |> imported() |> devices_reply()
+        {:ok, snapshot} ->
+          socket |> imported(snapshot) |> devices_reply()
 
         _result ->
           devices_reply(socket)
@@ -82,27 +96,27 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   end
 
   defp apply_patch(socket, patch) do
-    case save(patch, socket.assigns.deck_settings_path) do
-      {:ok, snapshot} ->
-        nav = socket.assigns.deck_nav
-        nav = if Map.has_key?(patch, "default_view"), do: %{nav | view: String.to_existing_atom(snapshot.settings["default_view"]), stack: [], drill_pages: [], scroll: 0}, else: nav
-        socket = assign(socket, deck_nav: %{nav | settings: %{nav.settings | notice: "Saved"}})
+    applied = apply_result(socket.assigns.deck_nav, patch, save(patch, socket.assigns.deck_settings_path))
+    socket = assign(socket, deck_nav: applied.nav, deck_toast: applied.toast)
+
+    case applied.result do
+      :ok ->
         push(socket)
         {:ok, socket}
 
-      {:error, _reason} ->
-        not_saved(socket)
+      {:error, reason} ->
+        {:error, reason, socket}
     end
   end
 
   defp not_saved(socket) do
-    nav = socket.assigns.deck_nav
-    {:error, "not_saved", assign(socket, deck_toast: "Not saved", deck_nav: %{nav | settings: %{nav.settings | notice: "Not saved"}})}
+    applied = apply_result(socket.assigns.deck_nav, %{}, {:error, :not_saved})
+    {:error, "not_saved", assign(socket, deck_toast: applied.toast, deck_nav: applied.nav)}
   end
 
-  defp imported(socket) do
-    nav = socket.assigns.deck_nav
-    assign(socket, deck_toast: nil, deck_nav: %{nav | settings: %{nav.settings | notice: "Saved"}})
+  defp imported(socket, snapshot) do
+    applied = apply_result(socket.assigns.deck_nav, %{}, {:ok, snapshot})
+    assign(socket, deck_toast: applied.toast, deck_nav: applied.nav)
   end
 
   defp devices_reply(socket) do

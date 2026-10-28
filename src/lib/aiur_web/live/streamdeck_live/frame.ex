@@ -13,6 +13,7 @@ defmodule AiurWeb.StreamdeckLive.Frame do
 
     {nav, model, frame} =
       FrameUpdates.frame(assigns.deck_nav, assigns.grid, assigns.usage, renderer, %{
+        toast: assigns[:deck_toast],
         view_context: context(assigns)
       })
 

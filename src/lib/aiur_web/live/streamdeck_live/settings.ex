@@ -10,7 +10,7 @@ defmodule AiurWeb.StreamdeckLive.Settings do
     path = Settings.path()
     snapshot = SettingsSnapshot.load(path)
     if connected?, do: SettingsSnapshot.subscribe(path)
-    view = Enum.find([:ticket, :feature, :epic, :fleet], &(Atom.to_string(&1) == snapshot.settings["default_view"]))
+    view = SettingsUpdates.default_view(snapshot.settings)
     socket |> assign(deck_settings_path: path, deck_nav: %{socket.assigns.deck_nav | view: view}) |> refresh()
   end
 
@@ -46,7 +46,7 @@ defmodule AiurWeb.StreamdeckLive.Settings do
 
     case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
       {:ok, nav, effects} ->
-        socket = assign(socket, deck_nav: nav, deck_effects: effects, sd_mode: nav.surface)
+        socket = assign(socket, deck_nav: nav, deck_effects: effects, sd_mode: nav.surface, deck_toast: nil)
         {:noreply, Enum.reduce(effects, socket, &apply_effect/2)}
 
       _invalid ->
@@ -55,15 +55,8 @@ defmodule AiurWeb.StreamdeckLive.Settings do
   end
 
   defp apply_effect({:settings_set, patch}, socket) do
-    notice =
-      case SettingsUpdates.save(patch, socket.assigns.deck_settings_path) do
-        {:ok, _snapshot} -> "Saved"
-        {:error, _reason} -> "Not saved"
-      end
-
-    nav = socket.assigns.deck_nav
-    nav = if notice == "Saved" and Map.has_key?(patch, "default_view"), do: %{nav | view: String.to_existing_atom(patch["default_view"]), stack: [], drill_pages: [], scroll: 0}, else: nav
-    socket |> assign(deck_nav: %{nav | settings: Map.put(nav.settings, :notice, notice)}) |> refresh()
+    applied = SettingsUpdates.apply_result(socket.assigns.deck_nav, patch, SettingsUpdates.save(patch, socket.assigns.deck_settings_path))
+    socket |> assign(deck_nav: applied.nav, deck_toast: applied.toast) |> refresh()
   end
 
   defp apply_effect(_effect, socket), do: socket

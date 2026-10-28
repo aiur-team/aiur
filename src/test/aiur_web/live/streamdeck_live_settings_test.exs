@@ -99,6 +99,31 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     assert Floki.attribute(Floki.parse_fragment!(html), "#sd-keys button[data-streamdeck-key='0']", "data-streamdeck-identifier") == ["1009"]
   end
 
+  test "a failed browser save retains the committed value and sets shared failure feedback", %{path: path} do
+    assert {:ok, _saved} = Settings.set(%{"brightness" => 30}, path)
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    dial(view, 3, "long_press")
+    view |> element("#sd-keys button[data-streamdeck-key='2']") |> render_click()
+    dial(view, 0, "turn", 8)
+    File.chmod!(Path.dirname(path), 0o500)
+
+    try do
+      html = dial(view, 0, "press")
+      assigns = :sys.get_state(view.pid).socket.assigns
+      assert assigns.deck_nav.settings.notice == "Not saved"
+      assert assigns.deck_toast == "Not saved"
+      assert assigns.grid.settings_snapshot.settings["brightness"] == 30
+      assert {:ok, saved} = Settings.read(path)
+      assert saved["brightness"] == 30
+      assert html =~ "Not saved"
+      dial(view, 3, "long_press")
+      dial(view, 3, "long_press")
+      assert :sys.get_state(view.pid).socket.assigns.deck_toast == nil
+    after
+      File.chmod!(Path.dirname(path), 0o700)
+    end
+  end
+
   defp dial(view, index, action, delta \\ 0), do: render_hook(view, "input", %{"kind" => "dial", "index" => index, "action" => action, "delta" => delta})
 
   defp assert_shared_images(view, html) do

@@ -108,7 +108,9 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   defp settings_context(nav, snapshot), do: %{menu: nav.settings, values: snapshot.settings, devices: snapshot.devices, status: snapshot.status}
 
-  defp prepare_grid(grid) do
+  @doc "Normalize and order retained grid data consistently for rendering and input."
+  @spec prepare_grid(map()) :: map()
+  def prepare_grid(grid) do
     grid = normalize_grid(grid)
 
     case Map.get(grid, :settings_snapshot) do
