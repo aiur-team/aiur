@@ -36,6 +36,23 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     assert Epics.read(window: {:error, :offline}) == %{status: "unavailable", keys: [], message: "Epics unavailable"}
   end
 
+  test "configured epics with no members share Build's empty state while unknown membership retains rows" do
+    window = window()
+    progress = Map.new(window.epic_progress, fn {id, _} -> {id, %{closed: 0, open: 0, total: 0}} end)
+    empty = Epics.read(window: {:ok, %{window | epic_progress: progress}})
+    assert empty.keys == []
+    assert empty.message == "No epics configured. Define build_order.general_epics"
+    frame = Render.frame(%{grid: %{epics: empty.keys, epics_message: empty.message}, nav: %Nav{view: :epic}})
+    assert hd(frame.strip).label =~ "No epics configured"
+    refute hd(frame.keys).label =~ "0 remaining"
+
+    progress = Map.put(progress, "ci", %{closed: nil, open: nil, total: nil})
+    unknown = Epics.read(window: {:ok, %{window | epic_progress: progress}})
+    assert Enum.map(unknown.keys, & &1.id) == ~w(docs ui ci)
+    assert List.last(unknown.keys).remaining == :unknown
+    assert unknown.message == nil
+  end
+
   test "real index membership drills into feature-owned tickets and long press returns" do
     ui = %GeneralEpic{key: "ui", label: "UI", labels: [" AREA:UI "], hue: 120, icon: "pen"}
     docs = %GeneralEpic{key: "docs", label: "Docs", labels: ["area:docs"], hue: 240, icon: "docs"}
