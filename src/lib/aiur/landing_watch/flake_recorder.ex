@@ -111,7 +111,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   end
 
   defp read_browser_spec(spec, opts) do
-    root = Keyword.get(opts, :repo_root, Aiur.Codeowners.repo_root())
+    root = Keyword.get(opts, :repo_root, File.cwd!())
     File.read(Path.join(root, spec))
   end
 
