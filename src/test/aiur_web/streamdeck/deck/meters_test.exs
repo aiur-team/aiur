@@ -1,6 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.MetersTest do
   use ExUnit.Case, async: false
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Streamdeck.Deck.Meters
 
   defp read(inputs) do
@@ -9,7 +10,7 @@ defmodule AiurWeb.Streamdeck.Deck.MetersTest do
       inputs
     end
 
-    Aiur.TestSupport.EndpointStubs.put(streamdeck_usage_load_fun: load)
+    EndpointStubs.put(streamdeck_usage_load_fun: load)
     Meters.read(now: I.now())
   end
 

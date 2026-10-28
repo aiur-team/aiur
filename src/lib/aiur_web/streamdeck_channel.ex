@@ -9,6 +9,8 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
+  alias AiurWeb.Streamdeck.UsageUpdates
+
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
   # device that regroups differently still works, while a frame that could only
@@ -272,8 +274,8 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{}}, socket), do: AiurWeb.Streamdeck.UsageUpdates.schedule(socket)
-  def handle_info({:flush_usage, token}, socket), do: AiurWeb.Streamdeck.UsageUpdates.flush(socket, token)
+  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{}}, socket), do: UsageUpdates.schedule(socket)
+  def handle_info({:flush_usage, token}, socket), do: UsageUpdates.flush(socket, token)
 
   def handle_info({:decision_changed, decision_id, _version}, %{assigns: %{focused_agent: identifier}} = socket)
       when is_binary(identifier) do

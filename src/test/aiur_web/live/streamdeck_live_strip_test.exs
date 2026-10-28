@@ -1,4 +1,5 @@
 defmodule AiurWeb.StreamdeckLiveStripTest do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   use AiurWeb.StreamdeckLiveCase
 
   alias Aiur.TestSupport.EndpointStubs
@@ -14,7 +15,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
               end)
 
             snapshot =
-              Aiur.TestSupport.BuildHome.UsageInputs.snapshot(String.to_existing_atom(family), windows, %{
+              UsageInputs.snapshot(String.to_existing_atom(family), windows, %{
                 observed_at: meter["observed_at"] || DateTime.utc_now(),
                 health: %{state: if(meter["observed_at"], do: :stale, else: :healthy), failure: nil}
               })
@@ -22,7 +23,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
             {String.to_existing_atom(family), snapshot}
           end)
 
-        Aiur.TestSupport.BuildHome.UsageInputs.inputs(%{families: Aiur.CodingAgent.provider_families(), meters: meters})
+        UsageInputs.inputs(%{families: Aiur.CodingAgent.provider_families(), meters: meters})
       end
     )
 

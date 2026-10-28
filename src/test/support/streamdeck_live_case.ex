@@ -1,4 +1,5 @@
 defmodule AiurWeb.StreamdeckLiveCase do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   @moduledoc false
   use ExUnit.CaseTemplate
   import Phoenix.LiveViewTest
@@ -44,7 +45,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
         dashboard_auth_required: false,
         streamdeck_transcript_flush_ms: 1,
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
-        streamdeck_usage_load_fun: fn _, _ -> Aiur.TestSupport.BuildHome.UsageInputs.inputs() end,
+        streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_logs_fun: &fixture_logs/1,
         streamdeck_commands_fun: &fixture_commands/2,
         # The control seams stand in for the orchestrator: they settle the

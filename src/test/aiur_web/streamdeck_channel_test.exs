@@ -1,12 +1,9 @@
 defmodule AiurWeb.StreamdeckChannelTest do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   use AiurWeb.StreamdeckChannelCase
 
   setup do
-    inputs =
-      Aiur.TestSupport.BuildHome.UsageInputs.inputs(%{
-        meters: %{codex: Aiur.TestSupport.BuildHome.UsageInputs.snapshot(:codex, %{"primary" => Aiur.TestSupport.BuildHome.UsageInputs.window(42)})}
-      })
-
+    inputs = UsageInputs.inputs(%{meters: %{codex: UsageInputs.snapshot(:codex, %{"primary" => UsageInputs.window(42)})}})
     put_endpoint_config(streamdeck_usage_load_fun: fn _, _ -> inputs end)
     :ok
   end
@@ -447,7 +444,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     parent = self()
 
     inputs =
-      Aiur.TestSupport.BuildHome.UsageInputs.inputs(%{meters: %{codex: Aiur.TestSupport.BuildHome.UsageInputs.snapshot(:codex, %{"primary" => Aiur.TestSupport.BuildHome.UsageInputs.window(88)})}})
+      UsageInputs.inputs(%{meters: %{codex: UsageInputs.snapshot(:codex, %{"primary" => UsageInputs.window(88)})}})
 
     put_endpoint_config(
       streamdeck_usage_load_fun: fn _, _ ->

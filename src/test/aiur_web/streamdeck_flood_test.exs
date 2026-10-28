@@ -1,4 +1,5 @@
 defmodule AiurWeb.StreamdeckFloodTest do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
   import Aiur.TestSupport, only: [receive_barrier: 1]
@@ -38,7 +39,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
         streamdeck_fleet_subscribe_fun: subscriber,
         server: false,
         streamdeck_snapshot_fun: reader,
-        streamdeck_usage_load_fun: fn _, _ -> Aiur.TestSupport.BuildHome.UsageInputs.inputs() end,
+        streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_decisions_fun: fn -> %{count: 0} end
       )
       |> EndpointStubs.scope()
