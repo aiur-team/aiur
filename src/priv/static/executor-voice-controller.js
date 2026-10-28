@@ -42,7 +42,7 @@
         await this.playback.resume();
         const stream = await window.AiurVoiceCapture.requestMicrophone(window.AiurVoiceCapture.recalledDevice());
         if (!current()) { stream.getTracks().forEach(track => track.stop()); return; }
-        this.capture = new window.AiurVoiceCapture.Capture(stream, samples => {
+        const capture = this.capture = new window.AiurVoiceCapture.Capture(stream, samples => {
           if (current() && this.state === "live") this.transport.push("audio", {data: window.AiurVoiceCapture.encodePcm16Base64(samples)});
         });
         this.transport = window.AiurVoiceTransport.open({
@@ -61,11 +61,12 @@
           onClose: () => { if (current() && !["ended", "failed"].includes(this.state)) this.fail("Executor voice disconnected before a handoff receipt arrived."); }
         });
         await this.transport.joined;
-        if (!current() || !["connecting", "live"].includes(this.state)) return;
-        await this.capture.start(current);
+        const active = () => current() && this.capture === capture && ["connecting", "live"].includes(this.state);
+        if (!active()) return;
+        await capture.start(active);
 
       } catch (error) {
-        if (current()) this.fail(error.message || "Executor voice could not start.");
+        if (current() && ["connecting", "live"].includes(this.state)) this.fail(error.message || "Executor voice could not start.");
       }
     }
 

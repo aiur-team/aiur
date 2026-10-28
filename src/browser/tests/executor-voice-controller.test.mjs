@@ -156,3 +156,32 @@ test('provider readiness arriving before channel join does not skip microphone s
   assert.equal(f.controller.state, 'live');
   assert.equal(started.captureStarted, true);
 });
+
+test('ending during microphone startup preserves the pending handoff receipt', async () => {
+  const f = fixture();
+  let rejectCapture, active, options, closed = false;
+  let captureReady;
+  const ready = new Promise(resolve => { captureReady = resolve; });
+  f.window.AudioContext = class { async resume() {} };
+  f.window.AiurVoiceCapture = {
+    recalledDevice: () => '', requestMicrophone: async () => ({getTracks: () => []}),
+    Capture: class {
+      start(isActive) { active = isActive; captureReady(); return new Promise((_, reject) => { rejectCapture = reject; }); }
+      stop() {}
+    }
+  };
+  const transport = {joined: Promise.resolve(), close() { closed = true; }, push() {}};
+  f.window.AiurVoiceTransport = {open(opts) { options = opts; return transport; }};
+  const starting = f.controller.start();
+  await ready;
+  f.controller.stop();
+  rejectCapture(new Error('Capture context closed'));
+  await starting;
+  assert.equal(f.controller.state, 'ending');
+  assert.equal(active(), false);
+  assert.equal(closed, false);
+  options.handlers.receipt({id: 99, at: 'now'});
+  options.handlers.ended();
+  assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /receipt 99/);
+  assert.equal(closed, true);
+});
