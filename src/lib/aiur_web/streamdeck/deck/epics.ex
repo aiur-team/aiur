@@ -16,9 +16,18 @@ defmodule AiurWeb.Streamdeck.Deck.Epics do
 
     keys =
       (field(window, :epics) || %{})
+      # Catalogue marks the same general epics that Build selects with !epic.feature.
       |> Enum.filter(fn {key, epic} -> key != "unsorted" and field(epic, :general) == true end)
       |> Enum.map(fn {key, epic} -> key(key, epic, Map.get(progress, key), sections) end)
       |> Enum.sort_by(fn key -> {key.remaining == :unknown, if(is_integer(key.remaining), do: -key.remaining, else: 0), String.downcase(key.title), key.title} end)
+
+    has_members? =
+      Enum.any?(keys, fn key ->
+        total = field(Map.get(progress, key.id), :total)
+        is_nil(total) or total > 0
+      end)
+
+    keys = if has_members?, do: keys, else: []
 
     %{status: "ok", keys: keys, message: if(keys == [], do: "No epics configured. Define build_order.general_epics")}
   end

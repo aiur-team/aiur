@@ -108,8 +108,9 @@ unknown counts show “—” with a reason and sort last. A ticket counts under
 matching general epic, including tickets owned by a feature.
 
 Press an epic key to list its matching tickets; hold dial 4 for 500 ms to go
-back. With `build_order.general_epics: []`, the view says “No epics configured”
+back. With `build_order.general_epics: []`, or when every configured epic has zero total tickets, the view says “No epics configured”
 and names that setting, without showing a zero remaining count.
+
 The section is available to server navigation; physical display routing awaits
 SD-103, as described above.
 
