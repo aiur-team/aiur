@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.Streamdeck.Deck.{Nav, TicketUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Nav, PriorityInput, TicketUpdates}
 
   alias AiurWeb.Streamdeck.{FrameUpdates, UsageUpdates}
 
