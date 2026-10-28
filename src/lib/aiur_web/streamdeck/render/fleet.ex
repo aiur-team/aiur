@@ -9,7 +9,7 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
     faces = faces(field(fleet, :keys) || [], nav)
 
     faces =
-      if field(fleet, :status) == "unavailable" and nav.stack == [] and Nav.page(nav) == 0, do: [%{title: "Fleet unavailable", label: "Unavailable", face: :unknown, bucket: :paused}], else: faces
+      if unavailable?(fleet, nav), do: [%{title: "Fleet unavailable", label: "Unavailable", face: :unknown, bucket: :paused}], else: faces
 
     strip = field(fleet, :strip) || %{}
     age = field(strip, :heartbeat_age_s)
@@ -18,6 +18,8 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
     regions = [{0, daemon}, {200, capacity}, {400, pause(field(strip, :global_pause))}, {600, "Fleet · #{Nav.page(nav) + 1}"}]
     {Enum.map(0..7, &Enum.at(faces, &1)), Enum.map(regions, &region/1)}
   end
+
+  defp unavailable?(fleet, nav), do: field(fleet, :status) == "unavailable" and nav.stack == [] and Nav.page(nav) == 0
 
   defp region({x, text}), do: %{x: x, width: 200, label: text, parts: [%{kind: :text_line, text: text, y: 50, size: 12}]}
   defp faces(keys, %{stack: []} = nav), do: Enum.slice(keys, Nav.page(nav) * 8, 8)

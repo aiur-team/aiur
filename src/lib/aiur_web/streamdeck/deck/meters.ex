@@ -1,5 +1,6 @@
 defmodule AiurWeb.Streamdeck.Deck.Meters do
   @moduledoc "Deck usage from the Build page, selecting the account closest to its limit."
+  alias Aiur.Accounts
   alias AiurWeb.Build.Usage
   alias AiurWeb.EndpointConfig
   alias AiurWeb.Streamdeck.Deck.{MeterDetail, MeterSource}
@@ -20,8 +21,18 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
   def detail(provider, opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
     inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, MeterSource))
-    MeterDetail.from_inputs(provider, inputs, Keyword.get(opts, :now, DateTime.utc_now()))
+    MeterDetail.from_inputs(provider, detail_accounts(provider, inputs, opts), Keyword.get(opts, :now, DateTime.utc_now()))
   end
+
+  defp detail_accounts("claude", inputs, opts) do
+    names = Keyword.get_lazy(opts, :account_names, &Accounts.configured_names/0)
+    names = Enum.uniq(names ++ Map.keys(inputs.accounts))
+    names = if names == [], do: ["default"], else: names
+    unknown = %{reading: nil, observed_at: nil, freshness: :unavailable}
+    %{inputs | accounts: Map.new(names, &{&1, Map.get(inputs.accounts, &1, unknown)})}
+  end
+
+  defp detail_accounts(_provider, inputs, _opts), do: inputs
 
   defp meter(family, row, accounts) do
     names = row.accounts || if(family == :claude, do: Enum.sort(Map.keys(accounts)))

@@ -5,10 +5,10 @@ defmodule AiurWeb.Streamdeck.Deck.MetersDetailTest do
   alias AiurWeb.Streamdeck.Deck.{Input, Meters, Nav}
   alias AiurWeb.Streamdeck.Render.MeterDetail
 
-  defp detail(accounts, overrides \\ %{}) do
+  defp detail(accounts, overrides \\ %{}, opts \\ []) do
     inputs = I.inputs(Map.merge(%{families: [:claude], accounts: accounts}, overrides))
     EndpointStubs.put(streamdeck_usage_load_fun: fn :streamdeck, _opts -> inputs end)
-    Meters.detail("claude", now: I.now())
+    Meters.detail("claude", Keyword.merge([now: I.now(), account_names: Map.keys(accounts)], opts))
   end
 
   test "accounts sort by name and keep independent reset times and stale values" do
@@ -30,16 +30,19 @@ defmodule AiurWeb.Streamdeck.Deck.MetersDetailTest do
 
   test "missing weekly observation remains nil and renders a hatch with a dash" do
     entry = update_in(I.account(50, 30), [:reading, :windows], &Enum.take(&1, 1))
-    result = detail(%{"personal" => entry})
-    assert [account] = result.accounts
+    result = detail(%{"personal" => entry}, %{}, account_names: ["personal", "unobserved"])
+    assert [account, unobserved] = result.accounts
     assert account.weekly == %{remaining_percent: nil, reset_at: nil, freshness: "fresh"}
+    assert unobserved.name == "unobserved"
+    assert unobserved.session.remaining_percent == nil
+    assert unobserved.weekly.remaining_percent == nil
     image = MeterDetail.key(account, DateTime.to_unix(I.now(), :millisecond))
     assert image.svg =~ "— · —"
     assert image.svg =~ "unknown-hatch"
     assert length(Regex.scan(~r/data-part="remaining-fill"/, image.svg)) == 1
     frame = MeterDetail.frame(result, %{"summary_label" => "personal · closest of 1"}, DateTime.to_unix(I.now(), :millisecond))
     assert length(frame.keys) == 8
-    assert Enum.count(frame.keys, & &1) == 1
+    assert Enum.count(frame.keys, & &1) == 2
     assert hd(frame.strip).label == "claude · personal · closest of 1"
   end
 
