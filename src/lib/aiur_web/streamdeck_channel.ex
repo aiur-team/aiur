@@ -11,7 +11,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.Streamdeck.Deck.{Nav, TicketUpdates}
 
-  alias AiurWeb.Streamdeck.UsageUpdates
+  alias AiurWeb.Streamdeck.{FrameUpdates, UsageUpdates}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -65,7 +65,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
-  def handle_in("input", input, socket), do: AiurWeb.Streamdeck.FrameUpdates.input(input, socket)
+  def handle_in("input", input, socket), do: FrameUpdates.input(input, socket)
 
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
@@ -262,7 +262,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info(:streamdeck_snapshot, socket) do
     snapshot = StreamdeckProjection.snapshot()
     push(socket, "snapshot", snapshot)
-    {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> AiurWeb.Streamdeck.FrameUpdates.push()}
+    {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> FrameUpdates.push()}
   end
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}

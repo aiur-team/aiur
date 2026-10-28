@@ -2,12 +2,13 @@ defmodule AiurWeb.Streamdeck.UsageUpdates do
   @moduledoc false
   import Phoenix.Socket, only: [assign: 3]
   alias AiurWeb.Streamdeck.Deck.Meters
+  alias AiurWeb.StreamdeckFleetUpdates
 
   @spec schedule(Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
   def schedule(%{assigns: %{usage_flush: nil}} = socket) do
     token = make_ref()
     Process.send_after(self(), {:flush_usage, token}, 250)
-    socket |> assign(:usage_flush, token) |> AiurWeb.StreamdeckFleetUpdates.schedule()
+    socket |> assign(:usage_flush, token) |> StreamdeckFleetUpdates.schedule()
   end
 
   def schedule(socket), do: {:noreply, socket}

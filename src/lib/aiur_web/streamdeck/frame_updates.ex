@@ -2,7 +2,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render}
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
-  alias AiurWeb.StreamdeckProjection
+  alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2, assign: 3]
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
@@ -12,7 +12,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
       sections = StreamdeckProjection.grid() |> Deck.navigation()
       {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
       socket = assign(socket, deck_nav: nav, deck_effects: effects)
-      {:noreply, socket} = AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+      {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
       {:reply, {:ok, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}}, socket}
     else
       :noop ->

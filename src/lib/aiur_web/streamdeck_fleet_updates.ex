@@ -3,6 +3,7 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
   import Phoenix.Socket, only: [assign: 3]
   alias Aiur.AgentPubSub
   alias AiurWeb.Streamdeck.Deck.TicketUpdates
+  alias AiurWeb.Streamdeck.FrameUpdates
   alias AiurWeb.StreamdeckProjection
 
   @spec subscribe(:atomics.atomics_ref()) :: :ok | {:error, term()}
@@ -25,7 +26,7 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
     :atomics.put(socket.assigns.fleet_latch, 1, 0)
     socket = TicketUpdates.refresh(socket)
     Phoenix.Channel.push(socket, "fleet", StreamdeckProjection.fleet_with_grid(AgentPubSub.latest_fleet_summaries()))
-    socket = AiurWeb.Streamdeck.FrameUpdates.push(socket)
+    socket = FrameUpdates.push(socket)
     {:noreply, assign(socket, :fleet_flush, nil)}
   end
 
