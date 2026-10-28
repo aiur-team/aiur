@@ -5,6 +5,7 @@ for file <- ~w(earlier_control scale unfiled_fixture fixture_source fixture_conv
 
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
+Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
@@ -40,6 +41,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
   end
 
   scope "/" do
+    post("/conversation-fixture/reset", Aiur.BrowserHarness.ConversationFixture, :reset)
+    get("/conversation-fixture/append", Aiur.BrowserHarness.ConversationFixture, :append)
     get("/health", Aiur.BrowserHarness.FixtureAssets, :health)
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
@@ -157,8 +160,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
-  alias Aiur.BrowserHarness.FixtureEndpointStart
+  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
@@ -205,6 +207,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
             {Aiur.CurrentRunProjections, idle_without_subscribers?: true},
             id: Aiur.CurrentRunProjections
           ),
+          Aiur.Conversation.HeadTable,
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
           {Task.Supervisor, name: Aiur.TaskSupervisor},
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
           {AiurWeb.Endpoint, []},
@@ -214,6 +219,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         strategy: :one_for_one
       )
 
+    conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}")
+    Application.put_env(:aiur, :conversation_state_dir, conversation_root)
+    Fixtures.conversation(conversation_root)
     port = System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
     {:ok, _pid} =
