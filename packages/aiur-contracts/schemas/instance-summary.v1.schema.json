@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/instance-summary.v1.schema.json",
+  "title": "InstanceSummary",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contract": {
+      "const": "aiur.instance_summary"
+    },
+    "version": {
+      "const": 1
+    },
+    "instance_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "$ref": "#/$defs/fact"
+        },
+        "capacity": {
+          "$ref": "#/$defs/fact"
+        }
+      },
+      "required": [
+        "active",
+        "capacity"
+      ]
+    },
+    "fleet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "globally_paused": {
+          "$ref": "#/$defs/fact"
+        }
+      },
+      "required": [
+        "globally_paused"
+      ]
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "awaiting": {
+          "$ref": "#/$defs/fact"
+        },
+        "awaiting_blocking": {
+          "$ref": "#/$defs/fact"
+        }
+      },
+      "required": [
+        "awaiting",
+        "awaiting_blocking"
+      ]
+    },
+    "executor": {
+      "$ref": "#/$defs/fact"
+    },
+    "build_orders": {
+      "$ref": "#/$defs/fact"
+    },
+    "background_agents": {
+      "$ref": "#/$defs/fact"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/fact"
+    }
+  },
+  "required": [
+    "contract",
+    "version",
+    "instance_id",
+    "observed_at",
+    "agents",
+    "fleet",
+    "commands",
+    "executor",
+    "build_orders",
+    "background_agents",
+    "capabilities"
+  ],
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "unavailable",
+            "disabled",
+            "unknown"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/value"
+        },
+        "observed_at": {
+          "type": "string"
+        },
+        "age_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "freshness": {
+          "enum": [
+            "current",
+            "stale",
+            null
+          ]
+        },
+        "lower_bound": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "status",
+        "observed_at",
+        "age_ms",
+        "reason",
+        "freshness"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "available"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "value"
+            ],
+            "properties": {
+              "value": {}
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lower_bound": {
+              "$ref": "#/$defs/value"
+            },
+            "state": {
+              "$ref": "#/$defs/value"
+            },
+            "consumers": {
+              "$ref": "#/$defs/value"
+            },
+            "roots": {
+              "$ref": "#/$defs/value"
+            },
+            "identity": {
+              "$ref": "#/$defs/value"
+            },
+            "progress": {
+              "$ref": "#/$defs/value"
+            },
+            "resolution": {
+              "$ref": "#/$defs/value"
+            },
+            "truncated": {
+              "$ref": "#/$defs/value"
+            },
+            "count": {
+              "$ref": "#/$defs/value"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
