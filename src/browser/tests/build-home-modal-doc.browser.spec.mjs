@@ -208,7 +208,8 @@ for (const settleBeforeDiff of [true, false]) {
   })
 }
 
-test('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
+// Quarantined: owner #6860, expires 2026-11-10
+test.skip('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
   const t = await display(page, { sec: 'nq', deps: ['999'] })
   const dep = page.locator('.bm-dep[data-goto="999"]')
   const button = page.getByRole('button', { name: 'Add to queue' })

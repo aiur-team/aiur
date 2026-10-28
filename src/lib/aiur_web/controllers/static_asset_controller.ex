@@ -42,7 +42,7 @@ defmodule AiurWeb.StaticAssetController do
   def dom_svg_layout_loader(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-loader.js", revalidate?: true)
 
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
-  def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
+  def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png", charset: nil)
 
   @spec github_mark(Conn.t(), map()) :: Conn.t()
   def github_mark(conn, _params), do: serve(conn, "/images/github-mark.svg", revalidate?: true)
@@ -72,7 +72,7 @@ defmodule AiurWeb.StaticAssetController do
     case StaticAssets.fetch(path) do
       {:ok, content_type, body} ->
         conn
-        |> put_resp_content_type(content_type)
+        |> put_resp_content_type(content_type, Keyword.get(options, :charset, "utf-8"))
         |> put_resp_header("cache-control", cache_control(options))
         |> send_resp(200, body)
 
