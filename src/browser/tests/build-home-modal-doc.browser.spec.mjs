@@ -221,6 +221,19 @@ for (const settleBeforeDiff of [true, false]) {
   })
 }
 
+test('opening the modal does not steal dependency focus set before its animation frame', async ({ page }) => {
+  const focused = await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    const ticket = { ...ctx.D.plan[0], deps: ['999'] }
+    ;(await import('/build-home/modal/frame.js')).openModal(ticket)
+    const dependency = document.querySelector('.bm-dep[data-goto="999"]')
+    dependency.focus()
+    await new Promise(requestAnimationFrame)
+    return document.activeElement.matches('.bm-dep[data-goto="999"]')
+  })
+  expect(focused).toBe(true)
+})
+
 test('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
   const t = await display(page, { sec: 'nq', deps: ['999'] })
   const dep = page.locator('.bm-dep[data-goto="999"]')
