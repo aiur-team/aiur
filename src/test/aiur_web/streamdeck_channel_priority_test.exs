@@ -28,12 +28,15 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
   test "raw input resolves selection, moves once, replies with read-back and renders queue position" do
     socket = joined_socket()
+    :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial, 1_500)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -3})
-    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0} = reply, 1_500)
-    assert Enum.sort(Map.keys(reply)) == ["page", "view"]
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, reply, 1_500)
+    assert reply == %{"view" => "ticket", "page" => 0}
+    refute Map.has_key?(reply, "frame")
     frame = pushed_frame(socket)
     assert_received {:reorder, "4", 0}
     refute_received {:reorder, _, _}
@@ -46,6 +49,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
   test "physical input pushes priority feedback and read-back in a coalesced frame" do
     socket = joined_socket()
+    :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial, 1_500)
     ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
     assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
@@ -79,10 +83,12 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     )
 
     socket = joined_socket()
+    :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial, 1_500)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
+    :sys.get_state(socket.channel_pid)
     assert_reply(ref, :error, %{reason: "outcome_unknown"} = reply, 1_500)
     assert Map.keys(reply) == [:reason]
     frame = pushed_frame(socket)
@@ -105,7 +111,8 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
       ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
       assert_reply(ref, :ok, %{"view" => "ticket"}, 1_500)
       ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
-      assert_reply(ref, :error, %{reason: ^reason}, 1_500)
+      assert_reply(ref, :error, %{reason: ^reason} = reply, 1_500)
+      refute Map.has_key?(reply, :frame)
       frame = pushed_frame(socket)
       assert hd(frame.strip).label == text
       assert hd(frame.strip).svg =~ text

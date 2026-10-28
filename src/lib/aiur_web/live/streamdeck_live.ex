@@ -9,8 +9,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.Streamdeck.Deck.{Chat, Nav}
-  alias AiurWeb.Streamdeck.FrameUpdates
-  alias AiurWeb.StreamdeckLive.{ChatFocus, Components, Frame, ImageComponents, Input, Settings, Surface}
+  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Settings, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLive.TicketActions
   alias AiurWeb.StreamdeckLogs
@@ -388,24 +387,7 @@ defmodule AiurWeb.StreamdeckLive do
   @doc false
   @spec reduce_input(map(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
-  def reduce_input(raw, socket) do
-    case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
-      {:ok, nav, effects} ->
-        socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
-
-        {:noreply,
-         assign_grid(
-           socket,
-           socket.assigns.grid,
-           0,
-           socket.assigns.usage,
-           Nav.page(nav)
-         )}
-
-      _unchanged ->
-        {:noreply, socket}
-    end
-  end
+  def reduce_input(raw, socket), do: Input.reduce(raw, socket)
 
   defp control_feedback(nil), do: ""
   defp control_feedback(feedback), do: feedback

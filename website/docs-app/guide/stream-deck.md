@@ -12,7 +12,7 @@ opens Settings at the root. Dial 1 scrolls and dial 2 changes ticket priority.
 
 After selecting a ticket, hold dial 3 for 500 ms to dictate; release stops
 capture, and a short tap sends the settled transcript. Choose instances in Settings.
-The browser retains its focused controls below, with dial A scrolling the provider panel.
+The browser grid dial D turns pages and presses to cycle Ticket, Feature, Epic and Fleet; dial A scrolls the shared provider panel.
 
 ## Drive the deck modes
 
@@ -27,6 +27,27 @@ Settings uses the same sections and choices on both surfaces; PC device choices 
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 Physical and emulator ticket frames show the latest masked conversation across the strip, with ticket controls on the keys.
+
+### Feature view
+
+The server Feature view uses the Build Features snapshot's closed/total percentage,
+rounded down, with closed, published/open (including CI wait) and unpublished bar layers and a positive, known CI-wait
+badge.
+
+Missing closed or total counts show “—” with the source reason. Missing bar
+counts leave an empty bar while a known closed/total percentage stays visible.
+
+Each key represents a parent feature, summing its epic counts in snapshot order. Dial 4 pages eight keys;
+press a key to drill into the parent feature's tickets, then hold Dial 4 to return
+with the feature page preserved.
+
+The strip names closed/total, unpublished count and
+observation age in minutes for the first visible feature (the selected feature while drilled in).
+
+The browser emulator and physical deck use the same SVG frames, pushed through the
+shared frame updates. Input acknowledgements carry navigation; images arrive in frame events.
+
+The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 
 | Control state | Behavior |
 | --- | --- |
