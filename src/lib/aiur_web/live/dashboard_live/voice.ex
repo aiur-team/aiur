@@ -1,7 +1,7 @@
 defmodule AiurWeb.DashboardLive.Voice do
   @moduledoc """
   Voice assigns refreshed at mount and on the 60 s voice tick: the provider's
-  quota snapshot and the `voice.stt`/`voice.tts` registry entries, so the drawer
+  quota snapshot and the `voice.stt`/`voice.tts`/`voice.conversation` registry entries, so the drawer
   can tell "not configured" from "failed" before the microphone is pressed.
   """
 
@@ -20,7 +20,7 @@ defmodule AiurWeb.DashboardLive.Voice do
   # leaves the drawer without voice attributes rather than guessing.
   defp capabilities do
     report = (EndpointConfig.get(:capabilities_report_fun) || (&Aiur.Capabilities.report/0)).()
-    report |> Map.get(:capabilities, %{}) |> Map.take(~w(voice.stt voice.tts))
+    report |> Map.get(:capabilities, %{}) |> Map.take(~w(voice.stt voice.tts voice.conversation))
   rescue
     _error -> %{}
   catch
