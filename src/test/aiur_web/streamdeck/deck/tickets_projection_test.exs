@@ -32,12 +32,14 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     refute html =~ ~s(role="progressbar")
 
     socket = joined_socket()
-    assert_reply(push(socket, "input", %{"kind" => "key_press", "index" => 0}), :ok)
-    assert :sys.get_state(socket.channel_pid).assigns.deck_effects == [{:open_ticket, "77"}]
+    ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
+    state = :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0, "chip_offset" => 0})
+    assert state.assigns.deck_effects == [{:open_ticket, "77"}]
     updated = put_in(window, [:sections, :now], [%{row | agent: %{state: "command"}, pct: 40}])
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, updated} end)
     Index.broadcast(%{})
-    assert_push("fleet", %{"grid" => %{agents: [%{label: "Awaiting command", progress_percent: 40}]}}, 1_000)
+    receive_barrier(%Phoenix.Socket.Message{event: "fleet", payload: %{"grid" => %{agents: [%{label: "Awaiting command", progress_percent: 40}]}}})
   end
 
   test "Build facts win while control metadata and stale progress survive merging" do
