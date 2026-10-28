@@ -258,10 +258,10 @@
           var push = function () {
             self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
           };
-          // Logs and Settings each replace the command keys with a pane of
+          // Logs, Settings and Commands replace the command keys with a pane of
           // their own, so leave the flash visible before asking the
           // server-authoritative mode machine to change mode.
-          if (command === "logs" || command === "settings") setTimeout(push, 500);
+          if (command === "logs" || command === "settings" || command === "commands") setTimeout(push, 500);
           else push();
         };
         key.addEventListener("click", handler);
