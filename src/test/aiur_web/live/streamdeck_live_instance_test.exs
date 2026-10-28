@@ -5,7 +5,9 @@ defmodule AiurWeb.StreamdeckLiveInstanceTest do
     previous = System.get_env("AIUR_INSTANCE_KEY")
 
     on_exit(fn ->
-      if previous, do: System.put_env("AIUR_INSTANCE_KEY", previous), else: System.delete_env("AIUR_INSTANCE_KEY")
+      if previous,
+        do: System.put_env("AIUR_INSTANCE_KEY", previous),
+        else: System.delete_env("AIUR_INSTANCE_KEY")
     end)
   end
 

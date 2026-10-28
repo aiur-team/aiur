@@ -9,10 +9,17 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   """
 
   @views [:ticket, :feature, :epic, :fleet]
-  defstruct view: :ticket, pages: %{ticket: 0, feature: 0, epic: 0, fleet: 0}, stack: [], drill_pages: [], selected: nil, scroll: 0
+  defstruct surface: :grid,
+            view: :ticket,
+            pages: %{ticket: 0, feature: 0, epic: 0, fleet: 0},
+            stack: [],
+            drill_pages: [],
+            selected: nil,
+            scroll: 0
 
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
+          surface: :grid | :cmd | :logs | :settings | :commands,
           pages: map(),
           stack: [{atom(), String.t()}],
           drill_pages: [non_neg_integer()],
@@ -22,7 +29,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   @type effect :: {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
 
   @spec valid_input?(term()) :: boolean()
-  def valid_input?(%{"kind" => "key_press", "index" => index}), do: is_integer(index) and index in 0..7
+  def valid_input?(%{"kind" => "key_press", "index" => index}),
+    do: is_integer(index) and index in 0..7
 
   def valid_input?(%{"kind" => kind, "index" => index} = input)
       when kind in ["dial_press", "dial_long_press", "dial_turn"] do
@@ -48,7 +56,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
 
   @spec clamp(t(), map()) :: t()
   def clamp(nav, sizes) do
-    pages = Map.new(nav.pages, fn {view, page} -> {view, clamp_page(page, Map.get(sizes, view, 0))} end)
+    pages =
+      Map.new(nav.pages, fn {view, page} -> {view, clamp_page(page, Map.get(sizes, view, 0))} end)
 
     drill_pages =
       case nav.drill_pages do
@@ -68,11 +77,17 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
     {%{nav | view: Enum.at(@views, next), stack: [], drill_pages: [], scroll: 0}, []}
   end
 
-  defp transition(%{stack: [_entry | rest], drill_pages: [_page | pages]} = nav, %{"kind" => "dial_long_press", "index" => 3}),
-    do: {%{nav | stack: rest, drill_pages: pages, scroll: 0}, []}
+  defp transition(%{stack: [_entry | rest], drill_pages: [_page | pages]} = nav, %{
+         "kind" => "dial_long_press",
+         "index" => 3
+       }),
+       do: {%{nav | stack: rest, drill_pages: pages, scroll: 0}, []}
 
-  defp transition(nav, %{"kind" => "dial_turn", "index" => 3, "ticks" => ticks}), do: {put_page(nav, page(nav) + ticks), []}
-  defp transition(nav, %{"kind" => "dial_turn", "index" => 0, "ticks" => ticks}), do: {%{nav | scroll: max(nav.scroll + ticks, 0)}, []}
+  defp transition(nav, %{"kind" => "dial_turn", "index" => 3, "ticks" => ticks}),
+    do: {put_page(nav, page(nav) + ticks), []}
+
+  defp transition(nav, %{"kind" => "dial_turn", "index" => 0, "ticks" => ticks}),
+    do: {%{nav | scroll: max(nav.scroll + ticks, 0)}, []}
 
   defp transition(%{selected: id} = nav, %{"kind" => "dial_turn", "index" => 1, "ticks" => ticks})
        when is_binary(id) and ticks != 0,
@@ -81,12 +96,17 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   defp transition(nav, %{"kind" => "key_press", target: {:ticket, id}}) when is_binary(id),
     do: {%{nav | selected: id}, [{:open_ticket, id}]}
 
-  defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :epic, :fleet] and is_binary(id),
-    do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
+  defp transition(nav, %{"kind" => "key_press", target: {kind, id}})
+       when kind in [:feature, :epic, :fleet] and is_binary(id),
+       do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
 
   defp transition(nav, _input), do: {nav, []}
 
-  defp put_page(%{stack: []} = nav, page), do: %{nav | pages: Map.put(nav.pages, nav.view, page), scroll: 0}
-  defp put_page(%{drill_pages: [_page | rest]} = nav, page), do: %{nav | drill_pages: [page | rest], scroll: 0}
+  defp put_page(%{stack: []} = nav, page),
+    do: %{nav | pages: Map.put(nav.pages, nav.view, page), scroll: 0}
+
+  defp put_page(%{drill_pages: [_page | rest]} = nav, page),
+    do: %{nav | drill_pages: [page | rest], scroll: 0}
+
   defp clamp_page(page, size), do: page |> max(0) |> min(max(div(max(size, 0) + 7, 8) - 1, 0))
 end

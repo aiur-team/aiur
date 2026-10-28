@@ -2,7 +2,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
 
 import { asColor, createPaint, parseGradient } from "../../src/art/gradient.js";
-import { KEY_FACE_CONTRACT } from "../../src/key-face-contract.js";
+import { LEGACY_STYLE } from "../../src/legacy-style.js";
 
 describe("parseGradient", () => {
   it("parses the two-stop vertical gradient the contract uses", () => {
@@ -26,7 +26,7 @@ describe("parseGradient", () => {
   // Every bucket in the shared contract must be paintable; a token this module
   // cannot parse would silently render as a black key on the device.
   it("parses every glow and face token in the key-face contract", () => {
-    for (const style of Object.values(KEY_FACE_CONTRACT.states)) {
+    for (const style of Object.values(LEGACY_STYLE.states)) {
       expect(parseGradient(style.glow), style.glow).not.toBeNull();
       expect(parseGradient(style.face), style.face).not.toBeNull();
     }

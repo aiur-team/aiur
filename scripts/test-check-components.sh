@@ -190,12 +190,12 @@ if with_node:
             extra={'src/lib/foo.ex': '@external_resource(\n  "../../packages/a/x.json"\n)'})
     imports('resource_alias_chain_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@path "../../packages/a/x.json"\n@resource @path\n@external_resource @resource'})
-    imports('streamdeck_external_resource_into_package_rejected', '', 1, ('R-reverse-resource', 'packages/streamdeck/src/key-face-contract.json'),
-            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
-                   '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',
+    imports('streamdeck_external_resource_into_package_rejected', '', 1, ('R-reverse-resource', 'packages/streamdeck/src/resource-fixture.json'),
+            extra={'src/lib/aiur_web/streamdeck_resource_fixture.ex':
+                   '@contract_path Path.expand("../../../packages/streamdeck/src/resource-fixture.json", __DIR__)\n@external_resource @contract_path',
                    'packages/streamdeck/package.json': '{"name":"streamdeck"}'})
     imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
-            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
+            extra={'src/lib/aiur_web/streamdeck_resource_fixture.ex':
                    '@external_resource "../../../packages/a/other.json"'})
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
