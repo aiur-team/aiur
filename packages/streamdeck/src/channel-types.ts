@@ -34,7 +34,18 @@ export interface StreamDeckSnapshot {
   readonly voice?: StreamDeckVoiceState;
 }
 
+export interface StreamDeckCounts {
+  readonly status: "ok" | "stale" | "unavailable";
+  readonly observed_at: number | null;
+  readonly agents: number | null;
+  readonly live: number | null;
+  readonly queued: number | null;
+  readonly not_queued: number | null;
+  readonly by_state: Readonly<Record<string, number>> | null;
+}
+
 export interface StreamDeckGrid {
+  readonly counts?: StreamDeckCounts;
   readonly build?: BuildProgressInput | null;
   readonly build_status?: "ok" | "none" | "unavailable";
   readonly agents: readonly Record<string, unknown>[];

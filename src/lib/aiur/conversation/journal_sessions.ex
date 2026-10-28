@@ -1,6 +1,6 @@
 defmodule Aiur.Conversation.JournalSessions do
   @moduledoc false
-  alias Aiur.Conversation.{Entry, Session}
+  alias Aiur.Conversation.{Entry, Session, Store}
 
   @spec load(map(), map()) :: {:ok, map()} | {:error, term()}
   def load(state, head) do
@@ -163,8 +163,9 @@ defmodule Aiur.Conversation.JournalSessions do
     session = %{state.open_session | ended_at: state.clock.(), end_reason: to_string(reason)}
 
     with :ok <- state.store.append_session_line(state.dir, Session.end_line(session, %{})),
-         {:ok, stat} <- File.stat(Path.join(state.dir, "sessions.jsonl")) do
-      head = %{state.segment_state | "sessions_bytes" => stat.size}
+         {:ok, stat} <- File.stat(Path.join(state.dir, "sessions.jsonl")),
+         head = %{state.segment_state | "sessions_bytes" => stat.size},
+         :ok <- Store.write_head(state.dir, head) do
       {:ok, %{state | segment_state: head, open_session: nil, dedup: MapSet.new(), dedup_order: :queue.new()}, session}
     end
   end

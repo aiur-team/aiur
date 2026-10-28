@@ -2,7 +2,7 @@ defmodule Aiur.Conversation.Journal do
   @moduledoc "Serialized, recoverable writer for one conversation. All disk work stays in this process."
   use GenServer, restart: :transient
   alias Aiur.Config.Paths
-  alias Aiur.Conversation.{Entry, Ingest, JournalImport, JournalSessions, ProviderReplay, Ref}
+  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalImport, JournalSessions, ProviderReplay, Ref}
 
   @spec start_link(Ref.t()) :: GenServer.on_start()
   def start_link(ref), do: GenServer.start_link(__MODULE__, ref, name: via(ref))
@@ -88,6 +88,8 @@ defmodule Aiur.Conversation.Journal do
   end
 
   @impl true
+  def handle_call(:head, _from, state), do: {:reply, if(state.segment_state, do: {:ok, state.segment_state}, else: {:error, :unavailable}), state}
+
   def handle_call(:flush, from, %{importing: import} = state) when not is_nil(import) do
     send(self(), :import_step)
     {:noreply, %{state | import_waiters: [from | state.import_waiters]}}
@@ -167,7 +169,7 @@ defmodule Aiur.Conversation.Journal do
          state = %{state | import_new: not File.exists?(Path.join(state.dir, "head.json")) and Path.wildcard(Path.join(state.dir, "entries.*.jsonl")) == []},
          {:ok, head} <- state.store.prepare(state.dir, state.ref),
          {:ok, loaded} <- JournalSessions.load(state, head) do
-      loaded
+      cache_head(loaded)
     else
       {:error, reason} -> failure(state, reason)
     end
@@ -206,7 +208,7 @@ defmodule Aiur.Conversation.Journal do
   defp recover(state) do
     with {:ok, head} <- state.store.rebuild_head(state.dir),
          {:ok, state} <- JournalSessions.load(state, head) do
-      {:ok, %{state | recover: false}}
+      {:ok, cache_head(%{state | recover: false})}
     end
   end
 
@@ -377,7 +379,13 @@ defmodule Aiur.Conversation.Journal do
     state.alerts.emit_system(name, message: "Conversation #{state.id}: #{class}", needs_attention: attention)
   end
 
+  defp cache_head(state) do
+    HeadTable.put(state.id, state.dir, state.segment_state)
+    state
+  end
+
   defp publish(state, entries, sessions) do
+    cache_head(state)
     topic = "conversation:" <> state.id
     if entries != [], do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:entries_appended, state.id, entries})
     for session <- sessions, do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:session_changed, state.id, session})

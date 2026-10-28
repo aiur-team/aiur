@@ -2,7 +2,7 @@ Code.require_file("journal_support.exs", __DIR__)
 
 defmodule Aiur.Conversation.ImporterTest do
   use ExUnit.Case, async: false
-  alias Aiur.Conversation.{Importer, Ingest, Ref, TestSupport}
+  alias Aiur.Conversation.{History, Importer, Ingest, Ref, TestSupport}
   alias Aiur.IssueLog.Encoding
   alias Aiur.TrackerIdentity
   import TestSupport
@@ -39,6 +39,7 @@ defmodule Aiur.Conversation.ImporterTest do
     assert gap["meta"] == %{"reason" => "pre_journal", "from" => nil, "to" => DateTime.to_iso8601(c.now)}
     assert {imported["body"], imported["body_truncated"], imported["session_seq"], imported["refs"]["provider_item_id"]} == {body, false, 1, "old"}
     assert {live["body"], live["session_seq"], live["pos"]} == {"message 1", 2, 3}
+    assert {:ok, %{complete_from_start: false, head_pos: 3}} = History.list_entries(c.ref, principal: :internal)
     assert [start, ended, live_start] = sessions(c.dir)
     assert {start["start_reason"], start["transcript_source"]["kind"], ended["end_reason"], live_start["start_reason"]} == {"import", "provider_file", "superseded", "start"}
   end
