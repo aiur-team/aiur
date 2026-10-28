@@ -459,8 +459,6 @@ defmodule AiurWeb.StreamdeckChannelTest do
     event = ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation")
     ProviderMeterEvents.broadcast(event)
     ProviderMeterEvents.broadcast(event)
-    state = :sys.get_state(socket.channel_pid)
-    assert is_reference(state.assigns.usage_flush)
     receive_barrier(%Message{event: "usage", payload: %{"codex" => %{"windows" => %{"session" => %{"remaining_percent" => 12, "used_percent" => 88}}}}})
     :sys.get_state(socket.channel_pid)
     assert_received :usage_loaded

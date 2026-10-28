@@ -21,7 +21,6 @@
   "requires": [
     "commands",
     "conversations",
-    "dashboard-ui",
     "identity",
     "projections",
     "web-kit"
