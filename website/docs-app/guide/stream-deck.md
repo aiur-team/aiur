@@ -225,13 +225,11 @@ Open Logs after sending to find your own message at the live end of the feed.
 
 ### Settings
 
-Hold dial 4 at the root to open eight sections: **Mic**, **Speaker**, **View**,
-**Sort**, **Brightness**, **Sleep**, **Instance** and **Alerts**. Press a section
-key to open its choices. Turn dial 1 to scroll, then press it or a choice key to
-select. Hold dial 4 to return.
+Hold dial 4 at the root to open Settings.
 
 | Setting or state | Behavior |
 | --- | --- |
+| Navigation | Press a section key, turn dial 1 to scroll, then press it or a choice key to select; hold dial 4 to return. |
 | Mic and Speaker | Choose devices attached to the sidecar's PC; inventory refreshes after device changes. |
 | View and Sort | Set the default deck view and ordering. |
 | Brightness | Save a value from 0 to 100; until saved, `STREAMDECK_BRIGHTNESS` supplies the default. |
