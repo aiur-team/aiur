@@ -268,7 +268,8 @@ polling. It discovers `phase:*` labels, searches open and closed program issues
 and the last 48 hours of merges with explicit cursors (100 results per page),
 then hydrates closing and allocation issues in batches by number. It reads no
 timelines.
- Searches above GitHub's 1,000-result cap are reported unavailable,
+
+Searches above GitHub's 1,000-result cap are reported unavailable,
 never presented as a complete program.
 
 A run admits at most 24 small GraphQL

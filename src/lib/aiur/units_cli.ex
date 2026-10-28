@@ -57,18 +57,20 @@ defmodule Aiur.UnitsCLI do
         fields =
           text
           |> String.split("\n")
-          |> Enum.flat_map(fn line ->
-            case String.split(line, "=", parts: 2) do
-              [key, value] when key in ["source_sha", "built_at"] and value != "" -> [{key, value}]
-              _other -> []
-            end
-          end)
+          |> Enum.flat_map(&build_stamp_entry/1)
           |> Map.new()
 
         %{sha: fields["source_sha"], built_at: fields["built_at"]}
 
       {:error, _reason} ->
         %{sha: nil, built_at: nil}
+    end
+  end
+
+  defp build_stamp_entry(line) do
+    case String.split(line, "=", parts: 2) do
+      [key, value] when key in ["source_sha", "built_at"] and value != "" -> [{key, value}]
+      _other -> []
     end
   end
 
