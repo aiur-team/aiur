@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Index, Lifecycle}
+  alias Aiur.Heroicons
 
   test "epic progress counts every matching label regardless of feature ownership" do
     ui = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: [" AREA:UI "], hue: 120, icon: "pen"}
