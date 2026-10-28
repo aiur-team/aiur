@@ -96,7 +96,8 @@ Send `input` with `{kind, index, ticks?}`. Kinds are `key_press`, `dial_press`,
 `dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
 turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
 out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
-frames reply `ok` with `{view, page}` (zero-based page). Each connection starts
+frames reply `ok` with `{view, page}` (zero-based page). Ticket and Fleet inputs
+also return a server-rendered `frame` with eight keys and strip regions. Each connection starts
 at `ticket`, page 0; reconnects reset navigation.
 
 Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
@@ -114,8 +115,11 @@ and SD-301 respectively.
 `Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
 `%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
 plus the current drill count. The current grid supplies tickets and fleet
-categories; Feature/Epic section producers and the new renderer follow in
-SD-202–205. The sidecar switches to this protocol in SD-103; emulator pixels
+categories. Fleet categories push `{:state, states}` drills using the same
+filed, deduplicated population as `Tickets.keys/2`. `grid.fleet` contains the
+eight summary keys and daemon/capacity/global-pause strip metadata. Unknown
+states remain visible in Active; unavailable counts stay explicitly unavailable.
+Feature/Epic section producers follow in SD-203–204. The sidecar switches to this protocol in SD-103; emulator pixels
 switch in SD-104. Existing controls remain during that transition.
 
 ## Focus and transcript rate

@@ -376,6 +376,9 @@ Aiur holds a streaming connection to ElevenLabs, so transcription results can ap
 
 ### Fleet view
 
+Fleet uses the server-input renderer; physical routing requires the sidecar
+update (SD-103), and emulator pixels require SD-104.
+
 Cycle dial D to Fleet for eight summary keys: active, needs command,
 error/retrying, waiting for CI, usage limited, parked/paused, queued backlog,
 and capacity.
