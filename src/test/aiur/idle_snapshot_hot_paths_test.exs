@@ -132,7 +132,7 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
     assert calls == 2
   end
 
-  test "root join mapping is visited once rather than once per member" do
+  test "root join mapping is indexed instead of rescanned per member" do
     at = DateTime.utc_now()
     ref = fn n, owner -> %{number: n, owner: owner, repository: "repo"} end
     entries = for n <- 1..100, do: %{ref: ref.(n, "owner"), at: at}
@@ -140,12 +140,12 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
     rows = Map.new(1..100, &{&1, %{number: &1, labels: [], parent: ref.(1000, "owner")}}) |> Map.put(1000, root)
 
     {plan, calls} =
-      measured_calls({RootImportMapping, :same_repository?, 2}, fn ->
+      measured_calls({RootImportMapping, :entries, 1}, fn ->
         RootImport.plan(%{rows: rows, repository: "owner/repo", health: %{complete?: true}}, %{features: %{}, owners: %{}, also: %{}}, %{})
       end)
 
     assert Enum.map(plan.adds, fn {"bo-1000", numbers, "f-bo-1000", ^at} -> numbers end) |> List.flatten() == Enum.to_list(1..100)
-    assert calls <= 400
+    assert calls <= 2
     assert plan.skipped_cross_repo == 1
   end
 
