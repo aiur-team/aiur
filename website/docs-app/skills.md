@@ -144,3 +144,25 @@ Choose the release ref whose `.claude-plugin/plugin.json` reports `X.Y.Z`; the r
 Review the upstream release notes and the resulting skill diff, then run the AgentSkills tests before committing. The script replaces only previously managed CE skill paths, refreshes the license, version, and manifest files, and recreates the Claude-to-Codex links.
 
 The complexity routing rules that pick which CE skill to run live in [complexity-routing.md](../../.claude/skills/aiur-agent/complexity-routing.md).
+
+## Daily newsletter snapshots
+
+Run `python3 scripts/newsletter/collect.py` from the repository to capture a
+rolling 24-hour window (merges retain 48 hours) beneath the per-repository Aiur
+state directory at `newsletter/snapshots/YYYY-MM-DD.json`. Repeating a UTC date
+atomically replaces that file. `--repo owner/repo` selects a repository;
+`--state-dir <dir>` selects its local evidence directory and `--out <dir>`
+selects the snapshot output directory. Repeat `--instance <name>` for each
+additional configured daemon to query through `aiur --instance <name>`.
+
+The collector shares classification with the meta check's `feature-share.sh`.
+GitHub reads use cursor pages and batched issue numbers, with a 24-request
+ceiling below 50 GraphQL points; the snapshot records reported cost and marks
+incomplete reads unavailable. See [GitHub budgets](/apis/github-budgets).
+Meta summaries read timestamped `meta/*.md` files and Executor action records
+read `executor/*/history.ndjson`. Missing sources remain `null` with reasons;
+stale daemon observations cannot produce current allocation counts. Units are
+deduplicated by repository and issue number across daemons. Per-class agent
+hours remain unavailable until per-ticket active intervals cover the window.
+Running build identity comes from each daemon's release stamp, separately
+from merged changes; a merge alone does not establish deployment or verification.

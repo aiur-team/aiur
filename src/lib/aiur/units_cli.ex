@@ -41,13 +41,36 @@ defmodule Aiur.UnitsCLI do
          request: request(selection),
          sources: %{units_catalog: source(catalog, captured_at)},
          data: %{catalog: public_catalog(catalog), view: public_view(view, captured_at)},
-         auxiliary: %{}
+         auxiliary: %{running_build: running_build(opts)}
        }
        |> JSONSafe.normalize()}
     end
   end
 
   def build(_opts), do: {:error, "expects units options"}
+
+  defp running_build(opts) do
+    path = Keyword.get(opts, :build_stamp_path, Path.join(to_string(:code.root_dir()), "AIUR_BUILD_STAMP"))
+
+    case File.read(path) do
+      {:ok, text} ->
+        fields =
+          text
+          |> String.split("\n")
+          |> Enum.flat_map(fn line ->
+            case String.split(line, "=", parts: 2) do
+              [key, value] when key in ["source_sha", "built_at"] and value != "" -> [{key, value}]
+              _other -> []
+            end
+          end)
+          |> Map.new()
+
+        %{sha: fields["source_sha"], built_at: fields["built_at"]}
+
+      {:error, _reason} ->
+        %{sha: nil, built_at: nil}
+    end
+  end
 
   defp selection(opts) do
     scope = Keyword.get(opts, :scope, UnitsPolicy.default_selection().scope)

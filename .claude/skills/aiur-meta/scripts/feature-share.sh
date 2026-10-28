@@ -4,15 +4,15 @@
 #        feature-share.sh --self-test
 set -euo pipefail
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(git -C "$script_dir" rev-parse --show-toplevel)
 classify() {
-  case "$1" in
-    *build-lane:*|*feature:*|*build-order*) printf feature ;;
-    *) if [[ $1 =~ ^MP-[A-Z0-9]+(-[A-Z0-9]+)* ]]; then printf feature
-      elif printf '%s' "$1" | grep -qiE 'flak|test|quarantin|(^|[^a-z])ci([^a-z]|$)|merge.group|soak|coverage'; then printf test_ci
-      else printf other
-      fi ;;
-  esac
+  python3 "$repo_root/scripts/newsletter/classification.py" "$1"
 }
+if [[ ${1:-} == --classify ]]; then
+  classify "${2:-}"
+  exit 0
+fi
 
 window_count() {
   local prs=$1 cutoff=$2
