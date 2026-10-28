@@ -1,8 +1,8 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render}
-  alias AiurWeb.Streamdeck.Render.Chat, as: ChatRender
   alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput}
+  alias AiurWeb.Streamdeck.Render.Chat, as: ChatRender
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 

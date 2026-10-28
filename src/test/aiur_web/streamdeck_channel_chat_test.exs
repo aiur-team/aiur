@@ -2,6 +2,7 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
   use Aiur.TestSupport
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.LiveConversation.Notify
+  alias Aiur.TestSupport.StreamdeckBuildFixture
 
   setup do
     root = Aiur.TestSupport.tmp_root!("deck-chat")
@@ -35,7 +36,7 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
 
     put_endpoint_config(
       streamdeck_snapshot_fun: fn -> snapshot end,
-      streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(snapshot) end
+      streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(snapshot) end
     )
 
     socket = joined_socket()
