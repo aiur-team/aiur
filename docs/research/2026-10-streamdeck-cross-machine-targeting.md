@@ -6,8 +6,9 @@ contracts, not implemented behavior or a provider selection.
 
 ## Recommendation and source hierarchy
 
-Use [#6901](https://github.com/aiur-team/aiur/issues/6901) and the
-[unified plan at PR #6902](https://github.com/aiur-team/aiur/blob/3f231bf637c25637affc737518b063530e7f9ee5/docs/plans/2026-10-27-001-feat-multi-repo-multi-machine-unified-plan.md)
+Use #6901 and the unified plan at PR #6902
+(`3f231bf637c25637affc737518b063530e7f9ee5`,
+`docs/plans/2026-10-27-001-feat-multi-repo-multi-machine-unified-plan.md`)
 as the parent requirements: R15–R22, phase 4 targeting, phase 6 voice, and Q4.
 Keep SD-207's direct, one-instance-at-a-time fleet connection. For voice,
 recommend Q4's **local-daemon broker**: capture/playback on the deck machine,
@@ -23,8 +24,8 @@ absence of a selected ticket. Never redirect a failed target to another one.
 The source inventory is code at `3e3badb33ce894fcc286dc8bbc2f0d0b9f8158c7`,
 plus these versioned planning inputs, which are not evidence of shipped code:
 
-- [Stream Deck pack, PR #6023](https://github.com/aiur-team/aiur/tree/41d11360ece85b93fb0004d6b293d02cf916acae/docs/plans/2026-10-23-streamdeck-redesign): SD-207, SD-406, SD-407, group B/D findings, and the parent redesign plan.
-- [Multi-instance pack, PR #5958](https://github.com/aiur-team/aiur/tree/9a81c5409c3b0d66cbabc255e8b2605d5b4007ac/docs/plans/2026-10-23-multi-instance-control): MIC-002/003/006 and decisions on direct control, registry and Executor identity. Its merged parts must be checked against current code.
+- Stream Deck pack, PR #6023 (`41d11360ece85b93fb0004d6b293d02cf916acae`, `docs/plans/2026-10-23-streamdeck-redesign/`): SD-207, SD-406, SD-407, group B/D findings, and the parent redesign plan.
+- Multi-instance pack, PR #5958 (`9a81c5409c3b0d66cbabc255e8b2605d5b4007ac`, `docs/plans/2026-10-23-multi-instance-control/`): MIC-002/003/006 and decisions on direct control, registry and Executor identity. Its merged parts must be checked against current code.
 - The current #6036, #6046 and #6047 contracts were read separately; their old line numbers and prerequisite states are historical.
 
 Propose making #6903 a research sub-issue of #6901, with this report supplying
@@ -195,9 +196,9 @@ Failure of either broker or destination stops the turn. No local daemon is
 needed for non-voice remote control; the voice key's absence disables voice only.
 
 Provider comparison, checked against official documentation on the research date:
-[ElevenLabs realtime STT](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime)
+ElevenLabs API reference, “Realtime” (`speech-to-text/v-1-speech-to-text-realtime`)
 returns transcripts and accepts server keys or single-use client tokens.
-[OpenAI Realtime WebSockets](https://developers.openai.com/api/docs/guides/voice-websockets)
+OpenAI Docs, “WebSockets” (`guides/voice-websockets`)
 support server connections and audio conversation events. Both permit server
 ownership; client-token availability does not require moving the provider leg
 to the deck. ElevenLabs STT still needs an assistant/context and reply-synthesis
