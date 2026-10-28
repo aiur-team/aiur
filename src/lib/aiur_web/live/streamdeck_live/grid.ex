@@ -12,9 +12,9 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   import AiurWeb.StreamdeckLive.Surface
 
   alias Aiur.{Conversation.History, Orchestrator, PollCadence}
+  alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
-  alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias Phoenix.LiveView.Socket
 
   @spec refresh_grid(Socket.t()) :: Socket.t()

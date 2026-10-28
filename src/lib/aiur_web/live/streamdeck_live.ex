@@ -25,8 +25,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.StreamdeckLive.{Components, ImageComponents, ScreenComponents, Surface}
   alias AiurWeb.Streamdeck.{FrameUpdates, Render}
+  alias AiurWeb.StreamdeckLive.{Components, ImageComponents, ScreenComponents, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLogs
 

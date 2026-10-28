@@ -147,10 +147,10 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   const openingPage = await visibleIdentifiers(page)
   // The first window holds the head of the canonical bucket order, so every
   // non-queued bucket is represented by the agent the fixture fleet gave it.
-  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1331"]')).toHaveClass(/st-alert/)
-  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1338"]')).toHaveClass(/st-stuck/)
-  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1345"]')).toHaveClass(/st-paused/)
-  await expect(controlled).toHaveClass(/st-running/)
+  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1331"]')).toHaveAttribute('data-streamdeck-state', 'alert')
+  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1338"]')).toHaveAttribute('data-streamdeck-state', 'stuck')
+  await expect(page.locator('#sd-keys [data-streamdeck-identifier="1345"]')).toHaveAttribute('data-streamdeck-state', 'paused')
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'running')
   await expect(controlled).toHaveAttribute('data-control-action', 'pause')
 
   // ---------------------------------------------------------------- step 3 --
@@ -213,7 +213,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // paused and its key offers resume. Feedback text alone would not prove this.
   await dialA.click()
   await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(controlled).toHaveClass(/st-paused/)
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'paused')
   await expect(controlled).toHaveAttribute('data-control-action', 'resume')
 
   // Resume from the same key. The press both resumes the agent and re-enters
@@ -311,7 +311,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(pager.locator('.sd-pager-dot')).toHaveCount(windows)
   // The resume actually took: the agent is running again and the fleet has
   // re-sorted back into the exact window the operator started on.
-  await expect(controlled).toHaveClass(/st-running/)
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'running')
   await expect(controlled).toHaveAttribute('data-control-action', 'pause')
   expect(await visibleIdentifiers(page)).toEqual(openingPage)
 })
