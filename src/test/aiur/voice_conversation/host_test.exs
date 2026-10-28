@@ -22,7 +22,8 @@ defmodule Aiur.VoiceConversation.HostTest do
     assert config.provider == {Aiur.VoiceConversation.Provider, [agent_id: "agent_demo"]}
     assert config.credentials == Aiur.VoiceConversation.Credentials
     assert config.agent_channel == nil
-    assert config.command_source == nil
+    assert config.briefing_source == Aiur.VoiceConverse.Host.BriefingSource
+    assert config.command_source == Aiur.VoiceConverse.Host.CommandSource
     assert config.llm == "chosen-model"
     assert config.roles_dir == "/tmp/voice-roles"
     assert config.transcript_root == "/tmp/voice-transcripts"

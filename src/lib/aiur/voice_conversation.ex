@@ -2,7 +2,8 @@ defmodule Aiur.VoiceConversation do
   @moduledoc "Host configuration and lifecycle seam for the read-only Executor voice prototype."
 
   alias Aiur.Config
-  alias Aiur.VoiceConversation.{BriefingSource, Credentials, Provider}
+  alias Aiur.VoiceConversation.{Credentials, Provider}
+  alias Aiur.VoiceConverse.Host.{BriefingSource, CommandSource}
 
   @instance Aiur.VoiceConversation.Instance
   @limit_keys [:max_session_seconds, :idle_timeout_seconds, :daily_minutes_cap, :context_token_budget]
@@ -25,6 +26,7 @@ defmodule Aiur.VoiceConversation do
       provider: provider(settings.agent_id),
       credentials: Credentials,
       briefing_source: BriefingSource,
+      command_source: CommandSource,
       transcript_root: transcript_root,
       llm: settings.llm,
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
