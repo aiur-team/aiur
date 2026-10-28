@@ -110,6 +110,8 @@ defmodule Aiur.Application.Children do
       # and takes this whole supervisor down with it (#2557).
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
       Aiur.AgentPubSub.FleetRefresh,
+      {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
