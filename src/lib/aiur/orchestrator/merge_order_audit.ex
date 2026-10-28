@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.MergeOrderAudit do
   has not landed or is not contained in the merged head. It undoes nothing; the Executor's
   `check-stack-order.sh` is the preventive gate.
   """
-  alias Aiur.{Alerts, GitHub}
+  alias Aiur.{GitHub, Signal}
   alias Aiur.Orchestrator.{State, TrackerTasks}
   alias Aiur.Stacking.{MergeOrder, StackBaseEvidence}
 
@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.MergeOrderAudit do
   defp audit(identifier, number, head, opts) do
     blockers = Keyword.get(opts, :blockers, &StackBaseEvidence.blocker_facts/1).(identifier)
     compare = Keyword.get(opts, :compare, &GitHub.Client.fetch_compare_status/2)
-    emit = Keyword.get(opts, :emit, &Alerts.emit_system/2)
+    emit = Keyword.get(opts, :emit, &Signal.alert/2)
 
     case MergeOrder.verdict(blockers, &contained(compare, &1, head)) do
       :ok ->

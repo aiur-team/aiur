@@ -5,7 +5,7 @@ defmodule AiurWeb.Routes.Capabilities do
   defmacro reads do
     quote do
       scope "/" do
-        pipe_through(:dashboard_auth)
+        pipe_through(:client_token_read)
 
         get("/api/v1/capabilities", AiurWeb.CapabilitiesController, :show)
         match(:*, "/api/v1/capabilities", AiurWeb.CapabilitiesController, :method_not_allowed)

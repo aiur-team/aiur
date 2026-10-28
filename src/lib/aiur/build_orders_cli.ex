@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrdersCLI do
   @moduledoc """
-  Terminal read of the `/build-orders` page: packs, members, completion, edges.
+  Terminal read of the Build Order projection: packs, members, completion, edges.
 
   Completion is never formatted here. Every human string comes from
   `Aiur.BuildOrder.ProgressRenderer.terminal/1` and every JSON object from

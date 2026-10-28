@@ -72,7 +72,7 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
       }
     end)
 
-    assert {:error, :max_concurrent_agents_reached} =
+    assert {:error, {:max_concurrent_agents_reached, %{used: 1, active: 1, paused_holds: 0, limit: 1}}} =
              Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED")
 
     refute_receive {:resume_agent, _request_id}, 100

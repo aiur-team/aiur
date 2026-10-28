@@ -6,6 +6,8 @@ defmodule Aiur.HttpServer do
   require Logger
 
   alias Aiur.{Commands, Config, Orchestrator}
+  alias Aiur.Config.Paths
+  alias AiurWeb.DashboardAuth.Passkeys
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
@@ -45,21 +47,80 @@ defmodule Aiur.HttpServer do
     dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
 
     with {:ok, ip} <- parse_host(host),
-         :ok <- guard_dashboard_credentials(ip, host, dashboard_writable) do
+         :ok <- guard_dashboard_credentials(ip, host, dashboard_writable),
+         :ok <- guard_public_browser_auth(ip, host) do
+      previous_endpoint_config = Application.get_env(:aiur, Endpoint)
+      previous_dashboard_pages = Application.get_env(:aiur, :dashboard_pages)
       configure_endpoint(opts, host, ip, port, dashboard_writable)
 
-      opts
-      |> Keyword.get(:endpoint_start_fun, &Endpoint.start_link/0)
-      |> start_endpoint()
-      |> handle_endpoint_start(opts, host, ip, port)
+      endpoint_result = opts |> Keyword.get(:endpoint_start_fun, &Endpoint.start_link/0) |> start_endpoint()
+
+      case endpoint_result do
+        {:ok, _pid} = success ->
+          handle_endpoint_start(success, opts, host, ip, port)
+
+        :ignore ->
+          :ignore
+
+        failure ->
+          restore_endpoint_env(previous_endpoint_config, previous_dashboard_pages)
+          handle_endpoint_start(failure, opts, host, ip, port)
+      end
     else
       :dashboard_credentials_missing -> :ignore
+      :dashboard_public_auth_missing -> :ignore
       other -> other
     end
   end
 
+  defp restore_endpoint_env(endpoint_config, dashboard_pages) do
+    restore_env(:aiur, Endpoint, endpoint_config)
+    restore_env(:aiur, :dashboard_pages, dashboard_pages)
+  end
+
+  defp restore_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_env(app, key, value), do: Application.put_env(app, key, value)
+
+  defp guard_public_browser_auth(ip, host) do
+    settings = Config.settings!()
+
+    cond do
+      loopback?(ip) ->
+        :ok
+
+      not public_browser_auth_ready?(settings, passkeys_enrolled?: Passkeys.available?()) ->
+        Logger.error(
+          "Aiur dashboard refusing public bind on #{inspect(host)}: disable dashboard_auth.browser_basic_auth " <>
+            "and configure Google sign-in with an email allowlist or enroll a passkey."
+        )
+
+        :dashboard_public_auth_missing
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc false
+  @spec public_browser_auth_ready?(map(), keyword()) :: boolean()
+  def public_browser_auth_ready?(settings, opts \\ []) do
+    auth = settings.dashboard_auth
+    passkeys_enrolled? = Keyword.get(opts, :passkeys_enrolled?, false)
+    public_url = settings.server.public_url
+
+    not auth.browser_basic_auth and public_url_https?(public_url) and
+      (google_sign_in_configured?(auth.google, opts) or passkeys_enrolled?)
+  end
+
+  defp google_sign_in_configured?(google, opts) do
+    google.allowed_emails != [] and
+      present?(Keyword.get(opts, :google_client_id, System.get_env("AIUR_GOOGLE_CLIENT_ID"))) and
+      present?(Keyword.get(opts, :google_client_secret, System.get_env("AIUR_GOOGLE_CLIENT_SECRET")))
+  end
+
   defp configure_endpoint(opts, host, ip, port, dashboard_writable) do
     settings = Config.settings!().server
+    session_max_age_days = Config.settings!().dashboard_auth.session_max_age_days
     public_url = settings.public_url
     endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
@@ -78,7 +139,9 @@ defmodule Aiur.HttpServer do
       orchestrator: Keyword.get(opts, :orchestrator, Orchestrator),
       snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
       dashboard_writable: dashboard_writable,
+      browser_basic_auth: Config.settings!().dashboard_auth.browser_basic_auth,
       dashboard_auth_required: dashboard_writable or not loopback?(ip),
+      public_bind: not loopback?(ip),
       dashboard_pages: Keyword.get(opts, :dashboard_pages?, true),
       decision_api: Keyword.get(opts, :decision_api, Commands.default_api()),
       decision_store: Keyword.get(opts, :decision_store, Commands.default_store()),
@@ -90,7 +153,7 @@ defmodule Aiur.HttpServer do
       session_options: [
         secure: public_url_https?(public_url),
         same_site: "Lax",
-        max_age: 31_536_000,
+        max_age: session_max_age_days * 86_400,
         encryption_salt: "aiur-session-encryption"
       ]
     ]
@@ -113,7 +176,36 @@ defmodule Aiur.HttpServer do
     if address_in_use?(reason), do: port_conflict(opts, host, ip, port), else: error
   end
 
+  defp handle_endpoint_start({:ok, _pid} = result, opts, _host, _ip, _port) do
+    publish_control_url(opts)
+    result
+  end
+
   defp handle_endpoint_start(other, _opts, _host, _ip, _port), do: other
+
+  defp publish_control_url(opts) do
+    with socket when is_binary(socket) and socket != "" <- System.get_env("AIUR_TMUX_SOCKET"),
+         url when is_binary(url) and url != "" <- base_url() do
+      command_fun = Keyword.get(opts, :tmux_command_fun, fn command, args -> System.cmd(command, args, stderr_to_stdout: true) end)
+
+      case command_fun.("tmux", ["-L", socket, "set-option", "-g", "@aiur_control_url", url]) do
+        {_output, 0} ->
+          :ok
+
+        {output, status} ->
+          Logger.warning("Aiur could not publish dashboard URL to tmux (exit #{status}): #{String.trim(output)}")
+
+        other ->
+          Logger.warning("Aiur could not publish dashboard URL to tmux: #{inspect(other)}")
+      end
+    else
+      _ -> :ok
+    end
+  rescue
+    error ->
+      Logger.warning("Aiur could not publish dashboard URL to tmux: #{inspect(error)}")
+      :ok
+  end
 
   # An `aiurdev --test` run shares the host with the live daemon, so it takes a
   # free port rather than running without a dashboard (#5121).
@@ -252,6 +344,8 @@ defmodule Aiur.HttpServer do
   defp loopback?(@loopback_v6), do: true
   defp loopback?(_), do: false
 
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
   # Read-only unless the Executor opted into dashboard writes. Fail closed if
   # config can't be resolved — an observe-only dashboard is the safe default.
   defp dashboard_writable? do
@@ -357,11 +451,16 @@ defmodule Aiur.HttpServer do
         {:error, :instance_key_invalid} -> raise "invalid Aiur instance key for dashboard secret path"
       end
 
-    root = Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
-    Path.join([root, "instances", instance, "secret_key_base"])
+    Path.join([Paths.dashboard_secret_root(), "instances", instance, "secret_key_base"])
   end
 
-  defp public_url_https?(url) when is_binary(url), do: URI.parse(url).scheme == "https"
+  defp public_url_https?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host} when is_binary(host) and host != "" -> true
+      _ -> false
+    end
+  end
+
   defp public_url_https?(_), do: false
 
   defp endpoint_url(url, fallback_host) when is_binary(url) do

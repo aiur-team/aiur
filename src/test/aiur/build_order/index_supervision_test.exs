@@ -3,26 +3,49 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
   use Aiur.TestSupport
   import Aiur.TestSupport.BuildHome.IndexParts, only: [parts: 0]
 
-  test "index is last after every interactive child and absent without dashboard" do
+  test "index follows interactive children before the optional backfill writer and is absent without dashboard" do
     modules = modules(build_index?: true)
-    assert List.last(modules) == AiurWeb.Build.IndexSupervisor
+    assert Enum.take(modules, -2) == [AiurWeb.Build.IndexSupervisor, Aiur.BuildOrder.History.LabelBackfill]
     assert Aiur.Tmux in modules
-    without = Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: false, build_index?: true)
+
+    without =
+      Aiur.Application.child_specs(
+        interactive_cli?: true,
+        headless?: false,
+        dashboard?: false,
+        build_index?: true
+      )
+
     refute Enum.any?(without, &(&1 in [AiurWeb.Build.Index, AiurWeb.Build.IndexSupervisor]))
   end
 
-  # A shared index reread `now` on another test's bus signal and logged read_failed into SignalTest's capture_log (#5164).
-  test "the test VM runs no shared index for other tests' signals to wake" do
-    refute AiurWeb.Build.IndexSupervisor in modules([])
-    refute Process.whereis(AiurWeb.Build.Index)
+  # The shared index stays present for LiveViews, but idle until a subscriber connects.
+  test "the shared test index stays idle for other tests' signals to wake" do
+    assert AiurWeb.Build.IndexSupervisor in modules([])
+    assert index = Process.whereis(AiurWeb.Build.Index)
+    refute :sys.get_state(index).active?
+
+    send(index, {:build_order_history_changed, :changed})
+    refute :sys.get_state(index).active?
   end
 
   test "repeated index crashes do not stop the application supervisor" do
-    entry = List.last(Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: true, build_index?: true))
+    entry =
+      Enum.find(
+        Aiur.Application.child_specs(
+          interactive_cli?: true,
+          headless?: false,
+          dashboard?: true,
+          build_index?: true
+        ),
+        &(&1 == AiurWeb.Build.IndexSupervisor)
+      )
+
     parent = self()
 
     opts = [
       name: nil,
+      idle_without_subscribers?: false,
       subscribe: fn ->
         send(parent, {:index_started, self()})
         :ok
@@ -51,11 +74,22 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
   end
 
   test "application supervisor restarts the build index supervisor" do
-    entry = List.last(Aiur.Application.child_specs(interactive_cli?: true, headless?: false, dashboard?: true, build_index?: true))
+    entry =
+      Enum.find(
+        Aiur.Application.child_specs(
+          interactive_cli?: true,
+          headless?: false,
+          dashboard?: true,
+          build_index?: true
+        ),
+        &(&1 == AiurWeb.Build.IndexSupervisor)
+      )
+
     parent = self()
 
     opts = [
       name: nil,
+      idle_without_subscribers?: false,
       subscribe: fn ->
         send(parent, {:index_started, self()})
         :ok
@@ -73,7 +107,8 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
     receive_barrier({:index_started, _index})
 
     [supervisor_pid] =
-      for {AiurWeb.Build.IndexSupervisor, pid, :supervisor, _} <- Supervisor.which_children(top), do: pid
+      for {AiurWeb.Build.IndexSupervisor, pid, :supervisor, _} <- Supervisor.which_children(top),
+          do: pid
 
     supervisor_ref = Process.monitor(supervisor_pid)
     Process.exit(supervisor_pid, :kill)

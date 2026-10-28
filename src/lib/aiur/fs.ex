@@ -17,7 +17,7 @@ defmodule Aiur.Fs do
 
   @spec atomic_write(Path.t(), iodata(), keyword()) :: :ok | {:error, term()}
   def atomic_write(path, contents, opts \\ []) when is_binary(path) do
-    tmp = path <> ".tmp." <> Integer.to_string(System.unique_integer([:positive]))
+    tmp = path <> ".tmp." <> System.pid() <> "." <> Integer.to_string(System.unique_integer([:positive]))
     mode = Keyword.get(opts, :mode)
 
     result =

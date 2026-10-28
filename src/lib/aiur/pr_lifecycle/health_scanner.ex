@@ -32,9 +32,9 @@ defmodule Aiur.PRLifecycle.HealthScanner do
 
   require Logger
 
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.LocalHold
   alias Aiur.{Signal, Tracker}
 
   @default_interval_ms 30 * 60 * 1_000
@@ -59,7 +59,7 @@ defmodule Aiur.PRLifecycle.HealthScanner do
       stale_hours: Keyword.get(opts, :stale_hours, @default_stale_hours),
       open_prs_fetcher: Keyword.get(opts, :open_prs_fetcher, &default_open_prs/0),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, &default_reviews/1),
-      local_hold_opts: LocalHold.caller_opts(opts),
+      local_hold_opts: Access.transient_retry_opts(opts),
       human_mergers_fun: Keyword.get(opts, :human_mergers_fun, &GitHubConfig.human_mergers/0),
       comment_fun: Keyword.get(opts, :comment_fun, &Tracker.create_comment/2),
       alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
@@ -242,7 +242,7 @@ defmodule Aiur.PRLifecycle.HealthScanner do
   defp flag_stale_if_unreviewed(_pr, state, _now), do: state
 
   defp confirm_unreviewed(pr, number, key, state, now) do
-    case LocalHold.run(fn -> state.reviews_fetcher.(number) end, Map.get(state, :local_hold_opts, [])) do
+    case Access.with_transient_retry(fn -> state.reviews_fetcher.(number) end, Map.get(state, :local_hold_opts, [])) do
       {:ok, reviews} when is_list(reviews) ->
         maybe_alert_stale(state, pr, key, reviews, now)
 

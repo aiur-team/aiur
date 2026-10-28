@@ -20,6 +20,41 @@ defmodule AiurWeb.Build.PayloadTest do
     end
   end
 
+  test "snapshot stores each rendered icon once in the icon catalog" do
+    svg = "<svg><path/></svg>"
+
+    data =
+      fixture()
+      |> put_in(["epics", "bugs", "icon"], "home")
+      |> put_in(["epics", "bugs", "svg"], svg)
+      |> put_in(["features", "khala", "icon"], "home")
+      |> put_in(["features", "khala", "svg"], svg)
+
+    snapshot = Payload.snapshot(data, "E", 1)
+
+    assert snapshot["icons"] == %{"home" => svg}
+    refute Map.has_key?(snapshot["epics"]["bugs"], "svg")
+    refute Map.has_key?(snapshot["features"]["khala"], "svg")
+  end
+
+  test "snapshot compacts feature progress metadata already carried by its lane epic" do
+    metadata = %{"icon" => "cpu", "summary" => "Scheduler and memory work", "wave" => "0b"}
+    progress = Map.merge(metadata, %{"feature" => "kernel", "label" => "Kernel · core", "closed" => 2, "open" => 1, "ci_wait" => 0, "unpublished" => 0, "total" => 3})
+
+    data =
+      fixture()
+      |> put_in(["epics", "f-kernel-core"], Map.merge(%{"key" => "f-kernel-core", "feature" => "kernel", "label" => "Kernel · core", "hue" => 210}, metadata))
+      |> put_in(["features", "kernel"], %{"key" => "kernel", "label" => "Kernel", "icon" => "cpu", "epics" => ["f-kernel-core"]})
+      |> put_in(["feature_progress"], %{"features" => %{"f-kernel-core" => progress}, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => 0, "reason" => nil})
+
+    snapshot = Payload.snapshot(data, "epoch", 1)
+
+    assert Map.take(snapshot["epics"]["f-kernel-core"], ~w(icon summary wave)) == metadata
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "icon")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "summary")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "wave")
+  end
+
   test "runtime reason states remain valid in the Now wire payload" do
     data = fixture()
     row = get_in(data, ["sections", "now", Access.at(0)])
@@ -64,6 +99,38 @@ defmodule AiurWeb.Build.PayloadTest do
     data = fixture() |> update_in(["counts"], &Map.delete(&1, "bugs"))
     assert {:error, errors} = Payload.validate(data)
     assert {"counts.bugs", :missing} in errors
+  end
+
+  test "feature progress is keyed by a feature-local epic and preserves unknown counts" do
+    progress = %{
+      "f-pag-api" => %{
+        "feature" => "pag",
+        "label" => "Pagination · API",
+        "closed" => nil,
+        "open" => 1,
+        "ci_wait" => nil,
+        "unpublished" => 2,
+        "total" => nil,
+        "observed_at" => 1_791_408_000_000,
+        "wave" => "0b",
+        "summary" => "API work",
+        "icon" => nil,
+        "code" => "MP-E8",
+        "plan_version" => "v1",
+        "extras" => nil,
+        "root_number" => 3042,
+        "root_title" => "Home / Build page",
+        "start_date" => "2026-10-01",
+        "reason" => "states unavailable · CI state unknown · planned count unavailable"
+      }
+    }
+
+    data = put_in(fixture(), ["feature_progress"], %{"features" => progress, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => nil, "reason" => nil})
+    assert Payload.validate(data) == :ok
+
+    data = put_in(data, ["feature_progress", "features"], %{"pag" => progress["f-pag-api"]})
+    assert {:error, errors} = Payload.validate(data)
+    assert {"feature_progress.features.pag", :reference} in errors
   end
 
   test "every source must be present" do
@@ -132,8 +199,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    # Realistic PR chips raise the frozen census from 492.33 to 512.98 bytes per row.
-    assert bytes / rows <= 525
+    # Required nullable src/was fields add 22 bytes: frozen census 512.98 -> 534.98 bytes per row.
+    assert bytes / rows <= 547
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)

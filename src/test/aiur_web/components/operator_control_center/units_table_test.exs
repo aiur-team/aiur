@@ -259,6 +259,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert html =~ "No live units."
   end
 
+  test "marks a usage-limit pause as not holding a fleet slot, and only that pause" do
+    limited = Map.put(row_with_tone(:paused), :reasons, %{waiting: :provider_limited, blocking: nil, alert: nil, pause: :usage_limit_exhausted, stuck: nil})
+    render = fn row -> render_component(&UnitsTable.units_table/1, %{view: view([row]), now: ~U[2026-07-17 12:00:00Z]}) end
+
+    assert render.(limited) =~ "Slot released"
+    refute render.(row_with_tone(:paused)) =~ "Slot released"
+  end
+
   test "withholds the zero-unit sentence from the statuses that already account for themselves" do
     # `:loading` has not finished answering the question yet, and `:unavailable`
     # names its own fault twice over — a banner and an in-table row. Either one

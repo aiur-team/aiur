@@ -5,7 +5,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   alias Aiur.BuildOrder.Icon
 
-  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderIcon, DecisionDetail, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, DecisionDetail, LifecycleComponents}
 
   import AiurWeb.OperatorControlCenterComponentsFixtures
 
@@ -94,52 +94,6 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     # Closed ad hoc ticket renders merged at 100%.
     assert html =~ ~s(data-bo-card="1247")
     assert html =~ ~s(class="bo-epic-count">1<)
-  end
-
-  test "renders every presenter-derived icon key through accessible local components" do
-    keys = [
-      :lane_plan_graph,
-      :lane_runtime,
-      :lane_dashboard_ui,
-      :lane_accounting,
-      :lane_platform,
-      :lane_generic,
-      :status_ready,
-      :status_blocking,
-      :status_terminal_unsatisfied,
-      :status_unknown,
-      :status_cyclic,
-      :status_generic,
-      :status_completed,
-      :status_not_planned,
-      :status_paused,
-      :status_retrying,
-      :status_waiting,
-      :status_working
-    ]
-
-    for key <- keys do
-      label = "Accessible #{key}"
-
-      html =
-        render_component(&BuildOrderIcon.build_order_icon/1, %{
-          icon: %Aiur.BuildOrder.Icon{key: key, text: label}
-        })
-
-      assert html =~ ~s(data-icon-key="#{key}")
-      assert html =~ ~s(aria-label="#{label}")
-      assert html =~ ~s(aria-hidden="true")
-    end
-
-    fallback =
-      render_component(&BuildOrderIcon.build_order_icon/1, %{
-        icon: %Aiur.BuildOrder.Icon{key: :from_github_fixture, text: "unsafe fixture icon"}
-      })
-
-    assert fallback =~ ~s(data-icon-key="generic")
-    assert fallback =~ ~s(aria-label="Status unavailable")
-    refute fallback =~ "from_github_fixture"
-    refute fallback =~ "unsafe fixture icon"
   end
 
   test "renders typed card progress, complexity, and a progress bar" do

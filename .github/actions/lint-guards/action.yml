@@ -1,0 +1,41 @@
+name: Repository lint guards
+description: Run repository lint and structural guards after compilation and formatting.
+runs:
+  using: composite
+  steps:
+    - name: Credo + specs
+      shell: bash
+      working-directory: src
+      run: make lint
+    - name: Config docs and Docker dependency guards
+      shell: bash
+      working-directory: .
+      run: python3 scripts/check-config-docs.py && bash website/docs-app/scripts/check-cli-reference.sh && bash website/docs-app/scripts/test-check-cli-reference.sh && python3 scripts/check-docker-path-deps.py && python3 scripts/test-check-docker-path-deps.py
+    - name: Cache component checker toolchain
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: scripts/components/node_modules
+        key: components-${{ runner.os }}-${{ hashFiles('scripts/components/package-lock.json') }}
+    - name: Install component checker toolchain
+      shell: bash
+      working-directory: .
+      run: npm ci --prefix scripts/components --ignore-scripts
+    - name: Component ownership, reference boundaries, fixtures and Build Order script suites
+      shell: bash
+      working-directory: .
+      run: |
+        bash scripts/check-components-ci.sh
+        bash scripts/test-check-components.sh --with-elixir --with-node
+        mise exec -- python3 scripts/test-check-pr-structure.py && bash scripts/test-build-order-scripts.sh
+    - name: .env.example matches the env-var schema
+      shell: bash
+      working-directory: .
+      run: python3 scripts/check-env-example.py
+    - name: Test isolation ratchet and coverage-shard rule
+      shell: bash
+      working-directory: .
+      run: python3 scripts/test-check-test-isolation.py && python3 scripts/check-test-isolation.py && python3 scripts/check-test-shard-parity.py
+    - name: Platform publish/pin drift check
+      shell: bash
+      working-directory: .
+      run: node packaging/scripts/check-platform-drift.mjs

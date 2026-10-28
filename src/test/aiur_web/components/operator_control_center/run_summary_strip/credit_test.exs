@@ -24,9 +24,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
   # cards, so they set the env in-process and restore it afterwards.
   import AiurWeb.OperatorControlCenter.RunSummaryStripFixtures
 
-  # A prepaid balance with a durable baseline renders a real spend percentage
-  # alongside the dollar amount: a real bar plus a "Y% used" meta.
-  test "a credit window with a baseline renders the spend percentage and the dollar amount" do
+  # A prepaid balance with a durable baseline renders its remaining share
+  # alongside the dollar amount.
+  test "a credit window with a baseline renders the remaining percentage and dollar amount" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -59,16 +59,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
           now: @now
         })
 
-      assert html =~ ~s(<span class="rs-pc">2%</span>) and html =~ ~s(<b class="rs-usd">$49.05</b>)
-      # The bar renders the measured spend percentage itself (1.9% used), not an
-      # empty 0%: the probe attaches `used_percent` without a separate `meter`
-      # key, and the strip reads it directly.
-      assert html =~ ~s(<i class="" style="width:1.9%">)
+      assert html =~ ~s(<span class="rs-pc">98% left</span>) and html =~ ~s(<b class="rs-usd">$49.05</b>)
+      assert html =~ ~s(style="width:98.1%")
     end)
   end
 
-  # Rule 9: an exhausted prepaid balance bar (100% used) renders red.
-  test "an exhausted prepaid balance bar renders red" do
+  # An exhausted prepaid balance has no headroom and renders an empty critical bar.
+  test "an exhausted prepaid balance bar renders empty and red" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -84,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
                 kind: :credit,
                 name: :credits,
                 coverage_label: "Supported",
-                used_percent: 100.0,
+                remaining_percent: 0.0,
                 credits: %{status: :exhausted, label: "Exhausted", amount: 0},
                 expires_at: DateTime.add(@now, 5, :minute)
               }
@@ -102,7 +99,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
         })
 
       assert html =~ ~s(<b class="rs-usd">$0.00</b>)
-      assert html =~ ~s(class="is-critical" style="width:100.0%")
+      assert html =~ ~s(<span class="rs-pc is-critical">0% left</span>)
+      assert html =~ ~s(aria-valuenow="0.0")
+      refute html =~ ~s(style="width:0%")
     end)
   end
 
@@ -184,7 +183,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
           now: @now
         })
 
-      assert html =~ ~s(<span class="rs-pc">2%</span>) and html =~ ~s(<b class="rs-usd">$49.05</b>)
+      assert html =~ ~s(<span class="rs-pc">98% left</span>) and html =~ ~s(<b class="rs-usd">$49.05</b>)
       refute html =~ "stale"
     end)
   end
@@ -233,9 +232,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
           now: @now
         })
 
-      assert html =~ "100%"
+      assert html =~ ~s(<span class="rs-pc is-critical">0% left</span>)
       refute html =~ "stale"
-      assert html =~ ~s(class="is-critical" style="width:100%")
+      assert html =~ ~s(aria-valuenow="0")
+      refute html =~ ~s(style="width:0%")
     after
       restore_app_env(:aiur, :workflow_file_path, previous_path)
       File.rm_rf(dir)
@@ -375,5 +375,38 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
     refute html =~ "Kimi"
     refute html =~ "DeepSeek"
     refute html =~ "OpenRouter"
+  end
+
+  test "Netlify card renders age and keeps zero distinct from unavailable" do
+    base = %{
+      run: %{state: :loading},
+      usage: %{state: :ready, providers: %{}},
+      meters: %{state: :authorized, cards: []},
+      netlify_dashboard: nil,
+      now: @now
+    }
+
+    zero_html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        base
+        | netlify_dashboard: %{
+            enabled?: true,
+            snapshot: %{state: :ready, age_ms: 61_000, fields: %{credits: %{estimated_remaining: 0, runway_days: 0}, sites: [], account: %{usages_exceeded: false}}}
+          }
+      })
+
+    assert zero_html =~ "Estimated credits: 0.0"
+    assert zero_html =~ "observed 61s ago"
+    assert zero_html =~ "0 sites · within usage limits"
+
+    unavailable_html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        base
+        | netlify_dashboard: %{enabled?: true, snapshot: %{state: :unavailable, age_ms: 61_000, fields: %{credits: %{estimated_remaining: nil}, sites: [], account: %{}}}}
+      })
+
+    assert unavailable_html =~ "Estimated credits: unavailable"
+    refute unavailable_html =~ "Estimated credits: 0.0"
+    refute unavailable_html =~ "0 sites"
   end
 end

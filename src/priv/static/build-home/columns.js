@@ -1,3 +1,4 @@
+import { activeFeature } from './features.js';
 import { S, ctx, fx, LH, gutW } from './state.js';
 import { esc } from './dom.js';
 import { dayKey } from './util.js';
@@ -10,7 +11,7 @@ let leaveSeq = 0;
 
 export function visibleCols() {
   if (S.flow) return Array.from({ length: S.K }, (_, i) => "s" + i);
-  if (S.feature && ctx.D.features[S.feature]) return featureCols();
+  if (activeFeature()) return featureCols();
   /* history: columns change per whole visible day, not per card; forward (now + planned + not queued) is one fixed set */
   const st = ctx.vp.scrollTop, chh = ctx.vp.clientHeight, vis = new Set();
   const hs = ctx.L.secs.hist, htop = ctx.secs.hist.el.offsetTop, a = st - htop + LH, b = st - htop + chh;
@@ -22,8 +23,8 @@ export function visibleCols() {
   return ctx.D.order.filter((k) => vis.has(k));
 }
 function featureCols() {
-  const F = S.feature, items = ['hist', 'plan', 'nq'].flatMap(sec => ctx.L.secs[sec].items), set = new Set();
-  const featureItems = items.filter(it => belongsToFeature(it.t, F));
+  const F = activeFeature(), items = ['hist', 'plan', 'nq'].flatMap(sec => ctx.L.secs[sec].items), set = new Set();
+  const featureItems = items.filter(it => it.ghost || belongsToFeature(it.t, F));
   featureItems.forEach(it => set.add(it.key));
   if (S.fmode === 'compact') {
     const featureIds = new Set(featureItems.map(it => it.t.id));
@@ -50,11 +51,11 @@ function applyColsImpl(next, immediate) {
   if (S.flow) { ctx.laneEls.forEach((el) => el.remove()); ctx.laneEls.clear(); ctx.guideEls.forEach((el) => el.remove()); ctx.guideEls.clear(); ctx.lanesEl.querySelector(".bd-lane-g").textContent = "Colour = epic"; ctx.R.forEach((el) => place(el, el._it)); ctx.L.band.items.forEach((it) => place(it.el, it)); ctx.svg.classList.add("hide"); fx.drawEdgesSoon(immediate ? 30 : 380); return; }
   ctx.lanesEl.querySelector(".bd-lane-g").textContent = S.view === "gantt" ? "Time" : "Order";
   syncKeyed(ctx.laneEls, ctx.lanesEl, "bd-lane", (k, el) => {
-    const e = ctx.D.epics[k], locked = S.feature && ctx.D.features[S.feature] && ctx.D.features[S.feature].epics.includes(k);
+    const e = ctx.D.epics[k], locked = activeFeature() && ctx.D.features[S.feature].epics.includes(k);
     el.className = "bd-lane" + (e.temp ? " temp" : "") + (e.unsorted ? " unsorted" : "") + (locked ? " lock" : "");
     el.style.setProperty("--h", e.hue);
     el.title = e.temp ? e.label + " — short-lived feature epic" : e.label;
-    el.innerHTML = I[e.icon] + "<span>" + esc(e.label) + "</span><em>" + (locked ? I.lock : (Number.isInteger(ctx.D.counts?.[k]) ? ctx.D.counts[k] : "—")) + "</em>";
+    el.innerHTML = (ctx.D.icons?.[e.icon] || e.svg || I[e.icon] || "") + "<span>" + esc(e.label) + "</span><em>" + (locked ? I.lock : (Number.isInteger(ctx.D.counts?.[k]) ? ctx.D.counts[k] : "—")) + "</em>";
     if (!locked && !Number.isInteger(ctx.D.counts?.[k])) el.querySelector("em").title = "Ticket count unavailable";
   }, (el, k) => { const c = ctx.colMap[k]; el.style.left = c.x + "px"; el.style.width = c.w + "px"; el.classList.toggle("first", ctx.cols[0] === k); });
   syncKeyed(ctx.guideEls, ctx.guidesEl, "bd-guide", () => {}, (el, k) => { const c = ctx.colMap[k]; el.style.left = (c.x - gap / 2) + "px"; el.style.width = (c.w + gap) + "px"; });

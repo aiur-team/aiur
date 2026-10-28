@@ -46,7 +46,7 @@ test('hidden rollback routes return to Build through the visible navigation', as
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
 
-  for (const path of ['/units?v=1&scope=none', '/build-orders']) {
+  for (const path of ['/units?v=1&scope=none']) {
     await page.goto(path)
     await expect(page.getByRole('link', { name: 'Units', exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Build Order', exact: true })).toHaveCount(0)

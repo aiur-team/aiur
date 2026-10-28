@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.PollSnapshots do
+  alias Aiur.GitHub.Access
+
   @moduledoc """
   Complete, short-lived selection snapshots shared by webhook and poll reads.
 
@@ -8,15 +10,13 @@ defmodule Aiur.GitHub.PollSnapshots do
   not introduce another GitHub request.
   """
 
-  alias Aiur.GitHub.ResourceStore
-
   @delivery_fresh_ms 30_000
 
-  @spec review_threads_key(String.t(), term()) :: ResourceStore.key() | nil
-  def review_threads_key(repo, pr_number), do: ResourceStore.key_for_repo(:pr_review_threads, repo, pr_number)
+  @spec review_threads_key(String.t(), term()) :: Access.key() | nil
+  def review_threads_key(repo, pr_number), do: Access.key_for_repo(:pr_review_threads, repo, pr_number)
 
-  @spec ci_contexts_key(String.t(), term()) :: ResourceStore.key() | nil
-  def ci_contexts_key(repo, target), do: ResourceStore.key_for_repo(:ci_contexts, repo, target)
+  @spec ci_contexts_key(String.t(), term()) :: Access.key() | nil
+  def ci_contexts_key(repo, target), do: Access.key_for_repo(:ci_contexts, repo, target)
 
   @doc false
   @spec put_executor_sweep_pr(String.t(), term(), map()) :: :ok | :unchanged
@@ -41,9 +41,9 @@ defmodule Aiur.GitHub.PollSnapshots do
 
     case Map.get(facts, "updated_at") do
       marker when is_binary(marker) and marker != "" ->
-        key = ResourceStore.key_for_repo(:branch_pull_request, repo, ticket)
+        key = Access.key_for_repo(:branch_pull_request, repo, ticket)
 
-        ResourceStore.update_resource(
+        Access.update_resource(
           key,
           &merge_executor_sweep_pr(&1, &2, marker, facts),
           source: :poll,
@@ -58,7 +58,7 @@ defmodule Aiur.GitHub.PollSnapshots do
   end
 
   defp merge_executor_sweep_pr(held, metadata, marker, facts) do
-    if ResourceStore.regression?(metadata.version, marker),
+    if Access.regression?(metadata.version, marker),
       do: :unchanged,
       else: Map.merge(if(is_map(held), do: held, else: %{}), facts)
   end
@@ -113,7 +113,7 @@ defmodule Aiur.GitHub.PollSnapshots do
   def merge_review_thread(repo, pr_number, %{"id" => id} = delivered, opts) when is_binary(id) and id != "" do
     source = Keyword.get(opts, :source, :webhook)
 
-    ResourceStore.update_resource(
+    Access.update_resource(
       review_threads_key(repo, pr_number),
       fn
         %{"complete" => true, "threads" => threads} = held when is_list(threads) ->
@@ -143,7 +143,7 @@ defmodule Aiur.GitHub.PollSnapshots do
   @spec merge_check_run(String.t(), term(), String.t(), map()) :: :ok | :unchanged
   def merge_check_run(repo, target, head_sha, %{"id" => id} = delivered)
       when is_binary(head_sha) and head_sha != "" and not is_nil(id) do
-    ResourceStore.update_resource(
+    Access.update_resource(
       ci_contexts_key(repo, target),
       fn
         %{
@@ -173,20 +173,20 @@ defmodule Aiur.GitHub.PollSnapshots do
 
   @spec invalidate_review_threads(String.t(), term()) :: :ok
   def invalidate_review_threads(repo, pr_number) do
-    ResourceStore.drop_data(review_threads_key(repo, pr_number))
+    Access.drop_data(review_threads_key(repo, pr_number))
   end
 
   @doc "Retire a delivery-backed CI snapshot when a pull request lifecycle event arrives."
   @spec invalidate_ci_contexts(String.t(), term()) :: :ok
   def invalidate_ci_contexts(repo, target) do
-    ResourceStore.drop_data(ci_contexts_key(repo, target))
+    Access.drop_data(ci_contexts_key(repo, target))
   end
 
   defp delivery_snapshot(key, opts) do
     now_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
     fresh_ms = Keyword.get(opts, :delivery_fresh_ms, @delivery_fresh_ms)
 
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, %{data: data, source: :webhook, fetched_at_ms: fetched_at_ms}}
       when is_integer(fetched_at_ms) and now_ms - fetched_at_ms <= fresh_ms and now_ms >= fetched_at_ms ->
         {:ok, data}
@@ -199,7 +199,7 @@ defmodule Aiur.GitHub.PollSnapshots do
   defp put_polled_snapshot(key, snapshot, opts) do
     started_at_ms = Keyword.get(opts, :started_at_ms, System.system_time(:millisecond))
 
-    ResourceStore.update_resource(
+    Access.update_resource(
       key,
       fn _held, metadata ->
         case Map.get(metadata, :fetched_at_ms) do

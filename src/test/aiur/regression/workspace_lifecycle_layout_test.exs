@@ -23,6 +23,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleLayoutTest do
         Enum.each(stale_locks, fn lock ->
           File.mkdir_p!(Path.dirname(lock))
           File.write!(lock, "stale\n")
+          set_stale_mtime!(lock)
         end)
 
         assert :ok = Workspace.ensure_git_metadata_writable(workspace)
@@ -44,6 +45,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleLayoutTest do
         stale_lock = Path.join([workspace, ".git", "refs", "remotes", "origin", "feature", "x.lock"])
         File.mkdir_p!(Path.dirname(stale_lock))
         File.write!(stale_lock, "stale\n")
+        set_stale_mtime!(stale_lock)
 
         assert :ok = Workspace.ensure_git_metadata_writable(workspace)
         refute File.exists?(stale_lock)
@@ -318,5 +320,10 @@ defmodule Aiur.Regression.WorkspaceLifecycleLayoutTest do
   defp git!(args) do
     {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
     output
+  end
+
+  defp set_stale_mtime!(path) do
+    timestamp = DateTime.to_unix(DateTime.add(DateTime.utc_now(), -180, :second))
+    {_, 0} = System.cmd("touch", ["-d", "@#{timestamp}", path])
   end
 end

@@ -9,7 +9,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
   require Logger
 
   alias Aiur.Config.ObservabilitySettings
-  alias Aiur.GitHub.Errors
+  alias Aiur.GitHub.Access
   alias Aiur.RunTelemetry.{GitHubFacts, Lifecycle, Summaries, Writer}
 
   @completion_limit 10_000
@@ -158,7 +158,7 @@ defmodule Aiur.RunTelemetry.FactsCapture do
 
   defp finish(state, ticket, result) do
     entry = Map.fetch!(state.pending, ticket)
-    held = Errors.outcome(result) == :held or result == {:error, :github_budget_broker_timeout}
+    held = Access.outcome(result) == :held or result == {:error, :github_budget_broker_timeout}
     attempts = entry["attempts"] + if(held, do: 0, else: 1)
 
     if attempts >= 3 do

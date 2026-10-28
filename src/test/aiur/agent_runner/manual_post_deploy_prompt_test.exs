@@ -5,6 +5,21 @@ defmodule Aiur.AgentRunner.ManualPostDeployPromptTest do
   @shared_prompt Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")
   @agent_dev_loop Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")
 
+  test "treats a slow build gate as a wait and uses a resume state at time limits" do
+    prompt = File.read!(@shared_prompt)
+    gate_guidance = String.split(prompt, "### Slow shared build gate", parts: 2) |> List.last()
+
+    assert gate_guidance =~ "keep waiting for it to finish"
+    assert gate_guidance =~ "instead of retrying it, ending the session, or"
+    assert gate_guidance =~ "setting `agent:error`"
+    assert gate_guidance =~ "aiur_set_ticket_state({\"state\": \"rework\"})"
+    assert gate_guidance =~ "end the turn with the workspace and workpad intact"
+    assert gate_guidance =~ "Aiur's normal continuation/recycle path can resume it"
+    assert gate_guidance =~ "Never set"
+    assert gate_guidance =~ "`agent:error` just because time ran out"
+    assert gate_guidance =~ "existing workspace rather than restart setup"
+  end
+
   test "routes workspace-inaccessible hands-on checks to explicit post-deploy gates" do
     prompt = File.read!(@shared_prompt)
 

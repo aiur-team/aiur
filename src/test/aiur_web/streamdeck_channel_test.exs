@@ -107,6 +107,38 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert {:ok, _generation, _expires_at_ms} = StreamdeckAuth.verify_token(token)
   end
 
+  test "a client bearer token can request and revoke Stream Deck socket credentials" do
+    path = Path.join(System.tmp_dir!(), "aiur-streamdeck-client-token-#{System.unique_integer([:positive])}.json")
+    previous = Application.get_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+    assert {:ok, client_token} = Aiur.ClientTokens.create("stream-deck", "write")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    authorized =
+      :post
+      |> conn("/api/v1/streamdeck/token")
+      |> put_req_header("authorization", "Bearer #{client_token}")
+      |> Endpoint.call(Endpoint.init([]))
+
+    assert authorized.status == 200
+    assert %{"token" => socket_token, "expires_in_seconds" => 300} = Jason.decode!(authorized.resp_body)
+    assert {:ok, _generation, _expires_at_ms} = StreamdeckAuth.verify_token(socket_token)
+
+    assert :ok = Aiur.ClientTokens.revoke("stream-deck")
+
+    revoked =
+      :post
+      |> conn("/api/v1/streamdeck/token")
+      |> put_req_header("authorization", "Bearer #{client_token}")
+      |> Endpoint.call(Endpoint.init([]))
+
+    assert revoked.status == 401
+  end
+
   test "expired socket tokens are rejected even when their signature is valid" do
     assert {:ok, token} = StreamdeckAuth.issue_token()
     assert {:ok, generation, _expires_at_ms} = StreamdeckAuth.verify_token(token)

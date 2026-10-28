@@ -12,10 +12,15 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, closed]
     paths:
       - "website/**"
+      - "packages/aiur-style/**"
       - "components.json"
       - "components/**"
       - "components.schema.json"
+      - "scripts/check-aiur-style-duplicates.mjs"
       - "scripts/check-docs-prose.mjs"
+      - "scripts/carry-reference-edits.py"
+      - "scripts/test-reference-carry.py"
+      - "scripts/reference-sections.tsv"
       - ".github/workflows/website.yml"
   push:
     # Validate the website/docs build on main itself (PR branches alone let a
@@ -24,10 +29,15 @@ on:
       - main
     paths:
       - "website/**"
+      - "packages/aiur-style/**"
       - "components.json"
       - "components/**"
       - "components.schema.json"
+      - "scripts/check-aiur-style-duplicates.mjs"
       - "scripts/check-docs-prose.mjs"
+      - "scripts/carry-reference-edits.py"
+      - "scripts/test-reference-carry.py"
+      - "scripts/reference-sections.tsv"
       - ".github/workflows/website.yml"
 
 # Initial PR runs share a stable group; reruns and every non-PR event get a
@@ -61,6 +71,17 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: website/package-lock.json
+      - name: Guard shared style ownership
+        working-directory: .
+        run: node scripts/check-aiur-style-duplicates.mjs --self-test && node scripts/check-aiur-style-duplicates.mjs
+      - name: Install style package
+        working-directory: packages/aiur-style
+        run: npm ci
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with: { bun-version: "1.4.2" }
+      - name: Prove Netlify dependency install
+        run: bun install --frozen-lockfile && bun run build
       - name: Install deps
         run: npm ci
       - name: Typecheck
@@ -72,8 +93,6 @@ jobs:
         run: node scripts/test-published-docs.mjs
       - name: Build
         run: npm run build
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
       - name: Install docs deps
         working-directory: website/docs-app
         run: bun install --frozen-lockfile
@@ -82,7 +101,7 @@ jobs:
         run: npm run check:cli-reference && bash scripts/test-check-cli-reference.sh
       - name: Build docs
         working-directory: website/docs-app
-        run: bun run build
+        run: python3 scripts/test-cli-reference.py && python3 ../../scripts/test-reference-carry.py && bun run build
       - name: Test components loader
         working-directory: website/docs-app
         run: bun run test:components

@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   GitHub native Issue Dependencies REST API domain.
   """
 
-  alias Aiur.GitHub.{Errors, ResourceStore, Transport, WriteThrough}
+  alias Aiur.GitHub.{Access, WriteThrough}
 
   # ---------------------------------------------------------------------------
   # Issue Dependencies REST API helpers
@@ -14,6 +14,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   # `2022-11-28` since the issue/comment surfaces they hit are stable.
 
   @dependencies_api_version "2026-03-10"
+  @max_dependency_pages 10
 
   @doc """
   Fetches the issues `issue_number` is currently blocked by, using the
@@ -39,8 +40,9 @@ defmodule Aiur.GitHub.DependenciesApi do
   (note: the API takes the blocker's *internal numeric id*, not its
   issue number — fetch it via `fetch_issue/2` first if needed).
 
-  422 errors typically mean a cycle was detected by GitHub; the caller
-  is responsible for pre-checking via BFS through `fetch_blocked_by/2`.
+  GitHub documents 422 as a validation failure or spam response, not a
+  cycle-specific status. Callers should pre-check with BFS through
+  `fetch_blocking/2` and preserve other upstream 422 causes.
   """
   @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -61,28 +63,14 @@ defmodule Aiur.GitHub.DependenciesApi do
   def dependency_get(issue_number, "blocked_by", opts), do: blocked_by_get(issue_number, opts)
 
   def dependency_get(issue_number, kind, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}"
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}?per_page=100"
 
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             api_version: @dependencies_api_version
-           }) do
-        {:ok, %{status: 200, body: body}} when is_list(body) ->
-          {:ok, body}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
+      fetch_dependency_pages(request_fun, token, url, [], 0)
     end
   end
 
@@ -98,11 +86,11 @@ defmodule Aiur.GitHub.DependenciesApi do
   # cannot be missed for longer than that bound (fail-closed). See
   # `revalidation_etag/2` for why that read cannot be a conditional one.
   defp blocked_by_get(issue_number, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      key = ResourceStore.key(:issue_blocked_by, owner, repo, issue_number)
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/blocked_by"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      key = Access.key(:issue_blocked_by, owner, repo, issue_number)
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/blocked_by?per_page=100"
       blocked_by_serve(key, request_fun, token, url, opts)
     end
   end
@@ -112,14 +100,14 @@ defmodule Aiur.GitHub.DependenciesApi do
   # cannot be silently missed).
   defp blocked_by_serve(key, request_fun, token, url, opts) do
     if served_blocked_by?(key, opts) do
-      {:ok, ResourceStore.data(key)}
+      {:ok, Access.data(key)}
     else
       blocked_by_request(key, request_fun, token, url, revalidation_etag(key, opts))
     end
   end
 
   defp served_blocked_by?(key, opts) do
-    not is_nil(key) and not Keyword.get(opts, :revalidate, false) and is_list(ResourceStore.data(key))
+    not is_nil(key) and not Keyword.get(opts, :revalidate, false) and is_list(Access.data(key))
   end
 
   # `revalidate: true` means "I need the truth", and on this endpoint the stored
@@ -141,7 +129,7 @@ defmodule Aiur.GitHub.DependenciesApi do
     if Keyword.get(opts, :revalidate, false), do: nil, else: stored_etag(key)
   end
 
-  defp stored_etag(key), do: if(is_nil(key), do: nil, else: ResourceStore.etag(key))
+  defp stored_etag(key), do: if(is_nil(key), do: nil, else: Access.etag(key))
 
   # One GET, conditional only when a validator was handed in (see
   # `revalidation_etag/2`). A `304` is served from the held body; a `304` with no
@@ -154,21 +142,66 @@ defmodule Aiur.GitHub.DependenciesApi do
 
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
-
-        if not is_nil(key),
-          do: ResourceStore.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
-
-        {:ok, body}
+        blocked_by_success(key, request_fun, token, etag, body, response)
 
       {:ok, %{status: 304}} ->
         blocked_by_not_modified(key, request_fun, token, url, etag)
 
       {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
+    end
+  end
+
+  defp blocked_by_success(key, request_fun, token, etag, body, response) do
+    next = Access.parse_next_page_url(Map.get(response, :headers, []))
+
+    # A prior build may have cached only page one. Remove that body and validator
+    # before following pagination so failures cannot leave a truncated list to
+    # be served by a later reader.
+    if next do
+      Access.drop_data(key)
+      Access.drop_etag(key)
+    end
+
+    with {:ok, complete_body} <- fetch_dependency_pages(request_fun, token, next, body, 1) do
+      cache_blocked_by(key, next, complete_body, response, etag)
+      {:ok, complete_body}
+    end
+  end
+
+  defp cache_blocked_by(key, nil, body, response, etag) when not is_nil(key) do
+    retained = Access.header(Map.get(response, :headers, []), "etag") || etag
+    Access.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
+  end
+
+  defp cache_blocked_by(key, next, body, _response, _etag) when not is_nil(key) and is_binary(next) do
+    Access.deposit_unless_older(key, body, source: :fetch, etag: nil, version: blocked_by_version(body))
+  end
+
+  defp cache_blocked_by(_key, _next, _body, _response, _etag), do: :ok
+
+  defp fetch_dependency_pages(_request_fun, _token, nil, acc, _pages_fetched), do: {:ok, acc}
+
+  defp fetch_dependency_pages(_request_fun, _token, _url, _acc, pages_fetched)
+       when pages_fetched >= @max_dependency_pages,
+       do: {:error, :dependency_page_limit_exceeded}
+
+  defp fetch_dependency_pages(request_fun, token, url, acc, pages_fetched) do
+    request = %{method: :get, url: url, token: token, api_version: @dependencies_api_version}
+
+    case request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        next = Access.parse_next_page_url(Map.get(response, :headers, []))
+        fetch_dependency_pages(request_fun, token, next, acc ++ body, pages_fetched + 1)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Access.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -215,14 +248,14 @@ defmodule Aiur.GitHub.DependenciesApi do
   defp held_blocked_by(nil), do: :missing
 
   defp held_blocked_by(key) do
-    case ResourceStore.data(key) do
+    case Access.data(key) do
       body when is_list(body) -> {:ok, body}
       _other -> :missing
     end
   end
 
   defp retry_blocked_by(key, request_fun, token, url, etag) when not is_nil(etag) do
-    if not is_nil(key), do: ResourceStore.drop_etag(key)
+    if not is_nil(key), do: Access.drop_etag(key)
     blocked_by_request(key, request_fun, token, url, nil)
   end
 
@@ -232,12 +265,12 @@ defmodule Aiur.GitHub.DependenciesApi do
   @spec dependency_mutate(integer() | String.t(), integer(), atom(), keyword()) ::
           {:ok, map() | :removed} | {:error, term()}
   def dependency_mutate(blocked_number, blocker_id, method, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       collection_url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{blocked_number}/dependencies/blocked_by"
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{blocked_number}/dependencies/blocked_by"
 
       url = if method == :delete, do: "#{collection_url}/#{blocker_id}", else: collection_url
 
@@ -257,7 +290,7 @@ defmodule Aiur.GitHub.DependenciesApi do
           # post-write check would report `:dependency_still_present` for an edge
           # that is gone, so the entry is invalidated and the confirming read
           # revalidates instead.
-          ResourceStore.drop_data(ResourceStore.key(:issue_blocked_by, owner, repo, blocked_number))
+          Access.drop_data(Access.key(:issue_blocked_by, owner, repo, blocked_number))
           {:ok, :removed}
 
         {:ok, %{status: status, body: body}} when status in [200, 201] and is_map(body) ->
@@ -269,10 +302,10 @@ defmodule Aiur.GitHub.DependenciesApi do
           {:ok, body}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -287,12 +320,12 @@ defmodule Aiur.GitHub.DependenciesApi do
   # (review #2332). The write carries the blocker's own marker and derives a
   # content validator so a revalidating read stays free.
   defp record_blocked_edge(blocked_number, blocker_issue, owner, repo) do
-    case ResourceStore.key(:issue_blocked_by, owner, repo, blocked_number) do
+    case Access.key(:issue_blocked_by, owner, repo, blocked_number) do
       nil ->
         :ok
 
       key ->
-        ResourceStore.update_resource(
+        Access.update_resource(
           key,
           &merge_blocked_edge(&1, blocker_issue),
           source: :mutation,

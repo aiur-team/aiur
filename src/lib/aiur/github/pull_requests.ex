@@ -4,19 +4,62 @@ defmodule Aiur.GitHub.PullRequests do
   """
 
   alias Aiur.Codeowners
-  alias Aiur.GitHub.{ChangedPaths, Comments, Errors, ResourceFetch, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, ChangedPaths, Comments}
   alias Aiur.GitHub.PullRequests.{BaseBranch, OpenPullRequests}
   alias Aiur.GitHub.PullRequests.CommitCiStatus
 
   @issue_events_page 100
 
+  @doc "Fetches commit messages for a pull request, across all pages, cached by its head SHA."
+  @spec fetch_pull_request_commits(pos_integer(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_pull_request_commits(number, opts \\ [])
+
+  def fetch_pull_request_commits(number, opts) when is_integer(number) and number > 0 do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      fetch = fn ->
+        request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+        url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{number}/commits?per_page=100"
+        fetch_commit_messages(request_fun, token, url, 0, [])
+      end
+
+      Access.pull_request_commits("#{owner}/#{repo}", number, Keyword.get(opts, :head_sha), fetch)
+    end
+  end
+
+  def fetch_pull_request_commits(_number, _opts), do: {:error, :invalid_pull_request_number}
+
+  defp fetch_commit_messages(_request_fun, _token, _url, 100, _acc), do: {:error, :pull_request_commit_list_too_large}
+
+  defp fetch_commit_messages(request_fun, token, url, page, acc) do
+    with {:ok, %{status: 200, body: commits} = response} <- request_fun.(%{method: :get, url: url, token: token, caller: "pull_request_commits"}),
+         true <- is_list(commits),
+         {:ok, messages} <- commit_messages(commits) do
+      case Access.parse_next_page_url(Map.get(response, :headers, [])) do
+        nil -> {:ok, acc ++ messages}
+        next -> fetch_commit_messages(request_fun, token, next, page + 1, acc ++ messages)
+      end
+    else
+      {:ok, %{status: _status} = response} -> {:error, Access.github_status_error(response)}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
+      false -> {:error, :invalid_pull_request_commit}
+    end
+  end
+
+  defp commit_messages(commits) do
+    messages = Enum.map(commits, &get_in(&1, ["commit", "message"]))
+    if Enum.all?(messages, &is_binary/1), do: {:ok, messages}, else: {:error, :invalid_pull_request_commit}
+  end
+
+  defdelegate update_body(number, body, opts \\ []), to: Aiur.GitHub.PullRequests.BodyUpdater
+
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
   def fetch_pull_request_changed_paths(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
 
       case Comments.fetch_repo_comment_stream(request_fun, token, url, [], caller: "pull_request_changed_paths") do
         {:ok, files} ->
@@ -43,20 +86,20 @@ defmodule Aiur.GitHub.PullRequests do
           {:ok, [{String.t(), String.t()}]} | {:error, term()}
   def fetch_compare_files(base_sha, head_sha, opts \\ [])
       when is_binary(base_sha) and is_binary(head_sha) and base_sha != "" and head_sha != "" do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/compare/#{base_sha}...#{head_sha}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/compare/#{base_sha}...#{head_sha}"
 
       case request_fun.(%{method: :get, url: url, token: token}) do
         {:ok, %{status: 200, body: %{"files" => files}}} when is_list(files) ->
           {:ok, Enum.map(files, &compare_file_fingerprint/1) |> Enum.reject(&is_nil/1)}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -73,11 +116,11 @@ defmodule Aiur.GitHub.PullRequests do
   @spec fetch_pull_request_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_pull_request_review_comments(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       query = Comments.comment_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?#{query}"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?#{query}"
 
       Comments.fetch_repo_comment_stream(request_fun, token, url, [], caller: "pull_request_review_comments")
     end
@@ -96,34 +139,34 @@ defmodule Aiur.GitHub.PullRequests do
 
   The read is single-page in practice — `per_page=100` is GitHub's ceiling and
   no active PR has that many reviews — so a page-1 `304` *is* the whole-list
-  answer. `Transport.fetch_json_list_conditional/4` asserts the single-page
+  answer. `Access.fetch_json_list_conditional/4` asserts the single-page
   claim and refuses a response that points at a next page rather than silently
   answering a truncated list (#2330).
   """
   @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_pull_request_reviews_conditional(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
 
-      Transport.fetch_json_list_conditional(request_fun, token, url, Keyword.get(opts, :etag), caller: "pull_request_reviews_conditional")
+      Access.fetch_json_list_conditional(request_fun, token, url, Keyword.get(opts, :etag), caller: "pull_request_reviews_conditional")
     end
   end
 
   @doc "Fetch formal PR reviews for cold agent context with a fresh validator and CODEOWNERS classification."
   @spec fetch_classified_pr_reviews(String.t() | integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_reviews(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
          context when is_map(context) <- Codeowners.repo_ownership(opts) do
-      key = ResourceStore.key_for_repo(:pull_request_reviews, "#{owner}/#{repo}", pr_number)
+      key = Access.key_for_repo(:pull_request_reviews, "#{owner}/#{repo}", pr_number)
 
       fetcher = fn fetch_opts ->
         fetch_pull_request_reviews_conditional(pr_number, Keyword.merge(opts, fetch_opts))
       end
 
-      case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "cold agent review context") do
+      case Access.resource_need(key, fetcher, freshness: Access.resource_decision(), reason: "cold agent review context") do
         {:ok, reviews, _meta} when is_list(reviews) ->
           {:ok, Enum.map(reviews, &Codeowners.classify_comment(&1, context, opts))}
 
@@ -161,11 +204,11 @@ defmodule Aiur.GitHub.PullRequests do
   def fetch_commit_ci_status(sha, opts \\ [])
 
   def fetch_commit_ci_status(sha, opts) when is_binary(sha) and sha != "" do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       encoded_sha = URI.encode(sha)
-      base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{encoded_sha}"
+      base_url = "#{Access.base_url()}/repos/#{owner}/#{repo}/commits/#{encoded_sha}"
 
       CommitCiStatus.fetch(owner, repo, sha, base_url, request_fun, token)
     end
@@ -177,12 +220,12 @@ defmodule Aiur.GitHub.PullRequests do
   def fetch_commit_timestamp(sha, opts \\ [])
 
   def fetch_commit_timestamp(sha, opts) when is_binary(sha) and sha != "" do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
 
-      case Transport.fetch_json_map(request_fun, token, url, caller: "commit_timestamp") do
+      case Access.fetch_json_map(request_fun, token, url, caller: "commit_timestamp") do
         {:ok, commit} -> {:ok, commit_timestamp(commit)}
         {:error, _reason} = error -> error
       end
@@ -210,10 +253,10 @@ defmodule Aiur.GitHub.PullRequests do
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def fetch_pull_request_head_ref(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
 
       case request_fun.(%{method: :get, url: url, token: token}) do
         {:ok, %{status: 200, body: %{"head" => %{"ref" => ref}}}} when is_binary(ref) ->
@@ -223,10 +266,10 @@ defmodule Aiur.GitHub.PullRequests do
           {:error, :head_ref_missing}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -248,10 +291,10 @@ defmodule Aiur.GitHub.PullRequests do
   """
   @spec fetch_pull_request_was_draft(String.t() | integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def fetch_pull_request_was_draft(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{pr_number}/events?per_page=#{@issue_events_page}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{pr_number}/events?per_page=#{@issue_events_page}"
 
       case request_fun.(%{method: :get, url: url, token: token}) do
         {:ok, %{status: 200, body: events}} when is_list(events) ->
@@ -261,10 +304,10 @@ defmodule Aiur.GitHub.PullRequests do
           {:error, :issue_events_malformed}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -283,10 +326,10 @@ defmodule Aiur.GitHub.PullRequests do
   @spec fetch_pull_request_head_ref_conditional(String.t() | integer(), keyword()) ::
           {:ok, String.t(), String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_pull_request_head_ref_conditional(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
 
       pull_request_conditional_request(url, token, opts)
       |> request_fun.()
@@ -308,10 +351,10 @@ defmodule Aiur.GitHub.PullRequests do
     do: {:not_modified, retained_etag(response, etag)}
 
   defp head_ref_conditional_response({:ok, %{status: _status} = response}, _etag),
-    do: {:error, Errors.github_status_error(response)}
+    do: {:error, Access.github_status_error(response)}
 
   defp head_ref_conditional_response({:error, reason}, _etag),
-    do: {:error, Errors.classify_error({:error, reason})}
+    do: {:error, Access.classify_error({:error, reason})}
 
   @doc """
   Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
@@ -326,10 +369,10 @@ defmodule Aiur.GitHub.PullRequests do
   @spec fetch_open_pull_request(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
 
       case request_fun.(%{method: :get, url: url, token: token}) do
         {:ok, %{status: 200, body: %{} = pr}} ->
@@ -339,10 +382,10 @@ defmodule Aiur.GitHub.PullRequests do
           {:ok, nil}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -370,10 +413,10 @@ defmodule Aiur.GitHub.PullRequests do
   @spec fetch_open_pull_request_conditional(String.t() | integer(), keyword()) ::
           {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_open_pull_request_conditional(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
 
       pull_request_conditional_request(url, token, opts)
       |> request_fun.()
@@ -391,10 +434,10 @@ defmodule Aiur.GitHub.PullRequests do
   defp open_pull_request_conditional_response({:ok, %{status: 404}}, _etag), do: {:ok, nil, nil}
 
   defp open_pull_request_conditional_response({:ok, %{status: _status} = response}, _etag),
-    do: {:error, Errors.github_status_error(response)}
+    do: {:error, Access.github_status_error(response)}
 
   defp open_pull_request_conditional_response({:error, reason}, _etag),
-    do: {:error, Errors.classify_error({:error, reason})}
+    do: {:error, Access.classify_error({:error, reason})}
 
   # The `/pulls/{n}` GET request shared by the two row-5 conditional variants,
   # carrying the caller's validator when it has one.
@@ -402,10 +445,10 @@ defmodule Aiur.GitHub.PullRequests do
     etag = Keyword.get(opts, :etag)
     request = %{method: :get, url: url, token: token}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
-    Transport.put_caller(request, opts)
+    Access.put_caller(request, opts)
   end
 
-  defp retained_etag(response, etag), do: Transport.header(Map.get(response, :headers, []), "etag") || etag
+  defp retained_etag(response, etag), do: Access.header(Map.get(response, :headers, []), "etag") || etag
 
   @spec ensure_base_branch(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}

@@ -23,6 +23,37 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   # credential env resolves to a non-empty value. These tests exercise those
   # cards, so they set the env in-process and restore it afterwards.
   import AiurWeb.OperatorControlCenter.RunSummaryStripFixtures
+  alias Aiur.GitHub.Access.Token
+  alias AiurWeb.DashboardLive.GitHubQuotaSnapshot
+
+  test "GitHub quota snapshot includes the daemon auth source for the dashboard" do
+    names = ["GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_PRIVATE_KEY_PATH"]
+    previous = Map.new(names, &{&1, System.get_env(&1)})
+    source_key = {Token, :resolved_token_source}
+    token_key = {Token, :resolved_token}
+    previous_source = :persistent_term.get(source_key, :absent)
+    previous_token = :persistent_term.get(token_key, :absent)
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+
+      restore_persistent_term(source_key, previous_source)
+      restore_persistent_term(token_key, previous_token)
+    end)
+
+    Enum.each(names, &System.delete_env/1)
+    System.put_env("GITHUB_TOKEN", "dashboard-pat")
+    :persistent_term.erase(source_key)
+    :persistent_term.erase(token_key)
+
+    assert %{auth_mode: :env} = GitHubQuotaSnapshot.read()
+  end
+
+  defp restore_persistent_term(key, :absent), do: :persistent_term.erase(key)
+  defp restore_persistent_term(key, value), do: :persistent_term.put(key, value)
 
   test "renders real run, per-provider usage, and rate-limit values" do
     html =
@@ -35,7 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     # Token glyphs and the spend figure were removed (operator directive); the
     # model rows now show only the provider + usage bars.
-    assert html =~ ~s(<span class="rs-pc">40%</span>)
+    assert html =~ ~s(<span class="rs-pc">60% left</span>)
     refute html =~ "rs-token-ic"
     refute html =~ "rs-spend"
     refute html =~ "Tokens"
@@ -51,6 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   test "renders GitHub core and GraphQL quota with reset" do
     github_quota = %{
       state: :observed,
+      auth_mode: :github_app,
       windows: %{
         "core" => %{resource: "core", remaining: 3750, limit: 5000, used_percent: 25.0, reset_at: DateTime.add(@now, 30, :minute)},
         "graphql" => %{resource: "graphql", remaining: 500, limit: 5000, used_percent: 90.0, reset_at: DateTime.add(@now, 45, :minute)}
@@ -78,12 +110,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     assert html =~ "Github"
+    assert html =~ "GitHub App"
+    assert html =~ "GitHub authentication: GitHub App"
     assert html =~ "APIS"
     assert html =~ "1 API"
     assert html =~ ~s(<img class="rs-logo rs-github-mark" src="/images/github-mark.svg")
-    assert html =~ "3750/5000 left · resets in 30m"
-    assert html =~ "500/5000 left · resets in 45m"
-    assert html =~ ~s(class="is-warning" style="width:90.0%")
+    assert html =~ "3750/5000 left · 75% left · resets in 30m"
+    assert html =~ "500/5000 left · 10% left · resets in 45m"
+    assert html =~ ~s(class="is-critical" style="width:10.0%")
     # The two GitHub budgets explain their units on hover.
     assert html =~ ~s(title="REST request budget")
     assert html =~ ~s(title="GraphQL point budget")
@@ -169,6 +203,38 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     refute html =~ "Top consumer"
     refute html =~ "Attributed"
+  end
+
+  test "GitHub API meters show remaining width and keep an unknown window unfilled" do
+    Enum.each([{0, 5000, 100}, {50, 2500, 50}, {100, 0, 0}], fn {used, remaining, left} ->
+      github_quota = %{
+        state: :observed,
+        windows: %{
+          "core" => %{resource: "core", remaining: remaining, limit: 5000, used_percent: used},
+          "graphql" => %{resource: "graphql", remaining: 2500, limit: 5000, used_percent: 50}
+        },
+        attribution: []
+      }
+
+      html = render_component(&RunSummaryStrip.run_summary_strip/1, %{run: run_view(), usage: usage_view(), meters: meters_view(), github_quota: github_quota, now: @now})
+      assert html =~ ~s(style="width:#{left}%")
+      assert html =~ "#{left}% left"
+    end)
+
+    unknown = %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: nil, limit: 5000, used_percent: nil},
+        "graphql" => %{resource: "graphql", remaining: 2500, limit: 5000, used_percent: 50}
+      },
+      attribution: []
+    }
+
+    html = render_component(&RunSummaryStrip.run_summary_strip/1, %{run: run_view(), usage: usage_view(), meters: meters_view(), github_quota: unknown, now: @now})
+    assert html =~ "remaining unknown"
+    unknown_meter = html |> Floki.parse_fragment!() |> Floki.find(".rs-meter.is-unknown")
+    assert length(unknown_meter) == 1
+    assert Floki.find(unknown_meter, "i") == []
   end
 
   test "names an active secondary-limit backoff, which the primary meters cannot show" do

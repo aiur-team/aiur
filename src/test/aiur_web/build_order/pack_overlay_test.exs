@@ -2,13 +2,13 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
   use ExUnit.Case, async: false
 
   import Phoenix.LiveViewTest
-  alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.TrackerIdentity
-  alias AiurWeb.BuildOrder.{ContextRuntime, DataSource, PackOverlay, RouteState, SourceRuntime, Truncation}
+  alias AiurWeb.BuildOrder.{DataSource, PackOverlay}
   alias AiurWeb.BuildOrderPresenter
-  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderGridModel, BuildOrderSelected}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderGridModel}
 
   defmodule Projection do
     def catalog, do: Process.get(:live_catalog)
@@ -26,7 +26,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
       "repository" => "acme/widgets",
       "root_number" => 99,
       "title" => "Full program",
-      "workstreams" => [%{"id" => "core", "title" => "Kernel epic"}],
+      "workstreams" => [%{"id" => "core", "title" => "Kernel epic", "icon" => "cpu-chip", "summary" => "Kernel feature", "wave" => "0b"}],
       "phases" => [%{"phase" => 0, "title" => "Foundation phase"}],
       "external_gates" => [%{"id" => "DESIGN", "title" => "Owner design", "owner" => "Owner", "blocks" => 2}],
       "tickets" => [ticket("T1", 10), Map.put(ticket("T2", nil), "depends_on", ["T1"])]
@@ -80,23 +80,13 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     assert html =~ "Live promoted title"
     assert html =~ "Draft T2"
     assert html =~ "Kernel epic"
+    assert html =~ "aria-label=\"cpu-chip\""
+    assert html =~ "Kernel feature"
+    assert html =~ "<svg"
     assert html =~ "Foundation phase"
     assert html =~ "Owner design"
     refute html =~ "Phase label is invalid"
     assert length(Floki.find(Floki.parse_fragment!(html), "[data-bo-card]")) == 2
-  end
-
-  test "summary and graph count the same external gates", %{root: root} do
-    catalog = DataSource.catalog(graph_projection: Projection)
-    {:ok, selected} = DataSource.selected(root.identity, graph_projection: Projection)
-    {route, _} = RouteState.new("gates") |> RouteState.navigate("99")
-    {route, _} = RouteState.put_catalog(route, catalog)
-    {route, _} = RouteState.put_selected(route, selected)
-    model = BuildOrderPresenter.present(selected, :unavailable, :unavailable)
-    html = render_component(&BuildOrderSelected.build_order_selected/1, route_state: route, model: model, now: DateTime.utc_now(), analytics_scope: %{}, usage_scope: %{})
-    tree = Floki.parse_fragment!(html)
-    assert Floki.find(tree, ".bo-summary-grid div") |> Enum.find(&(Floki.text(&1) =~ "External")) |> Floki.text() == "External gates1"
-    assert Floki.find(tree, "summary") |> Enum.any?(&(Floki.text(&1) == "External gates (1)"))
   end
 
   test "a cold production pack demands the live read even while drafts render", %{selected: selected, root: root} do
@@ -117,23 +107,6 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     assert hd(combined.data.members).lifecycle.state == :unknown
     assert hd(combined.data.members).identity == identity(10)
     assert length(combined.data.members) == 2
-  end
-
-  test "published GitHub snapshots retain drafts and refresh promoted lifecycle", %{catalog: catalog, selected: selected, root: root} do
-    state = RouteState.new("overlay")
-    {state, _effects} = RouteState.navigate(state, "99")
-    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
-    socket = socket |> SourceRuntime.initialize(DataSource) |> ContextRuntime.initialize("overlay") |> Phoenix.Component.assign(:route_state, state)
-    socket = SourceRuntime.accept_projection(socket, catalog)
-    socket = SourceRuntime.accept_projection(socket, selected)
-    assert length(socket.assigns.model.nodes) == 2
-    member = hd(selected.data.members)
-    next = %{selected | generation: 4, data: %{selected.data | members: [%{member | lifecycle: Lifecycle.from_github("OPEN", nil)}]}}
-    socket = SourceRuntime.accept_projection(socket, next)
-    snapshot = RouteState.selected_snapshot(socket.assigns.route_state)
-    assert length(snapshot.data.members) == 2
-    assert hd(snapshot.data.members).lifecycle.state == :open
-    assert snapshot.data.root.identity == root.identity
   end
 
   test "collapsed epic removes its cards while retaining counts and phase labels", %{root: root} do
@@ -162,11 +135,9 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
 
   test "pack removal refreshes catalog and selected drafts without waiting for a GitHub generation", %{path: path, root: root} do
     first = DataSource.catalog(graph_projection: Projection)
+    assert [%{title: "Full program"}] = first.data.entries
     {:ok, selected} = DataSource.selected(root.identity, graph_projection: Projection)
-    {state, _effects} = RouteState.new("remove") |> RouteState.navigate("99")
-    {state, _effects} = RouteState.put_catalog(state, first)
-    {state, _kind} = RouteState.put_selected(state, selected)
-    assert length(RouteState.selected_snapshot(state).data.members) == 2
+    assert length(selected.data.members) == 2
     File.rm!(path)
     # Point discovery at an empty list rather than a missing explicit manifest.
     Application.delete_env(:aiur, :build_order_planning_pack)
@@ -174,11 +145,9 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     on_exit(fn -> Application.delete_env(:aiur, :build_order_planning_packs) end)
     catalog = DataSource.catalog(graph_projection: Projection)
     {:ok, next} = DataSource.selected(root.identity, graph_projection: Projection)
-    {state, _effects} = RouteState.put_catalog(state, catalog)
-    {state, :generation} = RouteState.put_selected(state, next)
-    assert [entry] = RouteState.catalog_snapshot(state).data.entries
+    assert [entry] = catalog.data.entries
     assert entry.title == "Live root"
-    assert length(RouteState.selected_snapshot(state).data.members) == 1
+    assert length(next.data.members) == 1
   end
 
   test "distinct packs sharing a live root remain ambiguous", %{path: path, pack: pack, catalog: catalog} do
@@ -195,9 +164,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     live = %{catalog | repository: {owner, repo}, data: %{catalog.data | entries: [%{root | identity: identity}]}}
     merged = PackOverlay.catalog(live)
     assert Enum.map(merged.data.entries, & &1.title) |> Enum.sort() == ["Full program", "Second program"]
-    {state, _effects} = RouteState.new("collision") |> RouteState.navigate("99")
-    {state, []} = RouteState.put_catalog(state, merged)
-    assert RouteState.status(state) == :invalid_catalog
+    assert merged.data.entries |> Enum.map(& &1.identity) |> Enum.uniq() == [identity]
   end
 
   test "catalog truncation evidence survives pack overlay without counting drafts as GitHub issues", %{catalog: catalog} do
@@ -206,7 +173,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     snapshot = PackOverlay.catalog(%{catalog | data: %{catalog.data | entries: [root]}})
     [merged] = snapshot.data.entries
     assert merged.member_count == 2
-    assert Truncation.notice(merged) =~ "100 of 501"
+    assert {merged.github_member_count, merged.member_read_count} == {501, 100}
   end
 
   defp render_graph(snapshot, model, collapsed \\ []) do

@@ -48,6 +48,7 @@ defmodule Aiur.AgentRunner.SessionOptions do
       ]
       |> maybe_put_rc_name(rc?, issue)
       |> maybe_put_account(session_backend, config_for_accounts(opts), HeadroomDispatch.account_opts(issue, session_backend, opts))
+      |> maybe_put_deployment_auth(session_backend, opts)
       |> HeadroomDispatch.put_selection_reason(issue)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
@@ -55,6 +56,75 @@ defmodule Aiur.AgentRunner.SessionOptions do
   end
 
   defp config_for_accounts(opts), do: Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
+
+  defp maybe_put_deployment_auth(session_opts, backend, opts) when backend in ["claude", "claude-repl", "codex"] do
+    deployment = Keyword.get_lazy(opts, :deployment_settings, &Config.settings!/0)
+
+    kind =
+      case deployment do
+        %{instance: %{deployment_kind: value}} -> value
+        _ -> "operator"
+      end
+
+    inherited = Keyword.get_lazy(opts, :credential_env, &System.get_env/0)
+    backend_name = if backend == "claude-repl", do: "claude", else: backend
+    hosted? = match?(%{instance: %{mode: "hosted"}}, deployment)
+    env = deployment_auth_env(backend_name, kind, inherited, hosted?, backend)
+
+    if env == [], do: session_opts, else: replace_hosted_provider_auth(session_opts, env)
+  end
+
+  defp maybe_put_deployment_auth(session_opts, _backend, _opts), do: session_opts
+
+  defp replace_hosted_provider_auth(session_opts, env) do
+    replacement_names = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+    replacement_names = if Enum.any?(env, fn {name, _value} -> name == "CODEX_HOME" end), do: ["CODEX_HOME" | replacement_names], else: replacement_names
+
+    Keyword.update(session_opts, :env, env, fn existing ->
+      Enum.reject(existing, fn {name, _value} -> name in replacement_names end) ++ env
+    end)
+  end
+
+  @doc false
+  @spec deployment_auth_env(String.t(), String.t(), map()) :: [{String.t(), String.t()}]
+  def deployment_auth_env(backend, kind, env), do: deployment_auth_env(backend, kind, env, true, backend)
+
+  @doc false
+  @spec deployment_auth_env(String.t(), String.t(), map(), boolean()) :: [{String.t(), String.t()}]
+  def deployment_auth_env(backend, kind, env, hosted?) when is_boolean(hosted?),
+    do: deployment_auth_env(backend, kind, env, hosted?, backend)
+
+  @doc false
+  defp deployment_auth_env("claude", "operator", env, true, _transport) when is_map(env) do
+    cond do
+      present_env?(env, "CLAUDE_CODE_OAUTH_TOKEN") -> [{"CLAUDE_CODE_OAUTH_TOKEN", env["CLAUDE_CODE_OAUTH_TOKEN"]}]
+      present_env?(env, "ANTHROPIC_API_KEY") -> [{"ANTHROPIC_API_KEY", env["ANTHROPIC_API_KEY"]}]
+      true -> []
+    end
+  end
+
+  defp deployment_auth_env("claude", "consumer", env, true, _transport) when is_map(env) do
+    if present_env?(env, "ANTHROPIC_API_KEY"), do: [{"ANTHROPIC_API_KEY", env["ANTHROPIC_API_KEY"]}], else: []
+  end
+
+  defp deployment_auth_env("codex", "consumer", env, true, _transport) when is_map(env) do
+    []
+    |> maybe_add_env("CODEX_HOME", env)
+    |> maybe_add_env("OPENAI_API_KEY", env)
+  end
+
+  defp deployment_auth_env("codex", _kind, env, true, _transport) when is_map(env) do
+    if present_env?(env, "OPENAI_API_KEY"), do: [{"OPENAI_API_KEY", env["OPENAI_API_KEY"]}], else: []
+  end
+
+  defp deployment_auth_env(_backend, _kind, _env, false, _transport), do: []
+  defp deployment_auth_env(_backend, _kind, _env, _hosted?, _transport), do: []
+
+  defp present_env?(env, name), do: is_binary(env[name]) and String.trim(env[name]) != ""
+
+  defp maybe_add_env(values, name, env) do
+    if present_env?(env, name), do: values ++ [{name, env[name]}], else: values
+  end
 
   defp maybe_put_account(session_opts, backend, config, opts) do
     account_backend = if backend == "claude-repl", do: "claude", else: backend

@@ -44,7 +44,7 @@ defmodule Aiur.DecisionApiRevisionTest do
                  "custom_response" => "Use the original path",
                  "rationale" => "Initial evidence"
                },
-               [actor: %{kind: :operator, id: "operator-1"}, now: ~U[2026-07-12 10:30:00Z]],
+               [actor: %{kind: :executor, id: "executor-1"}, now: ~U[2026-07-12 10:30:00Z]],
                store
              )
 
@@ -55,7 +55,7 @@ defmodule Aiur.DecisionApiRevisionTest do
     assert result["status"] == "accepted"
     assert result["revision_result"] == "recorded"
     assert result["action"]["prior_action_id"] == original.action_id
-    assert result["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert result["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
 
     basis = result["action"]["answer"]["supervisor_basis"]
     assert basis["confidence"] == 88

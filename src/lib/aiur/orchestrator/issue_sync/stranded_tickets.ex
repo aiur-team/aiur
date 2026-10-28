@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
@@ -16,6 +15,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   @doc """
   Re-queues open non-terminal tickets that have neither a live owner nor a
@@ -239,7 +239,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
       end
 
     unless TransitionAlerts.active_attention?(state, topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: issue.identifier,
         message: message,
         reason: reason,
@@ -264,7 +264,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
     topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeue-failed"
 
     unless TransitionAlerts.active_attention?(state, topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: issue.identifier,
         message: "Ticket #{issue.identifier} could not be re-queued to #{restored}.",
         reason: "The tracker rejected the stranded-ticket state restore: #{inspect(reason)}.",

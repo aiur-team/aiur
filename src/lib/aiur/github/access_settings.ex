@@ -4,9 +4,10 @@ defmodule Aiur.GitHub.AccessSettings do
 
   alias Aiur.Config
   alias Aiur.Config.Schema.Agent
+  alias Aiur.GitHub.{Access, HoldPressure, QueueCost}
   alias Aiur.GitHub.Access.Settings
+  alias Aiur.GitHub.AuthPolicy
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Credential
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
 
@@ -25,6 +26,8 @@ defmodule Aiur.GitHub.AccessSettings do
       state_root: &decision_root/0,
       budget_dir: &budget_dir/0,
       budget_enabled?: Application.get_env(:aiur, :github_budget_enabled?, true),
+      hosted_auth_required?: AuthPolicy.hosted_auth_required?(config, System.get_env()),
+      pat_opted_in?: Aiur.Secrets.truthy?(System.get_env("AIUR_GITHUB_ALLOW_PAT")),
       budget: if(is_struct(github), do: plain(github), else: %{}),
       repo: repo,
       config_error: config_error,
@@ -39,7 +42,14 @@ defmodule Aiur.GitHub.AccessSettings do
         ttls: Application.get_env(:aiur, :github_read_cache_ttls, %{}),
         max_body_bytes: Application.get_env(:aiur, :github_resource_store_max_body_bytes)
       },
-      broker_timeout: if(config, do: broker_timeout(config), else: broker_timeout(nil))
+      broker_timeout: if(config, do: broker_timeout(config), else: broker_timeout(nil)),
+      freshness: Aiur.Webhooks.ModeTable,
+      request_taggers: [&QueueCost.tag/1],
+      hold_observer: &HoldPressure.record/1,
+      write_scope: &Aiur.TestTicketScope.with_write_scope/2,
+      poll_owner: Application.get_env(:aiur, :github_poll_owner),
+      recovery_target: Application.get_env(:aiur, :github_quota_recovery_target),
+      pubsub: Aiur.PubSub
     }
   end
 
@@ -93,14 +103,14 @@ defmodule Aiur.GitHub.AccessSettings do
   end
 
   defp credential(entry) do
-    %Credential{
+    Access.credential(
       id: entry.id,
       kind: String.to_existing_atom(entry.kind),
       identity: entry.identity,
       token_env: entry.token_env,
       source: if(entry.kind == "app_installation", do: :app, else: :env),
       writes?: entry.writes == true and entry.kind != "human"
-    }
+    )
   end
 
   defp plain(value) when is_struct(value), do: value |> Map.from_struct() |> plain()

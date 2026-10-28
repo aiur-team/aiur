@@ -118,7 +118,7 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
         resume_pending_pause(state, running_entry)
 
       State.paused_running_entry?(running_entry) ->
-        resume_paused_issue(state, running_entry)
+        state |> resume_paused_issue(running_entry) |> explain_fleet_refusal(running_entry)
 
       true ->
         resume_unpaused_running_issue(state, running_entry)
@@ -137,6 +137,16 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
   #   than starting a second worker behind the retry engine, which owns the
   #   restart of a failed start (and the dispatch budget that bounds it).
   # * Any other status is refused by name rather than reported as resumed.
+  # An operator resume names the counter that refused it; automatic callers
+  # keep matching the bare atom.
+  defp explain_fleet_refusal({{:error, :max_concurrent_agents_reached}, state} = refused, running_entry) do
+    if Slots.resume_fleet_slot_available?(state, running_entry),
+      do: refused,
+      else: {{:error, {:max_concurrent_agents_reached, Slots.fleet_capacity_detail(state, running_entry)}}, state}
+  end
+
+  defp explain_fleet_refusal(result, _running_entry), do: result
+
   defp resume_unpaused_running_issue(state, running_entry) do
     case worker_liveness(running_entry) do
       :alive -> {{:ok, :already_running}, state}

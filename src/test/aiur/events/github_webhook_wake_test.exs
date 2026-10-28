@@ -77,7 +77,15 @@ defmodule Aiur.Events.GithubWebhookWakeTest do
       }
 
       assert %{status: :published, published: [^ticket_topic]} =
-               GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+               GithubWebhook.handle_delivery("pull_request", delivery,
+                 repo: @repo,
+                 request_refresh_fun: request_refresh_fun,
+                 request_fun: fn request ->
+                   if String.contains?(request.url, "/pulls/901/commits"),
+                     do: {:ok, %{status: 200, body: [], headers: []}},
+                     else: flunk("unexpected request #{request.url}")
+                 end
+               )
 
       assert_receive :request_refresh, 500
     end

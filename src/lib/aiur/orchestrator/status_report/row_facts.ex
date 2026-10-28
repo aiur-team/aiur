@@ -59,8 +59,32 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
 
   def open_decision_count(_identifier, _store), do: {0, :unavailable}
 
+  @doc false
+  @spec open_decision_counts([term()], term()) :: %{
+          optional(String.t()) => {non_neg_integer(), :available | :unavailable}
+        }
+  def open_decision_counts(identifiers, store \\ Commands.default_store()) do
+    identifiers = identifiers |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    case safe_open_decision_ids_by_ticket(identifiers, store) do
+      {:ok, ids_by_ticket} ->
+        Map.new(identifiers, &{&1, {length(Map.get(ids_by_ticket, &1, [])), :available}})
+
+      _unavailable ->
+        Map.new(identifiers, &{&1, {0, :unavailable}})
+    end
+  end
+
   defp safe_open_decision_ids(identifier, store) do
     Commands.open_blocking_decision_ids([identifier], store, 100)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp safe_open_decision_ids_by_ticket([], _store), do: {:ok, %{}}
+
+  defp safe_open_decision_ids_by_ticket(identifiers, store) do
+    Commands.open_blocking_decision_ids_by_ticket(identifiers, store, 100)
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end

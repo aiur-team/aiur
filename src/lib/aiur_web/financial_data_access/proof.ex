@@ -64,15 +64,16 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
     end
   end
 
-  @spec new_session_marker(map(), pos_integer()) :: map()
-  def new_session_marker(config, version) do
+  @spec new_session_marker(map(), pos_integer(), integer()) :: map()
+  def new_session_marker(config, version, issued_at \\ System.system_time(:second)) do
     connection_generation = :crypto.strong_rand_bytes(24) |> Base.url_encode64(padding: false)
 
     %{
       "version" => version,
       "configuration_generation" => config.generation,
       "connection_generation" => connection_generation,
-      "proof" => access_proof(config.secret, config.generation, connection_generation, version)
+      "issued_at" => issued_at,
+      "proof" => access_proof(config.secret, config.generation, connection_generation, issued_at, version)
     }
   end
 
@@ -82,19 +83,23 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
            "version" => ^version,
            "configuration_generation" => configuration_generation,
            "connection_generation" => connection_generation,
+           "issued_at" => issued_at,
            "proof" => proof
          } <- Map.get(session, session_key),
          true <- opaque_value?(configuration_generation),
          true <- opaque_value?(connection_generation),
+         true <- valid_issued_at?(issued_at),
          true <- opaque_value?(proof),
          {:ok, config} <- configuration([], version),
          true <- secure_equal?(configuration_generation, config.generation),
-         expected_proof <- access_proof(config.secret, configuration_generation, connection_generation, version),
+         true <- not expired?(issued_at),
+         expected_proof <- access_proof(config.secret, configuration_generation, connection_generation, issued_at, version),
          true <- secure_equal?(proof, expected_proof) do
       {:ok,
        %Context{
          configuration_generation: configuration_generation,
          connection_generation: connection_generation,
+         issued_at: issued_at,
          proof: proof
        }}
     else
@@ -109,11 +114,13 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
   def identity(%Context{} = context, version) do
     with {:ok, config} <- configuration([], version),
          true <- secure_equal?(context.configuration_generation, config.generation),
+         true <- not expired?(context.issued_at),
          expected_proof <-
            access_proof(
              config.secret,
              context.configuration_generation,
              context.connection_generation,
+             context.issued_at,
              version
            ),
          true <- secure_equal?(context.proof, expected_proof) do
@@ -137,11 +144,11 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
     end
   end
 
-  defp access_proof(secret, configuration_generation, connection_generation, version) do
+  defp access_proof(secret, configuration_generation, connection_generation, issued_at, version) do
     keyed_digest(
       secret,
       "financial-data-access",
-      {version, configuration_generation, connection_generation}
+      {version, configuration_generation, connection_generation, issued_at}
     )
   end
 
@@ -157,4 +164,11 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
 
   defp opaque_value?(value), do: is_binary(value) and byte_size(value) in 32..128
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp valid_issued_at?(issued_at), do: is_integer(issued_at) and issued_at <= System.system_time(:second)
+
+  defp expired?(issued_at) do
+    max_age = Aiur.Config.settings!().dashboard_auth.session_max_age_days * 86_400
+    System.system_time(:second) - issued_at > max_age
+  end
 end

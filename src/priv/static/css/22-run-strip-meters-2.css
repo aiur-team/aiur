@@ -104,7 +104,7 @@
 
 .rs-ln {
   display: grid;
-  grid-template-columns: 4ch minmax(0, 1fr) 12.5ch;
+  grid-template-columns: 8ch minmax(0, 1fr) 12.5ch;
   grid-template-rows: 11px 5px;
   align-items: center;
   column-gap: 0.5rem;
@@ -115,7 +115,7 @@
   cursor: default;
 }
 
-.rs-ln.has-tag { grid-template-columns: var(--rs-tag-width, 3.4em) 4ch minmax(0, 1fr) 12.5ch; }
+.rs-ln.has-tag { grid-template-columns: var(--rs-tag-width, 3.4em) 8ch minmax(0, 1fr) 12.5ch; }
 
 .rs-ln > span { min-width: 0; overflow: hidden; white-space: nowrap; }
 

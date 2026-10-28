@@ -4,26 +4,37 @@ defmodule Aiur.BuildGate.PacingTest do
   use Aiur.TestSupport.BuildGateCase
 
   test "staggers concurrent phase starts while preserving overlap", context do
+    admission_waiting_path = Path.join(context.gate_dir, "admission.waiting")
+    admission_release_path = Path.join(context.gate_dir, "admission.release")
+
     paced_context =
       Map.merge(context, %{
         slots: 2,
         stagger_seconds: 1,
-        sleep_seconds: 4
+        sleep_seconds: 10
       })
 
     first = Task.async(fn -> run_bash("mix test", paced_context) end)
-    wait_for_file!(context.started_path)
+    wait_for_file!(context.started_path, 300)
 
     second =
       Task.async(fn ->
         run_bash(
-          "mise exec -- mix compile",
-          %{paced_context | started_path: ""}
+          "touch #{admission_waiting_path}; while [[ ! -e #{admission_release_path} ]]; do sleep 0.01; done; mise exec -- mix compile",
+          paced_context
         )
       end)
 
-    assert {_first_output, 0} = Task.await(first, 7_000)
-    assert {second_output, 0} = Task.await(second, 7_000)
+    wait_for_file!(admission_waiting_path)
+    next_start = System.system_time(:second) + 2
+    File.write!(Path.join(context.gate_dir, "phase-next-start"), "#{next_start}\n")
+    File.rm!(context.started_path)
+    File.write!(admission_release_path, "go\n")
+    wait_for_file!(Path.join(context.gate_dir, "phase-start.owner"))
+    wait_for_file!(context.started_path, 300)
+
+    assert {_first_output, 0} = Task.await(first, 15_000)
+    assert {second_output, 0} = Task.await(second, 15_000)
 
     events = timing_events!(context.timing_log_path)
     test_start = Map.fetch!(events, {:start, "test"})

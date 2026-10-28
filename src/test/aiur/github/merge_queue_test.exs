@@ -113,4 +113,44 @@ defmodule Aiur.GitHub.MergeQueueTest do
     refute MergeQueue.failed_entry_dropped?(%{current | head_sha: "new-head"}, previous)
     refute MergeQueue.failed_entry_dropped?(%{current | decision: :pending}, previous)
   end
+
+  describe "runner_starvation" do
+    test "does not call one old queued run starvation while runners are busy" do
+      now = DateTime.utc_now()
+      now_ms = DateTime.to_unix(now, :millisecond)
+      queued = %{state: "queued", started_at: DateTime.add(now, -16, :minute)}
+      running = for id <- 1..2, do: %{id: id, state: "in_progress", started_at: now}
+
+      assert MergeQueue.runner_starvation([queued | running], now_ms) == nil
+    end
+
+    test "calls one old queued run starvation when no runners are available" do
+      now = DateTime.utc_now()
+      now_ms = DateTime.to_unix(now, :millisecond)
+      queued = %{status: "queued", started_at: DateTime.add(now, -16, :minute)}
+
+      assert %{queued_runs: 1, running_runs: 0, age_ms: 960_000, status_url: url} =
+               MergeQueue.runner_starvation([queued], now_ms)
+
+      assert url == "https://www.githubstatus.com/#components"
+    end
+
+    test "calls a large queue starvation before the age threshold" do
+      now = DateTime.utc_now()
+      now_ms = DateTime.to_unix(now, :millisecond)
+      queued = for id <- 1..11, do: %{id: id, status: "queued", started_at: now}
+
+      assert %{queued_runs: 11, running_runs: 0, age_ms: 0} =
+               MergeQueue.runner_starvation(queued, now_ms)
+    end
+  end
+
+  test "honors the caller's stale age threshold for main-watch queue snapshots" do
+    now = DateTime.utc_now()
+    now_ms = DateTime.to_unix(now, :millisecond)
+    queued = %{status: "queued", started_at: DateTime.add(now, -16, :minute)}
+
+    assert %{queued_runs: 1} = MergeQueue.runner_starvation([queued], now_ms, 10)
+    assert MergeQueue.runner_starvation([queued], now_ms, 20) == nil
+  end
 end

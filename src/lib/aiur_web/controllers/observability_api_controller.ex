@@ -62,7 +62,7 @@ defmodule AiurWeb.ObservabilityApiController do
     text = Map.get(params, "text") || Map.get(params, "message") || ""
 
     issue_identifier
-    |> send_operator_message(text, Map.get(params, "message_id"))
+    |> send_operator_message(text, Map.get(params, "message_id"), conn.assigns[:auth_actor])
     |> render_send_message_response(conn, issue_identifier)
   end
 
@@ -183,8 +183,14 @@ defmodule AiurWeb.ObservabilityApiController do
   # `message_id` is optional (#2717). A client that sends one gets its retry
   # deduplicated: the same id, target and text return the first item. Without
   # one, every request is a new message.
-  defp send_operator_message(issue_identifier, text, message_id) do
-    payload = %{kind: :text, body: text}
+  defp send_operator_message(issue_identifier, text, message_id, auth_actor) do
+    payload = %{kind: :text, body: text, delivery_policy: :listener, origin: :http}
+
+    payload =
+      case auth_actor do
+        {:device, id} when is_binary(id) -> Map.put(payload, :actor, "device:" <> id)
+        _ -> payload
+      end
 
     payload =
       if is_binary(message_id) and message_id != "", do: Map.put(payload, :message_id, message_id), else: payload
@@ -277,7 +283,7 @@ defmodule AiurWeb.ObservabilityApiController do
   end
 
   defp render_control_response({:error, {tag, _detail} = reason}, conn, _issue_identifier, _action)
-       when tag in [:worker_startup_failed, :not_resumable_control_status] do
+       when tag in [:worker_startup_failed, :not_resumable_control_status, :max_concurrent_agents_reached] do
     error_response(conn, 409, "control_conflict", inspect(reason))
   end
 

@@ -3,8 +3,6 @@ defmodule AiurWeb.OperatorControlCenterComponentsAnalyticsCardsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias Aiur.BuildOrder.Diagnostic
-
   alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionLatency, DecisionRevisionAction}
 
   import AiurWeb.OperatorControlCenterComponentsFixtures
@@ -77,7 +75,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsAnalyticsCardsTest do
     assert writable =~ "Original answer · preserved"
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
-    assert writable =~ "Revise Command"
+    assert writable =~ "Send correction"
     assert writable =~ "Revising sets new direction — it does not undo what already happened."
     assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")
@@ -203,31 +201,5 @@ defmodule AiurWeb.OperatorControlCenterComponentsAnalyticsCardsTest do
     refute html =~ "Command latency"
     refute html =~ "Runtime provenance"
     refute html =~ "Links &amp; artifacts"
-  end
-
-  test "an unfetched Build Order renders one copyable provider-failure state and no graph regions" do
-    html =
-      render_selected(%{
-        unresolved_model(:provider_unavailable)
-        | diagnostics: [Diagnostic.new(:provider_unavailable)]
-      })
-
-    {:ok, document} = Floki.parse_document(html)
-
-    assert [_card] = Floki.find(document, ".bo-state-card")
-    assert html =~ "Could not read the plan"
-    assert html =~ ~s(phx-hook="CopyToClipboard")
-    assert html =~ "Investigate why Build Order #1567&#39;s plan could not be read."
-    assert html =~ "`provider_unavailable`"
-    assert html =~ "graph counts are unresolved"
-
-    # Unknown stays unknown, but the page-level failure suppresses the metric
-    # strip instead of repeating that fact in five cells and three panels.
-    refute html =~ "Build Order graph summary"
-    refute html =~ "Unresolved"
-    refute html =~ "Plan distribution"
-    refute html =~ "Analytics unavailable"
-    refute html =~ "Usage and cost unavailable"
-    refute html =~ "GitHub planning data is unavailable"
   end
 end

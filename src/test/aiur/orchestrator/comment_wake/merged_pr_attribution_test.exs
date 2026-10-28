@@ -36,6 +36,34 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrAttributionTest do
   end
 
   describe "mark_pr_merged_issue_done/2" do
+    test "ticket branch with Refs only in a commit comments without changing state" do
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(base_state(), "5605",
+          pr_body: "",
+          commit_messages: ["Refs #5605"],
+          pr_number: 5606,
+          pr_url: "https://github.com/owner/repo/pull/5606",
+          repository: "owner/repo",
+          update_issue_state_fun: fn identifier, target ->
+            send(parent, {:transition, identifier, target})
+            :ok
+          end,
+          create_comment_fun: fn identifier, body ->
+            send(parent, {:comment, identifier, body})
+            :ok
+          end,
+          merged_by_login: "its-everdred",
+          merger_allowed_fun: fn _ -> true end
+        )
+
+      assert is_struct(result, State)
+      assert_receive {:comment, "5605", body}, 1000
+      assert body =~ "PR 5606 referencing this ticket merged"
+      refute_receive {:transition, _, _}, 100
+    end
+
     test "does not raise alert when merged_by_login is allowlisted" do
       state = base_state()
       parent = self()

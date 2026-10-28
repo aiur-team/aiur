@@ -5,6 +5,8 @@ defmodule Aiur.LogFile do
   Writes to a single file (`log/aiur.log` by default, or
   `<logs-root>/log/aiur.log` when `--logs-root` is passed). The handler
   is `:logger_std_h` with `type: :file`, so `tail -F` works directly.
+  Container launches keep the default console handler so platform collectors
+  receive Logger messages too.
 
   Test runs rotate at 4 MiB with one archive. Otherwise no rotation.
   For a developer/Executor CLI this is the right call: the
@@ -180,7 +182,12 @@ defmodule Aiur.LogFile do
 
     case :logger.add_handler(@handler_id, :logger_std_h, file_handler_config(expanded_path)) do
       :ok ->
-        remove_default_console_handler()
+        if System.get_env("AIUR_CONTAINER") == "1" do
+          :ok
+        else
+          remove_default_console_handler()
+        end
+
         :ok
 
       {:error, reason} ->

@@ -1,0 +1,8 @@
+node_modules/
+ios/
+android/
+.expo/
+coverage/
+dist/
+*.tsbuildinfo
+.env*.local

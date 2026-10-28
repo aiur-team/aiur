@@ -1,8 +1,10 @@
 defmodule Aiur.DecisionApi.PublicProjection do
   @moduledoc false
 
-  alias Aiur.{Decision, DecisionSanitizer}
+  alias Aiur.Commands.Projection
+  alias Aiur.Decision
   alias Aiur.DecisionApi.PublicLifecycleProjection
+  alias Aiur.DecisionSanitizer
 
   @spec encode(Decision.t()) :: map()
   def encode(%Decision{} = decision) do
@@ -41,6 +43,8 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "resolution" => PublicLifecycleProjection.lifecycle_fact(decision.resolution),
       "provenance" => provenance(decision.provenance)
     }
+    |> Map.merge(Aiur.JSONSafe.normalize(Projection.public_v2(decision)))
+    |> then(fn encoded -> if Projection.attributed?(decision), do: Map.put(encoded, "payload_version", 2), else: encoded end)
   end
 
   defp ticket(ticket) when is_map(ticket) do

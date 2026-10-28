@@ -68,7 +68,7 @@ coverage-report:
 	$(MIX) test.coverage
 
 dialyzer:
-	$(MIX) deps.get
+	bash ../scripts/retry-mix-deps-get.sh $(MIX) deps.get
 	$(MIX) dialyzer --format short
 
 e2e:

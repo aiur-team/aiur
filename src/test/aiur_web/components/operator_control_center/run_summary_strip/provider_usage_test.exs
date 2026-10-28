@@ -51,8 +51,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripProviderUsageTest do
         now: @now
       })
 
-    assert html =~ "12%"
-    refute html =~ "88%"
+    assert html =~ "88% left"
+    refute html =~ ~s(<span class="rs-pc">12% left</span>)
   end
 
   test "falls back to whatever exists when no account-wide window is reported" do
@@ -76,7 +76,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripProviderUsageTest do
         now: @now
       })
 
-    assert html =~ "88%"
+    assert html =~ "12% left"
   end
 
   # Codex reports `hasCredits`/`unlimited`/`rateLimitResetCredits` facts, not a
@@ -108,7 +108,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripProviderUsageTest do
         now: @now
       })
 
-    assert html =~ "12%"
+    assert html =~ "88% left"
     refute html =~ "balance"
     refute html =~ "Exhausted"
   end

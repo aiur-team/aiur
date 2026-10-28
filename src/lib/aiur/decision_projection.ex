@@ -10,9 +10,12 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
+  alias Aiur.Commands.Projection, as: CommandProjection
+  alias Aiur.Commands.Routing.Facts
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionProjection.Reducers
+  alias Aiur.JSONSafe
 
   @type projection :: %{
           current: %{String.t() => Decision.t()},
@@ -210,13 +213,15 @@ defmodule Aiur.DecisionProjection do
         acknowledgements: existing.acknowledgements,
         resolutions: existing.resolutions
     }
+    |> then(&Facts.inherit(existing, &1))
   end
 
   defp apply_enrichment(projection, %DecisionEvent{data: data} = event) do
     with {:ok, current} <- fetch_current(projection, event.decision_id),
          :ok <- require_enrichment_version(current, event),
          :ok <- require_enrichment_base(current, data.decision) do
-      apply_request(projection, data.decision, event)
+      candidate = CommandProjection.inherit_attributes(current, data.decision)
+      apply_request(projection, candidate, event)
     end
   end
 
@@ -301,6 +306,8 @@ defmodule Aiur.DecisionProjection do
       "content_hash" => decision.content_hash,
       "decision_status" => Atom.to_string(decision.decision_status),
       "delivery_status" => Atom.to_string(decision.delivery_status),
+      "pending_for_session" => decision.pending_for_session?,
+      "ticket_comment_status" => decision.ticket_comment_status && Atom.to_string(decision.ticket_comment_status),
       "answer" => decision.answer && DecisionAnswer.to_json_safe(decision.answer),
       "active_action_id" => decision.active_action_id,
       "revision_sequence" => decision.revision_sequence,
@@ -314,6 +321,7 @@ defmodule Aiur.DecisionProjection do
       "acknowledgements" => stringify_action_map(decision.acknowledgements, &fact_to_json_safe/1),
       "resolutions" => stringify_action_map(decision.resolutions, &fact_to_json_safe/1)
     }
+    |> Map.merge(JSONSafe.normalize(Facts.public(decision)))
     |> maybe_put_legacy_attention(decision.legacy_attention)
     |> maybe_put_provenance(decision.provenance)
   end

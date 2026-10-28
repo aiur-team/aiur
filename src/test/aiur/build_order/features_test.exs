@@ -174,7 +174,7 @@ defmodule Aiur.BuildOrder.FeaturesTest do
     assert {:ok, %{changed: []}} = Features.add("a", [1], backfill)
     assert {:ok, ^confirmed} = Features.owner(1, server: pid)
     assert File.read!(Path.join(dir, "features.ndjson")) == before
-    assert {:error, {:owned_elsewhere, [{1, "a"}]}} = Features.add("b", [1], Keyword.put(backfill, :move, true))
+    assert {:error, :backfill_cannot_move} = Features.add("b", [1], Keyword.put(backfill, :move, true))
   end
 
   test "V-18 unavailable reads never claim no owner" do

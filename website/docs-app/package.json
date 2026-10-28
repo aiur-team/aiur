@@ -8,11 +8,14 @@
     "build": "vitepress build .",
     "preview": "vitepress preview .",
     "check:cli-reference": "bash scripts/check-cli-reference.sh",
-    "test:components": "node --test scripts/test-components-loader.mjs"
+    "test:components": "node --test scripts/test-components*.mjs"
   },
   "devDependencies": {
     "mermaid": "^11.17.0",
     "vitepress": "^1.6.3",
     "vitepress-plugin-mermaid": "^2.0.17"
+  },
+  "dependencies": {
+    "aiur-style": "file:../../packages/aiur-style"
   }
 }

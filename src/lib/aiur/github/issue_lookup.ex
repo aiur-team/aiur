@@ -1,14 +1,14 @@
 defmodule Aiur.GitHub.IssueLookup do
+  alias Aiur.GitHub.Access
   @moduledoc false
-  alias Aiur.GitHub.{Errors, Transport}
 
   @spec find(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
   def find(marker, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(), {:ok, token} <- Transport.require_token(opts) do
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=all&sort=created&direction=desc&per_page=100"
+    with {:ok, {owner, repo}} <- Access.parse_repo(), {:ok, token} <- Access.require_token(opts) do
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues?state=all&sort=created&direction=desc&per_page=100"
       url = if opts[:since], do: url <> "&since=" <> URI.encode_www_form(opts[:since]), else: url
       cutoff = parse_timestamp(opts[:since])
-      pages(url, marker, token, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), %{cutoff: cutoff, remaining: if(cutoff, do: :bounded_by_creation, else: 10), seen: %{}})
+      pages(url, marker, token, Keyword.get(opts, :request_fun, &Access.default_request_fun/1), %{cutoff: cutoff, remaining: if(cutoff, do: :bounded_by_creation, else: 10), seen: %{}})
     end
   end
 
@@ -27,11 +27,11 @@ defmodule Aiur.GitHub.IssueLookup do
     case request.(%{method: :get, url: url, token: token, caller: "experiment_analysis_reconcile"}) do
       {:ok, %{status: 200, body: rows} = response} when is_list(rows) ->
         {eligible, older} = Enum.split_while(rows, &(not before_cutoff?(&1, pagination.cutoff)))
-        next = if older == [], do: Transport.parse_next_page_url(Map.get(response, :headers, []))
+        next = if older == [], do: Access.parse_next_page_url(Map.get(response, :headers, []))
         resolve(eligible, marker, token, request, pagination, next)
 
       {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, _reason} = error ->
         error

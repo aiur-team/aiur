@@ -3,10 +3,11 @@ defmodule AiurWeb.Build.Usage do
   alias Aiur.{Accounts, CodingAgent, ModelAvailability}
   alias Aiur.Accounts.UsageReadings
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
-  alias Aiur.GitHub.Quota, as: GitHubQuota
+  alias Aiur.GitHub.Access
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
+  alias AiurWeb.RemainingMeter
   import Aiur.BuildOrder.SourceFreshness, only: [ms: 1]
 
   @order [:claude, :codex, :kimi, :deepseek]
@@ -42,15 +43,15 @@ defmodule AiurWeb.Build.Usage do
   end
 
   defp github_snapshot(opts) do
-    server = Keyword.get(opts, :github_server, GitHubQuota)
+    server = Keyword.get(opts, :github_server, Access.quota_server())
     now_ms = Keyword.get(opts, :github_cache_now_ms, System.monotonic_time(:millisecond))
 
-    case GitHubQuota.cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
+    case Access.quota_cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
       {:ok, snapshot, _age_ms, observed_at_ms} ->
         {{:ok, snapshot}, observed_at_ms}
 
       :miss ->
-        github = isolated(fn -> {:ok, GitHubQuota.snapshot!(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+        github = isolated(fn -> {:ok, Access.cost_report(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
         {github, if(match?({:ok, _}, github), do: System.system_time(:millisecond))}
     end
   end
@@ -156,7 +157,11 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  defp unknown(base, %{percent: percent, observed_at: at}), do: %{base | none: true, note: "Last known #{percent}% (previous boot)", observed_at: ms(at), stale: true}
+  defp unknown(base, %{percent: percent, observed_at: at}) do
+    remaining = RemainingMeter.percent(percent)
+    %{base | none: true, note: "Last known #{remaining}% left (previous boot)", observed_at: ms(at), stale: true}
+  end
+
   defp unknown(base, _), do: %{base | none: true, note: "Awaiting first observation"}
 
   defp provider_windows(base, %{provider: :claude}, accounts, now) when map_size(accounts) >= 2 do
@@ -193,19 +198,21 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  defp window(id, value), do: %{acc: [pct(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
-  defp pct(%{kind: :exact, now: value}), do: value
-  defp pct(_), do: nil
+  defp window(id, value), do: %{acc: [meter_percent(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
+
+  defp meter_percent(%{kind: :exact, now: remaining_percent}) when is_number(remaining_percent), do: percent(remaining_percent)
+  defp meter_percent(_), do: nil
 
   defp credits(value) do
     amount = get_in(value, [:credits, :amount])
     left = if is_number(amount), do: "$" <> Money.format_amount(to_string(amount)), else: "unknown"
-    %{pct: pct(value.meter), left: left, tip: [["Prepaid credits", left <> " left"]]}
+    remaining = meter_percent(value.meter)
+    %{pct: remaining, left: left, tip: [["Prepaid credits", if(is_number(remaining), do: "#{left} left · #{percent(remaining)}% left", else: "#{left} left")]]}
   end
 
   defp account_window(accounts, names, key, label) do
     values = Enum.map(names, fn name -> Enum.find(get_in(accounts[name], [:reading, :windows]) || [], &(&1.window == key)) || %{} end)
-    %{acc: Enum.map(values, &percent(Map.get(&1, :used_percent))), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
+    %{acc: Enum.map(values, &(Map.get(&1, :used_percent) |> RemainingMeter.percent() |> percent())), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
   end
 
   defp duration(minutes, _id) when is_integer(minutes) and minutes > 0 do

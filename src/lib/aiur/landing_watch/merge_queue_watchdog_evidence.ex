@@ -11,7 +11,7 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogEvidence do
     MergeQueueFailureEvidence
   }
 
-  @failed_conclusions ["failure", "cancelled", "timed_out", "startup_failure"]
+  @failed_conclusions ["failure", "timed_out", "startup_failure"]
   @spec classify(map(), keyword()) :: {:ok, map()} | {:skip, term()} | {:error, term()}
   def classify(observation, opts) do
     runs = Keyword.get(opts, :completed_merge_group_runs, [])

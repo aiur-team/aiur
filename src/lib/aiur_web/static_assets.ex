@@ -24,6 +24,7 @@ defmodule AiurWeb.StaticAssets do
     conversation-drawer-hook.js
     conversation-voice-controller.js
     dashboard.css
+    decision-questions-validation.js
     elevenlabs-symbol.svg
     sortable-table-hook.js
     streamdeck-emulator-hook.js
@@ -55,6 +56,7 @@ defmodule AiurWeb.StaticAssets do
   }
 
   @runtime_static_assets %{
+    "/decision-questions-validation.js" => {"application/javascript", "priv/static/decision-questions-validation.js"},
     "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
     "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
@@ -137,7 +139,7 @@ defmodule AiurWeb.StaticAssets do
   @spec fetch(String.t()) :: {:ok, String.t(), binary()} | :error
   def fetch("/aiur-logo.png") do
     :aiur
-    |> Application.app_dir("priv/static/aiur-logo.png")
+    |> Application.app_dir("priv/static/aiur-style/assets/aiur-logo.png")
     |> File.read()
     |> case do
       {:ok, body} -> {:ok, "image/png", body}

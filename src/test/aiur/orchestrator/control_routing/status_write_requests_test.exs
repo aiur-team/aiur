@@ -343,7 +343,7 @@ defmodule Aiur.Orchestrator.ControlRouting.StatusWriteRequestsTest do
           }
         )
 
-      assert {:reply, {:error, :max_concurrent_agents_reached}, ^state} =
+      assert {:reply, {:error, {:max_concurrent_agents_reached, %{active: 1, used: 1, paused_holds: 0, limit: 1, max: 1}}}, ^state} =
                PauseResume.request_control_call(state, paused_issue_id, :resume, 46)
 
       refute_receive {:resume_agent, 46, _generation}, 100

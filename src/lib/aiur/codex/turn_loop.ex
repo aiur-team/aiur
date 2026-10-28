@@ -5,8 +5,9 @@ defmodule Aiur.Codex.TurnLoop do
 
   require Logger
 
-  alias Aiur.AppServer.{Messages, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
+  alias Aiur.AppServer.{Messages, NativeReplies, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
   alias Aiur.Codex.{Approvals, NotificationPolicy, Notifications, TurnEvents}
+  alias Aiur.Commands.NativeCapture
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
   def handle_method(
@@ -25,6 +26,8 @@ defmodule Aiur.Codex.TurnLoop do
       payload
     )
 
+    state = release_completed_turn(session, state, payload)
+
     case TurnState.turn_completion_status(payload) do
       "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
       "failed" -> continue_after_failed_turn(session, state, payload)
@@ -40,6 +43,8 @@ defmodule Aiur.Codex.TurnLoop do
         _method
       ) do
     emit_turn_event(state.on_message, :turn_failed, payload, payload_string, session.port, params)
+
+    state = NativeCapture.release_held(session, state, :turn_ended)
 
     TurnState.fail_pending_operator_requests(
       state.pending_operator_requests,
@@ -64,6 +69,8 @@ defmodule Aiur.Codex.TurnLoop do
       session.port,
       params
     )
+
+    state = NativeCapture.release_held(session, state, :turn_ended)
 
     TurnState.fail_pending_operator_requests(
       state.pending_operator_requests,
@@ -94,6 +101,14 @@ defmodule Aiur.Codex.TurnLoop do
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
       when is_binary(method) do
     handle_turn_method(session, state, payload, payload_string, method)
+  end
+
+  defp release_completed_turn(session, state, payload) do
+    turn_id = get_in(payload, ["params", "turn", "id"]) || get_in(payload, ["turn", "id"])
+    stale? = is_binary(turn_id) and turn_id != state.current_turn_id
+    anonymous_barrier? = is_nil(turn_id) and Map.get(state, :anonymous_completion_consumed?, false)
+
+    if stale? or anonymous_barrier?, do: state, else: NativeCapture.release_held(session, state, :turn_ended)
   end
 
   # A turn that Codex failed on the account usage limit is a provider pause
@@ -159,7 +174,11 @@ defmodule Aiur.Codex.TurnLoop do
       workspace: Map.get(session, :workspace),
       response_id: Map.get(payload, "id"),
       tool_call_scope: tool_call_scope(state, session),
-      tool_call_thread_id: Map.get(session, :thread_id)
+      tool_call_thread_id: Map.get(session, :thread_id),
+      turn_id: state.current_turn_id,
+      ticket: Map.get(state, :issue, %{identifier: Map.get(state, :issue_identifier)}),
+      session_ref: "#{Map.get(session, :thread_id)}-#{state.current_turn_id}",
+      source: %{session_id: "#{Map.get(session, :thread_id)}-#{state.current_turn_id}"}
     }
 
     case Approvals.maybe_handle_approval_request(
@@ -171,9 +190,14 @@ defmodule Aiur.Codex.TurnLoop do
            metadata,
            state.tool_executor,
            state.auto_approve_requests,
-           execution_context,
+           Map.merge(Map.take(session, [:store]), execution_context),
            pause_latched?(session, state)
          ) do
+      {:held, ref, info} ->
+        Messages.emit_message(on_message, :native_question_held, Map.take(info, [:decision_id, :native_ref, :since]), metadata)
+        state = Map.update(state, :held_native_questions, %{ref => info}, &Map.put(&1, ref, info))
+        {:continue, NativeReplies.deliver(session, state)}
+
       :input_required ->
         Messages.emit_message(
           on_message,

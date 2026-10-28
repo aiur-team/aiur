@@ -21,6 +21,12 @@ defmodule Aiur.BuildQueue.ReadinessTest do
     for pr <- [nil, :open, :merged], do: assert(verdict(pr: pr) == :pending)
   end
 
+  test "budget exhaustion remains a distinct lifecycle observation" do
+    evidence = Readiness.evidence(observation(labels: ["worker:budget-exhausted"]), "worker")
+
+    assert evidence.state_label == "budget-exhausted"
+  end
+
   test "missing, unknown, and stale evidence never clears a prerequisite" do
     assert Readiness.edge_verdict(nil, @opts) == {:unknown, :stale}
     assert verdict(open?: :unknown) == {:unknown, :stale}

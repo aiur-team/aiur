@@ -66,10 +66,22 @@ defmodule VoiceConverse.Events do
     @enforce_keys [:code, :message]
     defstruct [:code, :message]
 
-    @codes [:provider_auth, :provider_quota, :provider_unavailable, :provider_error, :privacy_preflight_failed]
+    @codes [
+      :unconfigured,
+      :provider_auth,
+      :provider_quota,
+      :provider_unavailable,
+      :provider_error,
+      :privacy_preflight_failed
+    ]
 
     @type code ::
-            :provider_auth | :provider_quota | :provider_unavailable | :provider_error | :privacy_preflight_failed
+            :unconfigured
+            | :provider_auth
+            | :provider_quota
+            | :provider_unavailable
+            | :provider_error
+            | :privacy_preflight_failed
     @type t :: %__MODULE__{code: code(), message: String.t()}
 
     @spec codes() :: [code()]

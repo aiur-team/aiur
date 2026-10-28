@@ -25,17 +25,17 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     assert html =~ "Session"
     assert html =~ "Weekly"
-    assert html =~ "30% · 22m"
-    assert html =~ "47% · Thu 6PM"
-    assert html =~ "50% · 1h"
-    assert html =~ "75% · Fri 8PM"
+    assert html =~ "70% left · 22m"
+    assert html =~ "53% left · Thu 6PM"
+    assert html =~ "50% left · 1h"
+    assert html =~ "25% left · Fri 8PM"
 
     Agent.update(meter_agent, fn meters ->
       put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "60% · 22m"
+    assert render(view) =~ "40% left · 22m"
   end
 
   test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{snapshot_agent: snapshot_agent, meter_agent: meter_agent} do
@@ -60,7 +60,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
       send(view.pid, {:provider_meter_changed, %{}})
       html = render(view)
 
-      assert html =~ "60% · 22m"
+      assert html =~ "40% left · 22m"
       # Meter observations must not re-project the fleet: the grid snapshot was
       # read once at mount and not again for the meter refresh.
       assert Agent.get(counter, & &1) == reads_before
@@ -102,7 +102,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ ~s(data-meter="weekly" data-percent="47" data-observed="true" data-freshness="stale")
+    assert html =~ ~s(data-meter="weekly" data-percent="53" data-observed="true" data-freshness="stale")
     refute html =~ "stale ·"
     refute html =~ "10m ago"
   end
@@ -224,28 +224,28 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~ ~s(data-nav-collapsed="false")
   end
 
-  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, needs_you: 2, needs_you_blocking: 1}
   test "carries the awaiting-Commands banner into Stream Deck" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "2 units awaiting commands"
-    assert html =~ ~s(href="/commands")
+    assert html =~ "2 Commands need you"
+    assert html =~ ~s(href="/commands?route=needs_you")
   end
 
-  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, needs_you: 0, needs_you_blocking: 0}
   test "omits the awaiting-Commands banner from Stream Deck when nothing is waiting" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    refute html =~ "units awaiting commands"
+    refute html =~ "Commands need you"
   end
 
-  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, needs_you: 2, needs_you_blocking: 1}
   test "survives every message the Command topic carries" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
-    assert html =~ "2 units awaiting commands"
+    assert html =~ "2 Commands need you"
 
     # Stream Deck is a control surface the operator runs the fleet from. An
     # unrelated Command action anywhere must not take it down.
-    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 Commands need you"
   end
 end

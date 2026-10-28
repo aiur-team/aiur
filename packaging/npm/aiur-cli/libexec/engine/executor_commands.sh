@@ -6,6 +6,25 @@ encode_control_value() {
 
 # These are explicit trusted-Executor mutations, deliberately separate from
 # the read-only `commands` catalog. Revisions remain dashboard-owned.
+cmd_executor_ack() {
+  local decision_id="${1:-}" executor_id="aiur-cli" arg
+  [[ "$decision_id" =~ ^dec_[0-9a-f]{16}$ ]] || { echo "aiur: executor-ack expects a decision ID (dec_ followed by 16 lowercase hex characters)" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-ack --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      *) echo "aiur: executor-ack received an unexpected argument: $arg" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id}"
+  run_control_rpc "Aiur.AgentControlCLI.executor_ack([$opts])"
+}
+
 cmd_executor_answer() {
   local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
@@ -115,6 +134,61 @@ cmd_operator_answer() {
   [ "$confirmation" = "$decision_id" ] || { echo "aiur: answer confirmation did not match the decision ID" >&2; exit 64; }
   opts="$opts, expected_version: $expected_version, confirmation: Base.decode64!(\"$(encode_control_value "$confirmation")\")"
   run_control_rpc "Aiur.AgentControlCLI.operator_answer([$opts])"
+}
+
+cmd_operator_relay_answer() {
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" quote="" idempotency_key="" relayed_by="" supersede=0 arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: operator-relay-answer expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --option) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --quote) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --quote requires a value" >&2; exit 64; }; shift; quote="$1" ;;
+      --quote=*) quote="${arg#--quote=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --relayed-by) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --relayed-by requires a value" >&2; exit 64; }; shift; relayed_by="$1" ;;
+      --relayed-by=*) relayed_by="${arg#--relayed-by=}" ;;
+      --supersede) supersede=1 ;;
+      -*) echo "aiur: operator-relay-answer received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: operator-relay-answer expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: operator-relay-answer --expected-version expects a positive integer" >&2; exit 64; }
+  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: operator-relay-answer requires exactly one of --option or --custom-response" >&2
+    exit 64
+  fi
+  [ -n "$quote" ] || { echo "aiur: operator-relay-answer --quote is required" >&2; exit 64; }
+  [ -n "$idempotency_key" ] || { echo "aiur: operator-relay-answer --idempotency-key is required" >&2; exit 64; }
+  [ -n "$relayed_by" ] || { echo "aiur: operator-relay-answer --relayed-by must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  if [ -n "$option_id" ]; then
+    opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+  else
+    opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+  fi
+  opts="$opts, quote: Base.decode64!(\"$(encode_control_value "$quote")\")"
+  opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
+  opts="$opts, relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\")"
+  if [ "$supersede" -eq 1 ]; then
+    opts="$opts, supersede: true"
+  fi
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
+  run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts])"
 }
 
 cmd_executor_escalate() {

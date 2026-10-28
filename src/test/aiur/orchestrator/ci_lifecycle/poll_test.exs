@@ -134,12 +134,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
       on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
 
       previous = issue(unique_identifier("human-review-handoff"), "rework")
+      previous = %{previous | tracker_identity: %{previous.tracker_identity | identifier: "3022"}}
       start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
       start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
       current = %{previous | state: "human-review"}
       sha = String.duplicate("e", 40)
-      key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
-      :ok = ResourceStore.put_resource(key, %{"number" => 3022, "head" => %{"sha" => sha}})
+      key = ResourceStore.key_for_repo(:branch_pull_request_listing_all, "its-everdred/aiur", "open")
+      :ok = ResourceStore.put_resource(key, [%{"number" => 3022, "head" => %{"ref" => "aiur/3022", "sha" => sha}}])
       parent = self()
 
       opts = [
@@ -207,7 +208,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
       assert ExecutorWakeInbox.wait(50) == :timeout
     end
 
-    test "draft fast gate never promotes ci-wait; ready full checks do" do
+    test "draft fast gate never promotes ci-wait; ready full checks hand off ownerless tickets" do
       identifier = unique_identifier("draft-fast-gate")
       RecordingGitHubClient.record_to(self())
       ticket = issue(identifier, "ci-wait")
@@ -234,7 +235,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
 
       batch = put_in(batch, [identifier, :check_runs], [check, %{check | "name" => "test"}])
       next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
-      assert_received {:tracker_update, ^identifier, "in-progress", _}
+      assert_received {:tracker_update, ^identifier, "human-review", [expected_state: "ci-wait"]}
       assert next.ci_lifecycle.approved_heads[identifier] == "head-71"
     end
 

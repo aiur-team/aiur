@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.CommentWake.Dispatch do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWakeDecline
@@ -13,6 +12,7 @@ defmodule Aiur.Orchestrator.CommentWake.Dispatch do
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Signal
   alias Aiur.Tracker
 
@@ -51,7 +51,7 @@ defmodule Aiur.Orchestrator.CommentWake.Dispatch do
       # silent-decline pattern; this is the one on the rework-comment path.
       reason_details = CommentWakeDecline.reason_details(issue, Map.has_key?(state.running, issue.id))
 
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "ticket.#{issue.identifier}.agent.attention.comment_wake_dispatch_declined",
         "Comment on issue #{issue.identifier} was not acted on: #{reason_details}",
         issue: issue.identifier,

@@ -69,10 +69,13 @@ defmodule Aiur.Orchestrator.HumanReview do
 
         AgentTeardown.deactivate_running_issue(state, issue.id)
 
-      # The only reviewer verdict the gate can report is unaddressed
-      # review-thread comments. `rework` means "work exists and was rejected"
-      # (#2075), so only a verdict like this may move the ticket there.
+      # A reviewer verdict or invalid handoff evidence means the proposed
+      # human-review transition was rejected. `rework` means "work exists and
+      # was rejected" (#2075), so these failures restore that state.
       {:error, {:unverified_review_threads, _detail} = reason} ->
+        reject_human_review_transition(state, issue, reason, opts)
+
+      {:error, {:stale_pr_body_evidence, _detail} = reason} ->
         reject_human_review_transition(state, issue, reason, opts)
 
       # Everything else the gate can return is an infrastructure or operational

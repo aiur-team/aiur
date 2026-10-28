@@ -9,8 +9,21 @@ defmodule AiurWeb.RouteAuthCensusTest do
   import Phoenix.ChannelTest, only: [socket: 3]
 
   @endpoint AiurWeb.Endpoint
-  @authenticators [:dashboard_auth, :dashboard_auth_required, :supervisor_auth, :github_webhook]
+  @authenticators [
+    :dashboard_auth,
+    :dashboard_auth_required,
+    :client_token_read,
+    :client_token_write,
+    :control_token,
+    :browser_dashboard_auth,
+    :auth_session,
+    :auth_post,
+    :supervisor_auth,
+    :github_webhook
+  ]
+  @intentionally_public [{:get, "/healthz"}, {:get, "/readyz"}]
   @audited_sockets %{
+    "/events" => AiurWeb.EventsSocket,
     "/live" => Phoenix.LiveView.Socket,
     "/streamdeck" => AiurWeb.StreamdeckSocket,
     "/voice" => AiurWeb.VoiceSocket
@@ -21,7 +34,8 @@ defmodule AiurWeb.RouteAuthCensusTest do
       for route <- Phoenix.Router.routes(AiurWeb.Router),
           method = if(route.verb == :*, do: "AIURCENSUS", else: route.verb |> to_string() |> String.upcase()),
           info = Phoenix.Router.route_info(AiurWeb.Router, method, route.path, "localhost"),
-          info == :error or info.route != route.path or not Enum.any?(info.pipe_through, &(&1 in @authenticators)) do
+          info == :error or info.route != route.path or
+            (not Enum.any?(info.pipe_through, &(&1 in @authenticators)) and {route.verb, route.path} not in @intentionally_public) do
         {route.verb, route.path, info}
       end
 
@@ -38,7 +52,7 @@ defmodule AiurWeb.RouteAuthCensusTest do
   test "audited channel sockets reject a connection without proof" do
     # /live accepts connect by design; FinancialDataAccess on_mount is guarded
     # by financial_data_access_test.exs, including every dashboard LiveView route.
-    for module <- [AiurWeb.StreamdeckSocket, AiurWeb.VoiceSocket] do
+    for module <- [AiurWeb.EventsSocket, AiurWeb.StreamdeckSocket, AiurWeb.VoiceSocket] do
       assert :error == module.connect(%{}, socket(module, nil, %{}), %{}),
              "#{inspect(module)} accepted a connection without proof"
     end

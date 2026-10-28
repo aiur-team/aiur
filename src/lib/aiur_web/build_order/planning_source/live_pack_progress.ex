@@ -2,7 +2,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
   @moduledoc false
 
   alias Aiur.BuildOrder.Lifecycle
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
   alias Aiur.Orchestrator
 
   @spec current_poll_labels() :: map()
@@ -28,9 +28,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
     |> Enum.map(& &1.repository)
     |> Enum.uniq()
     |> Map.new(fn {owner, repo} = repository ->
-      issues = ResourceStore.list(:issue, owner, repo)
-      labels = ResourceStore.list(:issue_labels, owner, repo)
-      sub_issues = ResourceStore.list(:sub_issue, owner, repo)
+      issues = Access.list(:issue, owner, repo)
+      labels = Access.list(:issue_labels, owner, repo)
+      sub_issues = Access.list(:sub_issue, owner, repo)
       {repository, %{issues: issues_by_number(issues), labels: labels, members: member_numbers(sub_issues)}}
     end)
   end

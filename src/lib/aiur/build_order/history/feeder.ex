@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.History.Feeder do
   require Logger
   alias Aiur.BuildOrder.History
   alias Aiur.BuildOrder.History.{CatchUp, Feed, Row, TelemetryScan}
-  alias Aiur.GitHub.{OpenIssueListing, ResourceEvents, ResourceStore, Transport, ViewStateSweep}
+  alias Aiur.GitHub.{Access, OpenIssueListing, ViewStateSweep}
   alias Aiur.Webhooks.ModeRegistry
   @types [:issue, :issue_labels, :issue_dependency, :sub_issue]
   # ponytail: hourly recovery and one-second merge debounce; tune only after measuring.
@@ -24,13 +24,13 @@ defmodule Aiur.BuildOrder.History.Feeder do
   @impl true
   def init(opts) do
     repo =
-      case Keyword.get(opts, :repo_fun, &Transport.parse_repo/0).() do
+      case Keyword.get(opts, :repo_fun, &Access.parse_repo/0).() do
         {:ok, {owner, repo}} -> String.downcase(owner <> "/" <> repo)
         _other -> nil
       end
 
     if repo do
-      Enum.each(@types, &ResourceEvents.subscribe(&1, repo))
+      Enum.each(@types, &Access.subscribe_repo(&1, repo))
       History.subscribe()
       Phoenix.PubSub.subscribe(Aiur.PubSub, "observability:dashboard")
       OpenIssueListing.subscribe(repo)
@@ -65,7 +65,7 @@ defmodule Aiur.BuildOrder.History.Feeder do
   def handle_continue(:boot, %{repo: nil} = state), do: {:noreply, state}
 
   def handle_continue(:boot, state) do
-    changes = for type <- @types, {key, _body} <- ResourceStore.list_type(type, state.repo), do: %{key: key, resource_type: type, source: :resource_store}
+    changes = for type <- @types, {key, _body} <- Access.list_type(type, state.repo), do: %{key: key, resource_type: type, source: :resource_store}
     state = state |> apply_resources(changes) |> scan_merges()
     path = Keyword.get_lazy(state.opts, :telemetry_path, &Aiur.RunTelemetry.telemetry_file/0)
     task = Task.Supervisor.async_nolink(state.supervisor, fn -> TelemetryScan.dispatches(path) end)
@@ -159,7 +159,7 @@ defmodule Aiur.BuildOrder.History.Feeder do
 
     observations =
       Enum.flat_map(changes, fn change ->
-        case ResourceStore.fetch(change.key) do
+        case Access.fetch_resource(change.key) do
           {:ok, entry} -> [{change, entry}]
           :miss -> []
         end

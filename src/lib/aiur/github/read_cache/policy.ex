@@ -68,7 +68,6 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   """
   alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.ReadCache.{Identity, Shapes}
-  alias Aiur.Webhooks.ModeTable
 
   @type class :: :comments | :issue_graph | :repo_config | :issue_timeline | :issue | :pull
 
@@ -258,7 +257,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   An operator override (`:github_read_cache_ttls`) wins over both buckets, so
   tightening one class always works whichever transport the repo is on.
   """
-  @spec ttl_ms(class(), Aiur.Webhooks.DeliveryMode.transport()) :: integer()
+  @spec ttl_ms(class(), Aiur.GitHub.Access.Freshness.transport()) :: integer()
   def ttl_ms(class, transport) do
     configured_override(class) || mode_ttl(class, transport)
   end
@@ -281,20 +280,26 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
   defp request_ttl(:repo_config, request) do
     {owner, repo} = Identity.repository(request)
-    ttl_ms(:repo_config, ModeTable.repo_config_transport("#{owner}/#{repo}", transport(request)))
+    transport = transport(request)
+
+    case Settings.current().freshness do
+      nil -> ttl_ms(:repo_config, transport)
+      port -> ttl_ms(:repo_config, port.repo_config_transport("#{owner}/#{repo}", transport))
+    end
   end
 
   defp request_ttl(class, request), do: ttl_ms(class, transport(request))
 
-  # The transport for the repository a request observes, read from `ModeTable`
-  # without a process hop. A request whose repository cannot be named has
-  # already refused at `:no_identity` before this is consulted, so `nil` here
-  # is a request that reached `classify_kind` with a named repo but whose
-  # transport cannot be determined — which answers the conservative short TTL.
+  # The transport for the repository a request observes, read from the
+  # settings' freshness port without a process hop. A request whose repository
+  # cannot be named has already refused at `:no_identity` before this is
+  # consulted, so `nil` here is a request that reached `classify_kind` with a
+  # named repo but whose transport cannot be determined — which answers the
+  # conservative short TTL, as does an unset port.
   defp transport(request) do
-    case Identity.repository(request) do
-      {owner, repo} -> ModeTable.transport("#{owner}/#{repo}")
-      nil -> :polling
+    case {Identity.repository(request), Settings.current().freshness} do
+      {{owner, repo}, port} when not is_nil(port) -> port.transport("#{owner}/#{repo}")
+      _unknown -> :polling
     end
   end
 end

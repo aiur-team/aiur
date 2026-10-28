@@ -54,7 +54,9 @@ defmodule Aiur.DecisionStore.BlockedTicketsTest do
       assert {:ok, %{decision: _other}} =
                request(pid, %{"question" => "Hold ticket 53?", "blocking" => true}, ticket: %{@ticket | identifier: "53"})
 
-      assert DecisionStore.open_blocking_decision_ids(["52"], pid) == {:ok, [blocking.decision_id]}
+      assert DecisionStore.open_blocking_decision_ids(["52"], pid) ==
+               {:ok, [blocking.decision_id]}
+
       assert DecisionStore.open_blocking_decision_ids(["unknown"], pid) == {:ok, []}
 
       assert {:ok, %{status: :accepted}} =
@@ -68,7 +70,34 @@ defmodule Aiur.DecisionStore.BlockedTicketsTest do
     end
 
     test "open_blocking_decision_ids/2 reports an unreachable store" do
-      assert DecisionStore.open_blocking_decision_ids(["52"], :no_such_decision_store) == {:error, :store_unavailable}
+      assert DecisionStore.open_blocking_decision_ids(["52"], :no_such_decision_store) ==
+               {:error, :store_unavailable}
+    end
+
+    test "open_blocking_decision_ids_by_ticket/2 returns one grouped result for the requested tickets",
+         %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: first}} =
+               request(pid, %{"question" => "Hold ticket 61?", "blocking" => true}, ticket: %{@ticket | identifier: "61"})
+
+      assert {:ok, %{decision: _notice}} =
+               request(pid, %{"question" => "Notice on 61?", "blocking" => false}, ticket: %{@ticket | identifier: "61"})
+
+      assert {:ok, %{decision: second}} =
+               request(pid, %{"question" => "Hold ticket 62?", "blocking" => true}, ticket: %{@ticket | identifier: "62"})
+
+      assert {:ok, grouped} =
+               DecisionStore.open_blocking_decision_ids_by_ticket(["61", "62", "empty"], pid)
+
+      assert grouped == %{
+               "61" => [first.decision_id],
+               "62" => [second.decision_id],
+               "empty" => []
+             }
+
+      assert DecisionStore.open_blocking_decision_ids_by_ticket(["61"], :no_such_decision_store) ==
+               {:error, :store_unavailable}
     end
 
     test "a deferred blocking Command still gates dispatch until answered", %{dir: dir} do
@@ -82,7 +111,11 @@ defmodule Aiur.DecisionStore.BlockedTicketsTest do
                )
 
       assert {:ok, %{decision: deferred}} =
-               DecisionStore.defer(decision.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+               DecisionStore.defer(
+                 decision.decision_id,
+                 [actor: %{kind: :operator, id: "dashboard"}],
+                 pid
+               )
 
       assert deferred.decision_status == :deferred
       assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
@@ -173,7 +206,9 @@ defmodule Aiur.DecisionStore.BlockedTicketsTest do
 
     test "fails closed when the store cannot be read", %{dir: dir} do
       pid = start_store!(dir)
-      assert {:ok, %{decision: _decision}} = request(pid, %{"question" => "Block?", "blocking" => true})
+
+      assert {:ok, %{decision: _decision}} =
+               request(pid, %{"question" => "Block?", "blocking" => true})
 
       :sys.replace_state(pid, &%{&1 | writable?: false, health: {:unavailable, :test}})
       assert {:error, :store_unavailable} = DecisionStore.blocked_ticket_ids(pid)

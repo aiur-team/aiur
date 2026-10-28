@@ -117,6 +117,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
           next_state
           |> maybe_refresh_after_global_pause_change(current, on?, opts)
 
+        Application.put_env(:aiur, :instance_globally_paused, state.globally_paused)
         publish_global_pause(state)
         StatusReport.notify_dashboard(state)
         {:reply, {:ok, global_pause_status_for_state(state)}, state}

@@ -106,7 +106,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @streamdeck_chassis_pins ~w(--fg --muted)
 
   test "the light-mode Stream Deck chassis pins every token it paints ink with" do
-    pinned = declarations(css_rule(~s(html[data-theme="light"] .sd-device)))
+    pinned = css_rule(~s(html[data-theme="light"] .sd-device)) |> declarations() |> resolve_all("light")
     dark_root = css_rule(":root") |> declarations() |> resolve_all("dark")
 
     for token <- @streamdeck_chassis_pins ++ @streamdeck_dark_root_pins do
@@ -138,7 +138,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
     end
   end
 
-  # A meter that has reached 100% used is critical: the fill turns red so an
+  # A meter with low remaining headroom is critical: the fill turns red so an
   # exhausted window is never mistaken for a healthy one (#1532). The rule must
   # keep using the themed blocking token so it stays legible in both themes.
   test ".rs-meter is-critical uses the themed blocking fill" do
@@ -352,6 +352,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   # and contrast maths keep working on aliased dashboard variables.
   defp resolve(value, theme) do
     Regex.replace(~r/var\(--aiur-([a-z0-9-]+)\)/, value, fn _full, name ->
+      {name, theme} = if String.ends_with?(name, "-dark"), do: {String.trim_trailing(name, "-dark"), "dark"}, else: {name, theme}
       {_key, token} = Enum.find(@aiur_tokens, fn {key, _} -> String.replace(key, ".", "-") == name end)
       Map.fetch!(token, theme)
     end)

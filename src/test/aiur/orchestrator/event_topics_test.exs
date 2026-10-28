@@ -68,6 +68,96 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     assert_received {:body_fix_label, ^identifier, :add}
   end
 
+  test "retry progress resolves an outstanding stalled alert once" do
+    identifier = "stall-progress-#{System.unique_integer([:positive])}"
+    topic = "ticket.#{identifier}.agent.stalled.resolved"
+    stalled_topic = "ticket.#{identifier}.agent.stalled"
+    test_pid = self()
+
+    emitter = fn topic, opts ->
+      send(test_pid, {:resolved, topic, opts})
+      :ok
+    end
+
+    state = %State{running: %{"issue-1" => %{identifier: identifier, stalled_alert_outstanding: true}}}
+
+    next =
+      EventTopics.route(state, %{topic: "ticket.#{identifier}.agent.progress", issue: "issue"},
+        alert_emitter: emitter,
+        stalled_alert_state: fn ^stalled_topic -> :firing end
+      )
+
+    assert_received {:resolved, ^topic, opts}
+    assert opts[:needs_attention] == false
+    refute next.running["issue-1"].stalled_alert_outstanding
+
+    EventTopics.route(next, %{topic: "ticket.#{identifier}.agent.progress.checkin"},
+      alert_emitter: emitter,
+      stalled_alert_state: fn _ -> :firing end
+    )
+
+    refute_received {:resolved, _, _}
+  end
+
+  test "progress without an outstanding stalled alert emits no resolution" do
+    identifier = "healthy-progress-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    emitter = fn topic, _opts ->
+      send(test_pid, {:resolved, topic})
+      :ok
+    end
+
+    next =
+      EventTopics.route(%State{}, %{topic: "ticket.#{identifier}.agent.progress.phase"}, alert_emitter: emitter)
+
+    assert next.running == %{}
+    refute_received {:resolved, _}
+  end
+
+  test "progress retires its retry marker when pause resume already resolved the alert" do
+    identifier = "paused-stall-#{System.unique_integer([:positive])}"
+    topic = "ticket.#{identifier}.agent.stalled.resolved"
+    test_pid = self()
+
+    emitter = fn event_topic, _opts ->
+      send(test_pid, {:resolved, event_topic})
+      :ok
+    end
+
+    state = %State{running: %{"issue-1" => %{identifier: identifier, stalled_alert_outstanding: true}}}
+
+    next =
+      EventTopics.route(state, %{topic: "ticket.#{identifier}.agent.progress"},
+        alert_emitter: emitter,
+        stalled_alert_state: fn _ -> :resolved end
+      )
+
+    refute_received {:resolved, ^topic}
+    refute next.running["issue-1"].stalled_alert_outstanding
+  end
+
+  test "progress leaves the marker set when alert state is unknown" do
+    identifier = "unknown-stall-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    emitter = fn topic, _opts ->
+      send(test_pid, {:resolved, topic})
+      :ok
+    end
+
+    state = %State{running: %{"issue-1" => %{identifier: identifier, stalled_alert_outstanding: true}}}
+
+    next =
+      EventTopics.route(state, %{topic: "ticket.#{identifier}.agent.progress"},
+        alert_emitter: emitter,
+        stalled_alert_state: fn _ -> :unknown end
+      )
+
+    refute_received {:resolved, _}
+    assert next.running["issue-1"].stalled_alert_outstanding
+  end
+
   test "a branch push does not alert when the PR body already names its head" do
     identifier = Integer.to_string(System.unique_integer([:positive]))
     pushed_sha = String.duplicate("c", 40)
@@ -320,7 +410,9 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(event) == [
                merged_by_login: "its-everdred",
                pr_body: "Refs #176 (merge does not close the ticket)",
+               commit_messages: [],
                pr_url: "https://github.com/aiur-team/aiur/pull/176",
+               repository: nil,
                head_sha: "4ab677b8b"
              ]
     end
@@ -329,14 +421,18 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged"}) == [
                merged_by_login: nil,
                pr_body: nil,
+               commit_messages: [],
                pr_url: nil,
+               repository: nil,
                head_sha: nil
              ]
 
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged", pr: nil}) == [
                merged_by_login: nil,
                pr_body: nil,
+               commit_messages: [],
                pr_url: nil,
+               repository: nil,
                head_sha: nil
              ]
     end

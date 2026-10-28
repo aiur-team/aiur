@@ -1,9 +1,11 @@
 defmodule Aiur.RunTelemetry.WindowEventSources.CiRuns do
+  alias Aiur.GitHub.Access
   @moduledoc false
 
-  alias Aiur.GitHub.Transport
-
-  @events ["pull_request", "merge_group"]
+  @events [
+    "pull_request",
+    "merge_group"
+  ]
   @page_limit 10
   @per_page 100
   @run_limit 10_000
@@ -22,7 +24,7 @@ defmodule Aiur.RunTelemetry.WindowEventSources.CiRuns do
   end
 
   defp workflow_ids(request, token, repo, requested) do
-    case request.(%{method: :get, url: Transport.base_url() <> "/repos/#{repo}/actions/workflows?per_page=100", token: token, caller: "experiment_window_events"}) do
+    case request.(%{method: :get, url: Access.base_url() <> "/repos/#{repo}/actions/workflows?per_page=100", token: token, caller: "experiment_window_events"}) do
       {:ok, %{status: 200, body: %{"workflows" => rows, "total_count" => total}}} when is_list(rows) ->
         selected = Enum.flat_map(requested, &matching_ids(&1, rows))
         partial? = total > length(rows)
@@ -76,7 +78,7 @@ defmodule Aiur.RunTelemetry.WindowEventSources.CiRuns do
 
   defp run_slice(request, token, repo, {id, event, day} = slice, page, rows, total) do
     query = URI.encode_query(%{event: event, created: Date.to_iso8601(day), per_page: @per_page, page: page})
-    url = Transport.base_url() <> "/repos/#{repo}/actions/workflows/#{id}/runs?" <> query
+    url = Access.base_url() <> "/repos/#{repo}/actions/workflows/#{id}/runs?" <> query
 
     case request.(%{method: :get, url: url, token: token, caller: "experiment_window_events"}) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs, "total_count" => count}}} when is_list(runs) ->

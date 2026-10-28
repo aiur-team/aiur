@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
+import { providerSessionReading } from "../../src/art/segments.js";
 import { render } from "./renderSegment.js";
 
 const row: ProviderPanelRow = {
@@ -21,7 +22,8 @@ describe("provider account summary painting", () => {
     expect(row.model.session?.usedPercent).toBe(94);
     expect(ink.some(({ text }) => text === "Claude")).toBe(true);
     expect(ink.some(({ text }) => text === "worst of 2 accounts")).toBe(true);
-    expect(ink.some(({ text }) => text === "94%")).toBe(true);
+    expect(ink.some(({ text }) => text === "6% left")).toBe(true);
+    expect(providerSessionReading(row, 0).fraction).toBeCloseTo(0.06);
   });
 
   it("paints the account summary beside its percentage in the wide panel", () => {
@@ -32,6 +34,6 @@ describe("provider account summary painting", () => {
     }, 400);
     expect(row.model.session?.usedPercent).toBe(94);
     expect(ink.some(({ text }) => text === "Claude")).toBe(true);
-    expect(ink.some(({ text }) => text === "Session 94% · worst of 2")).toBe(true);
+    expect(ink.some(({ text }) => text === "Session 6% left · worst of 2")).toBe(true);
   });
 });

@@ -26,6 +26,9 @@ defmodule Aiur.GitHub.MergeQueue do
         }
 
   @required_keys [:draft?, :review_decision, :mergeable, :auto_merge_request, :merge_queue_entry]
+  @runner_queue_bound 10
+  @runner_starvation_age_minutes 15
+  @actions_status_url "https://www.githubstatus.com/#components"
   @graphql_fields [
     draft?: "isDraft",
     review_decision: "reviewDecision",
@@ -48,6 +51,29 @@ defmodule Aiur.GitHub.MergeQueue do
   end
 
   def normalize_graphql_pull_request(_pull_request), do: {:error, :invalid_observation}
+
+  @spec runner_starvation(list(map()), integer()) :: map() | nil
+  def runner_starvation(groups, now_ms),
+    do: runner_starvation(groups, now_ms, @runner_starvation_age_minutes)
+
+  @spec runner_starvation(list(map()), integer(), pos_integer()) :: map() | nil
+  def runner_starvation(groups, now_ms, stale_minutes) do
+    queued = Enum.filter(groups, &(group_state(&1) == "queued"))
+    running_count = Enum.count(groups, &(group_state(&1) == "in_progress"))
+    oldest_queued_age = queued |> Enum.map(&group_age_ms(&1, now_ms)) |> Enum.max(fn -> 0 end)
+
+    queue_pressure? = running_count == 0 or length(queued) > running_count * 2
+    starvation_evidence? = length(queued) > @runner_queue_bound or oldest_queued_age >= stale_minutes * 60_000
+
+    if queued != [] and queue_pressure? and starvation_evidence? do
+      %{
+        queued_runs: length(queued),
+        running_runs: running_count,
+        age_ms: oldest_queued_age,
+        status_url: @actions_status_url
+      }
+    end
+  end
 
   @doc """
   Classifies a normalized observation. Fail-closed: any incomplete, ambiguous,
@@ -73,6 +99,22 @@ defmodule Aiur.GitHub.MergeQueue do
       do: true
 
   def failed_entry_dropped?(_current, _previous), do: false
+
+  defp group_state(group), do: value(group, :state, value(group, :status, ""))
+  defp group_age_ms(group, now_ms), do: group |> value(:started_at, nil) |> date_ms(now_ms)
+  defp value(map, key, default), do: Map.get(map, key, Map.get(map, Atom.to_string(key), default))
+
+  defp date_ms(%DateTime{} = started_at, now_ms), do: max(now_ms - DateTime.to_unix(started_at, :millisecond), 0)
+  defp date_ms(timestamp, now_ms) when is_integer(timestamp), do: max(now_ms - timestamp, 0)
+
+  defp date_ms(timestamp, now_ms) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, started_at, _offset} -> max(now_ms - DateTime.to_unix(started_at, :millisecond), 0)
+      _ -> 0
+    end
+  end
+
+  defp date_ms(_timestamp, _now_ms), do: 0
 
   # Only an observation that carries every required field, and whose optional
   # arm/queue fields are absent rather than malformed, can be classified. Any

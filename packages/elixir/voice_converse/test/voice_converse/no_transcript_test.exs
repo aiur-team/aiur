@@ -85,7 +85,7 @@ defmodule VoiceConverse.NoTranscriptTest do
     store = run_session(config)
 
     assert TranscriptStore.mode(store) == :file
-    assert File.ls!(root) == [@id <> ".ndjson"]
+    assert Enum.sort(File.ls!(root)) == ["index.ndjson", @id <> ".ndjson"]
 
     assert {:ok, [%{"type" => "session_started"}, %{"text" => "my name is Sam"}, _, %{"type" => "session_ended"}], _} =
              TranscriptStore.read(root, @id)

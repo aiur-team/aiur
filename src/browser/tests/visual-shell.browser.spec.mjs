@@ -9,7 +9,7 @@ const VIEWPORTS = [
   { width: 1024, height: 768 },
   { width: 390, height: 844 }
 ]
-const ROUTES = ['/route-shell', '/build-orders', '/analytics']
+const ROUTES = ['/route-shell', '/analytics']
 
 for (const theme of THEMES) {
   for (const viewport of VIEWPORTS) {
@@ -99,7 +99,7 @@ for (const theme of THEMES) {
 
 test('CSS nav padding mutation fails sidebar screenshot comparison', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await openVisualRoute(page, { theme: 'light', route: '/build-orders' })
+  await openVisualRoute(page, { theme: 'light', route: '/analytics' })
   const sidebar = page.locator('aside.sidenav')
   const navItem = sidebar.locator('.snav').first()
   await expect(sidebar).toBeVisible()

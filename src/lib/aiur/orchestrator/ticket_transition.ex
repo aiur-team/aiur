@@ -42,8 +42,13 @@ defmodule Aiur.Orchestrator.TicketTransition do
     true = is_atom(writer) and not is_nil(writer)
     tracker = Keyword.get(opts, :tracker, Tracker)
 
-    adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker, :reason_modifiers, :label_prefix, :current_labels])
-    result = with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end)
+    result =
+      if to_state == "done" and writer in [:agent_tool, :turn_loop] do
+        {:error, :worker_cannot_mark_ticket_done}
+      else
+        adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker, :reason_modifiers, :label_prefix, :current_labels])
+        with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end)
+      end
 
     record(issue_id, :state, to_state, writer, opts, result)
 
@@ -188,7 +193,9 @@ defmodule Aiur.Orchestrator.TicketTransition do
     result
   end
 
-  defp with_writer(writer, fun) do
+  @doc "Attributes a tracker operation to its owning writer, restoring the previous scope afterward."
+  @spec with_writer(atom(), (-> result)) :: result when result: term()
+  def with_writer(writer, fun) do
     previous = Process.get(:aiur_ticket_writer)
     Process.put(:aiur_ticket_writer, writer)
 

@@ -15,7 +15,9 @@ defmodule AiurWeb.Build.PayloadScaleTest do
   alias AiurWeb.Build.ConversationSource.Wave0b
 
   @zone "America/Los_Angeles"
-  @snapshot_budget 65_536
+  # Measured over the real index on 2026-10-27: dense grew 65,227 -> 67,355 B.
+  # Required pack metadata adds 92 rows x 22 B (src/was) + 104 B (sources.packs).
+  @snapshot_budget 69_632
   @growth_budget 2_048
   # The ticket proposed 16,384 B (31 rows x 400 B) and 163,840 B (300 x 326 B). A v1 row is
   # 518 B on average in the design data (228 B are field names), measured 2026-10-22:
@@ -210,7 +212,7 @@ defmodule AiurWeb.Build.PayloadScaleTest do
 
   defp snapshot(server), do: IndexSource.snapshot(server: server, time_zone: @zone, financial: :locked, usage: UsageStub, freshness: FreshnessStub, timeout: 60_000)
 
-  # C3-T02's 64 KB budget excludes the not-queued section; S3 owns that one.
+  # The snapshot budget excludes the not-queued section; S3 owns that one.
   defp snapshot_bytes(server) do
     {:ok, snapshot} = snapshot(server)
     message = snapshot |> Payload.snapshot("scale", 0) |> put_in(["sections", "nq"], [])

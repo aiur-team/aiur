@@ -147,9 +147,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec fetch_retry_issue(
           [term()],
           String.t(),
-          ([String.t()] -> {:ok, [term()]} | {:error, term()})
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          boolean()
         ) :: {:ok, Issue.t() | nil} | {:error, term()}
-  defdelegate fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun), to: Lookup
+  defdelegate fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun, prefer_fresh? \\ false), to: Lookup
 
   @doc false
   @spec handle_retry_issue_lookup(

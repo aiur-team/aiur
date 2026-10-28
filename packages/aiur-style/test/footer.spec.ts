@@ -37,8 +37,10 @@ for (const theme of ['light', 'dark']) {
     await expect(link).toHaveAttribute('href', 'https://aiur.team');
     await expect(link).toHaveCSS('text-decoration-line', 'underline');
     const brand = page.locator('.aiur-footer__brand');
+    await expect(brand).toHaveCSS('column-gap', '9px');
     await expect(brand).toHaveCSS('letter-spacing', '2.16px');
     await expect(brand).toHaveCSS('text-transform', 'uppercase');
+    await expect(brand).toHaveCSS('color', theme === 'light' ? 'rgb(95, 86, 69)' : 'rgb(140, 141, 147)');
     await expect(brand.locator('.aiur-footer__dot')).toHaveCSS('width', '7px');
     await expect(brand.locator('.aiur-footer__dot')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.getByRole('link', { name: 'Aiur on GitHub' })).toBeVisible();

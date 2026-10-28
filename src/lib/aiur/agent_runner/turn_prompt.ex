@@ -2,7 +2,7 @@
 defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
-  alias Aiur.AgentRunner.{OptimisticPrompt, ReworkFindings, StoppedSessionPrompt}
+  alias Aiur.AgentRunner.{AsyncMessagePrompt, OptimisticPrompt, ReworkFindings, StoppedSessionPrompt}
   alias Aiur.{Issue, PromptBuilder}
 
   defp turn_of(nil), do: ""
@@ -21,7 +21,9 @@ defmodule Aiur.AgentRunner.TurnPrompt do
         :cold -> PromptBuilder.build_prompt(issue, prompt_opts)
       end
 
-    prompt <> conflict_guidance(workspace) <> stopped_session_guidance(issue, prompt_opts, workspace)
+    prompt <>
+      PromptBuilder.answered_decisions_prompt(Keyword.get(prompt_opts, :answered_decisions, [])) <>
+      conflict_guidance(workspace) <> stopped_session_guidance(issue, prompt_opts, workspace) <> AsyncMessagePrompt.build(issue.identifier, opts)
   end
 
   def build_turn_prompt(issue, opts, turn_number, max_turns) do
@@ -41,7 +43,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     #{PromptBuilder.rename_test_audit_restatement()}
     """
 
-    prompt <> OptimisticPrompt.render(issue.optimistic_start)
+    prompt <> OptimisticPrompt.render(issue.optimistic_start) <> AsyncMessagePrompt.build(issue.identifier, opts)
   end
 
   defp conflict_guidance(workspace) when is_binary(workspace) do

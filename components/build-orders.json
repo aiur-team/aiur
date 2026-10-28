@@ -13,8 +13,7 @@
     "src/lib/aiur/feature_cli/**",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
-    "src/lib/aiur_web/build_order_presenter/**",
-    "src/lib/aiur_web/live/build_order*.ex"
+    "src/lib/aiur_web/build_order_presenter/**"
   ],
   "facades": [
     "Aiur.BuildOrder.Catalog",
@@ -28,7 +27,10 @@
     "Aiur.BuildOrder.GraphProjection",
     "Aiur.BuildOrder.GraphProjection.Snapshot",
     "Aiur.BuildOrder.History",
+    "Aiur.BuildOrder.History.Export",
+    "Aiur.BuildOrder.History.LabelBackfill",
     "Aiur.BuildOrder.History.Timing",
+    "Aiur.BuildOrder.HistoryBackfill",
     "Aiur.BuildOrder.Index",
     "Aiur.BuildOrder.Metadata",
     "Aiur.BuildOrder.ProgressRenderer",
@@ -79,7 +81,8 @@
       "build_estimates_state_dir",
       "build_features_state_dir",
       "build_history_state_dir",
-      "epic_overrides_state_dir"
+      "epic_overrides_state_dir",
+      "history_backfill_state_dir"
     ],
     "capabilities": [
       "build_orders",
@@ -105,5 +108,6 @@
   "capabilities": [
     "build_orders",
     "build_orders.progress"
-  ]
+  ],
+  "goal": "run-agents"
 }

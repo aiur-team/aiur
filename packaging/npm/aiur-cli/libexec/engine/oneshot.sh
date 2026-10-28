@@ -171,3 +171,45 @@ run_findings() {
 run_asks() {
   run_init "$@"
 }
+
+# Ask writes now use the daemon; legacy history stays distribution-free.
+run_ask() {
+  local arg path body instance_key="${AIUR_INSTANCE_KEY:-default}" executor_id
+  local argv=() encoded="" legacy=0 list=0
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"; shift
+    case "$arg" in
+      --list) list=1; continue ;;
+      --done)
+        case "${1:-}" in ask_*) legacy=1 ;; esac
+        argv+=("$arg")
+        if [ "$#" -gt 0 ]; then argv+=("$1"); shift; fi
+        continue ;;
+      --done=ask_*) legacy=1; argv+=("$arg"); continue ;;
+      --body|--note|--urgency)
+        argv+=("$arg")
+        if [ "$#" -gt 0 ]; then argv+=("$1"); shift; fi
+        continue ;;
+      --body-file|--body-file=*)
+        if [ "$arg" = --body-file ]; then
+          [ "$#" -gt 0 ] || { echo 'aiur ask: --body-file requires a path' >&2; return 64; }
+          path="$1"; shift
+        else
+          path="${arg#*=}"
+        fi
+        [ -f "$path" ] && [ -r "$path" ] || { echo 'aiur ask: cannot read --body-file' >&2; return 64; }
+        body="$(cat -- "$path" && printf '.')" || { echo 'aiur ask: cannot read --body-file' >&2; return 64; }
+        body="${body%.}"
+        argv+=(--body "$body") ;;
+      *) argv+=("$arg") ;;
+    esac
+  done
+  if [ "$list" -eq 1 ]; then run_asks asks "${argv[@]}"; return $?; fi
+  if [ "$legacy" -eq 1 ]; then run_asks ask "${argv[@]}"; return $?; fi
+  executor_id="${AIUR_EXECUTOR_ID:-$(hostname)-${instance_key:0:12}}"
+  for arg in ask "${argv[@]}"; do
+    encoded="${encoded}${encoded:+, }Base.decode64!(\"$(encode_control_value "$arg")\")"
+  done
+  run_control_rpc "Aiur.AsksCLI.rpc([$encoded], Base.decode64!(\"$(encode_control_value "$executor_id")\"))"
+}

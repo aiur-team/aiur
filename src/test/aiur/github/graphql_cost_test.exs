@@ -399,7 +399,7 @@ defmodule Aiur.GitHub.GraphQLCostTest do
     path |> File.read!() |> then(&Regex.scan(call_site_pattern(), &1)) |> length()
   end
 
-  defp call_site_pattern, do: ~r/Transport\.github_graphql(?:_response)?\(/
+  defp call_site_pattern, do: ~r/(?:Access|Transport)\.github_graphql(?:_response)?\(/
 
   defp undeclared_call_sites(path) do
     source = File.read!(path)

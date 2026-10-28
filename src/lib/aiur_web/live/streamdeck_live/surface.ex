@@ -255,14 +255,9 @@ defmodule AiurWeb.StreamdeckLive.Surface do
   end
 
   defp window_percentage(window) when is_map(window) do
-    used_percent = get_value(window, "used_percent")
-    used = get_value(window, "used")
-    limit = get_value(window, "limit")
-
-    cond do
-      is_number(used_percent) -> round(used_percent)
-      is_number(used) and is_number(limit) and limit > 0 -> round(used / limit * 100)
-      true -> nil
+    case get_value(window, "remaining_percent") do
+      percent when is_number(percent) -> round(percent)
+      _ -> nil
     end
   end
 

@@ -51,11 +51,6 @@ for (const { label, width, isMobile } of composedViewports) {
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
       await assertNoDocumentOverflow(page)
 
-      await page.goto('/build-orders')
-      await expect(page).toHaveURL(/\/build-orders$/)
-      await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
-      await assertNoDocumentOverflow(page)
-
       await page.getByRole('link', { name: 'Build' }).click()
       await expect(page).toHaveURL(/\/$/)
       await expect(page.locator('#route-title')).toHaveText('Build')

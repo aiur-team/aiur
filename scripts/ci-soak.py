@@ -50,7 +50,7 @@ def repeats(count, full, reduced, full_limit, max_files):
 
 def smoke_scripts(scripts):
     """Follow the same npm aliases as smoke, ignoring opt-in/full-only scripts."""
-    pending = ['test:core', 'test:home-css']
+    pending = ['test:core']
     seen = set()
     while pending:
         name = pending.pop(0)
@@ -94,8 +94,7 @@ def browser_invocations(spec, scripts):
                     for segment in command.split('&&'))
     if (not mentioned and spec == f'tests/{name}' and name.startswith('build-home-')
             and name.endswith('.browser.spec.mjs')):
-        config = ['--config', 'playwright.design-parity.config.mjs'] if name.endswith('-parity.browser.spec.mjs') else []
-        return [['node', 'scripts/run-browser-tests.mjs', spec, *config]]
+        return [['node', 'scripts/run-browser-tests.mjs', spec]]
     return []
 
 

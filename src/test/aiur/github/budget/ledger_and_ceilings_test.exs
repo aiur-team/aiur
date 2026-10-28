@@ -110,7 +110,10 @@ defmodule Aiur.GitHub.Budget.LedgerAndCeilingsTest do
     waiter = Task.async(fn -> Budget.acquire(pulls, opts) end)
 
     assert Task.yield(waiter, 80) == nil
-    assert {:ok, lease} = Task.await(waiter, 1_500)
+    cooldown_until_ms = Budget.snapshot("shared-token", opts).cooldown_until_ms
+    deadline_margin_ms = max(cooldown_until_ms - System.system_time(:millisecond), 0) + 1_500
+
+    assert {:ok, lease} = Task.await(waiter, deadline_margin_ms)
     assert :ok = Budget.release(lease, opts)
   end
 

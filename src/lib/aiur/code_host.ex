@@ -72,6 +72,9 @@ defmodule Aiur.CodeHost do
   @spec pull_request_body_edited_at(integer()) :: {:ok, String.t() | nil} | {:error, term()}
   def pull_request_body_edited_at(number), do: optimistic_call(:pull_request_body_edited_at, [number])
 
+  @spec update_pull_request_body(integer(), String.t()) :: {:ok, map()} | {:error, term()}
+  def update_pull_request_body(number, body), do: optimistic_call(:update_pull_request_body, [number, body])
+
   defp optimistic_call(function, arguments) do
     adapter = adapter()
 

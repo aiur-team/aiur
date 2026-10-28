@@ -221,12 +221,12 @@ test('Units tables sort stably, persist in the URL, and keep unknown progress fl
 test('Units keeps its column headings at zero units and names the empty state in both themes', async ({ page }) => {
   await openUnits(page, '/units-fixture?catalog=empty')
 
-  // The table keeps its shape: a real thead with all five headings, over an
+  // The table keeps its shape: a real thead with all six headings, over an
   // empty tbody rather than a table that vanished with its rows. Scoped to the
   // Units card because the Tickets panel below reuses the same table class.
   const table = page.locator('.units-card table.units-table')
   await expect(table).toBeVisible()
-  await expect(table.locator('thead th')).toHaveText(['ID', 'Unit', 'Ticket', 'Latest', 'Command'])
+  await expect(table.locator('thead th')).toHaveText(['ID', 'Unit', 'Ticket', 'Latest', 'Commands', 'Command'])
   await expect(page.locator('#units-rows tr.units-row')).toHaveCount(0)
 
   // The empty state sits below the table, and it is the only one: the
@@ -348,3 +348,31 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(page.getByRole('heading', { name: 'Units' })).toBeFocused()
 })
 
+
+for (const writable of [false, true]) {
+  test(`listener selector fits phone width; writable=${writable}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openUnits(page, '/units-fixture?listener=1')
+    if (writable) {
+      await page.goto('/auth/writable')
+      await page.goto('/streamdeck-control/writable')
+      await page.goto('/units-fixture?listener=1')
+      await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+    }
+    await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
+    const drawer = page.getByRole('dialog')
+    const selector = drawer.getByRole('combobox', { name: 'Listener mode' })
+    await expect(selector).toHaveValue('async')
+    await expect(selector.locator('option')).toHaveText(['Steer · interrupts', 'Sync · next turn', 'Async · on demand'])
+    await expect(drawer.locator('[data-unread-count]')).toContainText('Unread 2 · oldest 120s ago')
+    if (writable) await expect(selector).toBeEnabled()
+    else {
+      await expect(selector).toBeDisabled()
+      await expect(drawer).toContainText('Read-only dashboard — listener mode cannot be changed.')
+    }
+    await assertNoDocumentOverflow(page)
+    const box = await selector.boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+  })
+}

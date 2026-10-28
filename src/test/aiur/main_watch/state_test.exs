@@ -26,6 +26,11 @@ defmodule Aiur.MainWatch.StateTest do
     assert {_, [{"system.main.ci.failed", %{sha: "c"}}]} = State.observe(state, changed, 3)
   end
 
+  test "current verdict retains the source event" do
+    {state, []} = State.observe(State.new(), Map.put(observation("queue-sha", 10, "success"), :event, "merge_group"), 10)
+    assert state.event == "merge_group"
+  end
+
   test "known flakes emit informational event while unknown or truncated evidence stays red" do
     known = %FailureDigest{signature: "known", flake_only: true, tests: [%{identity: "flaky", classification: :known_flake}]}
     observation = %{observation("a", 1, "failure") | digest: known}
