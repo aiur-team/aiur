@@ -55,9 +55,7 @@ defmodule Aiur.BrowserHarness.IndexLiveFixture do
     end
 
     Application.put_env(:aiur, :build_data_source, {Source, [server: name, usage: Usage, freshness: Daemon, index_subscribe: &subscribe/0]})
-    conn = Plug.Conn.put_resp_cookie(conn, "aiur-build-fixture-dataset", "index-live", http_only: false, same_site: "Lax", path: "/")
-    query = if conn.query_string == "", do: "", else: "?" <> conn.query_string
-    redirect(conn, to: "/build" <> query)
+    redirect(conn, to: "/build?fixture_dataset=index-live")
   end
 
   defp broadcast(changes), do: Phoenix.PubSub.broadcast(Aiur.PubSub, "build-home:index-live-fixture", {:build_changes, changes})
