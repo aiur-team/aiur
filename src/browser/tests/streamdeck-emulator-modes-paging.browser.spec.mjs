@@ -287,6 +287,33 @@ test('destroying a dial without drag preservation emits no release commit', asyn
   expect(await page.evaluate(() => window.__streamdeckGridEvents)).toHaveLength(0)
 })
 
+test('dial D press enters Features and cycles back to Tickets without a legacy page event', async ({ page }) => {
+  await openStreamdeck(page)
+  const dialD = page.locator('.sd-knob').nth(3)
+  const keys = page.locator('#sd-keys')
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__deckLegacyEvents = []
+    const push = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page' || name === 'key-press') window.__deckLegacyEvents.push({ name, payload })
+      return push(name, payload)
+    }
+  })
+  await dialD.click()
+  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /Features · page 1/)
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
+  // Epic and Fleet remain in the shared four-view cycle.
+  for (const view of ['epic', 'fleet', 'ticket']) {
+    await dialD.click()
+    await expect(keys).toHaveAttribute('data-deck-view', view)
+  }
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
+  await keys.locator('[data-streamdeck-identifier="1352"]').click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  expect(await page.evaluate(() => window.__deckLegacyEvents)).toEqual([])
+})
+
 test('dial D pages live fleet keys using raw input from drag, wheel and keyboard', async ({ page }) => {
   await openStreamdeck(page)
   const keys = page.locator('#sd-keys')
@@ -298,9 +325,9 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
   await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /9–16/)
   const angle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
-  await dialD.click()
+  await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '2')
-  expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angle)
+  expect(Number.parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))).toBeGreaterThan(Number.parseFloat(angle))
   await dialD.hover()
   await page.mouse.wheel(0, 100)
   await expect(keys).toHaveAttribute('data-grid-page', '1')
@@ -309,12 +336,12 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
 })
 
-test('an acknowledged grid cycle cannot overwrite a later server page patch', async ({ page }) => {
+test('an acknowledged grid turn cannot overwrite a later server page patch', async ({ page }) => {
   await openStreamdeck(page)
 
   const keys = page.locator('#sd-keys')
   const dialD = page.locator('.sd-knob').nth(3)
-  await dialD.click()
+  await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '1')
   await expect.poll(() => page.evaluate(() =>
     window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._pendingPageDialValue
@@ -325,6 +352,7 @@ test('an acknowledged grid cycle cannot overwrite a later server page patch', as
       .getHook(document.querySelector('#streamdeck-page'))
       .pushEvent('grid-page', { value: 0 })
   })
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
   await expect(keys).toHaveAttribute('data-grid-dial-value', '0')
   await expect(dialD).toHaveAttribute('aria-valuenow', '0')
 })

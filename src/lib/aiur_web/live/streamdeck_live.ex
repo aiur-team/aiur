@@ -25,7 +25,6 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.Streamdeck.FrameUpdates
   alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLive.TicketActions
@@ -387,24 +386,7 @@ defmodule AiurWeb.StreamdeckLive do
   @doc false
   @spec reduce_input(map(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
-  def reduce_input(raw, socket) do
-    case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
-      {:ok, nav, effects} ->
-        socket = assign(socket, deck_nav: nav, deck_effects: effects)
-
-        {:noreply,
-         assign_grid(
-           socket,
-           socket.assigns.grid,
-           0,
-           socket.assigns.usage,
-           socket.assigns.grid_dial_value
-         )}
-
-      _unchanged ->
-        {:noreply, socket}
-    end
-  end
+  def reduce_input(raw, socket), do: Input.reduce(raw, socket)
 
   defp control_feedback(nil), do: ""
   defp control_feedback(feedback), do: feedback
