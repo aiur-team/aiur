@@ -15,8 +15,11 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
   @spec sizes(Nav.t(), map()) :: map()
   def sizes(nav, sections) do
     Map.new([:ticket, :feature, :epic, :fleet], &{&1, length(Map.get(sections, &1, []))})
-    |> Map.put(:drill, if(nav.stack == [], do: nil, else: length(items(nav, sections))))
+    |> Map.put(:drill, if(nav.stack == [], do: nil, else: drill_size(nav, sections)))
   end
+
+  defp drill_size(%{stack: [{:meter_detail, _} | _], meter_count: count}, _sections), do: count
+  defp drill_size(nav, sections), do: length(items(nav, sections))
 
   defp target(%{stack: [{:meter_detail, _provider} | _]}, _input, _sections), do: nil
 
@@ -40,6 +43,6 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
   end
 
   defp items(%{stack: [{view, id} | _rest]}, sections) do
-    sections |> Map.get(view, []) |> Enum.find(%{}, &(&1.id == id)) |> Map.get(:tickets, [])
+    sections |> Map.get(view, []) |> Enum.find(%{}, &(Map.get(&1 || %{}, :id) == id)) |> Map.get(:tickets, [])
   end
 end

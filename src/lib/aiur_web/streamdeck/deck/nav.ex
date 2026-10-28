@@ -15,7 +15,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
             stack: [],
             drill_pages: [],
             selected: nil,
-            scroll: 0
+            scroll: 0,
+            meter_count: 0
 
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
@@ -24,6 +25,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
           stack: [{atom(), String.t()}],
           drill_pages: [non_neg_integer()],
           selected: String.t() | nil,
+          meter_count: non_neg_integer(),
           scroll: non_neg_integer()
         }
   @type effect :: {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
