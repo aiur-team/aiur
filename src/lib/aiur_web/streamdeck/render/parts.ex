@@ -72,6 +72,8 @@ defmodule AiurWeb.Streamdeck.Render.Parts do
       "count_row" -> count_row(part, width)
       "text_line" -> text_line(part, width)
       "pager" -> pager(part, width)
+      "category_chips" -> AiurWeb.Streamdeck.Render.StripBand.chips(field(part, :model))
+      "backlog" -> AiurWeb.Streamdeck.Render.StripBand.backlog(part)
     end
   end
 

@@ -18,11 +18,22 @@ renderer adopt this model.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips in the server-rendered list. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
 | **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
+
+The server-rendered Ticket strip uses three bands: build progress at the left
+(200 px), category chips across the middle (400 px), and `Queued M` / `Not queued K`
+with pager dots at the right (200 px). Chips show a state glyph and count, ordered
+error, command, retrying, active, waiting for CI, usage limited, parked, paused,
+then other Build states alphabetically and unknown last. Zero counts are hidden;
+missing counts read `Counts unavailable`, never zero. A dimmed band marked `stale`
+retains the last counts. More than eight categories show seven chips and `+N more`;
+dial B (zero-based dial 1) moves that window one category per detent. On a selected
+ticket, dial B retains the priority action. Physical display and raw dial routing
+require the server-image sidecar update (SD-103).
 
 The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 

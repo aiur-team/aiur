@@ -70,7 +70,7 @@ defmodule AiurWeb.StreamdeckChannel do
       sections = StreamdeckProjection.grid() |> Deck.navigation()
       {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
       socket = assign(socket, deck_nav: nav, deck_effects: effects)
-      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
+      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "chip_offset" => nav.chip_offset}, effects)
     else
       {:reply, {:error, %{reason: "invalid_input"}}, socket}
     end

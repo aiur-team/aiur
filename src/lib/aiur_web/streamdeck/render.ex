@@ -3,11 +3,11 @@ defmodule AiurWeb.Streamdeck.Render do
   Pure SVG renderer for the Stream Deck's eight 120×120 keys and 800×100 strip.
 
   `frame/1` consumes the SD-101 projection (`grid` plus `usage`) and optional
-  `column_offset` / `provider_offset` integers. It also accepts the grid itself.
+  `column_offset` / `chip_offset` integers (or a `nav` with `chip_offset`). It also accepts the grid itself.
   Both atom and wire string keys are supported. No reads or clock access occur.
 
   `strip/1` accepts region maps with `x`, `width`, `label`, and `parts`. Parts
-  have a `kind`: `title_bar`, `meter_row`, `count_row`, `text_line`, or `pager`.
+  have a `kind`: `title_bar`, `meter_row`, `count_row`, `text_line`, `pager`, `category_chips`, or `backlog`.
   Coordinates inside a region are local. The same parts compose every group.
   """
 

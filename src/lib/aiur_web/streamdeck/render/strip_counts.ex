@@ -1,10 +1,12 @@
 defmodule AiurWeb.Streamdeck.Render.StripCounts do
   @moduledoc "Pure count-band ordering and windowing over the authoritative Deck counts."
 
+  alias Aiur.BuildOrder.TicketStatus
+  alias AiurWeb.Streamdeck.Render.Style
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2]
 
   @priority ~w(error command retrying active ci_wait usage_limited parked paused)
-  @pass_through ~w(blocked body-fix ci-red handed-off merge-queued paused-agent paused-decision paused-usage-limit retries)
+  @pass_through TicketStatus.agent_states() |> Kernel.--(@priority) |> Enum.sort()
   @order @priority ++ @pass_through ++ ["unknown"]
 
   @spec model(map() | nil, integer()) :: map()
@@ -43,7 +45,7 @@ defmodule AiurWeb.Streamdeck.Render.StripCounts do
 
     Enum.flat_map(@order, fn state ->
       case Map.get(by_state, state) do
-        count when is_integer(count) and count > 0 -> [%{state: state, count: count}]
+        count when is_integer(count) and count > 0 -> [Map.merge(Style.agent(state), %{state: state, count: count})]
         _ -> []
       end
     end)
