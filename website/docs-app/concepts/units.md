@@ -79,6 +79,10 @@ and jump-point precision.
 
 Dictation never sends a message automatically, and the browser never receives the API key.
 
+The voice status line follows idle → requesting microphone permission → listening → finishing transcription → ready to review. Permission denial explains how to allow the microphone; no-device errors explain how to connect one. Both allow another attempt. Channel failures keep the text captured so far; unknown failures show a neutral message.
+
+When speech-to-text is not configured, Dictate stays disabled with a reason and a [setup link](/apis/elevenlabs#configure-the-key). When voice is not installed, it stays disabled with “Voice input isn't installed in this Aiur. Typed messages work as usual.” Typing and Send remain available. Insecure origins and browsers without Web Audio also explain why dictation is unavailable. Capability changes during recording take effect on the next activation; the current session continues.
+
 The Build ticket modal uses the same press-to-start, press-to-stop dictation control. It remains disabled while availability is checked and, when voice is unavailable, its tooltip explains why; recording is visibly marked and failures appear in the composer status line.
 
 Configure `elevenlabs.voice_id` and grant the key **Text to Speech** permission before using spoken conversation; voice cloning and barge-in are not part of this mode.
