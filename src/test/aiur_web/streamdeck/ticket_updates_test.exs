@@ -26,7 +26,7 @@ defmodule AiurWeb.Streamdeck.TicketUpdatesTest do
 
   test "a blocked ticket read leaves Commands and unfocus responsive, and cannot push after unfocus" do
     socket = joined_socket()
-    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"})
+    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"}, 1_500)
     assert_receive {:ticket_subscriber, owner}, 1_500
     assert owner == socket.channel_pid
     assert_receive {:ticket_reader, reader, "77"}, 1_500
@@ -43,10 +43,10 @@ defmodule AiurWeb.Streamdeck.TicketUpdatesTest do
 
   test "refresh bursts coalesce behind one read and stale focus results cannot replace the new ticket" do
     socket = joined_socket()
-    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"})
+    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"}, 1_500)
     assert_receive {:ticket_reader, first, "77"}, 1_500
     for _ <- 1..5, do: send(socket.channel_pid, {:build_changes, %{}})
-    assert_reply(push(socket, "focus", %{"identifier" => "88"}), :ok, %{"focused" => "88"})
+    assert_reply(push(socket, "focus", %{"identifier" => "88"}), :ok, %{"focused" => "88"}, 1_500)
     :sys.get_state(socket.channel_pid)
     refute_received {:ticket_reader, _reader, "88"}
     send(first, :release)
@@ -59,9 +59,9 @@ defmodule AiurWeb.Streamdeck.TicketUpdatesTest do
 
   test "refocusing the same id cannot publish a result from the previous focus token" do
     socket = joined_socket()
-    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"})
+    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"}, 1_500)
     assert_receive {:ticket_reader, first, "77"}, 1_500
-    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"})
+    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"}, 1_500)
     :sys.get_state(socket.channel_pid)
     send(first, :release)
     assert_receive {:ticket_reader, second, "77"}, 1_500
@@ -72,7 +72,7 @@ defmodule AiurWeb.Streamdeck.TicketUpdatesTest do
 
   test "a failed reader emits unknown facts and channel termination cancels an owned read" do
     socket = joined_socket()
-    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"})
+    assert_reply(push(socket, "focus", %{"identifier" => "77"}), :ok, %{"focused" => "77"}, 1_500)
     assert_receive {:ticket_reader, _reader, "77"}, 1_500
     %{assigns: %{ticket_task: %{task: task}}} = :sys.get_state(socket.channel_pid)
     Process.exit(task.pid, :kill)
