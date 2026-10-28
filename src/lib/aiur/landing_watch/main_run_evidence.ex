@@ -35,7 +35,7 @@ defmodule Aiur.LandingWatch.MainRunEvidence do
 
   def run_id(_url), do: nil
 
-  @spec degraded?(map(), keyword()) :: boolean()
+  @spec degraded?(map(), keyword(), (pos_integer(), keyword() -> term())) :: boolean()
   def degraded?(entry, opts, jobs_fun) do
     case run_id(url(entry, nil)) do
       id when is_integer(id) ->
