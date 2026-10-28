@@ -1,6 +1,7 @@
 defmodule Aiur.Conversation.JumpPointsTest do
   use ExUnit.Case, async: true
   alias Aiur.Conversation.JumpPoints
+  alias Aiur.Events.Catalog
 
   test "catalogue topics resolve to the contract kinds" do
     for {topic, kind} <- [
@@ -23,7 +24,7 @@ defmodule Aiur.Conversation.JumpPointsTest do
       full_topic = "ticket.6627." <> topic
       assert JumpPoints.kind_for(full_topic) == kind
       assert JumpPoints.entry(kind).kind in JumpPoints.kinds()
-      assert Aiur.Events.Catalog.lookup(full_topic).owner != "unknown"
+      assert Catalog.lookup(full_topic).owner != "unknown"
     end
 
     assert JumpPoints.kind_for("executor.progress") == "executor_progress"
