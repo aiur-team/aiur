@@ -133,8 +133,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   const controlled = page.locator(`#sd-keys [data-streamdeck-identifier="${CONTROLLED}"]`)
 
   // ---------------------------------------------------------------- step 2 --
-  // The grid opens on real, bucketed fleet state: the alert agent leads the
-  // canonical bucket order, and the running agent offers a pause.
+  // Ticket attention order leads with the error, followed by the command.
+  // Control metadata still lets the running agent offer a pause.
   await expect(device).toHaveAttribute('data-mode', 'grid')
   await expect(keys).toHaveAttribute('data-grid-page', '0')
 
@@ -144,8 +144,10 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(pager.locator('[aria-current="page"]')).toHaveAttribute('data-pager-page', '0')
 
   const openingPage = await visibleIdentifiers(page)
-  // The first window holds the head of the canonical bucket order, so every
-  // non-queued bucket is represented by the agent the fixture fleet gave it.
+  await expect(keys.locator('.sd-key:not(.is-empty)').first()).toHaveAttribute('data-streamdeck-identifier', '1338')
+  await expect(keys.locator('[data-streamdeck-identifier="1331"]')).toContainText('Awaiting command')
+  // Build states drive ordering and labels; retained fleet metadata supplies
+  // the control buckets for the same tickets.
   await expect(page.locator('#sd-keys [data-streamdeck-identifier="1331"]')).toHaveClass(/st-alert/)
   await expect(page.locator('#sd-keys [data-streamdeck-identifier="1338"]')).toHaveClass(/st-stuck/)
   await expect(page.locator('#sd-keys [data-streamdeck-identifier="1345"]')).toHaveClass(/st-paused/)

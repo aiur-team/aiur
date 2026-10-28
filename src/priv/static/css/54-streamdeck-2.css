@@ -382,3 +382,5 @@
   font-weight: 700;
 }
 
+
+.sd-ag-foot.col .sd-ag-bar { width: 100%; flex: none; }

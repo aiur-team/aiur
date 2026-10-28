@@ -1,15 +1,16 @@
 defmodule Aiur.BrowserHarness.FixtureBuildDataset do
   @moduledoc false
-
   use Phoenix.Controller, formats: []
-
   alias Aiur.TestSupport.BuildHome.FixtureSource
 
   def configure(conn, %{"dataset" => dataset}) do
     if dataset in FixtureSource.datasets() do
-      Application.put_env(:aiur, :build_fixture_dataset, dataset)
-      query = if conn.query_string == "", do: "", else: "?" <> conn.query_string
-      redirect(conn, to: "/build" <> query)
+      conn = Plug.Conn.fetch_query_params(conn)
+      query = URI.encode_query(conn.query_params)
+
+      conn
+      |> Plug.Conn.put_session("fixture_dataset", dataset)
+      |> redirect(to: "/build" <> if(query == "", do: "", else: "?" <> query))
     else
       conn |> Plug.Conn.put_resp_content_type("text/plain") |> Plug.Conn.send_resp(404, "unknown build fixture dataset")
     end
