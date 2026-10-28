@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
   @moduledoc false
-  alias AiurWeb.Streamdeck.{Deck.Priority, FrameUpdates}
-  alias AiurWeb.StreamdeckProjection
+  alias AiurWeb.Streamdeck.Deck.Priority
+  alias AiurWeb.StreamdeckFleetUpdates
   import Phoenix.Socket, only: [assign: 2]
 
   @spec reply(Phoenix.Socket.t(), map(), list()) :: {:reply, {:ok | :error, map()}, Phoenix.Socket.t()}
@@ -16,13 +16,12 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
           {:error, reason} -> Priority.message(reason)
         end
 
-      socket = assign(socket, deck_grid: StreamdeckProjection.grid(), deck_toast: toast)
-      frame = FrameUpdates.frame(socket)
+      {:noreply, socket} = socket |> assign(deck_toast: toast) |> StreamdeckFleetUpdates.schedule()
 
       case result do
-        {:ok, :at_edge} -> {:reply, {:ok, Map.merge(navigation, %{"result" => "at_edge", "frame" => frame})}, socket}
-        {:ok, position} -> {:reply, {:ok, Map.merge(navigation, %{"position" => position.position, "queue" => position.queue, "frame" => frame})}, socket}
-        {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason), frame: frame}}, socket}
+        {:ok, :at_edge} -> {:reply, {:ok, navigation_reply(navigation, %{"result" => "at_edge"})}, socket}
+        {:ok, position} -> {:reply, {:ok, navigation_reply(navigation, %{"position" => position.position, "queue" => position.queue})}, socket}
+        {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
       end
     else
       {:reply, {:error, %{reason: "unauthorized"}}, socket}
@@ -30,6 +29,9 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
   end
 
   def reply(socket, navigation, _effects), do: {:reply, {:ok, navigation}, socket}
+  defp navigation_reply(navigation, result) when map_size(navigation) == 0, do: result
+  defp navigation_reply(navigation, _result), do: navigation
+
   defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp reason_text(reason), do: inspect(reason)
 end

@@ -22,7 +22,7 @@ defmodule AiurWeb.Components.VoiceInputTest do
   defp attr(node, name), do: node |> Floki.attribute(name) |> List.first()
 
   test "renders every data-voice control the controller binds" do
-    document = render()
+    document = render(%{capabilities: %{"voice.stt" => %{state: :available}}})
 
     mic = one(document, "button[data-voice-mic]")
     assert attr(mic, "aria-label") == "Dictate message"
@@ -61,7 +61,7 @@ defmodule AiurWeb.Components.VoiceInputTest do
   end
 
   test "renders caller-supplied status copy" do
-    status = one(render(%{status_copy: "Hold to talk."}), "[data-voice-status]")
+    status = one(render(%{status_copy: "Hold to talk.", capabilities: %{"voice.stt" => %{state: :available}}}), "[data-voice-status]")
 
     assert String.trim(Floki.text(status)) == "Hold to talk."
   end
@@ -91,7 +91,7 @@ defmodule AiurWeb.Components.VoiceInputTest do
       document = render(%{capabilities: %{"voice.stt" => %{state: :unavailable, reason: reason}, "voice.conversation" => %{state: :unavailable, reason: reason}}})
 
       if reason == :not_configured do
-        assert attr(one(document, "a"), "href") == "https://aiur.team/docs/reference/configuration-integrations#elevenlabs"
+        assert attr(one(document, "a"), "href") == "https://aiur.team/docs/apis/elevenlabs#configure-the-key"
       end
 
       for id <- ["dictate", "converse"] do

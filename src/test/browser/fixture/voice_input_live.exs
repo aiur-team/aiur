@@ -30,6 +30,8 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
   end
 
   def handle_event("send", %{"draft" => draft}, socket), do: {:noreply, assign(socket, :sent, draft)}
+  def handle_event("unavailable", _params, socket), do: {:noreply, assign(socket, :capabilities, %{"voice.stt" => %{state: :unavailable, reason: :not_configured}})}
+  def handle_event("available", _params, socket), do: {:noreply, assign(socket, :capabilities, %{"voice.stt" => %{state: :available}})}
   def handle_event("remove", _params, socket), do: {:noreply, assign(socket, :visible, false)}
   def handle_event("composer-change", %{"message" => message}, socket), do: {:noreply, assign(socket, :modal_draft, message)}
   def handle_event("send-operator-message", %{"message" => message}, socket), do: {:noreply, assign(socket, :sent, message)}
@@ -39,6 +41,8 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
   def render(assigns) do
     ~H"""
     <main data-voice-fixture data-patch={@patch} data-sent={@sent}>
+      <button phx-click="unavailable">Disable voice</button>
+      <button phx-click="available">Enable voice</button>
       <button phx-click="patch">Server patch</button>
       <button phx-click="remove">Remove form</button>
       <form :if={@visible} id="standalone-voice" phx-hook="VoiceInput" phx-submit="send">

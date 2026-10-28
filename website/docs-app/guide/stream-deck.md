@@ -40,6 +40,22 @@ Multiple detents in one frame produce one move. The strip reports “not in a qu
 never retried. Physical dial routing requires the server-input sidecar update
 (SD-103).
 
+## Fleet view
+
+Fleet uses the shared server-rendered frames on both the physical deck and the browser emulator.
+
+Cycle dial D to Fleet for eight summary keys: active, needs command,
+error/retrying, waiting for CI, usage limited, parked/paused, queued backlog,
+and capacity.
+
+Counts use the same filed tickets as the Ticket view. Unrecognized
+states remain on Active with a visible unknown sub-count, such as `12 · 1?`.
+Press a category to list its tickets; hold dial D to return.
+
+The strip shows daemon state and heartbeat age, capacity (including staleness),
+and global pause state. Unknown capacity shows `—`; a stale daemon stays
+labelled stale. Fleet only displays global pause.
+
 ## Read the Logs surface
 
 Logs runs from oldest at the far left to newest at the far right.

@@ -102,6 +102,8 @@ async function openCommand(page) {
   const decisionId = new URL(page.url()).pathname.split('/').pop()
   const form = page.locator(`#decision-answer-form-${decisionId}`)
   await expect(form.getByRole('button', { name: 'Decision', exact: true })).toBeEnabled()
+  await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'idle')
+  await expect(form.locator('[data-voice-status]')).toHaveText('Choose Dictate to speak a custom response. Review the text, then record your answer.')
   await page.evaluate(() => {
     const open = window.AiurVoiceTransport.open
     window.AiurVoiceTransport.open = (opts) => {
@@ -140,6 +142,10 @@ for (const surface of ['detail', 'card']) {
     await form.getByRole('button', { name: 'Stop dictation' }).click()
     await expect(form.locator('[data-voice-send]')).toBeEnabled()
     await expect(form.locator('[data-voice-input]')).toHaveValue(/Use the safer path/)
+    await expect(form.locator('[data-voice-status]')).toHaveText('Dictation ready. Review the text, then record your answer.')
+    await form.locator('[data-voice-input]').fill('Use the safer path after review')
+    await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'idle')
+    await expect(form.locator('[data-voice-status]')).toHaveText('Choose Dictate to speak a custom response. Review the text, then record your answer.')
     expect((await (await page.request.get('/command-answer-state')).json()).decision_status).toBe('open')
     await form.locator('[data-voice-send]').click()
     await expect.poll(async () => (await (await page.request.get('/command-answer-state')).json()).decision_status).toBe('decided')
