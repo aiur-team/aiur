@@ -359,6 +359,7 @@ test('a patch during dial D drag preserves the full release travel', async ({ pa
   await page.mouse.down()
   await page.mouse.move(...Object.values(point(90)))
   const valueBeforePatch = await dialD.getAttribute('aria-valuenow')
+  expect(valueBeforePatch).toBe('33')
 
   await page.evaluate(() => {
     window.liveSocket.main
