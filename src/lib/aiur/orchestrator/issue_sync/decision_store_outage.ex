@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.IssueSync.DecisionStoreOutage do
   Keeps decision-store outage alerts separate from capacity holds.
   """
 
-  alias Aiur.AlertFeed
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
   alias Aiur.Orchestrator.State
   alias Aiur.Signal
@@ -82,7 +82,7 @@ defmodule Aiur.Orchestrator.IssueSync.DecisionStoreOutage do
   defp clear_decision_store_unavailable_alert(%State{} = state) do
     active? =
       state.decision_store_unavailable_alert_active or
-        AlertFeed.active_system_attention?("system.dispatch.decision_store_unavailable")
+        AttentionSnapshot.active_system_attention?("system.dispatch.decision_store_unavailable")
 
     if active? do
       case Signal.alert("system.dispatch.decision_store_unavailable.resolved",

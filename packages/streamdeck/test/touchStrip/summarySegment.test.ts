@@ -64,6 +64,11 @@ describe("summaryModel", () => {
   });
 });
 
+it("preserves unavailable counts and stale source status", () => {
+  expect(summaryModel(null, null, null, "none", "unavailable")).toMatchObject({ live: null, remaining: null, counts_status: "unavailable" });
+  expect(summaryModel(2, 5, null, "none", "stale")).toMatchObject({ live: 2, remaining: 5, counts_status: "stale" });
+});
+
 describe("formatEta", () => {
   it("rounds sub-minute up to 1m so imminent finishes never read 0m", () => {
     expect(formatEta(5)).toBe("1m");

@@ -31,6 +31,7 @@ defmodule VoiceConverse.Config do
             credentials: nil,
             briefing_source: nil,
             agent_channel: nil,
+            allowed_tools: nil,
             ask_requires_confirm: :first_in_session,
             command_source: nil,
             token_issuer: nil,
@@ -159,6 +160,12 @@ defmodule VoiceConverse.Config do
   defp check_session_settings(%{ask_requires_confirm: value})
        when value not in [:first_in_session, :always, :never],
        do: {:error, %{field: :ask_requires_confirm, reason: :invalid}}
+
+  defp check_session_settings(%{allowed_tools: tools}) when not is_nil(tools) do
+    if is_list(tools) and Enum.all?(tools, &is_binary/1),
+      do: :ok,
+      else: {:error, %{field: :allowed_tools, reason: :invalid}}
+  end
 
   defp check_session_settings(_config), do: :ok
 

@@ -64,6 +64,9 @@ An ElevenLabs account with a zero character limit renders an empty track, becaus
 
 Selecting an agent opens its live conversation without leaving Units.
 
+See [Conversations](/concepts/conversations) for transcript storage, retention
+and jump-point precision.
+
 | Control | Behavior |
 | --- | --- |
 | Composer | A writable dashboard sends typed text to the selected agent. |
