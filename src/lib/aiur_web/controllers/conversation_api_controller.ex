@@ -70,13 +70,15 @@ defmodule AiurWeb.ConversationApiController do
           String.downcase(identity.repository) == String.downcase(repository),
           identity.identifier == identifier,
           {:ok, ref} <- [Ref.worker(identity)],
-          {:ok, _} <- [History.list_sessions(ref)],
           do: Ref.conversation_id(ref)
+
+    current = Enum.reject(current, fn id -> History.snapshot(id) == {:error, :not_found} end)
 
     case History.resolve_worker(owner, repository, identifier) do
       {:ok, id} -> unique_subject([id | current])
       {:error, :ambiguous_subject, ids} -> unique_subject(ids ++ current)
       {:error, :not_found} -> unique_subject(current)
+      {:error, :unavailable} -> unique_subject(current)
       error -> error
     end
   end

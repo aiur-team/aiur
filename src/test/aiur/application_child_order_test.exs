@@ -124,6 +124,10 @@ defmodule Aiur.ApplicationChildOrderTest do
   # children. Explain the startup dependency here; do not extend the baseline.
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
+    Aiur.Conversation.HeadTable => "Provide committed entry heads before the resolver reads startup events",
+    Aiur.Conversation.Registry => "Make writer lookup available before the resolver starts",
+    Aiur.Conversation.JournalSupervisor => "Start anchor writers before producers can publish startup events",
+    Aiur.Conversation.ResolverSupervisor => "Subscribe to Exchange before Publisher and Orchestrator emit events",
     # Routing must observe open Commands before expiry retires them.
     Aiur.Commands.Routing => "Route from the durable store before DecisionExpiry begins retiring Commands",
     # The orchestrator resets listeners before its first dispatch.
