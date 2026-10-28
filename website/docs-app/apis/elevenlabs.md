@@ -6,7 +6,7 @@ Aiur uses ElevenLabs for Stream Deck and Dashboard voice input, and for spoken D
 
 | Capability | Where | What happens |
 | --- | --- | --- |
-| Speech to text | Stream Deck Mic key and Dashboard agent composer | Dictation is transcribed and delivered through the same agent-message path as typed Dashboard text. |
+| Speech to text | Stream Deck Mic key, Dashboard agent composer, and Command custom response | Dictation is transcribed and delivered through the same agent-message path as typed Dashboard text. |
 | Text to speech | Dashboard interactive conversation | The agent's reply is streamed back to the browser as speech. |
 
 Aiur holds the credential and makes every ElevenLabs call; neither the Stream Deck sidecar nor the browser ever receives it.
@@ -22,6 +22,10 @@ Aiur holds the credential and makes every ElevenLabs call; neither the Stream De
 | Retention | Aiur writes no microphone audio to disk or logs. Sent text becomes an ordinary chat message. |
 
 Interactive voice chat on the Dashboard sends each finished utterance to the agent without a Send press.
+
+Command dictation appends to the custom response on cards and detail pages.
+Review the text and record it with the existing answer button; speaking does not
+submit an answer or choose a suggested option.
 
 ## API key permissions
 

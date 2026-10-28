@@ -2,6 +2,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   @moduledoc false
 
   use Phoenix.Component
+  import AiurWeb.Components.VoiceInput
+
   alias Aiur.Commands.Answering
   alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionQuestionsForm, DecisionReplacement}
 
@@ -9,6 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
   attr(:compact, :boolean, default: false)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
@@ -66,6 +69,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         :if={@writable and @answerable?}
         id={"decision-answer-form-#{@decision.decision_id}"}
         class="decision-answer-form"
+        phx-hook="VoiceInput"
+        data-voice-select-custom={if @questions == [], do: "answer[choice]"}
+        data-voice-ready-copy="Dictation ready. Review the text, then record your answer."
         phx-change="decision-action-change"
         phx-submit={if @replacing?, do: "replace-decision", else: "answer-decision"}
       >
@@ -112,12 +118,23 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           <textarea
             disabled={@disabled? or not @live_connected}
             name="answer[custom_response]"
+            data-voice-input
             rows="4"
             maxlength="4000"
             required
             placeholder="State the Command response clearly…"
           >{Map.get(@form, "custom_response", "")}</textarea>
         </label>
+
+        <.voice_input
+          :if={@questions == [] and not @disabled? and @live_connected}
+          id={"decision-answer-voice-#{@decision.decision_id}"}
+          capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_response})}
+          legacy_conversation={false}
+          surface="command_response"
+          target={%{kind: "command", decision_id: @decision.decision_id, expected_version: @decision.version}}
+          status_copy="Choose Dictate to speak a custom response. Review the text, then record your answer."
+        />
 
         <footer class="decision-action-footer">
           <div class="decision-action-buttons">
@@ -150,7 +167,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-disable-with="Acknowledging…"
               disabled={!@live_connected or @disabled?}
             >Acknowledge</button>
-            <button class="aiur-button aiur-button--dashboard btn" type="submit" disabled={!@live_connected or @disabled?} phx-disable-with="Recording…">{cond do
+            <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send={if @live_connected and not @disabled?, do: true} disabled={!@live_connected or @disabled?} phx-disable-with="Recording…">{cond do
               @replacing? -> "Replace answer"
               @decision.decision_status in [:dismissed, :deferred] -> "Change choice"
               @questions != [] -> "Submit answers"
