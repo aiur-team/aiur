@@ -23,6 +23,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     build_index?: true
   ]
 
+  # Conversation journals now precede producers, with the resolver bound immediately after Exchange.
   # Future regression guard: captured before extraction at d7fad40553019032df0a50354e1a9b559dd7540b, including options.
   @foreground [
     Aiur.Webhooks.ModeTable,
@@ -66,7 +67,11 @@ defmodule Aiur.BuildOrder.ComponentTest do
        floor_files: &Aiur.IdFloorSources.floor_files/0,
        legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0
      ]},
+    Aiur.Conversation.HeadTable,
+    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     {Aiur.Events.Exchange, [name: Aiur.Events.Exchange]},
+    Aiur.Conversation.ResolverSupervisor,
     Aiur.PostDeployChecklist,
     Aiur.Events.BranchRefStore,
     Aiur.GitHub.OpenIssueSnapshot,
@@ -160,9 +165,6 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
     Aiur.PRLifecycle.HeadVerdictRouter,
-    Aiur.Conversation.HeadTable,
-    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
-    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,

@@ -31,6 +31,7 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     assert html =~ "Already answered by the Executor"
     assert has_element?(view, "button[data-confirm=\"Replace the Executor's answer? It has not reached #987 yet.\"]")
     view |> element("button[phx-click=begin-replace-decision]") |> render_click()
+    refute has_element?(view, "form[phx-submit=replace-decision] [data-voice-root]")
     empty_response = view |> element("form[phx-submit=replace-decision] textarea") |> render() |> Floki.parse_fragment!() |> Floki.text()
     assert empty_response == ""
     refute has_element?(view, "form[phx-submit=replace-decision] input[type=radio][value='option:ship'][checked]")

@@ -36,6 +36,7 @@ defmodule AiurWeb.Components.VoiceInput do
       |> assign(:stt, Map.get(assigns.capabilities, "voice.stt", %{}))
       |> assign(:dictate, mode({"dictate", "Dictate", "voice.stt"}, assigns.capabilities))
       |> assign(:modes, Enum.map([{"dictate", "Dictate", "voice.stt"}, {"converse", "Converse", "voice.conversation"}], &mode(&1, assigns.capabilities)))
+      |> assign(:legacy_conversation, assigns.legacy_conversation and to_string(get_in(assigns.capabilities, ["voice.conversation", :state])) not in ["available", "degraded"])
 
     ~H"""
     <div id={@id} phx-hook={@hook} class="agent-voice-tools" data-voice-root data-voice-surface={@surface} data-voice-target={Jason.encode!(@target)}

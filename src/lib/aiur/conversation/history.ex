@@ -32,6 +32,9 @@ defmodule Aiur.Conversation.History do
     with {:ok, _} <- HistoryReader.snapshot(ref), do: {:ok, Ref.conversation_id(ref)}
   end
 
+  @spec snapshot(Ref.t() | String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
+  def snapshot(ref), do: HistoryReader.snapshot(ref)
+
   @doc "Resolve a durable worker conversation to its verified listener target. Executor conversations are not worker targets."
   @spec worker_identity(String.t()) :: {:ok, Aiur.TrackerIdentity.t()} | {:error, atom()}
   defdelegate worker_identity(id), to: HistoryReader
@@ -57,6 +60,9 @@ defmodule Aiur.Conversation.History do
   def list_anchors(ref, opts \\ []) do
     with {:ok, snapshot} <- HistoryReader.snapshot(ref), do: HistoryAnchors.read(snapshot, opts)
   end
+
+  @spec anchor_for_decision(String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
+  defdelegate anchor_for_decision(id), to: Aiur.Conversation.AnchorResolver
 
   @doc "Subscribe first, catch up, then discard live entries at or below the returned head. Live entries are raw."
   @spec subscribe(Ref.t() | String.t()) :: :ok | {:error, atom()}

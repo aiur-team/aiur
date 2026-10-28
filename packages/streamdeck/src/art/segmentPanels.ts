@@ -4,12 +4,12 @@ import type { SKRSContext2D } from "@napi-rs/canvas";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import {
   bucketContract,
-  KEY_FACE_CONTRACT,
+  LEGACY_STYLE,
   progressBarColor,
   UNKNOWN_PROGRESS_COLOR,
-  type BucketContract,
+  type LegacyBucketStyle,
   type BucketId,
-} from "../key-face-contract.js";
+} from "../legacy-style.js";
 import { VOICE_HOLD_PROMPT, VOICE_LISTENING } from "../voicePanel.js";
 import type { CommandsPanelModel } from "../commands.js";
 import { fit, rightText } from "./segmentText.js";
@@ -40,8 +40,8 @@ import { CHAT_BODY_FONT, drawHint, OPENCODE } from "./chat-readout.js";
  * cmd panel's status is a free string off the wire — a repaint must not die
  * because a new bucket appeared server-side first.
  */
-const knownBucket = (status: string): BucketContract | null =>
-  Object.hasOwn(KEY_FACE_CONTRACT.states, status) ? bucketContract(status as BucketId) : null;
+const knownBucket = (status: string): LegacyBucketStyle | null =>
+  Object.hasOwn(LEGACY_STYLE.states, status) ? bucketContract(status as BucketId) : null;
 
 export const drawAgentDetail = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "agentDetail" }, now: number): void => {
   const { model } = content;

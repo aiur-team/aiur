@@ -6,7 +6,7 @@ Aiur uses ElevenLabs for Stream Deck and Dashboard voice input, and for spoken D
 
 | Capability | Where | What happens |
 | --- | --- | --- |
-| Speech to text | Stream Deck Mic key and Dashboard agent composer | Dictation is transcribed and delivered through the same agent-message path as typed Dashboard text. |
+| Speech to text | Stream Deck Mic key, Dashboard agent composer, and Command custom response | Dictation returns text to the composer, custom Command response, or Stream Deck buffer for review. |
 | Text to speech | Dashboard interactive conversation | The agent's reply is streamed back to the browser as speech. |
 
 Aiur holds the credential and makes every ElevenLabs call; neither the Stream Deck sidecar nor the browser ever receives it.
@@ -18,10 +18,14 @@ Aiur holds the credential and makes every ElevenLabs call; neither the Stream De
 | Capture | The browser captures through an AudioWorklet; the Stream Deck sidecar uses `parec`. Both stream 16 kHz mono PCM16 audio only while the mic is held or recording is active. |
 | Transport | Audio reaches Aiur over authenticated sockets: `/voice` requires a writable Dashboard session and CSRF proof; `/streamdeck` requires the sidecar token. |
 | Transcription | Aiur's daemon opens the ElevenLabs realtime session with its own key. Microphone audio and the returned text pass through ElevenLabs. |
-| Delivery | Dictated text returns to the Dashboard composer or Stream Deck buffer for review. It reaches the selected agent only when you press Send. |
+| Delivery | Agent messages use Send after review. Command dictation stays in the custom response until you use the existing answer button. |
 | Retention | Aiur writes no microphone audio to disk or logs. Sent text becomes an ordinary chat message. |
 
 Interactive voice chat on the Dashboard sends each finished utterance to the agent without a Send press.
+
+Command dictation appends to the custom response on cards and detail pages.
+Review the text and record it with the existing answer button; speaking does not
+submit an answer or choose a suggested option.
 
 ## API key permissions
 
@@ -63,7 +67,7 @@ Voice transcription is cloud processing: while you dictate, your audio and the r
 
 | State | Data path |
 | --- | --- |
-| Dictation held open | Microphone audio goes to ElevenLabs; returned text stays in the composer or deck buffer until you press Send. |
+| Dictation held open | Microphone audio goes to ElevenLabs; returned text stays in the composer, Command response, or deck buffer until you submit it. |
 | Dictation released | Capture stops; there is no always-on listener or wake word. |
 | Key absent | No ElevenLabs connection opens and no audio leaves the machine. |
 | Agent process | `ELEVENLABS_API_KEY` is scrubbed from coding-agent environments and never logged. |

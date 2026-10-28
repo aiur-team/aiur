@@ -114,7 +114,7 @@ test('channel errors and finishing timeout keep captured text', async ({ page })
   await listen(page)
   await page.evaluate(() => {
     window.__emit('transcript', { kind: 'partial', text: 'keep my words' })
-    window.__emit('error', { reason_code: 'provider_quota', reason: 'wrong text', message: 'wrong message' })
+    window.__emit('error', { reason_code: 'provider_quota', reason: 'wrong text', message: 'wrong message', local: true })
   })
   await state(page, 'error', 'ElevenLabs quota exhausted')
   await expect(page.locator(input)).toHaveValue('keep my words')

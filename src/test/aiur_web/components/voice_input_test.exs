@@ -66,6 +66,26 @@ defmodule AiurWeb.Components.VoiceInputTest do
     assert String.trim(Floki.text(status)) == "Hold to talk."
   end
 
+  test "legacy button disappears when voice.conversation is available" do
+    for state <- [:available, :degraded, "available", "degraded"], layout <- [:buttons, :chooser] do
+      document = render(%{layout: layout, capabilities: %{"voice.conversation" => %{state: state}}})
+
+      assert Floki.find(document, "[data-voice-conversation]") == []
+      assert attr(one(document, "[data-voice-mode=converse]"), "aria-disabled") == "false"
+      assert [_mic] = Floki.find(document, "[data-voice-mic]")
+    end
+  end
+
+  # Future regression guard: unavailable states already retained the legacy label before this change.
+  test "legacy button keeps its current label while the assistant is unavailable" do
+    for state <- [nil, :unavailable, :unknown, "unavailable", "unknown"], layout <- [:buttons, :chooser] do
+      document = render(%{layout: layout, capabilities: %{"voice.conversation" => %{state: state}}})
+
+      assert attr(one(document, "[data-voice-conversation]"), "aria-label") == "Start interactive voice chat"
+      assert attr(one(document, "[data-voice-mode=converse]"), "aria-disabled") == "true"
+    end
+  end
+
   test "both modes remain visible with a reason when unavailable" do
     for reason <- [:not_installed, :not_configured] do
       document = render(%{capabilities: %{"voice.stt" => %{state: :unavailable, reason: reason}, "voice.conversation" => %{state: :unavailable, reason: reason}}})

@@ -147,7 +147,7 @@
     const code = Object.hasOwn(reasons, detail.reason_code) ? detail.reason_code : "unknown";
     controller.reasonCode = detail.reason_code ? code : null;
     const copy = code === "target_not_found" ? reasons[code][controller.choice.context().target.kind] || reasons.unknown : reasons[code];
-    const message = ["unavailable", "listening"].includes(next) && detail.message ? detail.message : states[next] || copy;
+    const message = (["unavailable", "listening", "ready"].includes(next) || detail.local) && detail.message ? detail.message : states[next] || copy;
     controller.setStatus(message, ["unavailable", "permission_denied", "no_device", "error"].includes(next));
     controller.syncElements();
   }
@@ -168,7 +168,8 @@
     }
   }
 
-  function failure(controller, error) {
+  function failure(controller, error, preparingField = false) {
+    if (preparingField) return controller.transition("error", { message: "The response field did not open.", local: true });
     const code = ["NotAllowedError", "SecurityError"].includes(error?.name) ? "permission_denied" :
       error?.name === "NotFoundError" ? "no_device" : error?.reason_code || "unknown";
     controller.transition(["permission_denied", "no_device"].includes(code) ? code : "error", { reason_code: code });
