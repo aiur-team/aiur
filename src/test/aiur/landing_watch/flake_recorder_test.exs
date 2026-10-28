@@ -305,6 +305,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
   end
 
   test "does not create another ticket when a matching browser test is already skipped" do
+    parent = self()
     journal = temp_path("flake-browser-skipped")
     failure = %{module: "BrowserSpec", name: "src/browser/tests/example.spec.mjs :: skips only this test :: 187", job: "browser", excerpt: "failed"}
 
@@ -319,9 +320,52 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
                request_fun: request,
                journal_path: journal,
                browser_spec_source_fun: fn _spec, _opts -> {:ok, "test.skip('skips only this test', async () => {})"} end,
+               issue_recorded_fun: fn ticket ->
+                 send(parent, {:issue_recorded, ticket})
+                 :ok
+               end,
                alert_emitter: fn _, _ -> flunk("existing skip must not publish a new flake") end
              )
 
+    assert_received {:issue_recorded, :already_quarantined}
+    File.rm(journal)
+  end
+
+  test "does not comment on a closed issue named by a browser quarantine marker" do
+    parent = self()
+    journal = temp_path("flake-browser-closed-owner")
+    failure = %{module: "BrowserSpec", name: "src/browser/tests/example.spec.mjs :: skips only this test :: 187", job: "browser", excerpt: "failed"}
+
+    request = fn
+      %{method: :get, url: "https://api.github.com/repos/test-org/test-repo/contents/src/browser/tests/example.spec.mjs?ref=main"} ->
+        source = "// Quarantined: owner #7020\ntest.skip('skips only this test', async () => {})"
+        {:ok, %{status: 200, body: %{"encoding" => "base64", "content" => Base.encode64(source)}}}
+
+      %{method: :get, url: "https://api.github.com/repos/test-org/test-repo/issues/7020"} ->
+        {:ok, %{status: 200, body: %{"state" => "closed", "labels" => [%{"name" => "flake"}]}}}
+
+      %{method: :get, url: url} ->
+        query = URI.decode_query(URI.parse(url).query || "")
+        assert query["q"] =~ "is:open"
+        {:ok, %{status: 200, body: %{"items" => []}}}
+
+      request ->
+        flunk("closed owner ticket must not be changed or duplicated: #{inspect(request)}")
+    end
+
+    assert :ok =
+             FlakeRecorder.record(failure, %{"id" => 40_735_796_217}, [],
+               token: "test-gh-token",
+               request_fun: request,
+               journal_path: journal,
+               issue_recorded_fun: fn ticket ->
+                 send(parent, {:issue_recorded, ticket})
+                 :ok
+               end
+             )
+
+    assert_received {:issue_recorded, :already_quarantined}
+    refute_received {:commented, _}
     File.rm(journal)
   end
 
