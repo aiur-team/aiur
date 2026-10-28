@@ -8,6 +8,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   # Flat producer census; kept together to audit system alert classification.
 
   @alerts [
+    {"system.feature_supply_low", "orchestration"},
+    {"system.feature_supply_low.resolved", "orchestration"},
     # aiur/agent_resource_guard.ex
     {"system.agent.synthetic_load_cap", "agent-sandbox"},
     # aiur/build_gate_hold_monitor.ex

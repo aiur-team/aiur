@@ -1,11 +1,8 @@
 defmodule Aiur.LandingWatch.FlakeRecorder do
   @moduledoc "Creates durable, deduplicated issue evidence for tests that fail only in one merge group."
 
-  alias Aiur.GitHub.{Access, AgentMarker}
+  alias Aiur.GitHub.{Access, AgentMarker, Config}
   alias Aiur.LandingWatch.Journal
-
-  # Leave fix work at default priority so build-order tickets remain ahead of it.
-  @labels ["bug", "agent:todo", "flake"]
 
   # Without the variable, a local run of a quarantined test or spec reports 0 tests and passes.
   @quarantine_note "Once this test is quarantined, blocking CI and local runs skip it. " <>
@@ -142,7 +139,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
            url: url,
            token: token,
            caller: "landing_watch_flake_issue",
-           body: %{"title" => title, "body" => body, "labels" => @labels}
+           body: %{"title" => title, "body" => body, "labels" => ["bug", "needs-triage", "#{Config.label_prefix()}:parked", "flake"]}
          }) do
       {:ok, %{status: status, body: %{"number" => number}}}
       when status in [200, 201] and is_integer(number) ->

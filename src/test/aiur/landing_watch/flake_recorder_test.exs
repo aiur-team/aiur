@@ -78,7 +78,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
 
     assert_received {:created, body}
     assert body["title"] == "Flaky test: ExampleTest :: sometimes fails"
-    assert body["labels"] == ["bug", "agent:todo", "flake"]
+    assert body["labels"] == ["bug", "needs-triage", "agent:parked", "flake"]
     assert body["body"] =~ "Run ID: 804"
     assert body["body"] =~ "Job: test"
     assert body["body"] =~ "Failing test: ExampleTest :: sometimes fails"

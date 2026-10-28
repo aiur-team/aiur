@@ -131,12 +131,12 @@ defmodule AiurWeb.StreamdeckLive.ScreenComponents do
                 <b>{segment.live}</b> live · <b>{segment.remaining}</b> left
               </div>
 
-              <div :if={segment.kind == :summary} class="sd-mini" data-meter="build" data-observed="false">
+              <div :if={segment.kind == :summary} class="sd-mini" data-meter="build" data-observed={to_string(is_map(segment.build) and is_number(segment.build.percent))}>
                 <span class="sd-mini-top">
-                  <span class="sd-mini-lbl">Build</span>
+                  <span class="sd-mini-lbl">{build_label(segment)}</span>
                   <span class="sd-mini-r"></span>
                 </span>
-                <span class="sd-mini-bar" role="img" aria-label="Build progress unavailable"><i></i></span>
+                <span class="sd-mini-bar" role="img" aria-label={build_label(segment)}><i :if={is_map(segment.build) and is_number(segment.build.percent)} style={build_style(segment)}></i></span>
               </div>
 
               <div
@@ -181,4 +181,11 @@ defmodule AiurWeb.StreamdeckLive.ScreenComponents do
 
   defp progress_text(percent) when is_number(percent), do: "#{percent}%"
   defp progress_text(_percent), do: "—"
+  defp build_label(%{build_status: "unavailable"}), do: "Build unavailable"
+  defp build_label(%{build: nil}), do: "No build order"
+  defp build_label(%{build: %{percent: percent}}) when is_number(percent), do: "Build #{percent}%"
+  defp build_label(_segment), do: "Build progress unavailable"
+
+  defp build_style(%{build: %{percent: percent}}) when is_number(percent), do: "width: #{max(0, min(100, percent))}%"
+  defp build_style(_segment), do: nil
 end

@@ -66,6 +66,16 @@ defmodule AiurWeb.Build.PayloadSchema do
       "repo" => nullable(object(%{"url" => :string})),
       "icons" => {:dictionary, :string},
       "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted svg summary wave))},
+      "epic_progress" =>
+        {:dictionary,
+         object(%{
+           "closed" => nullable(:nonnegative),
+           "open" => nullable(:nonnegative),
+           "total" => nullable(:nonnegative),
+           "observed_at" => nullable(:integer),
+           "reason" => nullable(:string)
+         })},
+      "epic_progress_meta" => object(%{"unmatched" => nullable(:nonnegative), "observed_at" => nullable(:integer), "reason" => nullable(:string)}),
       "features" =>
         {:dictionary,
          object(
