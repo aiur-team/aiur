@@ -5,6 +5,7 @@ defmodule AiurWeb.StreamdeckChannel do
   import AiurWeb.StreamdeckChannel.CommandAnswers
   import AiurWeb.StreamdeckChannel.Voice
 
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
@@ -35,7 +36,7 @@ defmodule AiurWeb.StreamdeckChannel do
     :ok = Commands.subscribe()
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
-    :ok = Aiur.BuildOrder.Index.subscribe()
+    :ok = BuildIndex.subscribe()
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     send(self(), :streamdeck_snapshot)

@@ -1,5 +1,5 @@
 defmodule AiurWeb.Streamdeck.DeckCountsLifecycleTest do
-  use Aiur.TestSupport
+  use AiurWeb.StreamdeckChannelCase
   import Aiur.TestSupport.BuildHome.IndexParts
   alias AiurWeb.Build.Index
   alias AiurWeb.Streamdeck.Deck.Counts
@@ -27,6 +27,7 @@ defmodule AiurWeb.Streamdeck.DeckCountsLifecycleTest do
 
     monitor = Process.monitor(other)
     receive_barrier(:subscribed)
+    assert {:ok, %{sources: %{agents: %{state: "ok"}}}} = Index.window(name, "Etc/UTC")
     assert Counts.read(index: name).agents == 0
     send(other, :stop)
     receive_barrier({:DOWN, ^monitor, :process, ^other, :normal})

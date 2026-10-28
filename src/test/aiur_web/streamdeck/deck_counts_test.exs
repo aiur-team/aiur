@@ -1,5 +1,6 @@
 defmodule AiurWeb.Streamdeck.DeckCountsTest do
   use AiurWeb.StreamdeckChannelCase
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Streamdeck.Deck.Counts
 
@@ -43,7 +44,7 @@ defmodule AiurWeb.Streamdeck.DeckCountsTest do
 
     socket = joined_socket()
     receive_barrier(:counts_read)
-    for _ <- 1..5, do: Aiur.BuildOrder.Index.broadcast(%{index_generation: 2})
+    for _ <- 1..5, do: BuildIndex.broadcast(%{index_generation: 2})
     state = :sys.get_state(socket.channel_pid)
     token = state.assigns.fleet_flush
     send(socket.channel_pid, {:flush_fleet, token})

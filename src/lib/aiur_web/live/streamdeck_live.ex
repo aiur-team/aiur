@@ -23,6 +23,7 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Grid
   import AiurWeb.StreamdeckLive.Modes
 
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
   alias AiurWeb.StreamdeckLogs
 
@@ -96,7 +97,7 @@ defmodule AiurWeb.StreamdeckLive do
       if connected?(socket) do
         :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
         :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
-        :ok = Aiur.BuildOrder.Index.subscribe()
+        :ok = BuildIndex.subscribe()
         socket = AiurWeb.RefreshSubscriptions.fleet(socket, &maybe_subscribe_fixture_fleet/0)
 
         socket
