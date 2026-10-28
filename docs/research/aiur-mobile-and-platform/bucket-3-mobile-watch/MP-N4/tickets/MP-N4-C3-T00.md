@@ -36,6 +36,14 @@ docs (or the in-repo plan if the pack has been promoted by then).
 
 ## Verified starting point
 
+Path refresh at `1080f8a109ca6c2aaff3259e83c5600e9abb36ef` (2026-10-27):
+see [plan §12](../plan.md#12-daemon-push-relay-starting-point) for current paths,
+public facades and the planned-import audit. All `src/lib/aiur/push/**` paths
+in this ticket (including abbreviated filenames) are PROPOSED in `push-relay`;
+the old proposed paths are unchanged, and no source ownership is registered yet.
+Historical refresh notes below retain their original scope; this path audit
+supersedes their daemon locations only, not design or other dependency gates.
+
 Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
 
 Pre-refactor names to map:
@@ -52,8 +60,8 @@ Pre-refactor names to map:
 ## Chosen design
 
 Mapping rules: daemon push code goes into the `push-relay` package named by MP-R1
-(`component-map.md:126`); it may depend only on the edges listed there
-(identity, pairing-discovery, event-bus, commands; optional build-orders). Any extra edge
+(`component-map.md:131`, old :126); it may depend only on the edges listed there
+(identity, pairing-discovery, event-bus, commands; optional build-orders and build-queue). Any extra edge
 found while mapping becomes a CONTRACT-REQUEST to MP-R1, not an import.
 
 ## Implementation steps
@@ -66,7 +74,8 @@ found while mapping becomes a CONTRACT-REQUEST to MP-R1, not an import.
 
 ## Non-happy paths
 
-- MP-R2-C6 deferred: C3 and MP-N5 run in live-subscription mode (MP-N5 PC-7); record that.
+- MP-R2-C6 is landed at the refresh SHA (plan §12). Live-subscription mode
+  (MP-N5 PC-7) remains the explicit fallback when export is unavailable.
 - Component map forbids an edge N4 needs: stop and file the request; do not code around.
 
 ## Compatibility and rollout
@@ -81,5 +90,6 @@ planned imports (command per MP-R1, recorded in the PR).
 
 ## Completion and handoff
 
-- [ ] Mapping table committed; affected tickets updated.
+- [x] Mapping table recorded in plan §12; affected tickets updated.
+- Planned-import exceptions filed as CR-N4-PATH-1; no forbidden imports added.
 - Dependents: MP-N4-C1-T01 and all C3 tickets.
