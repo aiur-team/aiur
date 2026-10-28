@@ -6,19 +6,21 @@ names and tuple shapes are not part of this API.
 
 ## Authentication
 
-The device first requests `POST /api/v1/streamdeck/token` with the existing
-dashboard HTTP Basic credentials. The response is `{token, expires_in_seconds}`.
-Pass that token as the Phoenix socket parameter (`/streamdeck/websocket?token=…`),
-then join `streamdeck:fleet`.
+The device first requests `POST /api/v1/streamdeck/token` with
+`Authorization: Bearer <client-token>` (created with `aiur token create`) or the
+existing dashboard HTTP Basic credentials on loopback. The response is
+`{token, expires_in_seconds}`. Pass that short-lived token as the Phoenix socket
+parameter (`/streamdeck/websocket?token=…`), then join `streamdeck:fleet`.
 
-This adds no device credential: the token can only be minted after dashboard
-Basic authentication, expires after five minutes, is signed by the endpoint,
-and stops verifying when the dashboard username, password, or signing key
-changes. A joined channel closes when that five-minute token window expires or
-the dashboard credential configuration changes.
-The WebSocket handshake therefore avoids placing a reusable dashboard password
-in the upgrade URL while retaining the same authorization boundary. Use
-HTTPS/WSS when the dashboard is exposed beyond loopback.
+The physical sidecar uses each selected instance's own bearer credential from
+`~/.aiur/remote-instances.yaml`; the environment daemon can use
+`AIUR_CLIENT_TOKEN` or Basic credentials. A switch closes the previous channel,
+stops voice capture, and clears its fleet before opening the selected target.
+HTTP 401/403 displays `auth failed` without retrying or falling back; connection
+failures retry the selected target with bounded backoff. Client bearer tokens
+are never placed in the WebSocket URL or debug output. See the
+[physical sidecar guide](../website/docs-app/guide/stream-deck.md#physical-sidecar-status)
+for registry and token-file rules.
 
 ## Shared projections vs deck presentation
 

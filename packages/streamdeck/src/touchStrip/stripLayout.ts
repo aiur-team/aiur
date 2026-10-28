@@ -46,6 +46,7 @@ export type StripMode = "grid" | "cmd" | "logs" | "settings";
 
 /** Structured content for one panel; the encoder renders it to a JPEG. */
 export type SegmentContent =
+  | { readonly kind: "instance"; readonly label: string; readonly content: SegmentContent }
   | { readonly kind: "summary"; readonly model: SummaryModel }
   | { readonly kind: "provider"; readonly row: ProviderPanelRow }
   /**

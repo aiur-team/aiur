@@ -24,8 +24,13 @@ import { spawn } from "node:child_process";
 import net from "node:net";
 import process from "node:process";
 
+import path from "node:path";
+import { loadInstances } from "./instances.js";
+import { createInstanceSwitcher } from "./instance-switcher.js";
+import { guardChannelEvents } from "./instance-events.js";
+
 import { parseBrightness } from "./device-path.js";
-import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs } from "./channel.js";
+import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs, type StreamDeckChannel } from "./channel.js";
 import type { HidBackend } from "./backend.js";
 import { preloadVendorMarks } from "./art/vendorMark.js";
 import { advanceDemoGrid, advanceDemoLogs, demoGrid, demoLogs, demoUsage } from "./demo.js";
@@ -273,6 +278,8 @@ export const main = async (): Promise<void> => {
     // and it is what bounds the provider scroll.
     providerCount: () => Object.keys(latestUsage).length,
     toggleDemo,
+    turnInstance: (ticks) => instances.turn(ticks),
+    switchInstance: () => instances.press(),
     stateChanged: (state) => {
       debug("controller.state", {
         mode: state.mode,
@@ -292,7 +299,7 @@ export const main = async (): Promise<void> => {
 
   const repaint = async (backend: HidBackend): Promise<void> => {
     activeBackend = backend;
-    const state = surfaceState(controller.state(), microphones, voiceReadings());
+    const state = { ...surfaceState(controller.state(), microphones, voiceReadings()), instance: instances.label() };
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);
     await next;
@@ -321,34 +328,39 @@ export const main = async (): Promise<void> => {
   buildVoiceSession();
   refreshMicrophones();
 
-  const baseUrl = process.env.AIUR_PHOENIX_URL;
-  if (baseUrl && (process.env.AIUR_CLIENT_TOKEN || (process.env.AIUR_DASHBOARD_USERNAME && process.env.AIUR_DASHBOARD_PASSWORD))) {
-    let reconnectAttempt = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let connecting = false;
-    const scheduleConnect = (): void => {
-      if (connecting || reconnectTimer !== null) return;
-      const delay = Math.min(30_000, 500 * 2 ** reconnectAttempt++);
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        connectDaemon();
-      }, delay);
-    };
-    const connectDaemon = (): void => {
-      if (connecting) return;
-      connecting = true;
-      void connectStreamDeckChannel({
-        baseUrl,
-        token: process.env.AIUR_CLIENT_TOKEN,
-        username: process.env.AIUR_DASHBOARD_USERNAME,
-        password: process.env.AIUR_DASHBOARD_PASSWORD,
+  const registry = loadInstances({
+    name: "local",
+    baseUrl: process.env.AIUR_PHOENIX_URL ?? "http://127.0.0.1:4000",
+    auth: { token: process.env.AIUR_CLIENT_TOKEN, username: process.env.AIUR_DASHBOARD_USERNAME, password: process.env.AIUR_DASHBOARD_PASSWORD },
+  });
+  if (registry.error) console.warn(`[streamdeck] ${registry.error}`);
+  const instances = createInstanceSwitcher<StreamDeckChannel>({
+    targets: registry.targets,
+    preferencePath: path.join(path.dirname(micPreferencePath()), "streamdeck-instance.json"),
+    changed: () => { if (activeBackend !== null) repaintDetached(activeBackend); },
+    channel: (connected) => { channel = connected; },
+    disconnect: () => {
+      voiceLink.drop(VOICE_LINK_LOST);
+      voiceSession?.dispose();
+      voiceAvailable = false;
+      voiceReason = VOICE_UNCONFIGURED_REASON;
+      buildVoiceSession();
+      liveGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
+      liveUsage = {};
+      liveLogs = {};
+      controller.resetInstance();
+      applySource();
+    },
+    connect: (target, lifecycle) => connectStreamDeckChannel({
+        baseUrl: target.baseUrl,
+        ...target.auth,
         fetch: defaultFetch,
         websocket: defaultWebSocket,
-        events: {
+        events: guardChannelEvents({
           // Live payloads always land in the live copy; they only reach the
           // screen when the demo is off, so a toggle back shows current state
           // rather than whatever was last on the wire before the demo started.
-          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) liveGrid = snapshot.grid; liveUsage = snapshot.usage; controller.gridChanged(); debug("channel.snapshot", { agents: liveGrid.agents.length, total: liveGrid.total, usage: Object.keys(liveUsage), demo: demoActive }); if (!demoActive) applySource(); },
+          snapshot: (snapshot) => { lifecycle.connected(); if (snapshot.grid !== undefined) liveGrid = snapshot.grid; liveUsage = snapshot.usage; controller.gridChanged(); debug("channel.snapshot", { agents: liveGrid.agents.length, total: liveGrid.total, usage: Object.keys(liveUsage), demo: demoActive }); if (!demoActive) applySource(); },
           fleet: () => undefined,
           grid: (grid) => { liveGrid = grid; controller.gridChanged(); debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
           usage: (usage) => { liveUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (!demoActive) applySource(); },
@@ -377,34 +389,11 @@ export const main = async (): Promise<void> => {
             // panel can change without a restart.
             buildVoiceSession();
           },
-          closed: (error) => {
-            console.warn("[streamdeck] channel closed; renewing token and reconnecting", error);
-            channel = null;
-            // A dropped link must not leave `parec` recording into a socket
-            // that no longer exists. `drop` fails the open hold, which the
-            // session's own error path turns into a stopped capture; the
-            // dispose covers a hold that had not opened a session yet.
-            voiceLink.drop(VOICE_LINK_LOST);
-            voiceSession?.dispose();
-            voiceRepaints.request();
-            scheduleConnect();
-          },
-        },
-      }).then((connected) => {
-        connecting = false;
-        channel = connected;
-        const focused = controller.state().focusedIdentifier;
-        if (focused !== null) connected.focus(focused);
-      }).catch((error) => {
-        connecting = false;
-        console.warn("[streamdeck] daemon channel unavailable; retrying", error);
-        scheduleConnect();
-      });
-    };
-    connectDaemon();
-  } else {
-    console.warn("[streamdeck] AIUR_PHOENIX_URL and dashboard credentials are required for fleet controls");
-  }
+          closed: () => lifecycle.closed(),
+        }, lifecycle.current),
+      }),
+  });
+  instances.start();
 
   if (!presentAtStart) {
     console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");
@@ -436,7 +425,7 @@ export const main = async (): Promise<void> => {
     },
     registerSignals: (handler) => {
       const shutdown = (): void => {
-        channel?.close();
+        instances.close();
         handler();
       };
       process.on("SIGTERM", shutdown);

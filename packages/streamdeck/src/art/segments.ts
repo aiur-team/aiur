@@ -282,6 +282,21 @@ export const drawSegmentContent = (
   width: number,
   now: number = Date.now(),
 ): void => {
+  if (content.kind === "instance") {
+    const lines = content.label.split(" | ");
+    const header = lines.length * 16 + 4;
+    context.save();
+    context.translate(0, header);
+    context.scale(1, (HEIGHT - header) / HEIGHT);
+    drawSegmentContent(context, content.content, width, now);
+    context.restore();
+    context.fillStyle = BG;
+    context.fillRect(0, 0, width, header);
+    context.fillStyle = TEXT;
+    context.font = "600 12px sans-serif";
+    lines.forEach((line, index) => context.fillText(fit(context, line, width - 16), 8, 15 + index * 16));
+    return;
+  }
   context.fillStyle = BG;
   context.fillRect(0, 0, width, HEIGHT);
   context.strokeStyle = DIVIDER;

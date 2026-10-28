@@ -109,6 +109,37 @@ The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
 dashboard credentials to mint a short-lived channel token. Neither credential
 enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
 
+Turn **dial 3** to browse registered instances without connecting. Press and
+release it to follow the highlighted instance. Holding **dial 2 + dial 3**
+toggles the demo instead. The strip names the followed instance and shows
+`connecting`, `connected`, `auth failed`, or `unreachable`; browsing also names
+the candidate. A failed connection stays on that target and never falls back.
+
+The sidecar reads the CLI's `~/.aiur/remote-instances.yaml` registry at startup:
+
+```yaml
+version: 1
+instances:
+  remote:
+    url: https://remote.example.com
+    token_file: ~/.aiur/tokens/remote
+```
+
+The environment daemon is always first, named `local` (`AIUR_PHOENIX_URL`, or
+loopback port 4000 when unset). Registry names must be unique; `local` is
+reserved. URLs require HTTPS except on loopback and cannot contain credentials,
+paths, queries, or fragments. Each remote sets exactly one `token_file` (absolute
+or `~/`, readable and mode **0600**) or `token_env` (an `AIUR_TOKEN_*` variable).
+Invalid URLs or credentials show an error on the strip and keep the current
+connection. Tokens are resolved when connecting and never shown on the strip
+or in debug logs.
+
+The last activated name is remembered in `streamdeck-instance.json` next to
+`streamdeck-mic.json` under the sidecar's config directory (`$XDG_CONFIG_HOME/aiur`,
+or `~/.config/aiur`). Restart the sidecar after editing the registry. The browser
+emulator shows its current instance name only; open the other dashboard's
+`/streamdeck` page to change instances there.
+
 The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
 
 ## Voice input

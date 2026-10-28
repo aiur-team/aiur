@@ -237,18 +237,16 @@ export interface PhysicalControllerOptions {
   stateChanged(state: ControllerState): void;
   /** Invoked when the demo chord is held; absent when the host has no demo. */
   toggleDemo?(): void;
+  turnInstance?(ticks: number): void;
+  switchInstance?(): void;
 }
 
 /**
  * Encoder buttons that toggle demo mode when pressed together: the middle two
- * knobs.
+ * knobs. Dial C switches instances only on release, after the chord check.
  *
- * Knobs rather than keys, and specifically these two, because their presses are
- * the only controls on the deck with no meaning of their own — dial A presses
- * for back and dial D cycles the window, while B and C are free. So the chord
- * cannot shadow a real action in any mode, and cannot be hit while paging.
- * Knob B turning the provider list does not change that: a turn and a press are
- * separate report kinds, so scrolling never puts the chord halfway down.
+ * Dial C defers activation until release so either press order can form the
+ * chord without switching instances. Dial B's turn still scrolls providers.
  * Holding it also returns the surface to the grid: swapping the data source
  * underneath a focused agent would leave the command screen describing a ticket
  * that is no longer in the fleet being shown.
