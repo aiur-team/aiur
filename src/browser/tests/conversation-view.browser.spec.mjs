@@ -15,7 +15,7 @@ async function open (page) {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
   await page.goto(`/conversations/${id}`)
-  await expect(page.locator('#entry-2000')).toBeVisible()
+  await expect(page.locator('#entry-2000')).toBeInViewport()
 }
 
 test('tail, older anchor, start and bounded DOM use the durable journal at desktop and phone widths', async ({ page }) => {
@@ -38,7 +38,7 @@ test('tail, older anchor, start and bounded DOM use the durable journal at deskt
     await expect(page.locator('[data-pos]')).toHaveCount(500)
     await page.getByRole('button', { name: 'Jump to start' }).click()
     await expect(page.locator('[data-pos]').first()).toHaveAttribute('data-pos', '1')
-    await expect(page.locator('#entry-1')).toBeVisible()
+    await expect(page.locator('#entry-1')).toBeInViewport()
     await scroll.evaluate(el => { el.scrollTop = 200 })
     await page.getByRole('button', { name: 'Jump to start' }).click()
     await expect.poll(() => scroll.evaluate(el => el.scrollTop)).toBe(0)
@@ -46,7 +46,7 @@ test('tail, older anchor, start and bounded DOM use the durable journal at deskt
     await expect(page.locator('#entry-100')).toBeAttached()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.getByRole('button', { name: 'Latest entries' }).click()
-    await expect(page.locator('#entry-2000')).toBeVisible()
+    await expect(page.locator('#entry-2000')).toBeInViewport()
   }
 })
 
@@ -54,7 +54,7 @@ test('live entries follow at bottom and preserve the scrolled-up viewport with a
   await open(page)
   const scroll = page.locator('#conversation-scroll')
   await page.request.get('/conversation-fixture/append')
-  await expect(page.locator('#entry-2003')).toBeVisible()
+  await expect(page.locator('#entry-2003')).toBeInViewport()
   await expect(page.locator('.conversation-divider', { hasText: 'Session 2' })).toBeAttached()
   await scroll.evaluate(el => { el.scrollTop = 100; el.dispatchEvent(new Event('scroll')) })
   // A subsequent LiveView event roundtrip follows the hook's at_bottom report.
@@ -64,5 +64,5 @@ test('live entries follow at bottom and preserve the scrolled-up viewport with a
   await expect(page.locator('#conversation-new')).toHaveText('3 new entries below')
   await expect.poll(() => scroll.evaluate(el => el.scrollTop)).toBe(top)
   await page.locator('#conversation-new').click()
-  await expect(page.locator('#entry-2006')).toBeVisible()
+  await expect(page.locator('#entry-2006')).toBeInViewport()
 })
