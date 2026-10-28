@@ -29,7 +29,7 @@ refresh every 40 minutes; an expired-token response triggers one refresh and ret
 Unregistered or invalid device tokens mark the handle gone, making later sends return
 `410`.
 
-Throttling records a 60-second retry hint; transport and server failures record
+Throttling returns a 60-second retry hint; transport and server failures return
 a 5-second hint. Retry scheduling is not yet supplied by this package.
 
 Apple sandbox acceptance with real credentials is a separate deployment check.
