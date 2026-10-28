@@ -153,10 +153,7 @@ defmodule Aiur.Conversation.Journal do
   end
 
   defp drain(state) do
-    {inputs, rest} = take(state.buffer)
-
-    {inputs, rest} =
-      if (match?([{:end_session, _, _}], inputs) or match?([{:anchor, _}], inputs)) and (state.failed_since || state.dropped_span), do: {[], state.buffer}, else: {inputs, rest}
+    {inputs, rest} = next_batch(state)
 
     if inputs == [] and is_nil(state.failed_since) and is_nil(state.dropped_span) do
       recovered(state)
@@ -172,6 +169,14 @@ defmodule Aiur.Conversation.Journal do
           failure(state, reason)
       end
     end
+  end
+
+  defp next_batch(state) do
+    {inputs, rest} = take(state.buffer)
+    # Persist a retained gap before acknowledging session or anchor metadata.
+    if (match?([{:end_session, _, _}], inputs) or match?([{:anchor, _}], inputs)) and (state.failed_since || state.dropped_span),
+      do: {[], state.buffer},
+      else: {inputs, rest}
   end
 
   # A batch stays within one source/session so recovery can dedup a durable prefix.
