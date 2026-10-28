@@ -42,14 +42,16 @@ class FakeGitHub:
                  "closingIssuesReferences": {"nodes": [{"number": 1}]}}]
 
     def issues(self, numbers):
-        return {n: issue(n) for n in numbers}
+        return {n: issue(n, ("feature:watch", "agent:parked")) if n == 99 else issue(n) for n in numbers}
 
 
 def daemon(args):
     return json.dumps({"sources": {"units_catalog": {"state": "available", "observed_at": STAMP}},
                        "data": {"view": {"rows": [
                            {"identity": {"owner": "owner", "repository": "repo", "identifier": "1"},
-                            "lifecycle": "running"}]}},
+                            "lifecycle": "running"},
+                           {"identity": {"owner": "owner", "repository": "repo", "identifier": "99"},
+                            "lifecycle": "completed"}]}},
                        "auxiliary": {"running_build": {"sha": "b" * 40, "built_at": STAMP}}})
 
 
@@ -74,6 +76,7 @@ class CollectorTest(unittest.TestCase):
         self.assertTrue(ticket["mobile"])
         self.assertEqual(ticket["lane"], "feature:watch")
         self.assertEqual(result["allocation"]["units"]["running"]["feature"], 1)
+        self.assertEqual(result["allocation"]["units"]["paused"]["feature"], 0)
         self.assertIsNone(result["allocation"]["agent_hours"])
         self.assertEqual(result["merges"][0]["closing_issue"], 1)
         self.assertEqual(result["merges"][0]["merge_sha"], "a" * 40)

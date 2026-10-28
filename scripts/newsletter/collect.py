@@ -122,7 +122,7 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
                   for life in ("running", "waiting", "paused")}
         for number, lifecycle in units.items():
             row = ticket(allocation_nodes[number])
-            life = "paused" if row["paused"] else {"allocated": "running", "queued": "waiting", "retrying": "waiting"}.get(lifecycle, lifecycle)
+            life = {"allocated": "running", "queued": "waiting", "retrying": "waiting"}.get(lifecycle, lifecycle)
             if life in counts:
                 counts[life][row["class"]] += 1
     sources["allocation"] = source("available", captured) if counts is not None else source(
