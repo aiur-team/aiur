@@ -27,6 +27,16 @@ defmodule Aiur.CurrentRunMembership.Store do
     GenServer.call(server, {:observe, identity, lifecycle, observed_at, source}, timeout)
   end
 
+  @doc false
+  @spec observe_many([{TrackerIdentity.t(), Event.lifecycle()}], keyword()) :: {:ok, map()} | {:error, term()}
+  def observe_many(observations, opts \\ []) do
+    GenServer.call(
+      Keyword.get(opts, :server, __MODULE__),
+      {:observe_many, observations, Keyword.get(opts, :observed_at, DateTime.utc_now()), Keyword.get(opts, :source, :status_report)},
+      Keyword.get(opts, :timeout, 60_000)
+    )
+  end
+
   @spec snapshot(keyword()) :: map()
   def snapshot(opts \\ []) do
     GenServer.call(Keyword.get(opts, :server, __MODULE__), {:snapshot, Keyword.get(opts, :limit, 1_000)})
@@ -110,6 +120,10 @@ defmodule Aiur.CurrentRunMembership.Store do
       {:ok, event} -> Runtime.handle_observation(event, state)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  def handle_call({:observe_many, observations, observed_at, source}, _from, state) do
+    Aiur.CurrentRunMembership.Store.Batch.observe(observations, observed_at, source, state)
   end
 
   def handle_call({:snapshot, limit}, _from, state) do

@@ -47,7 +47,7 @@ defmodule Aiur.TicketActivity do
     now_fun = Keyword.get(opts, :now_fun, &DateTime.utc_now/0)
     retention_all_fun = Keyword.get(opts, :retention_all_fun, &ProgressRetention.all/0)
     retention_retain_fun = Keyword.get(opts, :retention_retain_fun, &ProgressRetention.retain/2)
-    current_members = current_members(membership_snapshot_fun)
+    current_members = current_members(membership_snapshot_fun, %{})
     now = now_fun.()
 
     # Seed the projection from durable retained progress so a restart does not
@@ -58,12 +58,12 @@ defmodule Aiur.TicketActivity do
     projection =
       opts
       |> Projection.new()
-      |> Projection.refresh_members(current_members, now)
+      |> Projection.refresh_keys(MapSet.new(Map.keys(current_members)), now)
       |> seed_from_retention(retention_all_fun, now)
 
     state = %{
       projection: projection,
-      current_members: Map.new(current_members, &{TrackerIdentity.github_key(&1), &1}),
+      current_members: current_members,
       membership_snapshot_fun: membership_snapshot_fun,
       now_fun: now_fun,
       retention_retain_fun: retention_retain_fun,
@@ -150,12 +150,12 @@ defmodule Aiur.TicketActivity do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp refresh_member(state, identity) do
-    if TrackerIdentity.joinable?(identity) do
-      current_members = Map.put(state.current_members, TrackerIdentity.github_key(identity), identity)
-      identities = Map.values(current_members)
+    if key = TrackerIdentity.github_key(identity) do
+      current_members = Map.put(state.current_members, key, identity)
+      keys = MapSet.new(Map.keys(current_members))
 
       projection =
-        Projection.refresh_members(state.projection, identities, state.now_fun.())
+        Projection.refresh_keys(state.projection, keys, state.now_fun.())
 
       %{state | current_members: current_members, projection: projection}
     else
@@ -179,26 +179,29 @@ defmodule Aiur.TicketActivity do
   end
 
   defp refresh_membership_snapshot(state) do
-    members = current_members(state.membership_snapshot_fun)
-    identities = Map.new(members, &{TrackerIdentity.github_key(&1), &1})
-    projection = Projection.refresh_members(state.projection, members, state.now_fun.())
-    %{state | current_members: identities, projection: projection}
+    members = current_members(state.membership_snapshot_fun, state.current_members)
+    projection = Projection.refresh_keys(state.projection, MapSet.new(Map.keys(members)), state.now_fun.())
+    %{state | current_members: members, projection: projection}
   end
 
-  defp current_members(fun) do
+  defp current_members(fun, previous) do
+    cached = Map.new(previous, fn {key, identity} -> {identity, key} end)
+
     case fun.() do
       %{members: members} when is_list(members) ->
-        members
-        |> Enum.map(&member_identity/1)
-        |> Enum.filter(&TrackerIdentity.joinable?/1)
+        Enum.reduce(members, %{}, fn member, acc ->
+          identity = member_identity(member)
+          key = Map.get_lazy(cached, identity, fn -> TrackerIdentity.github_key(identity) end)
+          if key, do: Map.put(acc, key, identity), else: acc
+        end)
 
       _ ->
-        []
+        %{}
     end
   rescue
-    _ -> []
+    _ -> %{}
   catch
-    _, _ -> []
+    _, _ -> %{}
   end
 
   defp member_identity(%{identity: identity}), do: identity

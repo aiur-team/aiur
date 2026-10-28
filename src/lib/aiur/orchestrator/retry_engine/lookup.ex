@@ -182,7 +182,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   def handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata, opts \\ [])
 
   def handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata, opts) do
-    terminal_states = Keyword.get(opts, :terminal_states, DispatchPolicy.terminal_state_set())
+    terminal_states = Keyword.get_lazy(opts, :terminal_states, &DispatchPolicy.terminal_state_set/0)
 
     terminal_retry_funs = terminal_retry_funs(opts)
 
