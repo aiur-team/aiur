@@ -190,13 +190,27 @@ test('an active dial drag commits its final value after a LiveView patch', async
   const dialD = page.locator('.sd-knob').nth(3)
   const keys = page.locator('#sd-keys')
   const valueBeforeDrag = await keys.getAttribute('data-grid-dial-value')
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+  const eventCountBeforeDrag = await page.evaluate(() => window.__streamdeckGridEvents.length)
   await anchor(dialD)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
 
-  await page.mouse.move(cx, cy - 30)
+  await page.mouse.move(cx, cy - 10)
   await page.mouse.down()
+  const dragStarted = await page.evaluate(
+    () => window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._knobs[3].isDragging,
+  )
+  expect(dragStarted).toBe(true)
   await page.mouse.move(cx + 20, cy - 20)
 
   const navToggle = page.locator('#ax-drag')
@@ -210,6 +224,9 @@ test('an active dial drag commits its final value after a LiveView patch', async
   const finalValue = await dialD.getAttribute('aria-valuenow')
   await expect(keys).toHaveAttribute('data-grid-dial-value', finalValue, { timeout: 1000 })
   expect(finalValue).not.toBe(valueBeforeDrag)
+  const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
+  expect(releaseEvents).toHaveLength(eventCountBeforeDrag + 1)
+  expect(releaseEvents.at(-1)).toMatchObject({ name: 'grid-page', payload: { value: Number(finalValue) } })
 })
 
 test('a cancelled dial drag emits no release commit', async ({ page }) => {
