@@ -3,7 +3,8 @@
   "to_module": "AiurWeb.Build.Usage",
   "kind": "reference",
   "only_paths": [
+    "src/lib/aiur_web/streamdeck/deck/meter_detail.ex",
     "src/lib/aiur_web/streamdeck/deck/meters.ex"
   ],
-  "reason": "#6043 the deck meter adapter consumes the shared Build usage read model so hardware and dashboard percentages agree"
+  "reason": "#6044 the summary and per-account deck meter adapters consume the shared Build usage read model so hardware and dashboard percentages agree"
 }
