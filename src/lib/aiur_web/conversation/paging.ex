@@ -38,13 +38,17 @@ defmodule AiurWeb.Conversation.Paging do
 
   def reveal(socket, _pos), do: socket
 
+  defp cursor(_socket, {:around, pos}), do: [around: pos]
   defp cursor(socket, :older), do: [before: List.first(socket.assigns.positions, 1)]
   defp cursor(socket, :newer), do: [after: List.last(socket.assigns.positions, 0)]
   defp cursor(_socket, :start), do: [from_start: true]
   defp cursor(_socket, :tail), do: [tail: true]
 
+  defp reset_window?({:around, _}), do: true
+  defp reset_window?(direction), do: direction in [:start, :tail]
+
   defp apply_page(socket, page, direction) do
-    reset? = direction in [:start, :tail]
+    reset? = reset_window?(direction)
     entries = if direction == :older, do: Enum.reverse(page.entries), else: page.entries
     socket = if reset?, do: stream(socket, :entries, page.entries, reset: true, limit: -500), else: insert(socket, entries, direction)
     positions = if reset?, do: [], else: socket.assigns.positions
