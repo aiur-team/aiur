@@ -1,7 +1,7 @@
 defmodule AiurWeb.Conversation.Navigation do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2, assign: 3]
-  import Phoenix.LiveView, only: [stream: 4, stream_insert: 4, push_event: 3]
+  import Phoenix.LiveView, only: [stream: 4, push_event: 3]
   alias Aiur.Conversation.{Anchors, History, JumpPoints}
   alias AiurWeb.Conversation.Paging
 
@@ -37,7 +37,7 @@ defmodule AiurWeb.Conversation.Navigation do
     |> Enum.filter(&(&1 in socket.assigns.positions))
     |> Enum.reduce(socket, fn pos, acc ->
       case History.list_entries(acc.assigns.id, principal: acc.assigns.principal, around: pos, limit: 1) do
-        {:ok, %{entries: [entry]}} -> stream_insert(acc, :entries, entry, [])
+        {:ok, %{entries: entries}} -> Paging.reinsert(acc, entries)
         _ -> acc
       end
     end)

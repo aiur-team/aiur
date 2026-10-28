@@ -34,7 +34,7 @@ defmodule AiurWeb.Conversation.EventComponents do
   @spec filter_chips(map()) :: Phoenix.LiveView.Rendered.t()
   def filter_chips(assigns) do
     ~H"""
-    <div class="event-filters" aria-label="Event kinds">
+    <div class="event-filters" role="group" aria-label="Event kinds">
       <button :for={kind <- JumpPoints.kinds()} type="button" phx-click="toggle_event_kind" phx-value-kind={kind}
         aria-pressed={to_string(to_string(kind) in @visible_kinds)} data-filter-kind={kind}>
         {JumpPoints.entry(kind).label}
@@ -72,6 +72,7 @@ defmodule AiurWeb.Conversation.EventComponents do
     <div :for={anchor <- AiurWeb.Conversation.Navigation.markers(@anchors, @pos)}
       id={"marker-#{anchor["event"]["event_id"]}-#{anchor["kind"]}"}
       class={["conversation-event-marker", @highlight_pos == @pos && "conversation-highlight"]}
+      aria-current={if @highlight_pos == @pos, do: "location"}
       data-jump-target={to_string(@highlight_pos == @pos)}>
       {anchor["label"] || JumpPoints.label(anchor["kind"], %{})}
       <small :if={anchor["precision"] == "observed"}>approximate position</small>

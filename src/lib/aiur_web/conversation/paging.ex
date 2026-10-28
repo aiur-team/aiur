@@ -3,7 +3,7 @@ defmodule AiurWeb.Conversation.Paging do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [stream: 4, stream_insert: 4]
   alias Aiur.Conversation.History
-  alias AiurWeb.Conversation.Presenter
+  alias AiurWeb.Conversation.{Access, Presenter}
 
   defp opts(socket), do: [principal: socket.assigns.principal, limit: 50]
 
@@ -15,7 +15,7 @@ defmodule AiurWeb.Conversation.Paging do
     end
   end
 
-  @spec load(Phoenix.LiveView.Socket.t(), atom()) :: Phoenix.LiveView.Socket.t()
+  @spec load(Phoenix.LiveView.Socket.t(), atom() | {:around, pos_integer()}) :: Phoenix.LiveView.Socket.t()
   def load(socket, direction) do
     case History.list_entries(socket.assigns.id, opts(socket) ++ cursor(socket, direction)) do
       {:ok, page} -> apply_page(socket, page, direction) |> refresh_sessions()
@@ -25,18 +25,49 @@ defmodule AiurWeb.Conversation.Paging do
 
   @spec reveal(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   def reveal(socket, pos) when is_binary(pos) do
-    with true <- AiurWeb.Conversation.Access.can_reveal?(socket.assigns.principal),
+    with true <- Access.can_reveal?(socket.assigns.principal),
          {position, ""} <- Integer.parse(pos),
          true <- position in socket.assigns.positions,
          {:ok, page} <- History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: position, limit: 1, reveal: true)),
          entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == position)) do
-      stream_insert(socket, :entries, entry, [])
+      socket
+      |> assign(:revealed, MapSet.put(Map.get(socket.assigns, :revealed, MapSet.new()), position))
+      |> reinsert([entry])
     else
       _ -> socket
     end
   end
 
   def reveal(socket, _pos), do: socket
+
+  @doc "Refresh existing stream entries while retaining this viewer's authorized reveals."
+  @spec reinsert(Phoenix.LiveView.Socket.t(), [map()]) :: Phoenix.LiveView.Socket.t()
+  def reinsert(socket, entries) do
+    entries_for_viewer(socket, entries)
+    |> Enum.reduce(socket, &stream_insert(&2, :entries, &1, []))
+  end
+
+  defp entries_for_viewer(socket, entries) do
+    revealed = Map.get(socket.assigns, :revealed, MapSet.new())
+    permitted? = Access.can_reveal?(socket.assigns.principal)
+
+    Enum.map(entries, fn entry ->
+      if permitted? and MapSet.member?(revealed, entry.pos) do
+        restore_reveal(socket, entry)
+      else
+        History.mask_for(entry, opts(socket))
+      end
+    end)
+  end
+
+  defp restore_reveal(socket, %{redacted: true} = entry) do
+    case History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: entry.pos, limit: 1, reveal: true)) do
+      {:ok, %{entries: [raw]}} -> raw
+      _ -> entry
+    end
+  end
+
+  defp restore_reveal(_socket, entry), do: entry
 
   defp cursor(_socket, {:around, pos}), do: [around: pos]
   defp cursor(socket, :older), do: [before: List.first(socket.assigns.positions, 1)]
@@ -48,6 +79,7 @@ defmodule AiurWeb.Conversation.Paging do
   defp reset_window?(direction), do: direction in [:start, :tail]
 
   defp apply_page(socket, page, direction) do
+    page = %{page | entries: entries_for_viewer(socket, page.entries)}
     reset? = reset_window?(direction)
     entries = if direction == :older, do: Enum.reverse(page.entries), else: page.entries
     socket = if reset?, do: stream(socket, :entries, page.entries, reset: true, limit: -500), else: insert(socket, entries, direction)
@@ -87,7 +119,7 @@ defmodule AiurWeb.Conversation.Paging do
   defp append_fresh(socket, fresh) do
     head = List.last(fresh).pos
     contiguous? = List.last(socket.assigns.positions, 0) == socket.assigns.live_head and hd(fresh).pos == socket.assigns.live_head + 1
-    masked = Enum.map(fresh, &History.mask_for(&1, opts(socket)))
+    masked = entries_for_viewer(socket, fresh)
     page = %{socket.assigns.page | head_pos: max(head, socket.assigns.page.head_pos), observed_at: DateTime.utc_now()}
     socket = socket |> refresh_sessions() |> assign(live_head: head, last_entry: List.last(masked), page: page)
     socket = if contiguous?, do: append_window(socket, masked), else: socket

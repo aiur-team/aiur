@@ -16,6 +16,7 @@ defmodule AiurWeb.ConversationLive do
         state: :loading,
         page: nil,
         positions: [],
+        revealed: MapSet.new(),
         live_head: 0,
         sessions: [],
         last_entry: nil,
@@ -112,6 +113,7 @@ defmodule AiurWeb.ConversationLive do
           <div id="conversation-entries" phx-update="stream">
             <div :for={{id, entry} <- @streams.entries} id={id}
               class={@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement) && "conversation-highlight"}
+              aria-current={if @highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement), do: "location"}
               data-jump-target={to_string(@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement))} >
               <Components.entry entry={entry} sessions={@sessions} can_reveal={@can_reveal} />
               <EventComponents.entry_marker anchors={@anchors} pos={entry.pos} highlight_pos={if Navigation.highlight?(@anchors, entry.pos, @jump_placement), do: nil, else: @highlight_pos} />
