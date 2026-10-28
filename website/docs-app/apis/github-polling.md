@@ -264,15 +264,17 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 ## Newsletter snapshots
 
 `scripts/newsletter/collect.py` is an on-demand reader, separate from daemon
-polling. It discovers `phase:*` labels, searches open and closed program issues
-and the last 48 hours of merges with explicit cursors (100 results per page),
-then hydrates closing and allocation issues in batches by number. It reads no
-timelines.
+polling. It searches open and closed issues separately for each discovered
+`phase:*` label, then deduplicates by issue number.
 
-Searches above GitHub's 1,000-result cap are reported unavailable,
+Program and 48-hour merge searches use explicit cursors (100 results per page).
+Closing and allocation issues are hydrated in batches by number, without timelines.
+
+Individual phase or merge searches above GitHub's 1,000-result cap are reported unavailable,
 never presented as a complete program.
 
-A run admits at most 24 small GraphQL
-queries (under 50 points), records GitHub's reported cost, and still writes a
-snapshot on source failure. Usage and source states are described under
+A run admits at most 40 small GraphQL queries. It reserves two points per
+request until its reported cost is known, stopping before the next reservation
+reaches 50 points. Source failure still produces a snapshot with reported cost.
+See
 [Daily newsletter snapshots](/skills#daily-newsletter-snapshots).

@@ -25,7 +25,6 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur accounts [<harness>] [--json]`; `aiur github-cost [--budget <budget>] [--format <format>] [--json]`; `aiur github-usage [--json]`; `aiur ticket-usage <ticket> [--json]` | Deprecated compatibility aliases print deprecation lines. `accounts` keeps its account report and harness filter; GitHub aliases retain ranked cost and per-actor reports. `github-cost` accepts budgets `graphql`, `core`, or `all`, and formats `auto`, `table`, or `records`; `ticket-usage` keeps per-ticket results. | `aiur github-cost --budget core --format records` |
 | `aiur agents` | Prints each active agent's state and current activity, including startup and scheduled retries. `starting` means a worker was dispatched but no provider turn has started. `retrying` means no worker is live; the row includes the last failure reason and time when known. `aiur status` and `aiur watch` use the same startup and retry distinction. A Codex process that exits before handshake also leaves its numeric exit status and a bounded, redacted diagnostic in the daemon's `<logs-root>/log/<repo>.<ticket>.startup-failures.ndjson`, correlated with the `agent_spinup` telemetry attempt. The file retains the last 50 records. An agent with an open decision, or one that asked for input, reads `waiting` with `(waiting_for_human: <cause>)`, the same wait `aiur status` prints as `waiting=waiting_for_human`. A `rework` label alone is agent-owned work and never reads as waiting for a human. | `aiur agents` |
 | `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished` (`queued` means waiting for dispatch or retry, unrelated to `agent:queued` membership), choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
-
 | `aiur units --condition alert` | Repeats to require any of the selected Unit conditions. | `aiur units --condition alert --condition paused` |
 | `aiur units --format records` | Chooses `auto`, `table`, or line-oriented `records` output. | `aiur units --format records` |
 | `aiur watch [--changes]` | Shows changed fleet rows by default; `--changes` makes that default explicit. | `aiur watch --changes` |
@@ -62,6 +61,14 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur cleanup-stale` | Lists and reaps stale manual-smoke processes and sockets. | `aiur cleanup-stale` |
 | `aiur cleanup-stale --dry-run` | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
 | `aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]` | Requires an allowlisted human identity and ten-minute gates for head, draft, approval, changes, CI, conflicts, attribution and merge result. Agents, Apps and self-review refuse. Queues report `ENQUEUED`; rerun after merge. Exit 0: merged/enqueued/observed/dry run; 2: refusal; 1: tool error. Records: `~/.aiur/logs/pr-merge/`; observed merges notify `system.pr.merged`. | `aiur pr merge 42 --reviewed-sha <40-character-sha> --dry-run` |
+
+### Units
+
+`aiur units --json` includes `auxiliary.running_build` with the running daemon's
+release-stamp `sha` and `built_at` (UTC). Missing stamp fields are `null`; the
+collector never substitutes the current checkout's commit or file time.
+
+### Fleet status and messages
 
 Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason, owner and elapsed age, for example `· backing_off · RetryEngine · 45s`. `aiur agents` summarizes ordinary idle tickets in one count; use `aiur agents --all` to print every idle row.
 
@@ -102,11 +109,6 @@ GET remains available when the dashboard is read-only.
 The daemon enqueue RPC allows 30 seconds; the CLI allows 70 seconds total. Dashboard and HTTP sends allow 30 seconds (60 with reconciliation). CLI reports delivered or queued with a request id; check with `aiur message --status REQUEST_ID`. On timeout, the message may still be queued; retry only with the same `--message-id`.
 
 Only a retry with the same `--message-id` is safe. It returns the first copy instead of queueing a second one. The same text sent without that id is a new message. The HTTP API accepts an optional `message_id` too; a request without one is never deduplicated.
-
-
-The JSON envelope includes `auxiliary.running_build` with the running daemon's
-release-stamp `sha` and `built_at` (UTC). Missing stamp fields are `null`; the
-collector never substitutes the current checkout's commit or file time.
 
 ### Restart semantics
 

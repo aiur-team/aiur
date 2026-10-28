@@ -10,7 +10,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 
 from classification import classify
-from github import GitHub, ISSUE, PR, closing_issue, command
+from github import GitHub, ISSUE, PR, REQUEST_CEILING, closing_issue, command
 from local_sources import envelope_source, iso, parse_time, read_actions, read_meta, source
 
 
@@ -47,9 +47,11 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
     labels = read("github_phases", gh.phase_labels)
     numbers = None
     if labels is not None:
-        # Comma-separated labels are an OR, including open and closed issues.
-        expression = "is:issue label:" + ",".join('"' + label + '"' for label in labels)
-        numbers = read("github_program", lambda: gh.search(expression, ISSUE, "Issue")) if labels else []
+        # Each phase has its own capped search; program_nodes deduplicates
+        # tickets belonging to multiple phases. Include open and closed issues.
+        numbers = read("github_program", lambda: [
+            node for label in labels
+            for node in gh.search("is:issue label:" + json.dumps(label), ISSUE, "Issue")])
     if numbers is None:
         sources.setdefault("github_program", source("unavailable", reason="phase labels unavailable"))
     def program_nodes():
@@ -70,7 +72,8 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
         for pr in merged.values():
             issue = closing_issue(pr)
             related = ticket(closing[issue]) if closing is not None and issue in closing else None
-            # Match feature-share's title-only fallback for PRs without an issue.
+            # Use the shared title classifier; its "other" bucket corresponds
+            # to feature-share's "unclassified" bucket for issue-less PRs.
             category = classify(" ".join(related["labels"]) + " " + pr["title"]
                                 if related and related["labels"] else pr["title"])
             if related is None and issue is not None:
@@ -90,6 +93,7 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
             try:
                 sources["units_" + key] = envelope_source(data, "units_catalog", now)
                 if sources["units_" + key]["state"] == "available":
+                    instance_units = {}
                     for row in data["data"]["view"]["rows"]:
                         identity = row["identity"]
                         if "/".join((identity.get("owner", ""), identity.get("repository", ""))).lower() != repo.lower():
@@ -97,9 +101,10 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
                         number = int(identity["identifier"])
                         if row["lifecycle"] not in ("running", "allocated", "waiting", "queued", "retrying", "paused", "replaced", "completed", "cancelled"):
                             raise RuntimeError("unknown daemon ticket lifecycle")
-                        if number in units and units[number] != row["lifecycle"]:
+                        if any(number in rows and rows[number] != row["lifecycle"] for rows in (units, instance_units)):
                             raise RuntimeError("daemons disagree on ticket lifecycle")
-                        units[number] = row["lifecycle"]
+                        instance_units[number] = row["lifecycle"]
+                    units.update(instance_units)
             except FAILURES as error:
                 sources["units_" + key] = source("unavailable", reason=str(error))
         build = (data or {}).get("auxiliary", {}).get("running_build", {})
@@ -140,7 +145,7 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
             "github_cost": {"graphql_points": gh.cost if gh.cost_complete else None,
                             "reported_points": gh.cost, "requests": gh.calls,
                             "reason": None if gh.cost_complete else "one or more request costs unavailable",
-                            "request_ceiling": 24}}
+                            "request_ceiling": REQUEST_CEILING}}
 
 
 def write_snapshot(snapshot, directory):

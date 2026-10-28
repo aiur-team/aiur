@@ -189,13 +189,98 @@ class CollectorTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "specify --repo"):
                 collect.discover_repo()
 
+    def test_large_program_is_paged_per_phase_and_deduplicated(self):
+        requests = []
+        oversized = False
+        def run(args):
+            expression = next((v[2:] for v in args if v.startswith("q=")), None)
+            if expression is None:
+                data = {"repository": {"labels": {
+                    "nodes": [{"name": "phase:1"}, {"name": "phase:2"}],
+                    "pageInfo": {"hasNextPage": False}}}}
+            else:
+                cursor = next(v[7:] for v in args if v.startswith("cursor="))
+                requests.append((expression, cursor))
+                rows = []
+                if "is:issue" in expression:
+                    # 1,300 unique tickets; 100 belong to both 700-ticket phases.
+                    if expression.endswith('label:"phase:1"'):
+                        rows = [issue(n) for n in range(1, 701)]
+                    elif expression.endswith('label:"phase:2"'):
+                        rows = [issue(n, ("phase:2",)) for n in range(601, 1301)]
+                    else:
+                        rows = [issue(n) for n in range(1, 1301)]
+                offset = 0 if cursor == "null" else int(cursor)
+                more = offset + 100 < len(rows)
+                data = {"search": {"issueCount": 1001 if oversized and rows else len(rows),
+                                   "nodes": rows[offset:offset+100],
+                                   "pageInfo": {"hasNextPage": more, "endCursor": str(offset + 100) if more else None}}}
+            return json.dumps({"data": {**data, "rateLimit": {"cost": 1}}})
+        def empty_daemon(args):
+            data = json.loads(daemon(args))
+            data["data"]["view"]["rows"] = []
+            return json.dumps(data)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = collect.collect("owner/repo", Path(tmp), NOW, GitHub("owner/repo", run), empty_daemon)
+            self.assertEqual(result["sources"]["github_program"]["state"], "available")
+            self.assertEqual([t["number"] for t in result["program"]["tickets"]], list(range(1, 1301)))
+            for phase in (1, 2):
+                self.assertEqual([c for q, c in requests if q.endswith(f'label:"phase:{phase}"')],
+                                 ["null", "100", "200", "300", "400", "500", "600"])
+            self.assertEqual(result["github_cost"]["graphql_points"], 16)
+            self.assertEqual(result["github_cost"]["request_ceiling"], 40)
+            oversized = True
+            result = collect.collect("owner/repo", Path(tmp), NOW, GitHub("owner/repo", run), empty_daemon)
+            self.assertIsNone(result["program"]["tickets"])
+            self.assertEqual(result["sources"]["github_program"]["state"], "unavailable")
+            self.assertIn("1000-result", result["sources"]["github_program"]["reason"])
+
+    def test_failed_instance_does_not_publish_partial_ticket_lifecycles(self):
+        class TwoTickets(FakeGitHub):
+            def search(self, expression, fields, kind):
+                return [issue(1), issue(2)] if kind == "Issue" else []
+        def partial(args):
+            data = json.loads(daemon(args))
+            rows = data["data"]["view"]["rows"]
+            rows[1]["identity"]["identifier"] = "2"
+            if "--instance" in args:
+                rows[1]["lifecycle"] = "running"
+                rows[0]["lifecycle"] = "waiting"  # Conflicts after reading #2.
+                rows.reverse()
+            else:
+                rows[1]["lifecycle"] = None  # Fails after reading #1.
+            return json.dumps(data)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = collect.collect("owner/repo", Path(tmp), NOW, TwoTickets(), partial)
+            self.assertEqual([t["lifecycle"] for t in result["program"]["tickets"]], [None, None])
+            self.assertEqual(result["sources"]["units_local"]["state"], "unavailable")
+            def conflicting(args):
+                return partial(args) if "--instance" in args else daemon(args)
+            result = collect.collect("owner/repo", Path(tmp), NOW, TwoTickets(), conflicting, ["second"])
+            self.assertEqual([t["lifecycle"] for t in result["program"]["tickets"]], ["running", None])
+            self.assertEqual(result["sources"]["units_instance_1"]["state"], "unavailable")
+            self.assertIn("disagree", result["sources"]["units_instance_1"]["reason"])
+            self.assertIsNone(result["allocation"]["units"])
+
     def test_budget_and_incomplete_cost(self):
         gh = GitHub("owner/repo", lambda args: json.dumps({"data": {"rateLimit": {"cost": 1}}}))
-        for _ in range(24):
+        for _ in range(40):
             gh.query("query { rateLimit { cost } }")
         with self.assertRaisesRegex(RuntimeError, "ceiling"):
             gh.query("query { rateLimit { cost } }")
-        self.assertEqual(gh.calls, 24)
+        self.assertEqual(gh.calls, 40)
+        costly = GitHub("owner/repo", lambda args: json.dumps({"data": {"rateLimit": {"cost": 2}}}))
+        for _ in range(24):
+            costly.query("query { rateLimit { cost } }")
+        with self.assertRaisesRegex(RuntimeError, "point budget"):
+            costly.query("query { rateLimit { cost } }")
+        self.assertEqual(costly.cost, 48)
+        unreported = GitHub("owner/repo", lambda args: json.dumps({"data": {}}))
+        for _ in range(24):
+            unreported.query("query { rateLimit { cost } }")
+        with self.assertRaisesRegex(RuntimeError, "point budget"):
+            unreported.query("query { rateLimit { cost } }")
+        self.assertFalse(unreported.cost_complete)
         failed = GitHub("owner/repo", lambda args: "invalid json")
         with self.assertRaises(ValueError):
             failed.query("query { rateLimit { cost } }")

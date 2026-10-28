@@ -16,6 +16,7 @@ ISSUE = '''id number title state stateReason createdAt closedAt
  labels(first:100) { nodes { name } pageInfo { hasNextPage } }'''
 PR = '''number title body headRefName mergedAt mergeCommit { oid }
  closingIssuesReferences(first:10) { nodes { number } }'''
+REQUEST_CEILING = 40
 
 
 class GitHub:
@@ -26,13 +27,17 @@ class GitHub:
         self.cost = 0
         self.calls = 0
         self.cost_complete = True
+        self.budget_used = 0
 
     def query(self, query, **variables):
-        # Each query below has at most 100 one-page connections (< 2 points).
-        # Reserve two points per request even after transport failures.
-        if self.calls >= 24:
+        # These bounded queries report one point. Reserve two for the next
+        # request; retain that reservation when its cost cannot be observed.
+        if self.calls >= REQUEST_CEILING:
             raise RuntimeError("GraphQL request ceiling reached (<50 point budget)")
+        if self.budget_used + 2 >= 50:
+            raise RuntimeError("GraphQL point budget reached (<50 point budget)")
         self.calls += 1
+        self.budget_used += 2
         args = ["gh", "api", "graphql", "-f", "query=" + query]
         for key, value in variables.items():
             args.extend(["-F" if value is None else "-f", f"{key}={value if value is not None else 'null'}"])
@@ -46,6 +51,7 @@ class GitHub:
             self.cost_complete = False
         else:
             self.cost += cost
+            self.budget_used += cost - 2
         if result.get("errors") or not isinstance(result.get("data"), dict):
             raise RuntimeError("GitHub returned GraphQL errors")
         return result["data"]

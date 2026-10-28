@@ -161,7 +161,7 @@ additional configured daemon to query through `aiur --instance <name>`.
 
 The collector shares classification with the meta check's `feature-share.sh`.
 
-GitHub reads use cursor pages and batched issue numbers, with a 24-request
+GitHub reads use cursor pages and batched issue numbers, with a 40-request
 ceiling below 50 GraphQL points; the snapshot records reported cost and marks
 incomplete reads unavailable. See [GitHub budgets](/apis/github-budgets).
 
