@@ -2,7 +2,8 @@ defmodule Aiur.VoiceConversation.Selection do
   @moduledoc "Validates dashboard provider/model choices without changing daemon configuration."
 
   alias Aiur.VoiceConversation
-  alias Aiur.VoiceConversation.{Comparison, Credentials}
+  alias Aiur.VoiceConversation.Comparison
+  alias Aiur.VoiceConverse.Host.Credentials
 
   @spec options(map()) :: {:ok, keyword()} | {:error, term()}
   def options(payload) do

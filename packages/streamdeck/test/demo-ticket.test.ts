@@ -18,6 +18,7 @@ describe("demo ticket page", () => {
     expect(id).toBe("401");
     const dto = demoTicket(grid, id, now)!;
     controller.setTicket({ ...dto, title: "Colliding live ticket", status: { label: "Live status", tone: "idle", agent_state: null } });
+    controller.setLogs({ transcript: [{ kind: "message", role: "assistant", body: "Synthetic conversation" }] });
     const context = createCanvas(800, 100).getContext("2d");
     const fillText = vi.spyOn(Object.getPrototypeOf(context), "fillText");
     try {
@@ -26,9 +27,8 @@ describe("demo ticket page", () => {
       const state = surfaceState(controller.state(), [], undefined, grid);
       await surface.repaint(backend, grid, {}, undefined, state);
       const painted = fillText.mock.calls.map(([text]) => text);
-      expect(painted).toContain("Auth refactor and session rotation");
-      expect(painted).toContain("RUNNING");
-      expect(painted).toContain("72%");
+      expect(painted).toContain("● Synthetic conversation");
+      expect(painted).toContain("Running");
       expect(painted).not.toContain("Colliding live ticket");
       expect(painted).not.toContain("LIVE STATUS");
     } finally {

@@ -1,3 +1,4 @@
+import './support/voice-input-state-cases.mjs'
 import { test, expect } from '@playwright/test'
 
 async function openVoice(page) {

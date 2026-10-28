@@ -19,6 +19,7 @@
     "conversations",
     "executor-attention",
     "harness-adapters",
+    "identity",
     "kernel",
     "listener-modes",
     "orchestration",
@@ -32,9 +33,12 @@
     ],
     "env": [],
     "state": [
+      "voice_conversation_state_dir",
       "file: <conversation_state_dir>/voice/*.json"
     ],
-    "capabilities": []
+    "capabilities": [
+      "voice.conversation"
+    ]
   },
   "prior": [],
   "dependency_kind": "optional",
@@ -50,7 +54,9 @@
     "voice"
   ],
   "env": [],
-  "capabilities": [],
+  "capabilities": [
+    "voice.conversation"
+  ],
   "added_by": "MP-E6",
   "goal": "voice"
 }

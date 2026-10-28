@@ -181,7 +181,7 @@ defmodule Aiur.Claude.Transcript do
        when is_binary(record_id) and record_id != "" do
     identity = item_id(block) || get(block, :tool_use_id) || Integer.to_string(index)
     type = get(block, :type) || "block"
-    Map.put(block, "id", "disk:#{record_id}:#{type}:#{identity}")
+    block |> Map.put("tool_call_id", item_id(block) || get(block, :tool_use_id)) |> Map.put("id", "disk:#{record_id}:#{type}:#{identity}")
   end
 
   defp maybe_put_disk_block_id(block, _record_id, _index), do: block
@@ -280,7 +280,7 @@ defmodule Aiur.Claude.Transcript do
            timestamp: timestamp,
            turn_id: turn_id,
            msg_id: item_id(item),
-           payload: %{command: command, output: "", title: command, workdir: workdir}
+           payload: %{command: command, output: "", title: command, workdir: workdir, tool_call_id: get(item, :tool_use_id) || get(item, :tool_call_id) || item_id(item)}
          )}
 
       name in @edit_tools ->
@@ -315,7 +315,14 @@ defmodule Aiur.Claude.Transcript do
            timestamp: timestamp,
            turn_id: turn_id,
            msg_id: tool_event_id(item),
-           payload: %{tool: "result", input: %{}, output: content, title: title}
+           payload: %{
+             tool: "result",
+             input: %{},
+             output: content,
+             title: title,
+             tool_call_id: get(item, :tool_use_id) || get(item, :tool_call_id) || item_id(item),
+             success: get(item, :is_error) != true
+           }
          )}
 
       _ ->

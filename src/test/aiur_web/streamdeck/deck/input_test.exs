@@ -26,12 +26,13 @@ defmodule AiurWeb.Streamdeck.Deck.InputTest do
   end
 
   test "Deck sections retain ordered tickets and provide filtered fleet drills" do
-    grid = %{agents: [%{identifier: "1", bucket: :running}, %{identifier: "2", bucket: :paused}, %{identifier: "3", bucket: :running}]}
+    fleet = %{keys: [%{id: "active", cat: :active, states: ["active"], tickets: [%{id: "1"}, %{id: "3"}]}]}
+    grid = %{fleet: fleet, agents: [%{identifier: "1", bucket: :running}, %{identifier: "2", bucket: :paused}, %{identifier: "3", bucket: :running}]}
     sections = Deck.navigation(grid)
     assert Enum.map(sections.ticket, & &1.id) == ["1", "2", "3"]
-    assert Enum.map(sections.fleet, & &1.id) == ["paused", "running"]
+    assert Enum.map(sections.fleet, & &1.id) == ["active"]
     nav = %Nav{view: :fleet}
-    {nav, []} = Input.reduce(nav, %{"kind" => "key_press", "index" => 1}, sections)
+    {nav, []} = Input.reduce(nav, %{"kind" => "key_press", "index" => 0}, sections)
     {nav, [{:open_ticket, "3"}]} = Input.reduce(nav, %{"kind" => "key_press", "index" => 1}, sections)
     assert nav.selected == "3"
   end

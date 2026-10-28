@@ -101,10 +101,8 @@ async function expectCommandSurface(keys, expectedLabels, page) {
   await expect.poll(() => commandLabels(page)).toEqual(expectedLabels)
 }
 
-// Free dial turns move the column offset without landing on a window boundary,
-// so return to the opening window by pressing dial D — which snaps to a whole
-// window — until the operator is looking at the keys they started on. One full
-// lap of `windows` presses is always enough because a press wraps.
+// Return to the opening window with reverse turns. Dial D press cycles views;
+// paging turns clamp at the first and last windows instead of wrapping.
 async function cycleToOpeningWindow(page, keys, openingPage) {
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
 
@@ -112,11 +110,11 @@ async function cycleToOpeningWindow(page, keys, openingPage) {
     const current = await visibleIdentifiers(page)
     if (current.join() === openingPage.join()) return
 
-    // Wait for the press to land before reading the grid again: an unsettled
+    // Wait for the turn to land before reading the grid again: an unsettled
     // read would compare the previous window and overshoot the target.
     const before = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
-    await dial(page, 3).click()
-    await expect(keys).toHaveAttribute('data-grid-page', String((before + 1) % windows))
+    await dial(page, 3).press('ArrowDown')
+    await expect(keys).toHaveAttribute('data-grid-page', String(Math.max(0, before - 1)))
   }
 
   expect(await visibleIdentifiers(page)).toEqual(openingPage)
@@ -154,7 +152,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(controlled).toHaveAttribute('data-control-action', 'pause')
 
   // ---------------------------------------------------------------- step 3 --
-  // Page with dial D by drag, then wheel and keyboard, then press to cycle.
+  // Page with dial D by drag, wheel and keyboard; press is reserved for views.
   await dragDial(page, dialD, [-90, 0, 90, 126])
   await expect(keys).toHaveAttribute('data-grid-page', '1')
   await expect(pager).toHaveAttribute('aria-label', /9–16/)
@@ -165,7 +163,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(keys).toHaveAttribute('data-grid-page', '0')
   await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  await dialD.click()
+  await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '2')
   await cycleToOpeningWindow(page, keys, openingPage)
 
@@ -173,12 +171,14 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // Press the running agent's key: it enters cmd mode and pauses the agent.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  // SP-302 gives cmd mode a full-width agent panel, and the panel carries its
-  // own CONTROLLING relabel. The pager segment under dial D stays put: #1607
-  // made this assertion pass and every Stream Deck PR since has preserved it,
-  // so the panel is added beside it rather than in place of it.
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${CONTROLLED}`)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${CONTROLLED}`)
+  // SD-303 replaces the Command summary and pager with one full-width chat
+  // region. This fixture has no available conversation source, so the strip
+  // names that state rather than showing an empty panel that looks live.
+  const chat = page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
+  await expect(chat).toContainText('Conversation unavailable')
   // Cmd mode replaces the key faces, it does not merely relabel the strip: the
   // operator is looking at the command set. The press already paused the agent,
   // so the first slot offers the resume rather than a second pause.
@@ -196,9 +196,11 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // key a third time — another press would toggle the control straight back.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  // Both surfaces again: the dial-D pager label and SP-302's panel relabel.
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${CONTROLLED}`)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${CONTROLLED}`)
+  // Resuming reopens the same full-width conversation strip.
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
+  await expect(chat).toContainText('Conversation unavailable')
   // The resume landed before this render, so the same slot has flipped back to
   // Pause — the label is reading real state, not a fixed list.
   await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)

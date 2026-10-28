@@ -37,6 +37,16 @@ export interface StreamDeckSnapshot {
 }
 
 /** Build ticket projection; unknown evidence remains null. */
+/** Allowlisted entry from the shared desktop conversation source. */
+export interface StreamDeckChat {
+  readonly v: 1;
+  readonly kind: "chat";
+  readonly id: string;
+  readonly state: "live" | "ended" | "known_empty" | "stale" | "unavailable" | "restart_unknown" | "not_retained";
+  readonly observed_at: number | null;
+  readonly latest: { readonly id: string; readonly at: number | null; readonly k: "say" | "op" | "sys" | "tool"; readonly text?: string; readonly name?: string; readonly arg?: string; readonly res?: string; readonly bad?: boolean } | null;
+}
+
 export interface StreamDeckTicket {
   readonly v: 1;
   readonly kind: "ticket";
@@ -241,6 +251,7 @@ export interface StreamDeckChannelEvents {
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
+  chat?(chat: StreamDeckChat): void;
   ticket?(ticket: StreamDeckTicket): void;
   usage(usage: Readonly<Record<string, unknown>>): void;
   transcript(row: TranscriptRow): void;

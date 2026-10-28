@@ -78,11 +78,13 @@ test('Dial D transitions from cmd to logs mode', async ({ page }) => {
 // fleet-control command keys and a mic hold does not arm it' above, which
 // asserts the same gating plus the `is-disabled` face and the inert hold.
 
-test('CONTROLLING relabel rides the cmd page and the pager dots return on back', async ({ page }) => {
+test('full-width chat replaces the cmd pager and the pager returns on back', async ({ page }) => {
   await openStreamdeck(page)
 
   const pager = page.locator('[data-streamdeck-region="600"]')
 
+  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
+  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
   await expect(pager).toContainText('MORE AGENTS')
   await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
   expect(await pager.locator('svg > text').first().evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
@@ -91,24 +93,15 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  // The page indicator must not survive into cmd mode: there is no page set on
-  // screen to indicate. The dots go, and the CONTROLLING relabel rides the cmd
-  // page. The dial-D column itself stays — #1607 identifies the controlled
-  // agent there, and `streamdeck-operator-flow.browser.spec.mjs` asserts that
-  // `[data-streamdeck-region="600"] text:nth-child(2)` reads `#<id>` at this exact point in the flow.
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
-  await expect(pager.locator('svg > text').first()).toHaveText('CONTROLLING')
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${identifier}`)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${identifier}`)
-
-  // The cmd page takes every column left of dial D rather than sharing the
-  // strip with the info segments: it starts at the strip's content edge and
-  // stops where the pager column begins.
-  const cmdBox = await page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]').boundingBox()
-  const pagerBox = await pager.boundingBox()
-  const stripBox = await page.locator('#sd-screen').boundingBox()
-  expect(cmdBox.x + cmdBox.width).toBeLessThanOrEqual(pagerBox.x + 1)
-  expect(cmdBox.width).toBeGreaterThan(stripBox.width * 0.6)
+  // Ticket chat occupies the entire strip. The fleet pager returns only on
+  // the grid; this fixture names its unavailable conversation explicitly.
+  const chat = page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
+  await expect(pager).toHaveCount(0)
+  await expect(chat).toHaveCSS('left', '0px')
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
+  await expect(chat).toContainText('Conversation unavailable')
   await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   const dialD = page.locator('.sd-knob').nth(3)
@@ -123,10 +116,14 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   const dialA = page.locator('.sd-knob').first()
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${identifier}`)
+  await expect(pager).toHaveCount(0)
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
+  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
+  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
   await expect(pager).toContainText('MORE AGENTS')
   await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
   await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
@@ -183,12 +180,12 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
   expect(valueAfterPatch).toBe(valueBeforePatch)
 })
 
-// Quarantined: owner #7020, expires 2026-11-11 (release commit missed after LiveView patch)
-test.skip('an active dial drag commits its final value after a LiveView patch', async ({ page }) => {
+test('an active dial drag commits its final value after a LiveView patch', async ({ page }) => {
   await openStreamdeck(page)
 
   const dialD = page.locator('.sd-knob').nth(3)
   const keys = page.locator('#sd-keys')
+  const valueBeforeDrag = await keys.getAttribute('data-grid-dial-value')
   await page.evaluate(() => {
     const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
     window.__streamdeckGridEvents = []
@@ -204,8 +201,12 @@ test.skip('an active dial drag commits its final value after a LiveView patch', 
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
 
-  await page.mouse.move(cx, cy - 30)
+  await page.mouse.move(cx, cy - 10)
   await page.mouse.down()
+  const dragStarted = await page.evaluate(
+    () => window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._knobs[3].isDragging,
+  )
+  expect(dragStarted).toBe(true)
   await page.mouse.move(cx + 20, cy - 20)
 
   const navToggle = page.locator('#ax-drag')
@@ -218,6 +219,7 @@ test.skip('an active dial drag commits its final value after a LiveView patch', 
 
   const finalValue = await dialD.getAttribute('aria-valuenow')
   await expect(keys).toHaveAttribute('data-grid-page', '1')
+  await expect.poll(() => keys.getAttribute('data-grid-dial-value')).not.toBe(valueBeforeDrag)
   expect(Number(finalValue)).toBeGreaterThan(0)
   const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
   expect(releaseEvents).toHaveLength(eventCountBeforeDrag + 1)
@@ -298,9 +300,9 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
   await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /9–16/)
   const angle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
-  await dialD.click()
+  await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '2')
-  expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angle)
+  expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).not.toBe(angle)
   await dialD.hover()
   await page.mouse.wheel(0, 100)
   await expect(keys).toHaveAttribute('data-grid-page', '1')
@@ -309,12 +311,12 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
 })
 
-test('an acknowledged grid cycle cannot overwrite a later server page patch', async ({ page }) => {
+test('an acknowledged grid turn cannot overwrite a later server page patch', async ({ page }) => {
   await openStreamdeck(page)
 
   const keys = page.locator('#sd-keys')
   const dialD = page.locator('.sd-knob').nth(3)
-  await dialD.click()
+  await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '1')
   await expect.poll(() => page.evaluate(() =>
     window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._pendingPageDialValue

@@ -90,8 +90,8 @@ function gridBuckets(page) {
 
 // Every agent's bucket, not just the visible window's: the touch strip counts
 // the whole fleet, so a window-sized sample would compare two different
-// populations and call the difference a failure. Pressing dial D once per
-// window wraps back to the window it started on.
+// populations and call the difference a failure. Turn through each window,
+// then turn back to the opening window; dial D press cycles views.
 async function fleetBuckets(page, keys) {
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
   const collected = {}
@@ -100,8 +100,13 @@ async function fleetBuckets(page, keys) {
     Object.assign(collected, await gridBuckets(page))
 
     const current = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
-    await dial(page, 3).click()
-    await expect(keys).toHaveAttribute('data-grid-page', String((current + 1) % windows))
+    await dial(page, 3).press('ArrowUp')
+    await expect(keys).toHaveAttribute('data-grid-page', String(Math.min(current + 1, windows - 1)))
+  }
+
+  for (let window = windows - 1; window > 0; window -= 1) {
+    await dial(page, 3).press('ArrowDown')
+    await expect(keys).toHaveAttribute('data-grid-page', String(window - 1))
   }
 
   return collected
@@ -176,7 +181,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   )
 
   // ------------------------------------------------------------------ 3 --
-  // Dial D pages: wheel and keyboard both reach the server, press cycles.
+  // Dial D pages by wheel and keyboard; press cycles views.
   await dialD.hover()
   await page.mouse.wheel(0, 100)
   await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialD.getAttribute('aria-valuenow')))
@@ -186,10 +191,10 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialD.getAttribute('aria-valuenow')))
 
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
-  const beforePress = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
-  await dialD.click()
-  await expect(keys).toHaveAttribute('data-grid-page', String((beforePress + 1) % windows))
-  await expect(keys).toHaveAttribute('data-grid-page', String((beforePress + 1) % windows))
+  const beforeTurn = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
+  await dialD.press('ArrowUp')
+  await expect(keys).toHaveAttribute('data-grid-page', String(Math.min(beforeTurn + 1, windows - 1)))
+  await expect(keys).toHaveAttribute('data-grid-page', String(Math.min(beforeTurn + 1, windows - 1)))
   await shot(page, '03-paging.png')
 
   // Return to the window the run opened on before taking a control.
@@ -197,8 +202,8 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
     if ((await visibleIdentifiers(page)).join() === openingWindow.join()) break
 
     const current = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
-    await dialD.click()
-    await expect(keys).toHaveAttribute('data-grid-page', String((current + 1) % windows))
+    await dialD.press('ArrowDown')
+    await expect(keys).toHaveAttribute('data-grid-page', String(Math.max(0, current - 1)))
   }
   expect(await visibleIdentifiers(page)).toEqual(openingWindow)
 
