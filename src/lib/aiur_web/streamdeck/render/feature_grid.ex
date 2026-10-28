@@ -11,7 +11,7 @@ defmodule AiurWeb.Streamdeck.Render.FeatureGrid do
     feature = selected(features, nav)
     items = if nav.stack == [], do: features, else: field(feature, :tickets, [])
     faces = Enum.map(0..7, &Enum.at(items, Nav.page(nav) * 8 + &1))
-    faces = if nav.stack == [], do: Enum.map(faces, fn face -> if face, do: Map.put(face, :kind, :feature) end), else: faces
+    faces = if nav.stack == [], do: Enum.map(faces, &feature_face/1), else: faces
     details = if feature, do: field(feature, :strip), else: "Features · #{length(features)}"
     details = if field(grid, :features_status) == "unavailable", do: "Features unavailable", else: details
     details = field(model, :toast) || details
@@ -23,6 +23,9 @@ defmodule AiurWeb.Streamdeck.Render.FeatureGrid do
        %{x: 600, width: 200, label: pager, parts: [%{kind: :text_line, text: pager, y: 42, size: 9}]}
      ]}
   end
+
+  defp feature_face(nil), do: nil
+  defp feature_face(face), do: Map.put(face, :kind, :feature)
 
   defp selected(features, %{stack: [{:feature, id} | _]}), do: Enum.find(features, &(field(&1, :id) == id))
   defp selected(features, nav), do: Enum.at(features, Nav.page(nav) * 8)

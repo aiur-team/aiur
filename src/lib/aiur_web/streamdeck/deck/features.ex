@@ -36,10 +36,7 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
     entry = aggregate(lanes)
     key = slug
     known = Enum.all?([:closed, :open, :ci_wait, :unpublished, :total], &is_integer(field(entry, &1)))
-    total = field(entry, :total)
-    pct = if known and total > 0, do: div(field(entry, :closed) * 100, total), else: :unknown
     observed_at = field(entry, :observed_at) || field(block, :observed_at)
-    age = if is_integer(observed_at), do: "#{div(max(now - observed_at, 0), 60_000)}m", else: "—"
     sections = Map.put(field(window, :sections, %{}), :features, field(window, :features, %{}))
 
     %{
@@ -47,15 +44,23 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
       key: key,
       feature: slug,
       label: field(feature, :label) || key,
-      pct: pct,
+      pct: percent(entry, known),
       bar: if(known, do: Map.new([:closed, :open, :ci_wait, :unpublished, :total], &{&1, field(entry, &1)}), else: :unknown),
-      ci_wait: if(is_integer(field(entry, :ci_wait)) and field(entry, :ci_wait) > 0, do: field(entry, :ci_wait)),
-      reason: field(entry, :reason) || field(block, :reason) || if(!known, do: "Progress unavailable"),
+      ci_wait: badge(field(entry, :ci_wait)),
+      reason: reason(entry, block, known),
       observed_at: observed_at,
-      strip: "#{count(entry, :closed)}/#{count(entry, :total)} closed · #{count(entry, :unpublished)} not published · age #{age}",
+      strip: "#{count(entry, :closed)}/#{count(entry, :total)} closed · #{count(entry, :unpublished)} not published · age #{age(observed_at, now)}",
       tickets: Tickets.keys(sections, {:feature, slug})
     }
   end
+
+  defp percent(%{closed: closed, total: total}, true) when total > 0, do: div(closed * 100, total)
+  defp percent(_entry, _known), do: :unknown
+  defp badge(value) when is_integer(value) and value > 0, do: value
+  defp badge(_value), do: nil
+  defp age(observed, now) when is_integer(observed), do: "#{div(max(now - observed, 0), 60_000)}m"
+  defp age(_unknown, _now), do: "—"
+  defp reason(entry, block, known), do: field(entry, :reason) || field(block, :reason) || if(!known, do: "Progress unavailable")
 
   defp aggregate(lanes) do
     counts =
