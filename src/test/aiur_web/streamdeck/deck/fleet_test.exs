@@ -19,6 +19,9 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
     assert hd(fleet.keys).label == "2 · 1?"
     assert Render.key(hd(fleet.keys)).svg =~ "2 · 1?"
     assert List.last(fleet.keys).label == "9 / —"
+    assert Enum.map(List.last(fleet.keys).tickets, & &1.id) == ~w(3 2 4 1 5 6 7 8 9)
+    assert {capacity_nav, []} = Input.reduce(%Nav{view: :fleet}, %{"kind" => "key_press", "index" => 7}, Deck.navigation(%{fleet: fleet}))
+    assert capacity_nav.stack == [{:state, [:live]}]
     assert Enum.map(Enum.at(fleet.keys, 2).tickets, & &1.state) == ["error", "retrying"]
     assert Enum.map(Enum.at(fleet.keys, 5).tickets, & &1.state) == ["parked", "paused"]
   end
