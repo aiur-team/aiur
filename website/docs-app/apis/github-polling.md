@@ -71,6 +71,10 @@ Recovery requires evidence that the failure is infrastructure, inherited, or kno
 
 The recovery attention names failing tests and counts completed group rebuild runs for PRs that were behind the stuck head during the observed window.
 
+New flake-recorder issues carry `needs-triage` and the instance's parked label
+(`agent:parked` by default); fix work waits for triage. Automatic quarantine
+continues independently.
+
 The landing watcher quarantines a flaky test within 24 hours (caller `landing_watch_flake_gate` for the age check):
 
 - **Qualifies:** a failure in two merge groups whose PRs did not touch the test, or one base-branch failure when that commit did not touch the test or its mirrored `src/lib` file.
