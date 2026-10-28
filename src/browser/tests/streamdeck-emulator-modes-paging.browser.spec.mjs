@@ -352,25 +352,34 @@ test('a patch during dial D drag preserves the full release travel', async ({ pa
     return { x: cx + Math.cos(radians) * 30, y: cy + Math.sin(radians) * 30 }
   }
 
-  await page.mouse.move(...Object.values(point(-90)))
+  await page.mouse.move(...Object.values(point(0)))
   await page.mouse.down()
-  await page.mouse.move(...Object.values(point(-45)))
+  await page.mouse.move(...Object.values(point(90)))
   const valueBeforePatch = await dialD.getAttribute('aria-valuenow')
 
   await page.evaluate(() => {
     window.liveSocket.main
       .getHook(document.querySelector('#streamdeck-page'))
-      .pushEvent('grid-page', { value: 0 })
+      .pushEvent('grid-page', { value: 50 })
   })
-  await expect.poll(() => page.locator('#sd-keys').getAttribute('data-grid-dial-value')).toBe('0')
+  await expect.poll(() => page.locator('#sd-keys').getAttribute('data-grid-dial-value')).toBe('50')
   await expect(dialD).toHaveAttribute('aria-valuenow', valueBeforePatch)
 
-  await page.mouse.move(...Object.values(point(45)))
+  const patchedBox = await dialD.boundingBox()
+  const patchedCx = patchedBox.x + patchedBox.width / 2
+  const patchedCy = patchedBox.y + patchedBox.height / 2
+  const afterPatch = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: patchedCx + Math.cos(radians) * 30, y: patchedCy + Math.sin(radians) * 30 }
+  }
+
+  await page.mouse.move(...Object.values(afterPatch(45)))
   await page.mouse.up()
 
   const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
   expect(releaseEvents).toHaveLength(1)
   expect(releaseEvents[0].payload).toMatchObject({ kind: 'dial', index: 3, action: 'turn', delta: 1 })
+  await expect.poll(async () => dialD.getAttribute('aria-valuenow')).toBe(await page.locator('#sd-keys').getAttribute('data-grid-dial-value'))
 })
 
 test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
