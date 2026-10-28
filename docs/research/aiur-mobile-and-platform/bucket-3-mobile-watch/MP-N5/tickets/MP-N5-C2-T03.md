@@ -53,15 +53,20 @@ agree").
 
 ## Verified starting point
 
-Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
+Path refresh at `3b00b8f2cd0bfc9acdffe3b07ee5f1c6ca2ab56a` (2026-10-27).
+See [plan §10](../plan.md#10-notification-policy-starting-point) for the complete
+mapping, topic catalog and integration gates. Historical `base_sha` is retained.
+All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
+`push-relay`; this refresh does not assert they shipped.
 
-- `RootSummary.progress :: non_neg_integer() | nil`, `progress_resolution ::
-  :resolved | :partial | :unresolved | :unknown`, `completed?`
-  (`src/lib/aiur/build_order/root_summary.ex:6,8-27`).
-- Queue-readiness contract §4.1 (facts `{scope, completed, resolved, total, percent,
-  resolution, observed_at, freshness}`), §4.2 (no bursts, no repeats per generation, none
-  from unresolved/unknown), §5 (`Aiur.BuildProgress.facts/1`, `subscribe/0`).
-- Existing test file for progress semantics: `src/test/aiur/build_order/root_summary_progress_test.exs`.
+- `src/lib/aiur/build_progress.ex:36-42` implements facts and subscription;
+  `{:build_progress_changed, fact}` is broadcast on `"build_progress"`.
+  CR-N5-PATH-2 must approve the facade before push-relay imports it.
+- `src/lib/aiur/build_order/root_summary.ex` is semantics precedent only;
+  it is not an alternate notification read API.
+- Milestone topics end at `.progress` (`events/catalog/planned_entries.ex:48-64`);
+  read facts on the finer PubSub signal for 10/25/50% device thresholds.
+- Existing semantics test: `src/test/aiur/build_order/root_summary_progress_test.exs`.
 
 ## Chosen design
 
