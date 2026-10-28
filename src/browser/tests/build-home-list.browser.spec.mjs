@@ -71,7 +71,8 @@ test('List shows selection is keyboard accessible, persisted, and scoped to List
   await page.keyboard.press('End')
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/list=epics/)
-  await expect(page.locator('.bd-list-placeholder')).toHaveText('Epics view is not available yet')
+  await expect(page.locator('.epic-list')).toHaveCount(1)
+  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.epic))).toEqual(['bugs', 'infra', 'docs', 'design'])
   await expect(tabs.getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
   await page.reload()
   const restored = page.getByRole('tablist', { name: 'List shows' })
@@ -83,6 +84,64 @@ test('List shows selection is keyboard accessible, persisted, and scoped to List
   await page.getByRole('tab', { name: 'Tickets' }).click()
   await expect(page).not.toHaveURL(/list=/)
   await expect(page.locator('.bd-list')).toHaveCount(1)
+})
+test('Epics sort unknown last, expose overlap and unmatched count, and filter on Enter', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Epics' }).click()
+  await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    for (const key of ['design', 'docs']) Object.assign(ctx.snap.epic_progress[key], { closed: 1, open: 0, total: 1 })
+    fx.renderList()
+  })
+  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.epic))).toEqual(['bugs', 'infra', 'design', 'docs'])
+  await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    ctx.snap.epic_progress.design = { ...ctx.snap.epic_progress.design, closed: null, open: null, total: null, reason: 'history incomplete' }
+    fx.renderList()
+  })
+  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.epic))).toEqual(['bugs', 'infra', 'docs', 'design'])
+  await expect(page.locator('.ep-row[data-epic="design"] .ep-count')).toContainText('—')
+  await expect(page.locator('.ep-row[data-epic="design"] .ep-count')).toContainText('history incomplete')
+  await expect(page.locator('.epic-list footer')).toContainText('A ticket can count under more than one epic')
+  await expect(page.locator('.epic-list footer')).toContainText('3 tickets match no epic')
+  await page.locator('.ep-row[data-epic="infra"]').focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/view=list.*epic=infra|epic=infra.*view=list/)
+  await expect(page.getByRole('tab', { name: 'Tickets' })).toHaveAttribute('aria-selected', 'true')
+})
+test('Epics phone rows fit and pass axe', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Epics' }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  const widths = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, viewport: innerWidth }))
+  expect(widths.page).toBeLessThanOrEqual(widths.viewport)
+  const placement = await page.locator('.ep-row').first().evaluate(row => {
+    const meter = row.querySelector('.ep-meter').getBoundingClientRect()
+    const count = row.querySelector('.ep-count').getBoundingClientRect()
+    return { meterTop: meter.top, countBottom: count.bottom }
+  })
+  expect(placement.meterTop).toBeGreaterThanOrEqual(placement.countBottom)
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(results.violations).toEqual([])
+})
+test('Epics with no configured rows show the configuration empty state', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Epics' }).click()
+  await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    ctx.D.epics = { unsorted: ctx.D.epics.unsorted }
+    fx.renderList()
+  })
+  await expect(page.locator('.ep-row')).toHaveCount(0)
+  await expect(page.locator('.bd-ep-empty')).toContainText('build_order.general_epics')
+  await expect(page.locator('.bd-ep-empty a')).toHaveAttribute('href', /configuration-build-order#general-epics/)
+})
+test('Epics with no matching tickets show the configuration empty state', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Epics' }).click()
+  await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    for (const value of Object.values(ctx.snap.epic_progress)) Object.assign(value, { closed: 0, open: 0, total: 0, reason: null })
+    fx.renderList()
+  })
+  await expect(page.locator('.ep-row')).toHaveCount(0)
+  await expect(page.locator('.bd-ep-empty')).toContainText('No epics configured')
 })
 test('List shows label stays beside options on a narrow viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
