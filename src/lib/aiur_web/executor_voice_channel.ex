@@ -153,7 +153,7 @@ defmodule AiurWeb.ExecutorVoiceChannel do
 
   defp start_error(:unconfigured), do: "Executor voice is not configured."
   defp start_error(:not_installed), do: "Executor voice is not installed."
-  defp start_error(:cost_cap), do: "This provider has reached its comparison minute cap."
+  defp start_error(:cost_cap), do: "Voice reached a minute cap. Check the comparison meters and daily allowance."
   defp start_error(_), do: "Executor voice could not start."
   defp refuse(reason, code), do: {:error, %{reason: reason, reason_code: code}}
 end

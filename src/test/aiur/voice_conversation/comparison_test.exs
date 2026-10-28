@@ -140,7 +140,12 @@ defmodule Aiur.VoiceConversation.ComparisonTest do
 
     start_supervised!(VoiceConverse.child_spec(config))
     start = fn owner, opts -> VoiceConverse.start_session(instance, %{id: "executor"}, Keyword.put(opts, :client, owner)) end
-    deliver = fn _, _, _ -> {:ok, %{id: 42}} end
+    test_pid = self()
+
+    deliver = fn _, _, reason ->
+      send(test_pid, {:ended_reason, reason})
+      {:ok, %{id: 42}}
+    end
 
     opts = [
       instance: instance,
@@ -165,6 +170,8 @@ defmodule Aiur.VoiceConversation.ComparisonTest do
     # Drive the actual cap message instead of waiting on wall time.
     send(wrapper, :comparison_cap)
     receive_barrier({:executor_voice, {:comparison_saved, token}})
+    receive_barrier({:ended_reason, reason})
+    assert reason == :max_duration
     receive_barrier({:DOWN, ^ref, :process, ^wrapper, :normal})
     assert {:ok, %{rows: [row]}} = Comparison.snapshot(root)
     assert row["id"] == token

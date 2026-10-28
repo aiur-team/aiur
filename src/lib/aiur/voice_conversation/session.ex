@@ -52,7 +52,7 @@ defmodule Aiur.VoiceConversation.Session do
   def handle_cast(:stop, state), do: {:noreply, end_session(state)}
 
   @impl true
-  def handle_info(:comparison_cap, state), do: {:noreply, end_session(state)}
+  def handle_info(:comparison_cap, state), do: {:noreply, end_session(state, :max_duration)}
 
   def handle_info({:voice_conversation, id, {:ended, reason}}, %{id: id} = state), do: finish(state, reason)
 
@@ -74,10 +74,11 @@ defmodule Aiur.VoiceConversation.Session do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp end_session(%{stopping?: true} = state), do: state
+  defp end_session(state, reason \\ :user_end)
+  defp end_session(%{stopping?: true} = state, _reason), do: state
 
-  defp end_session(state) do
-    case Elixir.VoiceConverse.end_session(state.instance, state.id) do
+  defp end_session(state, reason) do
+    case Elixir.VoiceConverse.end_session(state.instance, state.id, reason) do
       :ok ->
         %{state | stopping?: true}
 
