@@ -126,7 +126,17 @@ test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
   if (assets) await page.route('**/build-home/cards.js', route => route.fulfill({
     body: readFileSync(assets + '/cards.js', 'utf8'), contentType: 'text/javascript'
   }))
-  await open(page, 'unknowns')
+  // The fixture server selects its dataset globally. Inject these two rows into
+  // the page so parallel specs cannot swap the dataset between redirect and snapshot.
+  const fixture = JSON.parse(readFileSync(new URL('../../test/fixtures/build_home/unknowns.json', import.meta.url), 'utf8'))
+  await open(page)
+  await page.waitForFunction(() => state.ctx.snap && state.ctx.L)
+  await page.evaluate(rows => {
+    const { ctx } = state
+    hook.receive({ kind: 'diff', v: 1, epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1,
+      now: ctx.snap.now, upsert: rows, remove: [], set: {} })
+  }, [fixture.sections.plan.find(row => row.id === 'pack:unknowns/alpha'),
+    fixture.sections.plan.find(row => row.id === '607')])
   const revealPlanCard = async id => {
     const card = page.locator('.bd-card[data-id="' + id + '"]')
     await expect.poll(() => page.evaluate(id => state.ctx.L?.secs.plan.items.some(item => item.t.id === id), id)).toBe(true)
