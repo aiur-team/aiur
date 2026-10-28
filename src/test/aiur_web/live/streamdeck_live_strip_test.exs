@@ -145,15 +145,17 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert provider =~ ~s(opacity="0.45")
   end
 
-  test "renders summary build space and pager dots inside touch-strip segments" do
+  test "renders unavailable summary and no ticket pages when the Build window is unavailable" do
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:error, :offline} end)
-    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     assert strip(html) =~ "AIUR"
     assert strip(html) =~ "— live / — left"
     assert strip(html) =~ "Build"
-    assert strip(html) =~ "MORE AGENTS"
-    assert strip(html) =~ "1–8 / 17"
+    assert strip(html) =~ "Tickets unavailable"
+    refute html =~ ~s(data-grid-total="0")
+    assert html =~ ~s(data-tickets-status="unavailable")
+    assert has_element?(view, "#sd-keys button[disabled][aria-label*='Tickets unavailable']")
   end
 
   test "the pager renders as the design's dial segment rather than a logo-headed info segment" do

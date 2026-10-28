@@ -1,5 +1,6 @@
 defmodule AiurWeb.StreamdeckChannelPriorityTest do
   use AiurWeb.StreamdeckChannelCase
+  alias Aiur.TestSupport.StreamdeckBuildFixture
   alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.Render
 
@@ -9,6 +10,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
     put_endpoint_config(
       streamdeck_snapshot_fun: fn -> %{running: [], retrying: [], idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]} end,
+      streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(%{idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]}) end,
       streamdeck_build_queue_fun: fn -> Agent.get(queue, & &1) end,
       streamdeck_reorder_fun: fn id, at ->
         send(owner, {:reorder, id, at})
@@ -97,15 +99,15 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     refute_received {:reorder, _, _}
   end
 
-  test "unavailable positions never render a plausible queue number" do
+  test "unavailable queue positions preserve the authoritative Build backlog label" do
     for read <- [fn -> %{status: :disabled, queues: []} end, fn -> Map.put(model(3), :snapshot, %{carried_age_ms: 100}) end, fn -> raise "queue read failed" end] do
       put_endpoint_config(streamdeck_build_queue_fun: read)
       grid = StreamdeckProjection.grid()
       face = Enum.find(grid.agents, &(&1.identifier == "4"))
       assert face.queue_position == nil
       image = Render.key(face)
-      refute image.label =~ "Queued #"
-      refute image.svg =~ "Queued #"
+      assert image.label =~ "Queued #1"
+      assert image.svg =~ "Queued #1"
     end
   end
 

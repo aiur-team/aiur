@@ -13,15 +13,15 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     offset = clamp_offset(field(model, :column_offset, 0), max_offset)
     page = field(model, :page)
     start = if is_integer(page) and page >= 0, do: page * 8, else: offset * 2
+    unavailable = field(grid, :tickets_status) == "unavailable"
     faces = Enum.map(0..7, &Enum.at(agents, start + rem(&1, 4) * 2 + div(&1, 4)))
-
-    providers =
-      model |> field(:usage, %{}) |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
+    faces = if unavailable, do: [%{title: "Tickets unavailable", label: "Unavailable", face: :unknown, bucket: :stuck, disabled: true} | List.duplicate(nil, 7)], else: faces
+    providers = model |> field(:usage, %{}) |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
 
     regions =
       [summary(grid, agents)] ++
         provider_regions(providers, field(model, :provider_offset, 0)) ++
-        [pager(div(start, 2), max_offset, length(agents))]
+        [if(unavailable, do: region(600, 200, "Tickets unavailable", [%{kind: :text_line, text: "Tickets unavailable", y: 50, size: 12}]), else: pager(div(start, 2), max_offset, length(agents)))]
 
     {faces, feedback(regions, field(model, :toast))}
   end
@@ -37,7 +37,7 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
   defp feedback(regions, _toast), do: regions
 
   defp summary(grid, agents) do
-    count = counts_label(grid, agents)
+    count = if field(grid, :tickets_status) == "unavailable", do: "Tickets unavailable; #{counts_label(grid, agents)}", else: counts_label(grid, agents)
     build = field(grid, :build)
     percent = field(build, :percent)
 

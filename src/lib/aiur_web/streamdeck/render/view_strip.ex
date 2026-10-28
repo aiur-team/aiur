@@ -25,7 +25,8 @@ defmodule AiurWeb.Streamdeck.Render.ViewStrip do
 
   defp parts("cmd", context) do
     agent = field(context, :active, %{}) || %{}
-    state = Style.state(field(agent, :bucket, :queued))
+    state = Style.state(field(agent, :face, field(agent, :bucket, :queued)))
+    state = Map.put(state, :label, field(agent, :label, state.label))
     percent = field(agent, :progress_percent)
 
     [

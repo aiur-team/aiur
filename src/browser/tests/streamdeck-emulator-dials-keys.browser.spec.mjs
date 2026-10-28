@@ -192,7 +192,7 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(key).toBeVisible()
 
   // The key the operator pressed and the panel it opens must agree about the
-  // state's accent — that is the whole point of the shared key-face contract.
+  // Build state's label and accent, carried through the same renderer.
   const keyStatus = await key.locator('[data-part="status-label"]').textContent()
   const keyAccent = await key.locator('[data-part="status-label"]').getAttribute('fill')
 

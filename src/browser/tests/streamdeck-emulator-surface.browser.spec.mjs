@@ -181,8 +181,8 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
       columnGap: keysStyle.columnGap,
       rowGap: keysStyle.rowGap,
       keyRatio: keyBox.width / keyBox.height,
-      states: Object.fromEntries(Array.from(keys.querySelectorAll('[data-streamdeck-state]')).map((key) => [
-        key.getAttribute('data-streamdeck-state'),
+      states: Object.fromEntries(Array.from(keys.querySelectorAll('[data-streamdeck-face]')).map((key) => [
+        key.getAttribute('data-streamdeck-face'),
         Array.from(key.querySelectorAll('svg > defs > linearGradient > stop:first-child')).map((stop) => stop.getAttribute('stop-color'))
       ])),
       pressShadow: (() => {
@@ -210,6 +210,7 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(desktopGeometry.rowGap).toBe('16px')
   expect(desktopGeometry.keyRatio).toBeCloseTo(1, 2)
   const colours = {
+    active: ['#3f8bff', '#18212d'], idle: ['#4a4d55', '#1e2025'], unknown: ['#4a4d55', '#1e2025'],
     running: ['#3f8bff', '#18212d'], paused: ['#4a4d55', '#1e2025'],
     stuck: ['#ff6a5e', '#271317'], alert: ['#ffc061', '#241d0e'], queued: ['#3a3f47', '#191b21']
   }

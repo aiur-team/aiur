@@ -4,15 +4,26 @@ defmodule AiurWeb.Streamdeck.Deck.Counts do
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
-    read = EndpointConfig.get(:streamdeck_build_window_fun) || (&window/3)
-    project(read.(Keyword.get(opts, :index, Index), "Etc/UTC", 5_000))
+    result = Keyword.get_lazy(opts, :window, fn -> window(opts) end)
+    project(result)
   rescue
     _error -> unavailable()
   catch
     :exit, _reason -> unavailable()
   end
 
-  defp window(server, zone, timeout) do
+  @doc "The shared Build window used by Deck sections, read once per projection."
+  @spec window(keyword()) :: {:ok, map()} | {:error, term()}
+  def window(opts \\ []) do
+    read = EndpointConfig.get(:streamdeck_build_window_fun) || (&index_window/3)
+    read.(Keyword.get(opts, :index, Index), "Etc/UTC", 5_000)
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp index_window(server, zone, timeout) do
     with :ok <- Index.subscribe(server), do: Index.window(server, zone, timeout)
   end
 

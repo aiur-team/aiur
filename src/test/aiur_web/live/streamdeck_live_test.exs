@@ -308,8 +308,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "key-press", %{"identifier" => "1400"})
 
     assert streamdeck_assigns(view).sd_active.bucket == :alert
-    assert strip(html) =~ "Needs input"
-    assert strip(html) =~ ~s(fill="#ffcf87")
+    assert strip(html) =~ "Awaiting command"
+    assert strip(html) =~ ~s(fill="#ff9a90")
   end
 
   test "renders bounded BACK and EVENTS hint arrows in logs mode" do

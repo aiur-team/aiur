@@ -32,6 +32,10 @@ defmodule Aiur.Conversation.History do
     with {:ok, _} <- HistoryReader.snapshot(ref), do: {:ok, Ref.conversation_id(ref)}
   end
 
+  @doc "Resolve a durable worker conversation to its verified listener target. Executor conversations are not worker targets."
+  @spec worker_identity(String.t()) :: {:ok, Aiur.TrackerIdentity.t()} | {:error, atom()}
+  defdelegate worker_identity(id), to: HistoryReader
+
   @doc "Pages durable entries by position. A principal is required; only loopback may reveal secrets."
   @spec list_entries(Ref.t() | String.t(), keyword()) :: {:ok, page()} | {:error, atom()}
   def list_entries(ref, opts) do

@@ -7,6 +7,7 @@ Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
+Code.require_file("../support/streamdeck_build_fixture.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
@@ -164,6 +165,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
+  alias Aiur.TestSupport.StreamdeckBuildFixture
 
   # Standalone HTTP fixtures have no test caller; keep global fixture stubs outside shared test support.
   defp configure_ticket_docs(:ok) do
@@ -188,6 +190,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
+    Application.put_env(:aiur, :build_fixture_query, true)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     endpoint_overrides = AiurWeb.EndpointConfig.overrides_table()
@@ -308,9 +311,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot(identifiers)
 
       _ ->
-        # The canonical bucket order puts the alert agent first, so the LiveView
-        # initially focuses 1331; seed its durable feed so the production
-        # AgentEventFeed path has real content to project in logs mode.
+        # Ticket attention order puts the error first; seed its durable feed
+        # so the production AgentEventFeed path has real content in logs mode.
+        write_feed_if_missing("1338")
         write_feed_if_missing("1331")
         # The operator flow drives one agent through cmd and logs, so the
         # running agent it controls needs a durable feed of its own.
@@ -455,6 +458,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_fixture_fleet: true,
         streamdeck_build_source: Aiur.BrowserHarness.StreamdeckTicket,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
+        streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(streamdeck_snapshot()) end,
         streamdeck_usage_load_fun: &__MODULE__.streamdeck_usage_inputs/2,
         agent_chat_capabilities_fun: &__MODULE__.build_capabilities/1,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,

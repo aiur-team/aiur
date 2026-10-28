@@ -48,14 +48,14 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
     ~H"""
     <div id={container_id(@mode)} data-mode-view={@mode} data-focused-identifier={@selected_identifier}>
       <div id={keys_id(@mode)} class="sd-keys" role="group" aria-label={keys_label(@mode)} data-mode-view={@mode}
-        data-grid-total={@mode == :grid && @grid.total} data-grid-windows={@mode == :grid && @grid.windows}
+        data-grid-total={@mode == :grid && @grid[:tickets_status] != "unavailable" && @grid.total} data-tickets-status={@mode == :grid && @grid[:tickets_status]} data-grid-windows={@mode == :grid && @grid.windows}
         data-grid-page={@mode == :grid && @page} data-grid-page-count={@mode == :grid && @grid.windows}
         data-grid-column-offset={@mode == :grid && @page * 4} data-grid-dial-value={@mode == :grid && @dial_value}
         data-grid-selected-identifier={@mode == :grid && @selected_identifier} data-commands-view={@mode == :commands && @commands_view}
         data-offset={@mode == :logs && @logs.events_offset} data-max-offset={@mode == :logs && @logs.events_max_offset}>
         <.key :for={{{image, face}, index} <- @slots} image={image} index={index} class={key_class(@mode, face)} disabled={value(face, :disabled, false)}
           data-streamdeck-identifier={if @mode == :grid, do: value(face, :identifier), else: if(@mode == :cmd, do: @selected_identifier)}
-          data-streamdeck-state={value(face, :bucket)} data-control-action={control_action(value(face, :bucket))}
+          data-streamdeck-state={value(face, :bucket)} data-streamdeck-face={value(face, :face, value(face, :bucket))} data-control-action={control_action(value(face, :bucket))}
           data-streamdeck-url={value(face, :url)} data-streamdeck-command={value(face, :command)} data-streamdeck-icon={value(face, :icon)}
           data-command-state={value(face, :state)} data-command-hold={value(face, :hold) && "true"}
           data-command-label={value(face, :title)} data-command-sub={value(face, :sub)}

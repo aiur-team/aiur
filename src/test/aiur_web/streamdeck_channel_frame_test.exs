@@ -25,7 +25,8 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
 
   test "physical key positions, page labels and shrink follow the server list" do
     rows = Enum.map(1..12, &AgentEvents.agent_summary("AIUR-#{&1}", :running, 0, %{title: "Ticket #{&1}"}))
-    put_endpoint_config(streamdeck_snapshot_fun: fn -> %{running: rows, retrying: [], idle: []} end)
+    snapshot = %{running: rows, retrying: [], idle: []}
+    put_endpoint_config(streamdeck_snapshot_fun: fn -> snapshot end, streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(snapshot) end)
     socket = joined_socket()
     assert_push("frame", %{keys: keys})
     shown = Enum.at(keys, 1).label
@@ -44,7 +45,8 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     [{:open_ticket, selected}] = :sys.get_state(socket.channel_pid).assigns.deck_effects
     assert String.starts_with?(Enum.at(later, 1).label, selected <> " ")
 
-    put_endpoint_config(streamdeck_snapshot_fun: fn -> %{running: Enum.take(rows, 2), retrying: [], idle: []} end)
+    shrunk = %{running: Enum.take(rows, 2), retrying: [], idle: []}
+    put_endpoint_config(streamdeck_snapshot_fun: fn -> shrunk end, streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(shrunk) end)
     send(socket.channel_pid, :fleet_changed)
     :sys.get_state(socket.channel_pid)
     flush_frame(socket)
