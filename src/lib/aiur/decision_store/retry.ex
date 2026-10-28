@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Retry do
 
   require Logger
 
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.Commands.Requester
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
@@ -190,7 +191,7 @@ defmodule Aiur.DecisionStore.Retry do
   def dispatchable?(%Decision{pending_for_session?: true}, _retry_failed?), do: false
 
   def dispatchable?(%Decision{} = decision, retry_failed?) do
-    Aiur.DecisionStore.Overrides.dispatchable?(decision) and Requester.dispatch_target(decision) == :worker and worker_dispatchable?(decision, retry_failed?)
+    Overrides.dispatchable?(decision) and Requester.dispatch_target(decision) == :worker and worker_dispatchable?(decision, retry_failed?)
   end
 
   defp worker_dispatchable?(decision, retry_failed?) do

@@ -9,6 +9,7 @@ defmodule Aiur.DecisionRevision do
   comparison and appending an accepted value.
   """
 
+  alias Aiur.Commands.Overrides
   alias Aiur.DecisionValidation
 
   @identity_max 256
@@ -66,7 +67,7 @@ defmodule Aiur.DecisionRevision do
          {:ok, answer} <- validate_answer(answer, context),
          :ok <- changed_action(answer.action_id, context.current_action_id),
          {:ok, reason} <- required_reason(answer),
-         {:ok, override} <- Aiur.Commands.Overrides.normalize_metadata(Keyword.get(opts, :override)) do
+         {:ok, override} <- Overrides.normalize_metadata(Keyword.get(opts, :override)) do
       {:ok, build(Map.put(context, :override, override), answer, reason)}
     else
       {:error, {:revision_invalid, _reason}} = error -> error
@@ -104,7 +105,7 @@ defmodule Aiur.DecisionRevision do
          {:ok, reason} <- persisted_string(raw, "reason", :reason),
          {:ok, recorded_at} <- persisted_timestamp(raw, "recorded_at", :recorded_at),
          {:ok, persisted_hash} <- persisted_string(raw, "content_hash", :content_hash),
-         {:ok, override} <- Aiur.Commands.Overrides.normalize_metadata(Map.get(raw, "override")),
+         {:ok, override} <- Overrides.normalize_metadata(Map.get(raw, "override")),
          {:ok, revision} <-
            rebuild(decision_id, decision_version, sequence, prior_action_id, answer, recorded_at, override),
          :ok <- compare_persisted(revision.action_id, action_id, :revision_action_id_mismatch),

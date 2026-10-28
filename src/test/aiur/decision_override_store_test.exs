@@ -2,6 +2,9 @@ defmodule Aiur.DecisionOverrideStoreTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
+  alias Aiur.Events.Exchange
+  alias Aiur.DecisionStore.Retry
+  alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
   alias Aiur.{DecisionPubSub, DecisionRevisionDispatch, DecisionStore, Issue}
   alias Aiur.DecisionStore.Dispatch
 
@@ -115,8 +118,8 @@ defmodule Aiur.DecisionOverrideStoreTest do
     override = override!(ctx, "merged", context)
     assert [%{route: :corrective_ticket, state: :queued}] = override.overrides
     refute Aiur.Commands.override_dispatchable?(override)
-    refute Aiur.DecisionStore.Retry.dispatchable?(override, true)
-    assert Aiur.Orchestrator.Dispatcher.AnsweredDecisions.for_ticket("6908", ctx.store, 1_000) == []
+    refute Retry.dispatchable?(override, true)
+    assert AnsweredDecisions.for_ticket("6908", ctx.store, 1_000) == []
 
     item = %{
       id: 3,
@@ -136,7 +139,7 @@ defmodule Aiur.DecisionOverrideStoreTest do
     assert {:ok, delivered} = DecisionStore.get(override.decision_id, ctx.store)
     [%{delivered_at: at}] = delivered.overrides
     event = %{topic: "ticket.6908.branch.push", source: :system, sha: "after", ref: "refs/heads/work", ticket_observation: %{observed_at: DateTime.add(at, 1, :second)}}
-    Aiur.Events.Exchange.publish(event.topic, event)
+    Exchange.publish(event.topic, event)
     implemented = wait_for(ctx.store, override.decision_id, fn d -> hd(d.overrides).state == :implemented end)
     assert [%{evidence: %{kind: :push, head_sha: "after", pr_number: 77}}] = implemented.overrides
     assert implemented.decision_status == :decided

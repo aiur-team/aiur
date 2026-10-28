@@ -30,6 +30,7 @@ defmodule Aiur.DecisionStore do
 
   use GenServer
 
+  alias Aiur.Commands.OverrideContext
   alias Aiur.Decision
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Boot
@@ -256,7 +257,7 @@ defmodule Aiur.DecisionStore do
   @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   def override(decision_id, payload, opts \\ [], server \\ __MODULE__) do
     with {:ok, decision} <- get(decision_id, server) do
-      opts = Aiur.Commands.OverrideContext.options(decision.ticket.identifier, opts)
+      opts = OverrideContext.options(decision.ticket.identifier, opts)
       GenServer.call(server, {:override, decision_id, payload, opts}, @request_timeout)
     end
   end

@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Info do
 
   require Logger
 
+  alias Aiur.DecisionStore.OverridePushes
   alias Aiur.Decision
   alias Aiur.DecisionPubSub
 
@@ -17,19 +18,19 @@ defmodule Aiur.DecisionStore.Info do
 
   @spec handle_info(term(), term()) :: term()
   def handle_info(:reconcile_override_pushes, state) do
-    if state.writable?, do: Aiur.DecisionStore.OverridePushes.reconcile(state)
+    if state.writable?, do: OverridePushes.reconcile(state)
     timer = Process.send_after(self(), :reconcile_override_pushes, 30_000)
     {:noreply, %{state | override_reconcile_timer: timer}}
   end
 
   def handle_info({:event, event}, state) do
-    if state.writable?, do: Aiur.DecisionStore.OverridePushes.observe(state, event)
+    if state.writable?, do: OverridePushes.observe(state, event)
     {:noreply, state}
   end
 
   def handle_info({:override_push_observed, candidates, sha, ref, at, pr}, state) do
     if state.writable?,
-      do: {:noreply, Aiur.DecisionStore.OverridePushes.settle(state, candidates, sha, ref, at, pr)},
+      do: {:noreply, OverridePushes.settle(state, candidates, sha, ref, at, pr)},
       else: {:noreply, state}
   end
 

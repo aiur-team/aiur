@@ -8,6 +8,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
 
   require Logger
 
+  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.GitHub.{Access, PollSnapshots}
   alias Aiur.StartTrigger.ProgressStore
 
@@ -93,8 +94,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   defp record_progress(:branch_pull_request, id, body, repo), do: ProgressStore.delivery(id, body, repo)
   defp record_progress(_type, _id, _body, _repo), do: :ok
 
-  defp accepted_body(:branch_pull_request, body), do: &Aiur.GitHub.PullRequestHeadUpdate.inherit(&1, merge_sweep_metadata(&1, body))
-  defp accepted_body(:pull_request, body), do: &Aiur.GitHub.PullRequestHeadUpdate.inherit(&1, body)
+  defp accepted_body(:branch_pull_request, body), do: &PullRequestHeadUpdate.inherit(&1, merge_sweep_metadata(&1, body))
+  defp accepted_body(:pull_request, body), do: &PullRequestHeadUpdate.inherit(&1, body)
   defp accepted_body(_type, body), do: fn _held -> body end
 
   @spec store_thread_transition(String.t(), term(), String.t(), map(), String.t() | nil, String.t() | nil) :: [Access.key()]

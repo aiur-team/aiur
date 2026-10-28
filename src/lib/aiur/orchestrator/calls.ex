@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
+  alias Aiur.Orchestrator.CommandOverrideContext
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -26,7 +27,7 @@ defmodule Aiur.Orchestrator.Calls do
     do: StatusReport.list_active_identifiers(state)
 
   def handle_call({:command_override_context, identifier}, _from, state),
-    do: {:reply, Aiur.Orchestrator.CommandOverrideContext.read(state, identifier), state}
+    do: {:reply, CommandOverrideContext.read(state, identifier), state}
 
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)

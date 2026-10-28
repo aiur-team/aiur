@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Boot do
 
   require Logger
 
+  alias Aiur.DecisionStore.OverridePushes
   alias Aiur.Config
   alias Aiur.DecisionAnswerComment
   alias Aiur.DecisionDispatch
@@ -60,7 +61,7 @@ defmodule Aiur.DecisionStore.Boot do
 
   @spec configure_dispatch(term(), term()) :: term()
   def configure_dispatch(state, opts) do
-    :ok = Aiur.DecisionStore.OverridePushes.subscribe()
+    :ok = OverridePushes.subscribe()
 
     revision_projector =
       Keyword.get(opts, :revision_follow_up_projector, &DecisionRevisionDispatch.project_follow_up/2)
@@ -72,7 +73,7 @@ defmodule Aiur.DecisionStore.Boot do
       Map.merge(state, %{
         file_ops: Keyword.get(opts, :file_ops, :file),
         override_reconcile_timer: Process.send_after(self(), :reconcile_override_pushes, Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms)),
-        override_context_reader: Keyword.get(opts, :override_context_reader, &Aiur.DecisionStore.OverridePushes.context/1),
+        override_context_reader: Keyword.get(opts, :override_context_reader, &OverridePushes.context/1),
         follow_up_append_retries: %{},
         held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),

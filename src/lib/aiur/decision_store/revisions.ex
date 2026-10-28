@@ -1,6 +1,8 @@
 defmodule Aiur.DecisionStore.Revisions do
   @moduledoc false
 
+  alias Aiur.Commands.ConflictSummary
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.Commands.Answering
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
@@ -45,21 +47,26 @@ defmodule Aiur.DecisionStore.Revisions do
           handle_revision(id, correlated, Keyword.put(opts, :override, accepted.override), state)
 
         nil ->
-          opts = Keyword.put(opts, :override, Aiur.DecisionStore.Overrides.metadata(opts))
-          correlated = correlate_override(payload, decision.active_action_id, decision.revision_sequence)
-
-          if Aiur.Commands.ConflictSummary.for(decision, actor).replaceable and
-               AgentLifecycle.payload_value(correlated, :expected_action_id) == decision.active_action_id and
-               AgentLifecycle.payload_value(correlated, :expected_revision_sequence) == decision.revision_sequence do
-            handle_supersede(id, correlated, opts, state)
-          else
-            handle_revision(id, correlated, opts, state)
-          end
+          accept_override(decision, payload, actor, opts, state)
       end
     else
       nil -> {:reply, {:error, :answer_missing}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  defp accept_override(decision, payload, actor, opts, state) do
+    opts = Keyword.put(opts, :override, Overrides.metadata(opts))
+    correlated = correlate_override(payload, decision.active_action_id, decision.revision_sequence)
+    replaceable? = ConflictSummary.for(decision, actor).replaceable
+
+    current? =
+      AgentLifecycle.payload_value(correlated, :expected_action_id) == decision.active_action_id and
+        AgentLifecycle.payload_value(correlated, :expected_revision_sequence) == decision.revision_sequence
+
+    if replaceable? and current?,
+      do: handle_supersede(decision.decision_id, correlated, opts, state),
+      else: handle_revision(decision.decision_id, correlated, opts, state)
   end
 
   defp correlate_override(payload, action_id, sequence) do

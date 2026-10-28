@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
+  alias Aiur.Commands.Overrides
   alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Facts
@@ -16,7 +17,7 @@ defmodule Aiur.Commands.Projection do
   def public_v2(%Decision{} = decision) do
     %{
       requester: public_requester(decision),
-      overrides: Aiur.Commands.Overrides.public(decision),
+      overrides: Overrides.public(decision),
       origin: JSONSafe.normalize(Requester.origin(decision)),
       native: public_native(decision.native),
       questions: JSONSafe.normalize(decision.questions),
@@ -89,7 +90,7 @@ defmodule Aiur.Commands.Projection do
 
   def apply(decision, %{type: :override_implemented} = event) do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
-         do: Aiur.Commands.Overrides.implemented(decision, event)
+         do: Overrides.implemented(decision, event)
   end
 
   def apply(decision, %{type: :requester_notified} = event), do: ExecutorDelivery.apply_fact(decision, event)

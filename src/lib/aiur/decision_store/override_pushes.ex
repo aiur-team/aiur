@@ -36,15 +36,16 @@ defmodule Aiur.DecisionStore.OverridePushes do
       owner = self()
       reader = state.override_context_reader
 
-      {:ok, _pid} =
-        Task.start(fn ->
-          candidates
-          |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-          |> Enum.each(fn {identifier, actions} -> send_lookup(owner, reader, identifier, actions) end)
-        end)
+      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates) end)
     end
 
     :ok
+  end
+
+  defp lookup_candidates(owner, reader, candidates) do
+    candidates
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.each(fn {identifier, actions} -> send_lookup(owner, reader, identifier, actions) end)
   end
 
   defp send_lookup(owner, reader, identifier, actions) do
@@ -77,11 +78,8 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
     if ref == "refs/heads/" <> branch and match?(%DateTime{}, at) do
       Enum.reduce(candidates, state, fn {id, action_id}, acc ->
-        if same_branch?(acc, id, action_id, branch) do
-          record_push(acc, id, %{action_id: action_id, at: at, head_sha: sha, pr_number: number})
-        else
-          acc
-        end
+        data = %{action_id: action_id, at: at, head_sha: sha, pr_number: number}
+        settle_candidate(acc, id, branch, data)
       end)
     else
       state
@@ -89,6 +87,10 @@ defmodule Aiur.DecisionStore.OverridePushes do
   end
 
   def settle(state, _candidates, _sha, _ref, _at, _pr), do: state
+
+  defp settle_candidate(state, id, branch, data) do
+    if same_branch?(state, id, data.action_id, branch), do: record_push(state, id, data), else: state
+  end
 
   defp same_branch?(state, id, action_id, branch) do
     with %{overrides: overrides} <- Map.get(state.current, id),

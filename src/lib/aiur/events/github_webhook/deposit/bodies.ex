@@ -8,6 +8,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.Bodies do
   that module.
   """
 
+  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.Events.GithubWebhook.{Deposit, Triples}
   alias Aiur.TicketBranch
 
@@ -315,7 +316,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.Bodies do
   defp pull_request_deposits(pr, action \\ nil)
 
   defp pull_request_deposits(pr, action) when is_map(pr) do
-    pr = Aiur.GitHub.PullRequestHeadUpdate.capture(pr, action)
+    pr = PullRequestHeadUpdate.capture(pr, action)
     version = version(pr)
     [{:pull_request, Map.get(pr, "number"), pr, version}] ++ branch_pull_request_deposits(pr, version)
   end

@@ -1,4 +1,5 @@
 defmodule Aiur.GitHub.PollSnapshots do
+  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.GitHub.Access
 
   @moduledoc """
@@ -65,7 +66,7 @@ defmodule Aiur.GitHub.PollSnapshots do
 
   defp merge_head_facts(held, facts) do
     body = Map.merge(if(is_map(held), do: Map.delete(held, "head_updated_at"), else: %{}), facts)
-    Aiur.GitHub.PullRequestHeadUpdate.inherit(held, body)
+    PullRequestHeadUpdate.inherit(held, body)
   end
 
   @spec review_threads(String.t(), term(), keyword()) :: {:ok, [map()]} | :miss

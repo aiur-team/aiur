@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Transport do
 
   require Logger
 
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.Decision
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
@@ -102,7 +103,7 @@ defmodule Aiur.DecisionStore.Transport do
     case correlated_decision_context(state, item) do
       {:ok, %Decision{decision_status: :moot}, _context} -> {:withdrawn, :moot}
       {:ok, %Decision{active_action_id: active}, %{action_id: action_id}} when active != action_id -> {:withdrawn, :superseded}
-      {:ok, decision, _context} -> if Aiur.DecisionStore.Overrides.dispatchable?(decision), do: :not_withdrawn, else: {:withdrawn, :override_queued}
+      {:ok, decision, _context} -> if Overrides.dispatchable?(decision), do: :not_withdrawn, else: {:withdrawn, :override_queued}
       _other -> :not_withdrawn
     end
   end
