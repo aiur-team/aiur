@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   import Aiur.Orchestrator.StatusReport.RowFacts
 
   alias Aiur.CodingAgent
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.CapacityBinding
@@ -28,6 +29,10 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   @doc false
   @spec snapshot_payload(State.t()) :: map()
   def snapshot_payload(%State{} = state) do
+    SettingsSnapshot.run(fn -> do_snapshot_payload(state) end)
+  end
+
+  defp do_snapshot_payload(state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()

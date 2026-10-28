@@ -32,8 +32,10 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   @doc false
   @spec agent_statuses(State.t(), (timeout() -> term())) :: [map()]
   def agent_statuses(%State{} = state, status_fun) when is_function(status_fun, 1) do
-    {statuses, _state} = agent_statuses_raw(state, status_fun)
-    statuses
+    Config.SettingsSnapshot.run(fn ->
+      {statuses, _state} = agent_statuses_raw(state, status_fun)
+      statuses
+    end)
   end
 
   defp agent_statuses_raw(%State{} = state, status_fun) when is_function(status_fun, 1) do
