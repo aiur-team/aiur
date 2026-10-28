@@ -38,7 +38,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/ticket-context-dialog-hook.js"></script>
         <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/conversation-voice-controller.js"></script>
-        <script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/build-order-grid-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>
         <script defer src="/streamdeck-emulator-knob.js"></script>
@@ -377,10 +377,10 @@ defmodule AiurWeb.Layouts do
               Hooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
 
+            if (window.AiurVoiceInputHook) Hooks.VoiceInput = window.AiurVoiceInputHook;
             if (window.AiurConversationDrawerHook) {
               Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
             }
-
             if (window.AiurDomSvgLayout) {
               Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
             }
@@ -422,6 +422,7 @@ defmodule AiurWeb.Layouts do
             }
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
+              dom: { onBeforeElUpdated: window.AiurVoiceInputBeforeUpdate },
               localStorage: availableStorage("localStorage"),
               sessionStorage: availableStorage("sessionStorage"),
               params: {
