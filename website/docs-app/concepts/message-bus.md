@@ -338,9 +338,13 @@ With listener routing enabled, a message sent to one agent counts as addressed.
 Async queues one content-free nudge per accepted message telling the agent to
 call `aiur_read_messages`; retries of the same message ID do not add a nudge.
 The nudge carries no message body and does not advance the read cursor or
-reduce the unread count. It waits for the turn boundary when the agent is busy.
+reduce the unread count.
+
+It waits for the turn boundary when the agent is busy.
+
 Mute retains messages for explicit reads and never wakes for them. The labels
 follow Khala `7d0a3d44` (listener v1): **Async · pings only**, **Mute · silent**.
+
 Agent self-mode changes and owner locks are Khala-only features; Aiur v1 keeps
 human and Executor mode controls. The default legacy routing remains unchanged.
 
