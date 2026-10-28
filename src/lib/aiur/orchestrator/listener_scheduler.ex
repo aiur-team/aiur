@@ -40,15 +40,17 @@ defmodule Aiur.Listener.Scheduler do
 
   @spec restamp_fun(map()) :: (map() -> map())
   def restamp_fun(view) do
-    fn delivery ->
-      if delivery[:consume_at] == :pull and async_usable?(view) do
+    usable? = async_usable?(view)
+
+    fn
+      %{consume_at: :pull} = delivery when usable? ->
         delivery
-      else
+
+      delivery ->
         case listener(view) do
           {:ok, opts} -> Map.merge(Map.delete(delivery, :steer_requested), AgentQueue.operator_message("", "", opts).delivery)
           {:error, _} -> delivery
         end
-      end
     end
   end
 
