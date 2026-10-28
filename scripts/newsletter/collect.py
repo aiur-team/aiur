@@ -95,6 +95,8 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
                         if "/".join((identity.get("owner", ""), identity.get("repository", ""))).lower() != repo.lower():
                             continue
                         number = int(identity["identifier"])
+                        if row["lifecycle"] not in ("running", "allocated", "waiting", "queued", "retrying", "paused", "replaced", "completed", "cancelled"):
+                            raise RuntimeError("unknown daemon ticket lifecycle")
                         if number in units and units[number] != row["lifecycle"]:
                             raise RuntimeError("daemons disagree on ticket lifecycle")
                         units[number] = row["lifecycle"]
@@ -116,7 +118,7 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
                   for life in ("running", "waiting", "paused")}
         for number, lifecycle in units.items():
             row = ticket(allocation_nodes[number])
-            life = "paused" if row["paused"] else {"queued": "waiting", "retrying": "waiting"}.get(lifecycle, lifecycle)
+            life = "paused" if row["paused"] else {"allocated": "running", "queued": "waiting", "retrying": "waiting"}.get(lifecycle, lifecycle)
             if life in counts:
                 counts[life][row["class"]] += 1
     sources["allocation"] = source("available", captured) if counts is not None else source(

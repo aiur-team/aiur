@@ -95,6 +95,14 @@ class CollectorTest(unittest.TestCase):
         self.assertIsNone(result["program"]["tickets"][0]["lifecycle"])
         self.assertIsNone(result["allocation"]["units"])
         self.assertIsNone(result["executor_actions"])
+        def unknown(args):
+            data = json.loads(daemon(args))
+            data["data"]["view"]["rows"][0]["lifecycle"] = None
+            return json.dumps(data)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = collect.collect("owner/repo", Path(tmp), NOW, FakeGitHub(), unknown)
+        self.assertEqual(result["sources"]["units_local"]["state"], "unavailable")
+        self.assertIsNone(result["allocation"]["units"])
         with tempfile.TemporaryDirectory() as tmp:
             def failed(args):
                 raise RuntimeError("daemon unavailable")
