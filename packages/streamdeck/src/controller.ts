@@ -1,3 +1,4 @@
+import type { StreamDeckTicket } from "./channel.js";
 import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import {
@@ -46,6 +47,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   let state = initialState;
   let pressed = new Set<string>();
   let chordActive = false;
+  let instancePress = false;
 
   const publish = (next: ControllerState): void => {
     if (JSON.stringify(next) === JSON.stringify(state)) return;
@@ -119,7 +121,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         // until the next flush.
         if (state.focusedIdentifier !== null && identifier !== state.focusedIdentifier) forgetLogs();
         options.channel()?.focus(identifier);
-        publish({ ...state, mode: "cmd", focusedIdentifier: identifier });
+        publish({ ...state, mode: "cmd", focusedIdentifier: identifier, ticket: null });
       }
       return;
     }
@@ -148,9 +150,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         enterSettings();
       } else if (index === CMD_COMMANDS) {
         enterCommands();
-      } else if (index === CMD_SEND) {
+      } else if (index === CMD_SEND && state.hasTranscript) {
         sendTranscript(identifier);
-      } else if (index === CMD_CANCEL) {
+      } else if (index === CMD_CANCEL && state.hasTranscript) {
         cancelTranscript();
       } else if (index === CMD_IMPLEMENT && agentLess(agent)) {
         // The deck asks; the daemon dispatches. `implement` applies the
@@ -180,7 +182,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (steps === 0) return;
     const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value));
 
-    if (input.index === 0 && state.mode === "logs") {
+    if (input.index === 2) {
+      options.turnInstance?.(steps);
+    } else if (input.index === 0 && state.mode === "logs") {
       const next = clamp(state.chatOffset + steps, logs.chatMaxOffset());
       setLogsOffsets(state.eventOffset, next);
     } else if (input.index === 3 && state.mode === "logs") {
@@ -289,6 +293,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         decoded.some((input) => input.type === "encoder-button" && input.index === index && input.pressed),
       );
     if (chordHeld) {
+      instancePress = false;
       // Latch, or holding the pair would toggle once per poll.
       if (!chordActive) {
         chordActive = true;
@@ -302,7 +307,14 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       }
       return;
     }
-    chordActive = false;
+    const instanceHeld = decoded.some((input) => input.type === "encoder-button" && input.index === 2 && input.pressed);
+    const instanceReleased = decoded.some((input) => input.type === "encoder-button" && input.index === 2 && !input.pressed);
+    if (instancePress && instanceReleased) {
+      instancePress = false;
+      options.switchInstance?.();
+    }
+    if (!chordActive && edges.events.some((input) => input.type === "encoder-button" && input.index === 2) && instanceHeld) instancePress = true;
+    if (!instanceHeld && !decoded.some((input) => input.type === "encoder-button" && input.index === 1 && input.pressed)) chordActive = false;
 
     for (const input of edges.events) {
       if (input.type === "key") pressKey(input.index);
@@ -312,7 +324,15 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
 
   return {
     state: (): ControllerState => state,
+    resetInstance: (): void => {
+      leaveVoice();
+      forgetLogs();
+      publish({ ...initialState });
+    },
     handleReport,
+    setTicket: (ticket: StreamDeckTicket): void => {
+      if (ticket.id === state.focusedIdentifier) publish({ ...state, ticket });
+    },
     setLogs: logs.setLogs,
     tickTyping: logs.tickTyping,
     /**
@@ -329,6 +349,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     },
     cancel: (): void => {
       pressed = new Set();
+      instancePress = false;
       // The device went away mid-hold. Stop capture, or `parec` keeps recording
       // against a deck that is no longer there.
       stopVoice();

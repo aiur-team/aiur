@@ -252,6 +252,8 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     pending = Map.delete(pending, orchestrator)
     store_pid = self()
     task_ref = make_ref()
+    issues = Map.values(snapshot_input.last_polled_issues) ++ Enum.map(snapshot_input.running, fn {_id, entry} -> entry.issue end)
+    classifications = Aiur.CodingAgent.snapshot_classifications(issues)
 
     pid =
       spawn(fn ->
@@ -260,7 +262,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
             # The projected state travels with its payload so a later control
             # query can build the `status`/`watch` rows from it without paying
             # for them on every projection.
-            {:ok, StatusReport.snapshot_payload(snapshot_input), snapshot_input}
+            {:ok, Aiur.CodingAgent.with_classification_cache(classifications, fn -> StatusReport.snapshot_payload(snapshot_input) end), snapshot_input}
           rescue
             error -> {:error, error}
           end

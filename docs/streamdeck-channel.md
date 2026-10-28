@@ -6,19 +6,23 @@ names and tuple shapes are not part of this API.
 
 ## Authentication
 
-The device first requests `POST /api/v1/streamdeck/token` with the existing
-dashboard HTTP Basic credentials. The response is `{token, expires_in_seconds}`.
-Pass that token as the Phoenix socket parameter (`/streamdeck/websocket?token=…`),
-then join `streamdeck:fleet`.
+The device first requests `POST /api/v1/streamdeck/token` with
+`Authorization: Bearer <client-token>` (created with `aiur token create`) or the
+existing dashboard HTTP Basic credentials on loopback. The response is
+`{token, expires_in_seconds}`. Pass that short-lived token as the Phoenix socket
+parameter (`/streamdeck/websocket?token=…`), then join `streamdeck:fleet`.
 
-This adds no device credential: the token can only be minted after dashboard
-Basic authentication, expires after five minutes, is signed by the endpoint,
-and stops verifying when the dashboard username, password, or signing key
-changes. A joined channel closes when that five-minute token window expires or
-the dashboard credential configuration changes.
-The WebSocket handshake therefore avoids placing a reusable dashboard password
-in the upgrade URL while retaining the same authorization boundary. Use
-HTTPS/WSS when the dashboard is exposed beyond loopback.
+The physical sidecar uses each selected instance's own bearer credential from
+`~/.aiur/remote-instances.yaml`; the environment daemon can use
+`AIUR_CLIENT_TOKEN` or Basic credentials. A switch closes the previous channel,
+stops voice capture, and clears its fleet before opening the selected target.
+HTTP 401/403 displays `auth failed` without retrying or falling back; connection
+failures retry the selected target with bounded backoff. Reconnecting to the same
+instance retains its last grid, navigation, logs and Commands page, stops voice,
+and restores the focused agent on the new channel. Client bearer tokens
+are never placed in the WebSocket URL or debug output. See the
+[physical sidecar guide](../website/docs-app/guide/stream-deck.md#physical-sidecar-status)
+for registry and token-file rules.
 
 ## Shared projections vs deck presentation
 
@@ -31,6 +35,7 @@ use the shared domain sources directly.
 | `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | No non-deck consumer yet; MP-E4 conversations planned. `History` re-exports it; production caller: `StreamdeckLogs`. |
 | `AiurWeb.StreamdeckProjection` | Fleet, voice availability, decisions and transcript DTOs for the deck channel | No | `/streamdeck` emulator |
 | `AiurWeb.Streamdeck.Deck` | Guarded deck sections over shared read models; focus lane from `BuildQueue.show/0` | No | Emulator |
+| `AiurWeb.Streamdeck.Deck.TicketPage` | Focused ticket over Build DataSource and TicketControl; shared server status labels | No | Physical cmd ticket page |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
 | `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
 | `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
@@ -59,6 +64,7 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 | --- | --- | --- |
 | `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
 | `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
+| `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
 | `usage` | `{provider_family: meter}` | One entry per provider family, from Build.Usage; semantic session/weekly windows carry `remaining_percent` and `used_percent`. Updates coalesce over 250 ms. |
 | `decisions` | `{count}` | Updated decision summary. |
 | `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
@@ -73,10 +79,42 @@ status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
 identity, progress fields and `eta_seconds: null`. Unknown percent and completed
 counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and are dimmed. Build changes share the channel’s 250 ms fleet coalescing.
 
+`ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the physical strip renders its age after 60 seconds. A missing ticket becomes an explicit unknown frame for that focused id.
+
+Ticket reads run in one background task per channel, coalesce refreshes, and discard results from an old focus so Commands and unfocus stay responsive.
+
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,
 `tracker_paused`, `backend`, and `model`. Fields absent from the source are
 omitted rather than represented by implementation-specific sentinels.
+
+### Device input navigation
+
+Send `input` with `{kind, index, ticks?}`. Kinds are `key_press`, `dial_press`,
+`dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
+turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
+out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
+frames reply `ok` with `{view, page}` (zero-based page). Each connection starts
+at `ticket`, page 0; reconnects reset navigation.
+
+Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
+root pages and clearing drills. Turning it moves one eight-key page per tick,
+clamped against the current list, including after a shrink. Holding it for
+500 ms emits **one** `dial_long_press`; clients suppress the release press.
+That input pops the drill stack; at root it does nothing. Dial 1 scrolls and
+its press is reserved. Dial 2 turns produce selected-ticket priority effects
+(negative = up); with no selection they do nothing. Dial 3 is local to the
+sidecar and ignored by the reducer. Keys resolve from server-owned sections:
+feature, epic and fleet keys drill into tickets; ticket keys select and produce
+an open-ticket effect. Priority and open-ticket execution belong to SD-206
+and SD-301 respectively.
+
+`Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
+`%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
+plus the current drill count. The current grid supplies tickets and fleet
+categories; Feature/Epic section producers and the new renderer follow in
+SD-202–205. The sidecar switches to this protocol in SD-103; emulator pixels
+switch in SD-104. Existing controls remain during that transition.
 
 ## Focus and transcript rate
 

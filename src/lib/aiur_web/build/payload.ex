@@ -44,7 +44,7 @@ defmodule AiurWeb.Build.Payload do
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
   | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
-  | pr | nil or positive integer num and open/merged/closed state |
+  | pr | nil or positive integer num, open/merged/closed state and optional nullable ci stage |
 
   Epics require key/label strings, numeric hue and an icon name; optional svg,
   general/temp/unsorted are booleans, optional feature is a string. Features require key/label,

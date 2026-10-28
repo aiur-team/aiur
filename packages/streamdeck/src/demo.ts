@@ -17,7 +17,7 @@
  * here is used unless the demo flag is set.
  */
 
-import type { DiffLine, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
+import type { DiffLine, StreamDeckGrid, StreamDeckLogs, StreamDeckTicket, TranscriptRow } from "./channel.js";
 
 /** One synthetic agent, in the daemon's grid payload shape. */
 type DemoAgent = Readonly<Record<string, unknown>>;
@@ -375,4 +375,26 @@ export const advanceDemoLogs = (logs: StreamDeckLogs, tick: number): StreamDeckL
   if (last.kind !== "message") return logs;
   const body = TYPING_CLAUSES[tick % TYPING_CLAUSES.length];
   return { ...logs, transcript: [...transcript.slice(0, -1), { ...last, body }] };
+};
+
+/** Synthetic ticket evidence for demo Command pages; never borrows a live DTO. */
+export const demoTicket = (grid: StreamDeckGrid, identifier: string | null, now = Date.now()): StreamDeckTicket | null => {
+  if (identifier === null) return null;
+  const agent = grid.agents.find((entry) => entry.identifier === identifier);
+  if (agent === undefined) return null;
+  const states: Readonly<Record<string, StreamDeckTicket["status"]>> = {
+    running: { label: "Running", tone: "active", agent_state: "active" },
+    paused: { label: "Paused", tone: "idle", agent_state: "paused" },
+    stuck: { label: "Error", tone: "stuck", agent_state: "error" },
+    alert: { label: "Awaiting command", tone: "stuck", agent_state: "command" },
+    queued: { label: "Queued · Q?", tone: "idle", agent_state: null },
+  };
+  return {
+    v: 1, kind: "ticket", id: identifier, title: String(agent.title), sec: agent.bucket === "queued" ? "plan" : "now",
+    status: states[String(agent.bucket)] ?? { label: "State unknown", tone: "idle", agent_state: null },
+    agent: { model: String(agent.vendor), name: null, effort: null,
+      pct: typeof agent.progress_percent === "number" ? agent.progress_percent : null,
+      start: typeof agent.runtime_seconds === "number" ? now - agent.runtime_seconds * 1000 : null },
+    pr: null, control: null, qpos: null, observed_at: now,
+  };
 };

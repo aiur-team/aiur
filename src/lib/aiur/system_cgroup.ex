@@ -67,7 +67,25 @@ defmodule Aiur.SystemCgroup do
     end
   end
 
-  defp current_root do
+  defp current_root, do: root(&discover_root/0)
+
+  @doc false
+  @spec root((-> Path.t())) :: Path.t()
+  def root(discover) do
+    key = {__MODULE__, :root}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        root = discover.()
+        :persistent_term.put(key, root)
+        root
+
+      root ->
+        root
+    end
+  end
+
+  defp discover_root do
     with {:ok, contents} <- File.read("/proc/self/cgroup"),
          path when is_binary(path) <- unified_path(contents),
          true <- String.starts_with?(path, "/"),

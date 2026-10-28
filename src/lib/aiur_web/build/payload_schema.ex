@@ -51,7 +51,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "wave" => nullable(:integer),
       "qpos" => nullable(:nonnegative),
       "cue" => nullable(object(cue(), ["unknown"])),
-      "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed))}))
+      "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed)), "ci" => nullable(:string)}, ["ci"]))
     }
   end
 

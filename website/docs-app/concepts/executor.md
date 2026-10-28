@@ -62,3 +62,10 @@ The wake carries
 the `decision_id`; read the answer with `aiur commands <decision_id> --json`.
 An Executor request's optional ticket context never routes its answer to a worker.
 Once the wake is enqueued, the answer counts as delivered and cannot be superseded.
+
+## Conversation privacy
+
+Worker transcripts can contain secrets and remain on disk until deleted.
+The Executor journal identity follows the same storage contract when integrated.
+See [Conversations](/concepts/conversations) for storage paths, retention,
+masking limits and deletion steps.

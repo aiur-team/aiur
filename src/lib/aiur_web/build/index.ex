@@ -46,8 +46,8 @@ defmodule AiurWeb.Build.Index do
   end
 
   @doc false
-  @spec subscribe(GenServer.server()) :: :ok | {:error, term()}
-  def subscribe(server \\ __MODULE__), do: GenServer.call(server, {:subscribe, self()})
+  @spec subscribe(GenServer.server(), pid()) :: :ok | {:error, term()}
+  def subscribe(server \\ __MODULE__, subscriber \\ self()), do: GenServer.call(server, {:subscribe, subscriber})
 
   # Only the table reads mean a dead index; a fault in the cut itself must propagate.
   defp find_ticket(all, id), do: all[id] || Enum.find_value(all, fn {_key, row} -> if row[:was] == id, do: row end)
