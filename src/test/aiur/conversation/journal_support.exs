@@ -95,7 +95,7 @@ defmodule Aiur.Conversation.TestSupport do
       alerts: Alerts,
       run_id: "run-one",
       clock: fn -> Agent.get(control, & &1.now) end,
-      send_after: fn pid, message, _ms -> Process.send_after(pid, message, :infinity) end
+      send_after: fn _pid, _message, _ms -> make_ref() end
     )
 
     ref = Ref.executor()
@@ -106,6 +106,7 @@ defmodule Aiur.Conversation.TestSupport do
       Enum.each(previous, &restore_env/1)
 
       :persistent_term.erase({Ingest, :dropped, Ref.conversation_id(ref)})
+      :persistent_term.erase({Aiur.Conversation.Journal, Ref.conversation_id(ref), :pending_gaps})
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
@@ -120,7 +121,7 @@ defmodule Aiur.Conversation.TestSupport do
 
   def flush(ref) do
     {:ok, pid} = Ingest.writer(ref)
-    GenServer.call(pid, :flush)
+    GenServer.call(pid, :flush, :infinity)
   end
 
   def rows(dir) do
@@ -133,14 +134,14 @@ defmodule Aiur.Conversation.TestSupport do
 
   def state(ref) do
     {:ok, pid} = Ingest.writer(ref)
-    :sys.get_state(pid)
+    :sys.get_state(pid, :infinity)
   end
 
   def tick(ref) do
     {:ok, pid} = Ingest.writer(ref)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, :infinity)
     {_timer, token} = state.timer
     send(pid, {:flush, token})
-    :sys.get_state(pid)
+    :sys.get_state(pid, :infinity)
   end
 end

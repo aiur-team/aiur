@@ -1,10 +1,10 @@
 # Conversations, transcripts and anchors — persisted foundation
 
-This records the foundation implemented by MP-E4-C1-T01. The earlier contract
-referenced by the research tickets is absent from the integration branch and
-its cited research revision. These sections restate the ticket's specified
-identity, records and storage contract; they do not define the later reader,
-writer process or anchor APIs.
+This records the foundation implemented by MP-E4-C1-T01 and the journal
+writer from MP-E4-C1-T02. The earlier contract referenced by the research
+tickets is absent from the integration branch and its cited research revision.
+These sections state the implemented identity, records, storage and writer
+contracts; the later page-reader API remains separate.
 
 ## §3 — Conversation identity
 
@@ -178,7 +178,8 @@ scoped to the open session and retains the latest 50,000 distinct keys.
 On reload, a session from the current BEAM run continues with dedup rebuilt
 from its durable entries. A session from another run closes as
 `daemon_restart_unknown`; the next source starts a `resume` session. An idle
-healthy writer flushes and stops after 15 minutes. A later input starts it again.
+writer flushes and stops after 15 minutes. Detected loss spans survive idle
+eviction in BEAM-local memory; a later input starts another writer.
 
 Failed writes require head reconstruction before any retry. Complete surviving
 records are retained and deduplicated; only the store's eligible torn final

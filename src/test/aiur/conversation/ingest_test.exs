@@ -27,7 +27,7 @@ defmodule Aiur.Conversation.IngestTest do
     refute_received {:entries_appended, ^id, _}
     refute_received {:session_changed, ^id, _}
     send(writer, :release_store)
-    assert :ok = Task.await(task)
+    assert :ok = Task.await(task, :infinity)
     assert_received {:entries_appended, ^id, [entry]}
     assert {entry.body, entry.pos} == {"message 1", 1}
     assert_received {:session_changed, ^id, session}

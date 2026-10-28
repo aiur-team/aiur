@@ -13,6 +13,7 @@ defmodule Aiur.Conversation.Journal do
   @impl true
   def init(ref) do
     opts = Application.get_env(:aiur, :conversation_journal, [])
+    {failed_since, dropped_span} = :persistent_term.get({__MODULE__, Ref.conversation_id(ref), :pending_gaps}, {nil, nil})
 
     state = %{
       ref: ref,
@@ -27,13 +28,13 @@ defmodule Aiur.Conversation.Journal do
       buffer: :queue.new(),
       timer: nil,
       idle: nil,
-      failed_since: nil,
-      outage: false,
+      failed_since: failed_since,
+      outage: not is_nil(failed_since),
       retries: 0,
       recover: false,
       read_only: false,
       resume: false,
-      dropped_span: nil,
+      dropped_span: dropped_span,
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       send_after: Keyword.get(opts, :send_after, &Process.send_after/3),
       run_id: Keyword.get_lazy(opts, :run_id, &Aiur.Boot.run_id/0),
@@ -74,7 +75,12 @@ defmodule Aiur.Conversation.Journal do
 
   def handle_info({:idle, token}, %{idle: {_timer, token}} = state) do
     state = cancel_flush(state) |> flush()
-    if :queue.is_empty(state.buffer) and is_nil(state.failed_since) and is_nil(state.dropped_span), do: {:stop, :normal, state}, else: {:noreply, touch(state)}
+    Ingest.count_dropped(state.id, :queue.len(state.buffer))
+    # Keep detected losses across idle eviction without retaining a process per conversation.
+    if state.failed_since || state.dropped_span,
+      do: :persistent_term.put({__MODULE__, state.id, :pending_gaps}, {state.failed_since, state.dropped_span})
+
+    {:stop, :normal, state}
   end
 
   def handle_info({:idle, _token}, state), do: {:noreply, state}
@@ -266,11 +272,15 @@ defmodule Aiur.Conversation.Journal do
   defp error_class(_), do: "unknown"
 
   defp recovered(%{outage: true} = state) do
+    :persistent_term.erase({__MODULE__, state.id, :pending_gaps})
     alert(state, "system.conversation.journal.degraded.resolved", false, "recovered")
     %{state | outage: false}
   end
 
-  defp recovered(state), do: state
+  defp recovered(state) do
+    :persistent_term.erase({__MODULE__, state.id, :pending_gaps})
+    state
+  end
 
   defp alert(state, name, attention, class) do
     state.alerts.emit_system(name, message: "Conversation #{state.id}: #{class}", needs_attention: attention)

@@ -191,6 +191,24 @@ defmodule Aiur.Conversation.JournalTest do
     refute new_pid == pid
   end
 
+  test "idle eviction retains a failed span for the next writer", %{ref: ref, dir: dir, control: control} do
+    actions(control, :append, List.duplicate({:error, :enospc}, 6))
+    Ingest.append(ref, source(), [event(1)])
+    assert {:error, :degraded} = flush(ref)
+    {:ok, pid} = Ingest.writer(ref)
+    monitor = Process.monitor(pid)
+    {_timer, token} = :sys.get_state(pid).idle
+    send(pid, {:idle, token})
+    receive_barrier({:DOWN, ^monitor, :process, ^pid, :normal})
+    assert Ingest.dropped_count(ref) == 1
+    actions(control, :append, [])
+    Ingest.append(ref, source(), [event(2)])
+    assert :ok = flush(ref)
+    assert [gap, entry] = rows(dir)
+    assert gap["meta"]["reason"] == "source_unreadable"
+    assert entry["body"] == "message 2"
+  end
+
   test "timer flushes small batches and stale timer messages do nothing", %{ref: ref, dir: dir} do
     Ingest.append(ref, source(), [event(1)])
     tick(ref)

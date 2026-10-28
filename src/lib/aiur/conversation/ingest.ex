@@ -30,14 +30,15 @@ defmodule Aiur.Conversation.Ingest do
   @spec writer(Ref.t()) :: {:ok, pid()} | {:error, term()}
   def writer(ref) do
     case Registry.lookup(Aiur.Conversation.Registry, Ref.conversation_id(ref)) do
-      [{pid, _}] ->
-        {:ok, pid}
+      [{pid, _}] -> if Process.alive?(pid), do: {:ok, pid}, else: start_writer(ref)
+      [] -> start_writer(ref)
+    end
+  end
 
-      [] ->
-        case DynamicSupervisor.start_child(Aiur.Conversation.JournalSupervisor, {Journal, ref}) do
-          {:error, {:already_started, pid}} -> {:ok, pid}
-          result -> result
-        end
+  defp start_writer(ref) do
+    case DynamicSupervisor.start_child(Aiur.Conversation.JournalSupervisor, {Journal, ref}) do
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      result -> result
     end
   end
 
