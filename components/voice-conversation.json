@@ -3,20 +3,29 @@
   "name": "Conversational voice",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/voice_conversation.ex",
+    "src/lib/aiur/voice_conversation/**",
+    "src/lib/aiur/voice_converse/host/**"
+  ],
   "facades": [
     "*"
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "agent-runner",
+    "commands",
+    "config",
+    "conversations",
+    "executor-attention",
+    "harness-adapters",
+    "kernel",
     "listener-modes",
+    "orchestration",
+    "voice-conversation-core",
     "voice-stt"
   ],
-  "optional": [
-    "commands",
-    "conversations",
-    "executor-attention"
-  ],
+  "optional": [],
   "owns": {
     "config": [
       "voice"
@@ -28,11 +37,13 @@
   "prior": [],
   "dependency_kind": "optional",
   "summary": "Supports voice conversations with a worker agent or the Executor.",
-  "status": "planned",
+  "status": "optional",
   "install": {
     "type": "included"
   },
-  "docs": [],
+  "docs": [
+    "apis/elevenlabs.md"
+  ],
   "config": [
     "voice"
   ],

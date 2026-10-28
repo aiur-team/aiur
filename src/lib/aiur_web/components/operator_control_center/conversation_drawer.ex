@@ -178,6 +178,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
         </div>
 
         <footer class="conversation-drawer-footer">
+          <AiurWeb.OperatorControlCenter.ExecutorVoice.executor_voice id={"#{@id}-executor-voice"} writable={@writable} />
           <AiurWeb.OperatorControlCenter.ListenerMode.receipt :for={receipt <- @receipts} receipt={receipt} />
           <dl class="conversation-drawer-provenance">
             <div><dt>Last observation</dt><dd><.timestamp value={@view.observed_at} /></dd></div>
@@ -200,7 +201,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               enterkeyhint="send"
               data-voice-input
             >{@drafts[@composer_key] || ""}</textarea>
-            <.voice_input id={"#{@id}-voice"} capabilities={@voice_capabilities} />
+            <.voice_input id={"#{@id}-voice"} capabilities={@voice_capabilities} surface="agent_composer" target={%{kind: "worker", ticket: to_string(Map.get(@composer || %{}, :issue_identifier, @composer_key))}} />
             <div class="agent-chat-actions">
               <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
               <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send>Send</button>

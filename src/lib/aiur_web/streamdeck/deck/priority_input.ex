@@ -1,0 +1,33 @@
+defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
+  @moduledoc false
+  alias AiurWeb.Streamdeck.{Deck.Priority, Render}
+  alias AiurWeb.StreamdeckProjection
+
+  @spec reply(Phoenix.Socket.t(), map(), list()) :: {:reply, {:ok | :error, map()}, Phoenix.Socket.t()}
+  def reply(socket, navigation, [{:priority, id, direction, ticks}]) do
+    if socket.assigns[:streamdeck_authenticated] == true do
+      result = Priority.step(id, direction, ticks)
+
+      toast =
+        case result do
+          {:ok, :at_edge} -> "already at queue edge"
+          {:ok, %{position: position}} -> "Queued ##{position + 1}"
+          {:error, reason} -> Priority.message(reason)
+        end
+
+      frame = Render.frame(%{grid: StreamdeckProjection.grid(), toast: toast})
+
+      case result do
+        {:ok, :at_edge} -> {:reply, {:ok, Map.merge(navigation, %{"result" => "at_edge", "frame" => frame})}, socket}
+        {:ok, position} -> {:reply, {:ok, Map.merge(navigation, %{"position" => position.position, "queue" => position.queue, "frame" => frame})}, socket}
+        {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason), frame: frame}}, socket}
+      end
+    else
+      {:reply, {:error, %{reason: "unauthorized"}}, socket}
+    end
+  end
+
+  def reply(socket, navigation, _effects), do: {:reply, {:ok, navigation}, socket}
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(reason), do: inspect(reason)
+end

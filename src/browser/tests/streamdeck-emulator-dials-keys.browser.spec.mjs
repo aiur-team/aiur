@@ -1,6 +1,15 @@
 import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { anchor, dragDialThroughAngles, openStreamdeck } from './support/streamdeck-emulator.mjs'
+import { anchor, dragDialThroughAngles, openStreamdeck as openStreamdeckPage } from './support/streamdeck-emulator.mjs'
+
+// Pointer coordinates must stay fixed after anchoring in this gesture spec.
+async function openStreamdeck(page, mode) {
+  await openStreamdeckPage(page, mode)
+  await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = 'auto'
+    window.scrollTo({ top: window.scrollY, behavior: 'instant' })
+  })
+}
 
 test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) => {
   await openStreamdeck(page)
@@ -97,37 +106,35 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
   }
 })
 
-test('wheel event adjusts the knob value and does not scroll the page', async ({ page }) => {
+test('wheel events adjust every dial, including C, without scrolling the page', async ({ page }) => {
   await openStreamdeck(page)
 
-  // Make the page scrollable so the scroll-prevention check is not trivially true.
+  // Keep native page scrolling observable while checking every dial.
   await page.evaluate(() => {
     const spacer = document.createElement('div')
     spacer.style.height = '2000px'
     spacer.setAttribute('aria-hidden', 'true')
     document.querySelector('section.dashboard-shell').appendChild(spacer)
   })
-  await page.waitForTimeout(50)
 
-  const knob = page.locator('.sd-knob').first()
-  const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  const settledScroll = () => page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(window.scrollY)))
+  }))
+  for (const index of [0, 1, 2, 3]) {
+    const knob = page.locator('.sd-knob').nth(index)
+    await knob.hover()
+    const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+    const scrollBeforeWheel = await page.evaluate(() => window.scrollY)
 
-  await knob.hover()
-  const scrollBeforeWheel = await page.evaluate(() => window.scrollY)
-  // Scroll up → value should increase.
-  await page.mouse.wheel(0, -100)
+    await page.mouse.wheel(0, -100)
+    await expect.poll(async () => parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(initialValue)
+    const afterUp = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+    expect(await settledScroll()).toBe(scrollBeforeWheel)
 
-  const afterUp = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  expect(afterUp).toBeGreaterThan(initialValue)
-
-  // Scroll down → value should decrease.
-  await page.mouse.wheel(0, 100)
-  const afterDown = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  expect(afterDown).toBeLessThan(afterUp)
-
-  // Page must NOT have scrolled: the non-passive listener called preventDefault.
-  const scrollY = await page.evaluate(() => window.scrollY)
-  expect(scrollY).toBe(scrollBeforeWheel)
+    await page.mouse.wheel(0, 100)
+    await expect.poll(async () => parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBeLessThan(afterUp)
+    expect(await settledScroll()).toBe(scrollBeforeWheel)
+  }
 })
 
 test('keyboard arrow keys adjust the focused knob value', async ({ page }) => {
@@ -181,14 +188,14 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   // #1607 deleted the standalone #sd-cmd-view and fills the cmd-mode grid with
-  // the five command keys instead (pause, logs, mic, settings, commands), so
+  // the ticket action keys, so
   // the grid is no longer empty here; that PR owns the grid, this one owns the
   // strip below.
   await expect(page.locator('#sd-keys[data-mode-view="cmd"]')).toBeVisible()
-  await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(5)
-  await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(5)
+  await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(7)
+  await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(8)
   await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
-  await expect(page.locator('[data-streamdeck-command]')).toHaveCount(5)
+  await expect(page.locator('[data-streamdeck-command]')).toHaveCount(7)
   await expect(page.locator('.sd-strip-cmd')).toBeVisible()
   await expect(page.locator('.sd-strip-cmd-pager')).toContainText('CONTROLLING')
   await expect(page.locator('.sd-cmd-provider-logo')).toBeVisible()
@@ -223,7 +230,7 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
 test('agent key face matches the design geometry and single-colour progress contract', async ({ page }) => {
   await openStreamdeck(page)
 
-  const key = page.locator('.sd-agent-key:not(.is-empty)').first()
+  const key = page.locator('[data-streamdeck-identifier="1352"]')
   const geometry = await key.evaluate((element) => {
     const face = element.querySelector('.sd-key-face')
     const icon = element.querySelector('.sd-ag-ic')
@@ -288,11 +295,11 @@ test('command keys render real state-derived controls, flash on click, and emit 
 
   await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
   const commands = page.locator('[data-streamdeck-command]')
-  await expect(commands).toHaveCount(5)
+  await expect(commands).toHaveCount(7)
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
   await expect(page.locator('#sd-keys').getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
   await expect(page.locator('#sd-keys button:disabled')).toHaveCount(3)
-  await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(3)
+  await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(0)
 
   await page.evaluate(() => {
     const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
@@ -306,20 +313,20 @@ test('command keys render real state-derived controls, flash on click, and emit 
     }
   })
 
-  for (const command of ['pause', 'logs', 'settings']) {
+  for (const command of ['pause', 'commands', 'settings']) {
     const key = page.locator(`[data-streamdeck-command="${command}"]`)
     await key.click()
     await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
-    // Logs and Settings are the two navigation keys: each opens its own pane
+    // Commands and Settings are navigation keys: each opens its own pane
     // and dial A backs out of it.
-    if (command === 'logs' || command === 'settings') {
+    if (command === 'commands' || command === 'settings') {
       await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', command)
       await page.locator('.sd-knob').first().click()
       await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
     }
   }
 
-  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'logs', 'settings'])
+  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'commands', 'settings'])
   expect(await page.evaluate(() => window.__streamdeckGridEvents)).toEqual([])
 })
 
@@ -365,15 +372,15 @@ test('command mic deactivates on pointerleave (not stuck on drag-exit)', async (
   await page.mouse.up()
 })
 
-test('cmd mode renders the design\'s five command keys with Mic excluded from the click path', async ({ page }) => {
+test('cmd mode renders the ticket action keys with Mic excluded from the click path', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const buttons = page.locator('.sd-cmd-key .sd-key-face[data-streamdeck-command]')
-  await expect(buttons).toHaveCount(5)
-  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Logs', 'Mic', 'Settings', 'Commands'])
-  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'SCROLL', 'HOLD', 'OPEN', 'OPEN'])
+  await expect(buttons).toHaveCount(7)
+  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Priority up', 'Priority down', 'Commands', 'Open PR', 'Mic', 'Settings'])
+  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'QUEUE', 'QUEUE', 'OPEN', 'OPEN', 'HOLD', 'OPEN'])
 
   // Mic is the only press-and-hold key; the hook drives it from pointer events
   // rather than the click handler it binds to the others.
@@ -381,10 +388,10 @@ test('cmd mode renders the design\'s five command keys with Mic excluded from th
   await expect(micButton).toHaveAttribute('data-command-hold', 'true')
   await expect(page.locator('[data-command-hold="true"]')).toHaveCount(1)
 
-  // Logs is the control here: it is navigation rather than fleet control, so it
+  // Commands is the control here: it is navigation rather than fleet control, so it
   // stays enabled even in this read-only fixture. That proves the disabling
   // asserted below is the read-only gate and not every key being inert.
-  await expect(page.locator('[data-streamdeck-command="logs"]')).toBeEnabled()
+  await expect(page.locator('[data-streamdeck-command="commands"]')).toBeEnabled()
 })
 
 // The browser fixture serves the dashboard read-only, so this is the read-only

@@ -24,7 +24,10 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Modes
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
+  alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
+  alias AiurWeb.StreamdeckLive.Navigation
+  alias AiurWeb.StreamdeckLive.TicketActions
   alias AiurWeb.StreamdeckLogs
 
   alias AiurWeb.OperatorControlCenter.{
@@ -67,12 +70,16 @@ defmodule AiurWeb.StreamdeckLive do
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
       |> assign(:knobs, Surface.knob_descriptors())
+      |> assign(:deck_nav, %Nav{})
+      |> assign(:deck_effects, [])
+      |> assign(:streamdeck_instance, instance_name())
       |> assign(:grid_page, 0)
       |> assign(:grid_column_offset, 0)
       |> assign(:grid_dial_value, 0)
       |> assign(:sd_mode, :grid)
       |> assign(:sd_active, nil)
       |> assign(:transcript_relay, nil)
+      |> assign(:sd_ticket, nil)
       |> assign(:commands, %{"items" => [], "unavailable" => false})
       |> assign(:commands_view, :history)
       |> assign(:commands_selection, nil)
@@ -123,6 +130,7 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("close-streamdeck-install", _params, socket), do: {:noreply, assign(socket, :install_modal?, false)}
 
   def handle_event("grid-page", %{"page" => page}, socket) do
+    socket = Navigation.route(socket, "grid-page", %{"page" => page})
     page = parse_integer(page, socket.assigns.grid_page)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
@@ -131,6 +139,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("grid-page", %{"value" => value}, socket) do
+    socket = Navigation.route(socket, "grid-page", %{"value" => value})
     value = parse_integer(value, socket.assigns.grid_dial_value)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_dial(socket, value)
@@ -139,6 +148,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("grid-page", %{"action" => "cycle"}, socket) do
+    socket = Navigation.route(socket, "grid-page", %{"action" => "cycle"})
     page = rem(socket.assigns.grid_page + 1, max(socket.assigns.grid.windows, 1))
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
@@ -148,7 +158,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("logs-scroll", %{"axis" => axis, "delta" => delta}, socket)
       when axis in ["events", "transcript"] do
-    {:noreply, update_logs(socket, axis, parse_integer(delta, 0))}
+    {:noreply, socket |> Navigation.route("logs-scroll", %{"axis" => axis, "delta" => delta}) |> update_logs(axis, parse_integer(delta, 0))}
   end
 
   def handle_event("log-key-select", %{"index" => index}, socket) do
@@ -156,6 +166,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("key-press", params, socket) do
+    socket = Navigation.route(socket, "key-press", params)
     socket = select_agent_from_params(socket, params)
     socket = enter_cmd(socket, params)
 
@@ -166,7 +177,9 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
-  def handle_event("command-press", %{"command" => "logs"}, socket), do: {:noreply, enter_logs(socket)}
+  def handle_event("command-press", %{"command" => command}, socket) when command in ["priority_up", "priority_down"] do
+    {:noreply, TicketActions.priority(socket, command)}
+  end
 
   def handle_event("command-press", %{"command" => "settings"}, socket), do: {:noreply, enter_settings(socket)}
 
@@ -182,20 +195,23 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", _params, socket), do: {:noreply, socket}
 
-  def handle_event("dial-press", %{"action" => "back"}, socket), do: {:noreply, back(socket)}
+  def handle_event("dial-press", %{"action" => "back"} = params, socket), do: {:noreply, socket |> Navigation.route("dial-press", params) |> back()}
 
   # Dial D (cycle-window) is the focused window's paging knob: in logs it opens
   # the log surface, and on the Commands page it pages the history window
   # forward (or, on the detail view, cycles the option window) — the same
   # deliberate-reading direction as the physical deck.
-  def handle_event("dial-press", %{"action" => "cycle-window"}, socket) do
+  def handle_event("dial-press", %{"action" => "cycle-window"} = params, socket) do
+    socket = Navigation.route(socket, "dial-press", params)
+
     case socket.assigns.sd_mode do
       :commands -> {:noreply, page_commands(socket)}
       _ -> {:noreply, enter_logs(socket)}
     end
   end
 
-  def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
+  def handle_event(event, params, socket) when event in ["dial-press", "dial-long-press", "dial-turn"],
+    do: {:noreply, Navigation.route(socket, event, params)}
 
   # Selecting a Commands key reads: on the history view it opens one Command's
   # detail, and on the detail view it selects an option for reading. Selecting
@@ -309,6 +325,13 @@ defmodule AiurWeb.StreamdeckLive do
     :ok
   end
 
+  defp instance_name do
+    case Aiur.Identity.instance_key() do
+      {:ok, key} -> key
+      {:error, _reason} -> "unknown"
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -330,6 +353,7 @@ defmodule AiurWeb.StreamdeckLive do
         <div :if={@control_feedback} id="sd-control-status" class="streamdeck-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</div>
         <div class="sd-device" data-mode={@sd_mode}>
           <Components.brand />
+          <p id="sd-instance" class="streamdeck-status">Instance: {@streamdeck_instance}</p>
 
           <%= if @sd_mode == :grid do %>
           <Components.grid_keys grid={@grid} grid_page={@grid_page} grid_column_offset={@grid_column_offset} grid_dial_value={@grid_dial_value} selected_identifier={@selected_identifier} keys={@keys} />
@@ -337,7 +361,7 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <Components.cmd_keys sd_active={@sd_active} mic_held?={@mic_held?} selected_identifier={@selected_identifier} />
+          <Components.cmd_keys ticket={@sd_ticket} sd_active={@sd_active} mic_held?={@mic_held?} selected_identifier={@selected_identifier} />
           <% end %>
 
           <%!-- The settings pane is deliberately empty of choices. Microphone

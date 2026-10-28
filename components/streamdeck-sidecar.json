@@ -22,7 +22,7 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Connects a physical Stream Deck to Aiur for status, conversations and Command responses.",
+  "summary": "Connects a physical Stream Deck for ticket controls, voice, Command answers and local browser links.",
   "status": "optional",
   "install": {
     "type": "setup",

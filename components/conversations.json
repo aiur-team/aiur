@@ -13,6 +13,7 @@
     "Aiur.AgentEventFeed",
     "Aiur.Conversation.Anchors",
     "Aiur.Conversation.Entry",
+    "Aiur.Conversation.HeadTable",
     "Aiur.Conversation.History",
     "Aiur.Conversation.Ingest",
     "Aiur.Conversation.Ref",
@@ -24,6 +25,7 @@
     "agent-runner",
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel"
   ],

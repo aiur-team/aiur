@@ -7,7 +7,7 @@ defmodule VoiceConverse.Tools do
   persistence and delivery to the provider.
   """
 
-  alias VoiceConverse.{Briefing, Config, Events, Ports}
+  alias VoiceConverse.{Briefing, Config, Events, Ports, SummaryTool}
 
   @max_summary_chars 1_500
 
@@ -15,12 +15,36 @@ defmodule VoiceConverse.Tools do
 
   @spec specs(Config.t(), term()) :: [VoiceConverse.Provider.tool_spec()]
   def specs(%Config{} = config, target) do
-    [status_spec()] ++
-      detail_specs(config.briefing_source, target) ++
-      command_specs(config) ++
-      [propose_instruction_spec()] ++
-      ask_specs(config, target) ++ [end_spec()]
+    specs =
+      [status_spec()] ++
+        detail_specs(config.briefing_source, target) ++
+        command_specs(config) ++
+        [propose_instruction_spec()] ++
+        ask_specs(config, target) ++ summary_specs(config) ++ [end_spec()]
+
+    Enum.filter(specs, &allowed?(config, &1.name))
   end
+
+  @doc "Enforces the host's tool allowlist before invoking a session tool."
+  @spec dispatch(map(), Events.ToolCall.t(), (map(), Events.ToolCall.t() -> {result(), map()})) :: {result(), map()}
+  def dispatch(state, event, handler) do
+    if allowed?(state.config, event.name),
+      do: dispatch_allowed(state, event, handler),
+      else: {result("Tool is unavailable in this conversation.", state.config, is_error: true), state}
+  end
+
+  defp dispatch_allowed(state, %Events.ToolCall{name: "record_summary", params: params}, _handler),
+    do: SummaryTool.handle(state, params)
+
+  defp dispatch_allowed(state, event, handler), do: handler.(state, event)
+
+  defp summary_specs(%Config{allowed_tools: tools}) when is_list(tools),
+    do: if("record_summary" in tools, do: [SummaryTool.spec()], else: [])
+
+  defp summary_specs(_config), do: []
+
+  defp allowed?(%Config{allowed_tools: nil}, _name), do: true
+  defp allowed?(%Config{allowed_tools: tools}, name), do: name in tools
 
   @spec handle(map(), Events.ToolCall.t()) :: result()
   def handle(%{config: config, target: target}, %Events.ToolCall{name: "get_status"}),

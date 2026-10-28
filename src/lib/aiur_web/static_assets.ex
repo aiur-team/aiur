@@ -21,8 +21,10 @@ defmodule AiurWeb.StaticAssets do
     aiur-dom-svg-layout-loader.js
     build-home
     build-order-grid-hook.js
+    conversation-scroll-hook.js
     conversation-drawer-hook.js
     conversation-voice-controller.js
+    executor-voice-controller.js
     dashboard.css
     decision-questions-validation.js
     elevenlabs-symbol.svg
@@ -34,6 +36,7 @@ defmodule AiurWeb.StaticAssets do
     voice-capture.js
     voice-capture-worklet.js
     voice-input-hook.js
+    voice-mode-choice.js
     voice-transport.js
   )
   @long_lived_static_paths ~w(aiur-logo.png)

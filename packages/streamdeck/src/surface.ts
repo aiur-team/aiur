@@ -10,12 +10,12 @@ import { createRasterizer } from "./rasterizer.js";
 import { StripRenderer } from "./touchStrip/stripRenderer.js";
 import { summaryModel } from "./touchStrip/summarySegment.js";
 import { providerRows } from "./touchStrip/providerPanel.js";
-import { agentDetailModel } from "./touchStrip/agentDetail.js";
+import { ticketDetailModel } from "./touchStrip/ticketDetail.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
 import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
-import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
+import type { StreamDeckGrid, StreamDeckTicket, TranscriptRow } from "./channel.js";
 import { MIC_KEY_INDICES, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY, settingsView, type SettingsView } from "./settings.js";
 import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
 import type { AudioDevice } from "./audio/index.js";
@@ -31,6 +31,8 @@ import type { StreamDeckCommand, StreamDeckCommandsPage } from "./channel.js";
 export type PhysicalMode = "grid" | "cmd" | "logs" | "settings" | "commands";
 export interface PhysicalSurfaceState {
   readonly mode: PhysicalMode;
+  readonly ticket?: StreamDeckTicket | null;
+  readonly instance?: string;
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
   /** True while the voice buffer holds settled text; adds the Send/Cancel keys. */
@@ -108,6 +110,8 @@ const colourFor = (agent: Readonly<Record<string, unknown>> | undefined): RgbCol
  */
 const agentDescriptor = (agent: Readonly<Record<string, unknown>>): AgentInput => ({
   identifier: String(agent.identifier ?? ""),
+  label: typeof agent.label === "string" ? agent.label : null,
+  face: typeof agent.face === "string" ? agent.face : null,
   title: typeof agent.title === "string" ? agent.title : "",
   vendor: typeof agent.vendor === "string" ? agent.vendor : "unknown",
   icon: typeof agent.icon === "string" ? agent.icon : "",
@@ -212,34 +216,32 @@ const commandKey = (identifier: string, name: string, title: string, icon: strin
   dependency_ready: true,
 });
 
-/**
- * The per-agent command keys: pause/play, logs, the hold-to-talk mic, settings,
- * and — only while there is transcribed text — Send and Cancel.
- *
- * The prioritise key that used to sit on key 1 is gone. The orchestrator ranks
- * tickets itself, so the key was a second and weaker way to say the same thing,
- * and the slot it freed is what settings now occupies. This order is mirrored
- * by `mode.ts` and by the Elixir emulator, which are under a parity contract
- * with this table.
- *
- * Send and Cancel are absent rather than dimmed: before the operator has
- * spoken there is nothing to send, and a permanently lit Send invites a press
- * that delivers an empty message.
- *
- * A ticket with no agent gets Implement on the last slot instead of Pause on
- * the first: there is nothing to pause, and the one action that surface owes
- * the operator is "put an agent on this". The key reports `QUEUED` after a
- * successful press and nothing more — the running face arrives with the next
- * snapshot, when the daemon has actually dispatched it, rather than being
- * faked here.
- */
+/** Ticket actions use server affordances; legacy grids retain their voice controls. */
 export const descriptorCommands = (
   agent: Readonly<Record<string, unknown>> | null | undefined,
   micHeld: boolean,
   hasTranscript: boolean,
   pendingCommands = 0,
   implementQueued = false,
+  ticket: StreamDeckTicket | null = null,
 ): (AgentInput | undefined)[] => {
+  if (ticket?.actions) {
+    const key = (name: string, title: string, icon: string, enabled = true, sub = "OPEN"): AgentInput =>
+      commandKey(ticket.id, name, title, icon, enabled ? sub : "DISABLED");
+    const resume = ticket.control?.action === "resume";
+    return [
+      agentLess(agent) && ticket.agent === null && ticket.title !== null
+        ? key("implement", "Implement", "robot", ticket.actions.mic !== "disabled", implementQueued ? "QUEUED" : "QUEUE")
+        : key("pause", resume ? "Resume" : "Pause", resume ? "play" : "pause", ticket.actions.pause === "enabled"),
+      key("priority_up", "Priority up", "up", ticket.actions.priority_up === "enabled", "QUEUE"),
+      key("priority_down", "Priority down", "down", ticket.actions.priority_down === "enabled", "QUEUE"),
+      key("commands", "Commands", "alert", true, pendingCommands > 0 ? `${pendingCommands} PENDING` : "OPEN"),
+      hasTranscript ? key("send", "Send", "send") : key("pr", "Open PR", "logs", !!ticket.links?.pr),
+      hasTranscript ? key("cancel", "Cancel", "cancel") : key("modal", "Dashboard", "logs", !!ticket.links?.modal),
+      key("mic", "Mic", "mic", ticket.actions.mic !== "disabled", micHeld ? "LIVE" : "HOLD"),
+      key("settings", "Settings", "settings"),
+    ];
+  }
   const identifier = String(agent?.identifier ?? "focused");
   // Only a paused agent offers Resume. Keying this off `bucket === "running"`
   // instead made every alert/stuck/queued agent show a Resume key that the
@@ -268,8 +270,8 @@ export const descriptorCommands = (
     pending > 0
       ? command("commands", "Commands", "alert", `${pending} PENDING`, "alert")
       : command("commands", "Commands", "alert", "OPEN"),
-    hasTranscript ? command("send", "Send", "send", "TO AGENT") : undefined,
-    hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : undefined,
+    hasTranscript ? command("send", "Send", "send", "TO AGENT") : ticket === null ? undefined : command("status", ticket.status.label, "robot", "STATUS"),
+    hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : ticket?.pr == null ? undefined : command("pr", `#${ticket.pr.num}`, "logs", ticket.pr.ci ?? ticket.pr.state),
     agentless ? command("implement", "Implement", "robot", implementQueued ? "QUEUED" : "QUEUE") : undefined,
   ];
 };
@@ -375,6 +377,7 @@ export const createPhysicalSurface = () => {
       const signature = JSON.stringify({ grid, usage, state, minute: Math.floor(Date.now() / 60_000) });
       if (signature === lastSignature) return;
       lastSignature = signature;
+      const ticket = state.ticket?.id === state.focusedIdentifier ? state.ticket : null;
       const focused = state.focusedIdentifier === null ? null : grid.agents.find((agent) => String(agent.identifier) === state.focusedIdentifier);
       // Events fill the keys in reading order. `layoutKeys` is column-major,
       // which is right for the agent grid (paging moves through columns) but
@@ -390,7 +393,7 @@ export const createPhysicalSurface = () => {
       const visibleGrid = state.mode === "logs"
         ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null, focused))
         : state.mode === "cmd"
-        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier), state.implementQueued === true))
+        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier), state.implementQueued === true, ticket))
         : state.mode === "settings"
         ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
         : state.mode === "commands"
@@ -399,6 +402,8 @@ export const createPhysicalSurface = () => {
               ? detailKeyDescriptors(state.selectedCommand, state.optionOffset ?? 0, state.selectedOption ?? null, state.micHeld === true, state.commandDictation === true, state.commandFeedback)
               : historyKeyDescriptors(state.commandsPage ?? { items: [] }, state.historyOffset ?? 0, null),
           )
+        : grid.tickets_status === "unavailable"
+        ? layoutPhysicalKeys([commandKey("status", "unavailable", "Tickets unavailable", "alert", "UNAVAILABLE", "paused")])
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {
@@ -418,7 +423,7 @@ export const createPhysicalSurface = () => {
         : null;
       const strip: StripData = state.mode === "cmd" ? {
         mode: "cmd",
-        data: { detail: agentDetailModel(focused ?? { identifier: state.focusedIdentifier }), voice },
+        data: { detail: ticketDetailModel(ticket, state.focusedIdentifier), voice },
       } : state.mode === "settings" ? {
         mode: "settings",
         data: {
@@ -472,7 +477,7 @@ export const createPhysicalSurface = () => {
         },
       };
       try {
-        for (const paint of stripRenderer.render(strip)) {
+        for (const paint of stripRenderer.render(strip, state.instance)) {
           for (const report of paint.reports) await backend.write(report);
         }
       } catch (error) {

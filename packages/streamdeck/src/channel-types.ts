@@ -34,6 +34,23 @@ export interface StreamDeckSnapshot {
   readonly voice?: StreamDeckVoiceState;
 }
 
+/** Build ticket projection; unknown evidence remains null. */
+export interface StreamDeckTicket {
+  readonly v: 1;
+  readonly kind: "ticket";
+  readonly id: string;
+  readonly title: string | null;
+  readonly sec: string | null;
+  readonly status: { readonly label: string; readonly tone: string; readonly agent_state: string | null };
+  readonly agent: { readonly model: string | null; readonly name: string | null; readonly effort: string | null; readonly pct: number | null; readonly start: number | null } | null;
+  readonly pr: { readonly num: number; readonly state: string; readonly ci?: string | null } | null;
+  readonly control: { readonly action: string | null; readonly state: string; readonly title: string | null } | null;
+  readonly links?: { readonly modal: string | null; readonly pr: string | null };
+  readonly actions?: { readonly pause: string; readonly priority_up: string; readonly priority_down: string; readonly mic?: string };
+  readonly qpos: number | null;
+  readonly observed_at: number | null;
+}
+
 export interface StreamDeckCounts {
   readonly status: "ok" | "stale" | "unavailable";
   readonly observed_at: number | null;
@@ -45,6 +62,7 @@ export interface StreamDeckCounts {
 }
 
 export interface StreamDeckGrid {
+  readonly tickets_status?: string;
   readonly counts?: StreamDeckCounts;
   readonly build?: BuildProgressInput | null;
   readonly build_status?: "ok" | "none" | "unavailable";
@@ -220,6 +238,7 @@ export interface StreamDeckChannelEvents {
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
+  ticket?(ticket: StreamDeckTicket): void;
   usage(usage: Readonly<Record<string, unknown>>): void;
   transcript(row: TranscriptRow): void;
   logs(logs: StreamDeckLogs): void;
@@ -260,6 +279,7 @@ export interface WebSocketLike {
 export type WebSocketFactory = (url: string) => WebSocketLike;
 export type FetchLike = (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
   ok: boolean;
+  status?: number;
   json(): Promise<unknown>;
 }>;
 
@@ -274,6 +294,7 @@ export interface StreamDeckChannelOptions {
 }
 
 export interface StreamDeckChannel {
+  priority(identifier: string, direction: "up" | "down"): void;
   focus(identifier: string): void;
   /**
    * The two fleet verbs the deck can perform.
@@ -335,3 +356,5 @@ export interface StreamDeckChannel {
   ): void;
   close(): void;
 }
+
+export class InstanceAuthError extends Error {}

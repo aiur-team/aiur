@@ -39,6 +39,7 @@
     "streamdeck-server",
     "telemetry",
     "ticket-context",
+    "voice-conversation",
     "voice-stt"
   ],
   "owns": {

@@ -69,3 +69,21 @@ Voice transcription is cloud processing: while you dictate, your audio and the r
 | Agent process | `ELEVENLABS_API_KEY` is scrubbed from coding-agent environments and never logged. |
 
 See [Stream Deck voice input](/guide/stream-deck#voice-input) for operator controls and [Configuration](/reference/configuration#elevenlabs) for field defaults.
+
+## Executor conversations
+
+With `voice.conversation.provider: elevenlabs_agents` (the default), the read-only
+Executor voice prototype uses ElevenLabs **Agents**, separate from dictation and
+synthesized composer replies.
+
+The daemon opens the Agent
+websocket, sends microphone PCM and briefing context, handles client tools, and
+relays reply audio and transcripts to the authenticated browser.
+
+See [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
+for the Agent id, credential source, exact client tool names and schemas, and the
+`executor.voice.session_ended` handoff topic. The ElevenLabs key remains
+server-side; conversation audio and briefing text are processed by ElevenLabs.
+
+OpenAI Realtime is an alternative in the same setup guide; it uses the daemon's
+`OPENAI_API_KEY` instead of an ElevenLabs credential.

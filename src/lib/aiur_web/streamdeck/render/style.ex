@@ -11,5 +11,11 @@ defmodule AiurWeb.Streamdeck.Render.Style do
   }
 
   @spec state(atom() | String.t()) :: map()
+  def state(:active), do: state("running")
+  def state(:idle), do: state("paused")
+  def state(:unknown), do: state("paused")
+  def state("active"), do: state("running")
+  def state("idle"), do: state("paused")
+  def state("unknown"), do: state("paused")
   def state(bucket), do: Map.fetch!(@states, to_string(bucket))
 end

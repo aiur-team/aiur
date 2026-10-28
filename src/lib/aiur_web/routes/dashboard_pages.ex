@@ -42,6 +42,7 @@ defmodule AiurWeb.Routes.DashboardPages do
 
         live_session :dashboard, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
           live("/", AiurWeb.BuildLive, :build)
+          live("/conversations/:conversation_id", AiurWeb.ConversationLive, :show)
           live("/units", AiurWeb.DashboardLive, :index)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
