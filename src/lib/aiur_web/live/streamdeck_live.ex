@@ -24,6 +24,8 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Modes
 
   alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
+  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLogs
 
   alias AiurWeb.OperatorControlCenter.{
@@ -66,6 +68,8 @@ defmodule AiurWeb.StreamdeckLive do
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
       |> assign(:knobs, Surface.knob_descriptors())
+      |> assign(:deck_nav, %Nav{})
+      |> assign(:deck_effects, [])
       |> assign(:grid_page, 0)
       |> assign(:grid_column_offset, 0)
       |> assign(:grid_dial_value, 0)
@@ -121,6 +125,7 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("close-streamdeck-install", _params, socket), do: {:noreply, assign(socket, :install_modal?, false)}
 
   def handle_event("grid-page", %{"page" => page}, socket) do
+    socket = Navigation.route(socket, "grid-page", %{"page" => page})
     page = parse_integer(page, socket.assigns.grid_page)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
@@ -129,6 +134,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("grid-page", %{"value" => value}, socket) do
+    socket = Navigation.route(socket, "grid-page", %{"value" => value})
     value = parse_integer(value, socket.assigns.grid_dial_value)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_dial(socket, value)
@@ -137,6 +143,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("grid-page", %{"action" => "cycle"}, socket) do
+    socket = Navigation.route(socket, "grid-page", %{"action" => "cycle"})
     page = rem(socket.assigns.grid_page + 1, max(socket.assigns.grid.windows, 1))
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
@@ -146,7 +153,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("logs-scroll", %{"axis" => axis, "delta" => delta}, socket)
       when axis in ["events", "transcript"] do
-    {:noreply, update_logs(socket, axis, parse_integer(delta, 0))}
+    {:noreply, socket |> Navigation.route("logs-scroll", %{"axis" => axis, "delta" => delta}) |> update_logs(axis, parse_integer(delta, 0))}
   end
 
   def handle_event("log-key-select", %{"index" => index}, socket) do
@@ -154,6 +161,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("key-press", params, socket) do
+    socket = Navigation.route(socket, "key-press", params)
     socket = select_agent_from_params(socket, params)
     socket = enter_cmd(socket, params)
 
@@ -180,20 +188,23 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", _params, socket), do: {:noreply, socket}
 
-  def handle_event("dial-press", %{"action" => "back"}, socket), do: {:noreply, back(socket)}
+  def handle_event("dial-press", %{"action" => "back"} = params, socket), do: {:noreply, socket |> Navigation.route("dial-press", params) |> back()}
 
   # Dial D (cycle-window) is the focused window's paging knob: in logs it opens
   # the log surface, and on the Commands page it pages the history window
   # forward (or, on the detail view, cycles the option window) — the same
   # deliberate-reading direction as the physical deck.
-  def handle_event("dial-press", %{"action" => "cycle-window"}, socket) do
+  def handle_event("dial-press", %{"action" => "cycle-window"} = params, socket) do
+    socket = Navigation.route(socket, "dial-press", params)
+
     case socket.assigns.sd_mode do
       :commands -> {:noreply, page_commands(socket)}
       _ -> {:noreply, enter_logs(socket)}
     end
   end
 
-  def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
+  def handle_event(event, params, socket) when event in ["dial-press", "dial-long-press", "dial-turn"],
+    do: {:noreply, Navigation.route(socket, event, params)}
 
   # Selecting a Commands key reads: on the history view it opens one Command's
   # detail, and on the detail view it selects an option for reading. Selecting

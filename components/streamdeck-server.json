@@ -42,7 +42,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Serves agent status, Commands and conversations to connected Stream Deck clients.",
+  "summary": "Serves agent status, Commands, conversations and per-deck navigation to connected Stream Deck clients.",
   "status": "optional",
   "install": {
     "type": "included"

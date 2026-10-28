@@ -78,6 +78,34 @@ An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `tracker_paused`, `backend`, and `model`. Fields absent from the source are
 omitted rather than represented by implementation-specific sentinels.
 
+### Device input navigation
+
+Send `input` with `{kind, index, ticks?}`. Kinds are `key_press`, `dial_press`,
+`dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
+turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
+out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
+frames reply `ok` with `{view, page}` (zero-based page). Each connection starts
+at `ticket`, page 0; reconnects reset navigation.
+
+Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
+root pages and clearing drills. Turning it moves one eight-key page per tick,
+clamped against the current list, including after a shrink. Holding it for
+500 ms emits **one** `dial_long_press`; clients suppress the release press.
+That input pops the drill stack; at root it does nothing. Dial 1 scrolls and
+its press is reserved. Dial 2 turns produce selected-ticket priority effects
+(negative = up); with no selection they do nothing. Dial 3 is local to the
+sidecar and ignored by the reducer. Keys resolve from server-owned sections:
+feature, epic and fleet keys drill into tickets; ticket keys select and produce
+an open-ticket effect. Priority and open-ticket execution belong to SD-206
+and SD-301 respectively.
+
+`Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
+`%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
+plus the current drill count. The current grid supplies tickets and fleet
+categories; Feature/Epic section producers and the new renderer follow in
+SD-202–205. The sidecar switches to this protocol in SD-103; emulator pixels
+switch in SD-104. Existing controls remain during that transition.
+
 ## Focus and transcript rate
 
 Send `focus` with `{identifier}` to watch one agent, or `unfocus` to stop. A

@@ -6,6 +6,8 @@ defmodule AiurWeb.StreamdeckChannel do
   import AiurWeb.StreamdeckChannel.Voice
 
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
+  alias AiurWeb.Streamdeck.Deck
+  alias AiurWeb.Streamdeck.Deck.{Input, Nav}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
@@ -40,12 +42,22 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
+    {:ok, assign(socket, deck_nav: %Nav{}, deck_effects: [], focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
+  def handle_in("input", input, socket) do
+    if Nav.valid_input?(input) do
+      sections = StreamdeckProjection.grid() |> Deck.navigation()
+      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
+      {:reply, {:ok, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}}, assign(socket, deck_nav: nav, deck_effects: effects)}
+    else
+      {:reply, {:error, %{reason: "invalid_input"}}, socket}
+    end
+  end
+
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
     # Relay setup/teardown and projections may wait on other processes. Keep
