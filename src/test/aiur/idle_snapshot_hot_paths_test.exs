@@ -1,12 +1,17 @@
 defmodule Aiur.IdleSnapshotHotPathsTest do
   use Aiur.TestSupport
 
-  alias Aiur.BuildOrder.Features.RootImport
+  alias Aiur.AlertLedger
+  alias Aiur.BuildOrder.Features.{RootImport, RootImportMapping}
   alias Aiur.CodingAgent
-  alias Aiur.CodingAgent.Registry
+  alias Aiur.CodingAgent.{LabelClassification, Registry}
+  alias Aiur.GitHub.{AccessSettings, Transport}
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Issue
+  alias Aiur.Jsonl
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport.SnapshotPayload
+  alias Aiur.SystemCgroup
 
   @moduletag :tmp_dir
 
@@ -51,7 +56,7 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
 
   test "prepared classifications survive a fresh projection worker and invalidate changed labels" do
     {result, calls} =
-      measured_calls({Aiur.CodingAgent.LabelClassification, :classify, 1}, fn ->
+      measured_calls({LabelClassification, :classify, 1}, fn ->
         issue = %Issue{labels: ["complexity:0099"]}
         first = CodingAgent.snapshot_classifications([issue, issue])
         next = CodingAgent.snapshot_classifications([issue, %{issue | labels: ["complexity:0098"]}])
@@ -78,7 +83,7 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
   end
 
   test "cgroup root is discovered once and overrides remain live", %{tmp_dir: root} do
-    key = {Aiur.SystemCgroup, :root}
+    key = {SystemCgroup, :root}
     previous = :persistent_term.get(key, :unset)
     override = Application.get_env(:aiur, :cgroup_root_override)
     :persistent_term.erase(key)
@@ -89,23 +94,23 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
     end)
 
     File.write!(Path.join(root, "cpu.max"), "200000 100000")
-    assert Aiur.SystemCgroup.root(fn -> root end) == root
-    assert Aiur.SystemCgroup.root(fn -> flunk("rediscovered cgroup") end) == root
+    assert SystemCgroup.root(fn -> root end) == root
+    assert SystemCgroup.root(fn -> flunk("rediscovered cgroup") end) == root
     Application.delete_env(:aiur, :cgroup_root_override)
-    assert Aiur.SystemCgroup.cpu_quota() == 2.0
+    assert SystemCgroup.cpu_quota() == 2.0
     Application.put_env(:aiur, :cgroup_root_override, Path.join(root, "missing"))
-    assert Aiur.SystemCgroup.cpu_quota() == :unavailable
+    assert SystemCgroup.cpu_quota() == :unavailable
   end
 
   test "repository settings and parsed identity expire when the configuration changes" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "one/repo")
 
     {result, calls} =
-      measured_calls({Aiur.GitHub.Transport, :parse_repo_value, 1}, fn ->
-        first = Aiur.GitHub.Transport.parse_repo()
-        same = Aiur.GitHub.Transport.parse_repo()
+      measured_calls({Transport, :parse_repo_value, 1}, fn ->
+        first = Transport.parse_repo()
+        same = Transport.parse_repo()
         write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "two/repo")
-        {first, same, Aiur.GitHub.Transport.parse_repo()}
+        {first, same, Transport.parse_repo()}
       end)
 
     assert result == {{:ok, {"one", "repo"}}, {:ok, {"one", "repo"}}, {:ok, {"two", "repo"}}}
@@ -116,11 +121,11 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "one/repo")
 
     {repos, calls} =
-      measured_calls({Aiur.GitHub.Config, :repo, 1}, fn ->
-        first = Aiur.GitHub.AccessSettings.settings().repo
-        same = Aiur.GitHub.AccessSettings.settings().repo
+      measured_calls({GitHubConfig, :repo, 1}, fn ->
+        first = AccessSettings.settings().repo
+        same = AccessSettings.settings().repo
         write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "two/repo")
-        {first, same, Aiur.GitHub.AccessSettings.settings().repo}
+        {first, same, AccessSettings.settings().repo}
       end)
 
     assert repos == {"one/repo", "one/repo", "two/repo"}
@@ -135,7 +140,7 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
     rows = Map.new(1..100, &{&1, %{number: &1, labels: [], parent: ref.(1000, "owner")}}) |> Map.put(1000, root)
 
     {plan, calls} =
-      measured_calls({Aiur.BuildOrder.Features.RootImportMapping, :same_repository?, 2}, fn ->
+      measured_calls({RootImportMapping, :same_repository?, 2}, fn ->
         RootImport.plan(%{rows: rows, repository: "owner/repo", health: %{complete?: true}}, %{features: %{}, owners: %{}, also: %{}}, %{})
       end)
 
@@ -149,34 +154,34 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
     File.write!(path, "{\"n\":1}\n")
 
     {result, calls} =
-      measured_calls({Aiur.Jsonl, :decode_line, 1}, fn ->
-        first = Aiur.AlertLedger.read(path)
-        same = Aiur.AlertLedger.read(path)
+      measured_calls({Jsonl, :decode_line, 1}, fn ->
+        first = AlertLedger.read(path)
+        same = AlertLedger.read(path)
         File.write!(path, "{\"n\":2}\n", [:append])
-        appended = Aiur.AlertLedger.read(path)
+        appended = AlertLedger.read(path)
         {first, same, appended}
       end)
 
     assert result == {[%{"n" => 1}], [%{"n" => 1}], [%{"n" => 1}, %{"n" => 2}]}
     assert calls == 2
-    assert Aiur.AlertLedger.read(path) == [%{"n" => 1}, %{"n" => 2}]
+    assert AlertLedger.read(path) == [%{"n" => 1}, %{"n" => 2}]
     File.write!(path, "{\"n\":3}\n")
-    assert Aiur.AlertLedger.read(path) == [%{"n" => 3}]
+    assert AlertLedger.read(path) == [%{"n" => 3}]
     replacement = Path.join(root, "replacement")
     File.write!(replacement, "{\"n\":4}\n")
     File.rename!(replacement, path)
-    assert Aiur.AlertLedger.read(path) == [%{"n" => 4}]
+    assert AlertLedger.read(path) == [%{"n" => 4}]
   end
 
   test "future regression guard: ledger preserves partial appends and bounded tail semantics", %{tmp_dir: root} do
     path = Path.join(root, "partial.ndjson")
     File.write!(path, "{\"n\":1}\n{\"n\":")
-    assert Aiur.AlertLedger.read(path) == [%{"n" => 1}]
+    assert AlertLedger.read(path) == [%{"n" => 1}]
     File.write!(path, "2}\n", [:append])
-    assert Aiur.AlertLedger.read(path) == [%{"n" => 1}, %{"n" => 2}]
-    assert Aiur.AlertLedger.read(path, max_bytes: 9) == [%{"n" => 2}]
+    assert AlertLedger.read(path) == [%{"n" => 1}, %{"n" => 2}]
+    assert AlertLedger.read(path, max_bytes: 9) == [%{"n" => 2}]
     File.write!(path, "{\"n\":3}\n", [:append])
-    assert Aiur.AlertLedger.read(path, max_bytes: 9) == [%{"n" => 3}]
+    assert AlertLedger.read(path, max_bytes: 9) == [%{"n" => 3}]
   end
 
   defp measured_calls({module, _, _} = mfa, fun) do
@@ -200,8 +205,8 @@ defmodule Aiur.IdleSnapshotHotPathsTest do
     try do
       send(worker, :run)
       result = receive do: ({:result, ^worker, result} -> result)
-      ref = :erlang.trace_delivered(worker)
-      receive do: ({:trace_delivered, ^worker, ^ref} -> :ok)
+      ref = :erlang.trace_delivered(:all)
+      receive do: ({:trace_delivered, :all, ^ref} -> :ok)
       {result, count_calls(worker, mfa, 0)}
     after
       :erlang.trace(worker, false, [:call])

@@ -28,7 +28,7 @@ defmodule Aiur.CodingAgent.LabelClassification do
     current =
       Enum.reduce(issues, %{}, fn issue, current ->
         labels = Issue.label_names(issue)
-        Map.put_new_lazy(current, labels, fn -> Map.get_lazy(previous, labels, fn -> classify(labels) end) end)
+        Map.put_new_lazy(current, labels, fn -> cached(previous, labels) end)
       end)
 
     Process.put(@key, current)
@@ -45,6 +45,8 @@ defmodule Aiur.CodingAgent.LabelClassification do
       if previous, do: Process.put(@key, previous), else: Process.delete(@key)
     end
   end
+
+  defp cached(previous, labels), do: Map.get_lazy(previous, labels, fn -> classify(labels) end)
 
   defp classify(labels), do: labels |> Enum.map(&level/1) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
 
