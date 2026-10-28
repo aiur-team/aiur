@@ -66,7 +66,6 @@ defmodule AiurWeb.Streamdeck.DeckBuildOrderTest do
 
     for _ <- 1..5 do
       Phoenix.PubSub.broadcast(Aiur.PubSub, "build_progress", {:build_progress_changed, %{}})
-      Process.sleep(20)
     end
 
     assert_push("fleet", %{"grid" => %{build: %{queue_id: "updated", percent: 41}}}, 500)
