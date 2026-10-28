@@ -340,6 +340,7 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
 
 test('an acknowledged grid turn cannot overwrite a later server page patch', async ({ page }) => {
   await openStreamdeck(page)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 
   const keys = page.locator('#sd-keys')
   const dialD = page.locator('.sd-knob').nth(3)
