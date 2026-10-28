@@ -282,6 +282,7 @@ test('comparison transport renders both meters, unknown first audio and saves ra
   assert.match(metrics.textContent, /chosen/);
   assert.match(metrics.textContent, /2.00 min/);
   assert.match(metrics.textContent, /USD 0.36 estimate/);
+  assert.equal(rating.value, '');
   rating.value = '4';
   note.value = 'Easy to interrupt';
   save.listeners.click();
@@ -291,4 +292,10 @@ test('comparison transport renders both meters, unknown first audio and saves ra
   assert.equal(last.payload.rating, 4);
   assert.equal(last.payload.note, 'Easy to interrupt');
   assert.equal('audio' in last.payload, false);
+
+  options.handlers.comparison({rows: [{id: 'reserved', at: 'start', provider: 'elevenlabs_agents',
+    model: 'chosen', status: 'reserved', reserved_seconds: 180, first_audio_ms: null, rating: null, note: ''}], meters: []});
+  const activeCell = f.fields.get('[data-executor-voice-comparisons]').children[0].children[0];
+  assert.equal(activeCell.children.length, 1);
+  assert.match(activeCell.children[0].textContent, /First audio: unavailable · reserved \/ interrupted · unavailable$/);
 });

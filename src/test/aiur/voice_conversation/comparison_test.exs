@@ -57,6 +57,10 @@ defmodule Aiur.VoiceConversation.ComparisonTest do
 
   test "remaining allowance bounds the next session and completed lines retain rating without audio", %{root: root} do
     assert {:ok, row} = Comparison.reserve(root, "openai_realtime", "chosen", 2700)
+    assert row["rating"] == nil
+    assert row["first_audio_ms"] == nil
+    assert row["minutes"] == nil
+    assert row["estimated_cost_usd"] == nil
     assert :ok = Comparison.finish(root, row["id"], "session-one", 2_699_000, 412)
     assert {:ok, next} = Comparison.reserve(root, "openai_realtime", "chosen", 180)
     assert next["reserved_seconds"] == 1
