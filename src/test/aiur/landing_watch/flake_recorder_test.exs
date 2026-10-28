@@ -2,6 +2,29 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
   use ExUnit.Case, async: true
 
   alias Aiur.LandingWatch.FlakeRecorder
+  alias Aiur.LandingWatch.RunnerDegradation
+
+  test "degraded runner fixture with multiple timeouts and partition kill is not a flake candidate" do
+    fixture = """
+    1) test first unrelated test (Example.OneTest)
+       ** (ExUnit.TimeoutError) test timed out after 60000ms
+    2) test second unrelated test (Example.TwoTest)
+       ** (ExUnit.TimeoutError) test timed out after 60000ms
+    Error: coverage partition 3 killed at 20m time bound
+    """
+
+    jobs = [
+      %{"name" => "test", "id" => 1, "conclusion" => "failure"},
+      %{"name" => "coverage (3/4)", "id" => 2, "conclusion" => "failure"}
+    ]
+
+    assert RunnerDegradation.degraded?(jobs,
+             job_log_fun: fn
+               %{"id" => 1}, _opts -> {:ok, fixture}
+               %{"id" => 2}, _opts -> {:ok, fixture}
+             end
+           )
+  end
 
   test "creates a labeled identity issue and emits the same evidence durably" do
     parent = self()
