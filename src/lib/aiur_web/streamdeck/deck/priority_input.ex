@@ -1,6 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
   @moduledoc false
-  alias AiurWeb.Streamdeck.{Deck.Priority, Render}
+  alias AiurWeb.Streamdeck.Deck.{MeterPage, Priority}
+  alias AiurWeb.Streamdeck.Render
   alias AiurWeb.StreamdeckProjection
 
   @spec reply(Phoenix.Socket.t(), map(), list()) :: {:reply, {:ok | :error, map()}, Phoenix.Socket.t()}
@@ -15,7 +16,9 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
           {:error, reason} -> Priority.message(reason)
         end
 
-      frame = Render.frame(%{grid: StreamdeckProjection.grid(), toast: toast, nav: socket.assigns[:deck_nav]})
+      nav = socket.assigns[:deck_nav]
+      grid = StreamdeckProjection.grid() |> MeterPage.prepare(nav)
+      frame = Render.frame(%{grid: grid, toast: toast, nav: nav})
 
       case result do
         {:ok, :at_edge} -> {:reply, {:ok, Map.merge(navigation, %{"result" => "at_edge", "frame" => frame})}, socket}

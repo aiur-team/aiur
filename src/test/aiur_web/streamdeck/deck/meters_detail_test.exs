@@ -64,6 +64,19 @@ defmodule AiurWeb.Streamdeck.Deck.MetersDetailTest do
     assert account.weekly.remaining_percent == 70
   end
 
+  test "an expired reset dims only that window and preserves its remaining value" do
+    entry = put_in(I.account(88, 30), [:reading, :windows, Access.at(0), :resets_at], DateTime.add(I.now(), -60))
+    assert [account] = detail(%{"work" => entry}).accounts
+    assert account.freshness == "fresh"
+    assert account.session == %{remaining_percent: 12, reset_at: DateTime.to_unix(DateTime.add(I.now(), -60), :millisecond), freshness: "stale"}
+    assert account.weekly.remaining_percent == 70
+    assert account.weekly.freshness == "fresh"
+    image = MeterDetail.key(account, DateTime.to_unix(I.now(), :millisecond))
+    assert image.svg =~ "5h stale"
+    assert image.svg =~ "12% left · reset due"
+    assert image.svg =~ "0.45"
+  end
+
   test "resolved Fleet meter key pushes detail, account press is read-only, hold returns" do
     sections = %{{:meter_detail, "claude"} => [%{id: "personal"}], fleet: [%{id: "claude", kind: :meter_detail}]}
     nav = %Nav{view: :fleet, selected: "17"}
