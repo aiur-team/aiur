@@ -45,6 +45,7 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     assert ci.svg =~ "CI ticket"
     assert rest == List.duplicate(nil, 7)
     assert hd(strip).svg =~ "queue disabled"
+    assert Enum.at(strip, 1).svg =~ "Capacity — stale"
     ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
     assert_reply(ref, :ok, %{"view" => "ticket", "frame" => %{keys: ticket_keys}})
     assert Enum.any?(ticket_keys, &(&1 != nil and &1.svg =~ "CI ticket"))
