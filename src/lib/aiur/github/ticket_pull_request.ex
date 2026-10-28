@@ -24,6 +24,7 @@ defmodule Aiur.GitHub.TicketPullRequest do
           version: version,
           head_ref: get_in(body, ["head", "ref"]),
           head_sha: get_in(body, ["head", "sha"]),
+          head_updated_at: Map.get(body, "head_updated_at"),
           base_ref: get_in(body, ["base", "ref"]),
           merge_commit_sha: Map.get(body, "merge_commit_sha")
         }

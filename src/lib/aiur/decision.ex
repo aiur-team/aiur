@@ -162,7 +162,8 @@ defmodule Aiur.Decision do
           acknowledgement: map() | nil,
           resolution: map() | nil,
           acknowledgements: %{String.t() => map()},
-          resolutions: %{String.t() => map()}
+          resolutions: %{String.t() => map()},
+          overrides: [map()]
         }
 
   @schema_version 1
@@ -221,7 +222,8 @@ defmodule Aiur.Decision do
                 acknowledgement: nil,
                 resolution: nil,
                 acknowledgements: %{},
-                resolutions: %{}
+                resolutions: %{},
+                overrides: []
               ]
 
   @authorities [:human_required, :supervisor_allowed, :supervisor_preferred]

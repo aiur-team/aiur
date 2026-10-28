@@ -25,6 +25,9 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call(:list_active_identifiers, _from, state),
     do: StatusReport.list_active_identifiers(state)
 
+  def handle_call({:command_override_context, identifier}, _from, state),
+    do: {:reply, Aiur.Orchestrator.CommandOverrideContext.read(state, identifier), state}
+
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
 

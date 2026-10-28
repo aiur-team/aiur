@@ -34,7 +34,8 @@ defmodule Aiur.DecisionRevision do
           answer: normalized_answer(),
           reason: String.t(),
           recorded_at: DateTime.t(),
-          content_hash: String.t()
+          content_hash: String.t(),
+          override: map() | nil
         }
 
   @type answer_encoder :: (normalized_answer() -> map())
@@ -51,7 +52,7 @@ defmodule Aiur.DecisionRevision do
     :recorded_at,
     :content_hash
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [override: nil]
 
   @doc "Normalize revision correlation and compose an OCC-3 normalized answer."
   @spec normalize(map(), keyword()) :: {:ok, t()} | {:error, {:revision_invalid, term()}}
@@ -64,8 +65,9 @@ defmodule Aiur.DecisionRevision do
          {:ok, answer} <- normalize_answer(payload, opts, context.answer_normalizer),
          {:ok, answer} <- validate_answer(answer, context),
          :ok <- changed_action(answer.action_id, context.current_action_id),
-         {:ok, reason} <- required_reason(answer) do
-      {:ok, build(context, answer, reason)}
+         {:ok, reason} <- required_reason(answer),
+         {:ok, override} <- Aiur.Commands.Overrides.normalize_metadata(Keyword.get(opts, :override)) do
+      {:ok, build(Map.put(context, :override, override), answer, reason)}
     else
       {:error, {:revision_invalid, _reason}} = error -> error
       {:error, reason} -> {:error, {:revision_invalid, reason}}
@@ -86,6 +88,7 @@ defmodule Aiur.DecisionRevision do
       "recorded_at" => DateTime.to_iso8601(revision.recorded_at),
       "content_hash" => revision.content_hash
     }
+    |> then(fn raw -> if revision.override, do: Map.put(raw, "override", Aiur.JSONSafe.normalize(revision.override)), else: raw end)
   end
 
   @doc "Decode and fully validate one persisted revision shape."
@@ -101,8 +104,9 @@ defmodule Aiur.DecisionRevision do
          {:ok, reason} <- persisted_string(raw, "reason", :reason),
          {:ok, recorded_at} <- persisted_timestamp(raw, "recorded_at", :recorded_at),
          {:ok, persisted_hash} <- persisted_string(raw, "content_hash", :content_hash),
+         {:ok, override} <- Aiur.Commands.Overrides.normalize_metadata(Map.get(raw, "override")),
          {:ok, revision} <-
-           rebuild(decision_id, decision_version, sequence, prior_action_id, answer, recorded_at),
+           rebuild(decision_id, decision_version, sequence, prior_action_id, answer, recorded_at, override),
          :ok <- compare_persisted(revision.action_id, action_id, :revision_action_id_mismatch),
          :ok <- compare_persisted(revision.reason, reason, :revision_reason_mismatch),
          :ok <- compare_persisted(revision.content_hash, persisted_hash, :revision_content_hash_mismatch) do
@@ -205,6 +209,7 @@ defmodule Aiur.DecisionRevision do
     }
 
     %__MODULE__{
+      override: context[:override],
       decision_id: context.decision_id,
       decision_version: context.decision_version,
       sequence: sequence,
@@ -217,14 +222,15 @@ defmodule Aiur.DecisionRevision do
     }
   end
 
-  defp rebuild(decision_id, decision_version, sequence, prior_action_id, answer, recorded_at) do
+  defp rebuild(decision_id, decision_version, sequence, prior_action_id, answer, recorded_at, override) do
     context = %{
       decision_id: decision_id,
       decision_version: decision_version,
       current_action_id: prior_action_id,
       current_revision_sequence: sequence - 1,
       actor: Map.get(answer, :actor),
-      now: recorded_at
+      now: recorded_at,
+      override: override
     }
 
     with {:ok, answer} <- validate_answer(answer, context),

@@ -10,6 +10,10 @@ defmodule Aiur.Commands do
   @spec requester_notified(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate requester_notified(decision_id, action_id, opts \\ []), to: Aiur.Commands.ExecutorDelivery, as: :on_enqueued
 
+  @doc "Whether the active override can use the implemented worker delivery route."
+  @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
+  defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
+
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
 

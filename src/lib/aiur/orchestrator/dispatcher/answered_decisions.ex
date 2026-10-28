@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.Dispatcher.AnsweredDecisions do
     Commands.list_decisions(store, timeout)
     |> Enum.filter(fn decision ->
       decision.ticket.identifier == identifier and decision.decision_status == :decided and not is_nil(decision.answer) and
-        decision.delivery_status not in [:delivered, :consumed]
+        decision.delivery_status not in [:delivered, :consumed] and Commands.override_dispatchable?(decision)
     end)
     |> Enum.map(fn decision ->
       answer = Decision.active_answer(decision)

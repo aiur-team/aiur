@@ -60,7 +60,12 @@ defmodule Aiur.GitHub.PollSnapshots do
   defp merge_executor_sweep_pr(held, metadata, marker, facts) do
     if Access.regression?(metadata.version, marker),
       do: :unchanged,
-      else: Map.merge(if(is_map(held), do: held, else: %{}), facts)
+      else: merge_head_facts(held, facts)
+  end
+
+  defp merge_head_facts(held, facts) do
+    body = Map.merge(if(is_map(held), do: Map.delete(held, "head_updated_at"), else: %{}), facts)
+    Aiur.GitHub.PullRequestHeadUpdate.inherit(held, body)
   end
 
   @spec review_threads(String.t(), term(), keyword()) :: {:ok, [map()]} | :miss

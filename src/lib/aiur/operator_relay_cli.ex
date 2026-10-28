@@ -42,10 +42,10 @@ defmodule Aiur.OperatorRelayCLI do
   end
 
   defp record(params, payload, actor, deps) do
-    operation = if params[:supersede] == true, do: :supersede, else: :answer
+    operation = if params[:supersede] == true, do: :override, else: :answer
     args = [params[:decision_id], payload, [actor: actor]]
     args = if Keyword.has_key?(deps, :decision_store), do: args ++ [deps[:decision_store]], else: args
-    apply(Commands, operation, args)
+    apply(if(operation == :override, do: Aiur.DecisionStore, else: Commands), operation, args)
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
   end

@@ -252,6 +252,15 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:supersede, decision_id, payload, opts}, timeout)
   end
 
+  @doc "Records an override before or after delivery, preserving the original Command and routing evidence."
+  @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  def override(decision_id, payload, opts \\ [], server \\ __MODULE__) do
+    with {:ok, decision} <- get(decision_id, server) do
+      opts = Aiur.Commands.OverrideContext.options(decision.ticket.identifier, opts)
+      GenServer.call(server, {:override, decision_id, payload, opts}, @request_timeout)
+    end
+  end
+
   @doc "Durably records an ordered correction to the active Decision action."
   @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}

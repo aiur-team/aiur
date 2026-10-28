@@ -190,7 +190,7 @@ defmodule Aiur.DecisionStore.Retry do
   def dispatchable?(%Decision{pending_for_session?: true}, _retry_failed?), do: false
 
   def dispatchable?(%Decision{} = decision, retry_failed?) do
-    Requester.dispatch_target(decision) == :worker and worker_dispatchable?(decision, retry_failed?)
+    Aiur.DecisionStore.Overrides.dispatchable?(decision) and Requester.dispatch_target(decision) == :worker and worker_dispatchable?(decision, retry_failed?)
   end
 
   defp worker_dispatchable?(decision, retry_failed?) do
