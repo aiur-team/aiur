@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
-  alias AiurWeb.Streamdeck.Render
   alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput}
+  alias AiurWeb.Streamdeck.Render
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 
