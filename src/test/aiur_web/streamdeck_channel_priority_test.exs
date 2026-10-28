@@ -5,7 +5,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
 
   setup do
     owner = self()
-    {:ok, queue} = Agent.start_link(fn -> model(3) end)
+    queue = start_supervised!({Agent, fn -> model(3) end})
 
     put_endpoint_config(
       streamdeck_snapshot_fun: fn -> %{running: [], retrying: [], idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]} end,
