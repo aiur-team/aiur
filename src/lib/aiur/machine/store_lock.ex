@@ -148,8 +148,7 @@ defmodule Aiur.Machine.StoreLock do
       {:ok, owner} ->
         case String.split(owner) do
           [pid, role] when role in ["gateway", "cli"] ->
-            abandoned_local = pid == System.pid() and role == "cli" and not Process.get({__MODULE__, path}, false)
-            Regex.match?(~r/\A[1-9][0-9]*\z/, pid) and (abandoned_local or not Keyword.get(opts, :alive?, &alive?/1).(pid))
+            dead_owner?(path, pid, role, opts)
 
           _ ->
             false
@@ -164,6 +163,11 @@ defmodule Aiur.Machine.StoreLock do
       _ ->
         false
     end
+  end
+
+  defp dead_owner?(path, pid, role, opts) do
+    abandoned_local = pid == System.pid() and role == "cli" and not Process.get({__MODULE__, path}, false)
+    Regex.match?(~r/\A[1-9][0-9]*\z/, pid) and (abandoned_local or not Keyword.get(opts, :alive?, &alive?/1).(pid))
   end
 
   defp alive?(pid) do
