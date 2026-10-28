@@ -98,25 +98,29 @@ function parsePulseShort(raw: string, stripMonitors: boolean): AudioDevice[] {
  * every failure path returns one rather than throwing. The settings pane says
  * "no microphones" instead of the sidecar failing to start.
  */
-async function listDevices(system: SystemPort, mediaClass: string, kind: "sources" | "sinks"): Promise<AudioDevice[]> {
+export interface AudioDeviceDiscovery { readonly devices: AudioDevice[]; readonly available: boolean }
+
+async function discoverDevices(system: SystemPort, mediaClass: string, kind: "sources" | "sinks"): Promise<AudioDeviceDiscovery> {
   try {
     const devices = parsePipeWire(await system.run(PW_DUMP, []), mediaClass);
     // A PipeWire host with zero capture nodes is a real answer, so an empty
     // array is returned as-is; only unparseable output falls through.
-    if (devices !== null) return devices;
+    if (devices !== null) return { devices, available: true };
   } catch {
     // pw-dump missing means this is not a PipeWire host; try the Pulse tools.
   }
 
   try {
-    return parsePulseShort(await system.run(PACTL, ["list", kind, "short"]), kind === "sources");
+    return { devices: parsePulseShort(await system.run(PACTL, ["list", kind, "short"]), kind === "sources"), available: true };
   } catch {
-    return [];
+    return { devices: [], available: false };
   }
 }
 
 /** Hardware microphones, with monitor loopbacks excluded. */
-export const listMicrophones = (system: SystemPort): Promise<AudioDevice[]> => listDevices(system, SOURCE_CLASS, "sources");
+export const discoverMicrophones = (system: SystemPort): Promise<AudioDeviceDiscovery> => discoverDevices(system, SOURCE_CLASS, "sources");
+export const listMicrophones = async (system: SystemPort): Promise<AudioDevice[]> => (await discoverMicrophones(system)).devices;
 
 /** Hardware playback sinks, using the same host discovery port. */
-export const listSpeakers = (system: SystemPort): Promise<AudioDevice[]> => listDevices(system, "Audio/Sink", "sinks");
+export const discoverSpeakers = (system: SystemPort): Promise<AudioDeviceDiscovery> => discoverDevices(system, "Audio/Sink", "sinks");
+export const listSpeakers = async (system: SystemPort): Promise<AudioDevice[]> => (await discoverSpeakers(system)).devices;

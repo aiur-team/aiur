@@ -1,4 +1,4 @@
-import { listMicrophones, listSpeakers } from "./audio/devices.js";
+import { discoverMicrophones, discoverSpeakers } from "./audio/devices.js";
 import type { SystemPort } from "./audio/system.js";
 import { spawnLineSource, type SpawnLike } from "./line-source.js";
 import type { DeckDevices } from "./deck-settings.js";
@@ -22,10 +22,10 @@ export function createDeviceInventory(options: {
     if (stopped) return;
     if (running) { again = true; return; }
     running = true;
-    const [mics, speakers] = await Promise.all([listMicrophones(options.system), listSpeakers(options.system)]);
+    const [mics, speakers] = await Promise.all([discoverMicrophones(options.system), discoverSpeakers(options.system)]);
     running = false;
     if (stopped) return;
-    options.changed({ mics, speakers, instances: options.instances, ...(options.legacyMicId ? { legacy_mic_id: options.legacyMicId } : {}) });
+    options.changed({ mics: mics.devices, speakers: speakers.devices, availability: { mics: mics.available, speakers: speakers.available }, instances: options.instances, ...(options.legacyMicId ? { legacy_mic_id: options.legacyMicId } : {}) });
     if (again) { again = false; await refresh(); }
   };
   const monitor = (): void => {

@@ -1,6 +1,7 @@
 import type { AudioDevice } from "./audio/devices.js";
 
 export interface DeckSettings {
+  readonly instance_selection_id?: string;
   readonly mic_id: string | null;
   readonly speaker_id: string | null;
   readonly default_view: "ticket" | "feature" | "epic" | "fleet";
@@ -12,6 +13,7 @@ export interface DeckSettings {
 }
 
 export interface DeckDevices {
+  readonly availability?: { readonly mics: boolean; readonly speakers: boolean };
   readonly mics: readonly AudioDevice[];
   readonly speakers: readonly AudioDevice[];
   readonly instances: readonly string[];

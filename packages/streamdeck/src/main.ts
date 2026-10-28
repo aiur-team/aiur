@@ -30,6 +30,7 @@ import net from "node:net";
 import process from "node:process";
 import path from "node:path";
 import { loadInstances } from "./instances.js";
+import { createInstanceSettings } from "./instance-settings.js";
 import { createInstanceSwitcher } from "./instance-switcher.js";
 import { guardChannelEvents } from "./instance-events.js";
 import { parseBrightness } from "./device-path.js";
@@ -100,7 +101,9 @@ export const main = async (): Promise<void> => {
     channel: (connected) => { channel = connected; if (connected !== null) void inventory.refresh(); },
     disconnect: () => { dictation.disconnect(); input.reset(); show(offline); },
     resetInstance: () => show(offline),
-    connect: (target, lifecycle) => connectStreamDeckChannel({
+    connect: (target, lifecycle) => {
+      const followSettings = createInstanceSettings((name, explicit) => instances.select(name, explicit));
+      return connectStreamDeckChannel({
       baseUrl: target.baseUrl,
       ...target.auth,
       fetch: defaultFetch,
@@ -110,7 +113,7 @@ export const main = async (): Promise<void> => {
         settings: (value) => {
           settings = value;
           runtime?.applySettings(value);
-          if (value.instance !== null) instances.select(value.instance);
+          followSettings(value);
         },
         alert,
         ticket: (ticket) => dictation.focus(ticket.id),
@@ -131,7 +134,8 @@ export const main = async (): Promise<void> => {
         voiceAvailability: dictation.availability,
         closed: () => lifecycle.closed(),
       }, lifecycle.current),
-    }),
+      });
+    },
   });
   instances.start();
   if (!presentAtStart) console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");

@@ -15,3 +15,13 @@ it("falls back to pactl sinks on PulseAudio hosts", async () => {
   expect(await listSpeakers({ run, spawn: vi.fn() })).toEqual([{ id: "speakers", label: "speakers" }]);
   expect(run).toHaveBeenLastCalledWith("pactl", ["list", "sinks", "short"]);
 });
+
+it("distinguishes unavailable enumeration from a successfully observed empty device list", async () => {
+  const { discoverMicrophones, discoverSpeakers } = await import("../../src/audio/devices.js");
+  const unavailable = { run: vi.fn(async () => { throw new Error("host session unavailable"); }), spawn: vi.fn() };
+  expect(await discoverMicrophones(unavailable)).toEqual({ devices: [], available: false });
+  expect(await discoverSpeakers(unavailable)).toEqual({ devices: [], available: false });
+  const observedEmpty = { run: vi.fn(async () => "[]"), spawn: vi.fn() };
+  expect(await discoverMicrophones(observedEmpty)).toEqual({ devices: [], available: true });
+  expect(await discoverSpeakers(observedEmpty)).toEqual({ devices: [], available: true });
+});

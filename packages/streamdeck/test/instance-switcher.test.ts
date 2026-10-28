@@ -200,3 +200,29 @@ it("follows a daemon setting without bouncing through conflicting saved targets"
   expect(options.connect.mock.calls[2]![0]).toMatchObject({ name: "local" });
   switcher.close();
 });
+
+it("persists daemon-selected instances so restart reaches remote even when local is offline", async () => {
+  const options = setup();
+  const switcher = createInstanceSwitcher(options);
+  switcher.start(); await switcher.idle();
+  switcher.select("remote"); await switcher.idle();
+  expect(JSON.parse(readFileSync(options.preferencePath, "utf8"))).toBe("remote");
+  switcher.close();
+  const restarted = createInstanceSwitcher(options);
+  restarted.start(); await restarted.idle();
+  expect(options.connect.mock.calls[2]![0]).toMatchObject({ name: "remote" });
+  restarted.close();
+});
+
+it("allows an explicit browser selection to return to the prior instance without physical input", async () => {
+  const options = setup();
+  const switcher = createInstanceSwitcher(options);
+  switcher.start(); await switcher.idle();
+  switcher.select("remote"); await switcher.idle();
+  switcher.select("local"); await switcher.idle();
+  expect(options.connect).toHaveBeenCalledTimes(2);
+  switcher.select("local", true); await switcher.idle();
+  expect(options.connect.mock.calls[2]![0]).toMatchObject({ name: "local" });
+  expect(JSON.parse(readFileSync(options.preferencePath, "utf8"))).toBe("local");
+  switcher.close();
+});

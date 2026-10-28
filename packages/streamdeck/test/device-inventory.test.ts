@@ -13,11 +13,11 @@ it("reports joined inventory, refreshes on audio changes, and restarts the monit
   const system = { run: vi.fn(async () => raw), spawn: vi.fn() };
   const inventory = createDeviceInventory({ system, spawn, instances: ["local"], legacyMicId: "remembered", changed, setTimer: setTimeout, clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>) });
   await inventory.refresh();
-  expect(changed).toHaveBeenLastCalledWith({ mics: [{ id: "mic", label: "mic" }], speakers: [], instances: ["local"], legacy_mic_id: "remembered" });
+  expect(changed).toHaveBeenLastCalledWith({ mics: [{ id: "mic", label: "mic" }], speakers: [], availability: { mics: true, speakers: true }, instances: ["local"], legacy_mic_id: "remembered" });
   raw = "[]";
   data("Event 'remove' on source #1\n");
   await vi.advanceTimersByTimeAsync(0);
-  expect(changed).toHaveBeenLastCalledWith({ mics: [], speakers: [], instances: ["local"], legacy_mic_id: "remembered" });
+  expect(changed).toHaveBeenLastCalledWith({ mics: [], speakers: [], availability: { mics: true, speakers: true }, instances: ["local"], legacy_mic_id: "remembered" });
   const count = changed.mock.calls.length;
   data("Event 'change' on client #1\n");
   expect(changed).toHaveBeenCalledTimes(count);
@@ -50,7 +50,7 @@ it("coalesces simultaneous refreshes and drops an enumeration finishing after st
   await inventory.refresh();
   resolve("[]");
   await pending;
-  expect(changed.mock.calls).toEqual([[{ mics: [], speakers: [], instances: [] }], [{ mics: [], speakers: [], instances: [] }]]);
+  expect(changed.mock.calls).toEqual([[{ mics: [], speakers: [], availability: { mics: true, speakers: true }, instances: [] }], [{ mics: [], speakers: [], availability: { mics: true, speakers: true }, instances: [] }]]);
   ends[0]!();
   expect(timers.size).toBe(1);
   inventory.stop();
@@ -69,4 +69,12 @@ it("never publishes devices after its owner disconnects during discovery", async
   resolve("[]");
   await refreshing;
   expect(changed).not.toHaveBeenCalled();
+});
+
+it("reports unavailable host inventory explicitly instead of claiming there are no devices", async () => {
+  const changed = vi.fn();
+  const inventory = createDeviceInventory({ system: { run: vi.fn(async () => { throw new Error("discovery unavailable"); }), spawn: vi.fn() }, spawn: () => ({ stdout: null, on: vi.fn(), kill: vi.fn() }), instances: ["local"], legacyMicId: null, changed, setTimer: vi.fn(), clearTimer: vi.fn() });
+  await inventory.refresh();
+  expect(changed).toHaveBeenCalledWith({ mics: [], speakers: [], availability: { mics: false, speakers: false }, instances: ["local"] });
+  inventory.stop();
 });
