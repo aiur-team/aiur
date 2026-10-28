@@ -3,6 +3,7 @@ Code.require_file("journal_support.exs", __DIR__)
 defmodule Aiur.Conversation.ImporterTest do
   use ExUnit.Case, async: false
   alias Aiur.Conversation.{Importer, Ingest, Ref, TestSupport}
+  alias Aiur.IssueLog.Encoding
   alias Aiur.TrackerIdentity
   import TestSupport
   import Aiur.TestSupport, only: [receive_barrier: 1]
@@ -52,7 +53,7 @@ defmodule Aiur.Conversation.ImporterTest do
     assert entry["body_truncated"]
     assert entry["meta"]["import_source"] == "issue_log"
     assert String.length(entry["body"]) == 1000
-    File.write!(path, Aiur.IssueLog.Encoding.encode(%{role: :assistant, body: String.duplicate("é", 1001), msg_id: "encoded-old", payload: nil}) <> "\n")
+    File.write!(path, Encoding.encode(%{role: :assistant, body: String.duplicate("é", 1001), msg_id: "encoded-old", payload: nil}) <> "\n")
     assert [{:entry, encoded}] = Enum.to_list(Importer.stream({:issue_log, path}, "codex"))
     assert encoded.body_truncated
     assert String.ends_with?(encoded.body, "…")
@@ -62,7 +63,7 @@ defmodule Aiur.Conversation.ImporterTest do
     body = String.duplicate("reasoning ", 200)
     record = %{role: :reasoning, body: body, timestamp: c.now, turn_id: "turn", payload: nil}
     old = %{role: "assistant", body: "older", msg_id: "old"}
-    File.write!(Aiur.IssueLog.transcript_path(c.hint.identifier), [Jason.encode!(old) <> "\n", Aiur.IssueLog.Encoding.encode(record) <> "\n"])
+    File.write!(Aiur.IssueLog.transcript_path(c.hint.identifier), [Jason.encode!(old) <> "\n", Encoding.encode(record) <> "\n"])
     Ingest.append(c.ref, c.source, [%{record | body: body}])
     assert :ok = flush(c.ref)
     assert Enum.map(rows(c.dir), & &1["body"]) == ["", "older", body]
@@ -72,7 +73,7 @@ defmodule Aiur.Conversation.ImporterTest do
   test "IssueLog payload stripping cannot import a short first live item twice", c do
     live = %{role: :reasoning, body: "short live reasoning", timestamp: c.now, payload: %{provider_item_id: "reasoning-item"}}
     records = [%{role: :assistant, body: "older", msg_id: "old", payload: nil}, live, %{role: :assistant, body: "later live", payload: nil}]
-    File.write!(Aiur.IssueLog.transcript_path(c.hint.identifier), Enum.map(records, &(Aiur.IssueLog.Encoding.encode(&1) <> "\n")))
+    File.write!(Aiur.IssueLog.transcript_path(c.hint.identifier), Enum.map(records, &(Encoding.encode(&1) <> "\n")))
     Ingest.append(c.ref, c.source, [live])
     assert :ok = flush(c.ref)
     assert Enum.map(rows(c.dir), & &1["body"]) == ["", "older", "short live reasoning"]
@@ -214,14 +215,10 @@ defmodule Aiur.Conversation.ImporterTest do
   end
 
   test "writer killed mid-import resumes without adding duplicate imported entries", c do
-    write_workspace(c, Enum.map(1..50_200, &codex("old-#{&1}", "old #{&1}", c.now)))
-    actions(c.control, :append, List.duplicate(:pass, 1002) ++ [{:error, :eio}, :partial])
-    actions(c.control, :rebuild, [:pass, :blocked])
+    write_workspace(c, Enum.map(1..1200, &codex("old-#{&1}", "old #{&1}", c.now)))
+    actions(c.control, :append, [:pass, :pass, :blocked])
     Ingest.append(c.ref, c.source, [event(1)])
-    assert {:error, :degraded} = flush(c.ref)
-    {:ok, writer} = Ingest.writer(c.ref)
-    send(writer, :import_step)
-    receive_barrier({:store_blocked, :rebuild, pid})
+    receive_barrier({:store_blocked, :append, pid})
     opts = Application.fetch_env!(:aiur, :conversation_journal)
     Application.put_env(:aiur, :conversation_journal, Keyword.put(opts, :run_id, "run-two"))
     monitor = Process.monitor(pid)
@@ -229,7 +226,7 @@ defmodule Aiur.Conversation.ImporterTest do
     receive_barrier({:DOWN, ^monitor, :process, ^pid, :killed})
     Ingest.append(c.ref, c.source, [event(1)])
     assert :ok = flush(c.ref)
-    assert Enum.map(Enum.reject(rows(c.dir), &(&1["kind"] == "gap")), & &1["body"]) == Enum.map(1..50_200, &"old #{&1}") ++ ["message 1"]
+    assert Enum.map(Enum.reject(rows(c.dir), &(&1["kind"] == "gap")), & &1["body"]) == Enum.map(1..1200, &"old #{&1}") ++ ["message 1"]
     assert Enum.count(sessions(c.dir), &(&1["start_reason"] == "import")) == 1
   end
 

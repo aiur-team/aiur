@@ -156,7 +156,7 @@ defmodule Aiur.Conversation.JournalImport do
     case state.store.stream_entries(state.dir, first, pos) do
       {:ok, entries} ->
         Enum.reduce(entries, 0, fn entry, line ->
-          if entry["meta"]["import_source"] == to_string(kind), do: max(line, entry["meta"]["import_line"] || 0), else: line
+          resume_entry(entry, line, to_string(kind))
         end)
 
       _ ->
@@ -165,6 +165,10 @@ defmodule Aiur.Conversation.JournalImport do
   end
 
   defp resume_line(_state, _plan), do: 0
+
+  defp resume_entry(entry, line, kind) do
+    if entry["meta"]["import_source"] == kind, do: max(line, entry["meta"]["import_line"] || 0), else: line
+  end
 
   defp live_entry?(entry, import) do
     MapSet.member?(import.exclude, Entry.dedup_key(entry)) or
