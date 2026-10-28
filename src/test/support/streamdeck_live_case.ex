@@ -1,3 +1,5 @@
+Code.require_file("streamdeck_build_fixture.ex", __DIR__)
+
 defmodule AiurWeb.StreamdeckLiveCase do
   alias Aiur.TestSupport.BuildHome.UsageInputs
   @moduledoc false
@@ -5,7 +7,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
   import Phoenix.LiveViewTest
 
   alias Aiur.{CodingAgent, IssueLog}
-  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs}
+  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs, StreamdeckBuildFixture}
   alias AiurWeb.Endpoint
   alias AiurWeb.EndpointConfig
 
@@ -45,6 +47,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
         dashboard_auth_required: false,
         streamdeck_transcript_flush_ms: 1,
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
+        streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(Agent.get(snapshot_agent, & &1)) end,
         streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_logs_fun: &fixture_logs/1,
         streamdeck_commands_fun: &fixture_commands/2,
@@ -333,7 +336,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
 
   def enter_logs(view, identifier \\ "1352") do
     render_hook(view, "key-press", %{"identifier" => identifier})
-    render_click(view, "command-press", %{"command" => "logs"})
+    render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
   end
 
   def slot_identifiers(html) do

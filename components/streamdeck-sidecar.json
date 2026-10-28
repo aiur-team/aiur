@@ -22,7 +22,7 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Connects a physical Stream Deck for Build ticket status, pull requests and checks, conversations and Command responses.",
+  "summary": "Connects a physical Stream Deck for ticket controls, voice, Command answers and local browser links.",
   "status": "optional",
   "install": {
     "type": "setup",

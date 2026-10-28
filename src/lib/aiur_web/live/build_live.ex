@@ -15,11 +15,12 @@ defmodule AiurWeb.BuildLive do
   @route RouteRegistry.current_route(:build)
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     connected = connected?(socket)
 
     socket =
       socket
+      |> assign(:build_fixture_dataset, fixture_dataset(session))
       |> Protocol.init()
       |> Controls.init()
       |> Conversation.init()
@@ -52,7 +53,8 @@ defmodule AiurWeb.BuildLive do
     location = URI.parse(uri)
     socket = assign(socket, url_path: location.path, url_state: state)
     socket = if previous != nil and previous != state and connected?(socket), do: push_event(socket, "build:url", %{state: state}), else: socket
-    {:noreply, socket |> refresh_controls() |> patch_url(location.query || "", URLState.to_query(state))}
+    query = URLState.to_query(state)
+    {:noreply, socket |> refresh_controls() |> patch_url(location.query || "", query)}
   end
 
   defp patch_url(socket, current, query) do
@@ -68,6 +70,9 @@ defmodule AiurWeb.BuildLive do
     sent = Map.reject(params, fn {key, value} -> key == "ticket" or not is_binary(value) or value == "" end)
     Map.take(URI.decode_query(query), Map.keys(sent)) != sent
   end
+
+  defp fixture_dataset(session), do: if(fixture_query_enabled?(), do: session["fixture_dataset"])
+  defp fixture_query_enabled?, do: Application.get_env(:aiur, :build_fixture_query, false)
 
   defp load_snapshot(socket) do
     source = socket.assigns.build_source

@@ -27,7 +27,8 @@ defmodule Aiur.AgentRunner.WorkerJournal do
         provider_session_id: opts[:session_id],
         aiur_attempt_id: opts[:attempt_id] || opts[:telemetry_attempt_id],
         transcript_source: %{kind: opts[:journal_source_kind] || :aiur_ingest, locator_hash: nil},
-        start_reason: if(opts[:resumed], do: :resume, else: :spawn)
+        start_reason: if(opts[:resumed], do: :resume, else: :spawn),
+        import_hint: %{workspace: opts[:journal_workspace], backend: backend, identifier: Issue.tracker_identity(issue)}
       }
 
       Ingest.append(ref, source, [event])

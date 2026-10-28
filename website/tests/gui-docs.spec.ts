@@ -117,7 +117,7 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(dashboard).toContain('| **Streamdeck** | `/streamdeck`')
   expect(dashboard).toContain('browser emulator for the physical Stream Deck + sidecar')
   expect(streamDeck).toContain('Mic is press-and-hold, not a click')
-  expect(streamDeck).toContain('`alert` → `stuck` → `running` → `paused` → `queued`')
+  expect(streamDeck).toContain('| Agent states | `error` → `command` → `retrying` → `active` → `ci_wait` → `usage_limited` → `parked` → `paused` → reason states → unknown |')
   expect(streamDeck).toContain('The supported deployment is Arch Linux on x64 glibc 2.28+')
   expect(streamDeck).toContain('## Physical sidecar status')
   expect(streamDeck).toContain('`STREAMDECK_BRIGHTNESS`')
