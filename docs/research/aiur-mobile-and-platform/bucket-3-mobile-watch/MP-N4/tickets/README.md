@@ -1,5 +1,10 @@
 # MP-N4 tickets after the refactor refresh
 
+Daemon paths were audited again by C3-T00 at `1080f8a109ca6c2aaff3259e83c5600e9abb36ef`: see
+[plan §12](../plan.md#12-daemon-push-relay-starting-point) and
+[CR-N4-PATH-1](../CONTRACT-REQUESTS.md). The historical status/gate table below
+is unchanged; path verification alone does not release its design or feature gates.
+
 Target: `4fbe109541ba1e279d3eb315d8455c4d139c92ba`. Existing gates remain; named REFRESH items are owned source audits in the final refresh report. Historical designs and contracts retain their pinned research versions.
 
 | Ticket | Current pack status | Gates |

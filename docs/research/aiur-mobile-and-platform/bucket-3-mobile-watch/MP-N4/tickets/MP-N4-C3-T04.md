@@ -41,6 +41,14 @@ missing (AC-N4-8). States (identity-and-capabilities contract §2.2 enum only):
 
 ## Verified starting point
 
+Path refresh at `1080f8a109ca6c2aaff3259e83c5600e9abb36ef` (2026-10-27):
+see [plan §12](../plan.md#12-daemon-push-relay-starting-point) for current paths,
+public facades and the planned-import audit. All `src/lib/aiur/push/**` paths
+in this ticket (including abbreviated filenames) are PROPOSED in `push-relay`;
+the old proposed paths are unchanged, and no source ownership is registered yet.
+Historical refresh notes below retain their original scope; this path audit
+supersedes their daemon locations only, not design or other dependency gates.
+
 Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Mechanical matches were byte-checked; current starting-point ranges still need the named source review `REFRESH-MP-N4-C3-T04-4fbe1095`. Do not implement from the historical ranges below. base_sha and all prior gates are retained; this is not a design rejection.
 
 - Capability contract §2.2: `state ∈ {available, degraded, unavailable, unknown}`; reasons
@@ -50,7 +58,8 @@ Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-
 - Capability matrix: `push` row (`bucket-1-refactor/MP-R1/capability-matrix.md:65,87`):
   needs pairing, commands, event-bus; without build-orders Commands still notify.
 - Child placement: daemon children are built in `child_specs/1` from run-shape flags
-  (`src/lib/aiur.ex:244-251`, cited by the capability contract §2.4).
+  (`src/lib/aiur/application/children.ex:31`; old `src/lib/aiur.ex:244-251`).
+  `src/lib/aiur.ex:190` delegates to `Aiur.Application.Children`; this is composition-root wiring.
 
 ## Chosen design
 

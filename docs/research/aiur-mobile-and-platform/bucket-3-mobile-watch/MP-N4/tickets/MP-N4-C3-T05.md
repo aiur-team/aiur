@@ -40,6 +40,14 @@ gateway reports push deregistration separately as "pending" when the relay is do
 
 ## Verified starting point
 
+Path refresh at `1080f8a109ca6c2aaff3259e83c5600e9abb36ef` (2026-10-27):
+see [plan §12](../plan.md#12-daemon-push-relay-starting-point) for current paths,
+public facades and the planned-import audit. All `src/lib/aiur/push/**` paths
+in this ticket (including abbreviated filenames) are PROPOSED in `push-relay`;
+the old proposed paths are unchanged, and no source ownership is registered yet.
+Historical refresh notes below retain their original scope; this path audit
+supersedes their daemon locations only, not design or other dependency gates.
+
 Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
 
 - Pairing contract §4.5: revoke "Calls the MP-N4 deregistration hook (best effort,
