@@ -79,6 +79,26 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     assert html =~ "Unavailable"
   end
 
+  test "a title-sorted ticket outside the original first page opens and returns to the visible page", %{path: path, snapshot_agent: snapshot_agent} do
+    agents = for index <- 0..9, do: fixture_agent(to_string(1000 + index), if(index == 9, do: "Alpha", else: "Zulu #{index}"), "codex")
+    Agent.update(snapshot_agent, fn _snapshot -> %{running: agents, retrying: [], idle: []} end)
+    assert {:ok, _settings} = Settings.set(%{"default_sort" => "title"}, path)
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+    assigns = :sys.get_state(view.pid).socket.assigns
+    assert Enum.at(assigns.grid.agents, 9).identifier == "1009"
+    assert Floki.attribute(Floki.parse_fragment!(html), "#sd-keys button[data-streamdeck-key='0']", "data-streamdeck-identifier") == ["1009"]
+    render_hook(view, "key-press", %{"identifier" => "1009"})
+    assigns = :sys.get_state(view.pid).socket.assigns
+    assert assigns.deck_nav.selected == "1009"
+    assert assigns.deck_nav.pages.ticket == 0
+    assert assigns.sd_mode == :cmd
+    html = dial(view, 0, "press")
+    assigns = :sys.get_state(view.pid).socket.assigns
+    assert assigns.sd_mode == :grid
+    assert assigns.deck_nav.pages.ticket == 0
+    assert Floki.attribute(Floki.parse_fragment!(html), "#sd-keys button[data-streamdeck-key='0']", "data-streamdeck-identifier") == ["1009"]
+  end
+
   defp dial(view, index, action, delta \\ 0), do: render_hook(view, "input", %{"kind" => "dial", "index" => index, "action" => action, "delta" => delta})
 
   defp assert_shared_images(view, html) do

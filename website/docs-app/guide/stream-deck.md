@@ -248,7 +248,7 @@ Hold dial 4 at the root to open Settings.
 | Save failure | Shows “not saved” and keeps the previous file and settings. |
 
 There is no standalone microphone-test key. The browser uses the daemon's latest
-sidecar inventory; unavailable inventory is shown explicitly.
+sidecar inventory; disconnects and failed device discovery show “Unavailable” rather than an empty list.
 
 ### Voice replies are out of scope
 

@@ -76,15 +76,17 @@ the physical sidecar consumes `frame` images and applies daemon `settings`.
 | `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
 
 The sidecar sends `devices` on join and inventory changes with
-`{mics: [{id, label}], speakers: [{id, label}], instances: [name], legacy_mic_id?}`.
+`{mics: [{id, label}], speakers: [{id, label}], instances: [name], availability?: {mics: boolean, speakers: boolean}, legacy_mic_id?}`.
 Only instance names cross this boundary; connection credentials stay on the PC.
 Inventory is retained while its reporting connection is alive; after disconnect, both surfaces show unavailable inventory instead of inventing an empty device count.
+Availability flags distinguish failed discovery from an observed empty device list; older senders without flags retain list-based availability.
 `legacy_mic_id` migrates the old sidecar preference when daemon settings are absent.
 The `settings_set` event carries a patch of the settings fields. The daemon
 validates it and atomically saves the per-instance private file before pushing
 `settings`. Failed writes reply with an error, retain the old settings and show
 “not saved”. Brightness is clamped to 0–100; a zero idle timeout never dims.
 Alert patches preserve omitted categories; files with omitted categories use their defaults.
+Successful instance selections include an optional `instance_selection_id` in pushed settings. This change marker lets an explicit selection revisit an instance without treating repeated settings or initial joins as new selections; it is not stored in the settings file.
 
 `grid.build_status` is `ok`, `none` (no lane with a positive total), or
 `unavailable` (queue model could not be read). `grid.build` is null unless

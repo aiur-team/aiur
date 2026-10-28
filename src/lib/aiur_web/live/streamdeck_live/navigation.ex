@@ -3,11 +3,13 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
+  alias AiurWeb.Streamdeck.SettingsUpdates
+  alias AiurWeb.StreamdeckLive.Settings
   alias Phoenix.LiveView.Socket
 
   @spec route(Socket.t(), String.t(), map()) :: Socket.t()
   def route(socket, event, params) do
-    sections = Deck.navigation(socket.assigns.grid)
+    sections = sorted_sections(socket.assigns)
     nav = key_nav(socket.assigns.deck_nav, event, params, sections)
     socket = assign(socket, :deck_nav, nav)
     frame = frame(socket, event, params, sections)
@@ -16,6 +18,15 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
       {%Nav{} = nav, effects} -> assign(socket, deck_nav: nav, deck_effects: effects)
       {:error, _reason} -> socket
     end
+  end
+
+  defp sorted_sections(assigns) do
+    grid = Settings.refresh_assigns(assigns).grid
+    agents = case Map.get(grid, :settings_snapshot) do
+      %{status: :ok, settings: settings} -> SettingsUpdates.sort(grid.agents, settings)
+      _unknown -> grid.agents
+    end
+    Deck.navigation(%{grid | agents: agents})
   end
 
   defp frame(_socket, "dial-press", params, _sections),
