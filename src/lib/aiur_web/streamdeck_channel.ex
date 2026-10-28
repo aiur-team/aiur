@@ -9,8 +9,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, TicketUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput, TicketUpdates}
 
   alias AiurWeb.Streamdeck.UsageUpdates
 
@@ -67,10 +66,10 @@ defmodule AiurWeb.StreamdeckChannel do
   @impl true
   def handle_in("input", input, socket) do
     if Nav.valid_input?(input) do
-      grid = StreamdeckProjection.grid()
-      sections = Deck.navigation(grid)
+      grid = StreamdeckProjection.grid() |> MeterPage.prepare(socket.assigns.deck_nav)
+      sections = MeterPage.sections(grid)
       {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
-      socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_frame_grid: grid)
+      socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_frame_grid: MeterPage.focus(grid, nav))
       PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
     else
       {:reply, {:error, %{reason: "invalid_input"}}, socket}

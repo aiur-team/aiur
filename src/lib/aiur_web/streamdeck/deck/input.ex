@@ -35,8 +35,9 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
   defp items(%{stack: [], view: view}, sections), do: Map.get(sections, view, [])
 
   defp items(%{stack: [{:meter_detail, id} | _rest]}, sections), do: Map.get(sections, {:meter_detail, id}, [])
+
   defp items(%{stack: [{:state, states} | _rest]}, sections) do
-    sections |> Map.get(:fleet, []) |> Enum.find(%{}, &(&1.states == states)) |> Map.get(:tickets, [])
+    sections |> Map.get(:fleet, []) |> Enum.find(%{}, &(Map.get(&1 || %{}, :states) == states)) |> Map.get(:tickets, [])
   end
 
   defp items(%{stack: [{view, id} | _rest]}, sections) do

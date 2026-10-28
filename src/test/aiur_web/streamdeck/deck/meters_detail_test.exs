@@ -63,10 +63,11 @@ defmodule AiurWeb.Streamdeck.Deck.MetersDetailTest do
 
   test "resolved Fleet meter key pushes detail, account press is read-only, hold returns" do
     sections = %{{:meter_detail, "claude"} => [%{id: "personal"}], fleet: [%{id: "claude", kind: :meter_detail}]}
-    nav = %Nav{view: :fleet}
+    nav = %Nav{view: :fleet, selected: "17"}
     assert {opened, []} = Input.reduce(nav, %{"kind" => "key_press", "index" => 0}, sections)
     assert opened.stack == [{:meter_detail, "claude"}]
     assert {^opened, []} = Input.reduce(opened, %{"kind" => "key_press", "index" => 0}, sections)
+    assert {^opened, []} = Input.reduce(opened, %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, sections)
     assert {closed, []} = Input.reduce(opened, %{"kind" => "dial_long_press", "index" => 3}, sections)
     assert closed.view == :fleet
     assert closed.stack == []

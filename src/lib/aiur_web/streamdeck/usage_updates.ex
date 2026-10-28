@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.UsageUpdates do
   @moduledoc false
   import Phoenix.Socket, only: [assign: 3]
-  alias AiurWeb.Streamdeck.Deck.Meters
+  alias AiurWeb.Streamdeck.Deck.{MeterPage, Meters}
 
   @spec schedule(Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
   def schedule(%{assigns: %{usage_flush: nil}} = socket) do
@@ -15,7 +15,7 @@ defmodule AiurWeb.Streamdeck.UsageUpdates do
   @spec flush(Phoenix.Socket.t(), reference()) :: {:noreply, Phoenix.Socket.t()}
   def flush(%{assigns: %{usage_flush: token}} = socket, token) when is_reference(token) do
     Phoenix.Channel.push(socket, "usage", Meters.read())
-    {:noreply, assign(socket, :usage_flush, nil)}
+    {:noreply, socket |> assign(:usage_flush, nil) |> MeterPage.refresh()}
   end
 
   def flush(socket, _old_token), do: {:noreply, socket}

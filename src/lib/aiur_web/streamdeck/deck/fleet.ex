@@ -30,7 +30,7 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
   end
 
   @spec navigation(map()) :: [map()]
-  def navigation(fleet), do: Enum.reject(field(fleet, :keys) || [], &(field(&1, :cat) == :capacity))
+  def navigation(fleet), do: Enum.map(field(fleet, :keys) || [], fn key -> if field(key, :cat) == :capacity, do: %{}, else: key end)
 
   defp unavailable(data, opts), do: %{status: "unavailable", keys: [], strip: strip(data, opts)}
 

@@ -16,7 +16,8 @@ renderer adopt this model.
 
 ## Read provider accounts
 
-In the server navigation model, a Fleet provider meter key opens one key per
+In the server navigation model, turn dial 4 past the eight Fleet categories
+to reach the provider meter keys. Press a meter to open one key per
 account, sorted by name, with 5h and weekly remaining percentages and reset
 countdowns. Missing windows show “—” with a hatched bar. Stale values stay
 visible, dimmed and labelled “stale”.
@@ -24,8 +25,8 @@ visible, dimmed and labelled “stale”.
 The touch strip names the provider and
 its summary account; hold dial 4 to return. Account keys are read-only.
 
-This entry depends on the Fleet summary layout; the current sidecar controls
-below remain in use until that layout is connected.
+The current sidecar controls below remain in use until the sidecar adopts
+the server navigation frames.
 
 ## Drive the four modes
 
