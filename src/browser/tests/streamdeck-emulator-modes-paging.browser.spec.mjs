@@ -337,9 +337,12 @@ test('a patch during dial D drag preserves the full release travel', async ({ pa
     const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
     window.__streamdeckGridEvents = []
     const pushEvent = hook.pushEvent.bind(hook)
-    hook.pushEvent = (name, payload) => {
-      if (name === 'input') window.__streamdeckGridEvents.push({ name, payload })
-      return pushEvent(name, payload)
+    hook.pushEvent = (...args) => {
+      const [name, payload] = args
+      if (name === 'input') {
+        window.__streamdeckGridEvents.push({ name, payload })
+      }
+      return pushEvent(...args)
     }
   })
 
@@ -365,21 +368,16 @@ test('a patch during dial D drag preserves the full release travel', async ({ pa
   await expect.poll(() => page.locator('#sd-keys').getAttribute('data-grid-dial-value')).toBe('50')
   await expect(dialD).toHaveAttribute('aria-valuenow', valueBeforePatch)
 
-  const patchedBox = await dialD.boundingBox()
-  const patchedCx = patchedBox.x + patchedBox.width / 2
-  const patchedCy = patchedBox.y + patchedBox.height / 2
-  const afterPatch = (degrees) => {
-    const radians = (degrees * Math.PI) / 180
-    return { x: patchedCx + Math.cos(radians) * 30, y: patchedCy + Math.sin(radians) * 30 }
-  }
-
-  await page.mouse.move(...Object.values(afterPatch(45)))
+  await page.mouse.move(...Object.values(point(45)))
   await page.mouse.up()
 
   const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
   expect(releaseEvents).toHaveLength(1)
   expect(releaseEvents[0].payload).toMatchObject({ kind: 'dial', index: 3, action: 'turn', delta: 1 })
-  await expect.poll(async () => dialD.getAttribute('aria-valuenow')).toBe(await page.locator('#sd-keys').getAttribute('data-grid-dial-value'))
+  await expect.poll(async () => {
+    const serverValue = await page.locator('#sd-keys').getAttribute('data-grid-dial-value')
+    return await dialD.getAttribute('aria-valuenow') === serverValue
+  }).toBe(true)
 })
 
 test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {

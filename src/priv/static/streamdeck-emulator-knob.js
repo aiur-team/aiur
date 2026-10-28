@@ -118,7 +118,7 @@
     if (accumulatedDeg < PRESS_THRESHOLD_DEG) {
       this._press(performance.now() - this._pressedAt >= LONG_PRESS_MS);
     } else {
-      this.hook._handleDialStep(this.index, netDeltaDeg);
+      this.hook._handleDialRelease(this.index, netDeltaDeg);
     }
   };
 
