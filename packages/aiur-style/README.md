@@ -4,7 +4,7 @@ Consolidated design system and component library for the Aiur family of sites: a
 
 ## Status
 
-This package is currently in development. It provides:
+Version 0.1.0 provides:
 - Design tokens and CSS component styles
 - Plain ES-module behaviors that progressively enhance server-rendered markup
 - A pre-paint theme initialization script
@@ -17,7 +17,7 @@ Components and consumer migrations are tracked in the aiur-style umbrella issue:
 ## Installation
 
 ```bash
-npm install aiur-style
+npm install --save-exact aiur-style@0.1.0
 ```
 
 ## Usage
@@ -163,36 +163,58 @@ npm run test:visual:docker # Run visual tests in the pinned CI container
 
 ## Releases
 
-`.github/workflows/aiur-style-release.yml` runs only on PRs touching this
-package or the workflow. It runs `check-dist`, the release verifier's node:test
-suite, `npm pack`, and `npm publish --dry-run`. The pack file list appears in
-the Actions summary and the `aiur-style-pack` artifact. The packed manifest gets
-repository metadata for `aiur-team/aiur`, directory `packages/aiur-style`.
-The checked-in manifest is unchanged.
+`.github/workflows/aiur-style-release.yml` runs read-only PR dry-runs and a
+separate OIDC publish job on `aiur-style-v*` tags. The publish job uses Node 24,
+verifies the tag/version and changelog, checks freshly built `dist/`, tests the
+installed tarball exports, then publishes with `--provenance --access public`.
+Only that job has `id-token: write`; no npm token secret is needed.
+The packed manifest identifies `aiur-team/aiur`, directory `packages/aiur-style`.
 
-This workflow has read-only repository permissions, no OIDC publishing
-permission, and no tag-triggered or manual real-publish job. Real npm publishing
-is Kevin's decision in [#2786](https://github.com/aiur-team/aiur/issues/2786).
+Before the first tag, the operator must bootstrap ownership of `aiur-style`
+(for example by publishing the pre-release-preparation `0.0.0` from main), then
+configure its npm trusted publisher: organization **aiur-team**, repository
+**aiur**, workflow **aiur-style-release.yml**, no environment. Allow direct
+`npm publish`. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
+Do not tag until that setup is complete.
 
-Before that first release, the operator must establish ownership of the npm
-package `aiur-style` and configure its GitHub Actions trusted publisher for
-organization **aiur-team**, repository **aiur**, workflow filename
-**aiur-style-release.yml** when the approved publish job is added. An initial
-package bootstrap, if needed, is a separate authorized operator action. See
-[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
-
-Prepare a release with a stable semver in `package.json` and its lockfile, a
-`## [<version>]` changelog heading, and current committed `dist/`. Check it from
-the repository root without publishing:
+Prepare stable semver in `package.json` and its lockfile, add the matching
+`## [<version>]` changelog heading, and rebuild generated `dist/`. Verify without
+publishing from the repository root:
 
 ```bash
 node packages/aiur-style/scripts/verify-release.mjs --self-test
-node packages/aiur-style/scripts/verify-release.mjs aiur-style-v<version>
+node packages/aiur-style/scripts/verify-release.mjs aiur-style-v0.1.0
+node --test packages/aiur-style/test/pack.test.mjs
 ```
 
-The verifier rejects a tag/version mismatch, a missing changelog heading, or
-stale `dist/`. It does not publish anything. Pushing a tag does not trigger this
-PR-only workflow.
+After review and merge, the release operator pushes `aiur-style-v0.1.0` on the
+merge commit. Check the Actions publish job, `npm view aiur-style@0.1.0 dist.tarball`,
+and the npm provenance record, then install the registry version in a clean project.
+
+## Consumer recipes
+
+- **aiur.team:** use `file:../packages/aiur-style`, import the main CSS and root
+  controllers, and import `createFlowField` from `aiur-style/field`. Copy the
+  initializer, fonts and assets to public files during prebuild/predev.
+- **VitePress docs:** use `file:../../packages/aiur-style`; import `tokens.css`,
+  `fonts.css` and `vitepress.css`. Add the external initializer to `head` with
+  `data-vitepress="true"`; VitePress owns runtime theme controls.
+- **Dashboard:** run `scripts/sync-aiur-style` to copy generated assets into
+  `src/priv/static/aiur-style/`; serve CSS, module behaviors and the classic
+  initializer from that directory.
+- **Archon:** pin `aiur-style` to `0.1.0`. Copy `node_modules/aiur-style/dist`
+  into the served `/aiur-style/` directory, link the CSS, load `js/auto.js` as
+  an external module, and load `init/theme-init.js` before paint. Serve fonts
+  from the same origin with `font-src 'self'`.
+- **Khala splash:** pin `0.1.0`, import the main CSS and controllers with Vite,
+  and copy the initializer into landing public assets. Use external scripts
+  for the CSP. Set `data-legacy-keys="khala.theme khala.aiur-banner.dismissed"`.
+- **Khala app:** use the same dependency, import `css/shell.css`, `css/page.css`
+  and `css/button.css`, and use the React wrappers below for channel navigation.
+
+The initializer's exported subpath is `aiur-style/theme-init.js`; its physical
+file for asset copying is `node_modules/aiur-style/dist/init/theme-init.js`.
+Theme controllers come from `aiur-style` (there is no `/theme` export).
 
 ## License
 
