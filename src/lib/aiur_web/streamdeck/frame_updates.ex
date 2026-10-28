@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render, SettingsUpdates}
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, SettingsMenu, SettingsSnapshot}
+  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, Settings, SettingsMenu, SettingsSnapshot}
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 
@@ -102,7 +102,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   defp grid(socket) do
     grid = socket.assigns[:deck_grid] || StreamdeckProjection.grid()
-    SettingsSnapshot.attach(grid, socket.assigns[:deck_settings_path] || AiurWeb.Streamdeck.Deck.Settings.path())
+    SettingsSnapshot.attach(grid, socket.assigns[:deck_settings_path] || Settings.path())
   end
 
   defp settings_context(nav, snapshot), do: %{menu: nav.settings, values: snapshot.settings, devices: snapshot.devices, status: snapshot.status}

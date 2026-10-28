@@ -31,6 +31,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshotTest do
     original = File.read!(path)
     assert Jason.decode!(original)["brightness"] == 30
     File.chmod!(root, 0o500)
+
     try do
       assert {:error, :eacces} = SettingsSnapshot.save(%{"brightness" => 80}, path)
       assert File.read!(path) == original
@@ -46,13 +47,17 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshotTest do
     :ok = SettingsSnapshot.subscribe(path)
     observer = self()
     inventory = %{"mics" => [%{"id" => "usb", "label" => "USB mic"}], "speakers" => [], "instances" => ["local"]}
-    owner = spawn(fn ->
-      SettingsSnapshot.devices(inventory, path)
-      send(observer, :inventory_reported)
-      receive do
-        :stop -> :ok
-      end
-    end)
+
+    owner =
+      spawn(fn ->
+        SettingsSnapshot.devices(inventory, path)
+        send(observer, :inventory_reported)
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
     on_exit(fn -> Process.exit(owner, :kill) end)
     assert_receive :inventory_reported, 1_000
     assert_receive {:streamdeck_settings_changed, ^path}, 1_000
@@ -68,6 +73,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshotTest do
     assert SettingsSnapshot.read(hd(paths)).status == :unavailable
     assert SettingsSnapshot.read(List.last(paths)).status == :ok
   end
+
   test "only successful explicit instance saves renew ephemeral selection tokens", %{root: root, path: path} do
     assert SettingsSnapshot.load(path).selection_id == nil
     assert {:ok, first} = SettingsSnapshot.save(%{"instance" => "local"}, path)
@@ -84,6 +90,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshotTest do
     assert repeated.selection_id != first.selection_id
     old_file = File.read!(path)
     File.chmod!(root, 0o500)
+
     try do
       assert {:error, :eacces} = SettingsSnapshot.save(%{"instance" => "remote"}, path)
       assert SettingsSnapshot.read(path).selection_id == repeated.selection_id
@@ -93,5 +100,4 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsSnapshotTest do
       File.chmod!(root, 0o700)
     end
   end
-
 end

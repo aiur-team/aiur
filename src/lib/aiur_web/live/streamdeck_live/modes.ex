@@ -13,6 +13,7 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   alias Aiur.AgentChat
   alias AiurWeb.Streamdeck.Deck.TicketPage
   alias AiurWeb.StreamdeckCommands
+  alias AiurWeb.StreamdeckLive.Settings
   alias Phoenix.LiveView.Socket
 
   @spec select_agent_from_params(Socket.t(), map()) :: Socket.t()
@@ -57,7 +58,7 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   @spec enter_settings(Socket.t()) :: Socket.t()
   def enter_settings(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket)
       when not is_nil(active),
-      do: socket |> AiurWeb.StreamdeckLive.Settings.open() |> refresh_knobs()
+      do: socket |> Settings.open() |> refresh_knobs()
 
   def enter_settings(socket), do: socket
 

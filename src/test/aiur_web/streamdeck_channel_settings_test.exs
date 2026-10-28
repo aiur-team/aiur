@@ -1,5 +1,6 @@
 defmodule AiurWeb.StreamdeckChannelSettingsTest do
   use AiurWeb.StreamdeckChannelCase
+  alias Aiur.TestSupport.StreamdeckBuildFixture
   alias AiurWeb.Streamdeck.Deck.{Settings, SettingsSnapshot}
 
   setup do
@@ -16,7 +17,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     input(socket, "devices", inventory())
     input(socket, "input", %{"kind" => "dial_long_press", "index" => 3})
     frame = pushed_frame(socket)
-    assert Enum.map(frame.keys, & &1.label) |> Enum.join(" ") =~ "Brightness"
+    assert Enum.map_join(frame.keys, " ", & &1.label) =~ "Brightness"
     refute Enum.any?(frame.keys, &String.contains?(&1.label, "TestMic"))
     input(socket, "input", %{"kind" => "key_press", "index" => 0})
     input(socket, "input", %{"kind" => "dial_turn", "index" => 0, "ticks" => 1})
@@ -81,7 +82,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     put_endpoint_config(
       streamdeck_build_queue_fun: fn -> %{status: :disabled} end,
       streamdeck_snapshot_fun: fn -> snapshot end,
-      streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(snapshot) end
+      streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(snapshot) end
     )
 
     socket = settings_socket()

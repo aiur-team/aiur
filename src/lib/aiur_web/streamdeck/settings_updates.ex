@@ -122,11 +122,14 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   defp migrate(_id, _socket), do: :ok
 
   defp valid_devices?(%{"mics" => mics, "speakers" => speakers} = payload) do
-    valid_list?(mics) and valid_list?(speakers) and valid_availability?(payload["availability"]) and is_list(payload["instances"] || []) and length(payload["instances"] || []) <= 100 and
-      Enum.all?(payload["instances"] || [], &(is_binary(&1) and byte_size(&1) in 1..256))
+    valid_list?(mics) and valid_list?(speakers) and valid_availability?(payload["availability"]) and valid_instances?(payload["instances"])
   end
 
   defp valid_devices?(_payload), do: false
+
+  defp valid_instances?(nil), do: true
+  defp valid_instances?(instances) when is_list(instances) and length(instances) <= 100, do: Enum.all?(instances, &(is_binary(&1) and byte_size(&1) in 1..256))
+  defp valid_instances?(_instances), do: false
 
   defp valid_availability?(nil), do: true
   defp valid_availability?(%{"mics" => mics, "speakers" => speakers} = flags), do: map_size(flags) == 2 and is_boolean(mics) and is_boolean(speakers)
