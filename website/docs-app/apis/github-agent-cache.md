@@ -111,7 +111,9 @@ That gap is the exposure, and it is why a verdict is never kept at all.
 The agent `gh issue create` guard replaces `todo`/`queued` dispatch labels on
 non-feature findings with `needs-triage` and the instance's parked label.
 `feature:*`, `build-lane:*`, `build-order`, `epic`, and the configured main-watch
-fixer label preserve their existing disposition. Agent-filed flakes remain
+fixer label preserve their existing disposition.
+
+Agent-filed flakes remain
 parked even with an exemption. Missing dispositions are still refused.
 
 Executor findings follow the same parked intake rule. Promotion requires
