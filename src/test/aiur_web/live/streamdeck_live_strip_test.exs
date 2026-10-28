@@ -214,7 +214,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ "★"
-    assert length(Floki.find(Floki.parse_fragment!(html), "#sd-screen svg")) > 0
+    assert Floki.find(Floki.parse_fragment!(html), "#sd-screen svg") != []
   end
 
   # The design's six-key glyph (a bezel around two rows of three keys) is what

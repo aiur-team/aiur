@@ -3,6 +3,8 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
 
   use Phoenix.Component
 
+  alias AiurWeb.Streamdeck.Render
+
   attr(:image, :map, default: nil)
   attr(:index, :integer, required: true)
   attr(:class, :string, default: nil)
@@ -40,7 +42,7 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
 
   @spec keys(map()) :: Phoenix.LiveView.Rendered.t()
   def keys(assigns) do
-    {faces, _regions} = AiurWeb.Streamdeck.Render.compose(assigns.model)
+    {faces, _regions} = Render.compose(assigns.model)
     assigns = assign(assigns, :slots, Enum.zip(assigns.frame.keys, faces) |> Enum.with_index())
 
     ~H"""

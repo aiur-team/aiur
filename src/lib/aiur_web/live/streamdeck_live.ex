@@ -26,7 +26,7 @@ defmodule AiurWeb.StreamdeckLive do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.FrameUpdates
-  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Surface}
+  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLogs
 
@@ -110,7 +110,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   @impl true
-  def handle_event("input", raw, socket), do: AiurWeb.StreamdeckLive.Input.handle(raw, socket)
+  def handle_event("input", raw, socket), do: Input.handle(raw, socket)
 
   @impl true
   def handle_event("toggle-global-pause", _params, socket),

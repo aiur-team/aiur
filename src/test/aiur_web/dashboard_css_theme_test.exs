@@ -1,4 +1,6 @@
 defmodule AiurWeb.DashboardCssThemeTest do
+  alias AiurWeb.Streamdeck.Render.Style
+
   use ExUnit.Case, async: true
 
   test "home sheet literal inks are frozen" do
@@ -173,8 +175,8 @@ defmodule AiurWeb.DashboardCssThemeTest do
 
   test "dashboard progress bars match the Stream Deck progress contract" do
     root = declarations(css_rule(":root"))
-    assert root["--progress-fill"] == AiurWeb.Streamdeck.Render.Style.progress_color(0)
-    assert root["--progress-complete-fill"] == AiurWeb.Streamdeck.Render.Style.progress_color(100)
+    assert root["--progress-fill"] == Style.progress_color(0)
+    assert root["--progress-complete-fill"] == Style.progress_color(100)
 
     assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
     assert css_rule(".ut-pbar > i") =~ "min-width: var(--progress-bar-height)"

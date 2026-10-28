@@ -3,6 +3,7 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
 
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Streamdeck.{FrameUpdates, Render}
+  alias AiurWeb.StreamdeckLive.Frame
 
   test "grid buttons contain exactly the renderer SVG and accessible label for their slot" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
@@ -100,7 +101,7 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
     assert has_element?(view, "button[data-streamdeck-command='logs'] > svg")
 
     for mode <- [:logs, :settings, :commands] do
-      html = render_click(view, "command-press", %{"command" => to_string(mode)})
+      html = if mode == :logs, do: render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "press"}), else: render_click(view, "command-press", %{"command" => to_string(mode)})
       assert :sys.get_state(view.pid).socket.assigns.deck_nav.surface == mode
       assert_grid_images(view, html)
 
@@ -114,13 +115,13 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
                )
       end
 
-      render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+      render_hook(view, "input", %{"kind" => "dial", "index" => 0, "action" => "press"})
     end
   end
 
   defp assert_grid_images(view, html) do
     assigns = :sys.get_state(view.pid).socket.assigns
-    rendered = AiurWeb.StreamdeckLive.Frame.assign_frame(assigns)
+    rendered = Frame.assign_frame(assigns)
     {model, frame} = {rendered.frame_model, rendered.frame}
     {faces, _regions} = Render.compose(model)
     buttons = Regex.scan(~r/<button\b[^>]*data-streamdeck-key="\d+"[^>]*>(.*?)<\/button>/s, html)

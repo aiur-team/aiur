@@ -2,8 +2,8 @@ defmodule AiurWeb.StreamdeckLive.Frame do
   @moduledoc "Adapt the emulator's retained projections to the shared daemon renderer."
   import Phoenix.Component, only: [assign: 2]
   import AiurWeb.StreamdeckLive.Env, only: [endpoint_config: 1]
-  alias AiurWeb.Streamdeck.{FrameUpdates, Render}
   alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.{FrameUpdates, Render}
   alias AiurWeb.StreamdeckLive.CommandKeys
 
   @spec assign_frame(map()) :: map()

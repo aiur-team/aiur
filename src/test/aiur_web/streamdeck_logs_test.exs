@@ -1,8 +1,8 @@
 defmodule AiurWeb.StreamdeckLogsTest do
   use ExUnit.Case, async: true
 
-  alias AiurWeb.StreamdeckLogs
   alias AiurWeb.Streamdeck.Render.Style
+  alias AiurWeb.StreamdeckLogs
 
   test "projects one key per bus event, an origin anchor first and LIVE last" do
     logs =
