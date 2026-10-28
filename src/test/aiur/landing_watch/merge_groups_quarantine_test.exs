@@ -1,6 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.LandingWatch.Journal
   alias Aiur.LandingWatch.MergeGroupQuarantine
   alias Aiur.LandingWatch.MergeGroups
 
@@ -69,6 +70,7 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
       jobs_fun: fn _run, _opts ->
         {:ok, [%{"check_run_id" => 1, "name" => "test", "conclusion" => "failure"}]}
       end,
+      job_log_fun: fn _job, _opts -> {:ok, ""} end,
       annotations_fun: fn _id, _opts ->
         {:ok,
          [
@@ -87,6 +89,30 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     assert_received {:changed_paths, 52}
     refute_received {:changed_paths, _}
     assert_received {:cascade_ticket, "Aiur.OneTest", ["Aiur.TwoTest"]}
+  end
+
+  test "main push degraded runner skips annotated failures but a healthy single flake is recorded" do
+    parent = self()
+    degraded_path = temp_journal("main-degraded")
+    healthy_path = temp_journal("main-healthy")
+
+    on_exit(fn ->
+      Aiur.TestCleanup.rm_rf!(degraded_path)
+      Aiur.TestCleanup.rm_rf!(healthy_path)
+    end)
+
+    degraded = main_entry(514)
+    healthy = main_entry(515)
+
+    degraded_log = "** (ExUnit.TimeoutError) first\n** (ExUnit.TimeoutError) second\n** (ExUnit.TimeoutError) third"
+    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", main_opts(degraded_path, degraded, degraded_log))
+    assert {:ok, degraded_state} = Journal.state(journal_path: degraded_path)
+    assert Map.get(degraded_state, "failure_observations", []) == []
+
+    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", main_opts(healthy_path, healthy, "** (ExUnit.AssertionError) one test failed", parent))
+    assert {:ok, healthy_state} = Journal.state(journal_path: healthy_path)
+    assert Enum.any?(healthy_state["failure_observations"], &(&1["identity"] == "Aiur.HealthyTest :: flakes"))
+    assert_received {:healthy_flake_candidate, %{module: "Aiur.HealthyTest", name: "flakes"}}
   end
 
   test "failed runs older than a day are skipped before fetching jobs" do
@@ -132,6 +158,41 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
   end
 
   defp minutes_ago(minutes), do: DateTime.utc_now() |> DateTime.add(-minutes * 60) |> DateTime.to_iso8601()
+
+  defp main_opts(journal, entry, log, parent \\ self()),
+    do: [
+      journal_path: journal,
+      main_history_fun: fn -> [entry] end,
+      jobs_fun: fn _, _ -> {:ok, [%{"id" => 10, "name" => "test", "conclusion" => "failure"}]} end,
+      job_log_fun: fn _, _ -> {:ok, log} end,
+      annotations_fun: fn _, _ -> {:ok, []} end,
+      commit_paths_fun: fn _, _ -> {:ok, []} end,
+      quarantine_list_fun: fn -> {:ok, ""} end,
+      flake_recorder: fn failure, _run, _passed, recorder_opts ->
+        send(parent, {:healthy_flake_candidate, failure})
+        recorder_opts[:issue_recorded_fun].(900)
+      end,
+      quarantine_pr_fun: fn _candidate, _ticket, _opts -> {:ok, %{number: 901}} end
+    ]
+
+  defp main_entry(id),
+    do: %{
+      sha: "main-sha-#{id}",
+      completed_at: System.system_time(:millisecond),
+      run_urls: ["https://github.com/test-org/test-repo/actions/runs/#{id}"],
+      digest: %{
+        checks: [
+          %{
+            id: 10,
+            name: "test",
+            url: "https://github.com/test-org/test-repo/actions/runs/#{id}",
+            tests: [%{identity: if(id == 514, do: "Aiur.DegradedTest :: flakes", else: "Aiur.HealthyTest :: flakes"), path: nil}]
+          }
+        ]
+      }
+    }
+
+  defp temp_journal(prefix), do: Path.join(System.tmp_dir!(), "#{prefix}-#{System.unique_integer([:positive])}.json")
 
   defp failed_run(id, branch, url, created_at) do
     %{

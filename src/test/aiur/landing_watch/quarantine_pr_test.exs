@@ -218,7 +218,7 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
              QuarantinePR.open(
                %{identity: "Aiur.ExampleTest :: fails repeatedly", observations: []},
                900,
-               opts(parent, listed, nil)
+               Keyword.put(opts(parent, listed, nil), :quarantine_expires_on, Date.add(Date.utc_today(), 90))
              )
 
     assert_received {:request, :post, @api <> "/git/blobs", %{"content" => updated}}
