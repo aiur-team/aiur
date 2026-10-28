@@ -18,10 +18,10 @@ renderer adopt this model.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B/C: no action. D: press for Logs. |
+| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
-| **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B/C: no action. D: scroll event keys. |
+| **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 | Control state | Behavior |
@@ -116,6 +116,47 @@ The service applies `STREAMDECK_BRIGHTNESS`, reconnects after device hotplug, su
 The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
 dashboard credentials to mint a short-lived channel token. Neither credential
 enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
+
+Turn **dial 3** to browse registered instances without connecting. Press and
+release it to follow the highlighted instance. Holding **dial 2 + dial 3**
+toggles the demo instead.
+
+The strip names the followed instance and shows
+`connecting`, `connected`, `auth failed`, or `unreachable`; browsing also names
+the candidate. A failed connection stays on that target and never falls back.
+
+The sidecar reads the CLI's `~/.aiur/remote-instances.yaml` registry at startup:
+
+```yaml
+version: 1
+instances:
+  remote:
+    url: https://remote.example.com
+    token_file: ~/.aiur/tokens/remote
+```
+
+The environment daemon is always first, named `local` (`AIUR_PHOENIX_URL`, or
+loopback port 4000 when unset). Registry names must be unique; `local` is
+reserved. `AIUR_PHOENIX_URL` retains support for non-loopback HTTP and path prefixes.
+
+Registry URLs require HTTPS except on loopback and cannot contain credentials,
+paths, queries, or fragments.
+
+Each remote sets exactly one `token_file` (absolute
+or `~/`, readable and mode **0600**) or `token_env` (an `AIUR_TOKEN_*` variable).
+Invalid URLs or credentials show an error on the strip and keep the current
+connection.
+
+Tokens are resolved when connecting and never shown on the strip
+or in debug logs.
+
+The last activated name is remembered in `streamdeck-instance.json` next to
+`streamdeck-mic.json` under the sidecar's config directory (`$XDG_CONFIG_HOME/aiur`,
+or `~/.config/aiur`). Restart the sidecar after editing the registry.
+
+The browser
+emulator shows its current instance name only; open the other dashboard's
+`/streamdeck` page to change instances there.
 
 The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
 

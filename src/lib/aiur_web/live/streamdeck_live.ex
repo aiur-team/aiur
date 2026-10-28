@@ -71,6 +71,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:knobs, Surface.knob_descriptors())
       |> assign(:deck_nav, %Nav{})
       |> assign(:deck_effects, [])
+      |> assign(:streamdeck_instance, instance_name())
       |> assign(:grid_page, 0)
       |> assign(:grid_column_offset, 0)
       |> assign(:grid_dial_value, 0)
@@ -320,6 +321,13 @@ defmodule AiurWeb.StreamdeckLive do
     :ok
   end
 
+  defp instance_name do
+    case Aiur.Identity.instance_key() do
+      {:ok, key} -> key
+      {:error, _reason} -> "unknown"
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -341,6 +349,7 @@ defmodule AiurWeb.StreamdeckLive do
         <div :if={@control_feedback} id="sd-control-status" class="streamdeck-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</div>
         <div class="sd-device" data-mode={@sd_mode}>
           <Components.brand />
+          <p id="sd-instance" class="streamdeck-status">Instance: {@streamdeck_instance}</p>
 
           <%= if @sd_mode == :grid do %>
           <Components.grid_keys grid={@grid} grid_page={@grid_page} grid_column_offset={@grid_column_offset} grid_dial_value={@grid_dial_value} selected_identifier={@selected_identifier} keys={@keys} />

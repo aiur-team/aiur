@@ -260,6 +260,7 @@ export interface WebSocketLike {
 export type WebSocketFactory = (url: string) => WebSocketLike;
 export type FetchLike = (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
   ok: boolean;
+  status?: number;
   json(): Promise<unknown>;
 }>;
 
@@ -335,3 +336,5 @@ export interface StreamDeckChannel {
   ): void;
   close(): void;
 }
+
+export class InstanceAuthError extends Error {}

@@ -39,9 +39,9 @@ export class StripRenderer {
    * layout order. A first render returns all of them; a re-render with one
    * changed panel returns exactly one.
    */
-  render(input: StripData): PanelPaint[] {
+  render(input: StripData, instance?: string): PanelPaint[] {
     return this.cache.paintAll(
-      composeStrip(input).map((panel) => ({ region: panel.region, jpeg: this.encode(panel.content, panel.region) })),
+      composeStrip(input).map((panel, index) => ({ region: panel.region, jpeg: this.encode(instance !== undefined && index === 0 ? { kind: "instance", label: instance, content: panel.content } : panel.content, panel.region) })),
     );
   }
 
