@@ -241,8 +241,9 @@ defmodule Aiur.DaemonHotPathsTest do
   defp identity(id), do: %TrackerIdentity{status: :joinable, kind: :github, owner: "Owner", repository: "Repo", provider_id: id, identifier: "42", reason: nil}
 
   defp trace_calls(owner, patterns) do
-    for pattern <- patterns do
-      :erlang.trace_pattern(pattern, true, [])
+    for {module, _function, _arity} = pattern <- patterns do
+      Code.ensure_loaded!(module)
+      assert :erlang.trace_pattern(pattern, true, []) > 0
       on_exit(fn -> :erlang.trace_pattern(pattern, false, []) end)
     end
 
