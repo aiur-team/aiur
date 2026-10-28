@@ -10,7 +10,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav}
+  alias AiurWeb.Streamdeck.Deck.{Input, Nav, TicketUpdates}
 
   alias AiurWeb.Streamdeck.UsageUpdates
 
@@ -46,7 +46,20 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, deck_nav: %Nav{}, deck_effects: [], focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, usage_flush: nil, fleet_latch: latch)}
+    {:ok,
+     assign(socket,
+       deck_nav: %Nav{},
+       deck_effects: [],
+       focused_agent: nil,
+       focus_token: nil,
+       transcript_relay: nil,
+       voice_session: nil,
+       fleet_flush: nil,
+       usage_flush: nil,
+       fleet_latch: latch,
+       ticket_task: nil,
+       ticket_pending: false
+     )}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
@@ -278,6 +291,7 @@ defmodule AiurWeb.StreamdeckChannel do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
     socket = assign(socket, transcript_relay: relay)
+    socket = TicketUpdates.refresh(socket)
     push(socket, "logs", logs_projection(identifier))
     push(socket, "commands", commands_projection(identifier))
     {:noreply, socket}
@@ -349,10 +363,14 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, assign(socket, :voice_session, nil)}
   end
 
+  def handle_info({ref, dto}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.complete(socket, dto)}
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.failed(socket)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def terminate(_reason, socket) do
+    TicketUpdates.stop(socket)
     socket |> assigns() |> Map.get(:transcript_relay) |> stop_child()
     socket |> assigns() |> Map.get(:voice_session) |> voice_pid() |> stop_child()
     :ok

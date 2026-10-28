@@ -47,6 +47,7 @@ import type {
   StreamDeckGrid,
   StreamDeckLogs,
   StreamDeckSnapshot,
+  StreamDeckTicket,
   WebSocketFactory,
   WebSocketLike,
 } from "./channel-types.js";
@@ -225,6 +226,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       options.events.fleet(fleet.agents ?? []);
       if (fleet.grid !== undefined) options.events.grid(fleet.grid);
     }
+    else if (event === "ticket") options.events.ticket?.(payload as StreamDeckTicket);
     else if (event === "usage") options.events.usage(payload as Readonly<Record<string, unknown>>);
     else if (event === "transcript") {
       // The live per-message push is the same shape as a flattened `message`

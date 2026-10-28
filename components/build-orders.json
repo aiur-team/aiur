@@ -38,6 +38,7 @@
     "Aiur.BuildOrder.Readiness",
     "Aiur.BuildOrder.RootSummary",
     "Aiur.BuildOrder.SourceFreshness",
+    "Aiur.BuildOrder.TicketStatus",
     "Aiur.BuildOrdersCLI",
     "Aiur.EpicCLI",
     "Aiur.FeatureCLI",

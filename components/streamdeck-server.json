@@ -1,7 +1,7 @@
 {
   "id": "streamdeck-server",
   "name": "Stream Deck connection",
-  "layer": 3,
+  "layer": 4,
   "kind": "in-app",
   "paths": [
     "src/lib/aiur_web/controllers/streamdeck*.ex",
@@ -28,6 +28,7 @@
   "optional": [
     "build-orders",
     "build-queue",
+    "dashboard-ui",
     "voice-stt"
   ],
   "owns": {
@@ -42,7 +43,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Serves agent status, Commands, conversations and per-deck navigation to connected Stream Deck clients.",
+  "summary": "Serves Build ticket status, pull requests and checks, Commands, conversations and per-deck navigation to connected Stream Deck clients.",
   "status": "optional",
   "install": {
     "type": "included"
