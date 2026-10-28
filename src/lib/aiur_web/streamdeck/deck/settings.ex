@@ -21,7 +21,7 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
 
   @spec path() :: Path.t()
   def path do
-    EndpointConfig.get(:streamdeck_settings_path) || Paths.streamdeck_settings_path()
+    EndpointConfig.get(:streamdeck_settings_path) || Paths.streamdeck_settings_path(instance_key())
   end
 
   @spec read(Path.t()) :: {:ok, map()} | {:error, term()}
@@ -73,4 +73,13 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
   end
 
   defp valid?(_entry), do: false
+
+  defp instance_key do
+    case Aiur.Identity.instance_key() do
+      {:ok, key} -> key
+      {:error, :instance_key_missing} -> "default"
+      {:error, :instance_key_invalid} -> raise ArgumentError, "invalid instance key for deck settings"
+    end
+  end
+
 end

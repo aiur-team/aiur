@@ -17,16 +17,9 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc "Per-instance Stream Deck preferences; independent of the current launch."
-  @spec streamdeck_settings_path() :: Path.t()
-  def streamdeck_settings_path do
-    key =
-      case Aiur.Identity.instance_key() do
-        {:ok, key} -> key
-        {:error, :instance_key_missing} -> "default"
-        {:error, :instance_key_invalid} -> raise ArgumentError, "invalid instance key for deck settings"
-      end
-
-    Path.join([dashboard_secret_root(), "instances", key, "streamdeck-settings.json"])
+  @spec streamdeck_settings_path(String.t()) :: Path.t()
+  def streamdeck_settings_path(instance_key) do
+    Path.join([dashboard_secret_root(), "instances", sanitize(instance_key), "streamdeck-settings.json"])
   end
 
   @doc "Returns the per-launch log directory, defaulting to `<cwd>/log`; it does not survive a restart."

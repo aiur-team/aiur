@@ -63,7 +63,7 @@ export function createDeckDictation(options: {
   };
   return {
     focus(identifier: string | null): void { if (focused !== identifier) { reset(); focused = identifier; } },
-    disconnect(): void { reset(); focused = null; },
+    disconnect(): void { reset(); pendingStart = false; focused = null; },
     availability(value: StreamDeckVoiceState): void { availability = value; },
     input(event: RawInput): void {
       if (event.kind !== "dial" || event.index !== 2) return;

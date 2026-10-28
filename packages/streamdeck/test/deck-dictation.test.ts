@@ -76,10 +76,10 @@ it("stops recording on provider or capture failure and ignores unrelated control
   expect(h.channel.voiceStatus).toHaveBeenLastCalledWith("Microphone capture failed (exit 1)");
   h.input.handleReport(dialButton(2, false)); h.host.disconnect();
 });
-it("closes a late session after disconnect and waits before opening another", () => {
+it("closes a late session after focus changes and waits before opening another", () => {
   const h = setup(); h.host.focus("A"); h.host.availability({ available: true, reason: null });
   h.input.handleReport(dialButton(2)); vi.advanceTimersByTime(500);
-  h.host.disconnect(); h.input.reset(); h.host.focus("B");
+  h.host.focus(null); h.input.reset(); h.host.focus("B");
   h.input.handleReport(dialButton(2)); vi.advanceTimersByTime(500);
   expect(h.channel.voiceStart).toHaveBeenCalledTimes(1);
   expect(h.channel.voiceStatus).toHaveBeenLastCalledWith("Waiting for the previous voice session");
@@ -118,5 +118,20 @@ it("a short physical press cannot send while a hold is still active", () => {
   h.host.input({ kind: "dial", index: 2, action: "press" });
   expect(h.channel.say).not.toHaveBeenCalled();
   h.host.input({ kind: "dial", index: 2, action: "turn", delta: 1 });
+  h.host.disconnect();
+});
+
+it("starts a fresh capture after disconnect drops an unacknowledged voice start", () => {
+  const h = setup(); h.host.focus("A"); h.host.availability({ available: true, reason: null });
+  h.input.handleReport(dialButton(2)); vi.advanceTimersByTime(500);
+  expect(h.channel.voiceStart).toHaveBeenCalledTimes(1);
+  h.host.disconnect(); h.input.reset();
+  h.host.focus("B"); h.host.availability({ available: true, reason: null });
+  h.input.handleReport(dialButton(2)); vi.advanceTimersByTime(500);
+  expect(h.channel.voiceStart).toHaveBeenCalledTimes(2);
+  expect(h.spawn).toHaveBeenCalledTimes(2);
+  h.host.started("new-channel-session", null);
+  h.chunk(new Uint8Array(3200));
+  expect(h.channel.voiceAudio).toHaveBeenCalledWith("new-channel-session", expect.any(String));
   h.host.disconnect();
 });

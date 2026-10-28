@@ -20,8 +20,10 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "commands",
+    "config",
     "conversations",
     "identity",
+    "kernel",
     "projections",
     "web-kit"
   ],

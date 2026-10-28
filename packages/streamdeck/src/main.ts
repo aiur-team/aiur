@@ -158,7 +158,7 @@ export const main = async (): Promise<void> => {
     repaint,
     onBackendClosed: (backend) => {
       if (backend !== null && activeBackend === backend) activeBackend = null;
-      dictation.disconnect();
+      dictation.focus(null);
       input.reset();
       renderer.invalidate();
     },
