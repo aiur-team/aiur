@@ -1,11 +1,12 @@
 defmodule AiurWeb.Streamdeck.Deck.Counts do
   @moduledoc "Stream Deck counts from the same index window as the Build page."
   alias AiurWeb.{Build.Index, EndpointConfig}
+  alias AiurWeb.Streamdeck.Deck.Tickets
 
   @doc "Fleet categories over the exact filed, deduplicated Ticket view population."
   @spec categories(map()) :: map()
   def categories(sections) do
-    keys = AiurWeb.Streamdeck.Deck.Tickets.keys(sections)
+    keys = Tickets.keys(sections)
     by_state = Enum.frequencies_by(keys, & &1.state)
     known = ~w(active command error retrying ci_wait usage_limited parked paused)
     unknown = Enum.count(keys, &(&1.state != :queued and &1.state not in known))

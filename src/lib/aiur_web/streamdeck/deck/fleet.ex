@@ -1,6 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.Fleet do
   @moduledoc "Eight Fleet categories, sharing the Ticket population and Deck counting module."
   alias AiurWeb.Streamdeck.Deck.{Counts, Tickets}
+  alias AiurWeb.OperatorControlCenter.PauseState
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2]
 
   @categories [
@@ -80,6 +81,6 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
 
   defp pause do
     orchestrator = AiurWeb.EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
-    AiurWeb.OperatorControlCenter.PauseState.pause_state(orchestrator)
+    PauseState.pause_state(orchestrator)
   end
 end

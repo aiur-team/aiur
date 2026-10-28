@@ -2,12 +2,13 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
   @moduledoc false
 
   alias AiurWeb.RemainingMeter
+  alias AiurWeb.Streamdeck.Render.Fleet
 
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2, field: 3]
 
   @spec compose(map()) :: {[map() | nil], [map()]}
   def compose(%{nav: %{view: :fleet} = nav} = model) do
-    {faces, regions} = AiurWeb.Streamdeck.Render.Fleet.compose(field(model, :grid) || model, nav)
+    {faces, regions} = Fleet.compose(field(model, :grid) || model, nav)
     {faces, feedback(regions, field(model, :toast))}
   end
 
