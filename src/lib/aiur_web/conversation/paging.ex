@@ -56,8 +56,7 @@ defmodule AiurWeb.Conversation.Paging do
          entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == pos)) do
       stream_insert(socket, :entries, entry, [])
     else
-      {:error, reason} -> assign(socket, state: :unavailable, reason: reason, read_error: reason)
-      nil -> assign(socket, state: :unavailable, reason: :not_found, read_error: :not_found)
+      _ -> assign(socket, :commands_error, "Conversation entries unavailable. Reload this conversation to retry.")
     end
   end
 

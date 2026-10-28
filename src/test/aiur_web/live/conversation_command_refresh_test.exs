@@ -26,8 +26,10 @@ defmodule AiurWeb.ConversationCommandRefreshTest do
   end
 
   defp request(ctx, ticket \\ "6636") do
+    nonce = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
     payload = %{
-      "source_id" => "refresh-#{ticket}-#{Path.basename(ctx.root)}",
+      "source_id" => "refresh-#{ticket}-#{nonce}",
       "question" => "Proceed?",
       "blocking" => false,
       "authority" => "human_required",
@@ -55,6 +57,7 @@ defmodule AiurWeb.ConversationCommandRefreshTest do
 
     assert :ok = flush(ctx.ref)
     AnchorResolver.stats()
+    assert {:ok, %{pos: ^pos}} = History.command_anchor(row.decision_id)
   end
 
   defp open(ctx) do
@@ -70,6 +73,7 @@ defmodule AiurWeb.ConversationCommandRefreshTest do
 
     try do
       fun.()
+      :sys.get_state(view.pid)
       ref = :erlang.trace_delivered(view.pid)
       collect_reads(view.pid, ref, [])
     after
@@ -140,12 +144,12 @@ defmodule AiurWeb.ConversationCommandRefreshTest do
     row = request(ctx)
     anchor(ctx, row, 1, "observed")
     {:ok, view, _} = open(ctx)
+    assert has_element?(view, "#entry-1 #conversation-command-#{row.decision_id}")
     reveal(view)
-    anchor(ctx, row, 2, "exact")
 
     options =
       reads(view, fn ->
-        send(view.pid, :age_tick)
+        anchor(ctx, row, 2, "exact")
         render(view)
       end)
 

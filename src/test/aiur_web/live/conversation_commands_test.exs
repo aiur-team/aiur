@@ -125,8 +125,9 @@ defmodule AiurWeb.ConversationCommandsTest do
     {:ok, view, _} = open(ctx)
     row = request(ctx, "new")
     assert has_element?(view, card(row))
-    dead = spawn(fn -> :ok end)
+    dead = start_supervised!(Supervisor.child_spec({Agent, fn -> nil end}, id: :unavailable_command_store))
     monitor = Process.monitor(dead)
+    stop_supervised!(:unavailable_command_store)
     assert_receive {:DOWN, ^monitor, :process, ^dead, _}, 1_000
     configure(decision_store: dead)
     Aiur.DecisionPubSub.broadcast_changed(row.decision_id, row.version + 1)
