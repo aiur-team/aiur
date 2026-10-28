@@ -356,12 +356,9 @@ defmodule AiurWeb.StreamdeckChannel do
   def terminate(_reason, socket) do
     TicketUpdates.stop(socket)
     unsubscribe_focused(socket)
-    socket |> assigns() |> Map.get(:voice_session) |> voice_pid() |> stop_child()
+    socket.assigns[:voice_session] |> voice_pid() |> stop_child()
     :ok
   end
-
-  defp assigns(%{assigns: assigns}) when is_map(assigns), do: assigns
-  defp assigns(_socket), do: %{}
 
   defp voice_pid(%{pid: pid}), do: pid
   defp voice_pid(_session), do: nil
