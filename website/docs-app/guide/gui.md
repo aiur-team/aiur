@@ -348,6 +348,12 @@ page. It starts with the latest 50 entries. **Load older**, **Jump to start**,
 and **Load newer** browse earlier history; **Latest entries** returns to the
 live tail.
 
+Agent prose uses Markdown. Reasoning and command or tool output start collapsed;
+select a summary to expand it. File edits show diffs. Operator bubbles, session
+dividers and gap rows keep the source and continuity visible. See
+[Reading entries](/concepts/conversations#reading-entries) for masking and
+truncation details.
+
 The page keeps up to 500 entries on screen. When you scroll up,
 new entries show a counter that returns you to the latest page.
 

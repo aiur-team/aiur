@@ -72,3 +72,31 @@ test('live entries follow at bottom and preserve the scrolled-up viewport with a
   await page.locator('#conversation-new').click()
   await expect(page.locator('#entry-2006')).toBeInViewport()
 })
+
+test('entry kinds wrap and collapsed output expands at phone and desktop widths', async ({ page }) => {
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.request.post('/conversation-fixture/reset')
+    await open(page)
+    const response = await page.request.get('/conversation-fixture/append?kinds=true')
+    expect(response.ok()).toBe(true)
+    await expect(page.locator('#entry-2009')).toBeAttached()
+    await expect(page.locator('#entry-2009 .conversation-gap')).toContainText('Recording could not keep up')
+    await expect(page.locator('#entry-2001 strong')).toHaveText('Agent prose')
+    await expect(page.locator('#entry-2003')).toContainText('$ git status')
+    await expect(page.locator('#entry-2003')).toContainText('Exit 2')
+    await expect(page.locator('#entry-2004')).toContainText('Success')
+    await expect(page.locator('#entry-2005 .conversation-diff-add')).toContainText('+added')
+    await expect(page.locator('#entry-2006 .conversation-operator-bubble')).toContainText('Executor')
+    await expect(page.locator('#entry-2007 .conversation-system')).toContainText('System')
+    await expect(page.locator('#entry-2008 .conversation-alert')).toContainText('Alert:')
+    for (const pos of [2002, 2003, 2004]) {
+      const details = page.locator(`#entry-${pos} details`)
+      await expect(details).not.toHaveAttribute('open')
+      await details.locator('summary').click()
+      await expect(details).toHaveAttribute('open', '')
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(await page.locator('#conversation-scroll').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  }
+})
