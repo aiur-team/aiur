@@ -6,7 +6,7 @@ export function deckAlertKind(event: Readonly<Record<string, unknown>>): AlertKi
   const name = typeof event.name === "string" ? event.name : "";
   if (name === "command" || name.endsWith(".command") || name.includes("decision.requested")) return "command";
   if (name === "ci_red" || name.endsWith(".ci.failed")) return "ci_red";
-  if (name === "usage_limited" || name.endsWith(".usage_limited")) return "usage_limited";
+  if (name === "usage_limited" || (name.endsWith(".usage_limited") || name.endsWith(".usage_limit_exhausted"))) return "usage_limited";
   if (name === "error" || event.severity === "error" || event.severity === "critical") return "error";
   return null;
 }

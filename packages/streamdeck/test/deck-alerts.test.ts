@@ -29,6 +29,7 @@ describe("deck alert preferences", () => {
     expect(deckAlertKind({ name: "ticket.42.ci.failed" })).toBe("ci_red");
     expect(deckAlertKind({ name: "ticket.42.usage_limited" })).toBe("usage_limited");
     expect(deckAlertKind({ name: "ticket.42.command" })).toBe("command");
+    expect(deckAlertKind({ name: "ticket.42.agent.usage_limit_exhausted", severity: "warning" })).toBe("usage_limited");
     expect(deckAlertKind({ name: "error" })).toBe("error");
     expect(deckAlertKind({})).toBeNull();
   });
