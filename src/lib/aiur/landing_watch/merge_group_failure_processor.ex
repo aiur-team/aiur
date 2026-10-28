@@ -1,6 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   @moduledoc "Classifies failed merge-group runs and routes each PR outcome."
   alias Aiur.Alerts
+  alias Aiur.Config.TrackerSettings
   alias Aiur.GitHub.{Access, CIRecovery}
   alias Aiur.LandingWatch
   alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupJournal, MergeGroupRequeue, QuarantineEvidence}
@@ -39,7 +40,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
 
   @spec emit_runner_degraded(pos_integer() | nil, keyword()) :: :ok
   def emit_runner_degraded(run_id, opts) do
-    message = "Main run #{run_id || "unknown"} was skipped as a degraded runner."
+    message = "Run #{TrackerSettings.base_branch(opts)} workflow #{run_id || "unknown"} was skipped as a degraded runner."
 
     Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2).(
       "system.pr.landing.runner_degraded",

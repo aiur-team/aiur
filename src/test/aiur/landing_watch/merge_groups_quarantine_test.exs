@@ -105,7 +105,12 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     healthy = main_entry(515)
 
     degraded_log = "** (ExUnit.TimeoutError) first\n** (ExUnit.TimeoutError) second\n** (ExUnit.TimeoutError) third"
-    degraded_opts = Keyword.put(main_opts(degraded_path, degraded, degraded_log), :alert_emitter, fn name, _opts -> send(parent, {:runner_degraded, name}) end)
+
+    degraded_opts =
+      main_opts(degraded_path, degraded, degraded_log)
+      |> Keyword.put(:base_branch, "trunk")
+      |> Keyword.put(:alert_emitter, fn name, alert_opts -> send(parent, {:runner_degraded, name, alert_opts[:message]}) end)
+
     assert :ok = MergeGroupQuarantine.process_completed([], [], "main", degraded_opts)
     assert {:ok, degraded_state} = Journal.state(journal_path: degraded_path)
     assert Map.get(degraded_state, "failure_observations", []) == []
@@ -113,8 +118,8 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
 
     green_opts = Keyword.put(degraded_opts, :jobs_fun, fn _, _ -> {:ok, [%{"id" => 10, "name" => "test", "conclusion" => "success"}]} end)
     assert :ok = MergeGroupQuarantine.process_completed([], [], "main", green_opts)
-    assert_received {:runner_degraded, "system.pr.landing.runner_degraded"}
-    refute_received {:runner_degraded, _}
+    assert_received {:runner_degraded, "system.pr.landing.runner_degraded", "Run trunk workflow 514 was skipped as a degraded runner."}
+    refute_received {:runner_degraded, _, _}
     refute_received {:healthy_flake_candidate, _}
 
     assert :ok = MergeGroupQuarantine.process_completed([], [], "main", main_opts(healthy_path, healthy, "** (ExUnit.AssertionError) one test failed", parent))
