@@ -25,6 +25,7 @@ defmodule AiurWeb.Build.Payload do
   | src / was | pack source (kind, relative path, nonnegative wave or nil) / previous pack id or nil |
   | title | raw UTF-8 string |
   | type | bug, feature, chore, docs |
+  | general_epics | optional list of every label-matched general epic, including feature-owned tickets |
   | epic / feature / also | epic key or nil / feature key or nil / feature keys |
   | cx / pts / ord | 1..5 or nil / nonnegative integer or nil / integer |
   | sec | hist, now, plan, nq |
@@ -87,7 +88,7 @@ defmodule AiurWeb.Build.Payload do
   """
   alias AiurWeb.Build.{PayloadSchema, PayloadValidator}
   @version 1
-  @row_fields PayloadSchema.row() |> Map.keys() |> Enum.map(&String.to_atom/1)
+  @row_fields PayloadSchema.row() |> Map.delete("general_epics") |> Map.keys() |> Enum.map(&String.to_atom/1)
 
   @spec snapshot(map(), String.t(), non_neg_integer()) :: map()
   def snapshot(data, epoch, generation) do

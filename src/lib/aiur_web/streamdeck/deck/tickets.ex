@@ -23,7 +23,9 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
     now = Enum.filter(now, &filed?/1) |> Enum.sort_by(&{rank(state(&1)), field(&1, :num)})
     plan = Enum.filter(plan, &filed?/1) |> Enum.sort_by(&{field(&1, :qpos) || :unknown, field(&1, :num)})
 
-    (now ++ plan)
+    extra = if match?({:epic, _}, filter), do: (field(sections, :nq) || []) ++ (field(sections, :hist) || []), else: []
+
+    (now ++ plan ++ Enum.filter(extra, &filed?/1))
     |> Enum.uniq_by(&field(&1, :num))
     |> Enum.filter(&matches?(&1, filter))
     |> Enum.map(&key/1)
@@ -46,7 +48,15 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   defp matches?(row, {:state, :unknown}), do: field(row, :sec) == "now" and state(row) not in ~w(active command error retrying ci_wait usage_limited parked paused)
   defp matches?(row, {:state, :live}), do: field(row, :sec) == "now"
   defp matches?(row, {:state, state}), do: field(row, :sec) == "now" and state(row) == state
-  defp matches?(row, {kind, key}) when kind in [:feature, :epic], do: field(row, kind) == key
+
+  defp matches?(row, {:epic, key}) do
+    case field(row, :general_epics) do
+      nil -> field(row, :epic) == key
+      epics -> key in epics
+    end
+  end
+
+  defp matches?(row, {:feature, key}), do: field(row, :feature) == key
 
   defp key(row) do
     queued = field(row, :sec) == "plan"

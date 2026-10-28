@@ -23,12 +23,8 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
   defp meta(general, rows, history, nil, observed_at) do
     unmatched =
       Enum.count(rows, fn {_id, row} ->
-        labels = history |> Map.fetch!(row.num) |> Map.fetch!(:labels) |> GeneralEpic.normalize_labels()
-
-        not Enum.any?(general, fn epic ->
-          matchers = GeneralEpic.normalize_labels(epic.labels)
-          Enum.any?(matchers, &(&1 in labels))
-        end)
+        labels = history |> Map.fetch!(row.num) |> Map.fetch!(:labels)
+        not Enum.any?(general, &GeneralEpic.matches?(&1, labels))
       end)
 
     %{unmatched: unmatched, observed_at: observed_at, reason: nil}
@@ -38,14 +34,7 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
     do: %{closed: nil, open: nil, total: nil, observed_at: now, reason: reason}
 
   defp progress(epic, rows, history, nil, now) do
-    matchers = GeneralEpic.normalize_labels(epic.labels)
-
-    members =
-      Enum.filter(rows, fn {_id, row} ->
-        ticket = Map.fetch!(history, row.num)
-        labels = GeneralEpic.normalize_labels(ticket.labels)
-        Enum.any?(matchers, &(&1 in labels))
-      end)
+    members = Enum.filter(rows, fn {_id, row} -> GeneralEpic.matches?(epic, Map.fetch!(history, row.num).labels) end)
 
     closed = Enum.count(members, fn {_id, row} -> row.sec == "hist" end)
     total = length(members)
