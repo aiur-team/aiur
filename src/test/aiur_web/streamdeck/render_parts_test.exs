@@ -9,6 +9,7 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
     :ok
   end
 
+  alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
   alias AiurWeb.Streamdeck.Render
 
   test "inlines shared epic and every bundled provider mark including the DeepSeek PNG" do
@@ -18,7 +19,7 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
       assert xpath(xml, "//text/text()") |> Enum.member?("★")
       assert xpath(xml, ~s|//g[@transform="translate(13 13) scale(0.75)"]/svg/@width|) == ["24"]
       assert xpath(xml, ~s|//g[@transform="translate(13 13) scale(0.75)"]/svg/@height|) == ["24"]
-      expected_icon = AiurWeb.OperatorControlCenter.BuildOrderEpicIcon.svg("runtime") |> parse()
+      expected_icon = BuildOrderEpicIcon.svg("runtime") |> parse()
       assert xpath(xml, "//g/svg/path/@d") == xpath(expected_icon, "//path/@d")
       refute image.svg =~ "href=\"http"
       refute image.svg =~ "href=\"/"

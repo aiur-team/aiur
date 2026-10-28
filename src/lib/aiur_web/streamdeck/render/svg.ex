@@ -42,15 +42,7 @@ defmodule AiurWeb.Streamdeck.Render.Svg do
       value
       |> String.split()
       |> Enum.flat_map(&(String.graphemes(&1) |> Enum.chunk_every(budget) |> Enum.map(fn chars -> Enum.join(chars) end)))
-      |> Enum.reduce([], fn word, lines ->
-        case lines do
-          [current | rest] when byte_size(current) > 0 ->
-            if String.length(current <> " " <> word) <= budget, do: [current <> " " <> word | rest], else: [word | lines]
-
-          _ ->
-            [word | lines]
-        end
-      end)
+      |> Enum.reduce([], &add_word(&1, &2, budget))
       |> Enum.reverse()
 
     if length(lines) > max_lines do
@@ -59,6 +51,12 @@ defmodule AiurWeb.Streamdeck.Render.Svg do
       lines
     end
   end
+
+  defp add_word(word, [current | rest] = lines, budget) do
+    if String.length(current <> " " <> word) <= budget, do: [current <> " " <> word | rest], else: [word | lines]
+  end
+
+  defp add_word(word, [], _budget), do: [word]
 
   @spec field(map() | nil, atom(), term()) :: term()
   def field(map, key, default \\ nil)
