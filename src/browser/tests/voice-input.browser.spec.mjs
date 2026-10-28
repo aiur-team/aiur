@@ -38,7 +38,9 @@ async function openVoice(page) {
 
 async function dictate(page, root = '#standalone-voice') {
   const form = page.locator(root)
-  await form.getByRole('button', { name: 'Dictate message' }).click()
+  await form.getByRole('button', { name: 'Choose voice input' }).click()
+  expect(await page.evaluate(() => window.__micRequests)).toBe(0)
+  await form.getByRole('menuitem', { name: 'Dictate message' }).click()
   await expect(form.locator('[data-voice-status]')).toContainText('Listening')
   await expect(form.locator('[data-voice-input]')).toHaveAttribute('data-voice-recording', 'true')
   await page.evaluate(() => window.__worklet.port.onmessage({
@@ -69,7 +71,8 @@ test('VoiceInput never requests the microphone before a click or without a texta
   expect(await page.evaluate(() => window.__micRequests)).toBe(0)
   await patch(page, 1)
   expect(await page.evaluate(() => window.__micRequests)).toBe(0)
-  await page.locator('#missing-input').getByRole('button', { name: 'Dictate message' }).click()
+  await page.locator('#missing-input').getByRole('button', { name: 'Choose voice input' }).click()
+  await page.locator('#missing-input').getByRole('menuitem', { name: 'Dictate message' }).click()
   expect(await page.evaluate(() => window.__micRequests)).toBe(0)
 })
 

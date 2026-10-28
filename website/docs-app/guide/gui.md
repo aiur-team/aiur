@@ -183,7 +183,7 @@ secret handling, earlier history and jump-point precision.
 | Writable control | Where | Action |
 | --- | --- | --- |
 | Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
-| Unit | `/units` | Pause or resume one agent, or send it a message. |
+| Unit | `/units` | Pause or resume one agent, or send it a message. The mic opens an explicit Dictate / Converse choice; Dictate fills editable text for review and Send. Unavailable choices show their reason. Microphone selection is in the adjacent settings popover. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
@@ -224,7 +224,8 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 ### Executor voice prototype
 
 Open a conversation drawer and press **Talk to Executor** to start a continuous
-spoken session with the Executor through ElevenLabs Agents. The voice control
+spoken session through the configured ElevenLabs Agents or OpenAI Realtime
+provider. The voice control
 always targets the Executor, regardless of the worker shown in the drawer.
 
 The control shows not configured, connecting, live, ended or failed. Press
@@ -236,13 +237,13 @@ matching wake. **Received** confirms acknowledgment, not approval or execution.
 A missing acknowledgment stays visible; re-rendering the drawer or starting
 another session preserves earlier receipts. A failed handoff shows an error.
 
-The summary separates decisions, open questions and ideas. If the Agent did
+The summary separates decisions, open questions and ideas. If the assistant did
 not record one before ending, the drawer says **unstructured**; the transcript
 is still sent without inventing decisions.
 
 Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
-for configuration and the required ElevenLabs client tools.
+for provider configuration, credentials and ElevenLabs client-tool setup.
 
 ## Authentication and network exposure
 
@@ -340,6 +341,20 @@ empty samples show zero.
 Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
+
+## Full conversation
+
+`/conversations/:conversation_id` opens the durable conversation as a read-only
+page. It starts with the latest 50 entries. **Load older**, **Jump to start**,
+and **Load newer** browse earlier history; **Latest entries** returns to the
+live tail.
+
+The page keeps up to 500 entries on screen. When you scroll up,
+new entries show a counter that returns you to the latest page.
+
+The status distinguishes live, idle, ended, continuity unknown and unavailable
+history. Journal failures keep the last readable content with a stale marker
+and observation age. Imported history shows **Earlier history is not available**.
 
 ## Read a conversation over HTTP
 
