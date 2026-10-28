@@ -64,6 +64,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     window = window()
     window = put_in(window, [:features, "parent", :epics], ["home", "cli"])
     window = put_in(window, [:feature_progress, :features, "cli", :feature], "parent")
+    window = %{window | features: Map.delete(window.features, "cli-parent")}
     [key] = Features.keys(window, 180_000)
     assert key.label == "Build"
     assert key.pct == 50
