@@ -45,6 +45,9 @@ defmodule Aiur.Conversation.History do
     with {:ok, snapshot} <- HistoryReader.snapshot(ref), do: HistoryAnchors.read(snapshot, opts)
   end
 
+  @spec anchor_for_decision(String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
+  defdelegate anchor_for_decision(id), to: Aiur.Conversation.AnchorResolver
+
   @doc "Subscribe first, catch up, then discard live entries at or below the returned head. Live entries are raw."
   @spec subscribe(Ref.t() | String.t()) :: :ok | {:error, atom()}
   def subscribe(ref) do

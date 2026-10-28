@@ -27,6 +27,9 @@ defmodule Aiur.Conversation.Ingest do
   @spec gap(Ref.t(), atom() | String.t(), DateTime.t(), DateTime.t()) :: :ok
   def gap(ref, reason, from, to), do: safe(ref, fn -> dispatch(ref, {:gap, reason, from, to}, 0) end)
 
+  @spec anchor(Ref.t(), map()) :: :ok
+  def anchor(ref, anchor), do: safe(ref, fn -> dispatch(ref, {:anchor, anchor}, 0) end)
+
   @spec writer(Ref.t()) :: {:ok, pid()} | {:error, term()}
   def writer(ref) do
     case Registry.lookup(Aiur.Conversation.Registry, Ref.conversation_id(ref)) do

@@ -2,7 +2,7 @@ defmodule Aiur.Conversation.Journal do
   @moduledoc "Serialized, recoverable writer for one conversation. All disk work stays in this process."
   use GenServer, restart: :transient
   alias Aiur.Config.Paths
-  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalSessions, ProviderReplay, Ref}
+  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalAnchors, JournalSessions, ProviderReplay, Ref}
 
   @spec start_link(Ref.t()) :: GenServer.on_start()
   def start_link(ref), do: GenServer.start_link(__MODULE__, ref, name: via(ref))
@@ -24,6 +24,7 @@ defmodule Aiur.Conversation.Journal do
       next_pos: 1,
       session_seq: 0,
       open_session: nil,
+      anchor_ids: nil,
       dedup: MapSet.new(),
       dedup_order: :queue.new(),
       buffer: :queue.new(),
@@ -55,6 +56,8 @@ defmodule Aiur.Conversation.Journal do
     inputs = Enum.map(entries, &{:entry, source, &1, stamp(state.clock.())})
     {:noreply, enqueue(state, inputs)}
   end
+
+  def handle_cast({:anchor, anchor}, state), do: {:noreply, enqueue(state, [{:anchor, anchor}])}
 
   def handle_cast({:end_session, provider_id, reason}, state), do: {:noreply, enqueue(state, [{:end_session, provider_id, reason}])}
   def handle_cast({:gap, reason, from, to}, state), do: {:noreply, enqueue(state, [{:gap, reason, stamp(from), stamp(to)}])}
@@ -188,6 +191,8 @@ defmodule Aiur.Conversation.Journal do
     end
   end
 
+  defp write(state, [{:anchor, anchor}]), do: JournalAnchors.write(state, anchor)
+
   defp write(state, [{:end_session, id, reason}]) do
     if state.open_session && (is_nil(id) or state.open_session.provider_session_id == id) do
       with {:ok, updated, session} <- JournalSessions.close(state, reason), do: {:ok, updated, [], [session]}
@@ -266,7 +271,7 @@ defmodule Aiur.Conversation.Journal do
   defp failure(state, reason) do
     unless state.outage, do: alert(state, "system.conversation.journal.degraded", true, error_class(reason))
     span = span_inputs(state.failed_since, :queue.to_list(state.buffer), state.clock.())
-    state = %{state | outage: true, recover: true, failed_since: span, retries: state.retries + 1}
+    state = %{state | outage: true, recover: true, anchor_ids: nil, failed_since: span, retries: state.retries + 1}
 
     if corrupt?(reason) do
       Ingest.count_dropped(state.id, :queue.len(state.buffer))
