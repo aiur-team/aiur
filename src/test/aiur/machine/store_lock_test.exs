@@ -17,7 +17,7 @@ defmodule Aiur.Machine.StoreLockTest do
     %{lock: Path.join(dir, "store.lock")}
   end
 
-  test "second contender waits then succeeds after release" do
+  test "second contender waits then succeeds after release", %{lock: lock} do
     parent = self()
 
     first =
@@ -25,15 +25,13 @@ defmodule Aiur.Machine.StoreLockTest do
         Store.with_lock(fn ->
           send(parent, :holding)
 
-          receive do
-            :release -> :first
-          after
-            2_000 -> flunk("release was not sent")
-          end
+          receive_barrier(:release)
+          :first
         end)
       end)
 
     receive_barrier(:holding)
+    inode = File.stat!(lock).inode
 
     second =
       Task.async(fn ->
@@ -49,6 +47,7 @@ defmodule Aiur.Machine.StoreLockTest do
     try do
       receive_barrier({:contender_state, state})
       assert state == :waiting
+      assert {:ok, %{inode: ^inode}} = File.stat(lock)
     after
       send(first.pid, :release)
       assert Task.await(first) == :first
