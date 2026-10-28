@@ -24,7 +24,7 @@ renderer adopt this model.
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
-The physical frame path uses the full strip for the latest masked shared conversation entry after selecting a ticket. The legacy Command ticket page retains its Build status and PR/CI controls.
+Physical ticket frames show the latest masked conversation across the strip; legacy Command pages retain Build status and PR/CI controls.
 
 | Control state | Behavior |
 | --- | --- |
@@ -61,7 +61,7 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 
 ### Selection and live typing
 
-The physical ticket strip shows the newest retained entry immediately and updates through server frames. The legacy local painter progressively reveals new live messages.
+The physical ticket strip updates retained and live entries through server frames, while the legacy local painter progressively reveals new live messages.
 
 | Action | Result |
 | --- | --- |
