@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.Deck.{Nav, Settings, SettingsMenu}
-  alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.Streamdeck.{FrameUpdates, Render}
   import Phoenix.Socket, only: [assign: 2]
 
   @spec initialize(Phoenix.Socket.t()) :: Phoenix.Socket.t()
@@ -26,7 +26,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
       socket = assign(socket, deck_devices: Map.take(payload, ~w(mics speakers instances))) |> clamp_menu()
       socket = migrate(payload["legacy_mic_id"], socket)
       push(socket)
-      {:reply, {:ok, %{}}, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
+      {:reply, {:ok, %{}}, FrameUpdates.push(socket)}
     else
       {:reply, {:error, %{reason: "invalid_devices"}}, socket}
     end
@@ -35,7 +35,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @spec status(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def status(%{"text" => text}, socket) when is_binary(text) and byte_size(text) in 1..200 do
     socket = assign(socket, deck_toast: text, settings_toast: text)
-    {:reply, {:ok, %{}}, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
+    {:reply, {:ok, %{}}, FrameUpdates.push(socket)}
   end
 
   def status(_payload, socket), do: {:reply, {:error, %{reason: "invalid_status"}}, socket}
@@ -48,11 +48,11 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
         nav = if is_map(patch) and Map.has_key?(patch, "default_view"), do: %{nav | view: String.to_existing_atom(settings["default_view"]), stack: [], drill_pages: [], scroll: 0}, else: nav
         socket = assign(socket, deck_settings: settings, settings_toast: "Saved", deck_nav: nav)
         push(socket)
-        {:reply, {:ok, settings}, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
+        {:reply, {:ok, settings}, FrameUpdates.push(socket)}
 
       {:error, _reason} ->
         socket = assign(socket, settings_toast: "Not saved", deck_toast: "Not saved")
-        {:reply, {:error, %{reason: "not_saved"}}, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
+        {:reply, {:error, %{reason: "not_saved"}}, FrameUpdates.push(socket)}
     end
   end
 
@@ -93,7 +93,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
 
   defp show(socket, menu) do
     socket = assign(socket, settings_menu: menu, settings_toast: nil)
-    {:reply, {:ok, %{}}, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
+    {:reply, {:ok, %{}}, FrameUpdates.push(socket)}
   end
 
   defp select(%{assigns: %{settings_menu: %{section: nil}}} = socket, index) do

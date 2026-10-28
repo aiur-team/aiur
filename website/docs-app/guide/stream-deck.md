@@ -9,6 +9,7 @@ The Claude provider meter shows the account closest to its limit using the Build
 The physical deck uses server-rendered Ticket, Feature, Epic and Fleet views.
 Dial 4 cycles views, turns page by eight keys, and a 500 ms hold goes back or
 opens Settings at the root. Dial 1 scrolls and dial 2 changes ticket priority.
+
 After selecting a ticket, hold dial 3 for 500 ms to dictate; release stops
 capture, and a short tap sends the settled transcript. Choose instances in Settings.
 
@@ -18,10 +19,10 @@ The legacy modes below retain their controls; Settings lists the physical entry.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
+| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: no action. D: press for Logs. |
 | **Settings** | Hold dial 4 at the root | Mic, Speaker, View, Sort, Brightness, Sleep, Instance, Alerts | Current section and choice; save errors | Dial 1: scroll/press to select. Hold dial 4: back. |
-| **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
+| **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: no action. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
@@ -180,7 +181,7 @@ The sidecar remembers its last connection in `streamdeck-instance.json` under
 which instance to follow. Restart the sidecar after editing the registry.
 
 The browser
-emulator shows its current instance name only; open the other dashboard's
+The browser emulator shows its current instance name only; open the other dashboard's
 `/streamdeck` page to change instances there.
 
 The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
@@ -191,8 +192,8 @@ Voice input captures speech from a microphone attached to the sidecar machine, t
 
 ### Legacy command keys
 
-The emulator and legacy command layout retain these keys. The server-rendered
-physical deck uses dial 3 for dictation after selecting a ticket.
+The emulator and legacy command layout retain these keys; physical dictation
+uses dial 3 after selecting a ticket.
 
 | Key | Slot | Behavior |
 | --- | --- | --- |
