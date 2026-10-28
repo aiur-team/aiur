@@ -11,8 +11,8 @@ defmodule AiurWeb.Streamdeck.Render.FleetMeters do
 
     providers =
       Enum.with_index(providers, fn {name, meter}, index ->
-        Grid.meter_part(name, meter, field(field(meter, :windows), :session), 34 + index * 26)
-        |> Map.put(:compact, true)
+        part = Grid.meter_part(name, meter, field(field(meter, :windows), :session), 34 + index * 26)
+        Map.put(part, :compact, part.age_label != "")
       end)
 
     apis = for row <- field(usage, :apis, []), line <- field(row, :lines, []), do: api_part(row, line)
