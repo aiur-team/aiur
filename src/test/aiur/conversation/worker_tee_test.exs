@@ -109,7 +109,9 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     assert :ok = flush(c.ref)
     display.(%{source_session_id: "display-session", projection_ingress: :display_backfill, transcript_event: second})
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["first", "second"]
+    entries = rows(c.dir)
+    assert entries |> Enum.reject(&(&1["kind"] == "gap")) |> Enum.map(& &1["body"]) == ["first", "second"]
+    assert Enum.count(entries, &(&1["kind"] == "gap" and &1["meta"]["reason"] == "source_unreadable")) == 1
   end
 
   test "operator deliveries carry delivery refs, deduplicate and ignore empty text", c do
