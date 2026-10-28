@@ -44,8 +44,15 @@ defmodule Aiur.Conversation.JumpPointsTest do
              %{kind: :command_requested, label: "Command requested", icon: :question_mark_circle, default_visible: true, best_precision: :exact},
              %{kind: :command_resolved, label: "Command answered", icon: :check_circle, default_visible: true, best_precision: :exact},
              %{kind: :attention, label: "Attention", icon: :exclamation_triangle, default_visible: false, best_precision: :exact},
-             %{kind: :executor_progress, label: "Executor progress", icon: :user, default_visible: false, best_precision: :observed}
+             %{kind: :executor_progress, label: "Executor progress", icon: :user, default_visible: false, best_precision: :causal}
            ]
+  end
+
+  test "unknown journal kinds and nil have non-raising fallbacks" do
+    for kind <- ["future_jump_kind_from_journal", :unknown_jump_kind, nil] do
+      assert JumpPoints.entry(kind) == nil
+      assert JumpPoints.label(kind, %{}) == "Event"
+    end
   end
 
   test "payload labels use identifiers and enums with bounded missing-field fallbacks" do

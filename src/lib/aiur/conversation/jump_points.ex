@@ -30,7 +30,7 @@ defmodule Aiur.Conversation.JumpPoints do
     {:command_requested, "Command requested", :question_mark_circle, true, :exact},
     {:command_resolved, "Command answered", :check_circle, true, :exact},
     {:attention, "Attention", :exclamation_triangle, false, :exact},
-    {:executor_progress, "Executor progress", :user, false, :observed}
+    {:executor_progress, "Executor progress", :user, false, :causal}
   ]
   @entries Map.new(@catalogue, fn {kind, label, icon, visible, precision} ->
              {kind, %{kind: kind, label: label, icon: icon, default_visible: visible, best_precision: precision}}
@@ -43,13 +43,18 @@ defmodule Aiur.Conversation.JumpPoints do
   @spec kinds() :: [kind()]
   def kinds, do: Enum.map(@catalogue, &elem(&1, 0))
 
-  @spec entry(kind() | String.t()) :: entry()
-  def entry(kind) when is_binary(kind), do: entry(Map.fetch!(@kind_names, kind))
-  def entry(kind), do: Map.fetch!(@entries, kind)
+  @spec entry(atom() | String.t()) :: entry() | nil
+  def entry(kind) when is_binary(kind), do: entry(Map.get(@kind_names, kind))
+  def entry(kind), do: Map.get(@entries, kind)
 
   @doc "Payload-aware label, bounded to 60 characters; never includes body, title or Command text."
-  @spec label(kind() | String.t(), map()) :: String.t()
-  def label(kind, payload), do: kind |> entry() |> Map.fetch!(:kind) |> payload_label(payload) |> String.slice(0, 60)
+  @spec label(atom() | String.t(), map()) :: String.t()
+  def label(kind, payload) do
+    case entry(kind) do
+      nil -> "Event"
+      %{kind: known_kind} -> known_kind |> payload_label(payload) |> String.slice(0, 60)
+    end
+  end
 
   defp payload_label(:progress, payload) do
     case field(payload, :percent) do
