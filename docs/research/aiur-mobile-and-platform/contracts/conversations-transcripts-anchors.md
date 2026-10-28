@@ -111,6 +111,10 @@ identity is `{harness, provider_session_id}`. A changed identity closes the old
 session as `superseded`. An explicit end applies only to the matching provider
 (or any open session when its provider ID argument is null). Deduplication is
 scoped to the open session and retains the latest 50,000 distinct keys.
+Provider-file ingestion also rebuilds a bounded replay index from durable
+entries for the same harness and provider session, so replaying the file after
+a daemon restart or a stop/resume does not duplicate retained records.
+This index is loaded by the writer, never by the producer.
 
 On reload, a session from the current BEAM run continues with dedup rebuilt
 from its durable entries. A session from another run closes as

@@ -3,9 +3,9 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   Tracks fleet-wide capacity starvation and recovery.
   """
 
-  alias Aiur.AlertFeed
   alias Aiur.CodingAgent
   alias Aiur.Config
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
   alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.Slots
@@ -222,7 +222,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   defp clear_fleet_capacity_starvation(%State{} = state) do
     starvation = state.fleet_capacity_starvation
 
-    active? = starvation[:alert_active] or AlertFeed.active_system_attention?("system.fleet.capacity.starved")
+    active? = starvation[:alert_active] or AttentionSnapshot.active_system_attention?("system.fleet.capacity.starved")
 
     if active? do
       case Signal.alert("system.fleet.capacity.starved.resolved",
