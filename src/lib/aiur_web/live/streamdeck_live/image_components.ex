@@ -5,6 +5,7 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
 
   attr(:image, :map, default: nil)
   attr(:index, :integer, required: true)
+  attr(:class, :string, default: nil)
   attr(:rest, :global)
 
   @spec key(map()) :: Phoenix.LiveView.Rendered.t()
@@ -12,7 +13,7 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
     ~H"""
     <button
       type="button"
-      class={["sd-key", is_nil(@image) && "is-empty"]}
+      class={["sd-key", @class, is_nil(@image) && "is-empty"]}
       style="width: 120px; height: 120px; padding: 0;"
       data-streamdeck-key={@index}
       disabled={is_nil(@image)}
@@ -24,6 +25,33 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
     </button>
     """
   end
+
+  attr(:frame, :map, required: true)
+  attr(:model, :map, required: true)
+  attr(:grid, :map, required: true)
+  attr(:page, :integer, required: true)
+  attr(:dial_value, :integer, required: true)
+  attr(:selected_identifier, :any, default: nil)
+
+  @spec grid(map()) :: Phoenix.LiveView.Rendered.t()
+  def grid(assigns) do
+    {faces, _regions} = AiurWeb.Streamdeck.Render.Grid.compose(assigns.model)
+    assigns = assign(assigns, :slots, Enum.zip(assigns.frame.keys, faces) |> Enum.with_index())
+
+    ~H"""
+    <div id="sd-keys" class="sd-keys" role="group" aria-label="Agent keys" data-mode-view="grid"
+      data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@page}
+      data-grid-page-count={@grid.windows} data-grid-column-offset={@page * 4}
+      data-grid-dial-value={@dial_value} data-grid-selected-identifier={@selected_identifier}>
+      <.key :for={{{image, face}, index} <- @slots} image={image} index={index} class="sd-agent-key"
+        data-streamdeck-identifier={face && face.identifier} data-streamdeck-state={face && face.bucket} data-control-action={face && control_action(face.bucket)} />
+    </div>
+    """
+  end
+
+  defp control_action(bucket) when bucket in [:running, "running"], do: "pause"
+  defp control_action(bucket) when bucket in [:paused, "paused"], do: "resume"
+  defp control_action(_bucket), do: nil
 
   attr(:regions, :list, required: true)
   attr(:rest, :global)

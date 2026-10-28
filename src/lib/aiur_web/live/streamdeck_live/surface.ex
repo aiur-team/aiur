@@ -1,72 +1,12 @@
 defmodule AiurWeb.StreamdeckLive.Surface do
   @moduledoc """
-  Pure descriptors for the Stream Deck emulator: the eight agent keys, the
+  Legacy descriptors for the Stream Deck emulator: the
   touch-strip segments (summary, provider meters, pager), the dial math that
   maps a dial value onto a grid window, and the knob readouts.
   """
 
   alias Aiur.{CodingAgent, Config}
-  alias AiurWeb.{StreamdeckKeyFaceContract, StreamdeckStrip}
-
-  @spec key_descriptors([map()], non_neg_integer()) :: [map()]
-  def key_descriptors(agents, column_offset) do
-    for slot <- 0..7 do
-      column = rem(slot, 4)
-      row = div(slot, 4)
-
-      case Enum.at(agents, (column_offset + column) * 2 + row) do
-        nil -> empty_key(slot + 1)
-        agent -> agent_key(slot + 1, agent)
-      end
-    end
-  end
-
-  defp agent_key(slot, agent) do
-    bucket = Map.fetch!(agent, :bucket)
-    footer = StreamdeckKeyFaceContract.footer_for_agent(bucket, agent)
-
-    key(
-      slot,
-      Atom.to_string(bucket),
-      Map.get(agent, :identifier),
-      Map.get(agent, :title, "Untitled"),
-      footer.label,
-      Map.get(agent, :progress_percent),
-      identifier: Map.get(agent, :identifier),
-      control_action: control_action(bucket),
-      priority?: Map.get(agent, :priority, false),
-      icon: Map.get(agent, :icon),
-      vendor_logo: Map.get(agent, :vendor_logo),
-      dependency_ready?: footer.ready?,
-      dependency: footer.dependency,
-      progress_freshness: Map.get(agent, :progress_freshness),
-      style: key_style(Map.get(agent, :progress_percent))
-    )
-  end
-
-  defp key(slot, bucket, ticket, title, label, progress, opts) do
-    %{
-      slot: slot,
-      bucket: bucket,
-      ticket: ticket,
-      title: title,
-      label: label,
-      progress: progress,
-      progress_freshness: Keyword.get(opts, :progress_freshness),
-      priority?: Keyword.get(opts, :priority?, false),
-      dependency_ready?: Keyword.get(opts, :dependency_ready?, false),
-      icon: Keyword.get(opts, :icon),
-      vendor_logo: Keyword.get(opts, :vendor_logo),
-      dependency: Keyword.get(opts, :dependency),
-      identifier: Keyword.get(opts, :identifier, ticket),
-      control_action: Keyword.get(opts, :control_action),
-      style: Keyword.fetch!(opts, :style),
-      empty?: false
-    }
-  end
-
-  defp empty_key(slot),
-    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, style: nil, empty?: true}
+  alias AiurWeb.StreamdeckStrip
 
   @spec screen_descriptors(map(), map(), integer(), map() | nil) :: [map()]
   def screen_descriptors(grid, usage, current_page, focus) do
@@ -213,16 +153,6 @@ defmodule AiurWeb.StreamdeckLive.Surface do
 
   defp weekday(%DateTime{} = datetime), do: Enum.at(~w(Mon Tue Wed Thu Fri Sat Sun), Date.day_of_week(DateTime.to_date(datetime)) - 1)
   defp hour_label(%DateTime{hour: hour}), do: "#{rem(hour + 11, 12) + 1}#{if(hour < 12, do: "AM", else: "PM")}"
-
-  # An unknown percentage gets no fill hue at all — the same rule the provider
-  # meters already follow with `observed?`. Colouring it would paint a measured
-  # 0% onto a ticket nobody measured.
-  defp key_style(progress) when is_number(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
-  defp key_style(_progress), do: nil
-
-  defp control_action(:running), do: "pause"
-  defp control_action(:paused), do: "resume"
-  defp control_action(_bucket), do: nil
 
   @spec clamp_page(term(), integer()) :: integer()
   def clamp_page(page, windows) when is_integer(page), do: clamp(page, 0, max(windows - 1, 0))

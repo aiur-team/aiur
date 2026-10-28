@@ -25,7 +25,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
+  alias AiurWeb.StreamdeckLive.{Components, ImageComponents, ScreenComponents, Surface}
+  alias AiurWeb.Streamdeck.{FrameUpdates, Render}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLogs
 
@@ -41,13 +42,6 @@ defmodule AiurWeb.StreamdeckLive do
   @durable_feed_retry_attempts 2
   @durable_feed_retry_ms 50
 
-  # The fleet-control commands. Pause is a single key whose direction the server
-  # resolves from orchestrator state, so the client never names the action — it
-  # only names the key it pressed.
-  #
-  # Prioritize was the second one and is gone: the agent view's four slots are
-  # pause, logs, mic and settings. Orchestrator priority is untouched and stays
-  # reachable from the dashboard's own controls.
   @control_commands ~w(pause)
 
   # The rolling `streamdeck-nightly` pre-release replaces this fixed-name asset
@@ -113,6 +107,18 @@ defmodule AiurWeb.StreamdeckLive do
       end
 
     {:ok, socket}
+  end
+
+  @impl true
+  def handle_event("input", raw, socket) do
+    case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
+      {:ok, nav, effects} ->
+        socket = assign(socket, deck_nav: nav, deck_effects: effects)
+        {:noreply, assign_grid(socket, socket.assigns.grid, 0, socket.assigns.usage, socket.assigns.grid_dial_value)}
+
+      _unchanged ->
+        {:noreply, socket}
+    end
   end
 
   @impl true
@@ -330,6 +336,10 @@ defmodule AiurWeb.StreamdeckLive do
 
   @impl true
   def render(assigns) do
+    renderer = endpoint_config(:streamdeck_render_fun) || (&Render.frame/1)
+    {nav, model, frame} = FrameUpdates.frame(assigns.deck_nav, assigns.grid, assigns.usage, renderer)
+    assigns = assign(assigns, frame: frame, frame_model: model, frame_page: Nav.page(nav), frame_dial_value: assigns.grid_dial_value)
+
     ~H"""
     <DashboardShell.dashboard_shell
       route={@current_route}
@@ -352,7 +362,7 @@ defmodule AiurWeb.StreamdeckLive do
           <p id="sd-instance" class="streamdeck-status">Instance: {@streamdeck_instance}</p>
 
           <%= if @sd_mode == :grid do %>
-          <Components.grid_keys grid={@grid} grid_page={@grid_page} grid_column_offset={@grid_column_offset} grid_dial_value={@grid_dial_value} selected_identifier={@selected_identifier} keys={@keys} />
+          <ImageComponents.grid frame={@frame} model={@frame_model} grid={@grid} page={@frame_page} dial_value={@frame_dial_value} selected_identifier={@selected_identifier} />
 
           <% end %>
 

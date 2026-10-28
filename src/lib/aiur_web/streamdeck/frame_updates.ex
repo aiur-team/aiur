@@ -7,35 +7,54 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def input(raw, socket) do
-    with {:ok, input} <- normalize(raw),
-         true <- Nav.valid_input?(input) do
-      sections = socket |> grid() |> Deck.navigation()
-      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
-      socket = assign(socket, deck_nav: nav, deck_effects: effects)
-      {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
-      {:reply, {:ok, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}}, socket}
-    else
+    case transition(socket.assigns.deck_nav, raw, grid(socket)) do
+      {:ok, nav, effects} ->
+        socket = assign(socket, deck_nav: nav, deck_effects: effects)
+        {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
+        {:reply, {:ok, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}}, socket}
+
       :noop ->
         {:reply, {:ok, %{}}, socket}
 
-      _invalid ->
+      :error ->
         {:reply, {:error, %{reason: "invalid_input"}}, socket}
+    end
+  end
+
+  @doc "Apply raw deck input to channel or browser navigation using the same mapping."
+  @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
+  def transition(nav, raw, grid) do
+    with {:ok, input} <- normalize(raw),
+         true <- Nav.valid_input?(input),
+         {nav, effects} <- Input.reduce(nav, input, Deck.navigation(normalize_grid(grid))) do
+      {:ok, nav, effects}
+    else
+      :noop -> :noop
+      _invalid -> :error
     end
   end
 
   @spec push(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def push(socket) do
-    grid = grid(socket)
-    sections = Deck.navigation(grid)
-    nav = Nav.clamp(socket.assigns.deck_nav, Input.sizes(socket.assigns.deck_nav, sections))
-    agents = visible_items(nav, sections, grid.agents)
-    model = %{grid: %{grid | agents: agents}, usage: socket.assigns.deck_usage, page: Nav.page(nav), provider_offset: nav.scroll}
-    Phoenix.Channel.push(socket, "frame", Render.frame(model))
+    {nav, _model, images} = frame(socket.assigns.deck_nav, socket.assigns.deck_grid, socket.assigns.deck_usage)
+    Phoenix.Channel.push(socket, "frame", images)
     assign(socket, :deck_nav, nav)
   end
 
-  defp grid(socket) do
-    grid = socket.assigns.deck_grid
+  @doc "Compose the same frame model for a channel socket or the browser emulator."
+  @spec frame(Nav.t(), map(), map(), (map() -> map())) :: {Nav.t(), map(), map()}
+  def frame(nav, grid, usage, renderer \\ &Render.frame/1) do
+    grid = normalize_grid(grid)
+    sections = Deck.navigation(grid)
+    nav = Nav.clamp(nav, Input.sizes(nav, sections))
+    agents = visible_items(nav, sections, grid.agents)
+    model = %{grid: %{grid | agents: agents}, usage: usage, page: Nav.page(nav), provider_offset: nav.scroll}
+    {nav, model, renderer.(model)}
+  end
+
+  defp grid(socket), do: normalize_grid(socket.assigns.deck_grid)
+
+  defp normalize_grid(grid) do
     agents = Map.get(grid, :agents, Map.get(grid, "agents", []))
 
     agents =

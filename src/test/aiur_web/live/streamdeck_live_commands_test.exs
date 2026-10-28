@@ -65,7 +65,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
     # 1352 is the prioritized running agent in the fixture, so its grid key
     # wears the star before anything is pressed.
-    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] .sd-ag-prio))
+    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] svg text), "★")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_receive {:streamdeck_pause, "1352"}, 1000
@@ -80,7 +80,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     refute html =~ "Deprioritize requested"
 
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
-    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] .sd-ag-prio))
+    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] svg text), "★")
   end
 
   test "the settings key opens a pane that admits microphone choice lives on the sidecar host" do

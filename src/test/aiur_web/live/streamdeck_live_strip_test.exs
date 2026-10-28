@@ -217,7 +217,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     # Slots 1 and 4 carry priority?: true.
-    assert html =~ ~s(class="sd-ag-prio")
+    assert html =~ "★"
     # The Claude segment always shows the mic dot.
     assert html =~ ~s(class="sd-mic")
     # The Codex segment is live?: true.

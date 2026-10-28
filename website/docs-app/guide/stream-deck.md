@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Fleet keys on both surfaces use the same daemon-rendered SVG images. The browser retains its existing command, logs, settings and touch-strip controls during the remaining shared-view migrations.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -84,7 +84,7 @@ A bar that drops to an empty track and back is a bug; report it.
 | State buckets | `alert` → `stuck` → `running` → `paused` → `queued` |
 | Queued tickets | Dependency-ready before blocked. |
 | Slot order | Column-major: 1/2, then 3/4, then 5/6, then 7/8. |
-| Paging | Moves by columns so each pair stays together. |
+| Paging | Shared server pages hold eight keys; the last page leaves unused slots empty. |
 
 The order is the same in the browser emulator and on the physical deck.
 

@@ -29,8 +29,17 @@ defmodule AiurWeb.Streamdeck.Render.Svg do
         [element("title", [], escape(label)), content]
       )
       |> IO.iodata_to_binary()
+      |> scope_ids()
 
     %{svg: svg, hash: :crypto.hash(:sha256, svg) |> Base.encode16(case: :lower) |> binary_part(0, 16), label: label}
+  end
+
+  # Inline SVG ids share the browser document, unlike isolated HID images.
+  defp scope_ids(svg) do
+    prefix = "sd-" <> (:crypto.hash(:sha256, svg) |> Base.encode16(case: :lower) |> binary_part(0, 16)) <> "-"
+    svg = Regex.replace(~r/\bid="([^"]+)"/, svg, fn _all, id -> ~s(id="#{prefix}#{id}") end)
+    svg = Regex.replace(~r/((?:fill|stroke|filter|clip-path|mask)=")url\(#([^)]+)\)/, svg, fn _all, attr, id -> attr <> "url(##{prefix}#{id})" end)
+    Regex.replace(~r/\bhref="#([^"]+)"/, svg, fn _all, id -> ~s(href="##{prefix}#{id}") end)
   end
 
   @spec budget(number(), number(), number()) :: pos_integer()

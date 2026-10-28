@@ -32,6 +32,7 @@ use the shared domain sources directly.
 | `AiurWeb.Streamdeck.Deck` | Guarded deck sections over shared read models; focus lane from `BuildQueue.show/0` | No | Emulator |
 | `AiurWeb.Streamdeck.Deck.TicketPage` | Focused ticket over Build DataSource and TicketControl; shared server status labels | No | Physical cmd ticket page |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
+| `AiurWeb.Streamdeck.FrameUpdates`, `AiurWeb.Streamdeck.Render` | Shared navigation-to-frame adapter and SVG images | No | Emulator fleet keys |
 | `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
 | `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
 | `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip`, `AiurWeb.StreamdeckKeyFaceContract` | Deck presentation: paging, LIVE, log windows and key faces | No; the emulator renders them | — |
@@ -42,10 +43,12 @@ port. Command answers retain the operator actor `%{kind: :operator, id: "streamd
 `StreamDeckGrid.dependency_ready?/2` remains an internal grid helper with no
 external caller.
 
-The canonical visual contract is `src/priv/streamdeck/key-face-contract.json`;
+The legacy visual contract is `src/priv/streamdeck/key-face-contract.json`;
 the parity vectors also live in `src/priv/streamdeck/`. The sidecar keeps
 byte-checked mirrors in `packages/streamdeck/src/`. Edit the canonical files,
-then copy them to the mirrors.
+then copy them to the mirrors while the remaining legacy views use them.
+Fleet keys already use the shared frame renderer; complete contract retirement
+awaits migration of the other emulator views.
 
 New dashboard, phone or watch surfaces should read `Aiur.DecisionStore`, the
 orchestrator snapshot or `Aiur.Conversation.Anchors` directly, rather than the

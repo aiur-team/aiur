@@ -18,11 +18,11 @@ defmodule AiurWeb.Streamdeck.Render.Key do
       element("rect", x: 3, y: 3, width: 114, height: 114, rx: 12, fill: "url(#face)"),
       element("rect", x: 9, y: 10, width: 26, height: 26, rx: 8, fill: "#ffffff", "fill-opacity": "0.08"),
       Marks.epic(field(face, :icon), style.accent),
-      Marks.provider(field(face, :vendor), 41, 14, 18),
+      Marks.provider(field(face, :vendor), 41, 14, 18, field(face, :vendor_logo)),
       text(ticket_number(identifier), 111, 29, 14, "text-anchor": "end"),
       if(field(face, :priority, false), do: text("★", 66, 14, 9, fill: "#ffcf87"), else: []),
       title_lines(title),
-      text(style.label, 9, 99, 10, fill: style.accent),
+      text(style.label, 9, 99, 10, fill: style.accent, "data-part": "status-label"),
       footer(face, percent, freshness)
     ]
 

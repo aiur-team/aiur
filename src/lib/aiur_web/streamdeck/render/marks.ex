@@ -12,23 +12,25 @@ defmodule AiurWeb.Streamdeck.Render.Marks do
                 {"openrouter", "openrouter.svg"},
                 {"muse", "muse.svg"}
               ],
-              into: %{} do
+              into: [] do
             path = Path.expand("../../../../priv/static/#{file}", __DIR__)
             @external_resource Path.relative_to(path, File.cwd!(), force: true)
-            {provider, File.read!(path)}
+            svg = File.read!(path)
+            [{provider, svg}, {"/provider-assets/#{file}", svg}]
           end)
+         |> List.flatten()
+         |> Map.new()
 
   @spec epic(term(), String.t()) :: iodata()
   def epic(lane, accent) do
-    svg = lane |> EpicIcon.svg() |> String.replace_prefix("<svg", ~s(<svg width="24" height="24"))
-    Svg.element("g", [transform: "translate(13 13) scale(0.75)", color: accent], svg)
+    Svg.element("g", [color: accent], embed(EpicIcon.svg(lane), 13, 13, 18))
   end
 
-  @spec provider(term(), number(), number(), number()) :: iodata()
-  def provider(provider, x, y, size) do
+  @spec provider(term(), number(), number(), number(), term()) :: iodata()
+  def provider(provider, x, y, size, logo \\ nil) do
     name = provider |> to_string() |> String.trim() |> String.downcase()
 
-    case Map.get(@marks, name) do
+    case Map.get(@marks, logo) || Map.get(@marks, name) do
       nil ->
         [
           Svg.element("rect", x: x, y: y, width: size, height: size, rx: size / 2, fill: "#5a6273"),
@@ -36,12 +38,20 @@ defmodule AiurWeb.Streamdeck.Render.Marks do
         ]
 
       svg ->
-        # The vendored SVG is trusted; input only selects an allowlisted asset.
-        svg
-        |> String.replace(~r/\A<svg\b[^>]*>/, fn root ->
-          root = String.replace(root, ~r/\s(?:width|height)="[^"]*"/, "")
-          String.replace_prefix(root, "<svg", ~s(<svg x="#{x}" y="#{y}" width="#{size}" height="#{size}"))
-        end)
+        embed(svg, x, y, size)
     end
+  end
+
+  # Trusted allowlisted marks become groups, leaving one SVG root per key.
+  defp embed(svg, x, y, size) do
+    svg = String.trim(svg)
+    [_, view_box] = Regex.run(~r/viewBox="([^"]+)"/, svg)
+    [vx, vy, width, height] = view_box |> String.split() |> Enum.map(&(Float.parse(&1) |> elem(0)))
+    scale = min(size / width, size / height)
+    left = x + (size - width * scale) / 2
+    top = y + (size - height * scale) / 2
+    transform = "translate(#{left} #{top}) scale(#{scale}) translate(#{-vx} #{-vy})"
+    group = svg |> String.replace_prefix("<svg", "<g") |> String.replace_suffix("</svg>", "</g>") |> String.replace(~r/\s(?:viewBox|xmlns)="[^"]*"/, "")
+    Svg.element("g", [transform: transform], group)
   end
 end

@@ -182,8 +182,8 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
 
   // The key the operator pressed and the panel it opens must agree about the
   // state's accent — that is the whole point of the shared key-face contract.
-  const keyState = await key.evaluate((element) => [...element.classList].find((name) => name.startsWith('st-')))
-  const keyAccent = await key.evaluate((element) => getComputedStyle(element).getPropertyValue('--sd-accent').trim())
+  const keyStatus = await key.locator('[data-part="status-label"]').textContent()
+  const keyAccent = await key.locator('[data-part="status-label"]').getAttribute('fill')
 
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
@@ -202,7 +202,7 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('.sd-strip-cmd-progress')).toHaveAttribute('aria-valuenow', /\d+/)
 
   const panel = page.locator('.sd-strip-cmd')
-  await expect(panel).toHaveClass(new RegExp(`\\b${keyState}\\b`))
+  await expect(panel.locator('.sd-strip-cmd-status')).toHaveText(keyStatus)
 
   const accents = await panel.evaluate((element) => ({
     panel: getComputedStyle(element).getPropertyValue('--sd-accent').trim(),
@@ -227,65 +227,19 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
 
-test('agent key face matches the design geometry and single-colour progress contract', async ({ page }) => {
+test('agent key uses one daemon SVG with native geometry and accessible identity', async ({ page }) => {
   await openStreamdeck(page)
-
-  const key = page.locator('.sd-agent-key:not(.is-empty)').first()
-  const geometry = await key.evaluate((element) => {
-    const face = element.querySelector('.sd-key-face')
-    const icon = element.querySelector('.sd-ag-ic')
-    const iconGlyph = icon.querySelector('svg')
-    const vendor = element.querySelector('.sd-ag-vendor')
-    const bar = element.querySelector('.sd-ag-bar')
-    const fill = bar.querySelector('i')
-    const top = element.querySelector('.sd-agent-top')
-    const css = window.getComputedStyle
-
-    const faceBox = face.getBoundingClientRect()
-    const topChildrenFit = Array.from(top.children).every((child) => {
-      const box = child.getBoundingClientRect()
-      return box.left >= faceBox.left && box.right <= faceBox.right
-    })
-
-    return {
-      key: element.getBoundingClientRect().toJSON(),
-      faceRadius: css(face).borderRadius,
-      icon: { width: css(icon).width, height: css(icon).height },
-      iconGlyph: { width: css(iconGlyph).width, height: css(iconGlyph).height },
-      vendor: { width: css(vendor).width, height: css(vendor).height },
-      barHeight: css(bar).height,
-      facePadding: {
-        top: css(face).paddingTop,
-        right: css(face).paddingRight,
-        bottom: css(face).paddingBottom,
-        left: css(face).paddingLeft
-      },
-      topGap: css(top).gap,
-      topChildrenFit,
-      fill: css(fill).backgroundColor
-    }
-  })
-
-  expect(Math.abs(geometry.key.width - geometry.key.height)).toBeLessThan(1)
-  expect(geometry.faceRadius).toBe('12px')
-  expect(geometry.icon).toEqual({ width: '30px', height: '30px' })
-  // The design centres a fixed 20px glyph in the 30px box (streamdeck.design.css:42-43).
-  // Asserting the box alone passed while the glyph rendered at 18px.
-  expect(geometry.iconGlyph).toEqual({ width: '20px', height: '20px' })
-  expect(geometry.vendor).toEqual({ width: '18px', height: '18px' })
-  expect(geometry.barHeight).toBe('8px')
-  // .sd-agent is `padding: 0.5rem 0.55rem 0.55rem` with a 0.35rem top-row gap
-  // (streamdeck.design.css:38-39). The key box matches the design exactly, so
-  // there is no fit reason to narrow either value.
-  expect(geometry.facePadding).toEqual({ top: '8px', right: '8.8px', bottom: '8.8px', left: '8.8px' })
-  expect(geometry.topGap).toBe('5.6px')
-  expect(geometry.topChildrenFit).toBe(true)
-
-  expect(geometry.fill).toBe('rgb(63, 185, 80)')
-
-  // A measured 0% keeps the ordinary green stub; only completion brightens.
-  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(63, 185, 80)')
-  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(116, 212, 127)')
+  const key = page.locator('#sd-keys [data-streamdeck-identifier="1352"]')
+  await expect(key).toHaveAttribute('aria-label', /1352.*Running/)
+  await expect(key.locator('svg')).toHaveCount(1)
+  await expect(key.locator('svg')).toHaveAttribute('viewBox', '0 0 120 120')
+  const box = await key.boundingBox()
+  expect(box.width).toBe(120)
+  expect(box.height).toBe(120)
+  await expect(key.locator('[data-part="progress-fill"]')).toHaveAttribute('fill', '#3fb950')
+  await expect(page.locator('[data-streamdeck-identifier="1338"] [data-part="progress-fill"]')).toHaveAttribute('fill', '#74d47f')
+  const ids = await page.locator('#sd-keys [id]').evaluateAll((nodes) => nodes.map((node) => node.id))
+  expect(new Set(ids).size).toBe(ids.length)
 })
 
 // Pressing a fleet-control key needs a writable dashboard: read-only renders

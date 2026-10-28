@@ -12,6 +12,8 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   import AiurWeb.StreamdeckLive.Surface
 
   alias Aiur.{Conversation.History, Orchestrator, PollCadence}
+  alias AiurWeb.Streamdeck.Deck
+  alias AiurWeb.Streamdeck.Deck.{Input, Nav}
   alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias Phoenix.LiveView.Socket
 
@@ -42,12 +44,12 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   def refresh_meters(socket) do
     usage = StreamdeckProjection.provider_meters()
     screen = screen_descriptors(socket.assigns.grid, usage, socket.assigns.grid_page, mode_pager_focus(socket.assigns.sd_mode, socket.assigns.sd_active))
-    assign(socket, :screen, screen)
+    socket |> assign(:usage, usage) |> assign(:screen, screen)
   end
 
   @spec assign_grid(Socket.t(), map(), integer(), map() | nil, number() | nil) :: Socket.t()
   def assign_grid(socket, grid, column_offset, usage, dial_value) do
-    {dial_value, column_offset} =
+    {dial_value, _legacy_offset} =
       case dial_value do
         nil ->
           {dial_value_from_offset(column_offset, grid.total), clamp_column_offset(column_offset, grid.total)}
@@ -57,19 +59,22 @@ defmodule AiurWeb.StreamdeckLive.Grid do
           {value, column_offset_from_dial(value, grid.total)}
       end
 
-    page = current_window(column_offset, grid.total)
+    nav = Nav.clamp(socket.assigns.deck_nav, Input.sizes(socket.assigns.deck_nav, Deck.navigation(grid)))
+    page = Nav.page(nav)
+    column_offset = page * 4
     usage = usage || StreamdeckProjection.provider_meters()
     visible_agents = Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
     {selected_identifier, sd_active} = mode_focus(socket, grid, visible_agents)
 
     socket
+    |> assign(:deck_nav, nav)
     |> assign(:grid, grid)
+    |> assign(:usage, usage)
     |> assign(:grid_page, page)
     |> assign(:grid_column_offset, column_offset)
     |> assign(:grid_dial_value, dial_value)
     |> assign(:selected_identifier, selected_identifier)
     |> assign(:sd_active, sd_active)
-    |> assign(:keys, key_descriptors(grid.agents, column_offset))
     |> assign(:screen, screen_descriptors(grid, usage, page, mode_pager_focus(socket.assigns.sd_mode, sd_active)))
     |> refresh_knobs()
   end

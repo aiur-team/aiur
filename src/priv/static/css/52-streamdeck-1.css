@@ -242,6 +242,13 @@
   row-gap: 1rem;
 }
 
+.sd-keys[data-mode-view="grid"] {
+  grid-template-columns: repeat(4, 120px);
+  justify-content: space-between;
+  column-gap: 0.5rem;
+  overflow-x: auto;
+}
+
 .sd-key {
   --sd-accent: var(--accent);
   --sd-glow: var(--accent-soft);

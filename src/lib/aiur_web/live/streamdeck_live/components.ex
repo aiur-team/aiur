@@ -11,7 +11,6 @@ defmodule AiurWeb.StreamdeckLive.Components do
 
   import AiurWeb.StreamdeckLive.CommandKeys, only: [command_keys: 2, commands_history_keys: 2, commands_option_keys: 2]
 
-  alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
   alias AiurWeb.{StreamdeckKeyFaceContract, StreamdeckLogs}
 
   # The web emulator's own drawing routine, fed entirely by the shared key-face
@@ -59,64 +58,6 @@ defmodule AiurWeb.StreamdeckLive.Components do
               </button>
             </div>
           </header>
-    """
-  end
-
-  attr(:grid, :map, required: true)
-  attr(:grid_page, :integer, required: true)
-  attr(:grid_column_offset, :integer, required: true)
-  attr(:grid_dial_value, :any, required: true)
-  attr(:selected_identifier, :any, required: true)
-  attr(:keys, :list, required: true)
-  @spec grid_keys(map()) :: Phoenix.LiveView.Rendered.t()
-  def grid_keys(assigns) do
-    ~H"""
-          <div id="sd-keys" class="sd-keys" role="group" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
-            <button
-              :for={key <- @keys}
-              type="button"
-              class={["sd-key", "sd-agent-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
-              disabled={key.empty?}
-              style={key.style}
-              aria-hidden={to_string(key.empty?)}
-              data-streamdeck-key={key.slot}
-              data-streamdeck-identifier={key.identifier}
-              data-control-action={key.control_action}
-            >
-              <div class={["sd-key-face", !key.empty? && "sd-agent"]}>
-                <div :if={!key.empty?} class="sd-agent-top">
-                  <BuildOrderEpicIcon.build_order_epic_icon lane={key.icon} class="sd-ag-ic" />
-                  <img :if={key.vendor_logo} class="sd-ag-vendor" src={key.vendor_logo} alt="" />
-                  <span :if={!key.vendor_logo} class="sd-ag-vendor-fallback" role="img" aria-label="Unknown provider">◌</span>
-                  <span class="sd-ag-idwrap">
-                    <span :if={key.priority?} class="sd-ag-prio" aria-label="Prioritized">
-                      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l2.6 5.7 6.2.6-4.7 4.2 1.4 6.1L12 17l-5.5 2.6 1.4-6.1L3.2 9.3l6.2-.6z" /></svg>
-                    </span>
-                    <span class="sd-ag-id">{key.ticket}</span>
-                  </span>
-                </div>
-                <span :if={!key.empty?} class="sd-ag-title">{key.title}</span>
-                <div :if={!key.empty? and key.bucket == "queued"} class="sd-ag-foot col">
-                  <span class="sd-ag-stat">{key.label}</span>
-                  <span :if={key.dependency_ready?} class="sd-ag-unblocked" role="img" aria-label={key.dependency}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="12" height="9.5" rx="2" /><path d="M13 11V7a4 4 0 0 1 8 0v2" /></svg>
-                  </span>
-                  <span :if={!key.dependency_ready?} class="sd-ag-tag blocked">{key.dependency}</span>
-                </div>
-                <div
-                  :if={!key.empty? and key.bucket != "queued"}
-                  class={[
-                    "sd-ag-foot",
-                    is_nil(key.progress) && "is-progress-unknown"
-                  ]}
-                >
-                  <span class="sd-ag-dot" aria-hidden="true"></span>
-                  <span class="sr-only">{key.label}</span>
-                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
-                </div>
-              </div>
-            </button>
-          </div>
     """
   end
 
@@ -336,9 +277,6 @@ defmodule AiurWeb.StreamdeckLive.Components do
       </div>
     """
   end
-
-  defp progress_aria_label(percent) when is_number(percent), do: "#{percent}% complete"
-  defp progress_aria_label(_percent), do: "progress unknown"
 
   defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
 

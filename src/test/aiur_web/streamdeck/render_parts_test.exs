@@ -17,13 +17,12 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
       image = Render.key(face(%{vendor: provider, icon: "runtime", priority: true}))
       xml = parse(image.svg)
       assert xpath(xml, "//text/text()") |> Enum.member?("★")
-      assert xpath(xml, ~s|//g[@transform="translate(13 13) scale(0.75)"]/svg/@width|) == ["24"]
-      assert xpath(xml, ~s|//g[@transform="translate(13 13) scale(0.75)"]/svg/@height|) == ["24"]
+      assert length(xpath(xml, "//svg")) == 1
       expected_icon = BuildOrderEpicIcon.svg("runtime") |> parse()
-      assert xpath(xml, "//g/svg/path/@d") == xpath(expected_icon, "//path/@d")
+      assert xpath(xml, "//g[@color]/g/g/path/@d") == xpath(expected_icon, "//path/@d")
       refute image.svg =~ "href=\"http"
       refute image.svg =~ "href=\"/"
-      assert xpath(xml, "//svg[@x=\"41\"]/@width") == ["18"]
+      assert length(xpath(xml, "//svg/g[@transform]")) == 1
 
       if provider == "deepseek" do
         assert [href] = xpath(xml, "//image/@href")
