@@ -62,13 +62,13 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   await expect(keysView).toBeVisible()
 })
 
-test('Logs command transitions from cmd to logs mode', async ({ page }) => {
+test('Dial D transitions from cmd to logs mode', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await page.locator('[data-streamdeck-command="logs"]').click()
+  await page.locator('.sd-knob').nth(3).click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toBeVisible()
   await expect(page.locator('#sd-keys')).toHaveCount(0)

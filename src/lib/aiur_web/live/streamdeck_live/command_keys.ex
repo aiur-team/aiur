@@ -39,6 +39,26 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
     ]
   end
 
+  @spec ticket_keys(map(), boolean()) :: [map()]
+  def ticket_keys(ticket, mic_held?) do
+    actions = ticket["actions"]
+    resume = get_in(ticket, ["control", "action"]) == "resume"
+
+    [
+      pause_command_key(resume, actions["pause"] == "enabled"),
+      command_key("priority_up", "Priority up", "QUEUE", icon: "up", disabled?: actions["priority_up"] != "enabled"),
+      command_key("priority_down", "Priority down", "QUEUE", icon: "down", disabled?: actions["priority_down"] != "enabled"),
+      command_key("commands", "Commands", "OPEN", icon: "commands"),
+      link_key("pr", "Open PR", ticket["links"]["pr"]),
+      link_key("modal", "Dashboard", ticket["links"]["modal"]),
+      mic_command_key(mic_held?, dashboard_writable?()),
+      command_key("settings", "Settings", "OPEN", icon: "settings")
+    ]
+  end
+
+  defp link_key(command, label, url),
+    do: command_key(command, label, "OPEN", icon: "logs", disabled?: is_nil(url)) |> Map.put(:url, url)
+
   defp pause_command_key(true, writable?),
     do: command_key("pause", "Play", "RESUME", icon: "play", state: "paused", disabled?: not writable?)
 

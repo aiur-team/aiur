@@ -14,7 +14,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live voice_input_live
-      support voice_provider build_order_source meters_live experiments index_live
+      support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -452,6 +452,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
+        streamdeck_build_source: Aiur.BrowserHarness.StreamdeckTicket,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_usage_load_fun: &__MODULE__.streamdeck_usage_inputs/2,
         agent_chat_capabilities_fun: &__MODULE__.build_capabilities/1,
