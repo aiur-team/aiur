@@ -21,7 +21,7 @@ defmodule AiurWeb.BuildLive do
 
     socket =
       socket
-      |> assign(:build_fixture_dataset, Map.get(params, "fixture_dataset"))
+      |> assign(:build_fixture_dataset, fixture_dataset(params))
       |> Protocol.init()
       |> Controls.init()
       |> Conversation.init()
@@ -52,7 +52,7 @@ defmodule AiurWeb.BuildLive do
     state = URLState.parse(home)
     previous = socket.assigns[:url_state]
     location = URI.parse(uri)
-    dataset = params["fixture_dataset"] || socket.assigns[:build_fixture_dataset]
+    dataset = if fixture_query_enabled?(), do: params["fixture_dataset"] || socket.assigns[:build_fixture_dataset]
     socket = assign(socket, url_path: location.path, url_state: state, build_fixture_dataset: dataset)
     socket = if previous != nil and previous != state and connected?(socket), do: push_event(socket, "build:url", %{state: state}), else: socket
     query = URLState.to_query(state)
@@ -73,6 +73,9 @@ defmodule AiurWeb.BuildLive do
     sent = Map.reject(params, fn {key, value} -> key == "ticket" or not is_binary(value) or value == "" end)
     Map.take(URI.decode_query(query), Map.keys(sent)) != sent
   end
+
+  defp fixture_dataset(params), do: if(fixture_query_enabled?(), do: params["fixture_dataset"])
+  defp fixture_query_enabled?, do: Application.get_env(:aiur, :build_fixture_query, false)
 
   defp load_snapshot(socket) do
     source = socket.assigns.build_source
