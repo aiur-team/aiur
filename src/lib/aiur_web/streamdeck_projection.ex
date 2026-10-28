@@ -1,6 +1,6 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
-  alias Aiur.{CodingAgent, Commands, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, Commands, Orchestrator, PollCadence, ProviderMeterSnapshot}
   import AiurWeb.StreamdeckProjection.Meters, only: [age_seconds: 1, field: 2, normalize_provider_meter: 3]
 
   alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet}
@@ -79,9 +79,7 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec provider_meters() :: map()
   def provider_meters do
-    provider_meters_fun()
-    |> safe_call(%{})
-    |> provider_meters(DateTime.utc_now())
+    AiurWeb.Streamdeck.Deck.Meters.read()
   end
 
   @doc false
@@ -163,10 +161,6 @@ defmodule AiurWeb.StreamdeckProjection do
 
   defp snapshot_fun do
     endpoint_config(:streamdeck_snapshot_fun) || fn -> Orchestrator.dashboard_snapshot(orchestrator(), snapshot_timeout_ms()) end
-  end
-
-  defp provider_meters_fun do
-    endpoint_config(:streamdeck_provider_meters_fun) || fn -> ProviderMeterProjection.snapshot() end
   end
 
   defp decisions_fun do

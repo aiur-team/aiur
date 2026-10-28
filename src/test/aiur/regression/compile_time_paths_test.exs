@@ -103,8 +103,10 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"
     ],
-    "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
-      "@external_resource path"
+    # Provider mark bytes are embedded in the module; rendering never reads the paths.
+    "aiur_web/streamdeck/render/marks.ex" => [
+      ~S|path = Path.expand("../../../../priv/static/#{file}", __DIR__)|,
+      "@external_resource Path.relative_to(path, File.cwd!(), force: true)"
     ],
     # Heroicon SVG bodies are embedded during compilation; runtime rendering
     # reads the compiled map and never dereferences these source paths.

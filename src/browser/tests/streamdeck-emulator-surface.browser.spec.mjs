@@ -152,10 +152,10 @@ test('touch strip renders two provider meters and design segment geometry', asyn
     await expect(provider.locator('.sd-mini')).toHaveCount(2)
   }
 
-  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="session"]')).toContainText('70% left · 22m')
-  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="weekly"]')).toContainText('53% left · Thu 6PM')
-  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="session"]')).toContainText('50% left · 1h')
-  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="weekly"]')).toContainText('25% left · Fri 8PM')
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="session"]')).toContainText('70% left')
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="weekly"]')).toContainText('53% left')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="session"]')).toContainText('50% left')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="weekly"]')).toContainText('25% left')
 
   const pagerDots = page.locator('[data-segment="pager"] .sd-pager-dot')
   const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
