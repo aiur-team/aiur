@@ -1,5 +1,6 @@
 defmodule Aiur.Conversation.TestSupport do
   alias Aiur.Conversation.{Ingest, Ref, Store}
+  alias Aiur.TestSupport.Isolation
 
   defmodule StoreDouble do
     alias Aiur.Conversation.{Store, TestSupport}
@@ -91,7 +92,7 @@ defmodule Aiur.Conversation.TestSupport do
     Agent.update(control, &Map.put(&1, :owner, owner))
     Application.put_env(:aiur, :conversation_state_dir, root)
     Application.put_env(:aiur, :conversation_test_control, control)
-    {pubsub, _topic} = Aiur.TestSupport.Isolation.start_pubsub!(context)
+    {pubsub, _topic} = Isolation.start_pubsub!(context)
     now = DateTime.utc_now()
     Agent.update(control, &Map.put(&1, :now, now))
 
