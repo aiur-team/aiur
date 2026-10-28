@@ -139,10 +139,13 @@ export function applyQueueAdd(msg) {
   repaint();
 }
 export function syncDoc(msg) {
-  let changed = false;
-  for (const row of msg.upsert || []) if (row.sec !== 'nq') changed = adds.delete(row.id) || changed;
-  for (const id of msg.remove || []) changed = adds.delete(id) || changed;
-  if (changed) repaint();
+  let refresh = false;
+  for (const row of msg.upsert || []) {
+    if (row.sec !== 'nq' && adds.delete(row.id) && row.id === view?.id) refresh = true;
+    if (row.id === view?.id && MS.t?.id === row.id) refresh = true;
+  }
+  for (const id of msg.remove || []) adds.delete(id);
+  if (refresh) repaint();
 }
 export function reconnectDoc() {
   for (const [id, state] of adds) if (state.pending) adds.set(id, { ok: false, reason: 'outcome_unknown' });
