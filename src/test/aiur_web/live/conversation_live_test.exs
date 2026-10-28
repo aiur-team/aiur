@@ -53,7 +53,7 @@ defmodule AiurWeb.ConversationLiveTest do
     assert html =~ "Earlier history is not available"
   end
 
-  test "writer failure keeps stale content, survives remount, and recovers", %{ref: ref, control: control} do
+  test "writer failure keeps stale content, survives remount, and recovers", %{ref: ref, control: control, root: root} do
     Ingest.append(ref, source(), [event(1)])
     assert :ok = flush(ref)
     {:ok, view, _} = open(ref)
@@ -61,6 +61,9 @@ defmodule AiurWeb.ConversationLiveTest do
     Ingest.append(ref, source(), [event(2)])
     assert {:error, :degraded} = flush(ref)
     assert History.degraded?(Ref.conversation_id(ref))
+    Application.put_env(:aiur, :conversation_state_dir, Path.join(root, "other-instance"))
+    refute History.degraded?(Ref.conversation_id(ref))
+    Application.put_env(:aiur, :conversation_state_dir, root)
     assert render(view) =~ "Stale — journal unavailable"
     assert has_element?(view, "#entry-1")
     assert render(view) =~ "seconds ago"
@@ -126,14 +129,16 @@ defmodule AiurWeb.ConversationLiveTest do
     assert positions(render(view)) == Enum.to_list(1..101)
   end
 
-  test "broadcasts at the start refresh activity without mixing distant pages", %{ref: ref} do
+  test "broadcasts at the start refresh activity without mixing distant pages", %{ref: ref, control: control} do
     old = DateTime.add(DateTime.utc_now(), -700)
-    events = Enum.map(1..120, &Map.put(event(&1), :timestamp, old))
+    Agent.update(control, &Map.put(&1, :now, old))
+    events = Enum.map(1..120, &event/1)
     Ingest.append(ref, source(), events)
     assert :ok = flush(ref)
     {:ok, view, _} = open(ref)
     assert has_element?(view, "[data-state=idle]")
     render_click(element(view, "button", "Jump to start"))
+    Agent.update(control, &Map.put(&1, :now, DateTime.utc_now()))
     Ingest.append(ref, source(), [event(121)])
     assert :ok = flush(ref)
     assert has_element?(view, "[data-state=live]")

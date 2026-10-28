@@ -19,12 +19,12 @@ defmodule Aiur.Conversation.HeadTable do
     :ok
   end
 
-  @spec degraded?(String.t()) :: boolean()
-  def degraded?(id), do: :ets.member(@table, {:degraded, id})
+  @spec degraded?(String.t(), Path.t()) :: boolean()
+  def degraded?(id, dir), do: :ets.member(@table, {:degraded, dir, id})
 
-  @spec degraded(String.t(), boolean()) :: :ok
-  def degraded(id, value) do
-    if value, do: :ets.insert(@table, {{:degraded, id}, true}), else: :ets.delete(@table, {:degraded, id})
+  @spec degraded(String.t(), Path.t() | nil, boolean()) :: :ok
+  def degraded(id, dir, value) do
+    if value, do: :ets.insert(@table, {{:degraded, dir, id}, true}), else: :ets.delete(@table, {:degraded, dir, id})
     :ok
   end
 
