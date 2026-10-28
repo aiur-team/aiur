@@ -11,7 +11,8 @@ defmodule AiurWeb.Streamdeck.Render do
   Coordinates inside a region are local. The same parts compose every group.
   """
 
-  alias AiurWeb.Streamdeck.Render.{Card, Grid, Key, Parts, Svg, Views}
+  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Render.{Card, Grid, Key, MeterDetail, Parts, Svg, Views}
   import Svg, only: [field: 2, field: 3]
 
   @type image :: %{svg: String.t(), hash: String.t(), label: String.t()}
@@ -49,6 +50,10 @@ defmodule AiurWeb.Streamdeck.Render do
   end
 
   @spec frame(map()) :: %{keys: [image() | nil], strip: [region_image()]}
+  def frame(%{surface: :grid, nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
+    MeterDetail.frame(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, Nav.page(nav))
+  end
+
   def frame(model) do
     {faces, regions} = compose(model)
     %{keys: Enum.map(faces, fn face -> if face, do: key(face) end), strip: strip(regions)}

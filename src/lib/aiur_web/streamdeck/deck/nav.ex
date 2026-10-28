@@ -89,6 +89,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   defp transition(nav, %{"kind" => "dial_turn", "index" => 0, "ticks" => ticks}),
     do: {%{nav | scroll: max(nav.scroll + ticks, 0)}, []}
 
+  defp transition(%{stack: [{:meter_detail, _provider} | _]} = nav, %{"kind" => "dial_turn", "index" => 1}), do: {nav, []}
+
   defp transition(%{selected: id} = nav, %{"kind" => "dial_turn", "index" => 1, "ticks" => ticks})
        when is_binary(id) and ticks != 0,
        do: {nav, [{:priority, id, if(ticks < 0, do: :up, else: :down), abs(ticks)}]}
