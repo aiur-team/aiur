@@ -26,6 +26,16 @@ defmodule AiurWeb.Streamdeck.Deck.FleetTest do
     assert Enum.map(Enum.at(fleet.keys, 5).tickets, & &1.state) == ["parked", "paused"]
   end
 
+  test "wire categories preserve canonical state filters and physical key positions" do
+    fleet = window() |> read() |> Jason.encode!() |> Jason.decode!()
+    {nav, []} = Input.reduce(%Nav{view: :fleet}, %{"kind" => "key_press", "index" => 7}, Deck.navigation(%{"fleet" => fleet}))
+    assert nav.stack == [{:state, [:live]}]
+    frame = Render.frame(%{grid: %{"fleet" => fleet}, nav: nav})
+    assert hd(frame.keys).svg =~ "Ticket 3"
+    root = Render.frame(%{grid: %{"fleet" => fleet}, nav: %Nav{view: :fleet}})
+    assert Enum.at(root.keys, 5).svg =~ "Waiting for CI"
+  end
+
   test "unknown capacity and stale heartbeat survive into the rendered frame with their values" do
     fleet = read(window())
     assert fleet.strip.capacity_max == nil

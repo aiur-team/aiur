@@ -1,8 +1,8 @@
 defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
   @moduledoc false
-  alias AiurWeb.Streamdeck.Deck.{MeterPage, Priority}
-  alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.Streamdeck.{Deck.Priority, FrameUpdates}
   alias AiurWeb.StreamdeckProjection
+  import Phoenix.Socket, only: [assign: 2]
 
   @spec reply(Phoenix.Socket.t(), map(), list()) :: {:reply, {:ok | :error, map()}, Phoenix.Socket.t()}
   def reply(socket, navigation, [{:priority, id, direction, ticks}]) do
@@ -16,9 +16,8 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
           {:error, reason} -> Priority.message(reason)
         end
 
-      nav = socket.assigns[:deck_nav]
-      grid = StreamdeckProjection.grid() |> MeterPage.prepare(nav)
-      frame = Render.frame(%{grid: grid, toast: toast, nav: nav})
+      socket = assign(socket, deck_grid: StreamdeckProjection.grid(), deck_toast: toast)
+      frame = FrameUpdates.frame(socket)
 
       case result do
         {:ok, :at_edge} -> {:reply, {:ok, Map.merge(navigation, %{"result" => "at_edge", "frame" => frame})}, socket}
@@ -30,16 +29,7 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
     end
   end
 
-  def reply(%{assigns: %{deck_nav: %{view: :fleet} = nav}} = socket, navigation, _effects) do
-    frame = Render.frame(%{grid: socket.assigns.deck_frame_grid, nav: nav})
-    {:reply, {:ok, Map.put(navigation, "frame", frame)}, socket}
-  end
-
-  def reply(%{assigns: %{deck_nav: %{view: :ticket}, deck_frame_grid: grid}} = socket, navigation, _effects) do
-    {:reply, {:ok, Map.put(navigation, "frame", Render.frame(%{grid: grid}))}, socket}
-  end
-
-  def reply(socket, navigation, _effects), do: {:reply, {:ok, navigation}, socket}
+  def reply(socket, navigation, _effects), do: {:reply, {:ok, Map.put(navigation, "frame", FrameUpdates.frame(socket))}, socket}
   defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp reason_text(reason), do: inspect(reason)
 end

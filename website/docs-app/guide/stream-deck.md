@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state; the physical sidecar status below lists its current controls.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -11,12 +11,12 @@ for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
 hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
 Dial 3 is reserved for the sidecar's instance switch.
 
-The current controls below remain visible until the sidecar and emulator
-renderer adopt this model.
+The physical sidecar uses server frames. The emulator retains its controls
+until SD-104 adopts the same renderer.
 
 ## Read provider accounts
 
-In the server navigation model, turn dial 4 past the eight Fleet categories
+On the physical deck, turn dial 4 past the eight Fleet categories
 to reach the provider meter keys. Press a meter to open one key per
 account, sorted by name, with 5h and weekly remaining percentages and reset
 countdowns. Missing windows show “—” with a hatched bar. Stale values stay
@@ -25,8 +25,7 @@ visible, dimmed and labelled “stale”.
 The touch strip names the provider and
 its summary account; hold dial 4 to return. Account keys are read-only.
 
-The current sidecar controls below remain in use until the sidecar adopts
-the server navigation frames.
+The emulator controls below remain in use until it adopts server frames.
 
 ## Drive the four modes
 
@@ -38,7 +37,7 @@ the server navigation frames.
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
-The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
+The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 
 | Control state | Behavior |
 | --- | --- |
@@ -50,13 +49,12 @@ The physical Command ticket page shares the desktop Build status and PR/CI, leav
 
 Multiple detents in one frame produce one move. The strip reports “not in a queue”,
 “plan order is fixed”, “queue disabled”, or “outcome unknown”; unknown outcomes are
-never retried. Physical dial routing requires the server-input sidecar update
-(SD-103).
+never retried. The physical sidecar routes dial inputs through the server.
 
 ## Fleet view
 
-Fleet uses the server-input renderer; physical routing requires the sidecar
-update (SD-103), and emulator pixels require SD-104.
+Fleet uses the physical deck’s server-rendered frames. Emulator pixels follow
+in SD-104.
 
 Cycle dial D to Fleet for eight summary keys: active, needs command,
 error/retrying, waiting for CI, usage limited, parked/paused, queued backlog,
@@ -133,6 +131,20 @@ The order is the same in the browser emulator and on the physical deck.
 
 ## Physical sidecar status
 
+The daemon draws every image. The sidecar rasterizes its SVG frames to JPEG,
+forwards raw input, and shows **Aiur offline** with blank keys when the channel
+is down. On reconnect, the daemon sends a full frame and resets navigation.
+
+The physical entry point currently shows the server grid. The legacy local
+voice, Commands, browser links, demo and instance-picker views await server migrations;
+use the dashboard for those controls.
+
+The control and voice sections below
+describe the emulator/legacy surfaces, not the current physical frame client.
+The saved instance is still selected at startup; hardware dial C no longer
+operates the legacy instance picker.
+
+
 The dashboard's `/streamdeck` page emulates the deck without the sidecar; nothing in the dashboard needs it installed.
 
 Download the Linux x64 archive from the rolling [`streamdeck-nightly`](https://github.com/aiur-team/aiur/releases/tag/streamdeck-nightly) pre-release, which is rebuilt in place whenever the sidecar changes. The `/streamdeck` page's setup dialog links the same asset.
@@ -162,13 +174,10 @@ The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
 dashboard credentials to mint a short-lived channel token. Neither credential
 enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
 
-Turn **dial 3** to browse registered instances without connecting. Press and
-release it to follow the highlighted instance. Holding **dial 2 + dial 3**
-toggles the demo instead.
-
-The strip names the followed instance and shows
-`connecting`, `connected`, `auth failed`, or `unreachable`; browsing also names
-the candidate. A failed connection stays on that target and never falls back.
+The physical frame client forwards dials to the daemon's navigation reducer.
+It loads the saved instance at startup and retries that target after a channel
+failure. Authentication failures require corrected credentials and a restart.
+The offline strip does not display connection details; consult service logs.
 
 The sidecar reads the CLI's `~/.aiur/remote-instances.yaml` registry at startup:
 
@@ -189,8 +198,8 @@ paths, queries, or fragments.
 
 Each remote sets exactly one `token_file` (absolute
 or `~/`, readable and mode **0600**) or `token_env` (an `AIUR_TOKEN_*` variable).
-Invalid URLs or credentials show an error on the strip and keep the current
-connection.
+Invalid URLs or credentials prevent that connection; the physical strip shows
+**Aiur offline** until a channel supplies a frame.
 
 Tokens are resolved when connecting and never shown on the strip
 or in debug logs.

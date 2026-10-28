@@ -2,9 +2,6 @@ defmodule AiurWeb.Streamdeck.Deck.MeterPage do
   @moduledoc "Attach provider keys and the selected account detail to a Fleet frame."
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Meters, Nav}
-  alias AiurWeb.Streamdeck.Render
-  alias AiurWeb.StreamdeckProjection
-  alias Phoenix.{Channel, Socket}
 
   @spec prepare(map(), Nav.t()) :: map()
   def prepare(grid, %{view: view} = nav) when view in [:epic, :fleet] do
@@ -41,13 +38,4 @@ defmodule AiurWeb.Streamdeck.Deck.MeterPage do
   @spec sections(map()) :: map()
   def sections(%{meter_detail: %{provider: provider, accounts: accounts}} = grid), do: Map.put(Deck.navigation(grid), {:meter_detail, provider}, accounts)
   def sections(grid), do: Deck.navigation(grid)
-
-  @spec refresh(Socket.t()) :: Socket.t()
-  def refresh(%{assigns: %{deck_nav: %{view: :fleet} = nav}} = socket) do
-    grid = StreamdeckProjection.grid() |> prepare(nav)
-    Channel.push(socket, "frame", Render.frame(%{grid: grid, nav: nav}))
-    Socket.assign(socket, :deck_frame_grid, grid)
-  end
-
-  def refresh(socket), do: socket
 end

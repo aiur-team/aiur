@@ -10,7 +10,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     inputs = inputs(%{"work" => work, "personal" => personal}, now)
     source = start_supervised!({Agent, fn -> inputs end})
     put_endpoint_config(streamdeck_usage_load_fun: fn _, _ -> Agent.get(source, & &1) end)
-    socket = joined_socket()
+    socket = meter_socket()
 
     assert %{"page" => 0, "frame" => %{keys: [first, second | empty], strip: strip}} = open_detail(socket)
     assert first.label == "personal"
@@ -26,9 +26,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     send(socket.channel_pid, {:provider_meter_changed, inputs.meters.claude})
     token = :sys.get_state(socket.channel_pid).assigns.usage_flush
     if is_reference(token), do: send(socket.channel_pid, {:flush_usage, token})
-    # The state call proves the flush completed before checking the transport mailbox.
-    :sys.get_state(socket.channel_pid)
-    assert_received %Message{event: "frame", payload: %{keys: [updated | _]}}
+    %{keys: [updated | _]} = flush_frame(socket)
     assert updated.svg =~ "40% left"
 
     assert %{"page" => 1, "frame" => %{keys: [meter | _]}} = request(socket, "input", %{"kind" => "dial_long_press", "index" => 3})
@@ -44,7 +42,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
       streamdeck_build_window_fun: fn _, _, _ -> {:error, :offline} end
     )
 
-    socket = joined_socket()
+    socket = meter_socket()
     assert %{"frame" => %{keys: [account | _]}} = open_detail(socket)
     assert account.label == "personal"
     assert account.svg =~ "50% left"
@@ -61,7 +59,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
       streamdeck_build_queue_fun: fn -> %{status: :disabled, queues: []} end
     )
 
-    socket = joined_socket()
+    socket = meter_socket()
     assert %{"focused" => "AIUR-1"} = request(socket, "focus", %{"identifier" => "AIUR-1"})
     assert %{"frame" => %{keys: [first | _]}} = open_detail(socket)
     assert first.label == "a01"
@@ -88,15 +86,38 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
 
     window = start_supervised!({Agent, fn -> {:ok, data} end})
     put_endpoint_config(streamdeck_build_window_fun: fn _, _, _ -> Agent.get(window, & &1) end)
-    socket = joined_socket()
+    socket = meter_socket()
     open_fleet(socket)
     assert %{"frame" => %{keys: [ci | _]}} = request(socket, "input", %{"kind" => "key_press", "index" => 3})
     assert ci.svg =~ "CI source"
     assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:state, ["ci_wait"]}]
     Agent.update(window, fn _ -> {:error, :offline} end)
+    send(socket.channel_pid, :fleet_changed)
+    :sys.get_state(socket.channel_pid)
+    flush_frame(socket)
     assert %{"frame" => %{keys: [unavailable | _]}} = request(socket, "input", %{"kind" => "dial_turn", "index" => 0, "ticks" => 1})
-    assert :sys.get_state(socket.channel_pid).assigns.deck_frame_grid.fleet.status == "unavailable"
+    assert :sys.get_state(socket.channel_pid).assigns.deck_grid.fleet.status == "unavailable"
     assert unavailable.svg =~ "Fleet unavailable"
+  end
+
+  test "physical inputs open account detail and return through the shared frame pipeline" do
+    now = DateTime.utc_now()
+    put_endpoint_config(streamdeck_usage_load_fun: fn _, _ -> inputs(%{"personal" => account(37, nil, now)}, now) end)
+    socket = meter_socket()
+
+    for view <- ["feature", "epic", "fleet"] do
+      assert %{"view" => ^view} = request(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "press"})
+    end
+
+    assert %{"page" => 1} = request(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "turn", "delta" => 1})
+    assert %{"frame" => %{keys: [account | _]}} = request(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
+    assert account.label == "personal"
+    assert account.svg =~ "63% left"
+    assert account.svg =~ "unknown-hatch"
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:meter_detail, "claude"}]
+    assert %{"page" => 1, "frame" => %{keys: [meter | _]}} = request(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "long_press"})
+    assert meter.svg =~ "claude usage"
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == []
   end
 
   defp open_detail(socket) do
@@ -116,7 +137,22 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
   defp request(socket, event, payload, status \\ :ok) do
     ref = push(socket, event, payload)
     %Reply{payload: response} = receive_barrier(%Reply{ref: ^ref, status: ^status})
+    if event == "input", do: assert(response["frame"] == flush_frame(socket))
     response
+  end
+
+  defp meter_socket do
+    socket = joined_socket()
+    receive_barrier(%Message{event: "frame"})
+    socket
+  end
+
+  defp flush_frame(socket) do
+    state = :sys.get_state(socket.channel_pid)
+    if is_reference(state.assigns.fleet_flush), do: send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
+    :sys.get_state(socket.channel_pid)
+    %Message{payload: frame} = receive_barrier(%Message{event: "frame"})
+    frame
   end
 
   defp inputs(accounts, now) do

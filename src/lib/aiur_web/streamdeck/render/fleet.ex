@@ -1,12 +1,13 @@
 defmodule AiurWeb.Streamdeck.Render.Fleet do
   @moduledoc false
+  alias AiurWeb.Streamdeck.Deck.Fleet, as: FleetModel
   alias AiurWeb.Streamdeck.Deck.Nav
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2]
 
   @spec compose(map(), Nav.t()) :: {[map() | nil], [map()]}
   def compose(grid, nav) do
     fleet = field(grid, :fleet) || %{}
-    faces = faces(field(fleet, :keys) || [], nav)
+    faces = faces(FleetModel.navigation(fleet), nav)
 
     faces =
       if unavailable?(fleet, nav), do: [%{title: "Fleet unavailable", label: "Unavailable", face: :unknown, bucket: :paused}], else: faces
@@ -16,7 +17,7 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
     daemon = "#{field(strip, :daemon) || "unknown"} #{if is_integer(age), do: "#{age}s", else: "age unknown"}"
     capacity = "Capacity #{field(strip, :capacity_max) || "—"}#{if field(strip, :capacity_stale), do: " stale", else: ""}"
     regions = [{0, daemon}, {200, capacity}, {400, pause(field(strip, :global_pause))}, {600, "Fleet · #{Nav.page(nav) + 1}"}]
-    {Enum.map(0..7, &Enum.at(faces, &1)), Enum.map(regions, &region/1)}
+    {Enum.map(0..7, &Enum.at(faces, rem(&1, 4) * 2 + div(&1, 4))), Enum.map(regions, &region/1)}
   end
 
   defp unavailable?(fleet, %{stack: []} = nav), do: field(fleet, :status) == "unavailable" and Nav.page(nav) == 0
