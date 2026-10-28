@@ -71,6 +71,7 @@ defmodule AiurWeb.StreamdeckChannelTurnsTest do
     assert_reply(push(socket, "input", %{"kind" => "key", "index" => 7, "action" => "down"}), :ok, _live, 2_000)
     assert_push("frame", %{strip: [%{label: ^newest}]}, 2_000)
     assert_reply(push(socket, "unfocus", %{}), :ok, _unfocused, 2_000)
+    Process.unlink(socket.channel_pid)
     close(socket)
   end
 
@@ -95,6 +96,7 @@ defmodule AiurWeb.StreamdeckChannelTurnsTest do
     assert Enum.flat_map(turns, & &1["entries"]) |> Enum.map(& &1["id"]) == Enum.map(desktop.entries, & &1.id)
     refute Enum.any?(turns, &(&1["text"] =~ "Turn 24"))
     assert_reply(push(socket, "unfocus", %{}), :ok, _unfocused, 2_000)
+    Process.unlink(socket.channel_pid)
     close(socket)
   end
 
