@@ -74,7 +74,7 @@ presence does not promise that its feature is installed or enabled.
 | `listener_modes` | Listener routing modes; unavailable modes retain legacy sends |
 | `voice.stt` | Speech recognition |
 | `voice.tts` | Speech synthesis |
-| `voice.conversation` | Voice conversation |
+| `voice.conversation` | Voice conversation; requires a writable dashboard, listener, configured provider, model, disclosure and credential |
 | `streamdeck` | Stream Deck integration |
 | `webhook_ingress` | GitHub webhook ingress |
 | `remote_control` | Harness Remote Control |

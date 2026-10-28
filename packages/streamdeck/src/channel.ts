@@ -37,6 +37,7 @@ import { normalizeAiurDictation } from "./aiur-speech.js";
 
 import type {
   ChatKind,
+  StreamDeckChat,
   FetchLike,
   StreamDeckAgentState,
   StreamDeckChannel,
@@ -226,6 +227,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       options.events.fleet(fleet.agents ?? []);
       if (fleet.grid !== undefined) options.events.grid(fleet.grid);
     }
+    else if (event === "chat") options.events.chat?.(payload as StreamDeckChat);
     else if (event === "frame") options.events.frame?.(payload as import("./frame.js").DeckFrame);
     else if (event === "ticket") options.events.ticket?.(payload as StreamDeckTicket);
     else if (event === "usage") options.events.usage(payload as Readonly<Record<string, unknown>>);

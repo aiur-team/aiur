@@ -2,6 +2,12 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
   alias Aiur.TestSupport.BuildHome.UsageInputs
   use AiurWeb.StreamdeckLiveCase
 
+  setup do
+    previous = Application.get_env(:aiur, :build_conversation_source)
+    Application.put_env(:aiur, :build_conversation_source, :unavailable)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
+  end
+
   alias Aiur.TestSupport.EndpointStubs
 
   setup %{meter_agent: meter_agent} do
@@ -132,18 +138,19 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert has_element?(view, "#sd-keys button[disabled][aria-label*='Tickets unavailable']")
   end
 
-  test "the backlog and pager band becomes the controlling band when focused" do
+  test "the backlog and pager band yields to full-width chat when focused" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     assert has_element?(view, "[data-streamdeck-region='600']", "Queued")
     assert has_element?(view, "[data-streamdeck-region='0']", "AIUR")
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert has_element?(view, "[data-streamdeck-region='600']", "CONTROLLING")
-    assert has_element?(view, "[data-streamdeck-region='600']", "#1352")
-    assert length(Floki.find(Floki.parse_fragment!(render(view)), "#sd-screen svg")) == 2
+    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation unavailable")
+    refute has_element?(view, "[data-streamdeck-region='600']")
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
+    assert length(Floki.find(Floki.parse_fragment!(render(view)), "#sd-screen svg")) == 1
   end
 
-  test "the focused command replaces the backlog band and returning restores it" do
+  test "full-width chat replaces the backlog band while a ticket is focused" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ "Queued"
@@ -151,7 +158,8 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert html =~ "CONTROLLING #1352"
+    assert html =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
     refute html =~ "MORE AGENTS"
     refute html =~ "data-pager-page="
 
@@ -164,9 +172,9 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert strip(html) =~ "#1352"
     assert html =~ ~s(data-streamdeck-region="600")
 
-    # Backing out of logs restores the cmd page and its CONTROLLING relabel.
+    # Backing out of logs restores the shared conversation strip.
     html = render_click(view, "dial-press", %{"action" => "back"})
-    assert html =~ "CONTROLLING"
+    assert html =~ "Conversation unavailable"
 
     # Backing all the way out restores the segment row and its pager dots.
     html = render_click(view, "dial-press", %{"action" => "back"})
@@ -176,14 +184,14 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert strip(html) =~ "1 / 3"
   end
 
-  test "the CONTROLLING label follows a focus change without leaving the previous agent behind" do
+  test "the shared conversation follows a focus change" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
-    assert html =~ "CONTROLLING #1345"
-    refute html =~ "CONTROLLING #1352"
+    assert html =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1345"
   end
 
   test "renders priority and shared strip images" do

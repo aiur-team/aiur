@@ -20,7 +20,7 @@ The current physical client uses the navigation controls described above.
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
 | **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page tickets; press for next window. |
-| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
+| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
@@ -44,7 +44,7 @@ ticket, dial B retains the priority action.
 Physical display and raw dial routing
 require the server-image sidecar update (SD-103).
 
-The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
+Physical and emulator ticket frames show the latest masked conversation across the strip, with ticket controls on the keys.
 
 | Control state | Behavior |
 | --- | --- |
@@ -77,6 +77,14 @@ labelled stale. Fleet only displays global pause.
 
 ## Read the Logs surface
 
+The ticket page strip shows the newest agent message, tool call or operator
+reply across its full width, with an inline role glyph and wrapped text. It uses
+the same conversation source as the desktop modal and restores retained messages
+after a daemon restart.
+
+Missing history says “Conversation not retained”; read
+failures say “Conversation unavailable”; stale conversations show their age.
+
 Logs runs from oldest at the far left to newest at the far right.
 
 | Key | Meaning |
@@ -88,6 +96,8 @@ Logs runs from oldest at the far left to newest at the far right.
 Transcript lines stay beneath the event active when they arrived; agent prose is not promoted into extra event keys.
 
 ### Selection and live typing
+
+The physical ticket strip updates retained and live entries through server frames, while the legacy local painter progressively reveals new live messages.
 
 | Action | Result |
 | --- | --- |
@@ -142,7 +152,7 @@ The daemon draws every image. The sidecar rasterizes its SVG frames to JPEG,
 forwards raw input, and shows **Aiur offline** with blank keys when the channel
 is down. On reconnect, the daemon sends a full frame and resets navigation.
 
-The physical entry point currently shows the server grid. The legacy local
+The physical entry point shows the server grid; selecting a ticket opens its shared conversation strip. The legacy local
 voice, Commands, browser links, demo and instance-picker views await server migrations;
 use the dashboard for those controls.
 

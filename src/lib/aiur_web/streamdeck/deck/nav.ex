@@ -28,7 +28,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
           scroll: non_neg_integer(),
           chip_offset: non_neg_integer()
         }
-  @type effect :: {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
+  @type effect :: :close_ticket | {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
 
   @spec valid_input?(term()) :: boolean()
   def valid_input?(%{"kind" => "key_press", "index" => index}),
