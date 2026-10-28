@@ -26,13 +26,21 @@ renderer adopt this model.
 
 The server-rendered Ticket strip uses three bands: build progress at the left
 (200 px), category chips across the middle (400 px), and `Queued M` / `Not queued K`
-with pager dots at the right (200 px). Chips show a state glyph and count, ordered
+with pager dots at the right (200 px).
+
+Chips show a state glyph and count, ordered
 error, command, retrying, active, waiting for CI, usage limited, parked, paused,
-then other Build states alphabetically and unknown last. Zero counts are hidden;
+then other Build states alphabetically and unknown last.
+
+Zero counts are hidden;
 missing counts read `Counts unavailable`, never zero. A dimmed band marked `stale`
-retains the last counts. More than eight categories show seven chips and `+N more`;
+retains the last counts.
+
+More than eight categories show seven chips and `+N more`;
 dial B (zero-based dial 1) moves that window one category per detent. On a selected
-ticket, dial B retains the priority action. Physical display and raw dial routing
+ticket, dial B retains the priority action.
+
+Physical display and raw dial routing
 require the server-image sidecar update (SD-103).
 
 The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
