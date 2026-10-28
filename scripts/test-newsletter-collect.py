@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import unittest
@@ -148,6 +149,13 @@ class CollectorTest(unittest.TestCase):
                                                  "--classify", text], text=True)
                 self.assertEqual(classify(text), expected)
                 self.assertEqual(shell, expected)
+        with tempfile.TemporaryDirectory() as tmp:
+            portable = Path(tmp)
+            for name in ("feature-share.sh", "classification.py"):
+                shutil.copyfile(ROOT / ".claude/skills/aiur-meta/scripts" / name, portable / name)
+            result = subprocess.check_output(["bash", str(portable / "feature-share.sh"), "--self-test"],
+                                             cwd=portable, text=True)
+            self.assertIn("feature-share self-test: ok", result)
 
     def test_cursor_pages_stop_and_repeated_cursor_fails(self):
         cursors = []

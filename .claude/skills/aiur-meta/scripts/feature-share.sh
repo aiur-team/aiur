@@ -5,9 +5,8 @@
 set -euo pipefail
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(git -C "$script_dir" rev-parse --show-toplevel)
 classify() {
-  python3 "$repo_root/scripts/newsletter/classification.py" "$1"
+  python3 "$script_dir/classification.py" "$1"
 }
 if [[ ${1:-} == --classify ]]; then
   classify "${2:-}"
