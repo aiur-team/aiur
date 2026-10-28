@@ -127,7 +127,7 @@ defmodule AiurWeb.ConversationResolveControllerTest do
     assert {:error, :unavailable} = History.resolve_worker("acme", "app", "2")
   end
 
-  test "a transferred issue with a live and a durable conversation is ambiguous", %{root: root} do
+  test "resolving a transferred issue preserves live and durable ambiguity", %{root: root} do
     {:ok, old} = TrackerIdentity.from_github(%{"node_id" => "I_old", "number" => 4}, {"acme", "app"}, {"acme", "app"})
     {:ok, moved} = TrackerIdentity.from_github(%{"node_id" => "I_moved", "number" => 9}, {"acme", "app"}, {"acme", "app"})
     {:ok, live} = TrackerIdentity.from_github(%{"node_id" => "I_moved", "number" => 4}, {"acme", "app"}, {"acme", "app"})
