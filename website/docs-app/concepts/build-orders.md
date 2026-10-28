@@ -159,7 +159,9 @@ Stale, partial or unavailable graph evidence makes that root's items unknown and
 
 ### Feature sets
 
-A queue is a feature set: dispatch fills capacity in set rank order. Spare capacity spreads into the next set so one deliverable can finish while another starts.
+A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
+
+Queue membership lets the Executor deliberately select maintenance work ahead of unqueued features. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
 `build_queue.set_order` selects `ranked` (default) or `none`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
 
