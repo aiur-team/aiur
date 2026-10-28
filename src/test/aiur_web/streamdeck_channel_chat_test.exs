@@ -48,6 +48,8 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     assert svg =~ ~s(x="6")
     assert svg =~ "physical [REDACTED:ghp]"
     refute svg =~ token
+    File.write!(Path.join(workspace, "logs/agent.ndjson"), line("appended physical"), [:append])
+    assert_push("frame", %{strip: [%{label: "Conversation ended ● appended physical"}]}, 2_000)
     timer = :sys.get_state(socket.channel_pid).assigns.deck_chat.timer
     assert_reply(push(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "press"}), :ok, _navigation, 2_000)
     assert_push("frame", %{strip: regions}, 2_000)
