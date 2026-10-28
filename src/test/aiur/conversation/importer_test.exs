@@ -118,6 +118,8 @@ defmodule Aiur.Conversation.ImporterTest do
     assert :ok = flush(c.ref)
     assert [_, ended, _] = sessions(c.dir)
     assert ended["meta"]["skipped_lines"] == 2
+    assert {:ok, [imported, _live]} = History.list_sessions(c.ref)
+    assert imported.meta == %{"skipped_lines" => 2}
     assert Enum.map(rows(c.dir), & &1["body"]) == ["", "old", "message 1"]
   end
 
