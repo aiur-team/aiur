@@ -4,7 +4,7 @@ defmodule Aiur.Conversation.AnchorResolverTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.Application.Children
-  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, ResolverState, ResolverSupervisor, Store, TestSupport}
+  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Journal, Ref, ResolverState, ResolverSupervisor, Store, TestSupport}
   alias Aiur.Events.Exchange
   import TestSupport
 
@@ -13,7 +13,15 @@ defmodule Aiur.Conversation.AnchorResolverTest do
     defdelegate prepare(dir, ref), to: Store
     defdelegate rebuild_head(dir), to: Store
     defdelegate stream_entries(dir, from, to), to: Store
-    defdelegate append_entries(dir, head, entries), to: Store
+
+    def append_entries(dir, head, entries) do
+      control = Application.fetch_env!(:aiur, :conversation_test_control)
+
+      if Agent.get(control, &Map.get(&1, :fail_entries, false)),
+        do: {:error, :enospc},
+        else: Store.append_entries(dir, head, entries)
+    end
+
     defdelegate append_session_line(dir, line), to: Store
 
     def sync_anchors(dir) do
@@ -24,9 +32,17 @@ defmodule Aiur.Conversation.AnchorResolverTest do
 
     def append_anchor_line(dir, line) do
       control = Application.fetch_env!(:aiur, :conversation_test_control)
-      action = Agent.get_and_update(control, &{Map.get(&1, :anchor_action), Map.delete(&1, :anchor_action)})
+
+      action =
+        Agent.get_and_update(control, fn state ->
+          action = Map.get(state, :anchor_action)
+          {action, if(action == :always_fail, do: state, else: Map.delete(state, :anchor_action))}
+        end)
 
       case action do
+        :always_fail ->
+          {:error, :eio}
+
         :uncertain ->
           Agent.update(control, &Map.put(&1, :anchor_sync_action, :fail))
           {:ambiguous, reason} = Aiur.Journal.append(Path.join(dir, "anchors.jsonl"), line, file_ops: TestSupport.FailedSync)
@@ -54,6 +70,15 @@ defmodule Aiur.Conversation.AnchorResolverTest do
         do: Supervisor.restart_child(ResolverSupervisor, AnchorResolver)
     end)
 
+    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "I_anchor_6627", "number" => 6627}, {"aiur-team", "aiur"}, {"aiur-team", "aiur"})
+    {:ok, ref} = Ref.worker(identity)
+
+    on_exit(fn ->
+      id = Ref.conversation_id(ref)
+      :persistent_term.erase({Ingest, :dropped, id})
+      :persistent_term.erase({Journal, id, :pending_gaps})
+    end)
+
     ctx = TestSupport.setup(context)
 
     on_exit(fn ->
@@ -64,8 +89,6 @@ defmodule Aiur.Conversation.AnchorResolverTest do
     # Real file writes, registry, History windows and PubSub; only the clock/timers are controlled.
     opts = Application.fetch_env!(:aiur, :conversation_journal) |> Keyword.put(:store, Store)
     Application.put_env(:aiur, :conversation_journal, opts)
-    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "I_anchor_6627", "number" => 6627}, {"aiur-team", "aiur"}, {"aiur-team", "aiur"})
-    {:ok, ref} = Ref.worker(identity)
     exchange = start_supervised!({Exchange, []})
     Agent.update(ctx.control, &Map.put(&1, :monotonic, 0))
     owner = self()
@@ -256,7 +279,7 @@ defmodule Aiur.Conversation.AnchorResolverTest do
       assert :ok = flush(ctx.ref)
       assert Enum.count(anchors(ctx), &(&1["event"]["event_id"] == id)) == 1
       conversation_id = Ref.conversation_id(ctx.ref)
-      receive_barrier({:anchor_added, ^conversation_id, %{"event" => %{"event_id" => ^id}}})
+      assert_received {:anchor_added, ^conversation_id, %{"event" => %{"event_id" => ^id}}}
     end
   end
 
@@ -270,6 +293,46 @@ defmodule Aiur.Conversation.AnchorResolverTest do
     :sys.get_state(ctx.resolver)
     assert :ok = flush(ctx.ref)
     assert Enum.map(anchors(ctx), & &1["event"]["event_id"]) == Enum.to_list(1..25)
+  end
+
+  test "anchor after exhausted transcript retries persists the retained gap", ctx do
+    opts = Application.fetch_env!(:aiur, :conversation_journal) |> Keyword.put(:store, RecoveringStore)
+    Application.put_env(:aiur, :conversation_journal, opts)
+    Agent.update(ctx.control, &Map.put(&1, :fail_entries, true))
+    Ingest.append(ctx.ref, %{source() | role: :worker}, [event(1)])
+    for _ <- 1..6, do: assert({:error, :degraded} = flush(ctx.ref))
+    assert Ingest.dropped_count(ctx.ref) == 1
+    assert :queue.is_empty(state(ctx.ref).buffer)
+    refute is_nil(state(ctx.ref).failed_since)
+
+    Agent.update(ctx.control, &Map.put(&1, :fail_entries, false))
+    publish(ctx, bus(ctx, 31, "branch.push"))
+    assert :ok = flush(ctx.ref)
+    assert [gap] = rows(ctx.dir)
+    assert {gap["kind"], gap["pos"], gap["meta"]["reason"]} == {"gap", 1, "source_unreadable"}
+    assert state(ctx.ref).failed_since == nil
+    assert [%{"precision" => "unanchored", "pos" => nil}] = anchors(ctx)
+  end
+
+  test "anchor retry budget survives successful gap repairs and resets after recovery", ctx do
+    opts = Application.fetch_env!(:aiur, :conversation_journal) |> Keyword.put(:store, RecoveringStore)
+    Application.put_env(:aiur, :conversation_journal, opts)
+    Agent.update(ctx.control, &Map.put(&1, :anchor_action, :always_fail))
+    publish(ctx, bus(ctx, 32, "branch.push"))
+    for _ <- 1..6, do: assert({:error, :degraded} = flush(ctx.ref))
+    assert :queue.is_empty(state(ctx.ref).buffer)
+    assert Ingest.dropped_count(ctx.ref) == 1
+    assert anchors(ctx) == []
+
+    Agent.update(ctx.control, &Map.delete(&1, :anchor_action))
+    assert :ok = flush(ctx.ref)
+    Agent.update(ctx.control, &Map.put(&1, :anchor_action, :fail))
+    publish(ctx, bus(ctx, 33, "branch.push"))
+    assert {:error, :degraded} = flush(ctx.ref)
+    assert :queue.len(state(ctx.ref).buffer) == 1
+    assert Ingest.dropped_count(ctx.ref) == 1
+    assert :ok = flush(ctx.ref)
+    assert [%{"event" => %{"event_id" => 33}}] = anchors(ctx)
   end
 
   defp append_message(ctx) do

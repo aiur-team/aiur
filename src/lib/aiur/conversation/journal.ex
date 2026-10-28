@@ -156,7 +156,7 @@ defmodule Aiur.Conversation.Journal do
     {inputs, rest} = take(state.buffer)
 
     {inputs, rest} =
-      if match?([{:end_session, _, _}], inputs) and (state.failed_since || state.dropped_span), do: {[], state.buffer}, else: {inputs, rest}
+      if (match?([{:end_session, _, _}], inputs) or match?([{:anchor, _}], inputs)) and (state.failed_since || state.dropped_span), do: {[], state.buffer}, else: {inputs, rest}
 
     if inputs == [] and is_nil(state.failed_since) and is_nil(state.dropped_span) do
       recovered(state)
@@ -164,7 +164,8 @@ defmodule Aiur.Conversation.Journal do
       case write(state, inputs) do
         {:ok, updated, entries, sessions} ->
           publish(updated, entries, sessions)
-          updated = recovered(%{updated | buffer: rest, retries: 0, failed_since: nil, dropped_span: nil})
+          # Keep recovery latched until every retained entry and anchor is durable.
+          updated = %{updated | buffer: rest, retries: if(inputs == [], do: state.retries, else: 0), failed_since: nil, dropped_span: nil}
           drain(updated)
 
         {:error, reason} ->
@@ -297,7 +298,7 @@ defmodule Aiur.Conversation.Journal do
   defp recovered(%{outage: true} = state) do
     :persistent_term.erase({__MODULE__, state.id, :pending_gaps})
     alert(state, "system.conversation.journal.degraded.resolved", false, "recovered")
-    %{state | outage: false}
+    %{state | outage: false, retries: 0}
   end
 
   defp recovered(state) do
