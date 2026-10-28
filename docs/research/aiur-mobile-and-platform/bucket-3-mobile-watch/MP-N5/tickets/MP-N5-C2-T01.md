@@ -53,7 +53,7 @@ mapping, topic catalog and integration gates. Historical `base_sha` is retained.
 All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
 `push-relay`; this refresh does not assert they shipped.
 
-- Subscribe through public `Aiur.Events.subscribe/1,2` (`src/lib/aiur/events.ex:23-27`),
+- Subscribe through public `Aiur.Events.subscribe/1,2` (`src/lib/aiur/events.ex:19-23`),
   receiving `{:event, event}`; Exchange is private.
 - Use `Aiur.Events.DurableConsumer.start_link/1` and `ExportSource`, not a proposed
   Consumer `replay/1`. Source `replay/3` and handler reset/gap semantics are in plan §10.

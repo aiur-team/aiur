@@ -16,10 +16,10 @@ are relative to `src/lib/aiur/` unless a full repository path is given.
 
 | Historical citation | Landed source and consumer entry | Owner / scope |
 | --- | --- | --- |
-| `Aiur.Events.Exchange.subscribe/2`, `events/exchange.ex:70,93-108` | `Aiur.Events.subscribe/1,2`, `events.ex:23-27`; implementation `events/exchange.ex:70,99` still sends `{:event, event}` | event-bus; C2-T01; Exchange is private |
+| `Aiur.Events.Exchange.subscribe/2`, `events/exchange.ex:70,93-108` | `Aiur.Events.subscribe/1,2`, `events.ex:19-23`; implementation `events/exchange.ex:70,99` still sends `{:event, event}` | event-bus; C2-T01; Exchange is private |
 | `DurableConsumer.replay(after)` | `Aiur.Events.DurableConsumer.start_link/1`, `events/durable_consumer.ex:37`; replay is a Source callback, not a Consumer function | event-bus; C2-T01 |
 | MP-R2-C6 export source | `events/durable_consumer/export_source.ex`, public `Aiur.Events.DurableConsumer.ExportSource` | event-bus; landed, not deferred |
-| `events.export.enabled` | `config/schema/events_export.ex:16`, default `false`; runtime capability `events.export` | config schema; event-bus owns the key |
+| `events.export.enabled` | `config/schema/events_export.ex:15`, default `false`; runtime capability `events.export` | config schema; event-bus owns the key |
 | `Aiur.DecisionStore.list/1`, `decision_store.ex:393` | `Aiur.Commands.list_decisions/0,1,2`, `commands.ex:182-190`; delegates to `decision_store.ex:377` | commands; C2-T01 reconciliation; Store is private |
 | `Aiur.DecisionStore.get/2`, `decision_store.ex:388` | implementation `decision_store.ex:365`; public `Aiur.Commands.get/1,2`, `commands.ex:36-37` | commands; C3-T03; envelope differs, CR-N5-PATH-1 |
 | `lifecycle_slug/1`, `decision_store.ex:2633-2653` | `decision_store/requests.ex:349-381`; publication via `commands/topics.ex:11-16` | commands; C2-T02; implementation evidence only |
