@@ -173,6 +173,11 @@ build gate limits verification; they do not automatically change the agent cap.
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
 
+## Conversations
+
+See [Conversations](/concepts/conversations) for journal storage, retention,
+secret handling, earlier history and jump-point precision.
+
 ## Writable controls
 
 | Writable control | Where | Action |
