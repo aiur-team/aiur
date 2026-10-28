@@ -104,8 +104,12 @@ export function renderDoc(body, t, D, doc, opts = {}) {
   body.querySelector('[data-a="queue-add"]')?.addEventListener('click', () => add(t.id));
 }
 function repaint() {
-  if (view && MS.t?.id === view.id && $('#tk-body')) renderDoc($('#tk-body'), MS.t, ctx.D, view.doc, view.opts);
+  if (view && MS.t?.id === view.id && $('#tk-body')) {
+    renderDoc($('#tk-body'), MS.t, ctx.D, view.doc, view.opts);
+    view.relevant = docRows(MS.t, ctx.D);
+  }
 }
+function docRows(t, D) { return new Set([t.id, ...(t.deps || []), ...(D.children?.[t.id] || [])]); }
 export function applyDoc(doc) {
   if (doc?.v !== 1 || doc.kind !== 'doc' || doc.id !== view?.id || MS.t?.id !== doc.id) return;
   view.doc = doc; repaint();
@@ -140,9 +144,9 @@ export function applyQueueAdd(msg) {
   repaint();
 }
 export function syncDoc(msg) {
-  const relevant = view && MS.t?.id === view.id ? new Set([view.id, ...(MS.t.deps || []), ...(ctx.D.children?.[view.id] || [])]) : new Set();
+  const relevant = view && MS.t?.id === view.id ? new Set([...(view.relevant || []), ...docRows(MS.t, ctx.D)]) : new Set();
   const changed = [...(msg.upsert || []), ...(msg.remove || []).map(id => ({ id }))];
-  const affectsDoc = !!view && changed.some(row => relevant.has(row.id) || row.deps?.includes(view.id));
+  const affectsDoc = !!view && (Object.keys(msg.set || {}).length > 0 || changed.some(row => relevant.has(row.id) || row.deps?.includes(view.id)));
   for (const row of msg.upsert || []) if (row.sec !== 'nq') adds.delete(row.id);
   for (const id of msg.remove || []) adds.delete(id);
   if (affectsDoc) repaint();
@@ -154,6 +158,7 @@ export function reconnectDoc() {
 registerBody('doc', (t, body, opts = {}) => {
   view = { id: t.id, opts, doc: null };
   renderDoc(body, t, ctx.D, null, opts); requestDoc(t);
+  view.relevant = docRows(t, ctx.D);
 });
 const modalSync = fx.modalSync;
 fx.modalSync = msg => { modalSync(msg); syncDoc(msg); };

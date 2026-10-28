@@ -119,6 +119,19 @@ for (const [state, writable, expected] of [['ok', false, 'hidden'], ['disabled',
   })
 }
 
+test('queue source set diffs hide the modal add control', async ({ page }) => {
+  await display(page, { sec: 'nq' })
+  const button = page.getByRole('button', { name: 'Add to queue' })
+  await expect(button).toBeEnabled()
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    ;(await import('/build-home/hook.js')).receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch,
+      generation: ctx.proto.generation + 1, now: ctx.snap.now, upsert: [], remove: [],
+      set: { sources: { ...ctx.snap.sources, queue: { state: 'disabled' } } } })
+  })
+  await expect(button).toHaveCount(0)
+})
+
 test('queue add pending, refusal, unknown outcome and success settle through registered events', async ({ page }) => {
   const t = await display(page, { sec: 'nq' })
   const button = page.getByRole('button', { name: 'Add to queue' })
@@ -229,6 +242,20 @@ test('board diffs preserve dependency and queue focus without taking focus from 
   await upsert(page, [{ ...t, title: t.title + ' header update' }])
   await expect(page.locator('[data-a="link"]')).toBeFocused()
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'queue-add').length)).toBe(1)
+})
+
+test('doc removes a dependent after its relation is cleared', async ({ page }) => {
+  const t = await display(page)
+  const dependent = await page.evaluate(async id => {
+    const { ctx } = await import('/build-home/state.js')
+    return structuredClone(ctx.D.plan.find(row => row.id !== id && !row.deps?.includes(id)))
+  }, t.id)
+  if (!dependent) throw new Error('fixture must contain an unrelated planned row')
+  await upsert(page, [{ ...dependent, deps: [...dependent.deps, t.id] }])
+  const dependentButton = page.locator('.bm-dep[data-goto="' + dependent.id + '"]')
+  await expect(dependentButton).toBeVisible()
+  await upsert(page, [dependent])
+  await expect(dependentButton).toHaveCount(0)
 })
 
 // Unknown observations must never acquire a plausible freshness age.
