@@ -44,6 +44,13 @@ describe("instance registry", () => {
   });
   it.each(["http://localhost:4000", "http://127.4.5.6:4000", "http://[::1]:4000", "https://remote.test"]) ("accepts %s", (url) => expect(validateInstanceUrl(url)).toBe(new URL(url).origin));
   it.each(["garbage", "http://remote.test", "http://128.0.0.1", "ftp://localhost", "https://user:secret@remote.test", "https://remote.test/path", "https://remote.test?token=secret", "https://remote.test#fragment"]) ("refuses %s", (url) => expect(() => validateInstanceUrl(url)).toThrow("HTTPS or loopback HTTP"));
+  it.each(["http://remote.test:4000", "https://remote.test/prefix", "http://remote.test:4000/prefix"]) ("preserves environment daemon URL compatibility for %s without weakening the registry", (baseUrl) => {
+    expect(resolveInstance({ ...local, baseUrl }).baseUrl).toBe(baseUrl);
+    expect(() => resolveInstance({ name: "remote", baseUrl, auth: { token: "secret" } })).toThrow("HTTPS or loopback HTTP");
+  });
+  it("rejects invalid environment daemon schemes without echoing the URL", () => {
+    expect(() => resolveInstance({ ...local, baseUrl: "ftp://private.test" })).toThrow("Invalid AIUR_PHOENIX_URL");
+  });
   it("resolves token references only at connection time, rechecking mode and content", () => {
     const home = temp(); const file = path.join(home, "token");
     const remote: InstanceTarget = { name: "remote", baseUrl: "https://remote.test/", auth: { token_file: "~/token" } };

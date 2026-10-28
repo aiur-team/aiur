@@ -129,9 +129,9 @@ instances:
 
 The environment daemon is always first, named `local` (`AIUR_PHOENIX_URL`, or
 loopback port 4000 when unset). Registry names must be unique; `local` is
-reserved.
+reserved. `AIUR_PHOENIX_URL` retains support for non-loopback HTTP and path prefixes.
 
-URLs require HTTPS except on loopback and cannot contain credentials,
+Registry URLs require HTTPS except on loopback and cannot contain credentials,
 paths, queries, or fragments.
 
 Each remote sets exactly one `token_file` (absolute

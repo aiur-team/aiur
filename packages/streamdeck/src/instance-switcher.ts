@@ -4,7 +4,7 @@ import { resolveInstance, type InstanceTarget } from "./instances.js";
 
 import { InstanceAuthError } from "./channel-types.js";
 export type InstanceState = "connecting" | "connected" | "auth failed" | "unreachable";
-interface Connection { close(): void }
+interface Connection { close(): void; focus(identifier: string): void }
 interface Lifecycle { current(): boolean; connected(): void; closed(): void }
 
 export const createInstanceSwitcher = <T extends Connection>(options: {
@@ -13,6 +13,8 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
   connect(target: ReturnType<typeof resolveInstance>, lifecycle: Lifecycle): Promise<T>;
   channel(channel: T | null): void;
   disconnect(): void;
+  resetInstance(): void;
+  focusedIdentifier?(): string | null;
   changed(): void;
 }) => {
   let chosen = options.targets[0]!;
@@ -21,7 +23,7 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
     chosen = options.targets.find((target) => target.name === saved) ?? chosen;
   } catch { /* A missing/corrupt preference leaves local selected. */ }
   let highlighted = options.targets.indexOf(chosen);
-  let state: InstanceState = "connecting";
+  let state: InstanceState = "unreachable";
   let message = "";
   let generation = 0;
   let channel: T | null = null;
@@ -38,6 +40,7 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
     channel = null;
     options.channel(null);
     options.disconnect();
+    if (chosen !== target) options.resetInstance();
     chosen = target;
     state = "connecting";
     message = "";
@@ -70,6 +73,8 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
         if (!current()) { opened.close(); return; }
         channel = opened;
         options.channel(opened);
+        const focused = options.focusedIdentifier?.();
+        if (focused != null) opened.focus(focused);
       } catch (error) { failed(error); }
     });
   };

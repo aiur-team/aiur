@@ -17,7 +17,9 @@ The physical sidecar uses each selected instance's own bearer credential from
 `AIUR_CLIENT_TOKEN` or Basic credentials. A switch closes the previous channel,
 stops voice capture, and clears its fleet before opening the selected target.
 HTTP 401/403 displays `auth failed` without retrying or falling back; connection
-failures retry the selected target with bounded backoff. Client bearer tokens
+failures retry the selected target with bounded backoff. Reconnecting to the same
+instance retains its last grid, navigation, logs and Commands page, stops voice,
+and restores the focused agent on the new channel. Client bearer tokens
 are never placed in the WebSocket URL or debug output. See the
 [physical sidecar guide](../website/docs-app/guide/stream-deck.md#physical-sidecar-status)
 for registry and token-file rules.

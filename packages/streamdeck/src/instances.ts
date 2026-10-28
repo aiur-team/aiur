@@ -77,7 +77,15 @@ export const validateInstanceUrl = (raw: string): string => {
 };
 
 export const resolveInstance = (target: InstanceTarget, home = homedir(), env = process.env): InstanceTarget & { auth: { token?: string; username?: string; password?: string } } => {
-  const baseUrl = validateInstanceUrl(target.baseUrl);
+  // The environment daemon predates the registry and accepts HTTP/path prefixes.
+  let baseUrl: string;
+  if (target.name === "local") {
+    try {
+      const url = new URL(target.baseUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error();
+      baseUrl = target.baseUrl;
+    } catch { throw new Error("Invalid AIUR_PHOENIX_URL"); }
+  } else baseUrl = validateInstanceUrl(target.baseUrl);
   const auth = target.auth;
   if (!("token_file" in auth) && !("token_env" in auth)) return { ...target, baseUrl, auth };
   let token: string;

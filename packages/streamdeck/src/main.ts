@@ -19,16 +19,13 @@
  * endpoints and FEATURE reports over control transfers. `usb` ships N-API
  * prebuilt binaries, so it needs no native toolchain at install time.
  */
-
 import { spawn } from "node:child_process";
 import net from "node:net";
 import process from "node:process";
-
 import path from "node:path";
 import { loadInstances } from "./instances.js";
 import { createInstanceSwitcher } from "./instance-switcher.js";
 import { guardChannelEvents } from "./instance-events.js";
-
 import { parseBrightness } from "./device-path.js";
 import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs, type StreamDeckChannel } from "./channel.js";
 import type { HidBackend } from "./backend.js";
@@ -339,12 +336,15 @@ export const main = async (): Promise<void> => {
     preferencePath: path.join(path.dirname(micPreferencePath()), "streamdeck-instance.json"),
     changed: () => { if (activeBackend !== null) repaintDetached(activeBackend); },
     channel: (connected) => { channel = connected; },
+    focusedIdentifier: () => controller.state().focusedIdentifier,
     disconnect: () => {
       voiceLink.drop(VOICE_LINK_LOST);
       voiceSession?.dispose();
       voiceAvailable = false;
       voiceReason = VOICE_UNCONFIGURED_REASON;
       buildVoiceSession();
+    },
+    resetInstance: () => {
       liveGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
       liveUsage = {};
       liveLogs = {};
