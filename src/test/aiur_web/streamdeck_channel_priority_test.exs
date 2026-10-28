@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckChannelPriorityTest do
   use AiurWeb.StreamdeckChannelCase
   alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Render
 
   setup do
     owner = self()
@@ -84,7 +85,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
       grid = StreamdeckProjection.grid()
       face = Enum.find(grid.agents, &(&1.identifier == "4"))
       assert face.queue_position == nil
-      image = AiurWeb.Streamdeck.Render.key(face)
+      image = Render.key(face)
       refute image.label =~ "Queued #"
       refute image.svg =~ "Queued #"
     end
