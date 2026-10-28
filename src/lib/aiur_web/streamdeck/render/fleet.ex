@@ -19,7 +19,8 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
     {Enum.map(0..7, &Enum.at(faces, &1)), Enum.map(regions, &region/1)}
   end
 
-  defp unavailable?(fleet, nav), do: field(fleet, :status) == "unavailable" and nav.stack == [] and Nav.page(nav) == 0
+  defp unavailable?(fleet, %{stack: []} = nav), do: field(fleet, :status) == "unavailable" and Nav.page(nav) == 0
+  defp unavailable?(fleet, _nav), do: field(fleet, :status) == "unavailable"
 
   defp region({x, text}), do: %{x: x, width: 200, label: text, parts: [%{kind: :text_line, text: text, y: 50, size: 12}]}
   defp faces(keys, %{stack: []} = nav), do: Enum.slice(keys, Nav.page(nav) * 8, 8)
