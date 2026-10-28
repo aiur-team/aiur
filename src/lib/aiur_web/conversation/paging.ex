@@ -27,12 +27,10 @@ defmodule AiurWeb.Conversation.Paging do
   def reveal(socket, pos) when is_binary(pos) do
     with true <- Access.can_reveal?(socket.assigns.principal),
          {position, ""} <- Integer.parse(pos),
-         true <- position in socket.assigns.positions,
-         {:ok, page} <- History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: position, limit: 1, reveal: true)),
-         entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == position)) do
+         true <- position in socket.assigns.positions do
       socket
-      |> assign(:revealed, MapSet.put(Map.get(socket.assigns, :revealed, MapSet.new()), position))
-      |> reinsert([entry])
+      |> assign(:revealed_positions, MapSet.put(socket.assigns.revealed_positions, position))
+      |> refresh_positions([position])
     else
       _ -> socket
     end
@@ -40,15 +38,36 @@ defmodule AiurWeb.Conversation.Paging do
 
   def reveal(socket, _pos), do: socket
 
-  @doc "Refresh existing stream entries while retaining this viewer's authorized reveals."
-  @spec reinsert(Phoenix.LiveView.Socket.t(), [map()]) :: Phoenix.LiveView.Socket.t()
-  def reinsert(socket, entries) do
-    entries_for_viewer(socket, entries)
-    |> Enum.reduce(socket, &stream_insert(&2, :entries, &1, []))
+  @doc "Re-read loaded positions using this viewer's currently authorized reveal selection."
+  @spec refresh_positions(Phoenix.LiveView.Socket.t(), [pos_integer()]) :: Phoenix.LiveView.Socket.t()
+  def refresh_positions(socket, positions) do
+    socket = assign(socket, :can_reveal, Access.can_reveal?(socket.assigns.principal))
+
+    positions
+    |> Enum.uniq()
+    |> Enum.filter(&(&1 in socket.assigns.positions))
+    |> Enum.reduce(socket, fn pos, acc ->
+      case read_position(acc, pos) do
+        {:ok, entry} -> stream_insert(acc, :entries, entry, [])
+        {:error, reason} -> assign(acc, state: :unavailable, reason: reason, read_error: reason)
+      end
+    end)
+  end
+
+  defp read_position(socket, pos) do
+    reveal? = Access.can_reveal?(socket.assigns.principal) and MapSet.member?(socket.assigns.revealed_positions, pos)
+
+    with {:ok, page} <- History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: pos, limit: 1, reveal: reveal?)),
+         entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == pos)) do
+      {:ok, entry}
+    else
+      nil -> {:error, :not_found}
+      error -> error
+    end
   end
 
   defp entries_for_viewer(socket, entries) do
-    revealed = Map.get(socket.assigns, :revealed, MapSet.new())
+    revealed = socket.assigns.revealed_positions
     permitted? = Access.can_reveal?(socket.assigns.principal)
 
     Enum.map(entries, fn entry ->
@@ -61,8 +80,8 @@ defmodule AiurWeb.Conversation.Paging do
   end
 
   defp restore_reveal(socket, %{redacted: true} = entry) do
-    case History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: entry.pos, limit: 1, reveal: true)) do
-      {:ok, %{entries: [raw]}} -> raw
+    case read_position(socket, entry.pos) do
+      {:ok, raw} -> raw
       _ -> entry
     end
   end

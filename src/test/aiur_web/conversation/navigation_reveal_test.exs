@@ -25,6 +25,8 @@ defmodule AiurWeb.Conversation.NavigationRevealTest do
     add_anchor(ctx)
     assert has_element?(ctx.view, "#entry-1", ctx.secret)
     assert has_element?(ctx.view, "#entry-1 #marker-1-pr_merged", "PR merged")
+    add_anchor(ctx, 2)
+    assert has_element?(ctx.view, "#entry-2 #marker-2-pr_merged", "PR merged")
     refute has_element?(ctx.view, "#entry-2", ctx.secret)
   end
 
@@ -49,12 +51,12 @@ defmodule AiurWeb.Conversation.NavigationRevealTest do
     refute has_element?(ctx.view, "#entry-2", ctx.secret)
   end
 
-  defp add_anchor(ctx) do
+  defp add_anchor(ctx, pos \\ 1) do
     anchor = %{
-      "event" => %{"event_id" => 1, "observed_at" => DateTime.to_iso8601(ctx.now)},
+      "event" => %{"event_id" => pos, "observed_at" => DateTime.to_iso8601(ctx.now)},
       "conversation_id" => Ref.conversation_id(ctx.ref),
       "kind" => "pr_merged",
-      "pos" => 1,
+      "pos" => pos,
       "placement" => "after",
       "precision" => "observed",
       "label" => "PR merged"

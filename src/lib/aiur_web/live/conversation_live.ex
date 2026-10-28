@@ -16,7 +16,7 @@ defmodule AiurWeb.ConversationLive do
         state: :loading,
         page: nil,
         positions: [],
-        revealed: MapSet.new(),
+        revealed_positions: MapSet.new(),
         live_head: 0,
         sessions: [],
         last_entry: nil,

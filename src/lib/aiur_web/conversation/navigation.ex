@@ -31,16 +31,8 @@ defmodule AiurWeb.Conversation.Navigation do
     direction = if socket.assigns.event_start == latest, do: :latest, else: :current
     socket = socket |> assign(anchors: anchors, anchor_error: nil) |> events(direction)
 
-    (previous ++ [anchor])
-    |> Enum.map(& &1["pos"])
-    |> Enum.uniq()
-    |> Enum.filter(&(&1 in socket.assigns.positions))
-    |> Enum.reduce(socket, fn pos, acc ->
-      case History.list_entries(acc.assigns.id, principal: acc.assigns.principal, around: pos, limit: 1) do
-        {:ok, %{entries: entries}} -> Paging.reinsert(acc, entries)
-        _ -> acc
-      end
-    end)
+    positions = Enum.map(previous ++ [anchor], & &1["pos"])
+    Paging.refresh_positions(socket, positions)
   end
 
   @spec filters(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
