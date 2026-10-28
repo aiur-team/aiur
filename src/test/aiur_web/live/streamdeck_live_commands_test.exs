@@ -3,6 +3,53 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
   alias Aiur.TestSupport.EndpointStubs
 
+  defmodule BuildSource do
+    def ticket(_, _), do: {:ok, %{title: "Ticket", pr: nil}}
+
+    def unit_row(id, _) do
+      snapshot = AiurWeb.EndpointConfig.get(:streamdeck_snapshot_fun).()
+      agent = Enum.find(snapshot.running ++ snapshot.idle ++ snapshot.retrying, &(to_string(&1.identifier) == id))
+      paused = agent && agent[:work_state] == :paused
+
+      {:ok,
+       %{
+         identity: %Aiur.TrackerIdentity{status: :joinable, kind: :github, owner: "acme", repository: "aiur", provider_id: "node", database_id: 1, identifier: id},
+         lifecycle: :active,
+         terminal?: false,
+         replacement_boundary?: false,
+         reasons: %{pause: nil},
+         runtime: %{bucket: if(paused, do: :paused, else: :running), work_state: if(paused, do: :paused, else: :working), tracker_paused?: false}
+       }}
+    end
+  end
+
+  setup do
+    EndpointStubs.put(streamdeck_build_source: BuildSource)
+    :ok
+  end
+
+  test "ticket links open a new tab and priority keys reorder the focused queue" do
+    queue = start_supervised!({Agent, fn -> [11, 22, 1352] end})
+
+    EndpointStubs.put(
+      streamdeck_build_queue_fun: fn ->
+        items = Agent.get(queue, & &1) |> Enum.with_index() |> Enum.map(fn {n, i} -> %{number: n, position: i} end)
+        %{status: :running, queues: [%{kind: :list, name: "ops", items: items}]}
+      end,
+      streamdeck_reorder_fun: fn id, at ->
+        Agent.update(queue, fn ids -> List.insert_at(Enum.reject(ids, &(to_string(&1) == id)), at, String.to_integer(id)) end)
+        :ok
+      end
+    )
+
+    {:ok, view, _} = live(build_conn(), "/streamdeck")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert has_element?(view, ~s(a[href="#{Endpoint.url()}/build?ticket=1352"][target="_blank"][rel="noopener noreferrer"]))
+    assert has_element?(view, ~s|button[data-streamdeck-command="priority_up"]:not([disabled])|)
+    render_hook(view, "command-press", %{"command" => "priority_up"})
+    assert Agent.get(queue, & &1) == [11, 1352, 22]
+  end
+
   test "key presses request pause for running and resume for paused agents" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
@@ -124,7 +171,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
       # Logs and Settings are navigation rather than fleet control, so they stay
       # available. They are the negative control: they prove the disabling above
       # is the read-only gate and not simply every key being rendered inert.
-      for command <- ~w(logs settings) do
+      for command <- ~w(commands settings) do
         assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][aria-disabled="false"]))
         refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][disabled]))
       end
@@ -169,27 +216,25 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     assert command_key(html, "pause") =~ "Play"
   end
 
-  test "cmd mode offers the design's five command keys, with Mic as press-and-hold" do
+  test "ticket mode offers action keys, with Mic as press-and-hold" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_receive {:streamdeck_pause, "1352"}, 1000
 
-    # Five keys, in the design's order, with the design's labels and sub lines.
-    # Prioritize is not among them: the slot it held is Settings now.
     assert [
              {"pause", "Pause", "HOLD"},
-             {"logs", "Logs", "SCROLL"},
+             {"commands", "Commands", "OPEN"},
+             {"pr", "Open PR", "OPEN"},
              {"mic", "Mic", "HOLD"},
-             {"settings", "Settings", "OPEN"},
-             {"commands", "Commands", "OPEN"}
+             {"settings", "Settings", "OPEN"}
            ] == rendered_command_keys(html)
 
     # Mic is the only press-and-hold key, so it is the only one the hook drives
     # from pointer events rather than a click.
     assert has_element?(view, ~s(button[data-streamdeck-command="mic"][data-command-hold="true"]))
 
-    for command <- ~w(pause logs settings) do
+    for command <- ~w(pause commands settings) do
       refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][data-command-hold]))
     end
 
@@ -238,7 +283,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     end
   end
 
-  test "renders state-derived command keys with three disabled blank slots" do
+  test "renders ticket action keys with unavailable PR disabled" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     refute html =~ "data-streamdeck-command"
@@ -246,8 +291,8 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "settings") =~ "Settings"
-    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 5
-    assert length(Regex.scan(~r/<button[^>]*disabled[^>]*aria-hidden="true"[^>]*>/, html)) == 3
+    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 7
+    assert has_element?(view, ~s(button[data-streamdeck-command="pr"][disabled]))
 
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
@@ -260,7 +305,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
     assert command_icon(html, "pause") == "pause"
-    assert command_icon(html, "logs") == "logs"
+    assert command_icon(html, "priority_up") == "up"
     assert command_icon(html, "mic") == "mic"
     assert command_icon(html, "settings") == "settings"
 

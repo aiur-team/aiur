@@ -3,6 +3,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketPage do
   alias Aiur.BuildOrder.TicketStatus
   alias AiurWeb.Build.{DataSource, Payload, Read, TicketControl}
   alias AiurWeb.EndpointConfig
+  alias AiurWeb.Streamdeck.Deck.TicketActions
 
   @spec subscribe(pid()) :: :ok
   def subscribe(owner) do
@@ -38,6 +39,8 @@ defmodule AiurWeb.Streamdeck.Deck.TicketPage do
       agent: agent,
       pr: row && row[:pr],
       control: control,
+      links: TicketActions.links(id, row, unit),
+      actions: TicketActions.availability(id, control),
       qpos: row && row[:qpos],
       observed_at: Keyword.get(opts, :now, System.system_time(:millisecond))
     }

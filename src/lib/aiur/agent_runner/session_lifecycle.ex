@@ -71,6 +71,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     session_opts =
       session_opts
+      |> Keyword.put(:journal_workspace, if(is_nil(worker_host), do: workspace))
       |> Keyword.put(
         :on_process_group_started,
         workspace_process_group_tracker(Keyword.get(opts, :workspace_ownership))

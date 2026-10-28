@@ -44,6 +44,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     lifecycle_opts =
       lifecycle_opts
       |> Keyword.put(:backend, backend)
+      |> Keyword.put(:journal_workspace, if(is_nil(worker_host), do: workspace))
       |> Keyword.put_new(:live_conversation_recipient, recipient)
 
     activate_live_conversation(issue, backend, lifecycle_opts)

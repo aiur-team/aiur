@@ -27,6 +27,7 @@
     "agent-runner",
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel"
   ],
