@@ -67,7 +67,7 @@ defmodule Aiur.Conversation.CausalAnchors do
   defp key_match?(kind, event, body, output) do
     pr = field(event, :pr) || field(event, :pull_request) || %{}
     number = field(pr, :number)
-    urls = Regex.scan(~r{/pull/(\d+)\b}, output)
+    urls = Regex.scan(~r{/pull/(\d+)\b}, if(kind == :merged, do: output <> "\n" <> body, else: output))
     keys = if kind == :merged, do: urls ++ Regex.scan(~r/\bgh\s+pr\s+merge\s+#?(\d+)\b/, body), else: urls
     is_integer(number) && Enum.any?(keys, fn [_, key] -> String.to_integer(key) == number end)
   end

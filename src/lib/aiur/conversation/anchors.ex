@@ -16,6 +16,8 @@ defmodule Aiur.Conversation.Anchors do
   Inputs are a bounded window from one conversation; resolution is linear.
   """
 
+  alias Aiur.Conversation.CausalAnchors
+
   @type entry :: Aiur.Conversation.Entry.t() | map()
   @type session :: Aiur.Conversation.Session.t() | map()
   @type event :: %{
@@ -42,7 +44,7 @@ defmodule Aiur.Conversation.Anchors do
   @doc "Finds the latest successful command with a matching event key in the prior ten minutes."
   @spec causal(event(), [entry()]) :: {:ok, anchor()} | :none
   def causal(event, entries) do
-    case Aiur.Conversation.CausalAnchors.command(event, entries) do
+    case CausalAnchors.command(event, entries) do
       nil -> :none
       entry -> {:ok, anchor(event, entry.pos, "at", "causal", "command_text")}
     end

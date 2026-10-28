@@ -1,5 +1,6 @@
 defmodule Aiur.Conversation.AnchorsCausalTest do
   use ExUnit.Case, async: true
+  alias Aiur.Claude.Transcript
   alias Aiur.Conversation.{Anchors, Entry}
 
   setup do
@@ -34,9 +35,11 @@ defmodule Aiur.Conversation.AnchorsCausalTest do
     event = %{ctx.event | kind: "pr_merged", payload: %{"pull_request" => %{"number" => 42}}}
     command = %{ctx.command | body: "gh pr merge #42 --squash", output: "Merged"}
     assert_causal(event, command)
+    assert_causal(event, %{command | body: "gh pr merge https://github.com/aiur-team/aiur/pull/42 --squash"})
     assert_causal(event, %{command | body: "gh pr merge", output: "https://github.com/aiur-team/aiur/pull/42"})
     assert :none = Anchors.causal(event, [%{command | body: "gh pr merge", output: "Merged current branch"}])
     assert :none = Anchors.causal(event, [%{command | body: "gh pr merge 43"}])
+    assert :none = Anchors.causal(event, [%{command | body: "gh pr merge https://github.com/aiur-team/aiur/pull/43"}])
   end
 
   test "only exit zero commands are causal", ctx do
@@ -77,7 +80,7 @@ defmodule Aiur.Conversation.AnchorsCausalTest do
             {%{"type" => "tool_call", "id" => "command-item", "tool_use_id" => "call-1", "name" => "Bash", "input" => %{"command" => "git push"}}, 1},
             {%{"type" => "tool_result", "id" => "result-item", "tool_use_id" => "call-1", "content" => ctx.command.output, "is_error" => false}, 2}
           ] do
-        {:ok, event} = Aiur.Claude.Transcript.extract(%{payload: %{"method" => "item/created", "params" => %{"item" => item}}}, nil)
+        {:ok, event} = Transcript.extract(%{payload: %{"method" => "item/created", "params" => %{"item" => item}}}, nil)
         {:ok, entry} = Entry.from_transcript_event(event)
         %{entry | pos: pos, session_seq: 1, observed_at: ctx.now}
       end
@@ -92,7 +95,7 @@ defmodule Aiur.Conversation.AnchorsCausalTest do
           {"assistant", "record-1", %{"type" => "tool_use", "id" => "call-1", "name" => "Bash", "input" => %{"command" => "git push"}}, 1},
           {"user", "record-2", %{"type" => "tool_result", "tool_use_id" => "call-1", "content" => ctx.command.output, "is_error" => error}, 2}
         ] do
-      [event] = Aiur.Claude.Transcript.extract_disk_record(%{"type" => role, "uuid" => id, "message" => %{"content" => [block]}}, nil)
+      [event] = Transcript.extract_disk_record(%{"type" => role, "uuid" => id, "message" => %{"content" => [block]}}, nil)
       {:ok, entry} = Entry.from_transcript_event(event)
       %{entry | pos: pos, session_seq: 1, observed_at: ctx.now}
     end
