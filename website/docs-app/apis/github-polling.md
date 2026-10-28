@@ -71,6 +71,10 @@ Recovery requires evidence that the failure is infrastructure, inherited, or kno
 
 The recovery attention names failing tests and counts completed group rebuild runs for PRs that were behind the stuck head during the observed window.
 
+New flake-recorder issues carry `needs-triage` and the instance's parked label
+(`agent:parked` by default); fix work waits for triage. Automatic quarantine
+continues independently.
+
 The landing watcher quarantines a flaky test within 24 hours (caller `landing_watch_flake_gate` for the age check):
 
 - **Qualifies:** a failure in two merge groups whose PRs did not touch the test, or one base-branch failure when that commit did not touch the test or its mirrored `src/lib` file.
@@ -260,3 +264,21 @@ The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the mo
 | `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. `aiur --todo` also records the queued identifiers as known demand: the woken poll and one follow-up stay at the base interval even if GitHub has not yet indexed the label, and the command warns on stderr when the daemon did not accept the refresh. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
+
+## Newsletter snapshots
+
+`scripts/newsletter/collect.py` is an on-demand reader, separate from daemon
+polling. It searches open and closed issues separately for each discovered
+`phase:*` label, then deduplicates by issue number.
+
+Program and 48-hour merge searches use explicit cursors (100 results per page).
+Closing and allocation issues are hydrated in batches by number, without timelines.
+
+Individual phase or merge searches above GitHub's 1,000-result cap are reported unavailable,
+never presented as a complete program.
+
+A run admits at most 40 small GraphQL queries. It reserves two points per
+request until its reported cost is known, stopping before the next reservation
+reaches 50 points. Source failure still produces a snapshot with reported cost.
+See
+[Daily newsletter snapshots](/skills#daily-newsletter-snapshots).

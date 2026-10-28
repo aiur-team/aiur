@@ -305,6 +305,10 @@ defmodule Aiur.Application.Children do
     |> Kernel.++(
       cli_children ++
         [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
+        [
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor}
+        ] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,

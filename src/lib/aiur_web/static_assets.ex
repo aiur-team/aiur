@@ -34,6 +34,7 @@ defmodule AiurWeb.StaticAssets do
     time-brush-hook.js
     voice-capture.js
     voice-capture-worklet.js
+    voice-input-hook.js
     voice-transport.js
   )
   @long_lived_static_paths ~w(aiur-logo.png)

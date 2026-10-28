@@ -7,7 +7,9 @@ defmodule AiurWeb.Components.VoiceInput do
   `data-voice-*` attributes are the DOM contract that the conversation voice
   controller binds inside its hook element. The caller keeps the form, the
   `data-voice-input` textarea and the `data-voice-send` button, because each
-  surface owns its own submit event.
+  surface owns its own submit event. Put `phx-hook="VoiceInput"` on that form,
+  or pass `hook="VoiceInput"` here and supply the textarea and Send button
+  through the optional inner block so all controls share the hook boundary.
   """
 
   use Phoenix.Component
@@ -15,6 +17,8 @@ defmodule AiurWeb.Components.VoiceInput do
   @default_status_copy "Press the microphone to dictate. Review the text, then press Send."
 
   attr(:id, :string, required: true, doc: "prefix reserved for ids rendered by the component")
+  attr(:hook, :string, default: nil, doc: "optional VoiceInput hook; put the composer in inner_block when set")
+  slot(:inner_block, doc: "optional caller-owned textarea and Send button, inside the hook boundary")
   attr(:legacy_conversation, :boolean, default: true, doc: "render the interactive voice chat button")
   attr(:status_copy, :string, default: @default_status_copy)
   attr(:capabilities, :map, default: %{}, doc: "`voice.*` capability report entries; only `voice.stt` is rendered, as data attributes")
@@ -24,7 +28,8 @@ defmodule AiurWeb.Components.VoiceInput do
     assigns = assign(assigns, :stt, Map.get(assigns.capabilities, "voice.stt", %{}))
 
     ~H"""
-    <div class="agent-voice-tools" data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]}>
+    <div id={@hook && @id} phx-hook={@hook} class="agent-voice-tools" data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]}>
+      {render_slot(@inner_block)}
       <div class="agent-voice-controls">
         <button
           class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"

@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import { formatEta, summaryModel } from "../../src/touchStrip/summarySegment.js";
 
 describe("summaryModel", () => {
+  it("prefers producer percent without inventing completed counts and accepts wire ETA", () => {
+    const model = summaryModel(1, 2, { percent: 41, total: 22, completed: null, eta_seconds: 120 });
+    expect(model.build!.fraction).toBeCloseTo(0.41);
+    expect(model.build!.completed).toBeNull();
+    expect(model.build!.etaLabel).toBe("2m");
+    expect(summaryModel(1, 2, { percent: null, total: 22, completed: null }).build!.fraction).toBeNull();
+    expect(summaryModel(1, 2, { total: 22, completed: null }).build!.fraction).toBeNull();
+  });
+
   it("carries clamped live and remaining counts", () => {
     const model = summaryModel(3, 5);
     expect(model.live).toBe(3);

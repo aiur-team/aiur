@@ -1,9 +1,9 @@
 defmodule Aiur.BuildOrder.Index do
   @moduledoc "Shared build-home join and changes; all input reads are local projections."
   alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued, PackStatus}
-  alias Aiur.BuildOrder.Index.{Catalogue, FeatureProgress, PackRows, Pages, Parts, Rows, Sources}
+  alias Aiur.BuildOrder.Index.{Catalogue, EpicProgress, FeatureProgress, PackRows, Pages, Parts, Rows, Sources}
   @topic "build-home:index"
-  @blocks ~w(epics features order counts feature_progress sources history_meta repo capacity)a
+  @blocks ~w(epics epic_progress epic_progress_meta features order counts feature_progress sources history_meta repo capacity)a
 
   @spec assemble(map(), keyword()) :: {:ok, map()} | {:error, atom()}
   def assemble(parts, opts \\ []) do
@@ -20,6 +20,7 @@ defmodule Aiur.BuildOrder.Index do
       feature_progress = FeatureProgress.compute(feature_parts, all, catalogue.features, complete?, now)
       all = PackRows.merge(all, packs)
       counts = if complete?, do: counts(all, catalogue.order)
+      progress = EpicProgress.compute(general, all, parts.resolved_history, sources)
       hist = all |> Map.values() |> Enum.filter(&(&1.sec == "hist")) |> Enum.sort_by(&{&1.end, &1.id})
       available? = sources.history.state != "unavailable"
 
@@ -28,6 +29,8 @@ defmodule Aiur.BuildOrder.Index do
          all: all,
          hist: hist,
          counts: counts,
+         epic_progress: progress.epics,
+         epic_progress_meta: progress.meta,
          feature_progress: feature_progress,
          sources: sources,
          history_meta: %{total: if(available?, do: length(hist)), undated: if(available?, do: undated)},
