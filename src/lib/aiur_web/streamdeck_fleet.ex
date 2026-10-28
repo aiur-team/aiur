@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckFleet do
   @moduledoc false
   alias AiurWeb.{StreamDeckGrid, StreamdeckProjection}
+  alias AiurWeb.Streamdeck.Deck
 
   @spec fleet(term()) :: map()
   def fleet(snapshot), do: %{"agents" => agents(snapshot)}
@@ -19,7 +20,7 @@ defmodule AiurWeb.StreamdeckFleet do
   end
 
   @spec grid(term()) :: map()
-  def grid(snapshot), do: Map.merge(project_grid(snapshot), AiurWeb.Streamdeck.Deck.read().build_order)
+  def grid(snapshot), do: Map.merge(project_grid(snapshot), Deck.read().build_order)
 
   defp project_grid({status, snapshot, freshness}) when status in [:current, :stale] and is_map(snapshot),
     do: snapshot |> StreamDeckGrid.project() |> Map.put(:snapshot_freshness, freshness)
