@@ -26,6 +26,7 @@ describe("deck alert preferences", () => {
 
   it("recognizes delivered names and leaves unrelated events alone", () => {
     expect(deckAlertKind({ name: "ticket.42.agent.decision.requested" })).toBe("command");
+    expect(deckAlertKind({ name: "ticket.42.agent.attention.operator-decision", severity: "warning" })).toBe("command");
     expect(deckAlertKind({ name: "ticket.42.ci.failed" })).toBe("ci_red");
     expect(deckAlertKind({ name: "ticket.42.usage_limited" })).toBe("usage_limited");
     expect(deckAlertKind({ name: "ticket.42.command" })).toBe("command");

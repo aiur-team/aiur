@@ -4,7 +4,7 @@ export type AlertChoices = Readonly<Partial<Record<AlertKind, { readonly flash: 
 
 export function deckAlertKind(event: Readonly<Record<string, unknown>>): AlertKind | null {
   const name = typeof event.name === "string" ? event.name : "";
-  if (name === "command" || name.endsWith(".command") || name.includes("decision.requested")) return "command";
+  if (name === "command" || name.endsWith(".command") || (name.includes("decision.requested") || name.endsWith(".attention.operator-decision"))) return "command";
   if (name === "ci_red" || name.endsWith(".ci.failed")) return "ci_red";
   if (name === "usage_limited" || (name.endsWith(".usage_limited") || name.endsWith(".usage_limit_exhausted"))) return "usage_limited";
   if (name === "error" || event.severity === "error" || event.severity === "critical") return "error";
