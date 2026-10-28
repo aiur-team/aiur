@@ -9,14 +9,16 @@ defmodule Aiur.VoiceConverse.Host.Conversation do
     history = Keyword.get(opts, :history, History)
     limit = opts |> Keyword.get(:n, 20) |> max(1) |> min(200)
 
-    with {:ok, ref} <- Ref.worker(identity) do
-      if history && Code.ensure_loaded?(history) && function_exported?(history, :list_entries, 2) do
-        journal(history.list_entries(ref, principal: :internal, tail: true, limit: limit))
-      else
-        live(target, limit, opts)
-      end
-    else
-      _ -> {:error, :unavailable}
+    case Ref.worker(identity) do
+      {:ok, ref} ->
+        if history && Code.ensure_loaded?(history) && function_exported?(history, :list_entries, 2) do
+          journal(history.list_entries(ref, principal: :internal, tail: true, limit: limit))
+        else
+          live(target, limit, opts)
+        end
+
+      _ ->
+        {:error, :unavailable}
     end
   catch
     :exit, _ -> {:error, :unavailable}
