@@ -243,6 +243,12 @@ test('command keys render real state-derived controls, flash on click, and emit 
     const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
     window.__streamdeckCommandEvents = []
     window.__streamdeckGridEvents = []
+    window.__streamdeckFlashes = []
+    // Observe after the key handler, before an asynchronous pane swap can remove it.
+    document.addEventListener('click', (event) => {
+      const key = event.target.closest('[data-streamdeck-command]')
+      if (key) window.__streamdeckFlashes.push({ command: key.dataset.streamdeckCommand, flashing: key.classList.contains('is-flashing') })
+    })
     const pushEvent = hook.pushEvent.bind(hook)
     hook.pushEvent = (name, payload) => {
       if (name === 'command-press') window.__streamdeckCommandEvents.push({ name, payload })
@@ -254,7 +260,7 @@ test('command keys render real state-derived controls, flash on click, and emit 
   for (const command of ['pause', 'commands', 'settings']) {
     const key = page.locator(`[data-streamdeck-command="${command}"]`)
     await key.click()
-    await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+    expect(await page.evaluate(() => window.__streamdeckFlashes.at(-1))).toEqual({ command, flashing: true })
     // Commands and Settings are navigation keys: each opens its own pane
     // and dial A backs out of it.
     if (command === 'commands' || command === 'settings') {
