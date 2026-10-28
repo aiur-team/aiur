@@ -4,6 +4,11 @@ defmodule AiurWeb.Streamdeck.DeckBuildOrderTest do
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Streamdeck.Deck
 
+  setup do
+    EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:error, :counts_fixture_unavailable} end)
+    :ok
+  end
+
   test "snapshot selects lowest rank then queue id and preserves partial progress" do
     lanes = [lane("later", 2), lane("z", 1), lane("a", 1)]
     EndpointStubs.put(streamdeck_build_queue_fun: fn -> %{status: :running, queues: lanes} end)
