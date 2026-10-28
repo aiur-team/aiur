@@ -20,7 +20,7 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Provides a standalone encrypted notification relay with persistent handles and APNs delivery over HTTP/2.",
+  "summary": "Delivers encrypted Apple notifications through a standalone relay with persistent device handles.",
   "status": "experimental",
   "install": {
     "type": "included"
@@ -29,11 +29,7 @@
     "guide/push-relay.md"
   ],
   "config": [],
-  "env": [
-    "AIUR_RELAY_APNS_KEY_FILE",
-    "AIUR_RELAY_APNS_KEY_ID",
-    "AIUR_RELAY_APNS_TEAM_ID"
-  ],
+  "env": [],
   "capabilities": [],
   "added_by": "MP-N4",
   "goal": "notify"
