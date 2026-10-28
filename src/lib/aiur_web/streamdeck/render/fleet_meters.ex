@@ -1,11 +1,12 @@
 defmodule AiurWeb.Streamdeck.Render.FleetMeters do
   @moduledoc false
   alias AiurWeb.Streamdeck.Render.Grid
+  alias AiurWeb.Streamdeck.Deck.Meters
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2, field: 3]
 
   @spec compose([map()], map(), integer()) :: [map()]
   def compose(regions, usage, offset) do
-    providers = usage |> Map.drop([:apis, "apis"]) |> Enum.sort_by(&elem(&1, 0))
+    providers = usage |> Meters.providers() |> Enum.sort_by(&elem(&1, 0))
     offset = offset |> max(0) |> min(max(length(providers) - 3, 0))
     providers = providers |> Enum.drop(offset) |> Enum.take(3)
 

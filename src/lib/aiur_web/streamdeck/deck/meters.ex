@@ -4,6 +4,10 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
   alias AiurWeb.EndpointConfig
   alias AiurWeb.Streamdeck.Deck.MeterSource
 
+  @doc "Provider-keyed readings, excluding the separate API rows."
+  @spec providers(map()) :: map()
+  def providers(usage), do: Map.drop(usage, [:apis, "apis"])
+
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)

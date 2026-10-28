@@ -5,6 +5,15 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
   alias AiurWeb.Streamdeck.Deck.{Meters, Nav}
   alias AiurWeb.Streamdeck.FrameUpdates
 
+  test "provider enumeration excludes API lists and preserves unknown provider readings" do
+    usage = read(%{github: {:error, :unavailable}})
+    assert [%{name: "GitHub"}] = usage["apis"]
+    assert Meters.providers(usage) == %{"codex" => usage["codex"]}
+    assert Meters.providers(Map.put(usage, :apis, usage["apis"])) == %{"codex" => usage["codex"]}
+    assert Meters.providers(%{}) == %{}
+    assert Meters.providers(%{"codex" => nil, "apis" => []}) == %{"codex" => nil}
+  end
+
   test "Build quota readings reach the Fleet model as remaining with GraphQL held" do
     usage = read(%{github: {:ok, I.quota(3950, 400)}, meters: %{codex: I.snapshot(:codex, %{"primary" => I.window(21, 300)})}})
     {_, model, frame} = FrameUpdates.frame(%Nav{view: :fleet}, %{agents: []}, usage)

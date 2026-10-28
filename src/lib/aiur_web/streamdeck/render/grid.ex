@@ -2,6 +2,7 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
   @moduledoc false
 
   alias AiurWeb.RemainingMeter
+  alias AiurWeb.Streamdeck.Deck.Meters
 
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2, field: 3]
 
@@ -16,7 +17,7 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     unavailable = field(grid, :tickets_status) == "unavailable"
     faces = Enum.map(0..7, &Enum.at(agents, start + rem(&1, 4) * 2 + div(&1, 4)))
     faces = if unavailable, do: [%{title: "Tickets unavailable", label: "Unavailable", face: :unknown, bucket: :stuck, disabled: true} | List.duplicate(nil, 7)], else: faces
-    providers = model |> field(:usage, %{}) |> Map.drop([:apis, "apis"]) |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
+    providers = model |> field(:usage, %{}) |> Meters.providers() |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
 
     regions =
       [summary(grid, agents)] ++

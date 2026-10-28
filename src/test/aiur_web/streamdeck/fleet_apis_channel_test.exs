@@ -30,7 +30,9 @@ defmodule AiurWeb.Streamdeck.FleetAPIsChannelTest do
     for view <- ["feature", "epic", "fleet"] do
       ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
       assert_reply(ref, :ok, reply)
-      assert reply == %{"view" => view, "page" => 0}
+      assert %{"view" => ^view, "page" => 0} = reply
+      refute Map.has_key?(reply, "frame")
+      refute Map.has_key?(reply, :frame)
       flush(socket)
       assert_push("frame", frame)
 
