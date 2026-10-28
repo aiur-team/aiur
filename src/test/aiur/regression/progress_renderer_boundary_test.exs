@@ -27,6 +27,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # do the same with a Units row's progress reading, and feature statistics
   # with each running member's reading. The ticket progress API does the same
   # with a ticket's TicketActivity or retained reading.
+  # The deck adapter copies BuildQueue read-model progress fields unchanged to the wire; it formats nothing.
   @contract_boundary_files [
     "aiur/build_queue_cli.ex",
     "aiur/build_queue/read_model.ex",
@@ -40,7 +41,8 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/api/usage_progress.ex",
     "aiur_web/build_order/planning_source.ex",
     "aiur_web/build/now_rows.ex",
-    "aiur_web/components/operator_control_center/build_order_grid_model.ex"
+    "aiur_web/components/operator_control_center/build_order_grid_model.ex",
+    "aiur_web/streamdeck/deck/build_order.ex"
   ]
 
   @renderer_calls %{

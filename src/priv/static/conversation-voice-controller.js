@@ -95,6 +95,8 @@
       }
       const composerLocked = Boolean(this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking);
       if (this.input) {
+        if (this.recording) this.input.dataset.voiceRecording = "true";
+        else delete this.input.dataset.voiceRecording;
         this.input.readOnly = composerLocked;
         this.input.setAttribute("aria-readonly", composerLocked ? "true" : "false");
       }
@@ -135,7 +137,7 @@
     }
 
     async start(mode = "dictation") {
-      if (this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic) return;
+      if (this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic || !this.input) return;
       const generation = this.generation + 1;
       this.generation = generation;
       this.starting = true;

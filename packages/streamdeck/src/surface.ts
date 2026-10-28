@@ -452,7 +452,8 @@ export const createPhysicalSurface = () => {
           summary: summaryModel(
             grid.agents.filter((agent) => agent.bucket === "running").length,
             grid.total - grid.agents.filter((agent) => agent.bucket === "running").length,
-            (grid as { build?: unknown }).build as Parameters<typeof summaryModel>[2],
+            grid.build,
+            grid.build_status,
           ),
           // One row per provider family the daemon reported, not two fixed
           // slots: a fleet with a third configured provider had a real meter

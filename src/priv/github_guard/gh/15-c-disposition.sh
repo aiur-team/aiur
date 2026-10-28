@@ -119,10 +119,10 @@ trap 'marker_cleanup; exit 143' HUP INT TERM
 trap 'marker_cleanup' 0
 
 if [ "$command_key" = "issue create" ]; then
-  # Agent-filed flake follow-ups are parked for triage so they cannot jump
-  # ahead of the operator's queue. Daemon quarantine tickets use the daemon
-  # API client, not this agent-only `gh` wrapper.
+  # Non-feature follow-ups wait for triage; existing flake parking still wins.
   flake_followup=0
+  non_feature=1
+  dispatch_requested=0
   title_value=
   prior=
   for arg in "$@"; do
@@ -141,6 +141,17 @@ if [ "$command_key" = "issue create" ]; then
     case ",$label_value," in
       *,flake,*) flake_followup=1 ;;
     esac
+    old_ifs=$IFS
+    IFS=,
+    for label in $label_value; do
+      case "$label" in
+        feature:*|build-lane:*|build-order|epic|"${AIUR_GITHUB_FIXER_LABEL:-main-fix}") non_feature=0 ;;
+      esac
+      case "$label" in
+        "$dispatch_prefix:todo"|"$dispatch_prefix:queued") dispatch_requested=1 ;;
+      esac
+    done
+    IFS=$old_ifs
     prior=$arg
   done
 
@@ -148,7 +159,7 @@ if [ "$command_key" = "issue create" ]; then
     "Flaky test:"*) flake_followup=1 ;;
   esac
 
-  if [ "$flake_followup" -eq 1 ]; then
+  if [ "$flake_followup" -eq 1 ] || { [ "$non_feature" -eq 1 ] && [ "$dispatch_requested" -eq 1 ]; }; then
     eval "set -- $(python3 -I -c '
 import sys
 import shlex
@@ -190,7 +201,7 @@ for value in result:
 ' "$dispatch_prefix" "$@")"
     disposition=1
   fi
-  unset prior arg label_value title_value flake_followup
+  unset prior arg label_value title_value flake_followup non_feature dispatch_requested
 
   disposition=0
   prior=

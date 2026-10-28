@@ -322,6 +322,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       :dispatch
   end
 
+  @doc "Candidate verdict before the fleet-wide slot check, shared with supply observation."
+  @spec dispatch_candidate_decision(Issue.t(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_candidate_decision(issue, state),
+    do: dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set(), state.blocked_ticket_ids)
+
   defp dispatch_candidate_decision(
          %Issue{} = issue,
          %State{} = state,

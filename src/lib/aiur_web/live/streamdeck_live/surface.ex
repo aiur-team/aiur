@@ -74,7 +74,17 @@ defmodule AiurWeb.StreamdeckLive.Surface do
     families = configured_provider_families()
 
     [
-      %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: live, remaining: max(grid.total - live, 0), meters: []}
+      %{
+        kind: :summary,
+        label: "SUMMARY",
+        logo: "/aiur-logo.png",
+        observed?: grid.total > 0,
+        live: live,
+        remaining: max(grid.total - live, 0),
+        build: Map.get(grid, :build),
+        build_status: Map.get(grid, :build_status),
+        meters: []
+      }
       | CodingAgent.provider_descriptors()
         |> Enum.filter(&MapSet.member?(families, &1.provider))
         |> Enum.map(&provider_segment(&1, usage))
