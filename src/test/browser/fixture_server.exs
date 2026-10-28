@@ -161,11 +161,11 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.TestSupport.StreamdeckBuildFixture
   alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
+  alias Aiur.TestSupport.StreamdeckBuildFixture
 
   # Standalone HTTP fixtures have no test caller; keep global fixture stubs outside shared test support.
   defp configure_ticket_docs(:ok) do
