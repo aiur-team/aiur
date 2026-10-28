@@ -22,7 +22,7 @@ defmodule AiurWeb.StreamdeckFleetTest do
     assert %{"agents" => [%{"title" => "retained"}]} = StreamdeckFleet.with_grid({:stale, snapshot, %{}}, nil)
   end
 
-  test "production snapshot rows preserve model metadata and share the grid's fleet and freshness" do
+  test "production snapshot preserves fleet metadata but cannot supply missing Build ticket states" do
     snapshot = %{
       running: [%{identifier: "3875", title: "worker", requested_model: "gpt-5.5", backend: "codex", work_state: :working}],
       retrying: [],
@@ -33,7 +33,8 @@ defmodule AiurWeb.StreamdeckFleetTest do
     retained = {:stale, snapshot, freshness}
     assert %{"agents" => [%{"identifier" => "3875", "model" => "gpt-5.5", "status" => "running"}]} = StreamdeckFleet.fleet(retained)
     grid = StreamdeckFleet.grid(retained)
-    assert [%{identifier: "3875", title: "worker", bucket: :running}] = grid.agents
+    assert grid.agents == []
+    assert grid.tickets_status == "unavailable"
     assert grid.snapshot_freshness == freshness
   end
 end

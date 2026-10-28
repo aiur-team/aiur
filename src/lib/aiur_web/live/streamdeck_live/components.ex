@@ -106,13 +106,12 @@ defmodule AiurWeb.StreamdeckLive.Components do
                 <div
                   :if={!key.empty? and key.bucket != "queued"}
                   class={[
-                    "sd-ag-foot",
+                    "sd-ag-foot col",
                     is_nil(key.progress) && "is-progress-unknown"
                   ]}
                 >
-                  <span class="sd-ag-dot" aria-hidden="true"></span>
-                  <span class="sr-only">{key.label}</span>
-                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
+                  <span class="sd-ag-stat">{key.label}</span>
+                  <span :if={not is_nil(key.progress)} class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
             </button>

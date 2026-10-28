@@ -110,6 +110,8 @@ const colourFor = (agent: Readonly<Record<string, unknown>> | undefined): RgbCol
  */
 const agentDescriptor = (agent: Readonly<Record<string, unknown>>): AgentInput => ({
   identifier: String(agent.identifier ?? ""),
+  label: typeof agent.label === "string" ? agent.label : null,
+  face: typeof agent.face === "string" ? agent.face : null,
   title: typeof agent.title === "string" ? agent.title : "",
   vendor: typeof agent.vendor === "string" ? agent.vendor : "unknown",
   icon: typeof agent.icon === "string" ? agent.icon : "",

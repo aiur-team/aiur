@@ -55,6 +55,7 @@ export type Footer = ProgressFooter | QueuedFooter;
 
 export interface AgentKey {
   readonly kind: "agent";
+  readonly stateLabel?: string | null;
   readonly identifier: string;
   readonly title: string;
   readonly vendor: Vendor;
@@ -87,6 +88,8 @@ export interface EmptyKey {
 export type KeyDescriptor = AgentKey | EmptyKey;
 
 export interface AgentInput {
+  readonly label?: string | null;
+  readonly face?: string | null;
   readonly identifier: string;
   readonly title?: string | null;
   readonly vendor: Vendor;
@@ -180,7 +183,7 @@ function buildFooter(agent: AgentInput): Footer {
 
     return {
       kind: footer.kind,
-      label: bucketContract("queued").label,
+      label: agent.label ?? bucketContract("queued").label,
       unblocked,
       statusLabel: unblocked ? footer.ready_label : footer.blocked_label,
     };
@@ -202,11 +205,13 @@ function buildFooter(agent: AgentInput): Footer {
 
 function buildAgentKey(agent: AgentInput): AgentKey {
   const pct = clampPercent(agent.progress_percent);
-  const style = BUCKET_STYLES[agent.bucket];
+  const palette = agent.face === "active" ? "running" : agent.face === "idle" || agent.face === "unknown" ? "paused" : agent.face;
+  const style = BUCKET_STYLES[(palette ?? agent.bucket) as BucketId];
   if (style === undefined) throw new Error(`unhandled Stream Deck key state: ${agent.bucket}`);
 
   return {
     kind: "agent",
+    stateLabel: agent.label ?? null,
     identifier: agent.identifier,
     title: agent.title ?? "",
     vendor: agent.vendor,
@@ -217,7 +222,7 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     selected: agent.selected === true,
     priority: agent.priority,
     bucket: agent.bucket,
-    style,
+    style: agent.label ? { ...style, label: agent.label } : style,
     progressPercent: pct,
     footer: buildFooter(agent),
   };

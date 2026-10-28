@@ -136,7 +136,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s|--sd-progress-fill: #74d47f|
     assert html =~ ~s|<i style="width: 0%">|
     assert html =~ ~s|<i style="width: 100%">|
-    assert html =~ ~s(class="sd-ag-foot is-progress-unknown")
+    assert html =~ ~s(class="sd-ag-foot col is-progress-unknown")
     refute html =~ "is-progress-stale"
     assert html =~ ~s(class="sd-ag-vendor-fallback")
     # Unblocked is drawn as the open-padlock glyph in the key's bottom-right

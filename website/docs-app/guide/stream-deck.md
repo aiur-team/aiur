@@ -18,7 +18,7 @@ renderer adopt this model.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
 | **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
@@ -32,7 +32,7 @@ The physical Command ticket page shares the desktop Build status and PR/CI, leav
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
 | Read-only Dashboard | Pause and Mic are disabled; Logs and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
-| Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star and in Grid ranking. |
+| Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star. |
 
 ## Read the Logs surface
 
@@ -72,20 +72,25 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | State | Meaning | Display |
 | --- | --- | --- |
 | Fresh | Recent reading | Solid green bar, slightly brighter at 100%. |
-| Unknown | No reading has ever arrived | Full-width flat grey bar and dot, distinct from measured progress. |
+| Unknown | No reading has arrived | Ticket keys show no bar; other progress surfaces use a neutral grey track. |
 | 0% | A real zero reading | Short solid stub, so "just started" never looks like "no reading". |
 
 A bar that drops to an empty track and back is a bug; report it.
 
-## How Grid chooses agent keys
+## Ticket view
 
 | Rule | Order |
 | --- | --- |
-| State buckets | `alert` → `stuck` → `running` → `paused` → `queued` |
-| Queued tickets | Dependency-ready before blocked. |
+| Agent states | `error` → `command` → `retrying` → `active` → `ci_wait` → `usage_limited` → `parked` → `paused` → reason states → unknown |
+| Ties | Ticket number ascending within each state group. |
+| Queued backlog | Filed Build `plan` rows follow agents, in queue position order; duplicates appear once. |
 | Slot order | Column-major: 1/2, then 3/4, then 5/6, then 7/8. |
 | Paging | Moves by columns so each pair stays together. |
 
+The default Ticket view reads the same Now and planned rows as the Build page.
+Labels match Build, including “Waiting for CI”, “Awaiting command” and “State unknown”.
+Missing progress draws no bar and never becomes 0%. Tickets without an agent appear
+only when queued; pressing a key opens that ticket’s deck page.
 The order is the same in the browser emulator and on the physical deck.
 
 ## Physical sidecar status

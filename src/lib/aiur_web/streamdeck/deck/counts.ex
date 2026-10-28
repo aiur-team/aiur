@@ -5,7 +5,8 @@ defmodule AiurWeb.Streamdeck.Deck.Counts do
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     read = EndpointConfig.get(:streamdeck_build_window_fun) || (&window/3)
-    project(read.(Keyword.get(opts, :index, Index), "Etc/UTC", 5_000))
+    result = Keyword.get_lazy(opts, :window, fn -> read.(Keyword.get(opts, :index, Index), "Etc/UTC", 5_000) end)
+    project(result)
   rescue
     _error -> unavailable()
   catch

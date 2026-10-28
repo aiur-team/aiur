@@ -1,4 +1,5 @@
 Code.require_file("streamdeck_fleet_fixture.ex", __DIR__)
+Code.require_file("streamdeck_build_fixture.ex", __DIR__)
 
 defmodule AiurWeb.StreamdeckChannelCase do
   alias Aiur.TestSupport.BuildHome.UsageInputs
@@ -126,6 +127,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
         secret_key_base: String.duplicate("s", 64),
         dashboard_auth_required: false,
         streamdeck_snapshot_fun: fn -> snapshot() end,
+        streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(snapshot()) end,
         streamdeck_fleet_subscribe_fun: StreamdeckFleetFixture.subscription(),
         streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_decisions_fun: fn -> %{count: 2} end,
