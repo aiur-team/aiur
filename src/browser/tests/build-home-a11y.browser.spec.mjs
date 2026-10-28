@@ -210,13 +210,14 @@ test('keyboard tree highlighting ends when card focus leaves the board', async (
     state.S.trees = true
     state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop
     state.fx.update()
-    const card = [...state.ctx.R.values()].find(card => card.closest('#bd-sec-plan'))
-    state.ctx.a11y.roving = card.dataset.id
-    for (const rendered of state.ctx.R.values()) rendered.tabIndex = rendered === card ? 0 : -1
-    return card.dataset.id
+    return state.ctx.L.secs.plan.items[0]?.t.id
   })
-  await page.locator('.bd-card[data-id="' + planId + '"]').focus()
-  await page.keyboard.press('ArrowDown')
+  const card = page.locator('.bd-card[data-id="' + planId + '"]')
+  await expect(card).toBeVisible()
+  await card.focus()
+  await expect(card).toBeFocused()
+  await card.press('ArrowDown')
+  await expect.poll(() => page.evaluate(() => state.ctx.a11y.focusHoverId)).not.toBeNull()
   await expect(page.locator('.bd-content')).toHaveClass(/hovering/)
   await page.locator('#bd-nowbtn').focus()
   expect(await page.locator('.bd-content').getAttribute('class')).not.toContain('hovering')
