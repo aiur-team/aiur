@@ -59,7 +59,9 @@ labelled stale. Fleet only displays global pause.
 Beside the provider meters, Fleet shows GitHub `core` requests and `gql` points
 remaining, plus ElevenLabs `credits` when configured. Unknown readings show `—`;
 reset-expired bars dim. A `⏸ held until HH:MM` marker uses UTC when GitHub holds
-dispatch. The bar tips carry the Build page API readings. Fleet flushes refresh
+dispatch. The bar tips carry the Build page API readings.
+
+Fleet flushes refresh
 usage at most once per minute, using the existing quota snapshots.
 See [GitHub API budgets](/apis/github-budgets) for what the numbers mean.
 
