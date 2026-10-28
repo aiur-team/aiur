@@ -16,8 +16,8 @@ Optional settings for the conversational voice assistant; an absent `voice:` blo
 | `voice.conversation.llm` | string or nil | nil (required) | Model the assistant reasons with. No default: a voice session refuses to start until it is set. |
 | `voice.conversation.max_session_seconds` | integer | 1800 | Longest one voice session may run, 60 to 3600 seconds. |
 | `voice.conversation.provider` | string | elevenlabs_agents | Conversation provider: `elevenlabs_agents` or `openai_realtime`. OpenAI requires `llm` and the daemon's `OPENAI_API_KEY`; no Agent id. |
-| `voice.conversation.voice_id` | string or nil | nil | OpenAI Realtime voice; nil uses `marin`. ElevenLabs keeps its Agent voice. |
 | `voice.conversation.roles_dir` | string or nil | nil | Directory of role pre-context files. A relative path resolves against the config file's directory, like `prompt_file`. |
+| `voice.conversation.voice_id` | string or nil | nil | OpenAI Realtime voice; nil uses `marin`. ElevenLabs keeps its Agent voice. |
 
 `voice.conversation.llm` and `voice.conversation.cloud_disclosure_accepted` have no default. Aiur loads a config without them, but a voice session refuses to start until both are set, and the error names the missing field.
 
