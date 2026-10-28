@@ -55,6 +55,7 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 For ticket-branch PRs, a webhook's REST-shaped body replaces the cached branch row. The store retains the sweep poll's GraphQL-only review and landing fields only when the PR head SHA and `updated_at` still match; a changed PR invalidates those facts until the next poll.
 
 Verified PR `opened` and `synchronize` deliveries also retain the head update time. Review or poll updates preserve that evidence only for the same PR and head SHA; an otherwise observed head change clears it. Command overrides use this timestamp to distinguish a push after delivery from a delayed observation of earlier work.
+
 The cached ticket-PR reader accepts a partial poll update when that verified head evidence survives. Poll-only bodies and changed heads without delivery evidence remain unavailable; the existing freshness bound still applies.
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
