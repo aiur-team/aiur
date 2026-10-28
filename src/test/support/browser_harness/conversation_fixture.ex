@@ -2,7 +2,7 @@ defmodule Aiur.BrowserHarness.ConversationFixture do
   @moduledoc false
   use Phoenix.Controller, formats: []
   alias Aiur.BrowserHarness.Fixtures
-  alias Aiur.Conversation.{Ingest, Ref}
+  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref}
 
   def reset(conn, _params) do
     # Stop the cached writer before replacing its on-disk head and sessions.
@@ -61,14 +61,14 @@ defmodule Aiur.BrowserHarness.ConversationFixture do
     {:ok, writer} = Ingest.writer(ref)
     :ok = GenServer.call(writer, :flush)
 
-    unless Process.whereis(Aiur.Conversation.AnchorResolver) do
+    unless Process.whereis(AnchorResolver) do
       {:ok, exchange} = Aiur.Events.Exchange.start_link(name: __MODULE__.Exchange)
       Process.unlink(exchange)
-      {:ok, resolver} = Aiur.Conversation.AnchorResolver.start_link(exchange: __MODULE__.Exchange)
+      {:ok, resolver} = AnchorResolver.start_link(exchange: __MODULE__.Exchange)
       Process.unlink(resolver)
     end
 
-    {:ok, _} = Aiur.Conversation.History.command_anchor(decision_id)
+    {:ok, _} = History.command_anchor(decision_id)
     Plug.Conn.send_resp(conn, 200, "anchored")
   end
 

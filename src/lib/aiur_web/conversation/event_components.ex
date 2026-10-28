@@ -52,7 +52,7 @@ defmodule AiurWeb.Conversation.EventComponents do
 
     ~H"""
     <time>{@anchor["event"]["observed_at"]}</time>
-    <.link :if={is_integer(@anchor["pos"])} patch={"/conversations/#{@conversation_id}?pos=#{@anchor["pos"]}"}>
+    <.link :if={is_integer(@anchor["pos"])} patch={"/conversations/#{@conversation_id}?pos=#{@anchor["pos"]}#{if @anchor["placement"] == "after", do: "&placement=after&event=#{@anchor["event"]["event_id"]}&kind=#{@anchor["kind"]}", else: ""}"}>
       {@anchor["label"] || JumpPoints.label(@anchor["kind"], %{})}
     </.link>
     <span :if={is_nil(@anchor["pos"])}>{@anchor["label"] || JumpPoints.label(@anchor["kind"], %{})} — Not linked to a position</span>

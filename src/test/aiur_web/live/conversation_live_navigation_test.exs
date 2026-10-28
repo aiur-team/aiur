@@ -2,7 +2,7 @@ Code.require_file("../../aiur/conversation/journal_support.exs", __DIR__)
 
 defmodule AiurWeb.ConversationLiveNavigationTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
-  alias Aiur.Conversation.{Ingest, Ref, TestSupport}
+  alias Aiur.Conversation.{Ingest, Ref, Store, TestSupport}
   import Aiur.Conversation.TestSupport
   import Aiur.TestSupport.BuildHome.ProtocolCase, except: [source: 1]
 
@@ -65,8 +65,8 @@ defmodule AiurWeb.ConversationLiveNavigationTest do
 
   test "live stronger anchor replaces weaker item and marker in place", ctx do
     weak = anchor(ctx, 1, %{"placement" => "after", "precision" => "observed"})
-    persist(ctx, [weak])
-    {:ok, view, _} = open(ctx, "?pos=60")
+    persist(ctx, [weak, anchor(ctx, 2, %{"placement" => "after", "precision" => "observed"})])
+    {:ok, view, _} = open(ctx, "?pos=60&placement=after&event=1&kind=pr_merged")
     send(view.pid, {:anchor_added, Ref.conversation_id(ctx.ref), anchor(ctx, 1)})
     assert has_element?(view, "#event-1-pr_merged[data-precision=exact]")
     refute has_element?(view, "#marker-1-pr_merged")
@@ -97,10 +97,52 @@ defmodule AiurWeb.ConversationLiveNavigationTest do
     {:ok, view, html} = open(ctx, "?pos=invalid")
     assert html =~ "Position not found"
     assert positions(html) == Enum.to_list(71..120)
-    File.write!(Aiur.Conversation.Store.segment_path(ctx.dir, 1), "broken\n")
+    File.write!(Store.segment_path(ctx.dir, 1), "broken\n")
     render_patch(view, "/conversations/#{Ref.conversation_id(ctx.ref)}?pos=60")
     assert has_element?(view, "#conversation-position-notice", "Position unavailable")
     assert has_element?(view, "[data-state=unavailable]")
+  end
+
+  test "at and after events at one position highlight their own placement", ctx do
+    persist(ctx, [anchor(ctx, 1), anchor(ctx, 2, %{"placement" => "after", "precision" => "observed"})])
+    {:ok, view, _} = open(ctx, "?pos=60")
+    assert has_element?(view, "#entry-60.conversation-highlight")
+    refute has_element?(view, "#marker-2-pr_merged.conversation-highlight")
+    assert has_element?(view, "#event-2-pr_merged a[href*='pos=60&placement=after']")
+    render_patch(view, "/conversations/#{Ref.conversation_id(ctx.ref)}?pos=60&placement=after")
+    refute has_element?(view, "#entry-60.conversation-highlight")
+    assert has_element?(view, "#marker-2-pr_merged.conversation-highlight")
+  end
+
+  test "choosing start or latest cancels a pending beyond-head jump", ctx do
+    {:ok, view, _} = open(ctx, "?pos=121")
+    render_click(element(view, "button", "Jump to start"))
+    Ingest.append(ctx.ref, source(), [event(121)])
+    assert :ok = flush(ctx.ref)
+    assert positions(render(view)) == Enum.to_list(1..50)
+    refute has_element?(view, ".conversation-highlight")
+    refute has_element?(view, "#conversation-position-notice")
+    render_patch(view, "/conversations/#{Ref.conversation_id(ctx.ref)}?pos=122")
+    render_click(element(view, "button", "Latest entries"))
+    Ingest.append(ctx.ref, source(), [event(122)])
+    assert :ok = flush(ctx.ref)
+    refute has_element?(view, ".conversation-highlight")
+  end
+
+  test "structured position query values are rejected without crashing", ctx do
+    {:ok, view, _} = open(ctx, "?pos[]=60")
+    assert has_element?(view, "#conversation-position-notice", "Position not found")
+    assert has_element?(view, "#entry-120")
+  end
+
+  test "event ordering compares instants across timestamp precision", ctx do
+    earlier = DateTime.utc_now() |> DateTime.truncate(:second)
+    later = DateTime.add(earlier, 500_000, :microsecond)
+    first = put_in(anchor(ctx, 2), ["event", "observed_at"], DateTime.to_iso8601(earlier))
+    second = put_in(anchor(ctx, 1), ["event", "observed_at"], DateTime.to_iso8601(later))
+    persist(ctx, [second, first])
+    {:ok, _view, html} = open(ctx)
+    assert html |> Floki.parse_document!() |> Floki.find("#event-list > li") |> Enum.map(&Floki.attribute(&1, "id")) == [["event-2-pr_merged"], ["event-1-pr_merged"]]
   end
 
   test "Command chips link safely and resolved Commands say answered", ctx do

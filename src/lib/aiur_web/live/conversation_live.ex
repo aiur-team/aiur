@@ -58,10 +58,10 @@ defmodule AiurWeb.ConversationLive do
   end
 
   def handle_event("reveal_entry", %{"pos" => pos}, socket), do: {:noreply, Paging.reveal(socket, pos)}
-  def handle_event("load_older", _params, socket), do: {:noreply, Paging.load(socket, :older)}
-  def handle_event("load_newer", _params, socket), do: {:noreply, Paging.load(socket, :newer)}
-  def handle_event("jump_start", _params, socket), do: {:noreply, socket |> Paging.load(:start) |> push_event("conversation-start", %{})}
-  def handle_event("jump_latest", _params, socket), do: {:noreply, socket |> Paging.load(:tail) |> push_event("conversation-bottom", %{})}
+  def handle_event("load_older", _params, socket), do: {:noreply, Paging.load(assign(socket, pending_pos: nil, position_notice: nil), :older)}
+  def handle_event("load_newer", _params, socket), do: {:noreply, Paging.load(assign(socket, pending_pos: nil, position_notice: nil), :newer)}
+  def handle_event("jump_start", _params, socket), do: {:noreply, socket |> Navigation.clear() |> Paging.load(:start) |> push_event("conversation-start", %{})}
+  def handle_event("jump_latest", _params, socket), do: {:noreply, socket |> Navigation.clear() |> Paging.load(:tail) |> push_event("conversation-bottom", %{})}
   def handle_event("retry", _params, socket), do: {:noreply, socket |> Paging.subscribe() |> Paging.load(:tail)}
   def handle_event("draft", %{"text" => text}, socket), do: {:noreply, ComposerEvents.draft(socket, text)}
   def handle_event("send", %{"text" => text}, socket), do: {:noreply, ComposerEvents.send_message(socket, text)}
@@ -111,10 +111,10 @@ defmodule AiurWeb.ConversationLive do
         <div id="conversation-scroll" phx-hook="ConversationScroll" class="conversation-scroll" data-highlight={@highlight_pos} data-mode={if is_tuple(@mode), do: "around", else: @mode} data-head={@page && @page.head_pos}>
           <div id="conversation-entries" phx-update="stream">
             <div :for={{id, entry} <- @streams.entries} id={id}
-              class={@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos) && "conversation-highlight"}
-              data-jump-target={to_string(@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos))} >
+              class={@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement) && "conversation-highlight"}
+              data-jump-target={to_string(@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement))} >
               <Components.entry entry={entry} sessions={@sessions} can_reveal={@can_reveal} />
-              <EventComponents.entry_marker anchors={@anchors} pos={entry.pos} highlight_pos={@highlight_pos} />
+              <EventComponents.entry_marker anchors={@anchors} pos={entry.pos} highlight_pos={if Navigation.highlight?(@anchors, entry.pos, @jump_placement), do: nil, else: @highlight_pos} />
             </div>
           </div>
         </div>

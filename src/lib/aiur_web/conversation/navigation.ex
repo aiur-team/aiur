@@ -10,7 +10,7 @@ defmodule AiurWeb.Conversation.Navigation do
     visible = for kind <- JumpPoints.kinds(), JumpPoints.entry(kind).default_visible, do: to_string(kind)
 
     socket
-    |> assign(anchors: [], visible_kinds: visible, event_start: 0, event_has_newer: false, highlight_pos: nil, pending_pos: nil, position_notice: nil, anchor_error: nil)
+    |> assign(anchors: [], visible_kinds: visible, event_start: 0, event_has_newer: false, jump_placement: nil, highlight_pos: nil, pending_pos: nil, position_notice: nil, anchor_error: nil)
     |> Phoenix.LiveView.stream_configure(:events, dom_id: &"event-#{&1["event"]["event_id"]}-#{&1["kind"]}")
     |> stream(:events, [], [])
   end
@@ -67,14 +67,22 @@ defmodule AiurWeb.Conversation.Navigation do
   end
 
   @spec params(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
-  def params(socket, %{"pos" => value}) do
+  def params(socket, %{"pos" => value} = params) when is_binary(value) do
+    placement = if params["placement"] == "after" and is_binary(params["event"]), do: {params["event"], params["kind"]}, else: params["placement"]
+    socket = assign(socket, :jump_placement, placement)
+
     case Integer.parse(value) do
       {pos, ""} when pos > 0 -> jump(socket, pos, true)
       _ -> socket |> Paging.load(:tail) |> assign(highlight_pos: nil, pending_pos: nil, position_notice: "Position not found")
     end
   end
 
-  def params(socket, _), do: socket |> assign(highlight_pos: nil, pending_pos: nil, position_notice: nil) |> Paging.load(:tail)
+  def params(socket, %{"pos" => _}), do: socket |> Paging.load(:tail) |> assign(highlight_pos: nil, pending_pos: nil, position_notice: "Position not found")
+
+  def params(socket, _), do: socket |> clear() |> Paging.load(:tail)
+
+  @spec clear(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  def clear(socket), do: assign(socket, highlight_pos: nil, pending_pos: nil, position_notice: nil, jump_placement: nil)
 
   @spec retry(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def retry(%{assigns: %{pending_pos: nil}} = socket), do: socket
@@ -99,7 +107,30 @@ defmodule AiurWeb.Conversation.Navigation do
 
   @spec markers([map()], integer()) :: [map()]
   def markers(anchors, pos), do: anchors |> Enum.filter(&(&1["pos"] == pos and &1["placement"] == "after")) |> Enum.sort_by(& &1["event"]["event_id"])
-  @spec highlight?([map()], integer()) :: boolean()
-  def highlight?(anchors, pos), do: not Enum.any?(anchors, &(&1["pos"] == pos and &1["placement"] == "after"))
-  defp sort(anchors), do: Enum.sort_by(anchors, &{&1["event"]["observed_at"] || "", &1["event"]["event_id"]})
+  @spec highlight?([map()], integer(), term()) :: boolean()
+  def highlight?(anchors, pos, {event_id, kind}) do
+    case Enum.find(anchors, &(to_string(&1["event"]["event_id"]) == event_id and &1["kind"] == kind)) do
+      %{"placement" => "at"} -> true
+      %{"placement" => "after"} -> false
+      _ -> highlight?(anchors, pos, "after")
+    end
+  end
+
+  def highlight?(anchors, pos, "after"), do: not Enum.any?(anchors, &(&1["pos"] == pos and &1["placement"] == "after"))
+
+  def highlight?(anchors, pos, _) do
+    at_pos = Enum.filter(anchors, &(&1["pos"] == pos))
+    Enum.any?(at_pos, &(&1["placement"] == "at")) or not Enum.any?(at_pos, &(&1["placement"] == "after"))
+  end
+
+  defp sort(anchors), do: Enum.sort_by(anchors, &{timestamp(&1["event"]["observed_at"]), &1["event"]["event_id"]})
+
+  defp timestamp(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _} -> DateTime.to_unix(at, :microsecond)
+      _ -> 0
+    end
+  end
+
+  defp timestamp(_), do: 0
 end
