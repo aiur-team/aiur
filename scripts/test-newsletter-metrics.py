@@ -78,7 +78,8 @@ class MetricsTest(unittest.TestCase):
         today, yesterday = snapshot(), snapshot(-24)
         yesterday["program"]["tickets"] = [ticket(1), ticket(2), ticket(3, "closed", "COMPLETED"), ticket(4), ticket(5)]
         today["program"]["tickets"] = [ticket(3), ticket(4, "closed", "COMPLETED"), ticket(5, "closed", "NOT_PLANNED")]
-        today["program"]["tickets"] += [ticket(n) for n in range(10, 20)]
+        today["program"]["tickets"] += [ticket(n, "closed", "COMPLETED") if n == 10 else ticket(n)
+                                         for n in range(10, 20)]
         scope = compute(today, yesterday)["program"]["scope"]
         self.assertEqual({k: value(scope[k]) for k in ("added", "removed", "reopened", "completions")},
                          {"added": 10, "removed": 3, "reopened": 1, "completions": 1})
@@ -128,7 +129,7 @@ class MetricsTest(unittest.TestCase):
         today["verification"] = [{"feature": "mail", "executor": "operator", "verified_at": stamp(-0.5)}]
         report = compute(today, yesterday)
         self.assertEqual(value(report["outcomes"]["finished_verified"]), 1)
-        self.assertTrue(value(report["program"]["lanes"]["feature:mail"]["finished"]))
+        self.assertIs(value(report["program"]["lanes"]["feature:mail"]["finished"]), True)
         today["sources"]["github_merges"] = {"state": "stale"}
         self.assertEqual(value(compute(today)["outcomes"]["finished_verified"]), "unavailable")
         today["sources"] = {}
@@ -154,6 +155,9 @@ class MetricsTest(unittest.TestCase):
         report = compute(today)["meta_patterns"]
         self.assertEqual(report["status"], "no logs in window")
         self.assertEqual(report["newest_log_at"], stamp(-25))
+        today["meta"] = []
+        today["meta_latest_at"] = None
+        self.assertEqual(compute(today)["meta_patterns"]["newest_log_at"], "unavailable")
 
     def test_unavailable_sources_provenance_json_and_purity(self):
         today = snapshot()

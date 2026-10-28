@@ -70,7 +70,7 @@ def evidence(snapshot):
     measures = snapshot.get("measures") or []
     themes = Counter((r.get("theme") or r.get("bottleneck")) for r in logs or [] if r.get("theme") or r.get("bottleneck"))
     newest = max((r["timestamp"] for r in raw or [] if parse_time(r["timestamp"]) <= parse_time(snapshot["window_end"])),
-                 key=parse_time, default=snapshot.get("meta_latest_at", UNAVAILABLE))
+                 key=parse_time, default=snapshot.get("meta_latest_at") or UNAVAILABLE)
     bottlenecks = []
     for row in logs or []:
         if not row.get("bottleneck"):
