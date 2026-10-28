@@ -4,6 +4,7 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.FrameUpdates
+  alias AiurWeb.StreamdeckLive.ChatFocus
   alias Phoenix.LiveView.Socket
 
   @spec route(Socket.t(), String.t(), map()) :: Socket.t()
@@ -15,7 +16,7 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
 
     case FrameUpdates.transition(nav, frame, socket.assigns.grid) do
       {:ok, nav, effects} ->
-        socket |> assign(deck_nav: nav, deck_effects: effects) |> AiurWeb.StreamdeckLive.ChatFocus.apply(effects)
+        socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
 
       _ ->
         socket
