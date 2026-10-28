@@ -5,7 +5,7 @@ defmodule AiurWeb.Conversation.Paging do
   alias Aiur.Conversation.History
   alias AiurWeb.Conversation.Presenter
 
-  @opts [principal: {:operator, :basic_auth}, limit: 50]
+  defp opts(socket), do: [principal: socket.assigns.principal, limit: 50]
 
   @spec subscribe(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def subscribe(socket) do
@@ -17,11 +17,26 @@ defmodule AiurWeb.Conversation.Paging do
 
   @spec load(Phoenix.LiveView.Socket.t(), atom()) :: Phoenix.LiveView.Socket.t()
   def load(socket, direction) do
-    case History.list_entries(socket.assigns.id, @opts ++ cursor(socket, direction)) do
+    case History.list_entries(socket.assigns.id, opts(socket) ++ cursor(socket, direction)) do
       {:ok, page} -> apply_page(socket, page, direction) |> refresh_sessions()
       {:error, reason} -> assign(socket, state: Presenter.state({:error, reason}), reason: reason, read_error: reason)
     end
   end
+
+  @spec reveal(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
+  def reveal(socket, pos) when is_binary(pos) do
+    with true <- AiurWeb.Conversation.Access.can_reveal?(socket.assigns.principal),
+         {position, ""} <- Integer.parse(pos),
+         true <- position in socket.assigns.positions,
+         {:ok, page} <- History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: position, limit: 1, reveal: true)),
+         entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == position)) do
+      stream_insert(socket, :entries, entry, [])
+    else
+      _ -> socket
+    end
+  end
+
+  def reveal(socket, _pos), do: socket
 
   defp cursor(socket, :older), do: [before: List.first(socket.assigns.positions, 1)]
   defp cursor(socket, :newer), do: [after: List.last(socket.assigns.positions, 0)]
@@ -68,7 +83,7 @@ defmodule AiurWeb.Conversation.Paging do
   defp append_fresh(socket, fresh) do
     head = List.last(fresh).pos
     contiguous? = List.last(socket.assigns.positions, 0) == socket.assigns.live_head and hd(fresh).pos == socket.assigns.live_head + 1
-    masked = Enum.map(fresh, &History.mask_for(&1, @opts))
+    masked = Enum.map(fresh, &History.mask_for(&1, opts(socket)))
     page = %{socket.assigns.page | head_pos: max(head, socket.assigns.page.head_pos), observed_at: DateTime.utc_now()}
     socket = socket |> refresh_sessions() |> assign(live_head: head, last_entry: List.last(masked), page: page)
     socket = if contiguous?, do: append_window(socket, masked), else: socket

@@ -26,8 +26,7 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
 
   test "physical key positions, page labels and shrink follow the server list" do
     rows = Enum.map(1..12, &AgentEvents.agent_summary("AIUR-#{&1}", :running, 0, %{title: "Ticket #{&1}"}))
-    snapshot = %{running: rows, retrying: [], idle: []}
-    put_endpoint_config(streamdeck_snapshot_fun: fn -> snapshot end, streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(snapshot) end)
+    put_rows(rows)
     socket = joined_socket()
     assert_push("frame", %{keys: keys})
     shown = Enum.at(keys, 1).label
@@ -46,8 +45,7 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     [{:open_ticket, selected}] = :sys.get_state(socket.channel_pid).assigns.deck_effects
     assert String.starts_with?(Enum.at(later, 1).label, selected <> " ")
 
-    shrunk = %{running: Enum.take(rows, 2), retrying: [], idle: []}
-    put_endpoint_config(streamdeck_snapshot_fun: fn -> shrunk end, streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(shrunk) end)
+    put_rows(Enum.take(rows, 2))
     send(socket.channel_pid, :fleet_changed)
     :sys.get_state(socket.channel_pid)
     flush_frame(socket)
@@ -57,7 +55,7 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
   end
 
   test "view changes and drills render the same items the reducer resolves" do
-    put_endpoint_config(streamdeck_snapshot_fun: fn -> %{running: [AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Drill"})], retrying: [], idle: []} end)
+    put_rows([AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Drill"})])
     socket = joined_socket()
     assert_push("frame", _initial)
 
@@ -165,6 +163,15 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
       ref = push(socket, "input", input)
       assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0})
     end
+  end
+
+  defp put_rows(rows) do
+    snapshot = %{running: rows, retrying: [], idle: []}
+
+    put_endpoint_config(
+      streamdeck_snapshot_fun: fn -> snapshot end,
+      streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(snapshot) end
+    )
   end
 
   defp flush_frame(socket) do
