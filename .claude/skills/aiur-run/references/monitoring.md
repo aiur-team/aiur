@@ -24,6 +24,7 @@ failure mode where a background listener is killed after ten minutes no longer
 applies. It reconciles a compile-time set of reviewed bindings on every start:
 
 - Commands: `executor.#`
+- feature supply: `system.feature_supply_low{,.resolved}`
 - dispatch gates: `system.dispatch.capacity_starved{,.resolved}`,
   `system.fleet.capacity.starved{,.resolved}`,
   `system.dispatch.prewarm_blocked{,.resolved}`,
@@ -294,3 +295,26 @@ not promote these optimizations into the active feature boundary unless they
 are direct P0/P1 blockers.
 
 Read now: [Hourly meta-analysis](meta-analysis.md) when arming the hourly trigger.
+
+### Feature supply wake
+
+On `system.feature_supply_low`, read the attention's `free`, `feature_ready`,
+feature todo decline counts and five largest open blockers. PR numbers and
+states are cached evidence; confirm their current heads and merge gates before
+landing them. Land the listed blocker PRs first, using the normal review and
+merge policy. Then promote or publish the next feature work in goal order.
+Do not fill the free slots with non-feature tickets.
+
+The wake means `free > 0` and `feature_ready < free` for 30 continuous minutes.
+One attention stays open until supply is sufficient for 10 continuous minutes.
+Paused or failed tracker passes break both timers; they cannot prove recovery.
+A daemon restart restarts the timers and preserves an already-open attention.
+
+For the daily report, read `feature_supply_daily` from `analytics/run-summary
+--json` for every boot touching the day. Sum `feature_starved_slot_minutes` and
+`non_feature_during_starvation_minutes` by UTC date, alongside
+`observed_minutes`. These are sampled interval totals; a missing interval is
+unavailable coverage, not zero. Do not claim improved utilization from the
+instrumentation alone. For seven days after deployment on PC, report these
+values, attention open-to-resolve median (target <= 2h), and the share of
+minutes running only non-feature turns (target <= 10%, baseline 37–71%).

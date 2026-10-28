@@ -7,7 +7,9 @@ defmodule AiurWeb.Components.VoiceInput do
   `data-voice-*` attributes are the DOM contract that the conversation voice
   controller binds inside its hook element. The caller keeps the form, the
   `data-voice-input` textarea and the `data-voice-send` button, because each
-  surface owns its own submit event.
+  surface owns its own submit event. Put `phx-hook="VoiceInput"` on that form,
+  or pass `hook="VoiceInput"` here and supply the textarea and Send button
+  through the optional inner block so all controls share the hook boundary.
   """
 
   use Phoenix.Component
@@ -17,6 +19,8 @@ defmodule AiurWeb.Components.VoiceInput do
   @default_status_copy "Press the microphone to dictate. Review the text, then press Send."
 
   attr(:id, :string, required: true, doc: "prefix reserved for ids rendered by the component")
+  attr(:hook, :string, default: nil, doc: "optional VoiceInput hook; put the composer in inner_block when set")
+  slot(:inner_block, doc: "optional caller-owned textarea and Send button, inside the hook boundary")
   attr(:legacy_conversation, :boolean, default: true, doc: "render the interactive voice chat button")
   attr(:status_copy, :string, default: @default_status_copy)
   attr(:capabilities, :map, default: %{}, doc: "`voice.*` capability report entries; controls availability of Dictate and Converse")
@@ -33,8 +37,9 @@ defmodule AiurWeb.Components.VoiceInput do
       |> assign(:modes, Enum.map([{"dictate", "Dictate", "voice.stt"}, {"converse", "Converse", "voice.conversation"}], &mode(&1, assigns.capabilities)))
 
     ~H"""
-    <div id={@id} class="agent-voice-tools" data-voice-root data-voice-surface={@surface} data-voice-target={Jason.encode!(@target)}
+    <div id={@id} phx-hook={@hook} class="agent-voice-tools" data-voice-root data-voice-surface={@surface} data-voice-target={Jason.encode!(@target)}
       data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]}>
+      {render_slot(@inner_block)}
       <div class="agent-voice-controls">
         <div class="agent-voice-choice">
           <button :if={@layout == :chooser} type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button" data-voice-chooser

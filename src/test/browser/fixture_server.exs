@@ -12,7 +12,7 @@ Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live graph_live ticket_context_live units_live_data units_live
+      route_shell_live graph_live ticket_context_live units_live_data units_live voice_input_live
       support voice_provider build_order_source meters_live experiments index_live
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
@@ -74,6 +74,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through([:browser, :fixture_access])
 
     live_session :production_root, root_layout: {AiurWeb.Layouts, :root} do
+      live("/voice-input-fixture", Aiur.BrowserHarness.VoiceInputLive, :index)
       live("/palette-probe", Aiur.BrowserHarness.PaletteProbeLive, :index)
     end
 

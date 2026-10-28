@@ -15,7 +15,7 @@
     }
 
     bind() {
-      this.root = this.el.querySelector("[data-voice-root]");
+      this.root = this.el.matches("[data-voice-root]") ? this.el : this.el.querySelector("[data-voice-root]");
       this.trigger = this.root?.querySelector("[data-voice-chooser]");
       this.menu = this.root?.querySelector("[data-voice-menu]");
       if (this.trigger && this.menu) {

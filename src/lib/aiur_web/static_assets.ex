@@ -33,6 +33,7 @@ defmodule AiurWeb.StaticAssets do
     time-brush-hook.js
     voice-capture.js
     voice-capture-worklet.js
+    voice-input-hook.js
     voice-mode-choice.js
     voice-transport.js
   )
