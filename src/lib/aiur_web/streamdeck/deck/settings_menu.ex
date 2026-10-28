@@ -60,7 +60,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsMenu do
   @spec available?(String.t() | nil, map() | nil) :: boolean()
   def available?(section, devices) when section in ["mic_id", "speaker_id", "instance"] do
     key = %{"mic_id" => "mics", "speaker_id" => "speakers", "instance" => "instances"}[section]
-    is_map(devices) and is_list(Map.get(devices, key))
+    is_map(devices) and is_list(Map.get(devices, key)) and get_in(devices, ["availability", key]) != false
   end
 
   def available?(_section, _devices), do: true
