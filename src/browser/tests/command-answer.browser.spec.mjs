@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
 import { openFixture } from './support/browser-helpers.mjs'
 
 test('the Commands action stays disabled during LiveView join, then records its answer', async ({ page }) => {
@@ -64,6 +65,12 @@ test('native questions validate as a group and submit all choices at 390px', asy
 })
 
 async function openCommand(page) {
+  // Load the checkout's assets so an isolated mutation worktree exercises its
+  // own production source even when reusing the same synthetic HTTP fixture.
+  await page.route(/\/(conversation-voice-controller|voice-input-hook)\.js$/, (route) => {
+    const file = new URL(route.request().url()).pathname.split('/').pop()
+    return route.fulfill({ path: fileURLToPath(new URL(`../../priv/static/${file}`, import.meta.url)), contentType: 'application/javascript' })
+  })
   await page.addInitScript(() => {
     window.__micRequests = []
     window.__voicePushes = []
