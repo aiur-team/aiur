@@ -160,6 +160,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
     Aiur.PRLifecycle.HeadVerdictRouter,
+    Aiur.Conversation.HeadTable,
     {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     Aiur.Experiments.Store,
