@@ -46,6 +46,7 @@ export type StripMode = "grid" | "cmd" | "logs" | "settings";
 
 /** Structured content for one panel; the encoder renders it to a JPEG. */
 export type SegmentContent =
+  | { readonly kind: "instance"; readonly label: string; readonly content: SegmentContent }
   | { readonly kind: "summary"; readonly model: SummaryModel }
   | { readonly kind: "provider"; readonly row: ProviderPanelRow }
   /**
@@ -56,7 +57,7 @@ export type SegmentContent =
    * instead of the painter assuming where the layout put it.
    */
   | { readonly kind: "providers"; readonly model: ProviderPanelModel; readonly originX: number }
-  | { readonly kind: "pager"; readonly title: string; readonly label: string; readonly model: PagerModel }
+  | { readonly kind: "pager"; readonly title: string; readonly label: string; readonly stale?: boolean; readonly model: PagerModel }
   | { readonly kind: "agentDetail"; readonly model: AgentDetailModel }
   | {
       readonly kind: "chatLog";
@@ -213,7 +214,7 @@ export function composeStrip(input: StripData): readonly StripPanel[] {
       return [
         { region: segmentRegion(SegmentIndex.First), content: { kind: "summary", model: summary } },
         ...providerPanels(providers, providerOffset),
-        { region: segmentRegion(SegmentIndex.Fourth), content: { kind: "pager", title: "MORE AGENTS", label: pagerLabel, model: pager } },
+        { region: segmentRegion(SegmentIndex.Fourth), content: { kind: "pager", title: "MORE AGENTS", label: pagerLabel, stale: summary.counts_status === "stale", model: pager } },
       ];
     }
     case "cmd": {

@@ -32,6 +32,31 @@ const claudeMeter: ProviderMeter = {
 };
 
 describe("providerSegmentModel", () => {
+  it("reads the daemon semantic slots without durations and prioritizes their keys", () => {
+    const model = providerSegmentModel({
+      provider: "claude",
+      windows: {
+        session: { remaining_percent: 12, used_percent: 88 },
+        weekly: { remaining_percent: 40, used_percent: 60 },
+        legacy: { used_percent: 1, duration_minutes: 1 },
+      },
+    });
+    expect(model.hasData).toBe(true);
+    expect(model.session).toEqual({ usedPercent: 88, resetsAt: null });
+    expect(model.weekly).toEqual({ usedPercent: 60, resetsAt: null });
+  });
+
+  it("never turns unknown semantic readings into zero", () => {
+    const readings: ProviderMeter[] = [{ windows: {} }, { windows: { session: { used_percent: null }, weekly: { used_percent: null } } }];
+    for (const reading of readings) {
+      const model = providerSegmentModel({ provider: "codex", state: "unknown", ...reading });
+      expect(model.hasData).toBe(false);
+      expect(model.session).toBeNull();
+      expect(model.weekly).toBeNull();
+    }
+    expect(providerSegmentModel({ windows: { weekly: { used_percent: 60 } } }).weekly?.usedPercent).toBe(60);
+  });
+
   it("classifies session (shortest) and weekly (longest) by duration, not label", () => {
     const model = providerSegmentModel(codexMeter);
     expect(model.provider).toBe("codex");
@@ -121,12 +146,13 @@ describe("providerSegmentModel", () => {
     }
   });
 
-  it("defaults a window's used_percent to 0 when it is absent", () => {
+  it("keeps a semantic window unknown when used_percent is absent", () => {
     const model = providerSegmentModel({
       provider: "claude",
       windows: { session: { resets_at: "2026-07-30T16:00:00Z", duration_minutes: 300 } },
     });
-    expect(model.session).toEqual({ usedPercent: 0, resetsAt: "2026-07-30T16:00:00Z" });
+    expect(model.session).toBeNull();
+    expect(model.hasData).toBe(false);
   });
 
   it("nulls provider/freshness and defaults windows for a bare meter object", () => {

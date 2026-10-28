@@ -243,10 +243,21 @@ defmodule Aiur.ExecutorListener do
   defp deliver_executor_event(%{"topic" => "executor.decision.answered"} = event, inbox, store),
     do: deliver_answer(event, inbox, store)
 
+  defp deliver_executor_event(%{topic: "executor.voice.session_ended"} = event, inbox, _store),
+    do: deliver_voice(event, inbox)
+
+  defp deliver_executor_event(%{"topic" => "executor.voice.session_ended"} = event, inbox, _store),
+    do: deliver_voice(event, inbox)
+
   defp deliver_executor_event(event, inbox, _store) do
     scrubbed = ExecutorEvents.scrub_untrusted_output(event)
     if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
     wake_blocking_decision(event, inbox)
+  end
+
+  defp deliver_voice(event, inbox) do
+    {:ok, record} = ExecutorWakeProjection.project(event)
+    enqueue_wake(record, inbox)
   end
 
   defp deliver_answer(event, inbox, store) do

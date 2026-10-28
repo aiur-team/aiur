@@ -6,19 +6,23 @@ names and tuple shapes are not part of this API.
 
 ## Authentication
 
-The device first requests `POST /api/v1/streamdeck/token` with the existing
-dashboard HTTP Basic credentials. The response is `{token, expires_in_seconds}`.
-Pass that token as the Phoenix socket parameter (`/streamdeck/websocket?token=…`),
-then join `streamdeck:fleet`.
+The device first requests `POST /api/v1/streamdeck/token` with
+`Authorization: Bearer <client-token>` (created with `aiur token create`) or the
+existing dashboard HTTP Basic credentials on loopback. The response is
+`{token, expires_in_seconds}`. Pass that short-lived token as the Phoenix socket
+parameter (`/streamdeck/websocket?token=…`), then join `streamdeck:fleet`.
 
-This adds no device credential: the token can only be minted after dashboard
-Basic authentication, expires after five minutes, is signed by the endpoint,
-and stops verifying when the dashboard username, password, or signing key
-changes. A joined channel closes when that five-minute token window expires or
-the dashboard credential configuration changes.
-The WebSocket handshake therefore avoids placing a reusable dashboard password
-in the upgrade URL while retaining the same authorization boundary. Use
-HTTPS/WSS when the dashboard is exposed beyond loopback.
+The physical sidecar uses each selected instance's own bearer credential from
+`~/.aiur/remote-instances.yaml`; the environment daemon can use
+`AIUR_CLIENT_TOKEN` or Basic credentials. A switch closes the previous channel,
+stops voice capture, and clears its fleet before opening the selected target.
+HTTP 401/403 displays `auth failed` without retrying or falling back; connection
+failures retry the selected target with bounded backoff. Reconnecting to the same
+instance retains its last grid, navigation, logs and Commands page, stops voice,
+and restores the focused agent on the new channel. Client bearer tokens
+are never placed in the WebSocket URL or debug output. See the
+[physical sidecar guide](../website/docs-app/guide/stream-deck.md#physical-sidecar-status)
+for registry and token-file rules.
 
 ## Shared projections vs deck presentation
 
@@ -31,6 +35,7 @@ use the shared domain sources directly.
 | `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | No non-deck consumer yet; MP-E4 conversations planned. `History` re-exports it; production caller: `StreamdeckLogs`. |
 | `AiurWeb.StreamdeckProjection` | Fleet, voice availability, decisions and transcript DTOs for the deck channel | No | `/streamdeck` emulator |
 | `AiurWeb.Streamdeck.Deck` | Guarded deck sections over shared read models; focus lane from `BuildQueue.show/0` | No | Emulator |
+| `AiurWeb.Streamdeck.Deck.TicketPage` | Focused ticket over Build DataSource and TicketControl; shared server status labels | No | Physical cmd ticket page |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
 | `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
 | `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
@@ -57,9 +62,10 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
-| `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build` and `build_status`. |
-| `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build` and `build_status`. |
-| `usage` | `{provider_family: meter}` | One entry per provider family; redacted provider-meter projection for the touch-strip usage segments. |
+| `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
+| `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
+| `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
+| `usage` | `{provider_family: meter}` | One entry per provider family, from Build.Usage; semantic session/weekly windows carry `remaining_percent` and `used_percent`. Updates coalesce over 250 ms. |
 | `decisions` | `{count}` | Updated decision summary. |
 | `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
 | `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Pushed on focus and again whenever a new transcript line lands. |
@@ -71,7 +77,11 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 `unavailable` (queue model could not be read). `grid.build` is null unless
 status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
 identity, progress fields and `eta_seconds: null`. Unknown percent and completed
-counts stay null. Build changes share the channel’s 250 ms fleet coalescing.
+counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and are dimmed. Build changes share the channel’s 250 ms fleet coalescing.
+
+`ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the physical strip renders its age after 60 seconds. A missing ticket becomes an explicit unknown frame for that focused id.
+
+Ticket reads run in one background task per channel, coalesce refreshes, and discard results from an old focus so Commands and unfocus stay responsive.
 
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,
@@ -213,3 +223,31 @@ Only transcribed text round-trips. The waveform and the decibel bar are computed
 on the sidecar from the captured PCM and never wait on Aiur, so "is my
 microphone working" is bounded by the 20 ms capture latency rather than by any
 network round trip.
+
+## Server-rendered images
+
+`AiurWeb.Streamdeck.Render` is a pure SVG renderer; transport remains a separate
+consumer. `key/1` draws a projected grid agent. `frame/1` accepts the existing
+`grid` and `usage` snapshot plus optional `column_offset` and `provider_offset`,
+returning exactly eight keys (empty slots are `nil`) and strip regions tiling
+800×100. `strip/1` composes regions from title/bar, meter, count, text and pager
+parts, so later views share the same drawing path.
+
+Key images use physical row order; ranked input agents fill each column top-to-bottom.
+
+The grid provider panels retain the current session-only layout and show remaining quota.
+
+Each image carries `svg`, a 16-character lowercase SHA-256 content `hash`, and a
+plain-text accessible `label`; strip images also carry `x` and `width`. Keys
+have width/height/viewBox 120×120; strip regions have their local width ×100.
+SVGs contain only inline assets, including the DeepSeek base64 PNG, and escaped
+text. There are no external asset references or scripts. The same input gives
+identical bytes and hashes; relative ages must arrive in the input model.
+
+All text uses `JetBrains Mono, monospace`. Consumers register the bundled
+JetBrains Mono font before rasterizing. Wrapping uses a fixed advance of
+0.6 em; key titles occupy at most three lines with a final ellipsis. Unknown
+progress draws only a grey track, measured zero draws a visible fill stub, and
+stale readings retain their value with reduced opacity. Fixture keys target
+4 KiB and 200-wide regions 6 KiB; the original embedded DeepSeek PNG exceeds
+that key target and must be budgeted separately.

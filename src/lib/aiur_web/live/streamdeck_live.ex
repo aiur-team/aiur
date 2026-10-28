@@ -23,6 +23,7 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Grid
   import AiurWeb.StreamdeckLive.Modes
 
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
   alias AiurWeb.StreamdeckLogs
 
@@ -66,6 +67,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
       |> assign(:knobs, Surface.knob_descriptors())
+      |> assign(:streamdeck_instance, instance_name())
       |> assign(:grid_page, 0)
       |> assign(:grid_column_offset, 0)
       |> assign(:grid_dial_value, 0)
@@ -96,6 +98,7 @@ defmodule AiurWeb.StreamdeckLive do
       if connected?(socket) do
         :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
         :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
+        :ok = BuildIndex.subscribe()
         socket = AiurWeb.RefreshSubscriptions.fleet(socket, &maybe_subscribe_fixture_fleet/0)
 
         socket
@@ -224,7 +227,7 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed], do: {:noreply, refresh_grid(socket)}
+  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed, :build_changes], do: {:noreply, refresh_grid(socket)}
 
   def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh_grid(socket)}
   def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
@@ -307,6 +310,13 @@ defmodule AiurWeb.StreamdeckLive do
     :ok
   end
 
+  defp instance_name do
+    case Aiur.Identity.instance_key() do
+      {:ok, key} -> key
+      {:error, _reason} -> "unknown"
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -328,6 +338,7 @@ defmodule AiurWeb.StreamdeckLive do
         <div :if={@control_feedback} id="sd-control-status" class="streamdeck-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</div>
         <div class="sd-device" data-mode={@sd_mode}>
           <Components.brand />
+          <p id="sd-instance" class="streamdeck-status">Instance: {@streamdeck_instance}</p>
 
           <%= if @sd_mode == :grid do %>
           <Components.grid_keys grid={@grid} grid_page={@grid_page} grid_column_offset={@grid_column_offset} grid_dial_value={@grid_dial_value} selected_identifier={@selected_identifier} keys={@keys} />

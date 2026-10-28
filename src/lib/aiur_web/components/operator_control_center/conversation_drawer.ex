@@ -178,6 +178,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
         </div>
 
         <footer class="conversation-drawer-footer">
+          <AiurWeb.OperatorControlCenter.ExecutorVoice.executor_voice id={"#{@id}-executor-voice"} writable={@writable} />
           <AiurWeb.OperatorControlCenter.ListenerMode.receipt :for={receipt <- @receipts} receipt={receipt} />
           <dl class="conversation-drawer-provenance">
             <div><dt>Last observation</dt><dd><.timestamp value={@view.observed_at} /></dd></div>

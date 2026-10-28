@@ -70,7 +70,7 @@ defmodule AiurWeb.StreamdeckLive.Surface do
 
   @spec screen_descriptors(map(), map(), integer(), map() | nil) :: [map()]
   def screen_descriptors(grid, usage, current_page, focus) do
-    live = live_count(grid)
+    counts = Map.get(grid, :counts) || %{}
     families = configured_provider_families()
 
     [
@@ -78,9 +78,10 @@ defmodule AiurWeb.StreamdeckLive.Surface do
         kind: :summary,
         label: "SUMMARY",
         logo: "/aiur-logo.png",
-        observed?: grid.total > 0,
-        live: live,
-        remaining: max(grid.total - live, 0),
+        observed?: get_value(counts, "status") == "ok",
+        counts_status: get_value(counts, "status"),
+        live: get_value(counts, "live"),
+        remaining: get_value(counts, "queued"),
         build: Map.get(grid, :build),
         build_status: Map.get(grid, :build_status),
         meters: []
@@ -138,8 +139,6 @@ defmodule AiurWeb.StreamdeckLive.Surface do
   @spec mode_pager_focus(atom(), map() | nil) :: map() | nil
   def mode_pager_focus(mode, active) when mode in [:cmd, :logs, :settings] and not is_nil(active), do: active
   def mode_pager_focus(_mode, _active), do: nil
-
-  defp live_count(grid), do: Enum.count(grid.agents, &(&1.bucket == :running))
 
   defp provider_segment(descriptor, usage) do
     provider = Atom.to_string(descriptor.provider)

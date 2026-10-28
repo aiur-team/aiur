@@ -78,17 +78,15 @@ function relayoutImpl({ live = false } = {}) {
   Object.assign(S, measureFlow(ctx.D, dims));
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
-  const previousDetail = ctx.L?.det;
   ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt });
   // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
   if (!S.flow && !activeFeature() && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt }); }
   ctx.content.classList.toggle('flow', S.flow);
-  const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
   ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
-    if (!live || detailChanged || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
+    if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
   for (const [uid, el] of ctx.RL) {

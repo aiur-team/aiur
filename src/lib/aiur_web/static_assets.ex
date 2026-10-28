@@ -23,6 +23,7 @@ defmodule AiurWeb.StaticAssets do
     build-order-grid-hook.js
     conversation-drawer-hook.js
     conversation-voice-controller.js
+    executor-voice-controller.js
     dashboard.css
     decision-questions-validation.js
     elevenlabs-symbol.svg

@@ -9,6 +9,7 @@ import process from "node:process";
 import type { AudioDevice } from "./audio/index.js";
 import type { StreamDeckGrid } from "./channel.js";
 import type { ControllerState } from "./controller.js";
+import { demoTicket } from "./demo.js";
 import { debugEnabled } from "./debug.js";
 import { debug } from "./hid-device.js";
 import { decodeInputReport } from "./input.js";
@@ -61,8 +62,10 @@ export const surfaceState = (
   current: ControllerState,
   microphones: readonly AudioDevice[],
   voice: VoicePanelInput | undefined,
+  demoGrid?: StreamDeckGrid,
 ): PhysicalSurfaceState => ({
   mode: current.mode,
+  ticket: demoGrid === undefined ? current.ticket : demoTicket(demoGrid, current.focusedIdentifier),
   focusedIdentifier: current.focusedIdentifier,
   micHeld: current.micHeld,
   columnOffset: current.columnOffset,

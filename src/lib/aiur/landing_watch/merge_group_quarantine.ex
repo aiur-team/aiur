@@ -2,9 +2,22 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   @moduledoc "Quarantines first unrelated base failures and repeated untouched merge-group failures; journal retries with bounded backoff, then files a fix ticket and auto-merging quarantine PR and requeues dropped approved PRs. OrchestratorGuard failures only file a ticket."
 
   alias Aiur.GitHub.{CIRecovery, PullRequests}
-  alias Aiur.LandingWatch.{FlakeFilingGate, FlakeRecorder, Journal, MergeGroupRequeue, QuarantineAnnotations, QuarantineEvidence, QuarantinePR, QuarantineRetry}
-  alias Aiur.LandingWatch.MergeGroupQuarantine.JobEvidence
-  alias Aiur.LandingWatch.MergeGroupQuarantineBlame
+
+  alias Aiur.LandingWatch.{
+    FlakeFilingGate,
+    FlakeRecorder,
+    Journal,
+    MainRunEvidence,
+    MergeGroupFailureProcessor,
+    MergeGroupQuarantine.JobEvidence,
+    MergeGroupQuarantineBlame,
+    MergeGroupRequeue,
+    QuarantineAnnotations,
+    QuarantineEvidence,
+    QuarantinePR,
+    QuarantineRetry
+  }
+
   alias Aiur.MainWatch
   alias Aiur.TestQuarantine.Detector
 
@@ -17,6 +30,13 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     {:ok, cache} = Agent.start_link(fn -> %{} end)
 
     try do
+      opts = Keyword.put(opts, :runner_degradation_cache, cache)
+
+      opts =
+        opts
+        |> Keyword.put_new(:actions_read_fun, &CIRecovery.read/2)
+        |> Keyword.put_new(:actions_jobs_fun, &CIRecovery.jobs/2)
+
       history = Keyword.get(opts, :main_history_fun, &main_history/0).()
       group_opts = opts |> Keyword.put(:changed_paths_cache, cache) |> Keyword.put(:red_on_main, QuarantineEvidence.red_on_main(history))
       group = runs |> Enum.filter(&eligible_run?/1) |> first_error(&claim_and_process_run(&1, base, group_opts))
@@ -39,7 +59,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
         state
         |> Map.get("failure_observations", [])
         |> Enum.filter(&(&1["source"] != "base" and &1["touched"] != true and Map.has_key?(done, quarantine_claim(&1["identity"]))))
-        |> Enum.map(&run_id(&1["run_url"]))
+        |> Enum.map(&MainRunEvidence.run_id(&1["run_url"]))
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq()
 
@@ -56,7 +76,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   end
 
   defp eligible_run?(%{"conclusion" => "failure", "id" => id} = run) when is_integer(id) do
-    case run_time(run) do
+    case MainRunEvidence.run_time(run) do
       {:ok, at_ms} -> recent?(at_ms, System.system_time(:millisecond))
       _ -> false
     end
@@ -91,7 +111,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp process_run(run, base, opts) do
     with prs when prs != [] <- run_prs(run, base),
-         {:ok, at_ms} <- run_time(run),
+         {:ok, at_ms} <- MainRunEvidence.run_time(run),
          {:ok, jobs, found, evidence_complete?} <- JobEvidence.load(run["id"], opts),
          pr_caused? = MergeGroupQuarantineBlame.pr_caused_failure?(run, prs, jobs, base, cached_paths_opts(opts)),
          :ok <- record_guards(found.guards, run, opts) do
@@ -243,9 +263,27 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   end
 
   defp record_main_entry(entry, opts) do
+    jobs_fun = Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2)
+
+    if MainRunEvidence.degraded?(entry, opts, jobs_fun),
+      do: record_degraded_main_entry(entry, opts),
+      else: record_healthy_main_entry(entry, opts)
+  end
+
+  defp record_degraded_main_entry(entry, opts) do
     claim = main_claim(entry)
 
-    rows = main_rows(entry)
+    case Journal.claim_flake(claim, opts) do
+      {:ok, :already_claimed} -> :ok
+      {:ok, :new} -> MergeGroupFailureProcessor.emit_runner_degraded(MainRunEvidence.run_id(MainRunEvidence.url(entry, nil)), opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp record_healthy_main_entry(entry, opts) do
+    claim = main_claim(entry)
+
+    rows = MainRunEvidence.rows(entry)
 
     with {:ok, :new} <- Journal.claim_flake(claim, opts),
          {:ok, paths} <- if(rows == [], do: {:ok, []}, else: commit_paths(entry.sha, opts)),
@@ -285,33 +323,13 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp record_main_guards(%{digest: %{checks: checks}} = entry, opts) do
     with {:ok, found} <- QuarantineAnnotations.from_checks(Enum.map(checks, &{&1[:id], &1[:name]}), opts) do
-      record_guards(found.guards, %{"id" => run_id(main_url(entry, nil)), "html_url" => main_url(entry, nil)}, opts)
+      record_guards(found.guards, %{"id" => MainRunEvidence.run_id(MainRunEvidence.url(entry, nil)), "html_url" => MainRunEvidence.url(entry, nil)}, opts)
     end
   end
 
   defp main_history do
     if Process.whereis(MainWatch), do: Map.get(MainWatch.state(), :history, []), else: []
   end
-
-  defp main_rows(%{digest: %{checks: checks}} = entry) when is_list(checks) do
-    for %{tests: tests} = check <- checks, is_list(tests), test <- tests, is_binary(test[:identity]) do
-      %{
-        "identity" => test.identity,
-        "source" => "base",
-        "run_url" => main_url(entry, check),
-        "head_sha" => entry[:sha],
-        "at_ms" => entry.completed_at,
-        "path" => test[:path],
-        "job" => check[:name],
-        "excerpt" => "",
-        "group_prs" => []
-      }
-    end
-  end
-
-  defp main_rows(_entry), do: []
-
-  defp main_url(entry, check), do: (check && check[:url]) || Enum.find_value(entry.digest.checks, & &1[:url]) || List.first(Map.get(entry, :run_urls, []))
 
   defp quarantine_candidates(history, observations, base, opts) do
     with {:ok, state} <- Journal.state(opts) do
@@ -450,10 +468,10 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp requeue_dropped(identity, rows, observations, opts) do
     rows
-    |> Enum.filter(&(&1["identity"] == identity and is_list(&1["group_prs"]) and &1["group_prs"] != [] and is_integer(run_id(&1["run_url"]))))
+    |> Enum.filter(&(&1["identity"] == identity and is_list(&1["group_prs"]) and &1["group_prs"] != [] and is_integer(MainRunEvidence.run_id(&1["run_url"]))))
     |> Enum.uniq_by(& &1["run_url"])
     |> first_error(fn row ->
-      run = %{"id" => run_id(row["run_url"])}
+      run = %{"id" => MainRunEvidence.run_id(row["run_url"])}
       MergeGroupRequeue.requeue_group_prs(row["group_prs"], observations, run, "a quarantined flaky test (#{identity})", opts)
     end)
   end
@@ -463,22 +481,13 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     %{module: module, name: name, job: row["job"] || "unknown job", excerpt: row["excerpt"] || "", path: row["path"]}
   end
 
-  defp run(row), do: %{"id" => run_id(row["run_url"]), "html_url" => row["run_url"], "head_sha" => row["head_sha"]}
+  defp run(row), do: %{"id" => MainRunEvidence.run_id(row["run_url"]), "html_url" => row["run_url"], "head_sha" => row["head_sha"]}
 
   defp quarantine_claim(identity), do: "quarantine-pr :: " <> to_string(identity)
   defp requeue_claim(identity), do: "quarantine-requeue :: " <> to_string(identity)
 
   defp claim_result({:ok, _}), do: :ok
   defp claim_result(error), do: error
-
-  defp run_id(url) when is_binary(url) do
-    case Regex.run(~r{/runs/(\d+)}, url, capture: :all_but_first) do
-      [id] -> String.to_integer(id)
-      _ -> nil
-    end
-  end
-
-  defp run_id(_url), do: nil
 
   defp run_prs(run, base) do
     prefix = "gh-readonly-queue/#{base}/"
@@ -487,13 +496,4 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   end
 
   defp pr_numbers(branch), do: Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first) |> List.flatten() |> Enum.map(&String.to_integer/1) |> Enum.uniq()
-
-  defp run_time(%{"created_at" => timestamp}) when is_binary(timestamp) do
-    case DateTime.from_iso8601(timestamp) do
-      {:ok, date, _offset} -> {:ok, DateTime.to_unix(date, :millisecond)}
-      _ -> {:error, :invalid_merge_group_timestamp}
-    end
-  end
-
-  defp run_time(_), do: {:error, :missing_merge_group_timestamp}
 end

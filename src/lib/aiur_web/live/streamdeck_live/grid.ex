@@ -12,8 +12,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   import AiurWeb.StreamdeckLive.Surface
 
   alias Aiur.{Conversation.History, Orchestrator, PollCadence}
-  alias AiurWeb.{Endpoint, EndpointConfig, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.Streamdeck.Deck
+  alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias Phoenix.LiveView.Socket
 
   @spec refresh_grid(Socket.t()) :: Socket.t()
@@ -193,25 +192,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
           end
       end
 
-    grid =
-      case snapshot do
-        %{} = snapshot -> StreamDeckGrid.project(snapshot)
-        _ -> empty_grid()
-      end
-
-    Map.merge(grid, Deck.read().build_order)
-  end
-
-  defp empty_grid do
-    %{
-      agents: [],
-      total: 0,
-      columns_per_page: 4,
-      rows_per_column: 2,
-      agents_per_page: 8,
-      windows: 0,
-      max_column_offset: 0
-    }
+    StreamdeckFleet.grid(snapshot)
   end
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator

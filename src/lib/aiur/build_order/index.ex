@@ -1,5 +1,6 @@
 defmodule Aiur.BuildOrder.Index do
   @moduledoc "Shared build-home join and changes; all input reads are local projections."
+  alias Aiur.AgentPubSub
   alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued, PackStatus}
   alias Aiur.BuildOrder.Index.{Catalogue, EpicProgress, FeatureProgress, PackRows, Pages, Parts, Rows, Sources}
   @topic "build-home:index"
@@ -122,11 +123,11 @@ defmodule Aiur.BuildOrder.Index do
     end)
   end
 
-  @spec subscribe() :: :ok | {:error, term()}
-  def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+  @spec subscribe(keyword()) :: :ok | {:error, term()}
+  def subscribe(opts \\ []), do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic, opts)
   @spec broadcast(map()) :: :ok
   def broadcast(changes) do
-    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:build_changes, changes})
+    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:build_changes, changes}, AgentPubSub)
     :ok
   end
 
