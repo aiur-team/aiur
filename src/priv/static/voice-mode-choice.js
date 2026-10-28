@@ -147,7 +147,8 @@
     const code = Object.hasOwn(reasons, detail.reason_code) ? detail.reason_code : "unknown";
     controller.reasonCode = detail.reason_code ? code : null;
     const copy = code === "target_not_found" ? reasons[code][controller.choice.context().target.kind] || reasons.unknown : reasons[code];
-    const message = (["unavailable", "listening", "ready"].includes(next) || detail.local) && detail.message ? detail.message : states[next] || copy;
+    const message = (["unavailable", "listening", "ready"].includes(next) || detail.local) && detail.message ? detail.message :
+      (next === "idle" && controller.idleCopy) || states[next] || copy;
     controller.setStatus(message, ["unavailable", "permission_denied", "no_device", "error"].includes(next));
     controller.syncElements();
   }
@@ -158,6 +159,7 @@
     const root = controller.choice.root;
     if (!root) return;
     const available = ["available", "degraded"].includes(root?.dataset.voiceSttState);
+    if (available && root.dataset.voiceState === "idle") controller.idleCopy = controller.status?.textContent?.trim() || states.idle;
     controller.unavailableReason = controller.browserUnavailable || (!available && (
       root?.querySelector("[data-voice-mode='dictate'] span")?.textContent || "Voice input availability is unknown."
     ));
