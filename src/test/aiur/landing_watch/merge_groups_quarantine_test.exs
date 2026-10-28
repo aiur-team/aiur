@@ -159,9 +159,9 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
           {:ok, "Error: coverage partition 3 killed at 20m time bound"}
       end,
       annotations_fun: fn _id, _opts -> {:ok, [%{"title" => "aiur-test-failure", "message" => "new-failure :: Aiur.ExampleTest :: fails", "path" => "src/test/example_test.exs"}]} end,
-      flake_recorder: fn _, _, _, _ ->
+      flake_recorder: fn _, _, _, recorder_opts ->
         send(parent, :flake_ticket_recorded)
-        :ok
+        recorder_opts[:issue_recorded_fun].(900)
       end,
       main_history_fun: fn -> [] end,
       live_observations_fun: fn _fallback, _opts -> {:ok, []} end,
