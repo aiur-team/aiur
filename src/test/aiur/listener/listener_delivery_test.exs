@@ -197,24 +197,34 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     refute_received {:agent_queue_updated, _, _, _}
   end
 
-  test "session execution refresh preserves pull-only messages without notifying", %{id: id, state: state} do
+  test "session execution refresh delivers held bodies when the pull tool is unavailable", %{id: id, state: state} do
     previous = %{state.running[id] | session_execution: %{backend: "unknown-harness"}}
     {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
     state = %{state | queue_store: store}
     next = ListenerModes.on_session_execution(state, id, previous)
     assert next.running[id].listener_effective.effective == :sync
-    assert AgentQueueStore.get(next.queue_store, item.id) == item
-    refute_received {:agent_queue_updated, ^id, _, _}
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
+    assert Capabilities.issue_control_capabilities(next, id).listener.unread_count == 0
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(next, id)
+    assert claimed.id == item.id
+    assert claimed.body.text == "held"
     assert ListenerModes.on_session_execution(next, id, next.running[id]) == next
     refute_received {:agent_queue_updated, _, _, _}
   end
 
-  test "set_mode preserves a previously held row even when its effective view is sync", %{id: id, state: state} do
+  test "set_mode delivers a previously held row when async support is unavailable", %{id: id, state: state} do
     {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
     state = %{state | queue_store: store}
     assert {:reply, {:ok, %{effective: :sync}}, next} = ListenerModes.set_mode(state, id, :sync, expected_version: 0)
-    assert AgentQueueStore.get(next.queue_store, item.id) == item
-    refute_received {:agent_queue_updated, ^id, _, _}
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
+    assert Capabilities.issue_control_capabilities(next, id).listener.unread_count == 0
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(next, id)
+    assert claimed.id == item.id
+    assert claimed.body.text == "held"
   end
 
   test "listener enqueue preserves an operator pause instead of auto-resuming", %{id: id, state: state} do
@@ -292,13 +302,18 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:noreply, ^state} = Orchestrator.handle_info({:listen_mode_changed, "removed-issue", %{}}, state)
   end
 
-  test "mode-change signals re-read the current view while preserving held messages", %{id: id, state: state} do
+  test "mode-change signals re-read the current view and deliver held messages without a pull tool", %{id: id, state: state} do
     {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
     state = %{state | queue_store: store}
     assert {:noreply, next} = Orchestrator.handle_info({:listen_mode_changed, id, %{effective: :async}}, state)
     assert {:reply, {:ok, %{effective: :sync}}, _} = ListenerModes.get_mode(next, id)
-    assert AgentQueueStore.get(next.queue_store, item.id) == item
-    refute_received {:agent_queue_updated, ^id, _, _}
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
+    assert Capabilities.issue_control_capabilities(next, id).listener.unread_count == 0
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(next, id)
+    assert claimed.id == item.id
+    assert claimed.body.text == "held"
   end
 
   test "held enqueue, retry, partial read and restamp emit current unread counts", %{id: id, state: state} do
@@ -316,11 +331,27 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:reply, {:ok, %{remaining: 1}}, state} = HeldReads.handle_call(state, id, 1)
     assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 1, oldest_unread_at: remaining_at}}}}
     assert remaining_at == AgentQueueStore.get(state.queue_store, second).inserted_at
-    state = ListenerModes.mode_view_changed(state, id, %{effective: :sync})
+    view = %{effective: :sync, support: %{async: %{status: :proven}}}
+    state = ListenerModes.mode_view_changed(state, id, view)
     assert AgentQueueStore.get(state.queue_store, second).delivery.consume_at == :pull
     assert Capabilities.issue_control_capabilities(state, id).listener.unread_count == 1
-    assert ListenerModes.mode_view_changed(state, id, %{effective: :sync}) == state
+    assert ListenerModes.mode_view_changed(state, id, view) == state
     refute_received {:transcript_event, %{payload: %{listener: _}}}
+  end
+
+  test "losing the installed pull tool clears unread and delivers the held body", %{id: id, state: state} do
+    :ok = Aiur.AgentPubSub.subscribe_agent(id)
+    state = put_in(state.running[id].session_execution, %{backend: "codex", pull_tool_installed: true})
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    assert {:reply, {:ok, item_id}, state} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "read me", delivery_policy: :listener, origin: :http})
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 1}}}}
+    assert {:noreply, state} = State.handle_session_execution_info(state, id, %{backend: "codex", pull_tool_installed: false})
+    assert state.running[id].listener_effective.effective_reason == :pull_tool_unavailable
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
+    assert Capabilities.issue_control_capabilities(state, id).listener.unread_count == 0
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(state, id)
+    assert claimed.id == item_id
+    assert claimed.body.text == "read me"
   end
 
   test "correlated holds emit count once and failure clears it", %{id: id, state: state} do

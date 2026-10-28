@@ -24,8 +24,9 @@ defmodule Aiur.Listener.TransitionsTest do
 
     Aiur.TestSupport.put_runtime_state_dir!(dir)
     id = Integer.to_string(System.unique_integer([:positive]))
-    issue = %Issue{id: id, identifier: id, selected_backend: "claude-repl"}
-    state = %State{queue_store: AgentQueueStore.new(), last_polled_issues: %{id => issue}}
+    issue = %Issue{id: id, identifier: id, selected_backend: "muse"}
+    entry = %{identifier: id, issue: issue, session_execution: %{backend: "muse", pull_tool_installed: true}, pid: self(), control: %{status: :working}}
+    state = %State{queue_store: AgentQueueStore.new(), last_polled_issues: %{id => issue}, running: %{id => entry}}
     :ok = AgentPubSub.subscribe_listen_mode(id)
     %{id: id, issue: issue, state: state}
   end
@@ -47,12 +48,25 @@ defmodule Aiur.Listener.TransitionsTest do
     assert Unread.queue_summary(state.queue_store, ctx.id).listener.unread_count == 0
   end
 
+  test "leaving async without a pull tool delivers bodies without an unusable read notice", ctx do
+    state = held(ctx, 1)
+    entry = %{identifier: ctx.id, issue: ctx.issue, session_execution: %{backend: "codex"}, pid: self(), control: %{status: :working}}
+    state = %{state | running: %{ctx.id => entry}}
+    assert {:reply, {:ok, %{effective: :sync, support: %{async: %{reason: :pull_tool_unavailable}}}}, state} = switch(state, ctx.id, :sync, 1)
+    refute notice(state, ctx.id)
+    assert Unread.queue_summary(state.queue_store, ctx.id).listener.unread_count == 0
+    assert_received {:listen_mode_changed, _, payload}
+    refute Map.has_key?(payload, :backlog)
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(state, ctx.id)
+    assert claimed.body.text == "private 1"
+  end
+
   test "leaving async notifies an already-running agent about the newly queued notice", ctx do
     state = held(ctx, 1)
-    entry = %{identifier: ctx.id, issue: ctx.issue, session_execution: nil, pid: self(), control: %{status: :working}}
-    state = %{state | running: %{ctx.id => entry}}
     assert {:reply, {:ok, _}, state} = switch(state, ctx.id, :sync, 1)
-    item_id = notice(state, ctx.id).id
+    item = notice(state, ctx.id)
+    assert item.body.text == "1 earlier message is waiting; read it with aiur_read_messages"
+    item_id = item.id
     assert_received {:agent_queue_updated, _, ^item_id, true}
   end
 
@@ -102,14 +116,14 @@ defmodule Aiur.Listener.TransitionsTest do
     assert AgentQueueStore.get(state.queue_store, new_notice.id).status == :delivered
   end
 
-  test "stopped agent's queued notice is restamped and delivered under native steer on session start", ctx do
+  test "notice created with proven pull support survives a stop and native-steer session restart", ctx do
     state = held(ctx, 1)
-    {:reply, {:ok, %{effective: nil}}, state} = switch(state, ctx.id, :steer, 1)
+    {:reply, {:ok, %{effective: :steer}}, state} = switch(state, ctx.id, :steer, 1)
     item = notice(state, ctx.id)
-    entry = %{identifier: ctx.id, issue: ctx.issue, session_execution: nil, pid: self()}
-    state = %{state | running: %{ctx.id => entry}}
-    assert {:noreply, state} = State.handle_session_execution_info(state, ctx.id, %{backend: "claude-repl", pull_tool_installed: true})
-    assert_received {:agent_queue_updated, _, _, true}
+    entry = %{state.running[ctx.id] | session_execution: nil}
+    stopped = %{state | running: %{}}
+    state = %{stopped | running: %{ctx.id => entry}}
+    assert {:noreply, state} = State.handle_session_execution_info(state, ctx.id, %{backend: "muse", pull_tool_installed: true})
     assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_steer_queue_item_call(state, ctx.id)
     assert claimed.id == item.id
     assert claimed.delivery.steer_requested
