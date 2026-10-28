@@ -46,7 +46,21 @@ defmodule Aiur.Conversation.AnchorResolverTest do
   end
 
   setup context do
+    original_resolver = Process.whereis(AnchorResolver)
+    # The crash test restarts the production child under temporary test config.
+    # Restart again only after helper teardown has restored the global config.
+    on_exit(fn ->
+      if Process.whereis(ResolverSupervisor) && is_nil(Process.whereis(AnchorResolver)),
+        do: Supervisor.restart_child(ResolverSupervisor, AnchorResolver)
+    end)
+
     ctx = TestSupport.setup(context)
+
+    on_exit(fn ->
+      if Process.whereis(ResolverSupervisor) && Process.whereis(AnchorResolver) != original_resolver,
+        do: Supervisor.terminate_child(ResolverSupervisor, AnchorResolver)
+    end)
+
     # Real file writes, registry, History windows and PubSub; only the clock/timers are controlled.
     opts = Application.fetch_env!(:aiur, :conversation_journal) |> Keyword.put(:store, Store)
     Application.put_env(:aiur, :conversation_journal, opts)
