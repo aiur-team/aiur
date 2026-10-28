@@ -34,6 +34,9 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     assert_reply(ref, :ok, _reply)
     [{:open_ticket, selected}] = :sys.get_state(socket.channel_pid).assigns.deck_effects
     assert String.starts_with?(shown, selected <> " ")
+    assert_push("chat", %{"id" => ^selected}, 2_000)
+    flush_frame(socket)
+    assert_push("frame", %{strip: [%{x: 0, width: 800}]}, 2_000)
 
     ref = push(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "turn", "delta" => 1})
     assert_reply(ref, :ok, %{"page" => 1})
