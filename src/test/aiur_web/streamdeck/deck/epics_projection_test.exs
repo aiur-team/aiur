@@ -51,6 +51,28 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsProjectionTest do
     refute hd(frame.keys).label =~ "0 remaining"
   end
 
+  test "pushed Epic drill-in frames show priority errors and queue-edge feedback in the strip" do
+    row = %{num: 7, id: "7", title: "Feature-owned UI", sec: "nq", epic: "f-deck", general_epics: ["ui"]}
+    put_window(window(%{"ui" => %{label: "UI", general: true}}, %{"ui" => %{open: 1, closed: 0, total: 1}}, [row]))
+    {socket, _frame} = open_epics()
+    input_frame(socket, %{"kind" => "key", "index" => 0, "action" => "down"})
+    input_frame(socket, %{"kind" => "key", "index" => 0, "action" => "down"})
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.selected == "7"
+
+    EndpointStubs.put(streamdeck_build_queue_fun: fn -> %{status: :disabled, queues: []} end)
+    input = %{"kind" => "dial", "index" => 1, "action" => "turn", "delta" => -1}
+    assert_reply(push(socket, "input", input), :error, %{reason: "disabled"})
+    error = pushed_frame(socket)
+    assert hd(error.strip).label == "queue disabled"
+    assert hd(error.strip).svg =~ "queue disabled"
+
+    queue = %{status: :running, queues: [%{kind: :list, name: "ops", items: [%{number: 7, position: 0}]}]}
+    EndpointStubs.put(streamdeck_build_queue_fun: fn -> queue end)
+    feedback = input_frame(socket, input)
+    assert hd(feedback.strip).label == "already at queue edge"
+    assert hd(feedback.strip).svg =~ "already at queue edge"
+  end
+
   defp open_epics do
     socket = joined_socket()
     assert_push("frame", _initial)
@@ -61,6 +83,10 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsProjectionTest do
   defp input_frame(socket, input) do
     assert_reply(push(socket, "input", input), :ok, reply)
     assert Enum.sort(Map.keys(reply)) == ~w(page view)
+    pushed_frame(socket)
+  end
+
+  defp pushed_frame(socket) do
     state = :sys.get_state(socket.channel_pid)
     send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
     :sys.get_state(socket.channel_pid)

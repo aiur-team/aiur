@@ -19,13 +19,10 @@ defmodule AiurWeb.Streamdeck.Render.Views do
 
   @spec compose(map()) :: {[map() | nil], [map()]}
   def compose(%{nav: %{view: :epic} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"],
-    do: EpicFrame.compose(field(model, :grid) || model, nav)
+    do: with_toast(EpicFrame.compose(field(model, :grid) || model, nav), model)
 
   def compose(%{nav: %{view: :fleet} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"] do
-    {faces, regions} = Fleet.compose(field(model, :grid) || model, nav)
-    toast = field(model, :toast)
-    regions = if is_binary(toast), do: List.replace_at(regions, 0, %{x: 0, width: 200, label: toast, parts: [%{kind: :text_line, text: toast, y: 50, size: 12}]}), else: regions
-    {faces, regions}
+    with_toast(Fleet.compose(field(model, :grid) || model, nav), model)
   end
 
   def compose(model) do
@@ -37,6 +34,12 @@ defmodule AiurWeb.Streamdeck.Render.Views do
 
   @spec settings_text() :: [String.t()]
   def settings_text, do: [@microphone, @voice]
+
+  defp with_toast({faces, regions}, model) do
+    toast = field(model, :toast)
+    regions = if is_binary(toast), do: List.replace_at(regions, 0, %{x: 0, width: 200, label: toast, parts: [%{kind: :text_line, text: toast, y: 50, size: 12}]}), else: regions
+    {faces, regions}
+  end
 
   defp keys("cmd", context) do
     context
