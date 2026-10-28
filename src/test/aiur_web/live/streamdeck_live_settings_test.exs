@@ -162,7 +162,8 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
   end
 
   defp conversation_line(text) do
-    Jason.encode!(%{event: "notification", timestamp: DateTime.to_iso8601(DateTime.utc_now()), raw: Jason.encode!(%{method: "item/completed", params: %{item: %{type: "agentMessage", text: text}}})}) <> "\n"
+    Jason.encode!(%{event: "notification", timestamp: DateTime.to_iso8601(DateTime.utc_now()), raw: Jason.encode!(%{method: "item/completed", params: %{item: %{type: "agentMessage", text: text}}})}) <>
+      "\n"
   end
 
   defp dial(view, index, action, delta \\ 0), do: render_hook(view, "input", %{"kind" => "dial", "index" => index, "action" => action, "delta" => delta})
