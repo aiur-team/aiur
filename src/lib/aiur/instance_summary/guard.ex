@@ -17,12 +17,14 @@ defmodule Aiur.InstanceSummary.Guard do
   if @strict do
     defp over_budget(_summary), do: raise(ArgumentError, "instance summary exceeds 4096 JSON bytes")
   else
+    alias Aiur.InstanceSummary.Fact
+
     defp over_budget(summary) do
       Logger.warning("Instance summary exceeds 4096 JSON bytes; discarding field values")
       summary |> degrade() |> ensure_budget!()
     end
 
-    defp degrade(%{status: _}), do: Aiur.InstanceSummary.Fact.unknown("size_budget_exceeded")
+    defp degrade(%{status: _}), do: Fact.unknown("size_budget_exceeded")
     defp degrade(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, degrade(value)} end)
     defp degrade(value), do: value
 
