@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused contract tests for newsletter collection (standard library only)."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import shutil
@@ -154,7 +155,8 @@ class CollectorTest(unittest.TestCase):
             for name in ("feature-share.sh", "classification.py"):
                 shutil.copyfile(ROOT / ".claude/skills/aiur-meta/scripts" / name, portable / name)
             result = subprocess.check_output(["bash", str(portable / "feature-share.sh"), "--self-test"],
-                                             cwd=portable, text=True)
+                                             cwd=portable, text=True,
+                                             env={**os.environ, "GIT_CEILING_DIRECTORIES": str(portable.parent)})
             self.assertIn("feature-share self-test: ok", result)
 
     def test_cursor_pages_stop_and_repeated_cursor_fails(self):
