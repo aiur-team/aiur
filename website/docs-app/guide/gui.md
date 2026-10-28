@@ -346,7 +346,9 @@ summaries. Rolling medians appear only when supplied in the stored analysis.
 `/conversations/:conversation_id` opens the durable conversation as a read-only
 page. It starts with the latest 50 entries. **Load older**, **Jump to start**,
 and **Load newer** browse earlier history; **Latest entries** returns to the
-live tail. The page keeps up to 500 entries on screen. When you scroll up,
+live tail.
+
+The page keeps up to 500 entries on screen. When you scroll up,
 new entries show a counter that returns you to the latest page.
 
 The status distinguishes live, idle, ended, continuity unknown and unavailable
