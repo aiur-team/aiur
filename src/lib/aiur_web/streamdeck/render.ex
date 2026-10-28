@@ -12,14 +12,21 @@ defmodule AiurWeb.Streamdeck.Render do
   """
 
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.Streamdeck.Render.{Grid, Key, MeterDetail, Parts, Svg}
+  alias AiurWeb.Streamdeck.Render.{Card, Grid, Key, MeterDetail, Parts, Svg, Views}
   import Svg, only: [field: 2, field: 3]
 
   @type image :: %{svg: String.t(), hash: String.t(), label: String.t()}
-  @type region_image :: %{x: non_neg_integer(), width: pos_integer(), svg: String.t(), hash: String.t(), label: String.t()}
+  @type region_image :: %{
+          x: non_neg_integer(),
+          width: pos_integer(),
+          svg: String.t(),
+          hash: String.t(),
+          label: String.t()
+        }
 
   @spec key(map()) :: image()
-  def key(face), do: Key.render(face)
+  def key(face),
+    do: if(field(face, :kind) in [:card, "card"], do: Card.render(face), else: Key.render(face))
 
   @spec strip([map()]) :: [region_image()]
   def strip(regions) do
@@ -36,17 +43,26 @@ defmodule AiurWeb.Streamdeck.Render do
         Enum.map(field(region, :parts, []), &Parts.draw(&1, width))
       ]
 
-      content |> Svg.image(width, 100, field(region, :label, "")) |> Map.merge(%{x: x, width: width})
+      content
+      |> Svg.image(width, 100, field(region, :label, ""))
+      |> Map.merge(%{x: x, width: width})
     end)
   end
 
   @spec frame(map()) :: %{keys: [image() | nil], strip: [region_image()]}
-  def frame(%{nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
+  def frame(%{surface: :grid, nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
     MeterDetail.frame(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, Nav.page(nav))
   end
 
   def frame(model) do
-    {faces, regions} = Grid.compose(model)
+    {faces, regions} = compose(model)
     %{keys: Enum.map(faces, fn face -> if face, do: key(face) end), strip: strip(regions)}
+  end
+
+  @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(model) do
+    if to_string(field(model, :surface, :grid)) == "grid",
+      do: Grid.compose(model),
+      else: Views.compose(model)
   end
 end

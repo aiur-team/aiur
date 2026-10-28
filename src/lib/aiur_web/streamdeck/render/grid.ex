@@ -21,7 +21,7 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     start = if is_integer(page) and page >= 0, do: page * 8, else: offset * 2
     unavailable = field(grid, :tickets_status) == "unavailable"
     faces = Enum.map(0..7, &Enum.at(agents, start + rem(&1, 4) * 2 + div(&1, 4)))
-    faces = if unavailable, do: [%{title: "Tickets unavailable", label: "Unavailable", face: :unknown, bucket: :stuck} | List.duplicate(nil, 7)], else: faces
+    faces = if unavailable, do: [%{title: "Tickets unavailable", label: "Unavailable", face: :unknown, bucket: :stuck, disabled: true} | List.duplicate(nil, 7)], else: faces
     providers = model |> field(:usage, %{}) |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
 
     regions =
@@ -33,15 +33,17 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
   end
 
   defp feedback(regions, toast) when is_binary(toast) do
-    List.replace_at(regions, 0, region(0, 200, toast, [%{kind: :text_line, text: toast, y: 50, size: 12}]))
+    List.replace_at(
+      regions,
+      0,
+      region(0, 200, toast, [%{kind: :text_line, text: toast, y: 50, size: 12}])
+    )
   end
 
   defp feedback(regions, _toast), do: regions
 
   defp summary(grid, agents) do
-    live = Enum.count(agents, &(to_string(field(&1, :bucket)) != "queued"))
-    remaining = length(agents) - live
-    count = if field(grid, :tickets_status) == "unavailable", do: "Tickets unavailable", else: "#{live} live / #{remaining} left"
+    count = if field(grid, :tickets_status) == "unavailable", do: "Tickets unavailable; #{counts_label(grid, agents)}", else: counts_label(grid, agents)
     build = field(grid, :build)
     percent = field(build, :percent)
 
@@ -54,9 +56,30 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
       end
 
     region(0, 200, "#{count}; #{label}", [
-      %{kind: :title_bar, title: "AIUR", label: label, percent: percent, freshness: if(is_number(percent), do: :fresh, else: :unknown)},
+      %{
+        kind: :title_bar,
+        title: "AIUR",
+        label: label,
+        percent: percent,
+        freshness: if(is_number(percent), do: :fresh, else: :unknown)
+      },
       %{kind: :count_row, label: count}
     ])
+  end
+
+  defp counts_label(grid, agents) do
+    case field(grid, :counts) do
+      counts when is_map(counts) ->
+        observed = to_string(field(counts, :status)) in ["ok", "stale"]
+        live = if observed, do: field(counts, :live), else: nil
+        queued = if observed, do: field(counts, :queued), else: nil
+        suffix = if to_string(field(counts, :status)) == "stale", do: " stale", else: ""
+        "#{live || "—"} live / #{queued || "—"} left#{suffix}"
+
+      _ ->
+        live = Enum.count(agents, &(to_string(field(&1, :bucket)) != "queued"))
+        "#{live} live / #{length(agents) - live} left"
+    end
   end
 
   defp provider_regions(providers, offset) when length(providers) >= 3 do
@@ -90,7 +113,7 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     parts = [
       %{kind: :text_line, text: name, y: 20, size: 13},
       %{kind: :text_line, text: field(meter, :summary_label) || "", y: 37, size: 9},
-      meter_part("Session", meter, field(windows, :session), 60)
+      meter_part("Session", meter, field(windows, :session), 60) |> Map.put(:provider, name)
     ]
 
     region(x, 200, to_string(name), parts)
@@ -103,12 +126,28 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     age = field(window, :age_seconds, field(meter, :age_seconds))
     age_label = if is_number(age), do: "#{age}s old", else: ""
     stale_label = if to_string(freshness) == "stale", do: " stale", else: ""
-    %{kind: :meter_row, label: name, percent: percent, suffix: " left", freshness: freshness, age_label: age_label <> stale_label, y: y}
+
+    %{
+      kind: :meter_row,
+      provider: name,
+      label: name,
+      percent: percent,
+      suffix: " left",
+      freshness: freshness,
+      age_label: age_label <> stale_label,
+      y: y
+    }
   end
 
   defp pager(offset, max_offset, total) do
-    label = if total == 0, do: "0 agents", else: "#{offset * 2 + 1}–#{min(offset * 2 + 8, total)} / #{total}"
-    region(600, 200, label, [%{kind: :pager, label: label, previous: offset > 0, next: offset < max_offset}])
+    label =
+      if total == 0,
+        do: "0 agents",
+        else: "#{offset * 2 + 1}–#{min(offset * 2 + 8, total)} / #{total}"
+
+    region(600, 200, label, [
+      %{kind: :pager, label: label, previous: offset > 0, next: offset < max_offset}
+    ])
   end
 
   defp region(x, width, label, parts), do: %{x: x, width: width, label: label, parts: parts}

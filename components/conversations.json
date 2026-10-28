@@ -11,11 +11,13 @@
   ],
   "facades": [
     "Aiur.AgentEventFeed",
+    "Aiur.Conversation.AnchorResolver",
     "Aiur.Conversation.Anchors",
     "Aiur.Conversation.Entry",
     "Aiur.Conversation.HeadTable",
     "Aiur.Conversation.History",
     "Aiur.Conversation.Ingest",
+    "Aiur.Conversation.JumpPoints",
     "Aiur.Conversation.Ref",
     "Aiur.Conversation.Session",
     "Aiur.Conversation.Store"
