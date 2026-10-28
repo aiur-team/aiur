@@ -21,8 +21,9 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   def read(financial, _opts \\ [])
   def read(:locked, _opts), do: Read.locked_usage()
 
-  def read({:ok, _context}, _opts) do
-    result = if dataset([]) in (@files ++ @scaled ++ ~w(degraded unfiled unfiled_unavailable)), do: full([]), else: {:error, :fixture_unavailable}
+  def read({:ok, _context}, opts) do
+    dataset = Keyword.get(opts, :dataset, Application.get_env(:aiur, :build_fixture_dataset, "live"))
+    result = if dataset in (@files ++ @scaled ++ ~w(degraded unfiled unfiled_unavailable)), do: full(Keyword.put(opts, :dataset, dataset)), else: {:error, :fixture_unavailable}
 
     case result do
       {:ok, data} -> data["usage"]

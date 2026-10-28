@@ -432,6 +432,10 @@ defmodule AiurWeb.Layouts do
                   } catch (e) {
                     return null;
                   }
+                })(),
+                build_fixture_dataset: (function () {
+                  var match = document.cookie.match(/(?:^|; )aiur-build-fixture-dataset=([^;]*)/);
+                  return match ? decodeURIComponent(match[1]) : null;
                 })()
               }
             });

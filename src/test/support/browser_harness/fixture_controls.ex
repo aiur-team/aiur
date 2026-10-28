@@ -7,7 +7,7 @@ defmodule Aiur.BrowserHarness.FixtureBuildDataset do
 
   def configure(conn, %{"dataset" => dataset}) do
     if dataset in FixtureSource.datasets() do
-      Application.put_env(:aiur, :build_fixture_dataset, dataset)
+      conn = Plug.Conn.put_resp_cookie(conn, "aiur-build-fixture-dataset", dataset, http_only: false, same_site: "Lax", path: "/")
       query = if conn.query_string == "", do: "", else: "?" <> conn.query_string
       redirect(conn, to: "/build" <> query)
     else
