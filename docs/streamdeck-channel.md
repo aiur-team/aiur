@@ -57,8 +57,8 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
-| `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build` and `build_status`. |
-| `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build` and `build_status`. |
+| `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
+| `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
 | `usage` | `{provider_family: meter}` | One entry per provider family; redacted provider-meter projection for the touch-strip usage segments. |
 | `decisions` | `{count}` | Updated decision summary. |
 | `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
@@ -71,7 +71,7 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 `unavailable` (queue model could not be read). `grid.build` is null unless
 status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
 identity, progress fields and `eta_seconds: null`. Unknown percent and completed
-counts stay null. Build changes share the channel’s 250 ms fleet coalescing.
+counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and are dimmed. Build changes share the channel’s 250 ms fleet coalescing.
 
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,

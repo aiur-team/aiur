@@ -63,14 +63,15 @@ const drawSummary = (context: SKRSContext2D, width: number, model: SegmentConten
 
   // Live count only, with its dot. The fleet total belongs to the pager panel,
   // which is where an operator looks to page through it.
-  const live = `${model.model.live}`;
+  const live = `${model.model.live ?? "—"}`;
   context.font = "700 18px sans-serif";
   const liveWidth = context.measureText(live).width;
   context.fillStyle = TEXT;
+  context.fillStyle = model.model.counts_status === "stale" ? MUTED : TEXT;
   context.fillText(live, width - PAD - liveWidth, TITLE_BASELINE);
   context.beginPath();
   context.arc(width - PAD - liveWidth - 11, TITLE_BASELINE - 6, 4.5, 0, Math.PI * 2);
-  context.fillStyle = ACCENT_LIVE;
+  context.fillStyle = model.model.live === null || model.model.counts_status === "stale" ? MUTED : ACCENT_LIVE;
   context.fill();
 
   const build = model.model.build;
@@ -263,9 +264,10 @@ const drawProviders = (context: SKRSContext2D, width: number, content: SegmentCo
  * and the dots sit on the shared bar line.
  */
 const drawPager = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "pager" }): void => {
-  context.font = TITLE_FONT;
-  context.fillStyle = TEXT;
-  context.fillText(content.label, (width - context.measureText(content.label).width) / 2, TITLE_BASELINE);
+  context.font = "700 12px sans-serif";
+  context.fillStyle = content.stale ? MUTED : TEXT;
+  const label = fit(context, content.label, width - PAD * 2);
+  context.fillText(label, (width - context.measureText(label).width) / 2, TITLE_BASELINE);
 
   const dots = content.model.dots;
   const spacing = 16;

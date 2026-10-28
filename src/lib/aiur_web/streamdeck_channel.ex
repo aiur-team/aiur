@@ -35,6 +35,7 @@ defmodule AiurWeb.StreamdeckChannel do
     :ok = Commands.subscribe()
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
+    :ok = Aiur.BuildOrder.Index.subscribe()
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     send(self(), :streamdeck_snapshot)
@@ -250,7 +251,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({FinancialDataAccess, :configuration_changed, _generation}, socket), do: {:stop, :normal, socket}
 
-  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed], do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed, :build_changes], do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
 
   def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)

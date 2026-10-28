@@ -108,10 +108,11 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
   end
 
   test "renders summary build space and pager dots inside touch-strip segments" do
+    EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:error, :offline} end)
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ ~s(src="/aiur-logo.png")
-    assert html =~ ~r/<b>1<\/b> live · <b>16<\/b> left/
+    assert html =~ ~r/<b>—<\/b> live · <b>—<\/b> left/
     assert html =~ "Build"
     assert html =~ "MORE AGENTS"
     assert length(Regex.scan(~r/data-pager-page=/, html)) == 3
