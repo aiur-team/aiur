@@ -66,7 +66,7 @@ show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
 the selector, effective-mode reason, oldest unread age and observation age.
 
 The conversation header selector offers **Steer · interrupts**,
-**Sync · next turn**, or **Async · on demand**. A different effective mode is
+**Sync · next turn**, **Async · pings only**, or **Mute · silent**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
