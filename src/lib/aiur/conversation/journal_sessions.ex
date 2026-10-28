@@ -36,7 +36,7 @@ defmodule Aiur.Conversation.JournalSessions do
         entry
       end)
 
-    if entries != [], do: Phoenix.PubSub.broadcast(Aiur.PubSub, "conversation:" <> state.id, {:entries_appended, state.id, entries})
+    if entries != [], do: Phoenix.PubSub.broadcast(state.pubsub, "conversation:" <> state.id, {:entries_appended, state.id, entries})
     offset = if state.segment_state, do: state.segment_state["sessions_bytes"], else: 0
 
     bytes
@@ -45,7 +45,7 @@ defmodule Aiur.Conversation.JournalSessions do
     |> Enum.each(fn line ->
       {:ok, session} = Session.from_json(line)
       session = if session.end_reason && state.open_session, do: %{state.open_session | ended_at: session.ended_at, end_reason: session.end_reason, last_pos: session.last_pos}, else: session
-      Phoenix.PubSub.broadcast(Aiur.PubSub, "conversation:" <> state.id, {:session_changed, state.id, session})
+      Phoenix.PubSub.broadcast(state.pubsub, "conversation:" <> state.id, {:session_changed, state.id, session})
     end)
   end
 
@@ -106,7 +106,7 @@ defmodule Aiur.Conversation.JournalSessions do
       {:ok, state}
     else
       with {:ok, state, ended} <- close(state, "daemon_restart_unknown") do
-        Phoenix.PubSub.broadcast(Aiur.PubSub, "conversation:" <> state.id, {:session_changed, state.id, ended})
+        Phoenix.PubSub.broadcast(state.pubsub, "conversation:" <> state.id, {:session_changed, state.id, ended})
         {:ok, %{state | resume: true}}
       end
     end

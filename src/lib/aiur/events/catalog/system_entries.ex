@@ -32,6 +32,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.config.operator_relay.enabled", "config"},
     # aiur/workflow_store/reload_rejection.ex
     {"system.config.reload_rejected", "config"},
+    # aiur/conversation/journal.ex
+    {"system.conversation.journal.degraded", "conversations"},
+    # aiur/conversation/journal.ex
+    {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
     # aiur/commands/request_attributes.ex

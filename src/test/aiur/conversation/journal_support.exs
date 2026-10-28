@@ -91,11 +91,13 @@ defmodule Aiur.Conversation.TestSupport do
     Agent.update(control, &Map.put(&1, :owner, owner))
     Application.put_env(:aiur, :conversation_state_dir, root)
     Application.put_env(:aiur, :conversation_test_control, control)
+    {pubsub, _topic} = Aiur.TestSupport.Isolation.start_pubsub!(context)
     now = DateTime.utc_now()
     Agent.update(control, &Map.put(&1, :now, now))
 
     Application.put_env(:aiur, :conversation_journal,
       store: StoreDouble,
+      pubsub: pubsub,
       alerts: Alerts,
       run_id: "run-one",
       clock: fn -> Agent.get(control, & &1.now) end,
@@ -114,7 +116,7 @@ defmodule Aiur.Conversation.TestSupport do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    Map.merge(context, %{root: root, ref: ref, now: now, control: control, dir: Path.join(root, Ref.conversation_id(ref))})
+    Map.merge(context, %{root: root, ref: ref, now: now, control: control, pubsub: pubsub, dir: Path.join(root, Ref.conversation_id(ref))})
   end
 
   defp restore_env({key, {:ok, value}}), do: Application.put_env(:aiur, key, value)

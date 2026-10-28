@@ -124,9 +124,10 @@ defmodule Aiur.Conversation.JournalTest do
     assert Ingest.dropped_count(ref) == 2
   end
 
-  test "session notifications and surviving entries publish after uncertain writes recover", %{ref: ref, dir: dir, control: control} do
+  test "session notifications and surviving entries publish after uncertain writes recover", %{ref: ref, dir: dir, control: control, pubsub: pubsub} do
     id = Ref.conversation_id(ref)
-    Phoenix.PubSub.subscribe(Aiur.PubSub, "conversation:" <> id)
+    topic = "conversation:" <> id
+    Phoenix.PubSub.subscribe(pubsub, topic)
     actions(control, :append, [:ambiguous])
     Ingest.append(ref, source(), [event(1)])
     assert {:error, :degraded} = flush(ref)
@@ -140,13 +141,14 @@ defmodule Aiur.Conversation.JournalTest do
     assert Enum.count(rows(dir), &(&1["body"] == "message 1")) == 1
   end
 
-  test "recovery does not repeat a previously acknowledged session closure", %{ref: ref, control: control} do
+  test "recovery does not repeat a previously acknowledged session closure", %{ref: ref, control: control, pubsub: pubsub} do
     Ingest.append(ref, source(), [event(1)])
     assert :ok = flush(ref)
     Ingest.end_session(ref, "session-one", :completed)
     assert :ok = flush(ref)
     id = Ref.conversation_id(ref)
-    Phoenix.PubSub.subscribe(Aiur.PubSub, "conversation:" <> id)
+    topic = "conversation:" <> id
+    Phoenix.PubSub.subscribe(pubsub, topic)
     actions(control, :append, [{:error, :enospc}])
     Ingest.append(ref, source("two"), [event(2)])
     assert {:error, :degraded} = flush(ref)

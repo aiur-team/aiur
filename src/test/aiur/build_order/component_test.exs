@@ -30,8 +30,6 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Opencode.ActiveTurns,
     {Aiur.PubSub.Boot, [name: Aiur.PubSub]},
     Aiur.AgentPubSub.FleetRefresh,
-    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
-    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     {Registry, [keys: :unique, name: Aiur.IssueLog.Registry]},
     {Registry, [keys: :unique, name: Aiur.Opencode.PaneRegistry]},
     {Registry, [keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry]},
@@ -200,7 +198,14 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    expected = @foreground ++ [Aiur.BuildOrder.History.LabelBackfill]
+    expected =
+      @foreground ++
+        [
+          Aiur.BuildOrder.History.LabelBackfill,
+          {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
+          {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]}
+        ]
+
     assert Aiur.Application.child_specs(@opts) == expected
 
     without_dashboard =

@@ -19,9 +19,10 @@ defmodule Aiur.Conversation.IngestTest do
     assert Enum.map(rows(dir), & &1["body"]) == ["message 1", "message 2"]
   end
 
-  test "entries and session changes broadcast only after the entry fsync completes", %{ref: ref, control: control} do
+  test "entries and session changes broadcast only after the entry fsync completes", %{ref: ref, control: control, pubsub: pubsub} do
     id = Ref.conversation_id(ref)
-    Phoenix.PubSub.subscribe(Aiur.PubSub, "conversation:" <> id)
+    topic = "conversation:" <> id
+    Phoenix.PubSub.subscribe(pubsub, topic)
     actions(control, :append, [:blocked])
     Ingest.append(ref, source(), [event(1)])
     task = Task.async(fn -> flush(ref) end)

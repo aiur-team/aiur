@@ -39,7 +39,8 @@ defmodule Aiur.Conversation.Journal do
       send_after: Keyword.get(opts, :send_after, &Process.send_after/3),
       run_id: Keyword.get_lazy(opts, :run_id, &Aiur.Boot.run_id/0),
       store: Keyword.get(opts, :store, Aiur.Conversation.Store),
-      alerts: Keyword.get(opts, :alerts, Aiur.Alerts)
+      alerts: Keyword.get(opts, :alerts, Aiur.Alerts),
+      pubsub: Keyword.get(opts, :pubsub, Aiur.PubSub)
     }
 
     {:ok, state, {:continue, :load}}
@@ -288,8 +289,8 @@ defmodule Aiur.Conversation.Journal do
 
   defp publish(state, entries, sessions) do
     topic = "conversation:" <> state.id
-    if entries != [], do: Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:entries_appended, state.id, entries})
-    for session <- sessions, do: Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:session_changed, state.id, session})
+    if entries != [], do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:entries_appended, state.id, entries})
+    for session <- sessions, do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:session_changed, state.id, session})
   end
 
   defp span_inputs(previous, inputs, now) do

@@ -110,8 +110,6 @@ defmodule Aiur.Application.Children do
       # and takes this whole supervisor down with it (#2557).
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
       Aiur.AgentPubSub.FleetRefresh,
-      {Registry, keys: :unique, name: Aiur.Conversation.Registry},
-      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
@@ -320,7 +318,11 @@ defmodule Aiur.Application.Children do
         [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
-        BuildOrders.child_specs(:label_backfill, opts)
+        BuildOrders.child_specs(:label_backfill, opts) ++
+        [
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor}
+        ]
     )
   end
 
