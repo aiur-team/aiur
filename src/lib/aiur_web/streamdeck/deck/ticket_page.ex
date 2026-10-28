@@ -4,10 +4,10 @@ defmodule AiurWeb.Streamdeck.Deck.TicketPage do
   alias AiurWeb.Build.{DataSource, Payload, Read, TicketControl}
   alias AiurWeb.EndpointConfig
 
-  @spec subscribe() :: :ok
-  def subscribe do
+  @spec subscribe(pid()) :: :ok
+  def subscribe(owner) do
     # Activate the shared index even when there is no open desktop Build page.
-    DataSource.call(source(), :subscribe, [[financial: :locked]])
+    DataSource.call(source(), :subscribe, [[subscriber: owner, index_subscribe: fn -> :ok end, financial: :locked]])
     :ok
   catch
     :exit, _ -> :ok
@@ -18,6 +18,13 @@ defmodule AiurWeb.Streamdeck.Deck.TicketPage do
     source = Keyword.get(opts, :build_source, source())
     row = read_row(source, :ticket, id, opts)
     unit = read_row(source, :unit_row, id, opts)
+    envelope(id, row, unit, opts)
+  end
+
+  @spec unavailable(String.t()) :: map()
+  def unavailable(id), do: envelope(id, nil, nil, [])
+
+  defp envelope(id, row, unit, opts) do
     control = TicketControl.encode(unit, nil, EndpointConfig.get(:dashboard_writable) == true).control
     agent = if row && row[:agent], do: Map.merge(row.agent, %{pct: row[:pct], start: row[:start]})
 
@@ -36,10 +43,6 @@ defmodule AiurWeb.Streamdeck.Deck.TicketPage do
     }
     |> Payload.scrub()
   end
-
-  @spec push_focused(Phoenix.Socket.t()) :: :ok
-  def push_focused(%{assigns: %{focused_agent: id}} = socket) when is_binary(id), do: Phoenix.Channel.push(socket, "ticket", read(id))
-  def push_focused(_socket), do: :ok
 
   defp read_row(source, function, id, opts) do
     case Read.safe_read(fn -> DataSource.call(source, function, [id, opts]) end) do

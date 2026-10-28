@@ -6,9 +6,10 @@ defmodule AiurWeb.StreamdeckChannel do
   import AiurWeb.StreamdeckChannel.Voice
 
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.Streamdeck.Deck.TicketPage
+  alias AiurWeb.Streamdeck.Deck.TicketUpdates
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -41,7 +42,7 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
+    {:ok, assign(socket, focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch, ticket_task: nil, ticket_pending: false)}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
@@ -253,10 +254,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed], do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
 
-  def handle_info({:build_changes, _changes}, socket) do
-    TicketPage.push_focused(socket)
-    {:noreply, socket}
-  end
+  def handle_info({:build_changes, _changes}, socket), do: {:noreply, TicketUpdates.refresh(socket)}
 
   def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
@@ -268,8 +266,8 @@ defmodule AiurWeb.StreamdeckChannel do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
     socket = assign(socket, transcript_relay: relay)
-    :ok = TicketPage.subscribe()
-    TicketPage.push_focused(socket)
+    :ok = BuildIndex.subscribe()
+    socket = TicketUpdates.refresh(socket)
     push(socket, "logs", logs_projection(identifier))
     push(socket, "commands", commands_projection(identifier))
     {:noreply, socket}
@@ -343,10 +341,14 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, assign(socket, :voice_session, nil)}
   end
 
+  def handle_info({ref, dto}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.complete(socket, dto)}
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.failed(socket)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def terminate(_reason, socket) do
+    TicketUpdates.stop(socket)
     socket |> assigns() |> Map.get(:transcript_relay) |> stop_child()
     socket |> assigns() |> Map.get(:voice_session) |> voice_pid() |> stop_child()
     :ok
