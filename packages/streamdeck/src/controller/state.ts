@@ -226,8 +226,10 @@ export interface ControllerState {
 }
 
 export interface PhysicalControllerOptions {
+  spawn?: import("../line-source.js").SpawnLike;
+  openError?(reason: string): void;
   grid(): StreamDeckGrid;
-  channel(): Pick<StreamDeckChannel, "focus" | "control" | "say" | "commandsPage" | "answerCommand"> | null;
+  channel(): (Pick<StreamDeckChannel, "focus" | "control" | "say" | "commandsPage" | "answerCommand"> & Partial<Pick<StreamDeckChannel, "priority">>) | null;
   /** The voice stack, or null on a host with no audio. */
   voice?(): ControllerVoice | null;
   /**

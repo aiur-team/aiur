@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckLive.Components do
 
   use Phoenix.Component
 
-  import AiurWeb.StreamdeckLive.CommandKeys, only: [command_keys: 2, commands_history_keys: 2, commands_option_keys: 2]
+  import AiurWeb.StreamdeckLive.CommandKeys, only: [command_keys: 2, ticket_keys: 2, commands_history_keys: 2, commands_option_keys: 2]
 
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
   alias AiurWeb.{StreamdeckKeyFaceContract, StreamdeckLogs}
@@ -120,15 +120,22 @@ defmodule AiurWeb.StreamdeckLive.Components do
     """
   end
 
+  attr(:ticket, :any, required: true)
   attr(:sd_active, :any, required: true)
   attr(:mic_held?, :boolean, required: true)
   attr(:selected_identifier, :any, required: true)
   @spec cmd_keys(map()) :: Phoenix.LiveView.Rendered.t()
   def cmd_keys(assigns) do
+    ticket = assigns.ticket
+    assigns = assign(assigns, :ticket_keys, if(ticket, do: ticket_keys(ticket, assigns.mic_held?), else: command_keys(nil, false)))
+
     ~H"""
           <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
-            <li :for={key <- command_keys(@sd_active, @mic_held?)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty", !key.empty? && key.disabled? && "is-disabled"]} aria-hidden={to_string(key.empty?)}>
-              <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-command-state={key.state} data-command-hold={key.mic? && "true"} data-streamdeck-identifier={@selected_identifier} disabled={key.disabled?} aria-disabled={to_string(key.disabled?)} aria-label={key.label}>
+            <li :for={key <- @ticket_keys} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty", !key.empty? && key.disabled? && "is-disabled"]} aria-hidden={to_string(key.empty?)}>
+              <a :if={!key.empty? && Map.get(key, :url)} class="sd-key-face" href={key.url} target="_blank" rel="noopener noreferrer" aria-label={key.label}>
+                <span class="sd-cmd"><span class="sd-cmd-label">{key.label}</span><span class="sd-cmd-sub">{key.sub}</span></span>
+              </a>
+              <button :if={!key.empty? && !Map.get(key, :url)} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-command-state={key.state} data-command-hold={key.mic? && "true"} data-streamdeck-identifier={@selected_identifier} disabled={key.disabled?} aria-disabled={to_string(key.disabled?)} aria-label={key.label}>
                 <span class="sd-cmd">
                   <span class="sd-cmd-ic" aria-hidden="true">
                     <svg :if={key.icon == "pause"} data-streamdeck-icon="pause" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/></svg>

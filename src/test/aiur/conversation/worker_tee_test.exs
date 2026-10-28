@@ -25,8 +25,9 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     handler.(item("commandExecution", "cmd-two", %{command: "pwd", aggregatedOutput: "/work", exitCode: 0}, c.now))
     handler.(item("dynamicToolCall", "tool-one", %{tool: "read", arguments: "{}", success: true}, c.now))
     assert :ok = flush(c.ref)
-    entries = rows(c.dir)
-    assert Enum.map(entries, &{&1["pos"], &1["kind"]}) == [{1, "message"}, {2, "command"}, {3, "command"}, {4, "tool_result"}]
+    [gap | entries] = rows(c.dir)
+    assert gap["meta"]["reason"] == "pre_journal"
+    assert Enum.map(entries, &{&1["pos"], &1["kind"]}) == [{2, "message"}, {3, "command"}, {4, "command"}, {5, "tool_result"}]
     assert Enum.map(entries, & &1["refs"]["provider_item_id"]) == ["answer", "cmd-one", "cmd-two", "tool-one"]
     assert List.last(entries)["refs"]["tool_call_id"] == "tool-one"
     assert [start] = sessions(c.dir)
@@ -41,7 +42,7 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     assert Registry.lookup(Aiur.Conversation.Registry, Ref.conversation_id(c.ref)) == []
     handler.(item("agentMessage", "answer", %{text: "complete"}, c.now))
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["complete"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "complete"]
   end
 
   test "remote worker writes durable records without a workspace event log", c do
@@ -50,14 +51,14 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     handler = MessageHandler.build(nil, c.issue, workspace, "ssh-worker", "codex", nil, c.opts)
     handler.(item("agentMessage", "answer", %{text: "remote"}, c.now))
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["remote"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "remote"]
     refute File.exists?(Path.join(workspace, "logs/agent.ndjson"))
     {:ok, writer} = Ingest.writer(c.ref)
     DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, writer)
     Aiur.TestCleanup.rm_rf!(workspace)
     {:ok, restarted} = Ingest.writer(c.ref)
     :sys.get_state(restarted)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["remote"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "remote"]
   end
 
   test "display authority skips hook skeletons and journals live plus backfill once", c do
@@ -70,7 +71,7 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     display.(%{source_session_id: "display-session", projection_ingress: :display_backfill, transcript_event: event})
     display.(%{source_session_id: "display-session", projection_ingress: :display_backfill, transcript_event: %{event | msg_id: "uuid-old", body: "older answer"}})
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["display answer", "older answer"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "display answer", "older answer"]
     assert [start] = sessions(c.dir)
     assert {start["harness"], start["provider_session_id"]} == {"claude", "display-session"}
   end
@@ -86,13 +87,13 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     display.(%{source_session_id: "display-session", projection_ingress: :display_backfill, transcript_event: event})
     display.(%{source_session_id: "display-session", transcript_event: %{event | msg_id: "uuid-new", body: "new"}})
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["old", "new"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "old", "new"]
     assert :ok = MessageHandler.finish_live_conversation(c.issue, "claude", :ok, Keyword.put(c.opts, :session_id, "display-session"))
     assert :ok = flush(c.ref)
     display.(%{source_session_id: "display-session", projection_ingress: :display_backfill, transcript_event: event})
     display.(%{source_session_id: "display-session", transcript_event: %{event | msg_id: "uuid-last", body: "last"}})
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["old", "new", "last"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "old", "new", "last"]
   end
 
   test "provider file replay rebuilds its cache after an ambiguous write", c do
@@ -120,7 +121,7 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     assert :ok = MessageHandler.observe_operator_delivery(c.issue, item, "codex", c.opts)
     assert :ok = MessageHandler.observe_operator_delivery(c.issue, %{item | id: 43, body: %{text: ""}}, "codex", c.opts)
     assert :ok = flush(c.ref)
-    assert [entry] = rows(c.dir)
+    assert [%{"kind" => "gap"}, entry] = rows(c.dir)
     assert {entry["kind"], entry["body"], entry["refs"]["delivery_id"]} == {"operator_message", "continue", "42"}
   end
 
@@ -132,7 +133,7 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     assert :ok = Task.await(task, 2000)
     send(writer, :release_store)
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["hello"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "hello"]
   end
 
   for {result, reason} <- [{{:error, :provider_failed}, "crashed"}, {:ok, "stopped"}] do
@@ -142,7 +143,7 @@ defmodule Aiur.Conversation.WorkerTeeTest do
       assert :ok = flush(c.ref)
       assert [start, ending] = sessions(c.dir)
       assert start["type"] == "start"
-      assert {ending["type"], ending["end_reason"], ending["last_pos"]} == {"end", unquote(reason), 1}
+      assert {ending["type"], ending["end_reason"], ending["last_pos"]} == {"end", unquote(reason), 2}
     end
   end
 
@@ -151,19 +152,19 @@ defmodule Aiur.Conversation.WorkerTeeTest do
     assert Registry.lookup(Aiur.Conversation.Registry, Ref.conversation_id(c.ref)) == []
     handler(c).(%{event: :agent_message, body: "enabled"})
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["enabled"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "enabled"]
   end
 
   test "worker closure survives an unavailable journal supervisor", c do
     handler(c).(%{event: :agent_message, body: "before shutdown"})
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["before shutdown"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "before shutdown"]
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Conversation.JournalSupervisor)
     on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Aiur.Conversation.JournalSupervisor) end)
     # Future regression guard: Ingest already isolates missing-supervisor exits.
     assert :ok = handler(c).(%{event: :agent_message, body: "unavailable"})
     assert :ok = MessageHandler.finish_live_conversation(c.issue, "codex", :ok, c.opts)
-    assert Enum.map(rows(c.dir), & &1["body"]) == ["before shutdown"]
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "before shutdown"]
   end
 
   defp handler(c, opts \\ nil), do: MessageHandler.build(nil, c.issue, nil, nil, "codex", "turn-one", opts || c.opts)
