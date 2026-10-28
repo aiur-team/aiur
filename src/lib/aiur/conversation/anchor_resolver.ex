@@ -2,7 +2,7 @@ defmodule Aiur.Conversation.AnchorResolver do
   @moduledoc "Live bus subscriber resolving durable conversation jump points; pending exacts are intentionally volatile."
   use GenServer
   alias Aiur.Conversation.{Anchors, History, Ingest, JumpPoints, Ref, ResolverState}
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
 
   @patterns ["ticket.*.agent.#", "ticket.*.pr.#", "ticket.*.ci.#", "ticket.*.branch.push", "ticket.*.issue.commented", "executor.#"]
 
@@ -21,8 +21,8 @@ defmodule Aiur.Conversation.AnchorResolver do
 
   @impl true
   def init(opts) do
-    exchange = Keyword.get(opts, :exchange, Exchange)
-    Enum.each(@patterns, &Exchange.subscribe(&1, exchange))
+    exchange = Keyword.get(opts, :exchange, Events.exchange_server())
+    Enum.each(@patterns, &Events.subscribe(&1, exchange))
     {root, cursor, decisions} = ResolverState.load()
     journal_opts = Application.get_env(:aiur, :conversation_journal, [])
     timer = Keyword.get(opts, :send_after, &Process.send_after/3)
