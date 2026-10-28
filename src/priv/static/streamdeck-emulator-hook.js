@@ -143,7 +143,7 @@
       if (!keys || !knob) return null;
       var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
       if (!Number.isFinite(value)) return null;
-      knob._setLogicalValue(value);
+      if (!knob.isDragging) knob._setLogicalValue(value);
       return value;
     },
 

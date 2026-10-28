@@ -329,6 +329,50 @@ test('an acknowledged grid cycle cannot overwrite a later server page patch', as
   await expect(dialD).toHaveAttribute('aria-valuenow', '0')
 })
 
+test('a patch during dial D drag preserves the full release travel', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'input') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+
+  await anchor(dialD)
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  const point = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: cx + Math.cos(radians) * 30, y: cy + Math.sin(radians) * 30 }
+  }
+
+  await page.mouse.move(...Object.values(point(-90)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(point(-45)))
+  const valueBeforePatch = await dialD.getAttribute('aria-valuenow')
+
+  await page.evaluate(() => {
+    window.liveSocket.main
+      .getHook(document.querySelector('#streamdeck-page'))
+      .pushEvent('grid-page', { value: 0 })
+  })
+  await expect.poll(() => page.locator('#sd-keys').getAttribute('data-grid-dial-value')).toBe('0')
+  await expect(dialD).toHaveAttribute('aria-valuenow', valueBeforePatch)
+
+  await page.mouse.move(...Object.values(point(45)))
+  await page.mouse.up()
+
+  const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
+  expect(releaseEvents).toHaveLength(1)
+  expect(releaseEvents[0].payload).toMatchObject({ kind: 'dial', index: 3, action: 'turn', delta: 1 })
+})
+
 test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
   await openStreamdeck(page)
 
