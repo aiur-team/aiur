@@ -111,6 +111,7 @@ defmodule Aiur.Orchestrator.State do
           dispatch_capacity_constraints: [map()],
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
+          feature_supply: map(),
           dispatch_capacity_sample: %{
             optional(
               :cpu_pressure
@@ -302,6 +303,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_constraints: [],
     dispatch_selection_hold: nil,
     dispatch_declines: %{},
+    feature_supply: %{},
     dispatch_capacity_sample: %{
       load: :unavailable,
       load_threshold: nil,
