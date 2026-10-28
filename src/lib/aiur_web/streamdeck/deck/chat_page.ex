@@ -28,27 +28,36 @@ defmodule AiurWeb.Streamdeck.Deck.ChatPage do
   @spec retain(ChatOwner.socket(), map(), :tail | :reset | :older) :: ChatOwner.socket()
   def retain(socket, view, direction) do
     state = socket.assigns.deck_chat
-    incoming = Enum.map(view.entries, &Chat.mask_entry/1)
+    entries = merge_entries(state.entries, Enum.map(view.entries, &Chat.mask_entry/1), direction)
+    {before, more} = cursor(state, view, direction, length(entries))
+    state = Map.merge(state, %{entries: entries, before: before, more: more})
+    nav = socket.assigns.deck_nav
+    chat = projection(nav.chat, view, entries, before, more, direction)
+    surface = if is_nil(nav.chat), do: :chat, else: nav.surface
+    ChatOwner.assign(socket, deck_chat: state, deck_nav: %{nav | chat: chat, surface: surface})
+  end
 
+  defp merge_entries(retained, incoming, direction) do
     entries =
       case direction do
         :reset -> incoming
-        :older -> incoming ++ state.entries
-        :tail -> state.entries ++ incoming
+        :older -> incoming ++ retained
+        :tail -> retained ++ incoming
       end
 
-    entries = entries |> Enum.reverse() |> Enum.uniq_by(& &1.id) |> Enum.take(500) |> Enum.reverse()
-    before = if direction == :tail and state.entries != [], do: state[:before], else: view[:before]
-    # Once the cap drops the oldest entries, paging further would silently leave a gap.
-    more = length(entries) < 500 and if(direction == :tail and state.entries != [], do: state[:more] || false, else: view[:more?] || false)
-    state = Map.merge(state, %{entries: entries, before: before, more: more})
-    nav = socket.assigns.deck_nav
-    previous = nav.chat || %{selected: nil, offset: 0}
-    previous = if direction == :reset, do: %{previous | selected: nil, offset: 0}, else: previous
+    entries |> Enum.reverse() |> Enum.uniq_by(& &1.id) |> Enum.take(500) |> Enum.reverse()
+  end
+
+  defp cursor(state, _view, :tail, count) when state.entries != [], do: {state[:before], count < 500 and (state[:more] || false)}
+  # At the cap, stop before dropping an unseen middle page.
+  defp cursor(_state, view, _direction, count), do: {view[:before], count < 500 and (view[:more?] || false)}
+
+  defp projection(previous, view, entries, before, more, direction) do
+    previous = if direction == :reset, do: nil, else: previous
+    previous = previous || %{selected: nil, offset: 0}
     turns = Turns.group(entries)
     selected = if Enum.any?(turns, &(&1.id == previous.selected)), do: previous.selected
-    chat = %{state: view[:state], latest: List.last(entries), turns: turns, before: before, more: more, selected: selected, offset: min(previous.offset, max(div(length(turns) - 1, 7), 0))}
-    ChatOwner.assign(socket, deck_chat: state, deck_nav: %{nav | chat: chat, surface: if(is_nil(nav.chat), do: :chat, else: nav.surface)})
+    %{state: view[:state], latest: List.last(entries), turns: turns, before: before, more: more, selected: selected, offset: min(previous.offset, max(div(length(turns) - 1, 7), 0))}
   end
 
   defp failed(socket) do

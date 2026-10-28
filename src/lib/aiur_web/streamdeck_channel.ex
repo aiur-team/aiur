@@ -12,6 +12,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias AiurWeb.Streamdeck.Deck.{Chat, ChatPage, Nav, PriorityInput, Signals, TicketUpdates}
 
   alias AiurWeb.Streamdeck.{FrameUpdates, UsageUpdates}
+  alias AiurWeb.Build.Payload
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -71,7 +72,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_in("chat_page", %{"before" => before}, socket) do
     {page, socket} = ChatPage.page(socket, before)
     {:noreply, socket} = AiurWeb.StreamdeckFleetUpdates.schedule(socket)
-    {:reply, {if(page[:reason], do: :error, else: :ok), AiurWeb.Build.Payload.scrub(page)}, socket}
+    {:reply, {if(page[:reason], do: :error, else: :ok), Payload.scrub(page)}, socket}
   end
 
   def handle_in("chat_page", _, socket), do: {:reply, {:error, %{reason: "invalid_chat_page"}}, socket}

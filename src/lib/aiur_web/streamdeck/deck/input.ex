@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.Input do
   @moduledoc "Resolve raw keys against ordered Deck sections before reducing navigation."
 
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, Nav}
 
   @doc "Sections map each view to ordered `%{id: id, tickets: [...]}` items (tickets need only `id`)."
   @spec reduce(Nav.t(), map(), map()) :: {Nav.t(), [Nav.effect()]} | {:error, map()}
@@ -14,7 +14,7 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
         {%{nav | chat: nil, surface: :grid}, []}
 
       _ ->
-        AiurWeb.Streamdeck.Deck.ChatNavigation.reduce(nav, input)
+        ChatNavigation.reduce(nav, input)
     end
   end
 

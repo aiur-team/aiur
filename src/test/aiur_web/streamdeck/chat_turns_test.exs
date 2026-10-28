@@ -1,6 +1,7 @@
 defmodule AiurWeb.Streamdeck.ChatTurnsTest do
   use ExUnit.Case, async: true
   alias AiurWeb.Streamdeck.Deck.{ChatNavigation, ChatPage, Nav, Turns}
+  alias AiurWeb.Streamdeck.Render.Chat
 
   defmodule Source do
     def prepare(ref, _opts), do: {:ok, ref}
@@ -138,7 +139,7 @@ defmodule AiurWeb.Streamdeck.ChatTurnsTest do
     lines = Enum.map(1..12, fn n -> "line#{n}" <> String.duplicate("x", 86) end)
     latest = %{entry("say", 1) | text: Enum.join(lines, " ")}
     nav = %Nav{scroll: 999}
-    [strip] = AiurWeb.Streamdeck.Render.Chat.strip(%{state: :live, latest: latest}, 0, nav)
+    [strip] = Chat.strip(%{state: :live, latest: latest}, 0, nav)
     assert strip.label =~ "line12"
     refute strip.label =~ "line1x"
     assert strip.svg =~ "line12"
@@ -152,7 +153,7 @@ defmodule AiurWeb.Streamdeck.ChatTurnsTest do
     {reply, socket} = ChatPage.page(socket, before)
     assert reply == %{reason: "unavailable"}
     assert socket.assigns.deck_chat_view["state"] == "unavailable"
-    [strip] = AiurWeb.Streamdeck.Render.Chat.strip(socket.assigns.deck_chat_view, 0)
+    [strip] = Chat.strip(socket.assigns.deck_chat_view, 0)
     assert strip.label == "Conversation unavailable ● entry 7"
     assert socket.assigns.deck_nav.chat.offset == 0
     assert Enum.map(ChatNavigation.visible(socket.assigns.deck_nav.chat), & &1.id) == Enum.map(1..7, &"t:e#{&1}")

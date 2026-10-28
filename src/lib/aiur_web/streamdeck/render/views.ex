@@ -1,5 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
+  alias AiurWeb.Streamdeck.Deck.ChatNavigation
   alias AiurWeb.Streamdeck.Render.{Fleet, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
@@ -18,7 +19,7 @@ defmodule AiurWeb.Streamdeck.Render.Views do
 
   @spec compose(map()) :: {[map() | nil], [map()]}
   def compose(%{nav: %{chat: chat, surface: :chat}} = model) when is_map(chat) do
-    turns = AiurWeb.Streamdeck.Deck.ChatNavigation.visible(chat)
+    turns = ChatNavigation.visible(chat)
 
     faces =
       Enum.map(turns, fn turn ->
