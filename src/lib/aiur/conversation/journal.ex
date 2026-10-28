@@ -301,6 +301,8 @@ defmodule Aiur.Conversation.Journal do
   end
 
   defp alert(state, name, attention, class) do
+    HeadTable.degraded(state.id, attention)
+    Phoenix.PubSub.broadcast(state.pubsub, "conversation:" <> state.id, {:journal_degraded, state.id, attention})
     state.alerts.emit_system(name, message: "Conversation #{state.id}: #{class}", needs_attention: attention)
   end
 

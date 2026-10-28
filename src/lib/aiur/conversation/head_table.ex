@@ -19,6 +19,15 @@ defmodule Aiur.Conversation.HeadTable do
     :ok
   end
 
+  @spec degraded?(String.t()) :: boolean()
+  def degraded?(id), do: :ets.member(@table, {:degraded, id})
+
+  @spec degraded(String.t(), boolean()) :: :ok
+  def degraded(id, value) do
+    if value, do: :ets.insert(@table, {{:degraded, id}, true}), else: :ets.delete(@table, {:degraded, id})
+    :ok
+  end
+
   @spec get(String.t(), Path.t()) :: {:ok, map()} | :missing
   def get(id, dir) do
     case :ets.lookup(@table, {dir, id}) do

@@ -54,6 +54,10 @@ defmodule Aiur.Conversation.History do
     end
   end
 
+  @doc "Whether the journal has reported an unresolved write failure in this daemon."
+  @spec degraded?(String.t()) :: boolean()
+  def degraded?(id), do: Aiur.Conversation.HeadTable.degraded?(id)
+
   @doc "Catch up at most 5,000 positions to a fixed head in one pass. Page with after: when the span is too large."
   @spec catch_up(Ref.t() | String.t(), non_neg_integer(), keyword()) :: {:ok, [map()], non_neg_integer()} | {:error, :catch_up_too_far, non_neg_integer()} | {:error, atom()}
   def catch_up(ref, last_pos, opts \\ []) do
