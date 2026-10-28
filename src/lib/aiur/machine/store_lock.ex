@@ -17,7 +17,7 @@ defmodule Aiur.Machine.StoreLock do
       fun.()
     else
       deadline = System.monotonic_time(:millisecond) + Keyword.get(opts, :timeout, 5_000)
-      serialized(path, deadline, fn -> run_locked(path, fun, opts, deadline) end)
+      serialized(path, deadline, fn -> run_locked(path, fun, opts, deadline) end, opts)
     end
   end
 
@@ -36,7 +36,7 @@ defmodule Aiur.Machine.StoreLock do
   defp options(timeout) when is_integer(timeout) and timeout >= 0, do: [timeout: timeout]
   defp options(opts) when is_list(opts), do: opts
 
-  defp serialized(path, deadline, fun) do
+  defp serialized(path, deadline, fun, opts \\ []) do
     id = {{__MODULE__, path}, self()}
 
     if :global.set_lock(id, [node()], 0) do
@@ -46,7 +46,7 @@ defmodule Aiur.Machine.StoreLock do
         :global.del_lock(id, [node()])
       end
     else
-      retry(path, deadline, fn -> serialized(path, deadline, fun) end)
+      retry(path, deadline, fn -> serialized(path, deadline, fun, opts) end, opts)
     end
   end
 
@@ -103,16 +103,22 @@ defmodule Aiur.Machine.StoreLock do
   end
 
   defp contend(path, opts, deadline) do
-    reclaim(path, opts)
-    retry(path, deadline, fn -> acquire(path, opts, deadline) end)
+    # A local gateway releases through this mutex too; never wait while holding it.
+    if File.read(Path.join(path, "owner")) == {:ok, System.pid() <> " gateway"} do
+      {:error, :store_locked, "gateway"}
+    else
+      reclaim(path, opts)
+      retry(path, deadline, fn -> acquire(path, opts, deadline) end, opts)
+    end
   end
 
-  defp retry(path, deadline, fun) do
+  defp retry(path, deadline, fun, opts) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     if remaining <= 0 do
       {:error, :store_locked, holder(path)}
     else
+      Keyword.get(opts, :on_wait, fn -> :ok end).()
       Process.sleep(min(50, remaining))
       fun.()
     end
@@ -142,7 +148,8 @@ defmodule Aiur.Machine.StoreLock do
       {:ok, owner} ->
         case String.split(owner) do
           [pid, role] when role in ["gateway", "cli"] ->
-            Regex.match?(~r/\A[1-9][0-9]*\z/, pid) and not Keyword.get(opts, :alive?, &alive?/1).(pid)
+            abandoned_local = pid == System.pid() and role == "cli" and not Process.get({__MODULE__, path}, false)
+            Regex.match?(~r/\A[1-9][0-9]*\z/, pid) and (abandoned_local or not Keyword.get(opts, :alive?, &alive?/1).(pid))
 
           _ ->
             false

@@ -1,6 +1,7 @@
 defmodule Aiur.Machine.StoreLockTest do
   use ExUnit.Case, async: false
   alias Aiur.Machine.Store
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   setup do
     dir = Path.join(System.tmp_dir!(), "lock-#{System.unique_integer([:positive])}")
@@ -32,9 +33,9 @@ defmodule Aiur.Machine.StoreLockTest do
         end)
       end)
 
-    assert_receive :holding, 1_000
-    second = Task.async(fn -> Store.with_lock(fn -> :second end) end)
-    assert Task.yield(second, 100) == nil
+    receive_barrier(:holding)
+    second = Task.async(fn -> Store.with_lock(fn -> :second end, on_wait: fn -> send(parent, :waiting) end) end)
+    receive_barrier(:waiting)
     send(first.pid, :release)
     assert Task.await(first) == :first
     assert Task.await(second) == :second
@@ -43,10 +44,10 @@ defmodule Aiur.Machine.StoreLockTest do
   test "a separate OS holder excludes writers and is reclaimed after exiting", %{lock: lock} do
     script = ~s(mkdir "$1" && printf '%s gateway' "$$" > "$1/owner" && printf ready && read reply)
     port = Port.open({:spawn_executable, System.find_executable("sh")}, [:binary, :exit_status, args: ["-c", script, "holder", lock]])
-    assert_receive {^port, {:data, "ready"}}, 2_000
+    receive_barrier({^port, {:data, "ready"}})
     assert Store.with_lock(fn -> flunk("entered external holder") end, timeout: 0) == {:error, :store_locked, "gateway"}
     Port.command(port, "done\n")
-    assert_receive {^port, {:exit_status, 0}}, 2_000
+    receive_barrier({^port, {:exit_status, 0}})
     assert Store.with_lock(fn -> :reclaimed end) == :reclaimed
   end
 
@@ -87,6 +88,23 @@ defmodule Aiur.Machine.StoreLockTest do
     File.write!(Path.join(lock, "owner"), "123 cli")
     assert Store.release_lock(handle) == {:error, :lock_lost}
     assert File.read!(Path.join(lock, "owner")) == "123 cli"
+  end
+
+  test "a killed local writer is reclaimed even while its OS process lives" do
+    parent = self()
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        Store.with_lock(fn ->
+          send(parent, :holding)
+          receive_barrier(:never)
+        end)
+      end)
+
+    receive_barrier(:holding)
+    Process.exit(pid, :kill)
+    receive_barrier({:DOWN, ^ref, :process, ^pid, :killed})
+    assert Store.with_lock(fn -> :reclaimed end) == :reclaimed
   end
 
   test "exceptions release the lock" do

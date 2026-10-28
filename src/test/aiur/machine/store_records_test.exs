@@ -1,6 +1,7 @@
 defmodule Aiur.Machine.StoreRecordsTest do
   use ExUnit.Case, async: false
   alias Aiur.Machine.Store
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   setup do
     dir = Path.join(System.tmp_dir!(), "records-#{System.unique_integer([:positive])}")
@@ -126,6 +127,48 @@ defmodule Aiur.Machine.StoreRecordsTest do
     assert File.read!(p.devices) == before
     refute File.exists?(Path.join(p.dir, "store.lock"))
     assert Store.put_device(device("new"), journal: fn -> {:error, :journal_failed} end) == {:error, :journal_failed}
+  end
+
+  test "concurrent consumes sharing a gateway handle have one winner" do
+    assert {:ok, handle} = Store.hold_lock()
+    assert :ok = Store.put_pairing_secret("gateway-race", 200, now: 100, lock: handle)
+    parent = self()
+
+    first =
+      Task.async(fn ->
+        Store.consume_pairing_secret("gateway-race", 100,
+          lock: handle,
+          journal: fn ->
+            send(parent, :before_rename)
+            receive_barrier(:release)
+            :ok
+          end
+        )
+      end)
+
+    receive_barrier(:before_rename)
+
+    second =
+      Task.async(fn ->
+        Store.consume_pairing_secret("gateway-race", 100,
+          lock: handle,
+          on_wait: fn -> send(parent, {:contender_state, :waiting}) end,
+          journal: fn ->
+            send(parent, {:contender_state, :entered})
+            :ok
+          end
+        )
+      end)
+
+    try do
+      receive_barrier({:contender_state, state})
+      assert state == :waiting
+    after
+      send(first.pid, :release)
+      assert Task.await(first) == :ok
+      assert Task.await(second) == {:error, :pair_secret_used}
+      assert :ok = Store.release_lock(handle)
+    end
   end
 
   test "nested writes reuse the lock and simultaneous consumes have one winner" do
