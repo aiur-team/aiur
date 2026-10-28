@@ -28,6 +28,33 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
   end
 
+  test "physical frame input opens shared masked chat and navigation releases it", %{workspace: workspace} do
+    token = "ghp_" <> String.duplicate("b", 36)
+    File.write!(Path.join(workspace, "logs/agent.ndjson"), line("physical #{token}"))
+    snapshot = %{running: [AgentEvents.agent_summary("7", :running, 0, %{title: "Frame chat"})], retrying: [], idle: []}
+
+    put_endpoint_config(
+      streamdeck_snapshot_fun: fn -> snapshot end,
+      streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(snapshot) end
+    )
+
+    socket = joined_socket()
+    assert_push("frame", _initial, 2_000)
+    assert_reply(push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"}), :ok, _navigation, 2_000)
+    assert_push("chat", %{"id" => "7", "latest" => %{"text" => "physical [REDACTED:ghp]"}}, 2_000)
+    assert_push("frame", %{strip: [%{x: 0, width: 800, svg: svg, label: label}]}, 2_000)
+    assert label =~ "physical [REDACTED:ghp]"
+    assert svg =~ ~s(x="6")
+    assert svg =~ "physical [REDACTED:ghp]"
+    refute svg =~ token
+    timer = :sys.get_state(socket.channel_pid).assigns.deck_chat.timer
+    assert_reply(push(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "press"}), :ok, _navigation, 2_000)
+    assert_push("frame", %{strip: regions}, 2_000)
+    assert length(regions) > 1
+    assert :sys.get_state(socket.channel_pid).assigns.deck_chat == nil
+    assert Process.read_timer(timer) == false
+  end
+
   test "retained tool arguments and assistant text are masked before chat and Logs pushes", %{workspace: workspace} do
     token = "ghp_" <> String.duplicate("a", 36)
     url = "https://capability.example.test/session/private"

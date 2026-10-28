@@ -1,3 +1,5 @@
+import type { DeckFrame } from "./frame.js";
+import type { RawInput } from "./frame-input.js";
 import type { BuildProgressInput } from "./touchStrip/summarySegment.js";
 
 /** Wire types of the `streamdeck:fleet` channel contract; re-exported from `channel.ts`. */
@@ -245,6 +247,7 @@ export type StreamDeckCommandAnswerError =
   | { readonly reason: "stale" };
 
 export interface StreamDeckChannelEvents {
+  frame?(frame: DeckFrame): void;
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
@@ -305,6 +308,7 @@ export interface StreamDeckChannelOptions {
 }
 
 export interface StreamDeckChannel {
+  input(input: RawInput): void;
   priority(identifier: string, direction: "up" | "down"): void;
   focus(identifier: string): void;
   /**

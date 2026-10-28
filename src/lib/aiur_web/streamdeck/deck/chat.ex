@@ -7,7 +7,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   alias AiurWeb.Streamdeck.Deck.ChatLogs
 
   @spec init(Phoenix.Socket.t()) :: Phoenix.Socket.t()
-  def init(socket), do: assign(socket, deck_chat: nil)
+  def init(socket), do: assign(socket, deck_chat: nil, deck_chat_view: nil)
 
   @spec open(Phoenix.Socket.t(), String.t()) :: Phoenix.Socket.t()
   def open(socket, id) do
@@ -122,6 +122,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
     # Entries come only from the shared source's allowlisted wire projection.
     message = Payload.scrub(%{v: 1, kind: "chat", id: state.ref.id, state: view.state, observed_at: ConversationPayload.millis(view[:observed_at]), latest: latest})
     push(socket, "chat", message)
+    {:noreply, socket} = socket |> assign(deck_chat_view: message) |> AiurWeb.StreamdeckFleetUpdates.schedule()
     socket
   end
 

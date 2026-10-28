@@ -9,10 +9,9 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckProjection}
-  alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Chat, Input, Nav, PriorityInput, Signals, TicketUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Chat, Nav, PriorityInput, Signals, TicketUpdates}
 
-  alias AiurWeb.Streamdeck.UsageUpdates
+  alias AiurWeb.Streamdeck.{FrameUpdates, UsageUpdates}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -50,6 +49,8 @@ defmodule AiurWeb.StreamdeckChannel do
      assign(Chat.init(socket),
        deck_nav: %Nav{},
        deck_effects: [],
+       deck_usage: %{},
+       deck_grid: %{agents: []},
        focused_agent: nil,
        focus_token: nil,
        deck_signals: nil,
@@ -65,16 +66,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
-  def handle_in("input", input, socket) do
-    if Nav.valid_input?(input) do
-      sections = StreamdeckProjection.grid() |> Deck.navigation()
-      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
-      socket = assign(socket, deck_nav: nav, deck_effects: effects)
-      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
-    else
-      {:reply, {:error, %{reason: "invalid_input"}}, socket}
-    end
-  end
+  def handle_in("input", input, socket), do: FrameUpdates.input(input, socket)
 
   def handle_in("priority", %{"identifier" => id, "direction" => direction}, socket)
       when is_binary(id) and direction in ["up", "down"] do
@@ -265,8 +257,9 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot())
-    {:noreply, socket}
+    snapshot = StreamdeckProjection.snapshot()
+    push(socket, "snapshot", snapshot)
+    {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> assign(:deck_grid, snapshot["grid"]) |> FrameUpdates.push()}
   end
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}
@@ -318,6 +311,16 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({:decision_changed, _decision_id, _version}, socket), do: push_decisions(socket)
   def handle_info(:decision_metrics_changed, socket), do: push_decisions(socket)
+
+  def handle_info({:streamdeck_frame_focus, id}, socket) do
+    {:reply, _reply, socket} = handle_in("focus", %{"identifier" => id}, socket)
+    {:noreply, socket}
+  end
+
+  def handle_info(:streamdeck_frame_unfocus, socket) do
+    {:reply, _reply, socket} = handle_in("unfocus", %{}, socket)
+    {:noreply, socket}
+  end
 
   def handle_info({:deck_chat_tick, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
   def handle_info({:live_conversation_changed, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
