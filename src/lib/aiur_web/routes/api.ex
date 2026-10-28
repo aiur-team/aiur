@@ -47,9 +47,6 @@ defmodule AiurWeb.Routes.Api do
       scope "/" do
         pipe_through(:client_token_read)
 
-        get("/api/v1/conversations/resolve", AiurWeb.ObservabilityApiController, :resolve_worker)
-        match(:*, "/api/v1/conversations/resolve", AiurWeb.ObservabilityApiController, :method_not_allowed)
-
         get("/api/v1/events", AiurWeb.EventsController, :index)
         get("/api/v1/events/catalog", AiurWeb.EventsController, :catalog)
         match(:*, "/api/v1/events", AiurWeb.EventsController, :method_not_allowed)

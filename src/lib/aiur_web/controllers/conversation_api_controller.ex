@@ -70,14 +70,12 @@ defmodule AiurWeb.ConversationApiController do
           String.downcase(identity.repository) == String.downcase(repository),
           identity.identifier == identifier,
           {:ok, ref} <- [Ref.worker(identity)],
-          {:ok, _} <- [History.list_sessions(ref)],
           do: Ref.conversation_id(ref)
 
-    case History.resolve_worker(owner, repository, identifier) do
-      {:ok, id} -> unique_subject([id | current])
-      {:error, :ambiguous_subject, ids} -> unique_subject(ids ++ current)
-      {:error, :not_found} -> unique_subject(current)
-      error -> error
+    case unique_subject(current) do
+      {:ok, _id} = live_match -> live_match
+      {:error, :ambiguous_subject, _ids} = ambiguous -> ambiguous
+      {:error, :not_found} -> History.resolve_worker(owner, repository, identifier)
     end
   end
 

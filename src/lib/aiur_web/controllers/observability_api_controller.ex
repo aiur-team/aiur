@@ -7,7 +7,6 @@ defmodule AiurWeb.ObservabilityApiController do
 
   alias Aiur.Claude.HookEvents
   alias Aiur.Conversation.History
-  alias Aiur.Conversation.SubjectIndex
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
   alias AiurWeb.{EndpointConfig, Presenter, StreamDeckGrid}
@@ -33,46 +32,6 @@ defmodule AiurWeb.ObservabilityApiController do
       {:error, :issue_not_found} ->
         error_response(conn, 404, "issue_not_found", "Issue not found")
     end
-  end
-
-  @spec resolve_worker(Conn.t(), map()) :: Conn.t()
-  def resolve_worker(conn, %{"owner" => owner, "repository" => repository, "provider_id" => provider_id}) do
-    case worker_identity(owner, repository, provider_id) do
-      {:ok, identity} ->
-        render_worker_resolution(conn, SubjectIndex.lookup_or_live(identity, snapshot_fun: fn -> live_running_rows() end))
-
-      {:error, _reason} ->
-        error_response(conn, 422, "invalid_subject", "Worker subject is invalid")
-    end
-  end
-
-  def resolve_worker(conn, _params), do: error_response(conn, 422, "invalid_subject", "Worker subject is invalid")
-
-  defp worker_identity(owner, repository, provider_id) when is_binary(owner) and is_binary(repository) and is_binary(provider_id) do
-    case Aiur.TrackerIdentity.from_github(%{"node_id" => provider_id, "number" => 1}, {owner, repository}, {owner, repository}) do
-      {:ok, identity} -> {:ok, identity}
-      {:error, _} -> {:error, :invalid_subject}
-    end
-  end
-
-  defp worker_identity(_owner, _repository, _provider_id), do: {:error, :invalid_subject}
-
-  defp render_worker_resolution(conn, result) do
-    case result do
-      {:ok, conversation_id} -> json(conn, %{conversation_id: conversation_id, subject: "worker"})
-      {:error, :not_found} -> error_response(conn, 404, "subject_not_found", "Conversation subject not found")
-      {:error, :ambiguous} -> error_response(conn, 409, "ambiguous_subject", "Conversation subject is ambiguous")
-      {:error, _reason} -> error_response(conn, 503, "conversation_unavailable", "Conversation index is unavailable")
-    end
-  end
-
-  defp live_running_rows do
-    case Aiur.Orchestrator.dashboard_snapshot(orchestrator(), snapshot_timeout_ms()) do
-      {status, %{running: running}, _freshness} when status in [:current, :stale] and is_list(running) -> {:ok, running}
-      _ -> :unavailable
-    end
-  rescue
-    _ -> :unavailable
   end
 
   @spec events(Conn.t(), map()) :: Conn.t()

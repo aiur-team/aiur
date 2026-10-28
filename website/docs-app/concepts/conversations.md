@@ -11,15 +11,16 @@ line number in a provider's log.
 
 ## Resolve a worker conversation
 
-`GET /api/v1/conversations/resolve` accepts `owner`, `repository`, and
-`provider_id` query parameters and returns the matching `conversation_id`.
-It checks the current run first, then the cached durable subject index.
+`GET /api/v1/conversations/resolve?subject=worker&owner=OWNER&repository=REPOSITORY&identifier=ID`
+returns the matching `conversation_id`. Use `subject=executor` to resolve the
+current Executor conversation. Worker resolution checks the current run first,
+then the cached durable subject index.
 
 An unreadable `subject.json` is skipped and logged, so it does not prevent
 other workers from resolving. A missing subject returns 404, duplicate matches
 return 409, and an unavailable conversation index returns 503.
 
-The route uses the dashboard's client-token read authorization.
+The route uses the dashboard's read authorization.
 
 ## Where transcripts live
 
