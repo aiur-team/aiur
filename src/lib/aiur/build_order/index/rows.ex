@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.Index.Rows do
   alias Aiur.BuildOrder.{Epic, FeatureStats, Metadata, ProviderHealth, SourceFreshness}
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
   alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
+  alias Aiur.StartTrigger.ProgressStore
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
   def build(parts, general) do
@@ -116,7 +117,7 @@ defmodule Aiur.BuildOrder.Index.Rows do
       wave: nil,
       qpos: nil,
       cue: nil,
-      pr: pr(row)
+      pr: pr(row, producer.sec)
     }
 
     base
@@ -157,6 +158,16 @@ defmodule Aiur.BuildOrder.Index.Rows do
   defp type(_), do: "feature"
   defp agent(%{agent_model: model, agent_effort: effort}, "hist") when is_binary(model), do: %{model: model, name: nil, effort: if(is_binary(effort), do: effort), state: nil}
   defp agent(_, _), do: nil
-  defp pr(%{pr_number: number, merged_at: %DateTime{}}) when is_integer(number), do: %{num: number, state: "merged"}
-  defp pr(_), do: nil
+  defp pr(%{pr_number: number, merged_at: %DateTime{}}, _section) when is_integer(number), do: %{num: number, state: "merged"}
+  defp pr(_row, "hist"), do: nil
+
+  defp pr(%{number: number}, _section) do
+    case ProgressStore.lookup(to_string(number)) do
+      %{pr_number: pr, stage: stage, closed_unmerged?: false} when is_integer(pr) and pr > 0 and stage != :pr_merged ->
+        %{num: pr, state: "open", ci: if(stage, do: to_string(stage))}
+
+      _ ->
+        nil
+    end
+  end
 end

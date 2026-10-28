@@ -67,6 +67,9 @@ export interface AgentDetailModel {
   /** Time spent so far ("42m", "3h 07m"), or null when the daemon sent none. */
   readonly elapsedLabel: string | null;
   readonly activity: AgentActivity | null;
+  readonly buildStatus?: boolean;
+  readonly prLabel?: string | null;
+  readonly observedAt?: number | null;
 }
 
 /**
