@@ -51,7 +51,7 @@ defmodule Aiur.VoiceConversation.BriefingSource do
   def agents_text(%{running: running}, n) when is_list(running) do
     case Enum.take(running, n) do
       [] -> "No running agents."
-      rows -> Enum.map_join(rows, "\n", &agent_line/1)
+      rows -> compact_lines(rows, &agent_line/1)
     end
   end
 
@@ -64,7 +64,7 @@ defmodule Aiur.VoiceConversation.BriefingSource do
     |> Enum.take(n)
     |> case do
       [] -> "No open decisions."
-      rows -> Enum.map_join(rows, "\n", &"#{&1.decision_id}: #{&1.question}")
+      rows -> compact_lines(rows, &"#{&1.decision_id}: #{&1.question}")
     end
   end
 
@@ -73,13 +73,24 @@ defmodule Aiur.VoiceConversation.BriefingSource do
     events
     |> Enum.filter(&(Map.get(&1, :role) in ["user", "assistant"]))
     |> Enum.take(-n)
+    |> Enum.reverse()
     |> case do
       [] -> "Executor transcript unavailable; no retained conversational turns."
-      rows -> Enum.map_join(rows, "\n", &"#{&1.role}: #{Map.get(&1, :body, "")}")
+      rows -> compact_lines(rows, &"#{&1.role}: #{Map.get(&1, :body, "")}")
     end
   end
 
   def transcript_text(_snapshot, _n), do: "Executor transcript unavailable."
+
+  # Reserve space for all three sections under the package's opening briefing budget.
+  defp compact_lines(rows, render) do
+    rows |> Enum.map_join("\n", &(render.(&1) |> excerpt(120))) |> excerpt(300)
+  end
+
+  defp excerpt(text, count) do
+    prefix = text |> String.to_charlist() |> Enum.take(count) |> List.to_string()
+    prefix <> if(byte_size(prefix) < byte_size(text), do: "…", else: "")
+  end
 
   defp read_section("agents", n) do
     if Process.whereis(Aiur.Orchestrator) do

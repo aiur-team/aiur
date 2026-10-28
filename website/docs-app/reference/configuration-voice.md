@@ -71,6 +71,9 @@ uses the registered Executor session; Codex transcript context is unavailable in
 this prototype. A missing or unsupported source is reported as unavailable.
 
 The dedicated Executor briefing integration is tracked in #4125.
+Briefing sections use short excerpts; transcript snippets put the newest turns
+first so long older answers cannot crowd out current run facts.
+
 Do not configure `propose_instruction` or `ask_agent`: this prototype has no
 instruction delivery or Confirm action. Spoken requests are handed to the
 Executor after the conversation ends.

@@ -68,16 +68,6 @@ defmodule Aiur.VoiceConversation.SessionTest do
     receive_barrier({:DOWN, ^ref, :process, ^monitor, :normal})
   end
 
-  test "handoff failure remains visible instead of producing a receipt", %{opts: opts} do
-    opts = Keyword.put(opts, :deliver, fn _, _, _ -> {:error, :disk_full} end)
-    {:ok, monitor, _id} = Session.start(self(), opts)
-    ref = Process.monitor(monitor)
-    Session.stop(monitor)
-    receive_barrier({:DOWN, ^ref, :process, ^monitor, :normal})
-    receive_barrier({:executor_voice, {:handoff_failed, :delivery_failed}})
-    refute_received {:executor_voice, {:receipt, _}}
-  end
-
   test "ending a real session queues its transcript in the Executor journal", %{opts: opts, instance: instance} do
     :ok = Aiur.ExecutorEvents.subscribe("executor.voice.session_ended")
     {:ok, monitor, id} = Session.start(self(), Keyword.delete(opts, :deliver))

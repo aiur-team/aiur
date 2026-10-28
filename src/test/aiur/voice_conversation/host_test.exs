@@ -71,4 +71,31 @@ defmodule Aiur.VoiceConversation.HostTest do
 
     assert BriefingSource.transcript_text(%{events: events}, 1) == "assistant: Latest"
   end
+
+  test "long history retains the latest correction and opening run facts" do
+    events = [
+      %{role: "assistant", body: String.duplicate("old answer ", 1_000)},
+      %{role: "user", body: "Correction: release is blocked"}
+    ]
+
+    transcript = BriefingSource.transcript_text(%{events: events}, 10)
+    assert String.starts_with?(transcript, "user: Correction: release is blocked")
+    now = DateTime.utc_now()
+    agents = BriefingSource.agents_text(%{running: [%{identifier: "42", title: "Fix voice", state: "testing"}]}, 10)
+    decisions = BriefingSource.decisions_text([%{decision_id: "open", question: "Deploy?", decision_status: :open}], 10)
+
+    briefing = %VoiceConverse.Briefing{
+      extra:
+        Enum.map(
+          [{"Transcript", transcript}, {"Agents", agents}, {"Decisions", decisions}],
+          fn {title, text} -> %{title: title, text: text, observed_at: now} end
+        )
+    }
+
+    {text, meta} = VoiceConverse.Briefing.render(briefing, now: now)
+    refute :extra in meta.dropped
+    assert text =~ "Correction: release is blocked"
+    assert text =~ "42: Fix voice; testing"
+    assert text =~ "open: Deploy?"
+  end
 end
