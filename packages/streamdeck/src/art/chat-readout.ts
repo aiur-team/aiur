@@ -7,7 +7,7 @@ import {
   BADGE_IDS,
   directionBadgeColor,
   type DirectionBadge,
-} from "../key-face-contract.js";
+} from "../legacy-style.js";
 import { ageLabel, fit, rightText } from "./segmentText.js";
 import {
   LABEL,
@@ -42,7 +42,7 @@ const badgeColour = (badge: string): string => directionBadgeColor(isBadge(badge
  *
  * COLOURS ARE BORROWED, NOT INVENTED. Every hex in {@link OPENCODE} is taken
  * from opencode's default `opencode` theme. They deliberately do NOT come from
- * `key-face-contract.json`: that contract is Aiur's *fleet-state* palette —
+ * `legacy-style.json`: that contract is Aiur's *fleet-state* palette —
  * bucket accents and direction badges, shared with the dashboard so the two
  * surfaces cannot disagree about what "stuck" looks like. This is a different
  * palette on purpose, quoting another tool's transcript, and mixing the two

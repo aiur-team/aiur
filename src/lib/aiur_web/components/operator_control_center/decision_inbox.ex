@@ -23,6 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   attr(:history, :list, default: [])
   attr(:action_states, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
   attr(:provider_health, :any, default: :ok)
   attr(:retained_counts, :map, required: true)
@@ -83,6 +84,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           action_state={Map.get(@action_states, decision.decision_id, %{})}
           writable={@writable}
           live_connected={@live_connected}
+          voice_capabilities={@voice_capabilities}
           filter={@filter}
           query={@query}
         />
