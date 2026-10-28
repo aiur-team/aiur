@@ -137,7 +137,7 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
   test "degraded runner timeouts and partition kill file no flake tickets" do
     parent = self()
     run = failed_run(513, "pr-55-a", "https://github.com/test-org/test-repo/actions/runs/513", minutes_ago(2))
-    repeated_run = failed_run(516, "pr-55-a", "https://github.com/test-org/test-repo/actions/runs/516", minutes_ago(1))
+    repeated_run = failed_run(516, "pr-56-b", "https://github.com/test-org/test-repo/actions/runs/516", minutes_ago(1))
     journal = Path.join(System.tmp_dir!(), "mgq-degraded-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
 
