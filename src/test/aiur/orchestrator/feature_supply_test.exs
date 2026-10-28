@@ -62,7 +62,11 @@ defmodule Aiur.Orchestrator.FeatureSupplyTest do
     assert interval.non_feature_during_starvation_minutes == 1.5
     assert interval.observed_minutes == 1.5
     assert interval.interval_end_ms - interval.interval_start_ms == 90_000
-    observed |> observe(features(), 120_000) |> observe(features(), 180_000)
+    observed = observe(observed, features(), 120_000)
+    assert_received {:supply_record, :feature_supply, transition}
+    assert transition.feature_starved_slot_minutes == 1.0
+    assert transition.non_feature_during_starvation_minutes == 0.5
+    observe(observed, features(), 180_000)
     assert_received {:supply_record, :feature_supply, %{feature_starved_slot_minutes: starved, non_feature_during_starvation_minutes: overlap}}
     assert starved == 0
     assert overlap == 0
