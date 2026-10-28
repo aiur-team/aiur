@@ -127,7 +127,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         </label>
 
         <.voice_input
-          :if={@questions == [] and not @disabled? and @live_connected}
+          :if={@questions == [] and answerable?(@decision) and not @disabled? and @live_connected}
           id={"decision-answer-voice-#{@decision.decision_id}"}
           capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_response})}
           legacy_conversation={false}
