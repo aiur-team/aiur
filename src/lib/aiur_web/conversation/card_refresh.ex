@@ -13,7 +13,7 @@ defmodule AiurWeb.Conversation.CardRefresh do
       |> Enum.filter(&(old[&1] != new[&1]))
       |> Enum.flat_map(&(positions(old[&1]) ++ positions(new[&1])))
 
-    Paging.refresh_entries(socket, positions)
+    Paging.refresh_positions(socket, positions)
   end
 
   defp cards(assigns) do

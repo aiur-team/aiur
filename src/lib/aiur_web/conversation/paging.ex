@@ -15,7 +15,7 @@ defmodule AiurWeb.Conversation.Paging do
     end
   end
 
-  @spec load(Phoenix.LiveView.Socket.t(), atom()) :: Phoenix.LiveView.Socket.t()
+  @spec load(Phoenix.LiveView.Socket.t(), atom() | {:around, pos_integer()}) :: Phoenix.LiveView.Socket.t()
   def load(socket, direction) do
     case History.list_entries(socket.assigns.id, opts(socket) ++ cursor(socket, direction)) do
       {:ok, page} -> apply_page(socket, page, direction) |> refresh_sessions()
@@ -38,23 +38,8 @@ defmodule AiurWeb.Conversation.Paging do
 
   def reveal(socket, _pos), do: socket
 
-  @spec jump(Phoenix.LiveView.Socket.t(), pos_integer()) :: Phoenix.LiveView.Socket.t()
-  def jump(socket, pos) do
-    case History.list_entries(socket.assigns.id, opts(socket) ++ [around: pos]) do
-      {:ok, page} ->
-        apply_page(socket, page, :tail)
-        |> assign(:last_entry, socket.assigns.last_entry)
-        |> refresh_sessions()
-        |> assign(:mode, :command)
-        |> Phoenix.LiveView.push_event("conversation-command", %{pos: pos})
-
-      {:error, reason} ->
-        assign(socket, state: :unavailable, reason: reason, read_error: reason)
-    end
-  end
-
-  @spec refresh_entries(Phoenix.LiveView.Socket.t(), [pos_integer()]) :: Phoenix.LiveView.Socket.t()
-  def refresh_entries(socket, positions) do
+  @spec refresh_positions(Phoenix.LiveView.Socket.t(), [pos_integer()]) :: Phoenix.LiveView.Socket.t()
+  def refresh_positions(socket, positions) do
     socket = assign(socket, :can_reveal, Access.can_reveal?(socket.assigns.principal))
 
     positions
@@ -71,17 +56,22 @@ defmodule AiurWeb.Conversation.Paging do
          entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == pos)) do
       stream_insert(socket, :entries, entry, [])
     else
-      _ -> assign(socket, :commands_error, "Command positions unavailable. Open the Commands list to retry.")
+      {:error, reason} -> assign(socket, state: :unavailable, reason: reason, read_error: reason)
+      nil -> assign(socket, state: :unavailable, reason: :not_found, read_error: :not_found)
     end
   end
 
+  defp cursor(_socket, {:around, pos}), do: [around: pos]
   defp cursor(socket, :older), do: [before: List.first(socket.assigns.positions, 1)]
   defp cursor(socket, :newer), do: [after: List.last(socket.assigns.positions, 0)]
   defp cursor(_socket, :start), do: [from_start: true]
   defp cursor(_socket, :tail), do: [tail: true]
 
+  defp reset_window?({:around, _}), do: true
+  defp reset_window?(direction), do: direction in [:start, :tail]
+
   defp apply_page(socket, page, direction) do
-    reset? = direction in [:start, :tail]
+    reset? = reset_window?(direction)
     entries = if direction == :older, do: Enum.reverse(page.entries), else: page.entries
     socket = if reset?, do: stream(socket, :entries, page.entries, reset: true, limit: -500), else: insert(socket, entries, direction)
     positions = if reset?, do: [], else: socket.assigns.positions

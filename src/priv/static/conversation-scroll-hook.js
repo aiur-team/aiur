@@ -11,11 +11,8 @@ window.AiurConversationScrollHook = {
     this.el.addEventListener('scroll', this.onScroll)
     this.handleEvent('conversation-start', () => requestAnimationFrame(() => { this.el.scrollTop = 0; this.onScroll() }))
     this.handleEvent('conversation-bottom', () => requestAnimationFrame(() => this.toBottom()))
-    this.handleEvent('conversation-command', ({ pos }) => requestAnimationFrame(() => {
-      this.el.querySelector(`#entry-${pos}`)?.scrollIntoView({ block: 'start' })
-      this.onScroll()
-    }))
-    requestAnimationFrame(() => this.toBottom())
+    this.handleEvent('conversation-jump', () => requestAnimationFrame(() => this.toHighlight()))
+    requestAnimationFrame(() => { if (!this.toHighlight()) this.toBottom() })
   },
   beforeUpdate () {
     if (this.frame != null) return
@@ -36,6 +33,15 @@ window.AiurConversationScrollHook = {
       else if (this.wasBottom && (mode === 'tail' || this.head !== this.el.dataset.head)) this.toBottom()
       this.onScroll()
     })
+  },
+  toHighlight () {
+    if (!this.el.dataset.highlight) return false
+    const target = this.el.querySelector('[data-jump-target="true"]')
+    if (!target) return false
+    const top = target.getBoundingClientRect().top - this.el.getBoundingClientRect().top
+    this.el.scrollTop += top - this.el.clientHeight / 2 + target.clientHeight / 2
+    this.onScroll()
+    return true
   },
   toBottom () {
     this.el.scrollTop = this.el.scrollHeight

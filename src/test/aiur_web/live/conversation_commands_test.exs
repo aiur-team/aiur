@@ -76,7 +76,8 @@ defmodule AiurWeb.ConversationCommandsTest do
     render_click(element(view, "button[phx-value-id='#{row.decision_id}']"))
     assert has_element?(view, "#entry-1 > article#{card(row)}")
     assert has_element?(view, "[data-state=live]")
-    assert_push_event(view, "conversation-command", %{pos: 1})
+    assert has_element?(view, "#entry-1[data-jump-target=true]")
+    assert_push_event(view, "conversation-jump", %{})
     answer(view, row)
     assert has_element?(view, "#{card(row)} .decision-answer-summary", "Yes")
   end

@@ -28,6 +28,7 @@ defmodule AiurWeb.ConversationLive do
         new_below: 0,
         reason: nil,
         mode: :tail,
+        highlight_pos: nil,
         age: Presenter.age(nil, DateTime.utc_now())
       )
       |> stream_configure(:entries, dom_id: &"entry-#{&1.pos}")
@@ -56,8 +57,13 @@ defmodule AiurWeb.ConversationLive do
 
   def handle_event("jump_command", %{"id" => id}, socket) do
     case socket.assigns.command_slots[id] do
-      {:at_pos, pos} -> {:noreply, Paging.jump(socket, pos)}
-      _ -> {:noreply, socket}
+      {:at_pos, pos} ->
+        socket = Paging.load(socket, {:around, pos})
+        socket = if is_nil(socket.assigns.read_error), do: socket |> assign(:highlight_pos, pos) |> push_event("conversation-jump", %{}), else: socket
+        {:noreply, socket}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -112,9 +118,9 @@ defmodule AiurWeb.ConversationLive do
         <button :for={row <- @decision_page.decisions} :if={match?({:at_pos, _}, @command_slots[row.decision_id])} phx-click="jump_command" phx-value-id={row.decision_id}>{row.question}</button>
       </nav>
       <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={:pinned_top} />
-      <div id="conversation-scroll" phx-hook="ConversationScroll" class="conversation-scroll" data-mode={@mode} data-head={@page && @page.head_pos}>
+      <div id="conversation-scroll" phx-hook="ConversationScroll" class="conversation-scroll" data-highlight={@highlight_pos} data-mode={if is_tuple(@mode), do: "around", else: @mode} data-head={@page && @page.head_pos}>
         <div id="conversation-entries" phx-update="stream">
-          <div :for={{id, entry} <- @streams.entries} id={id}>
+          <div :for={{id, entry} <- @streams.entries} id={id} data-jump-target={to_string(@highlight_pos == entry.pos)}>
             <Components.entry entry={entry} sessions={@sessions} can_reveal={@can_reveal} />
             <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={{:at_pos, entry.pos}} />
           </div>
