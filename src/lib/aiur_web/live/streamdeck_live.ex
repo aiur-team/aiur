@@ -23,8 +23,8 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Grid
   import AiurWeb.StreamdeckLive.Modes
 
-  alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
   alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLogs
 
