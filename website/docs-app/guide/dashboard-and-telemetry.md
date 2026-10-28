@@ -412,21 +412,28 @@ The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy ch
 `system.feature_supply_low` wakes the Executor when free worker slots exceed
 ready feature tickets for 30 continuous minutes. Feature classification uses
 telemetry's `work_kind`; readiness uses the dispatch candidate decision before
-workers are started. The attention includes free slots, ready features,
+workers are started.
+
+The attention includes free slots, ready features,
 feature todo decline counts, and the five blockers holding the most features,
 with cached PR numbers and states. Missing PR evidence is `unknown`.
 
 Land the blocker PRs through normal review, then promote or publish feature
 work in goal order. Avoid filling the slots with non-feature work. One
 attention opens per episode and resolves after 10 continuous minutes of
-sufficient supply. Paused or unavailable tracker passes interrupt the timers
+sufficient supply.
+
+Paused or unavailable tracker passes interrupt the timers
 and interval coverage. Restarts restart timers while retaining open attention.
 
 `analytics/run-summary --json` exposes `feature_supply_daily` by UTC date.
 Each row includes `feature_starved_slot_minutes` (elapsed minutes times
 `max(0, free - feature_ready)`), `non_feature_during_starvation_minutes`
 (elapsed minutes with at least one active non-feature turn during starvation),
-and `observed_minutes`. Text reports print the same totals. Sum rows across
+and `observed_minutes`.
+
+Text reports print the same totals. Sum rows across
 boots for a daily report. No observations means unavailable, not zero.
+
 The daemon records intervals between successful dispatch observations;
 transitions between polls have poll-cadence precision.
