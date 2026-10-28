@@ -8,7 +8,7 @@ defmodule AiurWeb.Streamdeck.TicketPubsubTest do
 
     for id <- ~w(77 88 99 101 102) do
       assert_reply(push(socket, "focus", %{"identifier" => id}), :ok, %{"focused" => ^id}, 1_500)
-      assert_push("chat", %{"id" => ^id}, 1_500)
+      assert_push("logs", _logs, 1_500)
       assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil}, 1_500)
       :sys.get_state(channel)
     end

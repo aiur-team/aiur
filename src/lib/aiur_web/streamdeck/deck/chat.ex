@@ -105,7 +105,11 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
     end
   end
 
-  defp unavailable(socket), do: push_view(socket, %{state: :unavailable, observed_at: nil}, socket.assigns.deck_chat.latest)
+  defp unavailable(socket) do
+    state = socket.assigns.deck_chat
+    ChatOwner.logs(socket, state.ref.id, state.entries)
+    push_view(socket, %{state: :unavailable, observed_at: nil}, state.latest)
+  end
 
   defp resubscribe(state, ref) do
     if not state.subscribed or state.ref[:handle] != ref[:handle] do
