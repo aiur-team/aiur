@@ -95,13 +95,19 @@ defmodule Aiur.Conversation.Journal do
     {:noreply, %{state | import_waiters: [from | state.import_waiters]}}
   end
 
-  def handle_call(:flush, _from, state) do
+  def handle_call(:flush, from, state) do
     state = cancel_flush(state) |> flush()
-    result = if state.outage, do: {:error, :degraded}, else: :ok
-    {:reply, result, state}
+
+    if state.importing do
+      {:noreply, %{state | import_waiters: [from | state.import_waiters]}}
+    else
+      result = if state.outage, do: {:error, :degraded}, else: :ok
+      {:reply, result, state}
+    end
   end
 
   @impl true
+  def handle_info(:import_step, %{read_only: true} = state), do: {:noreply, reply_import_waiters(state, {:error, :degraded})}
   def handle_info(:import_step, %{importing: nil} = state), do: {:noreply, state}
 
   def handle_info(:import_step, state) do
@@ -136,7 +142,8 @@ defmodule Aiur.Conversation.Journal do
     if reason == :shutdown or match?({:shutdown, _}, reason) do
       state = finish_import(state)
       JournalImport.halt(state)
-      state |> flush() |> retain_losses()
+      state = if state.recover, do: state, else: flush(state)
+      retain_losses(state)
     else
       JournalImport.halt(state)
     end
@@ -144,7 +151,17 @@ defmodule Aiur.Conversation.Journal do
     :ok
   end
 
-  defp finish_import(%{importing: nil} = state), do: state
+  defp finish_import(%{read_only: true} = state), do: state
+
+  defp finish_import(%{importing: nil} = state) do
+    case recover_buffered(state) do
+      {:ok, state} ->
+        if state.importing, do: finish_import(state), else: state
+
+      {:error, reason} ->
+        failure(state, reason)
+    end
+  end
 
   defp finish_import(state) do
     with {:ok, state} <- recover(state),
@@ -192,9 +209,25 @@ defmodule Aiur.Conversation.Journal do
   defp flush(%{importing: import} = state) when not is_nil(import), do: state
 
   defp flush(state) do
-    case recover(state) do
-      {:ok, state} -> drain(state)
-      {:error, reason} -> failure(state, reason)
+    case recover_buffered(state) do
+      {:ok, state} ->
+        if state.importing do
+          send(self(), :import_step)
+          state
+        else
+          drain(state)
+        end
+
+      {:error, reason} ->
+        failure(state, reason)
+    end
+  end
+
+  defp recover_buffered(state) do
+    recovering = state.recover
+
+    with {:ok, state} <- recover(state) do
+      {:ok, if(recovering, do: JournalImport.start_buffered(state), else: state)}
     end
   end
 
@@ -236,6 +269,13 @@ defmodule Aiur.Conversation.Journal do
   defp reply_import_waiters(state, result) do
     Enum.each(state.import_waiters, &GenServer.reply(&1, result))
     %{state | import_waiters: []}
+  end
+
+  defp write_import(state, [{:gap, :pre_journal, _, _}] = inputs) do
+    # The history boundary precedes outage/backpressure gaps retained during preparation.
+    with {:ok, updated, entries, sessions} <- write(%{state | failed_since: nil, dropped_span: nil}, inputs) do
+      {:ok, %{updated | failed_since: state.failed_since, dropped_span: state.dropped_span}, entries, sessions}
+    end
   end
 
   defp write_import(state, inputs) do

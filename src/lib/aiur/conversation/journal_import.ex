@@ -46,6 +46,18 @@ defmodule Aiur.Conversation.JournalImport do
     end
   end
 
+  @spec start_buffered(map()) :: map()
+  def start_buffered(%{read_only: true} = state), do: state
+
+  def start_buffered(%{importing: nil} = state) do
+    case state.buffer |> :queue.to_list() |> Enum.find(&match?({:entry, _, _, _}, &1)) do
+      {:entry, source, entry, _received_at} -> start(state, source, [entry])
+      _ -> state
+    end
+  end
+
+  def start_buffered(state), do: state
+
   @spec step(map(), function(), function()) :: {:ok, map()} | {:error, term(), map()}
   def step(%{next_pos: pos, importing: %{gap: true} = import} = state, _write, _publish) when pos > 1,
     do: {:ok, %{state | importing: %{import | gap: false}}}

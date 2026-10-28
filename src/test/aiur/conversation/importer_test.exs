@@ -177,6 +177,7 @@ defmodule Aiur.Conversation.ImporterTest do
 
   test "acknowledged import writes clear failures and preserve buffered live records", c do
     write_workspace(c, Enum.map(1..600, &codex("old-#{&1}", "old #{&1}", c.now)))
+    actions(c.control, :prepare, [{:error, :enospc}])
     actions(c.control, :append, [:pass, :pass, :uncertain])
     Ingest.append(c.ref, c.source, [event(1)])
     assert {:error, :degraded} = flush(c.ref)
@@ -184,6 +185,7 @@ defmodule Aiur.Conversation.ImporterTest do
     assert Enum.map(Enum.reject(rows(c.dir), &(&1["kind"] == "gap")), & &1["body"]) == Enum.map(1..600, &"old #{&1}") ++ ["message 1"]
     gaps = Enum.filter(rows(c.dir), &(&1["meta"]["reason"] == "source_unreadable"))
     assert length(gaps) == 1
+    assert hd(rows(c.dir))["meta"]["reason"] == "pre_journal"
     assert state(c.ref).retries == 0
     refute state(c.ref).outage
   end
@@ -201,18 +203,20 @@ defmodule Aiur.Conversation.ImporterTest do
   end
 
   test "controlled shutdown finishes import before flushing buffered live records", c do
-    write_workspace(c, Enum.map(1..600, &codex("old-#{&1}", "old #{&1}", c.now)))
-    actions(c.control, :append, [:pass, :blocked])
+    write_workspace(c, Enum.map(1..20, &codex("old-#{&1}", "old #{&1}", c.now)))
+    actions(c.control, :prepare, [{:error, :enospc}])
     Ingest.append(c.ref, c.source, [event(1)])
-    receive_barrier({:store_blocked, :append, pid})
-    # Queue a system suspension before releasing disk IO so shutdown sees a pending import.
+    {:ok, pid} = Ingest.writer(c.ref)
+    # Suspend after the append cast, before any fake retry timer can start recovery.
     token = make_ref()
     send(pid, {:system, {self(), token}, :suspend})
-    send(pid, :release_store)
     receive_barrier({^token, :ok})
-    refute is_nil(:sys.get_state(pid).importing)
+    suspended = :sys.get_state(pid)
+    assert is_nil(suspended.importing)
+    assert suspended.recover
     assert :ok = DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
-    assert Enum.map(rows(c.dir), & &1["body"]) == [""] ++ Enum.map(1..600, &"old #{&1}") ++ ["message 1"]
+    assert hd(rows(c.dir))["meta"]["reason"] == "pre_journal"
+    assert Enum.map(Enum.reject(rows(c.dir), &(&1["kind"] == "gap")), & &1["body"]) == Enum.map(1..20, &"old #{&1}") ++ ["message 1"]
     assert [_, ended, _] = sessions(c.dir)
     assert ended["end_reason"] == "superseded"
   end
@@ -225,6 +229,7 @@ defmodule Aiur.Conversation.ImporterTest do
     opts = Application.fetch_env!(:aiur, :conversation_journal)
     Application.put_env(:aiur, :conversation_journal, Keyword.put(opts, :run_id, "run-two"))
     monitor = Process.monitor(pid)
+    actions(c.control, :prepare, [{:error, :enospc}])
     Process.exit(pid, :kill)
     receive_barrier({:DOWN, ^monitor, :process, ^pid, :killed})
     Ingest.append(c.ref, c.source, [event(1)])
