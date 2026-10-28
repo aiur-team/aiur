@@ -105,7 +105,7 @@ defmodule Aiur.Conversation.Journal do
   def handle_info(:import_step, state) do
     case recover(state) do
       {:ok, state} -> {:noreply, state, {:continue, :import}}
-      {:error, reason} -> {:noreply, failure(state, reason)}
+      {:error, reason} -> {:noreply, failure(state, reason) |> reply_import_waiters({:error, :degraded})}
     end
   end
 
@@ -131,9 +131,27 @@ defmodule Aiur.Conversation.Journal do
 
   @impl true
   def terminate(reason, state) do
-    JournalImport.halt(state)
-    if reason == :shutdown or match?({:shutdown, _}, reason), do: state |> flush() |> retain_losses()
+    if reason == :shutdown or match?({:shutdown, _}, reason) do
+      state = finish_import(state)
+      JournalImport.halt(state)
+      state |> flush() |> retain_losses()
+    else
+      JournalImport.halt(state)
+    end
+
     :ok
+  end
+
+  defp finish_import(%{importing: nil} = state), do: state
+
+  defp finish_import(state) do
+    with {:ok, state} <- recover(state),
+         {:ok, state} <- JournalImport.step(state, &write_import/2, &publish/3) do
+      finish_import(state)
+    else
+      {:error, reason, updated} -> failure(updated, reason)
+      {:error, reason} -> failure(state, reason)
+    end
   end
 
   defp retain_losses(state) do

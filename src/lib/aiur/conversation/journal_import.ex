@@ -152,12 +152,15 @@ defmodule Aiur.Conversation.JournalImport do
 
   def halt(_state), do: :ok
 
-  defp resume_line(%{open_session: %{start_reason: "import", last_pos: pos}} = state, {kind, _path}) when is_integer(pos) do
-    with {:ok, entries} <- state.store.stream_entries(state.dir, pos, pos),
-         [entry] <- Enum.to_list(entries) do
-      if entry["meta"]["import_source"] == to_string(kind), do: entry["meta"]["import_line"] || 0, else: 0
-    else
-      _ -> 0
+  defp resume_line(%{open_session: %{start_reason: "import", first_pos: first, last_pos: pos}} = state, {kind, _path}) when is_integer(pos) do
+    case state.store.stream_entries(state.dir, first, pos) do
+      {:ok, entries} ->
+        Enum.reduce(entries, 0, fn entry, line ->
+          if entry["meta"]["import_source"] == to_string(kind), do: max(line, entry["meta"]["import_line"] || 0), else: line
+        end)
+
+      _ ->
+        0
     end
   end
 
@@ -165,10 +168,14 @@ defmodule Aiur.Conversation.JournalImport do
 
   defp live_entry?(entry, import) do
     MapSet.member?(import.exclude, Entry.dedup_key(entry)) or
-      (entry.body_truncated and
-         Enum.any?(import.live, fn live ->
-           entry.kind == live.kind and entry.role == live.role and entry.occurred_at == live.occurred_at and String.starts_with?(live.body, String.slice(entry.body, 0, 1000))
-         end))
+      (entry.meta.import_source == "issue_log" and Enum.any?(import.live, &same_issue_record?(entry, &1)))
+  end
+
+  defp same_issue_record?(entry, live) do
+    body_matches = entry.body == live.body or (entry.body_truncated and String.starts_with?(live.body, String.slice(entry.body, 0, 1000)))
+
+    entry.kind == live.kind and entry.role == live.role and entry.occurred_at == live.occurred_at and
+      Map.get(entry.refs, :provider_msg_id) == Map.get(live.refs, :provider_msg_id) and body_matches
   end
 
   defp stop_at_live(cursor) do

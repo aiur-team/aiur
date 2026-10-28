@@ -69,6 +69,16 @@ defmodule Aiur.Conversation.ImporterTest do
     assert Enum.map(rows(c.dir), & &1["session_seq"]) == [nil, 1, 2]
   end
 
+  test "IssueLog payload stripping cannot import a short first live item twice", c do
+    live = %{role: :reasoning, body: "short live reasoning", timestamp: c.now, payload: %{provider_item_id: "reasoning-item"}}
+    records = [%{role: :assistant, body: "older", msg_id: "old", payload: nil}, live, %{role: :assistant, body: "later live", payload: nil}]
+    File.write!(Aiur.IssueLog.transcript_path(c.hint.identifier), Enum.map(records, &(Aiur.IssueLog.Encoding.encode(&1) <> "\n")))
+    Ingest.append(c.ref, c.source, [live])
+    assert :ok = flush(c.ref)
+    assert Enum.map(rows(c.dir), & &1["body"]) == ["", "older", "short live reasoning"]
+    assert List.last(rows(c.dir))["session_seq"] == 2
+  end
+
   test "unextractable and disappeared workspace sources fall back to IssueLog", c do
     path = Aiur.IssueLog.transcript_path(c.hint.identifier)
     File.write!(path, Jason.encode!(%{role: "assistant", body: "fallback", msg_id: "old"}) <> "\n")
@@ -174,11 +184,41 @@ defmodule Aiur.Conversation.ImporterTest do
     refute state(c.ref).outage
   end
 
-  test "writer killed mid-import resumes without adding duplicate imported entries", c do
-    write_workspace(c, Enum.map(1..1200, &codex("old-#{&1}", "old #{&1}", c.now)))
-    actions(c.control, :append, [:pass, :pass, :blocked])
+  test "rebuild failure during import returns degraded to flush callers", c do
+    write_workspace(c, [codex("old", "old", c.now)])
+    actions(c.control, :append, [:pass, {:error, :eio}])
+    actions(c.control, :rebuild, List.duplicate({:error, :eacces}, 10))
+    Ingest.append(c.ref, c.source, [event(1)])
+    assert {:error, :degraded} = flush(c.ref)
+    assert {:error, :degraded} = flush(c.ref)
+    actions(c.control, :rebuild, [])
+    assert :ok = flush(c.ref)
+    assert Enum.map(Enum.reject(rows(c.dir), &(&1["kind"] == "gap")), & &1["body"]) == ["old", "message 1"]
+  end
+
+  test "controlled shutdown finishes import before flushing buffered live records", c do
+    write_workspace(c, Enum.map(1..600, &codex("old-#{&1}", "old #{&1}", c.now)))
+    actions(c.control, :append, [:pass, :blocked])
     Ingest.append(c.ref, c.source, [event(1)])
     receive_barrier({:store_blocked, :append, pid})
+    # Queue a system suspension before releasing disk IO so shutdown sees a pending import.
+    token = make_ref()
+    send(pid, {:system, {self(), token}, :suspend})
+    send(pid, :release_store)
+    receive_barrier({^token, :ok})
+    refute is_nil(:sys.get_state(pid).importing)
+    assert :ok = DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+    assert Enum.map(rows(c.dir), & &1["body"]) == [""] ++ Enum.map(1..600, &"old #{&1}") ++ ["message 1"]
+    assert [_, ended, _] = sessions(c.dir)
+    assert ended["end_reason"] == "superseded"
+  end
+
+  test "writer killed mid-import resumes without adding duplicate imported entries", c do
+    write_workspace(c, Enum.map(1..50_200, &codex("old-#{&1}", "old #{&1}", c.now)))
+    actions(c.control, :append, List.duplicate(:pass, 1002) ++ [{:error, :eio}, :partial])
+    actions(c.control, :rebuild, [:pass, :blocked])
+    Ingest.append(c.ref, c.source, [event(1)])
+    receive_barrier({:store_blocked, :rebuild, pid})
     opts = Application.fetch_env!(:aiur, :conversation_journal)
     Application.put_env(:aiur, :conversation_journal, Keyword.put(opts, :run_id, "run-two"))
     monitor = Process.monitor(pid)
@@ -186,7 +226,7 @@ defmodule Aiur.Conversation.ImporterTest do
     receive_barrier({:DOWN, ^monitor, :process, ^pid, :killed})
     Ingest.append(c.ref, c.source, [event(1)])
     assert :ok = flush(c.ref)
-    assert Enum.map(rows(c.dir), & &1["body"]) == [""] ++ Enum.map(1..1200, &"old #{&1}") ++ ["message 1"]
+    assert Enum.map(Enum.reject(rows(c.dir), &(&1["kind"] == "gap")), & &1["body"]) == Enum.map(1..50_200, &"old #{&1}") ++ ["message 1"]
     assert Enum.count(sessions(c.dir), &(&1["start_reason"] == "import")) == 1
   end
 
