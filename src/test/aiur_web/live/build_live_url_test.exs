@@ -28,6 +28,24 @@ defmodule AiurWeb.BuildLiveURLTest do
     assert {:error, {:live_redirect, %{to: "/build"}}} = live(build_conn(), "/build?fixture_dataset=unknowns")
   end
 
+  test "fixture conversation source receives the page's session dataset" do
+    previous_flag = Application.fetch_env(:aiur, :build_fixture_query)
+    previous_source = Application.fetch_env(:aiur, :build_conversation_source)
+    Application.put_env(:aiur, :build_fixture_query, true)
+    Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
+
+    on_exit(fn ->
+      restore_fixture_query(previous_flag)
+      restore_conversation_source(previous_source)
+    end)
+
+    conn = build_conn() |> Plug.Test.init_test_session(%{"fixture_dataset" => "scale10k"})
+    {:ok, view, _html} = live(conn, "/build")
+
+    assert :sys.get_state(view.pid).socket.assigns.conversation_source ==
+             {Aiur.TestSupport.BuildHome.FixtureConversationSource, [dataset: "scale10k"]}
+  end
+
   test "invalid UTF-8 returns 400 (future Plug regression guard)" do
     assert_error_sent(400, fn -> get(build_conn(), "/build?epic=%ff") end)
   end
@@ -115,4 +133,6 @@ defmodule AiurWeb.BuildLiveURLTest do
 
   defp restore_fixture_query({:ok, value}), do: Application.put_env(:aiur, :build_fixture_query, value)
   defp restore_fixture_query(:error), do: Application.delete_env(:aiur, :build_fixture_query)
+  defp restore_conversation_source({:ok, value}), do: Application.put_env(:aiur, :build_conversation_source, value)
+  defp restore_conversation_source(:error), do: Application.delete_env(:aiur, :build_conversation_source)
 end
