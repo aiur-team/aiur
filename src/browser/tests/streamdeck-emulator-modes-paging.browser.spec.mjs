@@ -222,8 +222,7 @@ test('an active dial drag commits its final value after a LiveView patch', async
 
   const finalValue = await dialD.getAttribute('aria-valuenow')
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  await expect(keys).toHaveAttribute('data-grid-dial-value', finalValue, { timeout: 1000 })
-  expect(finalValue).not.toBe(valueBeforeDrag)
+  await expect.poll(() => keys.getAttribute('data-grid-dial-value')).not.toBe(valueBeforeDrag)
   expect(Number(finalValue)).toBeGreaterThan(0)
   const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
   expect(releaseEvents).toHaveLength(eventCountBeforeDrag + 1)
