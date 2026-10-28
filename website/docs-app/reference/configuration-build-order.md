@@ -41,6 +41,8 @@ A configured list replaces all four defaults and keeps its order. Matchers withi
 
 These settings define the epic catalogue for the build history home page; its resolver and rendering are delivered separately.
 
+History rows are visible in memory immediately. Durable history writes coalesce for up to 30 seconds; explicit flushes and orderly shutdown flush immediately. Each atomic snapshot reuses the JSON for unchanged rows, and retains the existing history file format. A process crash can lose changes since the last flush.
+
 ### Two removed keys
 
 `build_order.graph_selected_refresh_ms` and `build_order.graph_demand_refresh_ms`
