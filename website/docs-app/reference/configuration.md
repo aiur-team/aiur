@@ -138,8 +138,8 @@ Environment variables are declared once in `Aiur.Env.Schema`, which validates th
 
 ## Machine settings (`~/.aiur/machine`)
 
-This optional YAML file configures mobile access on the machine independently of
-repository workflows.
+This optional YAML file shares mobile settings and the `accounts` registry across
+the machine, independently of repository workflows.
 
 | Key | Type | Default | Validation |
 | --- | --- | --- | --- |
@@ -156,6 +156,10 @@ repository workflows.
 | `machine:transport.tls.advertise_host` | string | `null` | DNS name without scheme or port. |
 | `machine:transport.allow_cleartext_overlay` | boolean | `false` | Allows eligible overlay transport when consumed. |
 | `machine:transport.cleartext_overlay_cidrs` | CIDR array | `["100.64.0.0/10", "fd7a:115c:a1e0::/48"]` | IPv4 or IPv6 prefixes; catch-all `/0` ranges are rejected. |
+
+Account registration, logout and settings writes preserve the other top-level
+sections. Malformed machine files cause account writes to return an error without
+replacing the file.
 
 Missing or empty files use defaults. Machine settings never create or read
 `~/.aiur/config`. The loader is available now; mobile commands and transport

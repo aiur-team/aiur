@@ -8,6 +8,7 @@ defmodule Aiur.Machine.Settings do
   `write/1` merges a partial map into the existing file, preserving future sections.
   """
   alias Aiur.Machine.Settings.{Schema, Validation}
+  alias Aiur.Machine.Yaml, as: MachineYaml
 
   defstruct mobile: %Schema.Mobile{},
             gateway: %Schema.Gateway{},
@@ -19,7 +20,7 @@ defmodule Aiur.Machine.Settings do
   @type error :: {:invalid, [{String.t(), String.t()}]} | {:unreadable, term()}
 
   @spec path() :: Path.t()
-  def path, do: Application.get_env(:aiur, :machine_settings_path, Path.expand("~/.aiur/machine"))
+  def path, do: Application.get_env(:aiur, :machine_settings_path, Path.join([System.get_env("HOME") || Path.expand("~"), ".aiur", "machine"]))
 
   @spec load() :: {:ok, t()} | {:error, error()}
   def load do
@@ -59,7 +60,7 @@ defmodule Aiur.Machine.Settings do
          merged = merge(existing, stringify(attrs)),
          {:ok, _settings} <- validate(merged),
          :ok <- ensure_directory() do
-      Aiur.Fs.atomic_write(path(), emit(merged), mode: 0o600)
+      Aiur.Fs.atomic_write(path(), MachineYaml.emit(merged), mode: 0o600)
     end
   end
 
@@ -111,15 +112,4 @@ defmodule Aiur.Machine.Settings do
       if is_map(old) and is_map(new), do: merge(old, new), else: new
     end)
   end
-
-  # Flow-style YAML preserves arbitrary future-section map keys; JSON quotes scalars safely.
-  defp emit(map), do: [emit_value(map), "\n"]
-
-  defp emit_value(map) when is_map(map) do
-    entries = map |> Enum.sort() |> Enum.map(fn {key, value} -> [emit_value(key), ": ", emit_value(value)] end)
-    ["{", Enum.intersperse(entries, ", "), "}"]
-  end
-
-  defp emit_value(list) when is_list(list), do: ["[", Enum.intersperse(Enum.map(list, &emit_value/1), ", "), "]"]
-  defp emit_value(value), do: Jason.encode!(value)
 end
