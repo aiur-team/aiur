@@ -174,7 +174,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     stale = render_hook(view, "key-press", %{"identifier" => "stale"})
     refute stale =~ "is-progress-stale"
     assert strip(stale) =~ "Conversation unavailable"
-    assert streamdeck_assigns(view).sd_active.progress_freshness == :stale
+    assert streamdeck_assigns(view).sd_active.progress_freshness == "stale"
 
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
     unknown = render_hook(view, "key-press", %{"identifier" => "unknown"})
@@ -313,7 +313,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert streamdeck_assigns(view).sd_active.bucket == :alert
     assert strip(html) =~ "Conversation unavailable"
-    assert streamdeck_assigns(view).sd_active.open_decision_count == 2
+    assert streamdeck_assigns(view).sd_active.state == "command"
   end
 
   test "renders bounded BACK and EVENTS hint arrows in logs mode" do
