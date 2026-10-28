@@ -18,6 +18,7 @@ defmodule AiurWeb.ConversationLive do
         state: :loading,
         page: nil,
         positions: [],
+        revealed_positions: MapSet.new(),
         live_head: 0,
         sessions: [],
         last_entry: nil,
@@ -73,7 +74,8 @@ defmodule AiurWeb.ConversationLive do
   def handle_info({:entries_appended, id, entries}, %{assigns: %{id: id}} = socket),
     do: {:noreply, socket |> ComposerEvents.reconcile(entries) |> Paging.append(entries)}
 
-  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> Commands.reload() |> Paging.refresh_entries()}
+  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> Commands.reload()}
+  def handle_info({:anchor_added, id, _anchor}, %{assigns: %{id: id}} = socket), do: {:noreply, Commands.reload(socket)}
   def handle_info(:decision_metrics_changed, socket), do: {:noreply, socket}
 
   def handle_info(:delivery_tick, socket), do: {:noreply, ComposerEvents.poll(socket)}
@@ -88,7 +90,7 @@ defmodule AiurWeb.ConversationLive do
 
   def handle_info(:age_tick, socket) do
     Process.send_after(self(), :age_tick, 30_000)
-    {:noreply, socket |> Paging.present() |> ComposerEvents.refresh_mode() |> Commands.reload() |> Paging.refresh_entries()}
+    {:noreply, socket |> Paging.present() |> ComposerEvents.refresh_mode() |> Commands.reload()}
   end
 
   @impl true

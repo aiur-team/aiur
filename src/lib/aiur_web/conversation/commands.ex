@@ -3,7 +3,7 @@ defmodule AiurWeb.Conversation.Commands do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   alias Aiur.Commands, as: CommandStore
   alias Aiur.Conversation.{History, Ref}
-  alias AiurWeb.Conversation.Paging
+  alias AiurWeb.Conversation.CardRefresh
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{DecisionEvents, DecisionProvider}
 
@@ -17,7 +17,9 @@ defmodule AiurWeb.Conversation.Commands do
   end
 
   @spec reload(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  def reload(socket) do
+  def reload(socket), do: socket |> read() |> CardRefresh.refresh(socket.assigns)
+
+  defp read(socket) do
     with {:ok, params} <- subject(socket.assigns.id),
          {:ok, page} <- DecisionProvider.list(Map.merge(params, %{"lifecycle" => "open", "limit" => 100}), options()) do
       retained = retained(socket.assigns.decision_page.decisions, page.decisions)
@@ -77,9 +79,9 @@ defmodule AiurWeb.Conversation.Commands do
     if EndpointConfig.get(:dashboard_writable) == true and row do
       socket
       |> assign(selected_decision: row, selected_decision_id: id)
-      |> then(fn s -> DecisionEvents.handle(event, params, s, &reload/1) end)
+      |> then(fn s -> DecisionEvents.handle(event, params, s, &read/1) end)
       |> assign(selected_decision: nil, selected_decision_id: nil)
-      |> Paging.refresh_entries()
+      |> CardRefresh.refresh(socket.assigns)
     else
       socket
     end

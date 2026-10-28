@@ -3,7 +3,7 @@ defmodule AiurWeb.Conversation.Paging do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [stream: 4, stream_insert: 4]
   alias Aiur.Conversation.History
-  alias AiurWeb.Conversation.Presenter
+  alias AiurWeb.Conversation.{Access, Presenter}
 
   defp opts(socket), do: [principal: socket.assigns.principal, limit: 50]
 
@@ -25,12 +25,12 @@ defmodule AiurWeb.Conversation.Paging do
 
   @spec reveal(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   def reveal(socket, pos) when is_binary(pos) do
-    with true <- AiurWeb.Conversation.Access.can_reveal?(socket.assigns.principal),
+    with true <- Access.can_reveal?(socket.assigns.principal),
          {position, ""} <- Integer.parse(pos),
          true <- position in socket.assigns.positions,
          {:ok, page} <- History.list_entries(socket.assigns.id, Keyword.merge(opts(socket), around: position, limit: 1, reveal: true)),
          entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == position)) do
-      stream_insert(socket, :entries, entry, [])
+      socket |> assign(:revealed_positions, MapSet.put(socket.assigns.revealed_positions, position)) |> stream_insert(:entries, entry, [])
     else
       _ -> socket
     end
@@ -53,17 +53,25 @@ defmodule AiurWeb.Conversation.Paging do
     end
   end
 
-  @spec refresh_entries(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  def refresh_entries(socket) do
-    socket.assigns.positions
-    |> Enum.chunk_every(200)
-    |> Enum.reduce(socket, fn positions, acc -> refresh_chunk(acc, positions) end)
+  @spec refresh_entries(Phoenix.LiveView.Socket.t(), [pos_integer()]) :: Phoenix.LiveView.Socket.t()
+  def refresh_entries(socket, positions) do
+    socket = assign(socket, :can_reveal, Access.can_reveal?(socket.assigns.principal))
+
+    positions
+    |> Enum.uniq()
+    |> Enum.filter(&(&1 in socket.assigns.positions))
+    |> Enum.reduce(socket, &refresh_entry(&2, &1))
   end
 
-  defp refresh_chunk(socket, positions) do
-    case History.list_entries(socket.assigns.id, principal: socket.assigns.principal, after: hd(positions) - 1, limit: length(positions)) do
-      {:ok, page} -> Enum.reduce(page.entries, socket, &stream_insert(&2, :entries, &1, []))
-      {:error, _reason} -> assign(socket, :commands_error, "Command positions unavailable. Open the Commands list to retry.")
+  defp refresh_entry(socket, pos) do
+    reveal? = socket.assigns.can_reveal and MapSet.member?(socket.assigns.revealed_positions, pos)
+    options = [principal: socket.assigns.principal, around: pos, limit: 1, reveal: reveal?]
+
+    with {:ok, page} <- History.list_entries(socket.assigns.id, options),
+         entry when not is_nil(entry) <- Enum.find(page.entries, &(&1.pos == pos)) do
+      stream_insert(socket, :entries, entry, [])
+    else
+      _ -> assign(socket, :commands_error, "Command positions unavailable. Open the Commands list to retry.")
     end
   end
 
@@ -86,6 +94,7 @@ defmodule AiurWeb.Conversation.Paging do
     assign(socket,
       page: page,
       positions: positions,
+      revealed_positions: revealed_positions(socket, positions, reset?),
       last_entry: last,
       live_head: live_head,
       mode: direction,
@@ -95,6 +104,9 @@ defmodule AiurWeb.Conversation.Paging do
       degraded: History.degraded?(socket.assigns.id)
     )
   end
+
+  defp revealed_positions(_socket, _positions, true), do: MapSet.new()
+  defp revealed_positions(socket, positions, false), do: MapSet.intersection(socket.assigns.revealed_positions, MapSet.new(positions))
 
   defp insert(socket, entries, :older), do: Enum.reduce(entries, socket, &stream_insert(&2, :entries, &1, at: 0, limit: 500))
   defp insert(socket, entries, _direction), do: Enum.reduce(entries, socket, &stream_insert(&2, :entries, &1, at: -1, limit: -500))
@@ -121,7 +133,7 @@ defmodule AiurWeb.Conversation.Paging do
 
   defp append_window(socket, entries) do
     positions = Enum.take(socket.assigns.positions ++ Enum.map(entries, & &1.pos), -500)
-    socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions)
+    socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions, revealed_positions: revealed_positions(socket, positions, false))
   end
 
   defp count_new(socket, count, at_tail?), do: assign(socket, :new_below, if(at_tail? and socket.assigns.at_bottom, do: 0, else: socket.assigns.new_below + count))
