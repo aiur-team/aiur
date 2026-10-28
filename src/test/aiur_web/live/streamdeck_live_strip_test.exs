@@ -142,7 +142,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert html =~ ~r/<b>—<\/b> live · <b>—<\/b> left/
     assert html =~ "Build"
     assert html =~ "MORE AGENTS"
-    assert length(Regex.scan(~r/data-pager-page=/, html)) == 0
+    assert Regex.scan(~r/data-pager-page=/, html) == []
     assert html =~ ~s(data-grid-total="0")
   end
 

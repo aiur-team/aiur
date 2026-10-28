@@ -4,6 +4,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsTest do
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Input, Nav, Tickets}
   alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.StreamdeckLive.Surface
 
   test "attention order, numeric ties, reason states, unknown, then queue order with no duplicate or unfiled ticket" do
     now = Enum.with_index(~w(paused parked usage_limited ci_wait active retrying command error merge-queued mystery), 10) |> Enum.map(fn {s, n} -> row(n, s) end)
@@ -29,7 +30,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsTest do
       assert image.label =~ key.label
       colors = %{active: "#9fd0ff", stuck: "#ff9a90", idle: "#c2c6cf", queued: "#9096a4", unknown: "#c2c6cf"}
       assert image.svg =~ Map.fetch!(colors, key.face)
-      [emulator | _] = AiurWeb.StreamdeckLive.Surface.key_descriptors([key], 0)
+      [emulator | _] = Surface.key_descriptors([key], 0)
       assert emulator.style =~ "--sd-accent: #{Map.fetch!(colors, key.face)}"
       expected_face = if expected["cls"], do: String.to_existing_atom(expected["cls"]), else: :unknown
       assert key.face == expected_face

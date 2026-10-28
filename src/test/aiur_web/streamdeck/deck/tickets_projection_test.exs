@@ -2,8 +2,10 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.BuildOrder.Index
   alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.Streamdeck.Deck.Tickets
   alias AiurWeb.Streamdeck.Render
-  alias AiurWeb.StreamdeckLive.{Components, Surface}
+  alias AiurWeb.StreamdeckFleet
+  alias AiurWeb.StreamdeckLive.{CommandKeys, Components, Surface}
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   test "shared Build window drives snapshot, emulator keys, raw key input and index refresh" do
@@ -18,7 +20,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
       end
     )
 
-    grid = AiurWeb.StreamdeckFleet.grid(%{})
+    grid = StreamdeckFleet.grid(%{})
     assert [%{id: "77", label: "Waiting for CI", pct: nil}] = grid.agents
     assert grid.total == 1
     assert grid.windows == 1
@@ -43,26 +45,26 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     window = %{sources: %{agents: %{state: "ok", observed_at: 123}}, sections: %{now: [row], plan: [], nq: []}}
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, window} end)
     snapshot = %{running: [%{identifier: "77", title: "Old title", work_state: :working, progress_percent: 30, progress_freshness: :stale, priority: 1}], retrying: [], idle: []}
-    [key] = AiurWeb.StreamdeckFleet.grid(snapshot).agents
+    [key] = StreamdeckFleet.grid(snapshot).agents
     assert key.title == "Build title"
     assert key.label == "Retrying"
     assert key.progress_percent == 40
     assert key.progress_freshness == "stale"
     assert key.bucket == :running
     assert key.priority == true
-    [pause | _] = AiurWeb.StreamdeckLive.CommandKeys.command_keys(key, false)
+    [pause | _] = CommandKeys.command_keys(key, false)
     assert pause.label == "Pause"
     assert Render.key(key).label =~ "40% stale"
 
     stale = put_in(window, [:sources, :agents, :state], "stale")
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, stale} end)
-    [key] = AiurWeb.StreamdeckFleet.grid(%{}).agents
+    [key] = StreamdeckFleet.grid(%{}).agents
     assert key.progress_freshness == "stale"
     assert key.bucket == :stuck
 
     for state <- ["retrying", "mystery"] do
-      [key] = AiurWeb.Streamdeck.Deck.Tickets.keys(%{now: [%{row | agent: %{state: state}}]})
-      [pause | _] = AiurWeb.StreamdeckLive.CommandKeys.command_keys(key, false)
+      [key] = Tickets.keys(%{now: [%{row | agent: %{state: state}}]})
+      [pause | _] = CommandKeys.command_keys(key, false)
       assert pause.label == "Pause"
     end
   end
@@ -70,7 +72,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
   test "failed window publishes an unavailable empty ticket list rather than legacy running state" do
     for read <- [fn _, _, _ -> {:error, :offline} end, fn _, _, _ -> raise "offline" end, fn _, _, _ -> exit(:offline) end] do
       EndpointStubs.put(streamdeck_build_window_fun: read)
-      grid = AiurWeb.StreamdeckFleet.grid(%{running: [%{identifier: "77", title: "Old running fact"}]})
+      grid = StreamdeckFleet.grid(%{running: [%{identifier: "77", title: "Old running fact"}]})
       assert grid.agents == []
       assert grid.total == 0
       assert grid.tickets_status == "unavailable"
