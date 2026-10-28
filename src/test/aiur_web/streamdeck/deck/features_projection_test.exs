@@ -22,8 +22,6 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
     assert_reply(deck_input(socket, %{"kind" => "key_press", "index" => 0}), :ok, reply)
     refute Map.has_key?(reply, "frame")
     assert hd(flush_frame(socket).keys).label =~ "Member"
-    assert_reply(deck_input(socket, %{"kind" => "key_press", "index" => 0}), :ok)
-    assert :sys.get_state(socket.channel_pid).assigns.deck_effects == [{:open_ticket, "88"}]
     EndpointStubs.put(streamdeck_build_queue_fun: fn -> %{status: :disabled, queues: []} end)
     assert_reply(deck_input(socket, %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}), :error, priority)
     assert priority == %{reason: "disabled"}
@@ -33,6 +31,11 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
     assert_reply(deck_input(socket, %{"kind" => "dial_long_press", "index" => 3}), :ok, reply)
     refute Map.has_key?(reply, "frame")
     assert hd(flush_frame(socket).keys).svg =~ ">60%</text>"
+    # Opening a ticket starts independent chat refreshes, after the frame-coalescing checks.
+    assert_reply(deck_input(socket, %{"kind" => "key_press", "index" => 0}), :ok)
+    assert hd(flush_frame(socket).keys).label =~ "Member"
+    assert_reply(deck_input(socket, %{"kind" => "key_press", "index" => 0}), :ok)
+    assert :sys.get_state(socket.channel_pid).assigns.deck_effects == [{:open_ticket, "88"}]
   end
 
   test "physical key positions drill into the feature displayed on that key" do
