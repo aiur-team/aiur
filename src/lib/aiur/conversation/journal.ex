@@ -2,7 +2,7 @@ defmodule Aiur.Conversation.Journal do
   @moduledoc "Serialized, recoverable writer for one conversation. All disk work stays in this process."
   use GenServer, restart: :transient
   alias Aiur.Config.Paths
-  alias Aiur.Conversation.{Entry, Ingest, JournalSessions, Ref}
+  alias Aiur.Conversation.{Entry, Ingest, JournalSessions, ProviderReplay, Ref}
 
   @spec start_link(Ref.t()) :: GenServer.on_start()
   def start_link(ref), do: GenServer.start_link(__MODULE__, ref, name: via(ref))
@@ -195,7 +195,8 @@ defmodule Aiur.Conversation.Journal do
   end
 
   defp write(state, inputs) do
-    with {:ok, state, sessions} <- resolve(state, inputs) do
+    with {:ok, state, inputs} <- ProviderReplay.filter(state, inputs),
+         {:ok, state, sessions} <- resolve(state, inputs) do
       gaps =
         gap_inputs(state) ++
           Enum.flat_map(inputs, fn
@@ -215,7 +216,7 @@ defmodule Aiur.Conversation.Journal do
       with {:ok, stat} <- File.stat(Path.join(state.dir, "sessions.jsonl")),
            head = %{state.segment_state | "last_session_seq" => state.session_seq, "sessions_bytes" => stat.size},
            {:ok, head} <- state.store.append_entries(state.dir, head, Enum.map(entries, &Entry.to_json/1)) do
-        {:ok, %{updated | segment_state: head}, entries, sessions}
+        {:ok, ProviderReplay.remember(%{updated | segment_state: head}, entries), entries, sessions}
       end
     end
   end

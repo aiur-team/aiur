@@ -15,6 +15,7 @@ defmodule Aiur.Conversation.JournalSessions do
       state = if state.recover, do: reconcile_gaps(state, entries), else: state
       session = if session, do: %{session | last_pos: last_pos(entries, session.session_seq)}, else: nil
       state = %{state | segment_state: head, next_pos: head["last_pos"] + 1, session_seq: head["last_session_seq"], open_session: session, dedup: MapSet.new(), dedup_order: :queue.new()}
+      state = Map.delete(state, :provider_replay)
       state = Enum.reduce(entries, state, &recover_entry/2)
       state = %{state | resume: state.resume or (is_nil(session) and restart_resume?(List.last(lines)))}
       restart(state)
