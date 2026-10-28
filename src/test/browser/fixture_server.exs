@@ -159,9 +159,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.Fixtures
-  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
-  alias Aiur.BrowserHarness.FixtureEndpointStart
+  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
