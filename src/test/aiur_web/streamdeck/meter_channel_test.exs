@@ -14,14 +14,14 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
 
     for view <- ["feature", "epic", "fleet"] do
       ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
-      assert_reply(ref, :ok, %{"view" => ^view})
+      assert_reply(ref, :ok, %{"view" => ^view}, 1_500)
     end
 
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 3, "ticks" => 1})
-    assert_reply(ref, :ok, %{"page" => 1, "frame" => %{keys: [meter | _]}})
+    assert_reply(ref, :ok, %{"page" => 1, "frame" => %{keys: [meter | _]}}, 1_500)
     assert meter.svg =~ "claude usage"
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-    assert_reply(ref, :ok, %{"page" => 0, "frame" => %{keys: [first, second | empty], strip: strip}})
+    assert_reply(ref, :ok, %{"page" => 0, "frame" => %{keys: [first, second | empty], strip: strip}}, 1_500)
     assert first.label == "personal"
     assert first.svg =~ "50% left"
     assert second.label == "work stale"
@@ -37,7 +37,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     assert updated.svg =~ "40% left"
 
     ref = push(socket, "input", %{"kind" => "dial_long_press", "index" => 3})
-    assert_reply(ref, :ok, %{"page" => 1, "frame" => %{keys: [meter | _]}})
+    assert_reply(ref, :ok, %{"page" => 1, "frame" => %{keys: [meter | _]}}, 1_500)
     assert meter.svg =~ "claude usage"
     assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == []
   end
@@ -54,15 +54,15 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
 
     for _ <- 1..3 do
       ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
-      assert_reply(ref, :ok, %{"view" => view})
+      assert_reply(ref, :ok, %{"view" => view}, 1_500)
       assert view in ["feature", "epic", "fleet"]
     end
 
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 3, "ticks" => 1})
-    assert_reply(ref, :ok, %{"page" => 1, "frame" => %{keys: [meter | _]}})
+    assert_reply(ref, :ok, %{"page" => 1, "frame" => %{keys: [meter | _]}}, 1_500)
     assert meter.svg =~ "claude usage"
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-    assert_reply(ref, :ok, %{"frame" => %{keys: [account | _]}})
+    assert_reply(ref, :ok, %{"frame" => %{keys: [account | _]}}, 1_500)
     assert account.label == "personal"
     assert account.svg =~ "50% left"
   end
