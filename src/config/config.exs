@@ -85,6 +85,7 @@ config :aiur, :capability_providers, [
   Aiur.Executor.CapabilityProvider,
   Aiur.BuildOrder.CapabilityProvider,
   Aiur.ElevenLabs.CapabilityProvider,
+  Aiur.VoiceConverse.Host.Capability,
   AiurWeb.StreamdeckCapabilityProvider,
   Aiur.Webhooks.CapabilityProvider,
   Aiur.Claude.RemoteControl.CapabilityProvider,

@@ -75,4 +75,22 @@ defmodule Aiur.VoiceConversation.CredentialsTest do
     assert Credentials.fetch(:elevenlabs_agents, :probe) == {:error, :missing}
     assert Credentials.fetch(:elevenlabs_agents, :connect) == {:error, :missing}
   end
+
+  test "future regression guard: a started instance stores no credential bytes", %{path: path} do
+    previous = System.get_env("OPENAI_API_KEY")
+
+    on_exit(fn ->
+      if previous, do: System.put_env("OPENAI_API_KEY", previous), else: System.delete_env("OPENAI_API_KEY")
+    end)
+
+    File.write!(path, "tracker:\n  kind: memory\n")
+    Workflow.set_workflow_file_path(path)
+    secret = "voice-test-key-that-must-not-persist"
+    System.put_env("OPENAI_API_KEY", secret)
+    assert Credentials.fetch(:openai, :connect) == {:ok, secret}
+
+    {:ok, config} = VoiceConverse.Config.new(name: __MODULE__.Instance, transcript: :none, credentials: Aiur.VoiceConverse.Host.Credentials, briefing_source: Aiur.VoiceConverse.Host.BriefingSource)
+    instance = start_supervised!({VoiceConverse, config})
+    assert :binary.match(:erlang.term_to_binary(:sys.get_state(instance)), secret) == :nomatch
+  end
 end
