@@ -25,10 +25,12 @@ empty population. Percentages use 0–100; trends use percentage points.
 - `program`: now/yesterday done and total, changes in those counts, `scope`
   including completions, added, removed, reopened, paused and shelved, plus lanes.
   Completions require open yesterday and completed today, never new membership.
-  Removed includes disappeared tickets and newly not-planned tickets. Shelved
+  Removed includes disappeared tickets and newly not-planned tickets. Closed
+  not-planned tickets leave the total, including lane totals. Shelved
   is the current paused mobile/watch population (unavailable without yesterday).
   Lanes count completed tickets with `closed_at` in the window; `finished` needs
-  a previously incomplete lane, now complete, with at least one window completion.
+  a previously incomplete lane, now complete. Scope removal can finish a lane
+  while its window completion count stays zero.
 - `meta_patterns`: window log count, recurring exact themes (falling back to
   exact bottleneck text), empty-window status, newest known log timestamp.
   Similar prose is not guessed to be the same theme.

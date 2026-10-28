@@ -14,6 +14,10 @@ def completed(row):
     return row["state"].lower() == "closed" and (row.get("state_reason") or "").lower() == "completed"
 
 
+def not_planned(row):
+    return row["state"].lower() == "closed" and (row.get("state_reason") or "").lower() == "not_planned"
+
+
 def opened(row):
     return row["state"].lower() == "open"
 
@@ -21,6 +25,7 @@ def opened(row):
 def counts(rows):
     if rows is None:
         return {key: UNAVAILABLE for key in ("total", "done")}
+    rows = {n: r for n, r in rows.items() if not not_planned(r)}
     return {"total": len(rows), "done": sum(completed(r) for r in rows.values())}
 
 
@@ -32,8 +37,8 @@ def transitions(now, before):
         "completions": sum(opened(before[n]) and completed(now[n]) for n in shared),
         "added": len(now.keys() - before.keys()),
         "removed": len(before.keys() - now.keys()) + sum(
-            (now[n].get("state_reason") or "").lower() == "not_planned"
-            and (before[n].get("state_reason") or "").lower() != "not_planned" for n in shared),
+            not_planned(row) and (n not in before or not not_planned(before[n]))
+            for n, row in now.items()),
         "reopened": sum(not opened(before[n]) and opened(now[n]) for n in shared),
         "paused": sum(not before[n].get("paused", False) and now[n].get("paused", False) for n in shared),
         "shelved": sum(r.get("mobile", False) and r.get("paused", False) for r in now.values())}
@@ -66,7 +71,7 @@ def lanes(snapshot, now, before):
         done = sum(completed(r) and r.get("closed_at") is not None and window(snapshot, r["closed_at"])
                    for r in rows.values())
         reached = UNAVAILABLE if old is None else bool(
-            current["done"] == current["total"] and previous["done"] < previous["total"] and done)
+            current["done"] == current["total"] and previous["done"] < previous["total"])
         result[name] = {**{k: metric(v, *fields) for k, v in current.items()},
                         "done_in_window": metric(done, *fields),
                         "percent": metric(percent(current["done"], current["total"]), *fields),

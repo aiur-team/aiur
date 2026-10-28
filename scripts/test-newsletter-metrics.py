@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Fixture-only newsletter metrics contract and unavailable-path tests."""
+"""Fixture-only newsletter report contract.
+
+Keep shared fixtures and cross-metric invariants together in this contract suite.
+"""
 import copy
 import json
 from pathlib import Path
@@ -80,9 +83,15 @@ class MetricsTest(unittest.TestCase):
         today["program"]["tickets"] = [ticket(3), ticket(4, "closed", "COMPLETED"), ticket(5, "closed", "NOT_PLANNED")]
         today["program"]["tickets"] += [ticket(n, "closed", "COMPLETED") if n == 10 else ticket(n)
                                          for n in range(10, 20)]
-        scope = compute(today, yesterday)["program"]["scope"]
+        report = compute(today, yesterday)["program"]
+        self.assertEqual(value(report["total"]), 12)
+        scope = report["scope"]
         self.assertEqual({k: value(scope[k]) for k in ("added", "removed", "reopened", "completions")},
                          {"added": 10, "removed": 3, "reopened": 1, "completions": 1})
+        today["program"]["tickets"].append(ticket(20, "closed", "NOT_PLANNED"))
+        report = compute(today, yesterday)["program"]
+        self.assertEqual(value(report["total"]), 12)
+        self.assertEqual([value(report["scope"][k]) for k in ("added", "removed")], [11, 4])
         today["program"]["tickets"] = [ticket(3), ticket(4), ticket(5)] + [ticket(n) for n in range(10, 20)]
         scope = compute(today, yesterday)["program"]["scope"]
         self.assertEqual([value(scope[k]) for k in ("added", "removed", "completions")], [10, 2, 0])
@@ -130,6 +139,12 @@ class MetricsTest(unittest.TestCase):
         report = compute(today, yesterday)
         self.assertEqual(value(report["outcomes"]["finished_verified"]), 1)
         self.assertIs(value(report["program"]["lanes"]["feature:mail"]["finished"]), True)
+        today["program"]["tickets"][0]["closed_at"] = stamp(-30)
+        yesterday["program"]["tickets"] = [ticket(1, "closed", "COMPLETED", closed_at=stamp(-30)), ticket(2)]
+        today["program"]["tickets"].append(ticket(2, "closed", "NOT_PLANNED"))
+        lane = compute(today, yesterday)["program"]["lanes"]["feature:mail"]
+        self.assertIs(value(lane["finished"]), True)
+        self.assertEqual(value(lane["done_in_window"]), 0)
         today["sources"]["github_merges"] = {"state": "stale"}
         self.assertEqual(value(compute(today)["outcomes"]["finished_verified"]), "unavailable")
         today["sources"] = {}
