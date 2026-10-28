@@ -9,7 +9,9 @@
     "src/lib/aiur/client_tokens.ex",
     "src/lib/aiur/identity.ex",
     "src/lib/aiur/identity/**",
-    "src/lib/aiur/machine/**",
+    "src/lib/aiur/machine/paths.ex",
+    "src/lib/aiur/machine/permissions.ex",
+    "src/lib/aiur/machine/store.ex",
     "src/lib/aiur_web/controllers/capabilities_controller.ex",
     "src/lib/aiur_web/routes/capabilities.ex"
   ],
