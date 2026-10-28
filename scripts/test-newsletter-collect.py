@@ -95,6 +95,13 @@ class CollectorTest(unittest.TestCase):
         self.assertIsNone(result["program"]["tickets"][0]["lifecycle"])
         self.assertIsNone(result["allocation"]["units"])
         self.assertIsNone(result["executor_actions"])
+        def missing_build(args):
+            data = json.loads(daemon(args))
+            data["auxiliary"]["running_build"] = {"sha": "unknown", "built_at": None}
+            return json.dumps(data)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = collect.collect("owner/repo", Path(tmp), NOW, FakeGitHub(), missing_build)
+        self.assertEqual(result["sources"]["running_build_local"]["state"], "unavailable")
         def unknown(args):
             data = json.loads(daemon(args))
             data["data"]["view"]["rows"][0]["lifecycle"] = None

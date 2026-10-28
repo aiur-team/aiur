@@ -104,7 +104,11 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
                 sources["units_" + key] = source("unavailable", reason=str(error))
         build = (data or {}).get("auxiliary", {}).get("running_build", {})
         builds[key] = {"sha": build.get("sha"), "built_at": build.get("built_at")}
-        complete = bool(build.get("sha") and build.get("built_at"))
+        try:
+            complete = bool(re.fullmatch(r"[0-9a-fA-F]{40}", build.get("sha") or "")
+                            and build.get("built_at") and parse_time(build["built_at"]) <= now)
+        except (ValueError, TypeError):
+            complete = False
         sources["running_build_" + key] = source("available", captured) if complete else source(
             "unavailable", captured if data else None, "daemon build stamp absent or incomplete")
     for row in tickets or []:
