@@ -188,6 +188,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
+    Application.put_env(:aiur, :build_fixture_query, true)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     endpoint_overrides = AiurWeb.EndpointConfig.overrides_table()

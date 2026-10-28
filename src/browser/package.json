@@ -82,7 +82,7 @@
     "test:build-home-chains": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-chains.browser.spec.mjs",
     "test:build-home-conversation": "node scripts/run-browser-tests.mjs tests/build-home-conversation.browser.spec.mjs --fully-parallel --workers=3",
     "test:build-home-modal-doc": "node scripts/run-browser-tests.mjs tests/build-home-modal-doc.browser.spec.mjs",
-    "test:build-home-a11y": "node --test scripts/build-home-a11y-audit.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-a11y.browser.spec.mjs --fully-parallel --workers=4",
+    "test:build-home-a11y": "node --test scripts/build-home-a11y-audit.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-a11y.browser.spec.mjs tests/build-home-fixture-dataset.browser.spec.mjs --fully-parallel --workers=4",
     "perf:build-home": "AIUR_BROWSER_KEEP_ARTIFACTS=1 node scripts/run-browser-tests.mjs tests/build-home-perf-matrix.browser.spec.mjs",
     "perf:build-home:target": "node scripts/build-home-perf-target.mjs",
     "test:build-home-performance": "node scripts/run-browser-tests.mjs tests/build-home-performance.browser.spec.mjs",
