@@ -23,7 +23,7 @@ defmodule AiurWeb.Streamdeck.Render.Key do
       text(ticket_number(identifier), 111, 29, 14, "text-anchor": "end"),
       if(field(face, :priority, false), do: text("★", 66, 14, 9, fill: "#ffcf87"), else: []),
       title_lines(title),
-      text(style.label, 9, 99, if(String.length(style.label) > 18, do: 8, else: 10), fill: style.accent),
+      text(style.label, 9, 99, min(10, div(170, max(String.length(style.label), 1))), fill: style.accent),
       footer(face, percent, freshness)
     ]
 

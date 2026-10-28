@@ -5,9 +5,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
 
   @order ~w(error command retrying active ci_wait usage_limited parked paused)
   @models %{"claude" => "Claude", "codex" => "Codex", "deepseek" => "DeepSeek", "kimi" => "Kimi"}
-  @taxonomy_path Path.expand("../../../../priv/static/build-home/ticket-status.json", __DIR__)
-  @external_resource @taxonomy_path
-  @states @taxonomy_path |> File.read!() |> Jason.decode!() |> Map.fetch!("agent") |> Map.keys()
+  @states TicketStatus.agent_states()
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
