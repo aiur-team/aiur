@@ -59,7 +59,7 @@ test('live entries follow at bottom and preserve the scrolled-up viewport with a
   await scroll.evaluate(el => { el.scrollTop = 100; el.dispatchEvent(new Event('scroll')) })
   // A subsequent LiveView event roundtrip follows the hook's at_bottom report.
   await page.getByRole('button', { name: 'Load older', exact: true }).click()
-  const top = await scroll.evaluate(el => el.scrollTop)
+  const top = await scroll.evaluate(el => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(el.scrollTop)))))
   await page.request.get('/conversation-fixture/append')
   await expect(page.locator('#conversation-new')).toHaveText('3 new entries below')
   await expect.poll(() => scroll.evaluate(el => el.scrollTop)).toBe(top)

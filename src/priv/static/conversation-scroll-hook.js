@@ -14,6 +14,7 @@ window.AiurConversationScrollHook = {
     requestAnimationFrame(() => this.toBottom())
   },
   beforeUpdate () {
+    if (this.frame != null) return
     this.wasBottom = this.bottom
     this.head = this.el.dataset.head
     this.anchor = [...this.el.querySelectorAll('[data-pos]')].find(el => el.getBoundingClientRect().bottom >= this.el.getBoundingClientRect().top)
@@ -21,7 +22,9 @@ window.AiurConversationScrollHook = {
     this.firstPos = this.el.querySelector('[data-pos]')?.dataset.pos
   },
   updated () {
-    requestAnimationFrame(() => {
+    if (this.frame != null) return
+    this.frame = requestAnimationFrame(() => {
+      this.frame = null
       const mode = this.el.dataset.mode
       const firstChanged = this.firstPos !== this.el.querySelector('[data-pos]')?.dataset.pos
       if (mode === 'start' && firstChanged) this.el.scrollTop = 0
@@ -35,6 +38,7 @@ window.AiurConversationScrollHook = {
     this.onScroll()
   },
   destroyed () {
+    cancelAnimationFrame(this.frame)
     this.el.removeEventListener('scroll', this.onScroll)
   }
 }
