@@ -1,5 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
+  alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.Render.{MeterDetail, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
@@ -18,7 +19,7 @@ defmodule AiurWeb.Streamdeck.Render.Views do
 
   @spec compose(map()) :: {[map() | nil], [map()]}
   def compose(%{surface: :grid, nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
-    MeterDetail.compose(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, AiurWeb.Streamdeck.Deck.Nav.page(nav))
+    MeterDetail.compose(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, Nav.page(nav))
   end
 
   def compose(model) do
