@@ -20,14 +20,20 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Provides a standalone encrypted notification relay with persistent handles and asynchronous provider delivery.",
+  "summary": "Provides a standalone encrypted notification relay with persistent handles and APNs delivery over HTTP/2.",
   "status": "experimental",
   "install": {
     "type": "included"
   },
-  "docs": [],
+  "docs": [
+    "guide/push-relay.md"
+  ],
   "config": [],
-  "env": [],
+  "env": [
+    "AIUR_RELAY_APNS_KEY_FILE",
+    "AIUR_RELAY_APNS_KEY_ID",
+    "AIUR_RELAY_APNS_TEAM_ID"
+  ],
   "capabilities": [],
   "added_by": "MP-N4",
   "goal": "notify"
