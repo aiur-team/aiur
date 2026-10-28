@@ -3,7 +3,9 @@
   "name": "Encrypted notifications",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/push/crypto/primitives.ex"
+  ],
   "facades": [
     "*"
   ],
