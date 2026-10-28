@@ -45,8 +45,10 @@ defmodule AiurWeb.Streamdeck.Render.Settings do
 
     %{keys: keys, strip: Render.strip(regions)}
   end
+
   defp key(item, focused) do
     style = Style.state("paused")
+
     content = [
       Svg.element("rect", width: 120, height: 120, rx: 15, fill: hd(style.glow)),
       Svg.element("rect", x: 3, y: 3, width: 114, height: 114, rx: 12, fill: hd(style.face)),
@@ -54,7 +56,7 @@ defmodule AiurWeb.Streamdeck.Render.Settings do
       item.label |> Svg.wrap(Svg.budget(120, 9, 14), 3) |> Enum.with_index() |> Enum.map(fn {line, row} -> Svg.text(line, 9, 43 + row * 16, 14) end),
       Svg.text(item.detail |> String.slice(0, 17), 9, 106, 10, fill: style.accent)
     ]
+
     Svg.image(content, 120, 120, "#{item.label} · #{item.detail}")
   end
-
 end

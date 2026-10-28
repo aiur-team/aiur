@@ -81,11 +81,12 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
   end
 
   test "sort setting changes rendered ticket order and presses resolve against that order" do
+    snapshot = %{running: [AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Zulu"}), AgentEvents.agent_summary("AIUR-2", :running, 0, %{title: "Alpha"})], retrying: [], idle: []}
+
     put_endpoint_config(
       streamdeck_build_queue_fun: fn -> %{status: :disabled} end,
-      streamdeck_snapshot_fun: fn ->
-        %{running: [AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Zulu"}), AgentEvents.agent_summary("AIUR-2", :running, 0, %{title: "Alpha"})], retrying: [], idle: []}
-      end
+      streamdeck_snapshot_fun: fn -> snapshot end,
+      streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(snapshot) end
     )
 
     socket = joined_socket()
