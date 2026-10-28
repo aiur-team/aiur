@@ -381,9 +381,8 @@ test('Units dictation recovers when the voice connection closes while capture st
   await expect(drawer.locator('[data-voice-status]')).toContainText(
     'Speech-to-text connection closed. Try dictation again.'
   )
-  const mic = drawer.getByRole('menuitem', { name: 'Dictate message' })
   await expect(drawer.locator('[data-voice-mic]')).toHaveAttribute('aria-pressed', 'false')
-  await expect(mic).toBeEnabled()
+  await expect(drawer.locator('[data-voice-mic]')).toBeEnabled()
   await expect(drawer.getByLabel('Message agent')).not.toHaveAttribute('readonly', '')
   expect(await page.evaluate(() => window.__voiceTrackStops)).toBe(1)
   expect(await page.evaluate(() => window.__openAudioContexts)).toBe(0)
