@@ -69,11 +69,12 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
   test "shared frame composition carries feature state for the browser renderer" do
     put_window(window())
     grid = StreamdeckProjection.grid()
-    {nav, model, {faces, regions}} = FrameUpdates.frame(%Nav{view: :feature}, grid, %{}, &Render.compose/1)
+    {nav, model, frame} = FrameUpdates.frame(%Nav{view: :feature}, grid, %{})
+    {faces, regions} = Render.compose(model)
     assert model.nav == nav
     assert hd(faces).kind == :feature
     assert hd(faces).pct == 60
-    assert Render.key(hd(faces)).svg =~ ">60%</text>"
+    assert hd(frame.keys).svg =~ ">60%</text>"
     assert hd(regions).label =~ "12/20 closed"
   end
 
