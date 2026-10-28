@@ -17,6 +17,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
         nq: []
       },
       order: ["lane"],
+      epics: %{"lane" => %{feature: "parent"}},
       features: %{"parent" => %{label: "Parent", epics: ["lane"]}},
       feature_progress: %{
         observed_at: System.system_time(:millisecond) - 120_000,

@@ -20,16 +20,23 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     assert hd(frame.strip).svg =~ "12/20 closed · 3 not published · age 2m"
   end
 
-  test "every missing count preserves unknown percentage, empty bar and reason" do
+  test "missing counts preserve closed-total percentage parity and keep incomplete bars unknown" do
     for count <- [:closed, :open, :ci_wait, :unpublished, :total] do
       window = put_in(window(), [:feature_progress, :features, "home", count], nil)
       window = put_in(window, [:feature_progress, :features, "home", :reason], "states unavailable")
       [key | _] = Features.keys(window, 180_000)
-      assert key.pct == :unknown
+      expected_pct = if count in [:closed, :total], do: :unknown, else: 60
+      assert key.pct == expected_pct
       assert key.bar == :unknown
       face = hd(frame([key]).keys)
-      assert face.svg =~ ">—</text>"
-      assert face.svg =~ "states unavailable"
+
+      if expected_pct == :unknown do
+        assert face.svg =~ ">—</text>"
+        assert face.svg =~ "states unavailable"
+      else
+        assert face.svg =~ ">60%</text>"
+      end
+
       refute face.svg =~ ">0%</text>"
       refute face.svg =~ ~s(data-layer="closed")
       if count == :ci_wait, do: assert(key.ci_wait == nil)
@@ -42,7 +49,16 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     catalogue = Map.new(1..9, fn i -> {"parent#{i}", %{label: "Parent #{i}", epics: ["lane#{i}"]}} end)
     rows = put_in(window.sections, [:now, Access.at(0), :epic], "lane9")
     rows = put_in(rows, [:plan, Access.at(0), :epic], "lane9")
-    window = %{window | features: catalogue, sections: rows, feature_progress: %{window.feature_progress | features: entries}, order: Enum.map(1..9, &"lane#{&1}")}
+
+    window = %{
+      window
+      | epics: Map.new(1..9, &{"lane#{&1}", %{feature: "parent#{&1}"}}),
+        features: catalogue,
+        sections: rows,
+        feature_progress: %{window.feature_progress | features: entries},
+        order: Enum.map(1..9, &"lane#{&1}")
+    }
+
     keys = Features.keys(window, 180_000)
     sections = Deck.navigation(%{features: keys})
     {nav, []} = Input.reduce(%Nav{view: :feature}, %{"kind" => "dial_turn", "index" => 3, "ticks" => 1}, sections)
@@ -105,11 +121,23 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     assert Enum.join(lines, " ") == "states unavailable · planned count unavailable"
   end
 
+  test "lanes absent from the epic catalogue do not dilute parent progress" do
+    for missing <- [%{}, %{closed: 0, open: 100, ci_wait: 0, unpublished: 0, total: 100}] do
+      window = put_in(window(), [:features, "parent", :epics], ["home", "absent"])
+      window = put_in(window, [:feature_progress, :features, "absent"], missing)
+      [key | _] = Features.keys(window, 180_000)
+      assert key.pct == 60
+      assert key.bar.total == 20
+      assert hd(frame([key]).keys).svg =~ ">60%</text>"
+    end
+  end
+
   defp frame(keys, nav \\ %Nav{view: :feature}), do: Render.frame(%{grid: %{features: keys}, nav: nav})
 
   defp window do
     %{
       order: ["home", "cli"],
+      epics: %{"home" => %{feature: "parent"}, "cli" => %{feature: "cli-parent"}},
       features: %{"parent" => %{label: "Build", epics: ["home"]}, "cli-parent" => %{label: "CLI", epics: ["cli"]}},
       feature_progress: %{
         observed_at: 60_000,
