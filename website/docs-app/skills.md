@@ -159,7 +159,8 @@ selects the snapshot output directory.
 Repeat `--instance <name>` for each
 additional configured daemon to query through `aiur --instance <name>`.
 
-The collector shares classification with the meta check's `feature-share.sh`.
+The collector uses the daemon's labels-only feature rule: `feature:*`,
+`build-lane:*`, or exact `build-order`. Titles can only select non-feature classes.
 
 GitHub reads use cursor pages and batched issue numbers, with a 40-request
 ceiling below 50 GraphQL points; the snapshot records reported cost and marks
@@ -180,7 +181,8 @@ from merged changes; a merge alone does not establish deployment or verification
 
 Newsletter metrics use `scripts/newsletter/metrics.py`'s pure
 `compute(today, yesterday_or_none)` function. The report separates merge outcomes,
-instantaneous allocation, program scope changes, lanes, and meta/action evidence.
+seven-day allocation per PC/NUC machine, program scope changes, lanes, and
+meta/action evidence.
 
 Each metric includes source-field paths. Missing daily baselines keep every delta
 and trend `unavailable`; merge timestamps alone never prove a change is live.
@@ -188,3 +190,12 @@ and trend `unavailable`; merge timestamps alone never prove a change is live.
 Ancestry and Executor verification require explicit snapshot evidence, so their
 counts remain unavailable when the collector cannot supply it. The input and
 report contract is in `scripts/newsletter/metrics-contract.md` in the repository.
+
+The allocation headline compares feature turn-hours and distinct tickets worked
+with the 95% target over seven days, separately for PC and NUC. Instant agent
+counts are context. Separate lines show main-fix hours, unlabelled product,
+non-feature intake by source, and observed feature-starved slot-minutes.
+
+Each machine needs complete evidence for its window; absent or partial capture
+shows `unavailable` for that machine. A 24-hour capture cannot substitute for
+seven days, and current todo labels cannot establish first-dispatch intake.

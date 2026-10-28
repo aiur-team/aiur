@@ -27,8 +27,11 @@ def ticket(number, state="open", reason=None, **extra):
 
 
 def merge(number, hours=-1, **extra):
-    return {"number": number, "merged_at": stamp(hours), "merge_sha": str(number),
-            "class": "feature", "mobile": False, "closing_issue": number, **extra}
+    row = {"number": number, "merged_at": stamp(hours), "merge_sha": str(number),
+           "class": "feature", "mobile": False, "closing_issue": number, **extra}
+    row.setdefault("issue_labels", ["feature:mail"] if row["class"] == "feature" else [])
+    row.setdefault("issue_title", "Work")
+    return row
 
 
 def snapshot(hours=0):
@@ -63,7 +66,7 @@ class MetricsTest(unittest.TestCase):
                     check(child, path + key + ".")
         check(report)
         self.assertEqual(value(report["program"]["scope"]["completions"]), "unavailable")
-        self.assertEqual(value(report["allocation"]["agent_hours"]), "unavailable")
+        self.assertEqual(value(report["allocation"]["instant_context"]["agent_hours"]), "unavailable")
         self.assertEqual(value(report["outcomes"]["finished_verified"]), "unavailable")
         self.assertEqual(value(report["outcomes"]["live"]), "unavailable")
 
@@ -121,12 +124,12 @@ class MetricsTest(unittest.TestCase):
         self.assertAlmostEqual(value(share["trend_pp"]), 200 / 3)
         self.assertEqual(value(share["mobile_watch_feature"]), 1)
         self.assertEqual(value(share["without_mobile_watch_percent"]), 50)
-        self.assertEqual(value(report["allocation"]["feature_percent"]), 75)
-        self.assertEqual(value(report["allocation"]["trend_pp"]), 25)
-        self.assertEqual(value(report["allocation"]["held_slots"]["waiting"]["test_ci"]), 2)
-        self.assertEqual(value(report["allocation"]["agent_hours"]["feature"]), 7.5)
+        self.assertEqual(value(report["allocation"]["instant_context"]["feature_percent"]), 75)
+        self.assertEqual(value(report["allocation"]["instant_context"]["trend_pp"]), 25)
+        self.assertEqual(value(report["allocation"]["instant_context"]["held_slots"]["waiting"]["test_ci"]), 2)
+        self.assertEqual(value(report["allocation"]["instant_context"]["agent_hours"]["feature"]), 7.5)
         today["sources"]["allocation"] = {"state": "stale"}
-        self.assertEqual(value(compute(today, yesterday)["allocation"]["running_agents"]), "unavailable")
+        self.assertEqual(value(compute(today, yesterday)["allocation"]["instant_context"]["running_agents"]), "unavailable")
 
     def test_verified_and_finished_lane_require_real_evidence(self):
         today, yesterday = snapshot(), snapshot(-24)
