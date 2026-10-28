@@ -2,7 +2,8 @@ defmodule Aiur.UnitsCLIBuildTest do
   use ExUnit.Case, async: true
 
   test "reports only the daemon release stamp identity, including missing fields" do
-    root = Path.join(System.tmp_dir!(), "newsletter-build-#{System.unique_integer([:positive])}")
+    suffix = Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+    root = Path.join(System.tmp_dir!(), "newsletter-build-#{suffix}")
     File.mkdir_p!(root)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     path = Path.join(root, "stamp")
