@@ -6,6 +6,14 @@ Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or inst
 
 The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
+The server also maintains independent Ticket, Feature, Epic and Fleet navigation
+for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
+hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
+Dial 3 is reserved for the sidecar's instance switch.
+
+The current controls below remain visible until the sidecar and emulator
+renderer adopt this model.
+
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
@@ -24,7 +32,12 @@ The physical Command ticket page shares the desktop Build status and PR/CI, leav
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
 | Read-only Dashboard | Pause and Mic are disabled; Logs and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
-| Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star and in Grid ranking. |
+| Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. Server-rendered keys show `Queued #k`. The orchestrator priority star is separate. |
+
+Multiple detents in one frame produce one move. The strip reports “not in a queue”,
+“plan order is fixed”, “queue disabled”, or “outcome unknown”; unknown outcomes are
+never retried. Physical dial routing requires the server-input sidecar update
+(SD-103).
 
 ## Read the Logs surface
 
