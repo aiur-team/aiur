@@ -260,3 +260,18 @@ The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the mo
 | `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. `aiur --todo` also records the queued identifiers as known demand: the woken poll and one follow-up stay at the base interval even if GitHub has not yet indexed the label, and the command warns on stderr when the daemon did not accept the refresh. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
+
+## Newsletter snapshots
+
+`scripts/newsletter/collect.py` is an on-demand reader, separate from daemon
+polling. It discovers `phase:*` labels, searches open and closed program issues
+and the last 48 hours of merges with explicit cursors (100 results per page),
+then hydrates closing and allocation issues in batches by number. It reads no
+timelines.
+ Searches above GitHub's 1,000-result cap are reported unavailable,
+never presented as a complete program.
+
+A run admits at most 24 small GraphQL
+queries (under 50 points), records GitHub's reported cost, and still writes a
+snapshot on source failure. Usage and source states are described under
+[Daily newsletter snapshots](/skills#daily-newsletter-snapshots).
