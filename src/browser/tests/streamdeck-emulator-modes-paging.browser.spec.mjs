@@ -83,8 +83,8 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
 
   const pager = page.locator('[data-streamdeck-region="600"]')
 
-  await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  await expect(pager).toContainText('Queued')
+  await expect(pager).toHaveAttribute('aria-label', /Queued \d+; Not queued \d+/)
   expect(await pager.locator('svg > text').first().evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
 
   const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
@@ -127,9 +127,9 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
-  await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
+  await expect(pager).toContainText('Queued')
+  await expect(pager).toHaveAttribute('aria-label', /Queued \d+; Not queued \d+/)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('Queued')
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {

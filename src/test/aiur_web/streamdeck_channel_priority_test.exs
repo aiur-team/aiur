@@ -2,7 +2,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.TestSupport.StreamdeckBuildFixture
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.Streamdeck.{FrameUpdates, Render}
 
   setup do
     owner = self()
@@ -99,7 +99,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
       socket = %Phoenix.Socket{assigns: %{deck_nav: %Nav{selected: "4"}, streamdeck_authenticated: true, fleet_flush: nil}}
       assert {:reply, {:error, %{reason: ^reason}}, updated} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
       assert is_reference(updated.assigns.fleet_flush)
-      frame = AiurWeb.Streamdeck.FrameUpdates.frame(updated)
+      frame = FrameUpdates.frame(updated)
       assert hd(frame.strip).label == text
       assert hd(frame.strip).svg =~ text
     end

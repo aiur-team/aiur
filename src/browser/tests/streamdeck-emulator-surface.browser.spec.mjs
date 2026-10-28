@@ -138,20 +138,24 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await expect(logKeys).toHaveAttribute('data-offset', maxOffset)
 })
 
-test('touch strip renders common provider SVGs at native device coordinates', async ({ page }) => {
+test('touch strip renders category and backlog SVG bands at native device coordinates', async ({ page }) => {
   await openStreamdeck(page)
   const strip = page.locator('#sd-screen')
   await expect(strip).toBeVisible()
   const box = await strip.boundingBox()
   expect(box.width).toBe(800)
   expect(box.height).toBe(100)
-  await expect(strip.locator('[data-provider="claude"]')).toContainText('70% left')
-  await expect(strip.locator('[data-provider="codex"]')).toContainText('50% left')
+  await expect(strip.locator('[data-provider]')).toHaveCount(0)
+  await expect(strip.locator('[data-streamdeck-region="200"] [data-state="active"]')).toHaveCount(1)
+  await expect(strip.locator('[data-streamdeck-region="200"]')).toContainText('Agents')
   const regions = await strip.locator(':scope > [data-streamdeck-region]').evaluateAll((nodes) => nodes.map((node) => ({
     x: Number(node.dataset.streamdeckRegion), left: parseFloat(node.style.left), svgs: node.querySelectorAll('svg').length
   })))
+  expect(regions.map((region) => region.x)).toEqual([0, 200, 600])
   expect(regions.every((region) => region.x === region.left && region.svgs === 1)).toBe(true)
-  await expect(strip.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
+  await expect(strip.locator('[data-streamdeck-region="600"]')).toContainText('Queued 15')
+  await expect(strip.locator('[data-streamdeck-region="600"]')).toContainText('Not queued 0')
+  await expect(strip.locator('[data-streamdeck-region="600"] circle[data-page]')).not.toHaveCount(0)
 })
 
 test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {

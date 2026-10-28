@@ -16,7 +16,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
     assert html =~ "AIUR"
     assert html =~ ~s(data-streamdeck-region="200")
-    assert html =~ "MORE AGENTS"
+    assert html =~ "Queued"
     # A registered-but-undispatchable provider renders no segment.
     refute html =~ ~s(data-provider="deepseek")
   end
