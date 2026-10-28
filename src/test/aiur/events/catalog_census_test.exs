@@ -27,6 +27,11 @@ defmodule Aiur.Events.CatalogCensusTest do
     assert missing == [], "Producer topics without catalog entries:\n" <> Enum.join(missing, "\n")
   end
 
+  test "unreadable conversation alerts are cataloged under conversations" do
+    assert %Aiur.Events.Catalog.Entry{pattern: "system.conversation.subject_index.unreadable", owner: "conversations"} =
+             Catalog.lookup("system.conversation.subject_index.unreadable")
+  end
+
   test "census ignores documentation, comments, subscriptions, paths and topic prefixes" do
     source = ~S'''
     @moduledoc "Events.publish(\"system.docs.fake\", %{})"
