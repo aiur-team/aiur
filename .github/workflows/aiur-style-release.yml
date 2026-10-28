@@ -63,9 +63,8 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          cache: npm
-          cache-dependency-path: packages/aiur-style/package-lock.json
-      - run: npm ci --prefix packages/aiur-style
+      - run: npm ci --ignore-scripts --prefix packages/aiur-style
+      - run: npm run build --prefix packages/aiur-style
       - name: Set published repository metadata
         run: npm pkg set repository.type=git repository.url=git+https://github.com/aiur-team/aiur.git repository.directory=packages/aiur-style --prefix packages/aiur-style
       - name: Verify release tag, changelog and dist

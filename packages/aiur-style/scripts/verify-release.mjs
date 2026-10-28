@@ -43,6 +43,11 @@ async function selfTest() {
     assert.match(publishJob, /id-token: write/);
     assert.match(publishJob, /node-version: '24'/);
     assert.match(publishJob, /registry-url: 'https:\/\/registry.npmjs.org'/);
+    assert.doesNotMatch(publishJob, /cache:|cache-dependency-path:/);
+    assert.match(publishJob, /run: npm ci --ignore-scripts --prefix packages\/aiur-style$/m);
+    assert.match(publishJob, /run: npm run build --prefix packages\/aiur-style$/m);
+    assert.ok(publishJob.indexOf('run: npm ci') < publishJob.indexOf('run: npm run build'));
+    assert.ok(publishJob.indexOf('run: npm run build') < publishJob.indexOf('verify-release.mjs'));
     assert.match(publishJob, /npm publish .*--ignore-scripts --provenance --access public/);
     assert.match(publishJob, /run: node packages\/aiur-style\/scripts\/verify-release.mjs$/m);
     assert.ok(publishJob.indexOf('verify-release.mjs') < publishJob.indexOf('run: npm publish'));

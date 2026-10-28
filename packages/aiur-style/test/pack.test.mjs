@@ -12,7 +12,9 @@ test('future regression: tarball installs and every exported file resolves from 
   const scratch = mkdtempSync(join(tmpdir(), 'aiur-style-pack-'));
   const run = (command, args, cwd = scratch) => execFileSync(command, args, { cwd, encoding: 'utf8' });
   try {
-    const [pack] = JSON.parse(run('npm', ['pack', root, '--ignore-scripts', '--json', '--pack-destination', scratch]));
+    // npm 10 can send prepare output before the JSON, even with --ignore-scripts.
+    const output = run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', scratch], root);
+    const [pack] = JSON.parse(output.slice(output.lastIndexOf('\n[') + 1));
     writeFileSync(join(scratch, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
     const source = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(scratch, pack.filename), `react@${source.devDependencies.react}`]);
