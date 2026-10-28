@@ -1,17 +1,17 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render}
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav}
-  alias AiurWeb.StreamdeckFleetUpdates
-  import Phoenix.Socket, only: [assign: 2, assign: 3]
+  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput}
+  alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
+  import Phoenix.Socket, only: [assign: 2]
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def input(raw, socket) do
     case transition(socket.assigns.deck_nav, raw, grid(socket)) do
       {:ok, nav, effects} ->
-        socket = assign(socket, deck_nav: nav, deck_effects: effects)
+        socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
         {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
-        {:reply, {:ok, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}}, socket}
+        PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
 
       :noop ->
         {:reply, {:ok, %{}}, socket}
@@ -26,7 +26,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   def transition(nav, raw, grid) do
     with {:ok, input} <- normalize(raw),
          true <- Nav.valid_input?(input),
-         {nav, effects} <- Input.reduce(nav, input, Deck.navigation(normalize_grid(grid))) do
+         {%Nav{} = nav, effects} <- Input.reduce(nav, input, Deck.navigation(normalize_grid(grid))) do
       {:ok, nav, effects}
     else
       :noop -> :noop
@@ -36,23 +36,31 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @spec push(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def push(socket) do
-    {nav, _model, images} = frame(socket.assigns.deck_nav, socket.assigns.deck_grid, socket.assigns.deck_usage)
+    {nav, images} = render(socket)
     Phoenix.Channel.push(socket, "frame", images)
-    assign(socket, :deck_nav, nav)
+    assign(socket, deck_nav: nav, deck_toast: nil)
+  end
+
+  @spec frame(Phoenix.Socket.t()) :: map()
+  def frame(socket), do: socket |> render() |> elem(1)
+
+  defp render(socket) do
+    {nav, _model, images} = frame(socket.assigns.deck_nav, grid(socket), socket.assigns[:deck_usage] || %{}, &Render.frame/1, %{toast: socket.assigns[:deck_toast]})
+    {nav, images}
   end
 
   @doc "Compose the same frame model for a channel socket or the browser emulator."
-  @spec frame(Nav.t(), map(), map(), (map() -> map())) :: {Nav.t(), map(), map()}
-  def frame(nav, grid, usage, renderer \\ &Render.frame/1) do
+  @spec frame(Nav.t(), map(), map(), (map() -> map()), map()) :: {Nav.t(), map(), map()}
+  def frame(nav, grid, usage, renderer \\ &Render.frame/1, context \\ %{}) do
     grid = normalize_grid(grid)
     sections = Deck.navigation(grid)
     nav = Nav.clamp(nav, Input.sizes(nav, sections))
     agents = visible_items(nav, sections, grid.agents)
-    model = %{grid: %{grid | agents: agents}, usage: usage, page: Nav.page(nav), provider_offset: nav.scroll}
+    model = Map.merge(%{grid: %{grid | agents: agents}, usage: usage, page: Nav.page(nav), provider_offset: nav.scroll}, context)
     {nav, model, renderer.(model)}
   end
 
-  defp grid(socket), do: normalize_grid(socket.assigns.deck_grid)
+  defp grid(socket), do: normalize_grid(socket.assigns[:deck_grid] || StreamdeckProjection.grid())
 
   defp normalize_grid(grid) do
     agents = Map.get(grid, :agents, Map.get(grid, "agents", []))

@@ -16,8 +16,14 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     faces = Enum.map(0..7, &Enum.at(agents, start + rem(&1, 4) * 2 + div(&1, 4)))
     providers = model |> field(:usage, %{}) |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
     regions = [summary(grid, agents)] ++ provider_regions(providers, field(model, :provider_offset, 0)) ++ [pager(div(start, 2), max_offset, length(agents))]
-    {faces, regions}
+    {faces, feedback(regions, field(model, :toast))}
   end
+
+  defp feedback(regions, toast) when is_binary(toast) do
+    List.replace_at(regions, 0, region(0, 200, toast, [%{kind: :text_line, text: toast, y: 50, size: 12}]))
+  end
+
+  defp feedback(regions, _toast), do: regions
 
   defp summary(grid, agents) do
     live = Enum.count(agents, &(to_string(field(&1, :bucket)) != "queued"))

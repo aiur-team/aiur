@@ -108,8 +108,8 @@
     },
     focusable() {
       return Array.from(this.el.querySelectorAll(
-        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
-      )).filter((element) => !element.hidden && !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true");
+        "summary, a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+      )).filter((element) => !element.closest("[hidden]") && element.getClientRects().length > 0 && element.getAttribute("aria-hidden") !== "true");
     },
     focusHeading() {
       requestAnimationFrame(() => {

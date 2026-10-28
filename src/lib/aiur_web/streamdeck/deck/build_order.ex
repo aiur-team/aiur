@@ -2,11 +2,13 @@ defmodule AiurWeb.Streamdeck.Deck.BuildOrder do
   @moduledoc "Focus build lane in the shared queue panel's ordering."
 
   alias AiurWeb.EndpointConfig
+  alias AiurWeb.Streamdeck.Deck.Priority
 
   @spec read(keyword()) :: map()
   def read(_opts \\ []) do
     read = EndpointConfig.get(:streamdeck_build_queue_fun) || (&Aiur.BuildQueue.show/0)
-    project(read.())
+    model = read.()
+    project(model) |> Map.put(:queue_positions, Priority.positions(model))
   end
 
   defp project(%{status: :running, queues: queues}) do
