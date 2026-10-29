@@ -2,6 +2,7 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
   @moduledoc "Resolve raw keys against ordered Deck sections before reducing navigation."
 
   alias AiurWeb.Streamdeck.Deck.{ChatNavigation, Nav}
+  alias AiurWeb.Streamdeck.Render.StripCounts
 
   @doc "Sections map each view to ordered `%{id: id, tickets: [...]}` items (tickets need only `id`)."
   @spec reduce(Nav.t(), map(), map()) :: {Nav.t(), [Nav.effect()]} | {:error, map()}
@@ -28,6 +29,7 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
   @spec sizes(Nav.t(), map()) :: map()
   def sizes(nav, sections) do
     Map.new([:ticket, :feature, :epic, :fleet], &{&1, length(Map.get(sections, &1, []))})
+    |> Map.put(:chip_max_offset, StripCounts.model(Map.get(sections, :counts), 999).offset)
     |> Map.put(:drill, if(nav.stack == [], do: nil, else: length(items(nav, sections))))
   end
 
