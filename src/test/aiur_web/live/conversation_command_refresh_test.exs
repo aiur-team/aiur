@@ -170,8 +170,12 @@ defmodule AiurWeb.ConversationCommandRefreshTest do
         render(view)
       end)
 
+    # The event marker and Command card each refresh their old/new positions.
+    # Both callers must retain the selected reveal and mask the other entry.
     assert Enum.map(options, &Keyword.take(&1, [:around, :limit, :reveal])) |> Enum.sort() == [
              [around: 1, limit: 1, reveal: true],
+             [around: 1, limit: 1, reveal: true],
+             [around: 2, limit: 1, reveal: false],
              [around: 2, limit: 1, reveal: false]
            ]
 

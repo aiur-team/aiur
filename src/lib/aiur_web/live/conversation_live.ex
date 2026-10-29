@@ -1,7 +1,7 @@
 defmodule AiurWeb.ConversationLive do
   @moduledoc "Paged durable conversation with a bounded live chronology and listener-mode composer."
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
-  alias AiurWeb.Conversation.{CommandCards, Commands, Components, Composer, ComposerEvents, Paging, Presenter}
+  alias AiurWeb.Conversation.{CommandCards, Commands, Components, Composer, ComposerEvents, EventComponents, Navigation, Paging, Presenter}
 
   @decision_events AiurWeb.OperatorControlCenter.DecisionEvents.events()
 
@@ -34,25 +34,39 @@ defmodule AiurWeb.ConversationLive do
       |> stream_configure(:entries, dom_id: &"entry-#{&1.pos}")
       |> stream(:entries, [])
       |> ComposerEvents.init()
+      |> Navigation.init()
       |> Commands.init()
 
     if connected?(socket) do
       Process.send_after(self(), :age_tick, 30_000)
-      {:ok, socket |> Paging.subscribe() |> Paging.load(:tail) |> Commands.subscribe()}
+      {:ok, socket |> Paging.subscribe() |> Navigation.load() |> Commands.subscribe()}
     else
       {:ok, socket}
     end
   end
 
   @impl true
-  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+  def handle_params(params, _uri, socket) do
+    if connected?(socket), do: {:noreply, Navigation.params(socket, params)}, else: {:noreply, socket}
+  end
 
   @impl true
+  def handle_event("event_filters", %{"kinds" => kinds}, socket), do: {:noreply, Navigation.filters(socket, kinds)}
+  def handle_event("latest_events", _, socket), do: {:noreply, Navigation.events(socket, :latest)}
+  def handle_event("older_events", _, socket), do: {:noreply, Navigation.events(socket, :older)}
+
+  def handle_event("toggle_event_kind", %{"kind" => kind}, socket) do
+    kinds = socket.assigns.visible_kinds
+    kinds = if kind in kinds, do: List.delete(kinds, kind), else: kinds ++ [kind]
+    socket = Navigation.filters(socket, kinds)
+    {:noreply, push_event(socket, "conversation-filters", %{kinds: socket.assigns.visible_kinds})}
+  end
+
   def handle_event("reveal_entry", %{"pos" => pos}, socket), do: {:noreply, Paging.reveal(socket, pos)}
-  def handle_event("load_older", _params, socket), do: {:noreply, Paging.load(socket, :older)}
-  def handle_event("load_newer", _params, socket), do: {:noreply, Paging.load(socket, :newer)}
-  def handle_event("jump_start", _params, socket), do: {:noreply, socket |> Paging.load(:start) |> push_event("conversation-start", %{})}
-  def handle_event("jump_latest", _params, socket), do: {:noreply, socket |> Paging.load(:tail) |> push_event("conversation-bottom", %{})}
+  def handle_event("load_older", _params, socket), do: {:noreply, Paging.load(assign(socket, pending_pos: nil, position_notice: nil), :older)}
+  def handle_event("load_newer", _params, socket), do: {:noreply, Paging.load(assign(socket, pending_pos: nil, position_notice: nil), :newer)}
+  def handle_event("jump_start", _params, socket), do: {:noreply, socket |> Navigation.clear() |> Paging.load(:start) |> push_event("conversation-start", %{})}
+  def handle_event("jump_latest", _params, socket), do: {:noreply, socket |> Navigation.clear() |> Paging.load(:tail) |> push_event("conversation-bottom", %{})}
   def handle_event("retry", _params, socket), do: {:noreply, socket |> Paging.subscribe() |> Paging.load(:tail)}
 
   def handle_event("jump_command", %{"id" => id}, socket) do
@@ -78,10 +92,11 @@ defmodule AiurWeb.ConversationLive do
 
   @impl true
   def handle_info({:entries_appended, id, entries}, %{assigns: %{id: id}} = socket),
-    do: {:noreply, socket |> ComposerEvents.reconcile(entries) |> Paging.append(entries)}
+    do: {:noreply, socket |> ComposerEvents.reconcile(entries) |> Paging.append(entries) |> Navigation.retry()}
+
+  def handle_info({:anchor_added, id, anchor}, %{assigns: %{id: id}} = socket), do: {:noreply, socket |> Navigation.added(anchor) |> Commands.reload()}
 
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> Commands.reload()}
-  def handle_info({:anchor_added, id, _anchor}, %{assigns: %{id: id}} = socket), do: {:noreply, Commands.reload(socket)}
   def handle_info(:decision_metrics_changed, socket), do: {:noreply, socket}
 
   def handle_info(:delivery_tick, socket), do: {:noreply, ComposerEvents.poll(socket)}
@@ -118,11 +133,19 @@ defmodule AiurWeb.ConversationLive do
         <button :for={row <- @decision_page.decisions} :if={match?({:at_pos, _}, @command_slots[row.decision_id])} phx-click="jump_command" phx-value-id={row.decision_id}>{row.question}</button>
       </nav>
       <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={:pinned_top} />
-      <div id="conversation-scroll" phx-hook="ConversationScroll" class="conversation-scroll" data-highlight={@highlight_pos} data-mode={if is_tuple(@mode), do: "around", else: @mode} data-head={@page && @page.head_pos}>
-        <div id="conversation-entries" phx-update="stream">
-          <div :for={{id, entry} <- @streams.entries} id={id} data-jump-target={to_string(@highlight_pos == entry.pos)}>
-            <Components.entry entry={entry} sessions={@sessions} can_reveal={@can_reveal} />
-            <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={{:at_pos, entry.pos}} />
+      <p :if={@position_notice} id="conversation-position-notice" role="status">{@position_notice}</p>
+      <div class="conversation-layout">
+        <EventComponents.event_nav streams={@streams} id={@id} visible_kinds={@visible_kinds} event_start={@event_start} event_has_newer={@event_has_newer} error={@anchor_error} />
+        <div id="conversation-scroll" phx-hook="ConversationScroll" class="conversation-scroll" data-highlight={@highlight_pos} data-mode={if is_tuple(@mode), do: "around", else: @mode} data-head={@page && @page.head_pos}>
+          <div id="conversation-entries" phx-update="stream">
+            <div :for={{id, entry} <- @streams.entries} id={id}
+              class={@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement) && "conversation-highlight"}
+              aria-current={if @highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement), do: "location"}
+              data-jump-target={to_string(@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement))} >
+              <Components.entry entry={entry} sessions={@sessions} can_reveal={@can_reveal} />
+              <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={{:at_pos, entry.pos}} />
+              <EventComponents.entry_marker anchors={@anchors} pos={entry.pos} highlight_pos={if Navigation.highlight?(@anchors, entry.pos, @jump_placement), do: nil, else: @highlight_pos} />
+            </div>
           </div>
         </div>
       </div>
