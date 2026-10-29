@@ -107,23 +107,33 @@ response to a press; the next server frame supplies the image.
 The emulator also accepts `input` with `{kind, index, ticks?}`. Kinds are `key_press`, `dial_press`,
 `dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
 turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
-out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
-navigation replies `ok` with `{view, page}` (zero-based page), never images.
-Refused effects return an error `reason`; feedback and queue position changes
-appear in the coalesced `frame` push, including Fleet categories and their
-state-filtered drills.
-Each connection starts at `ticket`, page 0; reconnects reset navigation.
+out-of-range values reply `error` with `{reason: "invalid_input"}`.
+
+Accepted navigation replies `ok` with only `{view, page, chip_offset}` (zero-based page
+and chip offset). Refused effects reply with an error `reason`; feedback
+and queue position changes arrive in the coalesced pushed `frame`, never in
+the input reply. This includes Fleet categories and their state-filtered drills.
+
+Each connection starts at `ticket`, page 0 and chip offset 0; reconnects reset
+navigation.
 
 Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
-root pages and clearing drills. Turning it moves one eight-key page per tick,
-clamped against the current list, including after a shrink. Holding it for
-500 ms emits **one** `dial_long_press`; clients suppress the release press.
-That input pops the drill stack; at root it does nothing. Dial 1 scrolls and
-its press is reserved. Dial 2 turns produce selected-ticket priority effects
-(negative = up); with no selection they do nothing. Dial 3 has no navigation
-action in the reducer. Keys resolve from server-owned sections:
+root pages and clearing drills and the selected ticket. Turning it moves one
+eight-key page per tick,
+clamped against the current list, including after a shrink.
+
+Holding it for 500 ms emits **one** `dial_long_press`; clients suppress the release press.
+That input pops the drill stack; at root it does nothing.
+
+Dial 1 scrolls and its press is reserved. Dial 2 (B) turns produce selected-ticket priority effects
+(negative = up); with no selection they scroll the category chips.
+Dial 3 has no navigation action in the reducer.
+
+Keys resolve from server-owned sections:
 feature, epic and fleet keys drill into tickets; ticket keys select and produce
-an open-ticket effect. Priority moves execute against editable list queues;
+an open-ticket effect.
+
+Priority moves execute against editable list queues;
 fixed-order queues and unavailable reads return feedback without a write.
 Open-ticket execution belongs to SD-301.
 

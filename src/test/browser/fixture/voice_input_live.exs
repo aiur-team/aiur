@@ -14,6 +14,7 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
 
     {:ok,
      assign(socket,
+       delivery: nil,
        draft: "",
        modal_draft: "",
        patch: 0,
@@ -29,7 +30,7 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
     {:noreply, assign(socket, draft: "server #{socket.assigns.patch + 1}", patch: socket.assigns.patch + 1)}
   end
 
-  def handle_event("send", %{"draft" => draft}, socket), do: {:noreply, assign(socket, :sent, draft)}
+  def handle_event("send", %{"draft" => draft}, socket), do: {:noreply, assign(socket, sent: draft, delivery: %{state: :harness_queued, message_id: 7})}
   def handle_event("unavailable", _params, socket), do: {:noreply, assign(socket, :capabilities, %{"voice.stt" => %{state: :unavailable, reason: :not_configured}})}
   def handle_event("available", _params, socket), do: {:noreply, assign(socket, :capabilities, %{"voice.stt" => %{state: :available}})}
   def handle_event("remove", _params, socket), do: {:noreply, assign(socket, :visible, false)}
@@ -49,7 +50,7 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
         <textarea id="standalone-input" name="draft" aria-label="Draft" data-voice-input>{@draft}</textarea>
         <button type="submit" data-voice-send>Send</button>
         <div id={"standalone-controls-#{@patch}"}>
-          <.voice_input id="standalone-controls" legacy_conversation={false} capabilities={@capabilities} target={%{kind: "worker", ticket: "1110"}} />
+          <.voice_input delivery={@delivery} id="standalone-controls" legacy_conversation={false} capabilities={@capabilities} target={%{kind: "worker", ticket: "1110"}} />
         </div>
       </form>
       <form id="component-form" phx-submit="send">
