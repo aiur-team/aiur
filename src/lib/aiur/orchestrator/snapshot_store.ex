@@ -135,6 +135,13 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     :ok
   end
 
+  @doc false
+  @spec without_issue_descriptions(Aiur.Orchestrator.State.t()) :: Aiur.Orchestrator.State.t()
+  def without_issue_descriptions(%Aiur.Orchestrator.State{} = state) do
+    issues = Map.new(state.last_polled_issues, fn {id, issue} -> {id, %{issue | description: nil}} end)
+    %{state | last_polled_issues: issues}
+  end
+
   @doc """
   Reads the last published snapshot without sending a message to the
   Orchestrator. A cache is retained across Orchestrator restarts; its metadata
@@ -245,6 +252,8 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     pending = Map.delete(pending, orchestrator)
     store_pid = self()
     task_ref = make_ref()
+    issues = Map.values(snapshot_input.last_polled_issues) ++ Enum.map(snapshot_input.running, fn {_id, entry} -> entry.issue end)
+    classifications = Aiur.CodingAgent.snapshot_classifications(issues)
 
     pid =
       spawn(fn ->
@@ -253,7 +262,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
             # The projected state travels with its payload so a later control
             # query can build the `status`/`watch` rows from it without paying
             # for them on every projection.
-            {:ok, StatusReport.snapshot_payload(snapshot_input), snapshot_input}
+            {:ok, Aiur.CodingAgent.with_classification_cache(classifications, fn -> StatusReport.snapshot_payload(snapshot_input) end), snapshot_input}
           rescue
             error -> {:error, error}
           end
@@ -396,7 +405,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       :persistent_term.put(warning_key, metadata.observed_at)
 
       Logger.warning(
-        "Dashboard snapshot timed out; serving last-known-good snapshot " <>
+        "Dashboard snapshot projection is stale; serving last-known-good snapshot " <>
           "(orchestrator_mailbox_depth=#{metadata.orchestrator_mailbox_depth}, age_ms=#{metadata.age_ms})"
       )
     end
@@ -411,7 +420,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       :persistent_term.put(warning_key, :before_first_snapshot)
 
       Logger.warning(
-        "Dashboard snapshot timed out before the first snapshot was published " <>
+        "Dashboard snapshot has not been published yet; waiting for the initial projection " <>
           "(orchestrator_mailbox_depth=#{mailbox_depth})"
       )
     end

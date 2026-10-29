@@ -151,9 +151,16 @@ defmodule Aiur.Orchestrator.StatusReport do
       :ok = publish_snapshot(state)
     end
 
-    state
-    |> running_summaries()
-    |> AgentPubSub.broadcast_running_change()
+    summaries = running_summaries(state)
+
+    # Live conversation status is consumed by running-topic subscribers but is
+    # intentionally not part of the compact agent-list summary payload.
+    runtime_signature =
+      Map.new(state.running, fn {issue_id, entry} ->
+        {issue_id, Map.get(entry, :live_conversation)}
+      end)
+
+    :ok = AgentPubSub.broadcast_running_projection_change(summaries, {summaries, runtime_signature})
 
     AgentPubSub.broadcast_poll_state(%{
       checking?: state.poll_check_in_progress == true,
@@ -182,6 +189,8 @@ defmodule Aiur.Orchestrator.StatusReport do
   @doc false
   @spec snapshot_input(State.t()) :: State.t()
   def snapshot_input(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+
     state
     |> Map.take([
       :orphaned_agent_reap_count,
@@ -224,17 +233,17 @@ defmodule Aiur.Orchestrator.StatusReport do
       :waiting_for_human_episodes
     ])
     |> then(&struct!(State, &1))
-    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
+    |> SnapshotStore.without_issue_descriptions()
+    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state, identifiers))
     |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
-    |> Map.put(:queue_store, snapshot_queue_store(state))
+    |> Map.put(:queue_store, snapshot_queue_store(state, identifiers))
     |> Map.put(:status_observed_at, DateTime.utc_now())
   end
 
   # The asynchronous projection needs only the cached result for rows it can
   # render. Keeping the rest of this lifecycle map out of the cast prevents
   # historical CI data from being copied along with every dashboard refresh.
-  defp snapshot_ci_lifecycle(%State{} = state) do
-    identifiers = snapshot_identifiers(state)
+  defp snapshot_ci_lifecycle(%State{} = state, identifiers) do
     cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
     waiting = Map.filter(cache, fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end)
     poll_cache = Map.merge(Map.take(cache, identifiers), waiting)
@@ -244,8 +253,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
+      ci_observed_at_ms: state.ci_lifecycle |> Map.get(:ci_observed_at_ms, %{}) |> Map.take(Map.keys(poll_cache)),
       poll_cache: poll_cache,
       rewakes: %{},
+      # The dashboard does not render the one-shot CI retry marker, so keep its
+      # default in the reduced lifecycle map instead of copying live state.
+      broker_fast_retry_pending?: false,
       # The dashboard never renders the parked-ready ledger, so the projection
       # carries the struct default rather than copying the live one. It still
       # has to be present: `State.t()` declares `ci_lifecycle` as a closed map,
@@ -266,22 +279,24 @@ defmodule Aiur.Orchestrator.StatusReport do
   # Queue depth and visible operator messages are dashboard contract fields.
   # Copy only the queue entries for rows this snapshot can render so an
   # unrelated queue backlog cannot inflate the projection cast.
-  defp snapshot_queue_store(%State{} = state) do
-    identifiers = snapshot_identifiers(state)
+  defp snapshot_queue_store(%State{queue_store: %AgentQueueStore{items: items}}, _identifiers) when map_size(items) == 0,
+    do: %AgentQueueStore{}
 
-    {items, pending_ids_by_target} =
-      Enum.reduce(identifiers, {%{}, %{}}, fn identifier, {items, pending_ids_by_target} ->
+  defp snapshot_queue_store(%State{} = state, identifiers) do
+    {items, pending_ids_by_target, item_ids_by_target} =
+      Enum.reduce(identifiers, {%{}, %{}, %{}}, fn identifier, {items, pending_ids_by_target, item_ids_by_target} ->
         pending = AgentQueueStore.list_pending(state.queue_store, identifier)
         visible = AgentQueueStore.list_visible_operator_messages(state.queue_store, identifier)
-        queue_items = pending ++ visible
+        queue_items = Map.new(pending ++ visible, &{&1.id, &1})
 
         {
-          Map.merge(items, Map.new(queue_items, &{&1.id, &1})),
-          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id))
+          Map.merge(items, queue_items),
+          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id)),
+          Map.put(item_ids_by_target, identifier, Map.keys(queue_items))
         }
       end)
 
-    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target}
+    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target, item_ids_by_target: item_ids_by_target}
   end
 
   defp snapshot_identifiers(%State{} = state) do

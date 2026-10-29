@@ -175,8 +175,6 @@ defmodule Aiur.PaneManager do
         {:error, reason} -> Logger.warning("PaneManager: tmux subscribe failed: #{inspect(reason)}")
       end
 
-      Anchor.publish_control_url(tmux)
-
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
       :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 

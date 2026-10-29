@@ -70,6 +70,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripFixtures do
         limit: limit,
         used: used,
         remaining: max(limit - used, 0),
+        remaining_percent: if(limit > 0, do: 100.0 - test_used_percent(used, limit)),
         used_percent: test_used_percent(used, limit),
         next_invoice: Keyword.get(opts, :next_invoice, %{amount_due_cents: 500, currency: "USD"}),
         tier: "creator",
@@ -121,7 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripFixtures do
       kind: :rate_limit,
       name: name,
       coverage_label: "Supported",
-      meter: %{kind: :exact, now: percent, min: 0, max: 100},
+      meter: %{kind: :exact, now: 100 - percent, min: 0, max: 100},
       used: percent,
       used_percent: percent,
       remaining: Keyword.get(opts, :remaining),
@@ -201,7 +202,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripFixtures do
           kind: :rate_limit,
           name: "Session",
           coverage_label: "Supported",
-          meter: %{kind: :exact, now: percent},
+          meter: %{kind: :exact, now: 100 - percent},
           resets_at: DateTime.add(@now, 30, :minute)
         }
       ]
@@ -217,7 +218,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripFixtures do
       kind: :rate_limit,
       name: "Primary",
       coverage_label: "Supported",
-      meter: %{kind: :exact, now: percent, min: 0, max: 100},
+      meter: %{kind: :exact, now: 100 - percent, min: 0, max: 100},
       used: percent,
       used_percent: percent,
       resets_at: DateTime.add(@now, 30, :minute)

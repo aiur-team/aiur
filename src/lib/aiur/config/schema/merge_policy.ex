@@ -70,7 +70,7 @@ defmodule Aiur.Config.Schema.MergePolicy do
     # @config-detail merge_policy.full_ci_labels | array | `[main-fix]` | Case-insensitive PR or ticket labels requiring full CI regardless of `ci`. |
     field(:full_ci_labels, {:array, :string}, default: ["main-fix"])
     # @config-reference config-merge-policy-00 merge_policy.full_ci_paths
-    # @config-detail merge_policy.full_ci_paths | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI regardless of `ci`; matches deleted paths too. |
+    # @config-detail merge_policy.full_ci_paths | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI on approved PRs and the merge queue; matches deleted paths too. |
     field(:full_ci_paths, {:array, :string}, default: [])
     # @config-reference config-merge-policy-00 merge_policy.premerge_checks
     # @config-detail merge_policy.premerge_checks | array | `[]` | Commands to run on the merge result before merging. |

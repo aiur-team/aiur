@@ -7,7 +7,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
 
   @stale_at ~U[2026-09-16 20:00:00Z]
 
-  describe "build/2 columns" do
+  describe "build/3 columns" do
+    test "workstream icon, summary and wave are projected onto the feature column" do
+      model = model([node(:a, "A", "queue", 1)])
+      metadata = %{"workstreams" => [%{"id" => "queue", "title" => "Build queue", "icon" => "queue-list", "summary" => "Queue tickets", "wave" => "0b"}]}
+
+      assert [%{lane: "queue", label: "Build queue", icon: "queue-list", summary: "Queue tickets", wave: "0b"}] =
+               BuildOrderGridModel.build(model, nil, metadata).columns
+    end
+
     test "orders planning lanes by metadata order and appends Ad Hoc last" do
       model = model([node(:a, "A", "platform", 1), node(:b, "B", "plan-graph", 1)])
       adhoc = adhoc([adhoc_row("9", 1)])
@@ -27,6 +35,30 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
   end
 
   describe "build/2 progress and merged" do
+    test "renders runtime reason labels verbatim on core cards" do
+      model =
+        model([
+          node(:usage, "U1", "plan-graph", 1,
+            status: :status_paused,
+            execution: %{pause_reason: :usage_limit_exhausted}
+          ),
+          node(:blocked, "B1", "plan-graph", 1,
+            status: :status_waiting,
+            execution: %{waiting_reason: :blocker_dependency}
+          ),
+          node(:ci, "C1", "plan-graph", 1,
+            status: :status_waiting,
+            execution: %{labels: ["agent:ci-wait", "agent:ci-red"]}
+          )
+        ])
+
+      cards = BuildOrderGridModel.build(model, nil).cards
+
+      assert Enum.find(cards, &(&1.id == "U1")).status_word == "agent:paused-usage-limit"
+      assert Enum.find(cards, &(&1.id == "B1")).status_word == "agent:blocked"
+      assert Enum.find(cards, &(&1.id == "C1")).status_word == "agent:ci-wait,agent:ci-red"
+    end
+
     test "a merged (completed) card is forced to 100%" do
       model = model([node(:a, "A", "plan-graph", 1, status: :status_completed, progress: 10)])
 
@@ -332,7 +364,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       identity: nil,
       title: "Node #{id}",
       plan: %{complexity: Keyword.get(opts, :complexity, :unknown)},
-      execution: %{},
+      execution: Keyword.get(opts, :execution, %{}),
       activity: %{},
       readiness: :ready,
       lane_icon: nil,

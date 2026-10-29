@@ -6,8 +6,13 @@ defmodule AiurWeb.StreamdeckChannel do
   import AiurWeb.StreamdeckChannel.Voice
 
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.Build.Payload
+  alias AiurWeb.{EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckProjection}
+  alias AiurWeb.Streamdeck.Deck.{Chat, ChatPage, Nav, PriorityInput, Signals, TicketUpdates}
+
+  alias AiurWeb.Streamdeck.{FrameUpdates, UsageUpdates}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -33,50 +38,77 @@ defmodule AiurWeb.StreamdeckChannel do
     :ok = AiurWeb.StreamdeckFleetUpdates.subscribe(latch)
     :ok = ProviderMeterEvents.subscribe_observed()
     :ok = Commands.subscribe()
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
+    :ok = BuildIndex.subscribe(metadata: {:fleet_refresh, latch})
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, fleet_latch: latch)}
+    {:ok,
+     assign(Chat.init(socket),
+       deck_nav: %Nav{},
+       deck_effects: [],
+       deck_usage: %{},
+       deck_grid: %{agents: []},
+       focused_agent: nil,
+       focus_token: nil,
+       deck_signals: nil,
+       voice_session: nil,
+       fleet_flush: nil,
+       usage_flush: nil,
+       fleet_latch: latch,
+       ticket_task: nil,
+       ticket_pending: false
+     )}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
+  def handle_in("input", input, socket), do: FrameUpdates.input(input, socket)
+
+  def handle_in("chat_page", %{"before" => before}, socket) do
+    {page, socket} = ChatPage.page(socket, before)
+    {:noreply, socket} = AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+    {:reply, {if(page[:reason], do: :error, else: :ok), Payload.scrub(page)}, socket}
+  end
+
+  def handle_in("chat_page", _, socket), do: {:reply, {:error, %{reason: "invalid_chat_page"}}, socket}
+
+  def handle_in("priority", %{"identifier" => id, "direction" => direction}, socket)
+      when is_binary(id) and direction in ["up", "down"] do
+    if socket.assigns[:focused_agent] == id and EndpointConfig.get(:dashboard_writable) == true do
+      PriorityInput.reply(socket, %{}, [{:priority, id, if(direction == "up", do: :up, else: :down), 1}])
+    else
+      {:reply, {:error, %{reason: "unavailable"}}, socket}
+    end
+  end
+
+  def handle_in("priority", _payload, socket), do: {:reply, {:error, %{reason: "invalid_priority"}}, socket}
+
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
-    # Leaving the agent ends the hold with it: a dictation belongs to the agent
-    # it was started on, so it must not follow focus to another one.
-    socket = socket |> stop_voice_session() |> unsubscribe_focused()
-    {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
-
-    socket = assign(socket, focused_agent: identifier, transcript_relay: relay)
-    push(socket, "logs", logs_projection(identifier))
-    push(socket, "commands", commands_projection(identifier))
+    # Relay setup/teardown and projections may wait on other processes. Keep
+    # them behind the acknowledgement so focus remains responsive under load.
+    focus_token = make_ref()
+    send(self(), {:streamdeck_focus_changed, identifier, focus_token, socket})
+    socket = socket |> Chat.clear() |> assign(focused_agent: identifier, focus_token: focus_token, deck_signals: nil, voice_session: nil)
     {:reply, {:ok, %{"focused" => identifier}}, socket}
   end
 
   def handle_in("focus", _payload, socket), do: {:reply, {:error, %{reason: "invalid_identifier"}}, socket}
 
   def handle_in("unfocus", _payload, socket) do
-    {:reply, {:ok, %{"focused" => nil}}, socket |> stop_voice_session() |> unsubscribe_focused()}
+    socket =
+      socket
+      |> stop_voice_session()
+      |> unsubscribe_focused()
+      |> assign(focused_agent: nil, focus_token: nil)
+
+    {:reply, {:ok, %{"focused" => nil}}, socket}
   end
-
-  @doc """
-  Routes a physical key toggle through the same AgentChat facade as the emulator.
-
-  Pause and resume are the action set for a ticket an agent already holds. The
-  deck's agent view no longer carries a prioritize key — its slots are pause,
-  logs, mic and settings — so the channel does not accept an action no surface
-  can send. Orchestrator priority itself is untouched and stays reachable from
-  the dashboard.
-
-  `implement` is the third action, and it belongs to the other half of the grid:
-  a ticket with **no** agent, whose command surface offers Implement where a
-  live agent offers Pause. See `handle_in("control", %{"action" => "implement"})`
-  below for why it goes through the CLI's own queue path.
-  """
 
   def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
@@ -141,15 +173,13 @@ defmodule AiurWeb.StreamdeckChannel do
     do: {:reply, {:error, %{reason: "invalid_commands_page"}}, socket}
 
   # Records an operator answer given on the device.
-  #
   # Attribution is the load-bearing decision: the operator physically pressing
   # their own deck is the operator answering, so the durable record carries an
   # `%{kind: :operator, id: "streamdeck"}` actor — never an Executor answer with
   # an operator flavour. That is what lets the device answer `human_required`
   # Commands the Executor cannot, while the dashboard shows a true operator
   # answer. The device may only answer a Command for the agent it is currently
-  # focused on (focused-ticket enforcement), and it answers the exact `version`
-  # it read, so a retry after a dropped reply is an idempotent replay of the
+  # focused on (focused-ticket enforcement). It answers the exact version it read, so retries replay the same
   # durable action rather than a second decision.
   def handle_in(
         "answer_command",
@@ -159,10 +189,12 @@ defmodule AiurWeb.StreamdeckChannel do
       when is_binary(identifier) and is_binary(decision_id) and decision_id != "" and
              is_binary(idempotency_key) and idempotency_key != "" and is_integer(version) and version > 0 do
     with {:ok, answer} <- build_answer_payload(payload),
-         :ok <- validate_focused_command(socket, decision_id, identifier, version),
+         :ok <- validate_focused_command(socket, decision_id, identifier),
+         :ok <- StreamdeckCommands.validate_deck_answer(decision_id, store: command_store(socket)),
          {:ok, result} <- record_command_answer(decision_id, answer) do
-      {:reply, {:ok, answer_result(result)}, socket}
+      {:reply, {:ok, result}, socket}
     else
+      {:error, %{reason: _reason} = result} -> {:reply, {:error, result}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
@@ -234,8 +266,9 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot())
-    {:noreply, socket}
+    snapshot = StreamdeckProjection.snapshot()
+    push(socket, "snapshot", snapshot)
+    {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> assign(:deck_grid, snapshot["grid"]) |> FrameUpdates.push()}
   end
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}
@@ -245,13 +278,30 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({FinancialDataAccess, :configuration_changed, _generation}, socket), do: {:stop, :normal, socket}
 
+  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed, :build_changes], do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+
   def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
 
-  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
-    push(socket, "usage", StreamdeckProjection.provider_meters(snapshot))
+  def handle_info(
+        {:streamdeck_focus_changed, identifier, focus_token, previous_socket},
+        %{assigns: %{focused_agent: identifier, focus_token: focus_token}} = socket
+      ) do
+    previous_socket |> stop_voice_session() |> unsubscribe_focused()
+    {:ok, signals} = Signals.start_link(self(), identifier)
+    socket = socket |> assign(deck_signals: signals) |> Chat.open(identifier)
+    socket = TicketUpdates.refresh(socket)
+    push(socket, "commands", commands_projection(identifier))
     {:noreply, socket}
   end
+
+  def handle_info({:streamdeck_focus_changed, _identifier, _focus_token, previous_socket}, socket) do
+    previous_socket |> stop_voice_session() |> unsubscribe_focused()
+    {:noreply, socket}
+  end
+
+  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{}}, socket), do: UsageUpdates.schedule(socket)
+  def handle_info({:flush_usage, token}, socket), do: UsageUpdates.flush(socket, token)
 
   def handle_info({:decision_changed, decision_id, _version}, %{assigns: %{focused_agent: identifier}} = socket)
       when is_binary(identifier) do
@@ -271,11 +321,24 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info({:decision_changed, _decision_id, _version}, socket), do: push_decisions(socket)
   def handle_info(:decision_metrics_changed, socket), do: push_decisions(socket)
 
-  def handle_info({:streamdeck_transcript, identifier, event}, %{assigns: %{focused_agent: identifier}} = socket) do
-    push(socket, "transcript", StreamdeckProjection.transcript(identifier, event))
-    push(socket, "logs", logs_projection(identifier))
+  def handle_info({:streamdeck_frame_focus, id}, socket) do
+    {:reply, _reply, socket} = handle_in("focus", %{"identifier" => id}, socket)
     {:noreply, socket}
   end
+
+  def handle_info({:streamdeck_chat_page, before}, socket) do
+    {_page, socket} = ChatPage.page(socket, before)
+    AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+  end
+
+  def handle_info(:streamdeck_frame_unfocus, socket) do
+    {:reply, _reply, socket} = handle_in("unfocus", %{}, socket)
+    {:noreply, socket}
+  end
+
+  def handle_info({:deck_chat_tick, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_changed, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_restarted, _, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
 
   def handle_info({:streamdeck_alert, identifier, event}, %{assigns: %{focused_agent: identifier}} = socket) do
     push(socket, "alert", StreamdeckProjection.alert(identifier, event))
@@ -311,17 +374,18 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, assign(socket, :voice_session, nil)}
   end
 
+  def handle_info({ref, dto}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.complete(socket, dto)}
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.failed(socket)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def terminate(_reason, socket) do
-    socket |> assigns() |> Map.get(:transcript_relay) |> stop_child()
-    socket |> assigns() |> Map.get(:voice_session) |> voice_pid() |> stop_child()
+    TicketUpdates.stop(socket)
+    unsubscribe_focused(socket)
+    socket.assigns[:voice_session] |> voice_pid() |> stop_child()
     :ok
   end
-
-  defp assigns(%{assigns: assigns}) when is_map(assigns), do: assigns
-  defp assigns(_socket), do: %{}
 
   defp voice_pid(%{pid: pid}), do: pid
   defp voice_pid(_session), do: nil
@@ -355,7 +419,7 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   defp queue_ticket_fun do
-    case Endpoint.config(:streamdeck_implement_fun) do
+    case EndpointConfig.get(:streamdeck_implement_fun) do
       fun when is_function(fun, 1) -> fun
       _absent -> fn identifier -> AgentControlCLI.todo([identifier]) end
     end
@@ -365,7 +429,7 @@ defmodule AiurWeb.StreamdeckChannel do
   defp reason_text(reason), do: inspect(reason)
 
   defp pause_agent(identifier) do
-    case Endpoint.config(:agent_chat_pause_fun) do
+    case EndpointConfig.get(:agent_chat_pause_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.pause(identifier)
     end
@@ -376,19 +440,8 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
-  defp unsubscribe_focused(%{assigns: %{transcript_relay: relay}} = socket) when is_pid(relay) do
-    :ok = GenServer.stop(relay, :normal)
-    assign(socket, focused_agent: nil, transcript_relay: nil)
-  end
-
-  defp unsubscribe_focused(socket), do: socket
-
-  defp transcript_flush_ms do
-    Endpoint.config(:streamdeck_transcript_flush_ms) ||
-      Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) || 250
-  end
-
-  defp logs_projection(identifier) do
-    identifier |> StreamdeckLogs.load() |> StreamdeckLogs.wire()
+  defp unsubscribe_focused(socket) do
+    stop_child(socket.assigns[:deck_signals])
+    socket |> Chat.clear() |> assign(deck_signals: nil)
   end
 end

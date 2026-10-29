@@ -6,8 +6,8 @@ defmodule Aiur.GitHub.AuthPreflight.LocalHoldTest do
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.ReadCache
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
-  @source_cache_key {Aiur.GitHub.Config, :resolved_token_source}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
+  @source_cache_key {Aiur.GitHub.Access.Token, :resolved_token_source}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")

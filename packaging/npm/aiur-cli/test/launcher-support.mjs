@@ -146,6 +146,8 @@ export function setupRealLauncher() {
     [
       "#!/usr/bin/env bash",
       'echo "ELIXIR_ARGS:$*" >>"$AIUR_TEST_OUT"',
+      'echo "AIUR_INSTANCE_KEY:${AIUR_INSTANCE_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'echo "AIUR_BG_STATE_DIR:${AIUR_BG_STATE_DIR:-}" >>"$AIUR_TEST_OUT"',
       'echo "ARGV_FILE:$(cat "$AIUR_ARGV_FILE")" >>"$AIUR_TEST_OUT"',
       'echo "DEEPSEEK_API_KEY:${DEEPSEEK_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "OPENROUTER_API_KEY:${OPENROUTER_API_KEY:-}" >>"$AIUR_TEST_OUT"',

@@ -1,0 +1,8 @@
+name: unsafe reusable workflow path
+
+"on":
+  pull_request:
+
+jobs:
+  unsafe:
+    uses: ./.github/workflows/../../scripts/example.yml

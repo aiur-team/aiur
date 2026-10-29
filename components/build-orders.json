@@ -13,20 +13,24 @@
     "src/lib/aiur/feature_cli/**",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
-    "src/lib/aiur_web/build_order_presenter/**",
-    "src/lib/aiur_web/live/build_order*.ex"
+    "src/lib/aiur_web/build_order_presenter/**"
   ],
   "facades": [
     "Aiur.BuildOrder.Catalog",
     "Aiur.BuildOrder.Component",
     "Aiur.BuildOrder.DependencyChain",
+    "Aiur.BuildOrder.EstimateCLI",
+    "Aiur.BuildOrder.Estimates",
     "Aiur.BuildOrder.Features",
     "Aiur.BuildOrder.Features.LabelProjection",
     "Aiur.BuildOrder.GitHubGraph",
     "Aiur.BuildOrder.GraphProjection",
     "Aiur.BuildOrder.GraphProjection.Snapshot",
     "Aiur.BuildOrder.History",
+    "Aiur.BuildOrder.History.Export",
+    "Aiur.BuildOrder.History.LabelBackfill",
     "Aiur.BuildOrder.History.Timing",
+    "Aiur.BuildOrder.HistoryBackfill",
     "Aiur.BuildOrder.Index",
     "Aiur.BuildOrder.Metadata",
     "Aiur.BuildOrder.ProgressRenderer",
@@ -34,6 +38,7 @@
     "Aiur.BuildOrder.Readiness",
     "Aiur.BuildOrder.RootSummary",
     "Aiur.BuildOrder.SourceFreshness",
+    "Aiur.BuildOrder.TicketStatus",
     "Aiur.BuildOrdersCLI",
     "Aiur.EpicCLI",
     "Aiur.FeatureCLI",
@@ -63,6 +68,7 @@
     "conversations",
     "dashboard-ui",
     "executor-attention",
+    "github-access",
     "telemetry",
     "ticket-context",
     "web-shell"
@@ -73,9 +79,11 @@
     ],
     "env": [],
     "state": [
+      "build_estimates_state_dir",
       "build_features_state_dir",
       "build_history_state_dir",
-      "epic_overrides_state_dir"
+      "epic_overrides_state_dir",
+      "history_backfill_state_dir"
     ],
     "capabilities": [
       "build_orders",
@@ -101,5 +109,6 @@
   "capabilities": [
     "build_orders",
     "build_orders.progress"
-  ]
+  ],
+  "goal": "run-agents"
 }

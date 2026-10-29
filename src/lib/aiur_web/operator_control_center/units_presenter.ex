@@ -13,7 +13,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   alias Aiur.Projections.UnitsRow.Sources
   alias AiurWeb.OperatorControlCenter.RowToken
 
-  @type catalog_status :: :ready | :empty | :stale | :unavailable
+  @startup_loading_timeout_ms 600_000
+
+  @type catalog_status :: :ready | :empty | :stale | :unavailable | :loading
 
   @spec load(map(), keyword()) :: map()
   def load(payload, opts \\ [])
@@ -46,9 +48,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
         issue_facts: issue_source(status)
       })
 
-    status = catalog_status(snapshot)
+    startup_elapsed_ms = Map.get(payload, :startup_elapsed_ms, Aiur.Boot.elapsed_ms())
+
+    status =
+      cond do
+        Map.get(payload, :daemon_starting?) == true and startup_elapsed_ms < @startup_loading_timeout_ms -> :loading
+        Map.get(payload, :daemon_starting?) == true -> :unavailable
+        true -> catalog_status(snapshot)
+      end
 
     %{
+      command_counts: Map.get(payload, :retained_counts, %{}),
       status: status,
       message: catalog_message(status, membership, snapshot),
       truncated?: snapshot.truncated?,
@@ -57,6 +67,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   def load(_payload, _opts), do: load(%{})
+
+  @doc false
+  @spec starting_catalog() :: map()
+  def starting_catalog do
+    %{status: :loading, message: "The daemon is starting.", truncated?: false, snapshot: %{rows: [], truncated?: false}}
+  end
+
+  @doc false
+  @spec starting_catalog(map()) :: map()
+  def starting_catalog(%{units: %{} = units} = payload) do
+    Map.put(payload, :units, Map.merge(units, %{status: :loading, message: "The daemon is starting."}))
+  end
+
+  def starting_catalog(payload) when is_map(payload), do: Map.put(payload, :units, starting_catalog())
 
   @spec project(map(), UnitsPolicy.selection() | term()) :: map()
   def project(%{snapshot: %{rows: rows}} = catalog, selection) when is_list(rows) do
@@ -215,8 +239,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     with %TrackerIdentity{} = identity <- Sources.identity(public_row),
          internal_row when not is_nil(internal_row) <- Map.get(internal_by_identity, Sources.key(identity)) do
       public_row
+      |> Map.put(:listener, Map.get(internal_row, :listener, :unavailable))
+      |> Map.put(:native_hold, Map.get(internal_row, :native_hold))
       |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
+      |> Map.put(:usage_limit_reset_at, Map.get(internal_row, :usage_limit_reset_at))
       |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
+      |> Map.put(:turn_count, Map.get(internal_row, :turn_count))
+      |> Map.put(:turn_count_observed?, Map.get(internal_row, :turn_count_observed?) == true)
     else
       _missing_identity_or_snapshot -> public_row
     end
@@ -302,13 +331,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
   defp safe_rows(_fleet, _bucket), do: []
 
+  defp count_status(%{status: :loading}), do: :loading
   defp count_status(%{status: :unavailable}), do: :unavailable
   defp count_status(%{status: :stale}), do: :partial
   defp count_status(%{truncated?: true}), do: :partial
   defp count_status(%{snapshot: %{truncated?: true}}), do: :partial
   defp count_status(_catalog), do: :exact
 
-  defp display_counts(_rows, _selection, :unavailable) do
+  defp display_counts(_rows, _selection, count_status) when count_status in [:unavailable, :loading] do
     [:scope | UnitsPolicy.conditions()]
     |> Map.new(&{&1, nil})
   end
@@ -316,6 +346,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   defp display_counts(rows, selection, _count_status), do: UnitsPolicy.counts(rows, selection)
 
   defp display_total(_rows, :unavailable), do: nil
+  defp display_total(_rows, :loading), do: nil
   defp display_total(rows, _count_status), do: length(rows)
 
   defp catalog_revision(catalog) do

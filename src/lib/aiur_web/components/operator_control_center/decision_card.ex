@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   use Phoenix.Component
 
   alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias Phoenix.LiveView.JS
 
   attr(:decision, :map, required: true)
@@ -12,6 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:voice_capabilities, :map, default: %{})
+  attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
 
@@ -26,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       |> assign(:option_previews, Enum.take(assigns.decision.options, 2))
       |> assign(:selected_answer_label, selected_answer_label(assigns.decision))
       |> assign(:operator_answer?, operator_answer?(assigns.decision))
+      |> assign(:relay_label, relay_label(assigns.decision))
       |> assign(:executor_answer?, executor_answer?(assigns.decision))
       |> assign(:supervisor_answer?, supervisor_answer?(assigns.decision))
       |> assign(:confidence, supervisor_confidence(assigns.decision))
@@ -48,8 +52,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       >
         <div>
           <div class="decision-meta-row">
-            <span class="ticket-id">{@decision.ticket[:identifier] || @decision.decision_id}</span>
-            <span class="decision-ticket-title">{@decision.ticket[:title]}</span>
+            <span class="ticket-id">{DecisionPresenter.requester_label(@decision)}</span>
+            <span :if={DecisionPresenter.executor?(@decision)} class="chip accent requester-badge">From Executor</span>
+            <span :if={!DecisionPresenter.executor?(@decision)} class="decision-ticket-title">{@decision.ticket[:title]}</span>
           </div>
           <h3>{@decision.question}</h3>
           <p :if={present?(@decision.context.short)} class="decision-context">{@decision.context.short}</p>
@@ -63,12 +68,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
             <span :if={length(@decision.options) > 2} class="chip faint">+{length(@decision.options) - 2} more</span>
           </div>
           <div class="decision-card-foot">
+            <AiurWeb.OperatorControlCenter.CommandRouting.routing decision={@decision} now={@now} />
             <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
             <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]}>{@agent_label}</span>
             <span :if={@model_label} class="chip mono">{@model_label}</span>
             <span :if={@recommendation_label} class="recommendation-chip">SA recommends <b>{@recommendation_label}</b></span>
             <span :if={@selected_answer_label} class="chip accent">Selected · {@selected_answer_label}</span>
             <span :if={@operator_answer?} class="chip accent">Operator answer</span>
+            <span :if={@relay_label} class="chip accent">{@relay_label}</span>
             <span :if={@executor_answer?} class="chip good">Executor answer</span>
             <span :if={@supervisor_answer?} class="chip super">Supervisor answer</span>
             <span :if={is_integer(@confidence)} class="chip super">{@confidence}% confidence</span>
@@ -76,7 +83,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           </div>
         </div>
         <div class="decision-card-side">
-          <span class="decision-age mono">{@age}</span>
+          <span class="decision-age mono">asked {@age}</span>
           <span :if={@status_badge} class={["cmd-status-badge", @status_badge.tone]}><span class="chip-dot"></span>{@status_badge.label}</span>
           <span class="expand-hint">
             {expand_label(@decision, @selected)}
@@ -90,10 +97,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       </.link>
 
       <DecisionAction.decision_action
-        :if={!@selected and @decision.decision_status in [:open, :deferred, :dismissed]}
+        :if={
+          !@selected and
+            (@decision.decision_status in [:open, :deferred, :dismissed] or
+               (@decision.decision_status == :expired and @decision.blocking and is_nil(@decision.answer)))
+        }
         decision={@decision}
         state={@action_state}
         writable={@writable}
+        live_connected={@live_connected}
+        voice_capabilities={@voice_capabilities}
         compact
       />
 
@@ -101,9 +114,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
         <DecisionDetail.decision_detail
           :if={@selected}
           decision={@decision}
+          conversation_link={AiurWeb.OperatorControlCenter.DecisionConversation.link(@decision.decision_id)}
           history={@history}
           action_state={@action_state}
           writable={@writable}
+          live_connected={@live_connected}
+          voice_capabilities={@voice_capabilities}
           filter={@filter}
           query={@query}
         />
@@ -194,6 +210,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   end
 
   defp operator_answer?(_decision), do: false
+
+  defp relay_label(%{answer: %{actor: %{kind: :operator_relayed}, relayed_by: relayer}}),
+    do: "answered by operator, relayed by #{relayer}"
+
+  defp relay_label(_decision), do: nil
 
   defp executor_answer?(%{answer: answer}) when is_map(answer) do
     get_in(answer, [:actor, :kind]) in [:executor, "executor"]

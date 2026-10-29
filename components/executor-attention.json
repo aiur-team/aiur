@@ -16,7 +16,8 @@
     "src/lib/aiur/executor_sweep/**",
     "src/lib/aiur/executor_wake_inbox/**",
     "src/lib/aiur/operator_wait_log.ex",
-    "src/lib/aiur/progress_checkin/**"
+    "src/lib/aiur/progress_checkin/**",
+    "src/lib/aiur/usage/alerts.ex"
   ],
   "facades": [
     "*"
@@ -31,9 +32,11 @@
     "signal"
   ],
   "optional": [
+    "accounting",
     "build-queue",
     "conversations",
     "github",
+    "github-access",
     "github-listeners",
     "orchestration"
   ],
@@ -66,5 +69,6 @@
     "alerts"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "notify"
 }

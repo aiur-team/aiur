@@ -61,14 +61,88 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
          {:ok, changed} <- changed_files(root, base),
          {:ok, dependents} <- xref_dependents(root, changed),
          {:ok, references} <- deleted_reference_tests(root, diff_range) do
-      {selected, candidates, fallback} =
+      {selection, candidates, fallback} =
         Aiur.AffectedTests.select_with_candidates(changed,
           base_dir: root,
           dependent_sources: dependents,
           reference_tests: references
         )
 
+      {selected, candidates, fallback} =
+        case {selection, support_test_files(root, changed)} do
+          {{:full, _} = full, _support_tests} ->
+            {full, candidates, fallback}
+
+          {{:scoped, tests}, support_tests} ->
+            union = Enum.sort(Enum.uniq(tests ++ support_tests))
+            {{:scoped, union}, union, union}
+        end
+
       {:ok, selected, candidates, fallback, changed}
+    end
+  end
+
+  @doc false
+  @spec support_test_files(String.t(), [String.t()]) :: [String.t()]
+  def support_test_files(root, changed) do
+    support_paths =
+      Enum.filter(changed, fn path ->
+        String.starts_with?(path, "src/test/support/") or path == "src/test/test_helper.exs"
+      end)
+
+    if support_paths == [] do
+      []
+    else
+      tests = Path.wildcard(Path.join(root, "src/test/**/*_test.exs"))
+
+      if Enum.any?(support_paths, &String.ends_with?(&1, "test_helper.exs")) do
+        Enum.map(tests, &Path.relative_to(&1, root))
+      else
+        modules = support_module_closure(root, support_paths)
+
+        Enum.filter(tests, &uses_support_module?(&1, modules))
+        |> Enum.map(&Path.relative_to(&1, root))
+      end
+      |> Enum.sort()
+    end
+  end
+
+  defp support_module_closure(root, changed_paths) do
+    support_files = Path.wildcard(Path.join(root, "src/test/support/**/*.{ex,exs}"))
+    changed = Enum.map(changed_paths, &Path.join(root, &1))
+    modules_by_file = Map.new(support_files ++ changed, &{&1, module_names_in_absolute_file(&1)})
+    initial = changed |> Enum.flat_map(&Map.get(modules_by_file, &1, [])) |> MapSet.new()
+
+    Stream.iterate(initial, fn modules ->
+      support_files
+      |> Enum.filter(fn file -> references_modules?(File.read!(file), modules) end)
+      |> Enum.flat_map(&Map.get(modules_by_file, &1, []))
+      |> then(&MapSet.union(modules, MapSet.new(&1)))
+    end)
+    |> Enum.reduce_while(nil, fn modules, previous ->
+      if modules == previous, do: {:halt, modules}, else: {:cont, modules}
+    end)
+  end
+
+  defp module_names_in_absolute_file(path) do
+    case File.read(path) do
+      {:ok, contents} ->
+        Regex.scan(~r/defmodule\s+([A-Z][\w.]*)/, contents, capture: :all_but_first)
+        |> List.flatten()
+
+      _ ->
+        []
+    end
+  end
+
+  defp references_modules?(contents, modules) do
+    Enum.any?(modules, fn module -> Regex.match?(~r/\b#{Regex.escape(module)}\b/, contents) end)
+  end
+
+  defp uses_support_module?(test_path, modules) do
+    case File.read(test_path) do
+      {:ok, contents} -> references_modules?(contents, modules)
+      _ -> false
     end
   end
 
@@ -76,7 +150,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   def selection_json({:full, reason}), do: Jason.encode!(%{status: "full", reason: reason})
   def selection_json({:scoped, tests}), do: Jason.encode!(%{status: "scoped", tests: tests})
 
-  @spec command({:full, String.t()} | {:full, String.t(), [String.t()]} | {:scoped, [String.t()]}) :: [String.t()]
+  @spec command({:full, String.t()} | {:full, String.t(), [String.t()]} | {:scoped, [String.t()]}) ::
+          [String.t()]
   def command({:full, reason, changed}),
     do: command({:full, "#{reason}; changed paths: #{Enum.join(changed, ", ")}"})
 
@@ -216,9 +291,14 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     origin = default_origin()
 
     case git(root, ["merge-base", "HEAD", origin]) do
-      {:ok, [sha]} -> {:ok, sha}
-      {:ok, other} -> {:error, "git merge-base returned #{inspect(other)}"}
-      {:error, reason} -> {:error, "#{reason}\nHint: base ref `#{origin}` not found locally; run `git fetch origin`"}
+      {:ok, [sha]} ->
+        {:ok, sha}
+
+      {:ok, other} ->
+        {:error, "git merge-base returned #{inspect(other)}"}
+
+      {:error, reason} ->
+        {:error, "#{reason}\nHint: base ref `#{origin}` not found locally; run `git fetch origin`"}
     end
   end
 
@@ -240,8 +320,11 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
 
   defp git_like_command(root, executable, args, env \\ []) do
     case System.cmd(executable, args, cd: root, env: env, stderr_to_stdout: true) do
-      {out, 0} -> {:ok, String.split(out, "\n", trim: true)}
-      {out, status} -> {:error, "#{executable} #{Enum.join(args, " ")} failed (#{status}): #{String.trim(out)}"}
+      {out, 0} ->
+        {:ok, String.split(out, "\n", trim: true)}
+
+      {out, status} ->
+        {:error, "#{executable} #{Enum.join(args, " ")} failed (#{status}): #{String.trim(out)}"}
     end
   end
 

@@ -259,6 +259,13 @@
   animation: cvRec 1.4s ease-in-out infinite;
 }
 
+@media (forced-colors: active) {
+  .cv-mic.rec {
+    color: Highlight;
+    outline: 1px solid Highlight;
+  }
+}
+
 @keyframes cvRec {
   50% {
     box-shadow: 0 0 0 4px var(--block-soft);

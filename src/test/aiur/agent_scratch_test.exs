@@ -1,7 +1,8 @@
 defmodule Aiur.AgentScratchTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentScratch
+  alias Aiur.{AgentEnvironment, AgentScratch}
+  alias Aiur.Config.CodexSandboxPolicy
 
   setup do
     workspace = Aiur.TestSupport.tmp_root!("aiur-scratch-test")
@@ -70,5 +71,29 @@ defmodule Aiur.AgentScratchTest do
 
       assert {_output, 73} = System.cmd("sh", ["-lc", AgentScratch.remote_install_script(workspace)], stderr_to_stdout: true)
     end
+  end
+
+  test "agent temp files stay in the workspace and Codex denies direct /tmp writes", %{workspace: workspace} do
+    assert CodexSandboxPolicy.default_policy(workspace)["excludeSlashTmp"]
+
+    env =
+      AgentEnvironment.workspace_env(workspace)
+      |> Enum.filter(fn {name, _} -> name in [~c"TMPDIR", ~c"TMP", ~c"TEMP"] end)
+      |> Enum.map(fn {name, value} -> {to_string(name), to_string(value)} end)
+
+    {path, 0} =
+      System.cmd(
+        "python3",
+        [
+          "-c",
+          "import tempfile; f = tempfile.NamedTemporaryFile(delete=False); print(f.name); f.close()"
+        ],
+        env: env
+      )
+
+    path = String.trim(path)
+    assert Path.dirname(path) == Path.join(workspace, ".aiur-runtime/tmp")
+    assert File.regular?(path)
+    Aiur.TestCleanup.rm_rf!(path)
   end
 end

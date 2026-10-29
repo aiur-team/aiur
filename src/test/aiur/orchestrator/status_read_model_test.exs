@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
 
   alias Aiur.{AgentControlCLI, Boot, Issue}
   alias Aiur.Orchestrator.{Dispatcher, IssueSync, SnapshotStore, State, StatusObservation, StatusReport}
-  alias AiurWeb.OperatorControlCenter.{CapacityControl, CapacityPresenter, FleetTable, Overview}
+  alias AiurWeb.OperatorControlCenter.{CapacityControl, CapacityPresenter}
   alias AiurWeb.Presenter
 
   test "snapshot projection preserves all six renderer inputs and their behavior" do
@@ -185,10 +185,6 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     capacity_html = render_component(&CapacityControl.capacity_control/1, capacity: CapacityPresenter.present(payload.capacity), writable: false, input: "", feedback: nil)
     assert capacity_html =~ "maximum 6"
     assert capacity_html =~ "0s old"
-    overview = render_component(&Overview.fleet_overview/1, fleet: payload, filters: MapSet.new([:all]))
-    assert overview =~ "Fleet snapshot 0s old"
-    table = render_component(&FleetTable.fleet_table/1, fleet: payload, now: DateTime.utc_now())
-    assert table =~ "80s old; since daemon start"
   end
 
   test "missing observations and unavailable snapshots cannot masquerade as zero age or capacity" do

@@ -16,6 +16,7 @@ defmodule Aiur.WorkflowStoreReadPathTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.TestSupport.OrchestratorGuard
 
   setup do
     ensure_workflow_store_running()
@@ -176,6 +177,8 @@ defmodule Aiur.WorkflowStoreReadPathTest do
   end
 
   test "a store restart drops the cache rather than serving a dead generation" do
+    codeowners_baseline = OrchestratorGuard.capture_shared_state().codeowners
+    on_exit(fn -> OrchestratorGuard.restore_codeowners_state!(codeowners_baseline) end)
     store = Process.whereis(WorkflowStore)
     assert %Schema{} = Config.settings!()
 

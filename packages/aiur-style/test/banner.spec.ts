@@ -5,7 +5,9 @@ for (const theme of ['light', 'dark']) {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(`./?theme=${theme}`);
     const banner = page.locator('.aiur-banner');
+    await expect(banner).toHaveCSS('line-height', 'normal');
     await expect(banner.locator('.aiur-banner__text')).toHaveCSS('font-size', '13px');
+    await expect(banner.locator('.aiur-banner__text')).toHaveCSS('line-height', '19.5px');
     const close = banner.getByRole('button', { name: 'Dismiss announcement' });
     await expect(close).toHaveCSS('width', '26px');
     await expect(close).toHaveCSS('height', '26px');
@@ -55,24 +57,20 @@ test('keyboard dismisses, persists the campaign, emits once and focuses the next
   expect(await page.evaluate(() => localStorage.getItem('aiur-banner:gallery'))).toBe('dismissed');
 });
 
-test('dismissed banner is hidden on insertion and the first animation frame after reload', async ({ page }) => {
-  await page.goto('./');
-  await page.locator('.aiur-banner__close').click();
+test('dismissed banner is hidden on the first animation frame after reload', async ({ page }) => {
   await page.addInitScript(() => {
-    const evidence = { visibleOnInsertion: false, frames: [] as boolean[] };
+    const evidence = { visibleOnFirstFrame: false };
     Object.assign(window, { bannerEvidence: evidence });
-    new MutationObserver(() => {
-      const banner = document.querySelector('.aiur-banner');
-      if (banner && getComputedStyle(banner).display !== 'none') evidence.visibleOnInsertion = true;
-    }).observe(document, { childList: true, subtree: true });
     requestAnimationFrame(() => {
       const banner = document.querySelector('.aiur-banner');
-      evidence.frames.push(!!banner && getComputedStyle(banner).display !== 'none');
+      evidence.visibleOnFirstFrame = !!banner && getComputedStyle(banner).display !== 'none';
     });
   });
+  await page.goto('./');
+  await page.locator('.aiur-banner__close').click();
   await page.reload();
-  await page.waitForFunction(() => (window as any).bannerEvidence.frames.length === 1);
-  expect(await page.evaluate(() => (window as any).bannerEvidence)).toEqual({ visibleOnInsertion: false, frames: [false] });
+  await page.waitForFunction(() => typeof (window as any).bannerEvidence?.visibleOnFirstFrame === 'boolean');
+  expect(await page.evaluate(() => (window as any).bannerEvidence.visibleOnFirstFrame)).toBe(false);
   await expect(page.locator('.aiur-banner')).toBeHidden();
 });
 
@@ -90,6 +88,7 @@ for (const fallback of ['main', 'body']) {
     await page.evaluate(useMain => {
       document.getElementById('after-banner')!.remove();
       document.getElementById('buttons')!.remove();
+      document.getElementById('footer')?.remove();
       if (useMain) document.body.append(document.createElement('main'));
     }, fallback === 'main');
     await page.locator('.aiur-banner__close').click();

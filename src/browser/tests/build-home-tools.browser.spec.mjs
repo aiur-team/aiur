@@ -1,15 +1,19 @@
 import { test, expect } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
 import AxeBuilder from '@axe-core/playwright'
 import { expectSpanAuditClean } from './support/build-home-span-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openFixture } from './support/browser-helpers.mjs'
+import { openFixture, assertNoDocumentOverflow, assertControlsRemainReachable } from './support/browser-helpers.mjs'
 
 test.beforeEach(async ({ page }) => {
+  await page.route(/\/build-home\/tools\.js$/, route => route.fulfill({
+    path: fileURLToPath(new URL('../../priv/static/build-home/tools.js', import.meta.url)), contentType: 'text/javascript'
+  }))
   await openFixture(page)
   await page.evaluate(async () => {
     const state = await import('/build-home/state.js')
     const { createBuildHomeHook } = await import('/build-home/hook.js')
-    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '</main>'
+    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '<div id="tk-backdrop"><div id="tk-modal"><header id="tk-head"></header><div id="tk-body"></div></div></div></main>'
     window.events = {}; window.pushes = []; window.board = []; window.m = state
     window.hook = createBuildHomeHook()
     Object.assign(hook, { el: document.querySelector('#build-root'), handleEvent: (name, fn) => events[name] = fn,
@@ -59,8 +63,8 @@ test('manual keyboard wraps, activates and preserves focus through cached and re
 test('daemon status follows snapshot and socket changes and escapes helper text', async ({ page }) => {
   for (const state of ['live', 'offline', 'stale', 'unknown']) {
     await page.evaluate(state => { m.ctx.snap = { daemon: { state } }; m.fx.renderTools() }, state)
-    await expect(page.locator('.bd-daemon')).toHaveText(state === 'unknown' ? 'Daemon status unknown' : `Daemon ${state}`)
-    expect(await page.locator('.bd-daemon').evaluate(el => el.classList.contains('off'))).toBe(state !== 'live')
+    await expect(page.locator('.bd-daemon')).toHaveText(state === 'unknown' ? 'Daemon up · unread' : `Daemon ${state}`)
+    expect(await page.locator('.bd-daemon').evaluate(el => el.classList.contains('off'))).toBe(!['live', 'unknown'].includes(state))
   }
   await page.evaluate(() => { m.ctx.snap = { daemon: { state: 'live' } }; m.fx.renderTools(); hook.disconnected() })
   await expect(page.locator('.bd-daemon')).toHaveText('Daemon unreachable')
@@ -70,6 +74,14 @@ test('daemon status follows snapshot and socket changes and escapes helper text'
   await expect(page.locator('.bd-daemon')).toHaveText('<img src=x>')
   await expect(page.locator('.bd-daemon img')).toHaveCount(0)
 })
+test('loaded view activation keeps keyboard focus on its toolbar tab', async ({ page }) => {
+  await page.evaluate(() => { m.S.loading = false })
+  await page.getByRole('tab', { name: 'List', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  expect(await page.evaluate(() => m.S.view)).toBe('list')
+  await expect(page.getByRole('tab', { name: 'List', exact: true })).toBeFocused()
+})
+
 test('server URL change rebuilds viewport and jumps without URL echo', async ({ page }) => {
   for (const view of ['gantt', 'graph']) {
     await page.evaluate(view => { m.S.loading = false; board.length = 0; events['build:url']({ state: { view } }) }, view)
@@ -96,6 +108,64 @@ test('tabs and status have complete accessible roles in every view', async ({ pa
     await page.getByRole('tab', { name, exact: true }).click()
     expectSpanAuditClean(await new AxeBuilder({ page }).include('#bd-tools-l').include('#bd-tools').include('#bd-status').analyze())
   }
+})
+
+test('phone footer shows the whole held note and keeps the status dot', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.goto('/build-fixture/live')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  // Longest production source name and two-digit ages: the widest label the footer can get (#4770).
+  await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js'); const { nowMs } = await import('/build-home/clock.js')
+    ctx.snap = { ...ctx.snap, daemon: { state: 'unknown', heartbeat_at: nowMs() - 59 * 60_000 },
+      sources: { ...ctx.snap.sources, open_tickets: { state: 'stale', observed_at: nowMs() - 47 * 3_600_000, reason: 'catch_up_held' } } }
+    fx.renderStatus()
+  })
+  const footer = page.locator('.bd-daemon')
+  await expect(footer).toHaveText('Daemon up · unread, last good 59m · open_tickets held 47h')
+  await expect(footer).toHaveAttribute('title', /open_tickets held by GitHub, read 47 h ago/)
+  expect(await footer.evaluate(el => ({ fits: el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= innerWidth,
+    dot: el.querySelector('i').getBoundingClientRect().width }))).toEqual({ fits: true, dot: 7 })
+})
+
+// Moved from the removed toolbar design-parity spec (#6061).
+async function expectSpanTargets(page) {
+  const sizes = await page.locator('[data-span], [data-z]').evaluateAll(nodes => nodes.map(el => { const r = el.getBoundingClientRect(); return [r.width, r.height] }))
+  expect(sizes.length).toBeGreaterThan(0)
+  for (const [w, h] of sizes) { expect(w).toBeGreaterThanOrEqual(30); expect(h).toBeGreaterThanOrEqual(28) }
+}
+test('toolbar wraps the filters below 1181px and reduced motion stops the live pulse', async ({ page }) => {
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.goto('/build-fixture/live')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  await expect(page.locator('#bd-tools-l .bd-seg.vw')).toHaveCount(1)
+  await expectSpanTargets(page)
+  for (const width of [1181, 1180, 721, 720]) {
+    await page.setViewportSize({ width, height: 900 })
+    const boxes = await page.evaluate(() => ['bd-filters', 'bd-tools-l', 'bd-tools'].map(id => { const r = document.getElementById(id).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width } }))
+    if (width > 1180) { expect(boxes[0].top).toBeGreaterThanOrEqual(boxes[1].top); expect(boxes[0].top).toBeLessThanOrEqual(boxes[1].bottom) }
+    else { expect(boxes[0].top).toBeGreaterThanOrEqual(boxes[1].bottom); expect(boxes[0].width).toBeGreaterThan(boxes[1].width) }
+  }
+  await expect(page.locator('.bd-live i')).toHaveCSS('animation-name', 'bdPulse')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.bd-live i')).toHaveCSS('animation-name', 'none')
+  expect(parseFloat(await page.locator('.bd-live').evaluate(el => getComputedStyle(el).transitionDuration))).toBeLessThanOrEqual(0.00001)
+})
+
+test('phone toolbar switches view by tap without page overflow', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: test.info().project.use.baseURL, httpCredentials: dashboardCredentials, viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
+  try {
+    const page = await context.newPage()
+    await page.goto('/build-fixture/live')
+    await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+    await page.tap('[data-v="gantt"]')
+    await expect(page.locator('[data-v="gantt"]')).toHaveAttribute('aria-selected', 'true')
+    await assertNoDocumentOverflow(page)
+    await assertControlsRemainReachable(page)
+    await page.tap('[data-v="graph"]')
+    await expectSpanTargets(page)
+  } finally { await context.close() }
 })
 
 test('real LiveView URL history and server diff retain selected view and focused tab', async ({ page }) => {

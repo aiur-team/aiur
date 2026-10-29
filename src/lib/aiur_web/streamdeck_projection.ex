@@ -1,21 +1,24 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
-  alias Aiur.{CodingAgent, Commands, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
-  import AiurWeb.StreamdeckProjection.Meters, only: [age_seconds: 1, field: 2, normalize_provider_meter: 3]
+  alias Aiur.Commands
+  import AiurWeb.Streamdeck.Render.Svg, only: [field: 2]
 
-  alias AiurWeb.{Endpoint, StreamdeckFleet}
+  alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet}
+  alias AiurWeb.Streamdeck.Deck.Meters
 
+  @voice_not_installed_reason "Voice isn't installed in this Aiur"
   @version 1
   @voice_unconfigured_reason "Aiur has no ElevenLabs API key - transcription is off"
 
   @spec snapshot() :: map()
   def snapshot do
-    snapshot = safe_call(snapshot_fun(), %{})
+    grid = grid()
+    snapshot = safe_call(snapshot_fun(grid), %{})
 
     %{
       version: @version,
-      fleet: fleet(snapshot),
-      grid: grid(snapshot),
+      fleet: StreamdeckFleet.fleet(snapshot),
+      grid: grid,
       usage: provider_meters(),
       decisions: decisions(),
       voice: voice()
@@ -35,24 +38,23 @@ defmodule AiurWeb.StreamdeckProjection do
   def voice do
     case Aiur.Voice.availability() do
       %{available: true} -> %{available: true, reason: nil}
-      %{reason: reason} when reason in [:unconfigured, :not_installed] -> %{available: false, reason: @voice_unconfigured_reason}
+      %{reason: :unconfigured} -> %{available: false, reason: @voice_unconfigured_reason}
+      %{reason: :not_installed} -> %{available: false, reason: @voice_not_installed_reason}
     end
   end
 
   @spec fleet_agents([map()]) :: [map()]
   def fleet_agents(summaries) when is_list(summaries), do: Enum.map(summaries, &agent/1)
 
-  @spec fleet() :: map()
-  @spec fleet(term()) :: map()
-  def fleet(snapshot \\ safe_call(snapshot_fun(), %{})), do: StreamdeckFleet.fleet(snapshot)
-
   @spec grid() :: map()
   @spec grid(term()) :: map()
-  def grid(snapshot \\ safe_call(snapshot_fun(), %{})), do: StreamdeckFleet.grid(snapshot)
+  def grid(snapshot \\ nil), do: StreamdeckFleet.grid(snapshot)
 
   @spec fleet_with_grid([map()] | nil) :: map()
   def fleet_with_grid(summaries) do
-    snapshot_fun() |> safe_call(:unavailable) |> StreamdeckFleet.with_grid(summaries)
+    grid = grid()
+    snapshot = safe_call(snapshot_fun(grid), :unavailable)
+    StreamdeckFleet.with_grid(snapshot, summaries, grid)
   end
 
   @spec agent(map()) :: map()
@@ -77,34 +79,7 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec provider_meters() :: map()
   def provider_meters do
-    provider_meters_fun()
-    |> safe_call(%{})
-    |> provider_meters(DateTime.utc_now())
-  end
-
-  @doc false
-  @spec provider_meters(map(), DateTime.t()) :: map()
-  def provider_meters(meters, %DateTime{} = now) when is_map(meters) do
-    CodingAgent.provider_families()
-    |> Map.new(fn provider ->
-      meter = field(meters, provider)
-      {Atom.to_string(provider), normalize_provider_meter(provider, meter, now)}
-    end)
-    |> external_value()
-  end
-
-  @spec provider_meters(ProviderMeterSnapshot.t()) :: map()
-  def provider_meters(%ProviderMeterSnapshot{} = snapshot), do: merge_provider_meter(provider_meters(), snapshot)
-
-  @doc false
-  @spec merge_provider_meter(map(), ProviderMeterSnapshot.t()) :: map()
-  def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) do
-    if provider in CodingAgent.provider_families() and AiurWeb.StreamdeckMeterRetention.newer?(snapshot, Map.get(meters, Atom.to_string(provider))) do
-      meter = normalize_provider_meter(provider, provider_meter(snapshot), DateTime.utc_now()) |> external_value()
-      Map.put(meters, Atom.to_string(provider), meter)
-    else
-      meters
-    end
+    Meters.read()
   end
 
   @spec decisions() :: map()
@@ -159,42 +134,13 @@ defmodule AiurWeb.StreamdeckProjection do
     |> external_value()
   end
 
-  defp snapshot_fun do
-    endpoint_config(:streamdeck_snapshot_fun) || fn -> Orchestrator.dashboard_snapshot(orchestrator(), snapshot_timeout_ms()) end
-  end
-
-  defp provider_meters_fun do
-    endpoint_config(:streamdeck_provider_meters_fun) || fn -> ProviderMeterProjection.snapshot() end
+  defp snapshot_fun(grid) do
+    endpoint_config(:streamdeck_snapshot_fun) || fn -> %{agents: grid.agents} end
   end
 
   defp decisions_fun do
     endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: Commands.metrics_snapshots() |> map_size()} end
   end
-
-  defp provider_meter(snapshot) do
-    %{
-      summary_label: snapshot.summary_label,
-      ingested_at: snapshot.ingested_at,
-      provider: snapshot.provider,
-      state: if(is_nil(snapshot.observed_at), do: :unknown, else: :observed),
-      observed_at: snapshot.observed_at,
-      age_seconds: age_seconds(snapshot.observed_at),
-      auth_mode: snapshot.auth_mode,
-      plan: snapshot.plan,
-      freshness: snapshot.freshness,
-      health: snapshot.health,
-      windows: snapshot.windows
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-    |> external_value()
-  end
-
-  defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
-  # The configured value is the floor, not the tolerance: a fixed 15s window
-  # against a 120s poll marks a healthy fleet stale for most of every cycle.
-  # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
-  defp snapshot_timeout_ms, do: PollCadence.snapshot_tolerance_ms(endpoint_config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
 
   defp safe_call(fun, fallback) when is_function(fun, 0) do
     fun.()
@@ -223,7 +169,7 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   defp endpoint_config(key) do
-    Endpoint.config(key) || Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
+    EndpointConfig.get(key) || Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
   rescue
     _error -> Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
   end

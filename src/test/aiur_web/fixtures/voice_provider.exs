@@ -8,7 +8,9 @@ defmodule AiurWeb.VoiceChannelTest.FakeSTT do
   @impl true
   def start(opts) do
     observer = Application.fetch_env!(:aiur, AiurWeb.VoiceChannelTest.FakeVoiceProvider)[:observer]
-    GenServer.start(__MODULE__, channel: Keyword.fetch!(opts, :owner), observer: observer)
+    started = GenServer.start(__MODULE__, channel: Keyword.fetch!(opts, :owner), observer: observer)
+    with {:ok, pid} <- started, do: send(observer, {:fake_stt_started, pid})
+    started
   end
 
   @impl true
@@ -31,7 +33,7 @@ defmodule AiurWeb.VoiceChannelTest.FakeSTT do
   def stop(pid), do: GenServer.cast(pid, :stop)
 
   def transcript(pid, kind, text), do: GenServer.call(pid, {:transcript, kind, text})
-  def error(pid, reason), do: GenServer.call(pid, {:error, reason})
+  def error(pid, reason, code \\ :provider_error), do: GenServer.call(pid, {:error, reason, code})
 
   def pushes(pid), do: GenServer.call(pid, :pushes)
   def committed?(pid), do: GenServer.call(pid, :committed?)
@@ -59,8 +61,8 @@ defmodule AiurWeb.VoiceChannelTest.FakeSTT do
     {:reply, :ok, state}
   end
 
-  def handle_call({:error, reason}, _from, state) do
-    send(state.channel, {:voice_error, %{code: :provider_error, message: reason}})
+  def handle_call({:error, reason, code}, _from, state) do
+    send(state.channel, {:voice_error, %{code: code, message: reason}})
     {:reply, :ok, state}
   end
 

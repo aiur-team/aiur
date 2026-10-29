@@ -14,13 +14,15 @@
   "optional": [],
   "owns": {
     "config": [],
-    "env": [],
+    "env": [
+      "AIUR_CLIENT_TOKEN"
+    ],
     "state": [],
     "capabilities": []
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Connects a physical Stream Deck to Aiur for status, conversations and Command responses.",
+  "summary": "Displays daemon-rendered SVG frames on a physical Stream Deck and forwards raw input with offline and device recovery.",
   "status": "optional",
   "install": {
     "type": "setup",
@@ -30,6 +32,9 @@
     "guide/stream-deck.md"
   ],
   "config": [],
-  "env": [],
-  "capabilities": []
+  "env": [
+    "AIUR_CLIENT_TOKEN"
+  ],
+  "capabilities": [],
+  "goal": "hardware"
 }

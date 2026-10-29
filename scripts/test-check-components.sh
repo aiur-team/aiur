@@ -3,8 +3,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo_root" "$@" <<'PY'
-import json
-import os
+import json, os
 from pathlib import Path
 import shutil
 import subprocess
@@ -19,8 +18,6 @@ with_elixir = '--with-elixir' in sys.argv[2:]
 selected = set(sys.argv[2:]) - {'--with-node', '--with-elixir'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
-
-
 def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None, rules='ownership', links=None):
     if selected and name not in selected:
         return
@@ -72,7 +69,6 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             verify_format(root, args, manifest, components, name)
         print(f'PASS: {name}')
 
-
 check('owned_once_passes', [component('a', ['src/lib/a/**']), component('b', ['packages/b/**'])],
       ['src/lib/a/a.ex', 'src/lib/a/nested/b.ex', 'packages/b/package.json'],
       messages=('all 6 source files owned', 'a: 5 files', 'b: 1 files'))
@@ -122,6 +118,8 @@ check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])]
       ('/components/0/paths: duplicate items',))
 from components.public_fixtures import run as public_checks
 public_checks(component, check)
+from components.config_ownership_fixtures import run as config_checks
+config_checks(component, check)
 
 if with_node:
     def imports(name, source, code=0, messages=(), dependencies=None, extra=None, links=None):
@@ -132,8 +130,8 @@ if with_node:
         if any(file.startswith('src/lib/') for file in files):
             components.append(component('daemon', ['src/lib/**']))
         check(name, components, files, code, messages, rules='all', links=links)
-
     imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('self_reference_passes', 'import "a";')
     imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
             ('R-client', 'src/lib/foo.js'))
     imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),
@@ -170,6 +168,7 @@ if with_node:
     imports('relative_symlink_into_src_fails', 'import "./leak/index.js";', 1, ('R-client', 'src/lib/leak/index.js'),
             extra={'src/lib/leak/index.js': ''}, links={'packages/a/src/leak': 'src/lib/leak'})
     imports('non_js_package_dir_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': ''})
+    imports('mix_package_static_js_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': '', 'packages/elixir/voice_converse/priv/static/client.js': ''})
     imports('missing_package_json_exits_2', '', 2, ('package.json',), extra={'packages/b/src/x.ts': ''})
     imports('external_resource_into_packages_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
@@ -191,14 +190,13 @@ if with_node:
             extra={'src/lib/foo.ex': '@external_resource(\n  "../../packages/a/x.json"\n)'})
     imports('resource_alias_chain_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@path "../../packages/a/x.json"\n@resource @path\n@external_resource @resource'})
-    imports('external_resource_allowlisted', '', messages=('allowlisted', 'MP-R6 owns'),
-            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
-                   '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',
+    imports('streamdeck_external_resource_into_package_rejected', '', 1, ('R-reverse-resource', 'packages/streamdeck/src/resource-fixture.json'),
+            extra={'src/lib/aiur_web/streamdeck_resource_fixture.ex':
+                   '@contract_path Path.expand("../../../packages/streamdeck/src/resource-fixture.json", __DIR__)\n@external_resource @contract_path',
                    'packages/streamdeck/package.json': '{"name":"streamdeck"}'})
-    imports('allowlist_is_path_specific', '', 1, ('R-reverse-resource',),
-            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
+    imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/aiur_web/streamdeck_resource_fixture.ex':
                    '@external_resource "../../../packages/a/other.json"'})
-
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
     'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',
@@ -231,14 +229,14 @@ check('repo_state_path_without_owner_fails', [repo_owner], [], 1, ("'experiments
       change=lambda m: m['components'][0]['owns']['state'].remove('experiments_path'), declarations=repo_declarations)
 check('unknown_shared_component_fails', [dict(owner, shared_with=['absent'])], [], 2,
       ('unknown component absent',), declarations=declarations)
-for kind, name in [('config', 'bad.section'), ('env', 'lowercase'), ('state', 'repo_name')]:
+for kind, name in [('config', 'bad..section'), ('env', 'lowercase'), ('state', 'repo_name')]:
     check(f'invalid_{kind}_format_fails', [owner], [], 2, ('invalid string',),
           change=lambda m, k=kind, n=name: m['components'][0]['owns'][k].append(n), declarations=declarations)
 if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '25 sections, 7 fields, 80 env vars, 28 state paths owned once' in result.stdout
+    assert __import__('re').search(r'^components: \d+ sections, \d+ fields, \d+ env vars, \d+ state paths owned once$', result.stdout, __import__('re').MULTILINE), result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -257,6 +255,7 @@ if with_node and (not selected or 'missing_typescript_exits_2' in selected):
         root = Path(directory)
         shutil.copyfile(checker, root / 'check-components.py')
         shutil.copyfile(repo / 'scripts/check-env-example.py', root / 'check-env-example.py')
+        shutil.copyfile(repo / 'scripts/check-config-docs.py', root / 'check-config-docs.py')
         shutil.copytree(repo / 'scripts/components', root / 'components', ignore=shutil.ignore_patterns('node_modules'))
         result = subprocess.run([sys.executable, str(root / 'check-components.py')],
                                 env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(repo)), capture_output=True, text=True)
@@ -269,8 +268,6 @@ if with_elixir and not shutil.which('elixir'):
 if not with_elixir:
     print('SKIP: Elixir reference fixtures (use --with-elixir in lint)')
 else:
-    import os
-
     def reference_check(name, fixture, code=0, messages=(), source=None, change=None, args=(), verify=None):
         if selected and name not in selected:
             return
@@ -294,7 +291,6 @@ else:
             if verify:
                 verify(root, command)
             print(f'PASS: {name}')
-
     def use_experiments_contract(root):
         manifest = json.loads((root / 'components.json').read_text())
         sys.path.insert(0, str(repo / 'scripts'))
@@ -302,16 +298,19 @@ else:
         shipped = next(c for c in read_manifest(repo)['components'] if c['id'] == 'experiments')
         manifest['components'][0]['forbid'] = shipped['forbid']
         (root / 'components.json').write_text(json.dumps(manifest))
-
     reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1,
                     ('R-forbid experiments -> Aiur.Orchestrator',), change=use_experiments_contract)
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
+    from components.github_access_fixtures import run as access_checks; access_checks(reference_check)
+    from components.package_reference_fixtures import run as package_checks; package_checks(reference_check)
     reference_check('declared_facade_passes', 'declared_facade_passes')
     # Future-regression guard: component routes import the kit, never the shell.
     reference_check('component_route_kit_passes', 'component_routes', messages=('R-down: 0',))
     reference_check('component_route_shell_fails', 'component_routes', 1,
                     ('R-down commands -> AiurWeb.Router',),
                     source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
+    from components.harness_fixtures import run as harness_checks; harness_checks(reference_check, repo)
+    from components.event_bus_fixtures import run as bus_checks; bus_checks(reference_check, repo)
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))
@@ -485,15 +484,17 @@ else:
                                     env=dict(os.environ, PATH=directory), capture_output=True, text=True)
             assert result.returncode == 2 and 'Elixir missing; install via mise' in result.stderr, result.stderr
             print('PASS: missing_elixir_exits_2')
-
-from components.docs_fixtures import run as docs_fixtures
-ran.update(docs_fixtures(repo, selected))
+from components.docs_fixtures import run as docs_fixtures; ran.update(docs_fixtures(repo, selected))
+if with_elixir and (not selected or 'component_debt_reports_both_directions' in selected):
+    subprocess.run([sys.executable, str(repo / 'scripts/test-component-promotion-report.py')], check=True)
+    ran.add('component_debt_reports_both_directions')
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
-print('check-components guard: all selected cases passed')
 PY
-
+python3 "$repo_root/scripts/test-components-seam-merge.py" && python3 "$repo_root/scripts/test-component-state-files.py" "$repo_root"
 if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-components-seams.py"
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
   python3 "$repo_root/scripts/test-github-components.py"
 fi
+python3 "$repo_root/scripts/test-component-goals.py"
+printf '%s\n' 'check-components guard: all selected cases passed'

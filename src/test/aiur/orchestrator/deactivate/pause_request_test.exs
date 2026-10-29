@@ -315,7 +315,7 @@ defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
 
       receive_barrier({:event, %{topic: "ticket.STALL-W.agent.stalled"} = event})
       assert event["needs_attention"] == true
-      assert event["message"] =~ "claude command made no progress"
+      assert event["message"] =~ "claude backend command (aiur-claude) made no progress"
       assert event["reason"] =~ "no-progress window"
     end
 

@@ -102,6 +102,24 @@ defmodule Aiur.ProviderMeterProbeTest do
     end
   end
 
+  # Answers with whatever the test queued, so a sequence of probe cycles can
+  # fail and then recover.
+  defmodule ScriptedUsageApi do
+    @moduledoc false
+    def fetch(_opts), do: raise("metadata-aware usage fetching is required")
+
+    def fetch_with_metadata(_opts) do
+      case Process.get(:usage_api_result) do
+        {:ok, observed_at} ->
+          {:ok, reading} = MultiWindowUsageApi.fetch([])
+          {:ok, reading, %{freshness: :fresh, observed_at: observed_at}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
   defmodule ObservingFakeAgent do
     @moduledoc false
 
@@ -294,6 +312,52 @@ defmodule Aiur.ProviderMeterProbeTest do
 
     assert %{"default" => %{freshness: :cached, observed_at: ~U[2026-10-01 00:00:00Z]}} =
              UsageReadings.snapshot("claude", ["default"])
+  end
+
+  describe "a failing Claude usage probe (#5747)" do
+    # A probe that fails quietly leaves the last reading aging with no word of
+    # why. Three failures in a row is past the odd 429: the operator must hear
+    # about it, and the read model must keep the error and when the account was
+    # last actually observed, so `aiur accounts` can say "stale since X: why".
+    test "three consecutive failures log a warning and keep the error and last observation", ctx do
+      good_at = ~U[2026-10-22 08:26:00Z]
+      Process.put(:usage_api_result, {:ok, good_at})
+      ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ScriptedUsageApi, claude_accounts: ["default"]))
+
+      Process.put(:usage_api_result, {:error, :rate_limited})
+
+      quiet =
+        capture_log(fn ->
+          for _cycle <- 1..2, do: ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ScriptedUsageApi, claude_accounts: ["default"]))
+        end)
+
+      refute quiet =~ "usage probe failing"
+
+      log = capture_log(fn -> ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ScriptedUsageApi, claude_accounts: ["default"])) end)
+
+      assert log =~ "usage probe failing"
+      assert log =~ "account=default"
+      assert log =~ "reason=:rate_limited"
+
+      assert %{"default" => entry} = UsageReadings.snapshot("claude", ["default"])
+      assert entry.reason == :rate_limited
+      assert entry.consecutive_failures == 3
+      assert entry.last_observed_at == good_at
+
+      # Once per streak: a long outage does not repeat the line every tick.
+      later = capture_log(fn -> ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ScriptedUsageApi, claude_accounts: ["default"])) end)
+      refute later =~ "usage probe failing"
+    end
+
+    test "a fresh reading clears the failure streak", ctx do
+      Process.put(:usage_api_result, {:error, :unauthorized})
+      ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ScriptedUsageApi, claude_accounts: ["default"]))
+
+      Process.put(:usage_api_result, {:ok, ~U[2026-10-22 09:00:00Z]})
+      ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ScriptedUsageApi, claude_accounts: ["default"]))
+
+      assert %{"default" => %{freshness: :fresh, reason: nil, consecutive_failures: 0}} = UsageReadings.snapshot("claude", ["default"])
+    end
   end
 
   test "per-account polling uses a separate credentials path and reading for each account", ctx do

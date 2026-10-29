@@ -55,6 +55,15 @@ defmodule AiurWeb.OperatorControlCenter.ModelProvidersTest do
         run: %{state: :loading},
         usage: %{state: :ready, providers: %{}},
         meters: meters,
+        github_quota: %{
+          fleet_budget: %{
+            state: :observed,
+            observed_at: ~U[2026-10-24 12:00:00Z],
+            age_seconds: 8,
+            observed_instances: 2,
+            resources: %{"core" => 31, "graphql" => 60, "search" => 2}
+          }
+        },
         configured_providers: MapSet.new([:claude]),
         now: ~U[2026-07-20 12:00:00Z]
       })
@@ -62,8 +71,26 @@ defmodule AiurWeb.OperatorControlCenter.ModelProvidersTest do
     assert html =~ ~s(data-provider="claude")
     assert html =~ ~s(<span class="rs-no">unknown</span>)
     assert html =~ "1 model"
+    assert html =~ "Shared daemon spend: Core 31 requests, GraphQL 60 points across 2 observed instances (8s old)"
+    assert html =~ "agent gh calls are counted per host"
     refute html =~ "Muse"
     refute html =~ "Not observed"
+  end
+
+  test "the dashboard labels an unavailable fleet sample instead of showing zero spend" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: %{state: :authorized, cards: []},
+        github_quota: %{fleet_budget: %{state: :unknown}},
+        configured_providers: [],
+        now: ~U[2026-10-24 12:00:00Z]
+      })
+
+    assert html =~ "Shared daemon budget has no fleet sample yet"
+    assert html =~ "agent gh calls are counted per host"
+    refute html =~ "Core 0 requests"
   end
 
   test "configured families follow the workflow's routed backends, not the registry" do

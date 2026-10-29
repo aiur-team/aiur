@@ -1,6 +1,43 @@
 defmodule Aiur.Core.AgentRunnerPauseTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.BeforeRun
+
+  test "before_run failure pause log includes the tail of hook output" do
+    workspace = Aiur.TestSupport.tmp_root!("aiur-before-run-output-tail")
+    parent = self()
+    output = "git fetch output\n" <> String.duplicate("setup output\n", 80) <> "fatal: final hook failure"
+    issue = %Issue{id: "issue-hook-tail", identifier: "MT-HOOK-TAIL", title: "Hook failure", state: "In Progress"}
+
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    pause_log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        task =
+          Task.async(fn ->
+            BeforeRun.pause_for_failure(
+              workspace,
+              issue,
+              parent,
+              nil,
+              1,
+              output,
+              {:workspace_hook_failed, "before_run", 1, output}
+            )
+          end)
+
+        assert_receive {:worker_control_state, "issue-hook-tail", :paused, %{kind: :before_run_failure}}, 1_000
+        send(task.pid, {:resume_agent, 1})
+        assert :resume_after_before_run_pause = Task.await(task, 1_000)
+      end)
+
+    assert pause_log =~ "fatal: final hook failure"
+    refute pause_log =~ "git fetch output"
+    event_log = Path.join([workspace, "logs", "agent.ndjson"]) |> File.read!()
+    assert event_log =~ "fatal: final hook failure"
+    refute event_log =~ "git fetch output"
+  end
+
   test "agent runner interrupts an active turn and waits for the next operator message before resuming" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-pause")
 

@@ -1,0 +1,13 @@
+{
+  "instance": null,
+  "epoch": "new-epoch",
+  "head_seq": 60,
+  "oldest_seq": 50,
+  "records": [
+    {
+      "type": "reset",
+      "oldest_seq": 50,
+      "head_seq": 60
+    }
+  ]
+}

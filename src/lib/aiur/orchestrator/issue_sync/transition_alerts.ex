@@ -3,14 +3,16 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   Publishes observed state, pause, and human-review transitions.
   """
 
-  alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.DispatchBudgetStore
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.Events.GithubKeys
+  alias Aiur.GitHub.Access
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
+  alias Aiur.TicketBranch
 
   @doc false
   @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
@@ -43,11 +45,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
 
   @doc false
   @spec active_attention_topics() :: MapSet.t()
-  def active_attention_topics do
-    [needs_attention: true]
-    |> AlertFeed.list()
-    |> MapSet.new(& &1["topic"])
-  end
+  def active_attention_topics, do: AttentionSnapshot.topics()
 
   @doc false
   @spec emit_task_state_transition_alert(State.t(), Issue.t() | nil, term()) :: State.t()
@@ -78,7 +76,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         emit_observed_error_transition_alert(state, issue)
 
       current_state == "human-review" ->
-        Alerts.emit_system(
+        Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
           issue: issue,
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
@@ -96,7 +94,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
       true ->
         # Ticket B: label-flip alerts route through the new topic shape so
         # the alerts file can glob-match per state without one entry per state.
-        Alerts.emit_system(
+        Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
           issue: issue,
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
@@ -111,37 +109,56 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
 
   def emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
 
-  defp publish_human_review_handoff(%Issue{} = issue) do
-    {pr_number, head_sha} = human_review_pr_details(issue)
+  @doc false
+  @spec publish_human_review_handoff(Issue.t(), keyword()) :: term()
+  def publish_human_review_handoff(%Issue{} = issue, opts \\ []) do
+    {repo, pull_request} = human_review_pull_request(issue)
+    {pr_number, head_sha} = human_review_pr_identity(pull_request)
+    review = repo && pr_number && GithubKeys.last_review(repo, pr_number, get_in(pull_request, ["user", "login"]))
+    last_review_sha = review && review["commit_id"]
+    approved_at_head? = is_binary(head_sha) and review["state"] == "APPROVED" and last_review_sha == head_sha
 
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.handoff.human_review",
+    # The tracker refresh and the CI poll both observe the same flip; one wake per (PR, head).
+    emit_system = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
+
+    emit_system.("ticket.#{issue.identifier}.agent.handoff.human_review",
       issue: issue,
       reason: "Agent handed the ticket to human review",
-      needs_attention: true,
-      severity: "warning",
+      needs_attention: not approved_at_head?,
+      severity: if(approved_at_head?, do: "info", else: "warning"),
+      dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "handoff_human_review", head_sha),
+      # A label-only handoff is often observed after the worker exits, when the ticket is no longer tracked (#5167).
+      bypass_contamination: true,
       exchange_payload: %{
         "action" => "human_review",
+        "observed_state" => DispatchPolicy.state_slug(issue.state),
+        "observed_updated_at" => issue.updated_at && DateTime.to_iso8601(issue.updated_at),
         "pr_number" => pr_number,
-        "head_sha" => head_sha
+        "head_sha" => head_sha,
+        "last_review_sha" => last_review_sha
       }
     )
   end
 
-  defp human_review_pr_details(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id})
-       when is_binary(id) do
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing, "#{owner}/#{repository}", id)
-    key |> ResourceStore.data() |> human_review_pr_listing_identity()
+  defp human_review_pull_request(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository, identifier: identifier}})
+       when not is_nil(identifier) do
+    repo = "#{owner}/#{repository}"
+    key = Access.key_for_repo(:branch_pull_request_listing_all, repo, "open")
+    {repo, key |> Access.data() |> human_review_pr_listing(identifier)}
   rescue
     _ -> {nil, nil}
   end
 
-  defp human_review_pr_details(_issue), do: {nil, nil}
+  defp human_review_pull_request(_issue), do: {nil, nil}
 
-  defp human_review_pr_listing_identity(%{} = pull_request), do: human_review_pr_identity(pull_request)
+  defp human_review_pr_listing(pull_requests, identifier) when is_list(pull_requests) do
+    Enum.find(pull_requests, fn
+      %{"head" => %{"ref" => branch}} when is_binary(branch) -> TicketBranch.ticket_branch?(branch, identifier)
+      _other -> false
+    end)
+  end
 
-  defp human_review_pr_listing_identity([pull_request | _rest]), do: human_review_pr_identity(pull_request)
-
-  defp human_review_pr_listing_identity(_listing), do: {nil, nil}
+  defp human_review_pr_listing(_listing, _identifier), do: nil
 
   defp human_review_pr_identity(%{"number" => number, "head" => %{"sha" => sha}}) when is_integer(number) and is_binary(sha),
     do: {number, sha}
@@ -163,7 +180,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     else
       message = observed_error_alert_message(cause)
 
-      case Alerts.emit_system(topic,
+      case Signal.alert(topic,
              issue: issue,
              worker_host: State.WorkerHost.running_worker_host(state, issue.id),
              reason: message,
@@ -190,7 +207,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         mark_observed_error_alert(state, issue.id, cause)
 
       active? ->
-        case Alerts.emit_system("#{topic}.resolved",
+        case Signal.alert("#{topic}.resolved",
                issue: issue,
                worker_host: State.WorkerHost.running_worker_host(state, issue.id),
                reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
@@ -225,6 +242,18 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   @doc false
   @spec active_attention?(State.t(), String.t()) :: boolean()
   def active_attention?(state, topic), do: MapSet.member?(state.active_attention_topics, topic)
+
+  @doc false
+  @spec stranded_attention_cleared?(State.t(), Issue.t(), MapSet.t()) :: boolean()
+  def stranded_attention_cleared?(%State{} = state, %Issue{} = issue, terminal_states) when is_struct(terminal_states, MapSet) do
+    topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeued"
+    state_slug = DispatchPolicy.state_slug(issue.state)
+
+    no_longer_dispatchable? =
+      state_slug in ["ci-wait", "merging"] or DispatchPolicy.terminal_issue_state?(issue.state, terminal_states)
+
+    no_longer_dispatchable? and active_attention?(state, topic)
+  end
 
   defp lifetime_latch_active?(%State{} = state, issue_id) when is_binary(issue_id) do
     lifetime_latch_status(state, issue_id) == :active
@@ -307,7 +336,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         emit_tracker_pause_alert(state, issue)
 
       {true, false} ->
-        Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
+        Signal.alert("ticket.#{issue.identifier}.agent.unpaused",
           issue: issue,
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
@@ -330,7 +359,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
     unless active_attention?(state, topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: issue,
         worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason:
@@ -349,7 +378,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
     if force? or active_attention?(state, topic) do
-      Alerts.emit_system("#{topic}.resolved",
+      Signal.alert("#{topic}.resolved",
         issue: issue,
         worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason: "Tracker removed agent:paused; the tracker pause override is resolved.",

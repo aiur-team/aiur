@@ -1,7 +1,7 @@
 defmodule Aiur.TestQuarantine do
   @moduledoc "Parses the repository test quarantine list and derives ExUnit exclusions."
 
-  @type entry :: %{module: String.t(), name: String.t(), ticket: String.t()}
+  @type entry :: %{module: String.t(), name: String.t(), ticket: String.t(), expires: Date.t()}
 
   @spec read(Path.t()) :: {:ok, [entry()]} | {:error, term()}
   def read(path), do: File.read(path) |> then(&parse_result/1)
@@ -36,11 +36,12 @@ defmodule Aiur.TestQuarantine do
 
   defp parse_entry(line, number, entries) do
     case String.split(line, "\t", trim: false) do
-      [module, name, ticket] when module != "" and name != "" and ticket != "" ->
-        if valid_module?(module) and valid_ticket?(ticket) do
-          {:cont, {:ok, [%{module: module, name: name, ticket: ticket} | entries]}}
+      [module, name, ticket, expires] when module != "" and name != "" and ticket != "" and expires != "" ->
+        with true <- valid_module?(module) and valid_ticket?(ticket),
+             {:ok, date} <- Date.from_iso8601(expires) do
+          {:cont, {:ok, [%{module: module, name: name, ticket: ticket, expires: date} | entries]}}
         else
-          {:halt, {:error, {:invalid_quarantine_entry, number}}}
+          _ -> {:halt, {:error, {:invalid_quarantine_entry, number, "expected module, name, ticket, and YYYY-MM-DD expiry"}}}
         end
 
       _ ->
@@ -51,6 +52,6 @@ defmodule Aiur.TestQuarantine do
   defp reverse_entries({:ok, entries}), do: {:ok, Enum.reverse(entries)}
   defp reverse_entries(error), do: error
 
-  defp valid_module?(module), do: Regex.match?(~r/^Aiur(?:\.[A-Za-z0-9_]+)+$/, module)
+  defp valid_module?(module), do: Regex.match?(~r/^Aiur(?:Web)?(?:\.[A-Za-z0-9_]+)+$/, module)
   defp valid_ticket?(ticket), do: Regex.match?(~r/^#?[1-9][0-9]*$/, ticket)
 end

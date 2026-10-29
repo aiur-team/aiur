@@ -31,6 +31,18 @@ defmodule AiurWeb.OperatorControlCenterComponentsCommandHistoryTest do
     refute html =~ ~s(class="decision-card)
   end
 
+  test "keeps an expired unanswered blocking Command answerable in the open inbox" do
+    expired = inbox_decision("dec-expired-blocking", decision_status: :expired, blocking: true)
+
+    html = render_inbox([expired], :open)
+
+    assert html =~ "Question dec-expired-blocking"
+    answer = render_component(&DecisionAction.decision_action/1, %{decision: expired, state: %{}, writable: true})
+    assert answer =~ ~s(phx-submit="answer-decision")
+    assert html =~ "Expired"
+    assert html =~ ~s(class="decision-card)
+  end
+
   test "quotes the answer the operator actually recorded in the Decision column" do
     custom =
       inbox_decision("dec-history-custom",
@@ -146,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsCommandHistoryTest do
     assert final =~ "10 loaded"
   end
 
-  test "Commands inbox exposes only the four primary filters with canonical retained counts" do
+  test "Commands inbox exposes routing and primary filters with canonical retained counts" do
     html =
       render_inbox(
         [inbox_decision("dec-overview-only")],

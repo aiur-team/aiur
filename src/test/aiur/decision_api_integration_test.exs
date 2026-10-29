@@ -5,6 +5,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
   import Plug.Test
 
   alias Aiur.{Decision, DecisionEvent, DecisionStore}
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Endpoint
 
   @token String.duplicate("t", 32)
@@ -13,6 +14,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
   @source %{agent_id: "agent-984", session_id: "session-984", event_id: nil}
 
   setup do
+    EndpointStubs.put(allowed_hosts: ["localhost"], allow_tailnet_hosts: true)
     original_dir = Application.get_env(:aiur, :decision_state_dir)
     original_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-api-integration")
@@ -116,7 +118,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     decided_body = Jason.decode!(decided.resp_body)
     refute decided.resp_body =~ secret
     assert decided_body["status"] == "accepted"
-    assert decided_body["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert decided_body["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
     assert decided_body["action"]["supervisor_basis"]["confidence"] == 93
 
     assert_receive {:dispatch_observed, action_id, {:ok, audit}}, 1_000
@@ -167,7 +169,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
                  "custom_response" => "Original direction",
                  "rationale" => "Initial evidence"
                },
-               [actor: %{kind: :operator, id: "operator-1"}],
+               [actor: %{kind: :executor, id: "executor-1"}],
                store
              )
 
@@ -200,7 +202,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     assert body["status"] == "accepted"
     assert body["revision_result"] == "recorded"
     assert body["action"]["prior_action_id"] == original.action_id
-    assert body["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert body["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
     assert body["action"]["answer"]["supervisor_basis"]["confidence"] == 89
 
     revision_action_id = body["action"]["action_id"]
@@ -234,6 +236,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
       end
 
     conn
+    |> Map.put(:host, "localhost")
     |> put_req_header("authorization", "Bearer #{@token}")
     |> maybe_put_mutation_headers(method)
     |> put_private(:decision_api_opts, store: store, policy: @policy)
@@ -256,7 +259,11 @@ defmodule Aiur.DecisionApiIntegrationTest do
     Application.put_env(
       :aiur,
       Endpoint,
-      Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
+      Keyword.merge(endpoint_config,
+        server: false,
+        secret_key_base: String.duplicate("s", 64),
+        url: [host: "localhost", scheme: "http", port: 80]
+      )
     )
 
     Aiur.TestSupport.start_owned_endpoint!()

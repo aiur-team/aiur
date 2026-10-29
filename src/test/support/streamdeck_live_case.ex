@@ -1,11 +1,15 @@
+Code.require_file("streamdeck_build_fixture.ex", __DIR__)
+
 defmodule AiurWeb.StreamdeckLiveCase do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   @moduledoc false
   use ExUnit.CaseTemplate
   import Phoenix.LiveViewTest
 
   alias Aiur.{CodingAgent, IssueLog}
-  alias Aiur.TestSupport.AwaitingCommands
+  alias Aiur.TestSupport.{AwaitingCommands, EndpointStubs, StreamdeckBuildFixture}
   alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   using do
     quote do
@@ -43,7 +47,8 @@ defmodule AiurWeb.StreamdeckLiveCase do
         dashboard_auth_required: false,
         streamdeck_transcript_flush_ms: 1,
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
-        streamdeck_provider_meters_fun: fn -> Agent.get(meter_agent, & &1) end,
+        streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(Agent.get(snapshot_agent, & &1)) end,
+        streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_logs_fun: &fixture_logs/1,
         streamdeck_commands_fun: &fixture_commands/2,
         # The control seams stand in for the orchestrator: they settle the
@@ -67,7 +72,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
-    Application.put_env(:aiur, Endpoint, endpoint_config)
+    Application.put_env(:aiur, Endpoint, EndpointStubs.scope(endpoint_config))
     Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
@@ -280,18 +285,14 @@ defmodule AiurWeb.StreamdeckLiveCase do
   end
 
   def with_production_feed(fun) do
-    previous_endpoint_value = Endpoint.config(:streamdeck_logs_fun)
-    previous_endpoint_config = Application.get_env(:aiur, Endpoint, [])
-
-    Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, nil)
-    Application.put_env(:aiur, Endpoint, Keyword.put(previous_endpoint_config, :streamdeck_logs_fun, nil))
+    previous_logs_fun = EndpointConfig.get(:streamdeck_logs_fun)
+    EndpointStubs.put(streamdeck_logs_fun: nil)
 
     try do
       fun.()
     after
       Enum.each(~w(1352 1345), &File.rm(IssueLog.event_log_path(&1)))
-      Application.put_env(:aiur, Endpoint, previous_endpoint_config)
-      Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, previous_endpoint_value)
+      EndpointStubs.put(streamdeck_logs_fun: previous_logs_fun)
     end
   end
 
@@ -335,7 +336,7 @@ defmodule AiurWeb.StreamdeckLiveCase do
 
   def enter_logs(view, identifier \\ "1352") do
     render_hook(view, "key-press", %{"identifier" => identifier})
-    render_click(view, "command-press", %{"command" => "logs"})
+    render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
   end
 
   def slot_identifiers(html) do

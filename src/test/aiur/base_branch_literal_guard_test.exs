@@ -16,6 +16,22 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|{"system.main.ci.unavailable", "attention:auto"},|,
       ~S|{"system.main.fixer.*", "attention:auto"},|
     ],
+    # Catalog rows describe these same fixed producer topics; they are not branch defaults.
+    "aiur/events/catalog/github_system_entries.ex" => [
+      ~S|{"system.main.ci.canary", "github-listeners"}|,
+      ~S|{"system.main.ci.failed", "github-listeners"}|,
+      ~S|{"system.main.ci.flake_rerun", "github-listeners"}|,
+      ~S|{"system.main.ci.flaked", "github-listeners"}|,
+      ~S|{"system.main.ci.repo_wide_failure.*", "github-listeners"}|,
+      ~S|{"system.main.ci.unavailable", "github-listeners"}|,
+      ~S|{"system.main.fixer.dispatch_unavailable", "github-listeners"}|,
+      ~S|{"system.main.fixer.failed", "github-listeners"}|,
+      ~S|{"system.main.fixer.held", "github-listeners"}|,
+      ~S|{"system.main.fixer.needs_triage", "github-listeners"}|,
+      ~S|{"system.main.fixer.no_pr", "github-listeners"}|,
+      ~S|{"system.main.fixer.stalled", "github-listeners"}|
+    ],
+    "aiur/events/catalog/system_entries.ex" => [~S|{"system.main.ci.failed.resolved", "orchestration"}|],
     "aiur/main_watch.ex" => [
       ~S|Logger.warning("main-watch poll failed: #{inspect(reason)}")|,
       ~S|if Enum.any?(events, &(elem(&1, 0) == "system.main.ci.flaked")) do|,
@@ -28,8 +44,15 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|defp attention?(topic, _payload), do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun"]|
     ],
     "aiur/main_watch/state.ex" => [
-      ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", payload}], else: []|,
+      ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", recovery}], else: []|,
       ~S|topic = if flaked, do: "system.main.ci.flaked", else: "system.main.ci.failed"|
+    ],
+    # This recovery protocol's event topic and PR comment are fixed identifiers.
+    "aiur/landing_watch.ex" => [~S|"system.main.ci.failed.resolved"|],
+    "aiur/landing_watch/pr_rerun.ex" => [~S|"main CI recovered"|],
+    "aiur/events/github_ci_poller/repo_wide_failure.ex" => [
+      ~S|"system.main.ci.repo_wide_failure.#{suffix}"|,
+      ~S|"Required PR checks match the latest failing main run; affected PRs remain in CI wait until main is green."|
     ],
     # Fixer topics and evidence markers are protocol identifiers, independent of the base branch.
     "aiur/main_watch/fixer.ex" => [
@@ -45,10 +68,13 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|@marker ~r/<!-- aiur:main-watch signature=([a-f0-9]{64}) sha=([a-f0-9]{40}) -->/|
     ],
     "aiur/merge_policy_cli.ex" => [
-      ~S|labels = if policy.ci == "wait" and policy.full_ci_labels == ["main-fix"], do: "", else: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"|,
-      ~S|IO.puts("MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels} main_watch=#{watch} watcher=#{state.watcher}#{watch_error} landing_watcher=#{landing.watcher}#{main}")|,
-      ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "")|,
+      ~S|"MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels(policy)} role=#{role} repo_global_off=#{disabled(role)} main_watch=#{watch(policy, role)} watcher=#{state.watcher}#{watch_error(state)} landing_watcher=#{landing.watcher}#{main(policy, state)}"|,
+      ~S|defp labels(%{ci: "wait", full_ci_labels: ["main-fix"]}), do: ""|,
+      ~S|"main=unavailable last_known=" <>|,
+      ~S|String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <>|,
+      ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <> runner_starvation(state)|,
       ~S|"main=red" <> observation(state, now_ms) <> since <> fixer|,
+      ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> event_source(state) <> observation(state, now_ms)|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)|,
       ~S|def main_state(_state, _now_ms), do: "main=unknown"|
     ]

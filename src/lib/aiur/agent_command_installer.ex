@@ -33,7 +33,7 @@ defmodule Aiur.AgentCommandInstaller do
     # This is a bandwidth and memory concern, not a `MAX_ARG_STRLEN` one: the
     # script is staged to a file and fed to the remote shell on stdin by
     # `Aiur.SSH.with_script/4`, so it never crosses `execve` as an argument.
-    encoded = script |> :zlib.gzip() |> Base.encode64()
+    encoded = gzip(script) |> Base.encode64()
     commands = Enum.map_join(command_names, " ", &Aiur.Shell.escape/1)
 
     [
@@ -67,6 +67,19 @@ defmodule Aiur.AgentCommandInstaller do
       "trap - EXIT HUP INT TERM"
     ]
     |> Enum.join("\n")
+  end
+
+  defp gzip(script) do
+    z = :zlib.open()
+
+    try do
+      :ok = :zlib.deflateInit(z, 9, :deflated, 31, 8, :default)
+      compressed = :zlib.deflate(z, script, :finish) |> IO.iodata_to_binary()
+      :ok = :zlib.deflateEnd(z)
+      compressed
+    after
+      :zlib.close(z)
+    end
   end
 
   defp install_commands(bin_dir, command_names, script, error_tag) do

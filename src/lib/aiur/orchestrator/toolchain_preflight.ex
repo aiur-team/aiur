@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.ToolchainPreflight do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
+  alias Aiur.Signal
 
   @alert "system.toolchain.erlang_missing"
 
@@ -53,8 +53,8 @@ defmodule Aiur.Orchestrator.ToolchainPreflight do
   end
 
   defp raise_attention(detail) do
-    unless AlertFeed.active_system_attention?(@alert) do
-      Alerts.emit_system(@alert,
+    unless AlertFeed.condition_state(@alert) == :firing do
+      Signal.alert(@alert,
         message: "Host Erlang install is missing; fleet dispatch is held.",
         reason: "Host Erlang install is missing; fleet dispatch is held. #{detail}",
         needs_attention: true,
@@ -66,8 +66,8 @@ defmodule Aiur.Orchestrator.ToolchainPreflight do
   end
 
   defp resolve_attention do
-    if AlertFeed.active_system_attention?(@alert) do
-      Alerts.emit_system(@alert <> ".resolved",
+    if AlertFeed.condition_state(@alert) == :firing do
+      Signal.alert(@alert <> ".resolved",
         message: "Host Erlang install is back.",
         reason: "Host Erlang install is back; fleet dispatch may resume.",
         needs_attention: false,

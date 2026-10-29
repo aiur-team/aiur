@@ -96,6 +96,33 @@ defmodule Aiur.Workspace.HooksTest do
     assert :ok = Hooks.run_after_run(workspace, issue_context, nil)
   end
 
+  test "a timed out local hook process group is gone before its retry starts", %{workspace: workspace, test_root: test_root} do
+    child_pid_file = Path.join(test_root, "hook-child.pid")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_timeout_ms: 1_000
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "timeout-test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    assert {:error, {:workspace_hook_timeout, "before_run", 1_000}} =
+             Hooks.run_hook("sleep 30 & echo $! > #{Aiur.Shell.escape(child_pid_file)}; wait", workspace, issue_context, "before_run", nil)
+
+    assert {:messages, messages} = Process.info(self(), :messages)
+
+    refute Enum.any?(messages, fn
+             {port, {:data, _data}} when is_port(port) -> true
+             {port, {:exit_status, _status}} when is_port(port) -> true
+             _message -> false
+           end)
+
+    child_pid = File.read!(child_pid_file) |> String.trim() |> String.to_integer()
+
+    assert :ok =
+             Hooks.run_hook("! kill -0 #{child_pid}", workspace, issue_context, "before_run", nil)
+  end
+
   test "run_github_preflight/3 with preflight disabled returns :ok", %{workspace: workspace} do
     prev = Application.get_env(:aiur, :workspace_github_preflight_enabled)
     Application.put_env(:aiur, :workspace_github_preflight_enabled, false)
@@ -119,7 +146,7 @@ defmodule Aiur.Workspace.HooksTest do
   # agent run. The sleep is injected so the test asserts on the run surviving
   # (a `:ok`, not a failure tuple), not merely on a log line or a real 2s wait.
   test "run_github_preflight waits out a short local hold so the run is not terminated", %{workspace: workspace} do
-    token_cache_key = {Aiur.GitHub.Config, :resolved_token}
+    token_cache_key = {Aiur.GitHub.Access.Token, :resolved_token}
     prev_token = System.get_env("GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(token_cache_key, :unset)
     prev_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
@@ -252,7 +279,9 @@ defmodule Aiur.Workspace.HooksTest do
 
     command = Hooks.remote_hook_command("git checkout \"$AIUR_TICKET_BRANCH\"", workspace, issue_context)
 
-    assert command =~ "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases';"
+    assert command =~
+             "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases' AIUR_HOOK_TICKET_ID='1' AIUR_HOOK_TICKET_IDENTIFIER='123' AIUR_HOOK_RUNNER_PID='#{inspect(self())}';"
+
     assert command =~ "cd '#{workspace}' && unset "
     assert command =~ "git checkout \"$AIUR_TICKET_BRANCH\""
   end
@@ -312,7 +341,16 @@ defmodule Aiur.Workspace.HooksTest do
     assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
              String.split(output, "\n")
 
-    assert String.starts_with?(path, unrelated_path)
+    case System.get_env("AIUR_BUILD_GATE_BIN") do
+      build_gate_bin when is_binary(build_gate_bin) and build_gate_bin != "" ->
+        assert String.starts_with?(path, Path.join(Path.dirname(build_gate_bin), "build-bin"))
+        assert String.contains?(path, build_gate_bin)
+
+      _ ->
+        assert String.starts_with?(path, unrelated_path)
+    end
+
+    assert String.contains?(path, unrelated_path)
   end
 
   test "remote hook command preserves unrelated values beside release-owned values", %{workspace: workspace} do

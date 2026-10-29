@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.IssueSync.LabelWrites
@@ -13,6 +12,7 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
   alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   # A contradictory-label pair must persist this long (about one poll cycle)
   # before the single fleet alert fires, so a pair the heal repairs on the same
@@ -229,13 +229,14 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
   end
 
   defp emit_contradictory_state_label_alert(%State{} = state, tickets) do
-    identifiers = tickets |> Map.values() |> Enum.map(& &1.identifier) |> Enum.sort()
+    # Each ticket carries its label pair so the line says which state to drop.
+    entries = tickets |> Map.values() |> Enum.sort_by(& &1.identifier) |> Enum.map(&"#{&1.identifier} (#{Enum.join(&1.labels, "+")})")
 
     message =
-      "#{length(identifiers)} ticket#{if length(identifiers) == 1, do: "", else: "s"} undispatchable due to contradictory labels: " <>
-        Enum.join(identifiers, ", ")
+      "#{length(entries)} ticket#{if length(entries) == 1, do: "", else: "s"} undispatchable due to contradictory labels: " <>
+        Enum.join(entries, ", ")
 
-    case Alerts.emit_system("system.fleet.contradictory_state_labels",
+    case Signal.alert("system.fleet.contradictory_state_labels",
            message: message,
            reason:
              message <>
@@ -255,7 +256,7 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
   defp resolve_contradictory_state_label_alert(%State{} = state) do
     message = "No tickets undispatchable due to contradictory labels"
 
-    Alerts.emit_system("system.fleet.contradictory_state_labels.resolved",
+    Signal.alert("system.fleet.contradictory_state_labels.resolved",
       message: message,
       reason: message <> ". Every ticket now carries exactly one agent:* state label.",
       needs_attention: false,

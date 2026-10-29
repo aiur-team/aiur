@@ -2,11 +2,10 @@ defmodule Aiur.OpenAICompat.ToolsTest do
   use ExUnit.Case, async: true
 
   alias Aiur.OpenAICompat.{CommandRunner, ToolCallParser, Tools}
+  alias Aiur.TestSupport.RuntimeChildren
 
   setup do
-    if is_nil(Process.whereis(Aiur.TaskSupervisor)) do
-      start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
-    end
+    :ok = RuntimeChildren.ensure_aiur_supervisor_running()
 
     :ok
   end
@@ -41,6 +40,12 @@ defmodule Aiur.OpenAICompat.ToolsTest do
 
     assert %{"success" => false, "output" => "outside_workspace"} =
              Tools.execute("list_files", %{"glob" => "outside/*"}, context, [])
+
+    File.write!(Path.join(workspace, "inside.txt"), "")
+    File.ln_s!("inside.txt", Path.join(workspace, "alias.txt"))
+
+    assert %{"success" => true, "output" => "alias.txt\ninside.txt"} =
+             Tools.execute("list_files", %{"glob" => "**/*"}, context, [])
   end
 
   test "tool validation returns matchable errors" do
@@ -105,7 +110,10 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     assert %{"success" => true, "output" => output} =
              Tools.execute("list_files", %{"glob" => "**/*"}, context, [])
 
-    assert output |> String.split("\n") |> length() == 2_000
+    files = String.split(output, "\n")
+    assert length(files) == 2_000
+    assert Enum.all?(files, &String.ends_with?(&1, ".txt"))
+    assert File.regular?(Path.join(workspace, "2050.txt"))
   end
 
   test "workspace replacement requires exactly one match" do

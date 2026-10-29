@@ -1,6 +1,7 @@
 defmodule AiurWeb.Build.IndexLiveTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   import Aiur.TestSupport.BuildHome.IndexParts
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Build.{Index, IndexSource}
 
   defmodule UsageStub do
@@ -40,7 +41,7 @@ defmodule AiurWeb.Build.IndexLiveTest do
        clock: &now/0}
     )
 
-    assert {:ok, _} = GenServer.call(name, {:window, "Etc/UTC"})
+    assert {:ok, _} = Index.window(name, "Etc/UTC")
     receive_barrier(:daemon_ready)
     Application.put_env(:aiur, :build_data_source, {IndexSource, [server: name, usage: UsageStub, freshness: DaemonStub, index_subscribe: fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, topic) end]})
 
@@ -96,7 +97,7 @@ defmodule AiurWeb.Build.IndexLiveTest do
     previous = Enum.map(views, &:sys.get_state(&1.pid).socket.assigns.build_generation)
     Process.exit(pid, :kill)
     receive_barrier({:index_read, :all})
-    assert {:ok, _} = GenServer.call(name, {:window, "Etc/UTC"})
+    assert {:ok, _} = Index.window(name, "Etc/UTC")
 
     for {view, generation} <- Enum.zip(views, previous) do
       render(view)
@@ -104,7 +105,7 @@ defmodule AiurWeb.Build.IndexLiveTest do
       assert gap["generation"] == generation + 2
       assert gap["upsert"] == [] and gap["remove"] == [] and gap["set"] == %{}
       # A gap carries no snapshot. The client requests it using the existing build-resync event.
-      Phoenix.Config.put(AiurWeb.Endpoint, :build_resync_clock, fn _ -> System.monotonic_time(:millisecond) + 3_000 end)
+      EndpointStubs.put(build_resync_clock: fn _ -> System.monotonic_time(:millisecond) + 3_000 end)
       render_hook(view, "build-resync", %{})
       assert_reply(view, snapshot)
       assert snapshot["kind"] == "snapshot"

@@ -8,10 +8,10 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
 
   require Logger
 
-  alias Aiur.GitHub.{PollSnapshots, ResourceStore}
+  alias Aiur.GitHub.{Access, PollSnapshots}
   alias Aiur.StartTrigger.ProgressStore
 
-  @spec merge_review_thread(String.t(), term(), map()) :: [ResourceStore.key()]
+  @spec merge_review_thread(String.t(), term(), map()) :: [Access.key()]
   def merge_review_thread(repo, pr_number, thread) do
     key = PollSnapshots.review_threads_key(repo, pr_number)
 
@@ -21,7 +21,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
     end
   end
 
-  @spec merge_check_run(String.t(), term(), String.t(), map()) :: [ResourceStore.key()]
+  @spec merge_check_run(String.t(), term(), String.t(), map()) :: [Access.key()]
   def merge_check_run(repo, target, head_sha, check_run) do
     key = PollSnapshots.ci_contexts_key(repo, target)
 
@@ -31,13 +31,13 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
     end
   end
 
-  @spec invalidate_review_threads(String.t(), term()) :: [ResourceStore.key()]
+  @spec invalidate_review_threads(String.t(), term()) :: [Access.key()]
   def invalidate_review_threads(repo, pr_number) do
     PollSnapshots.invalidate_review_threads(repo, pr_number)
     []
   end
 
-  @spec store(ResourceStore.resource_type(), String.t(), term(), term(), String.t() | nil) :: [ResourceStore.key()]
+  @spec store(Access.resource_type(), String.t(), term(), term(), String.t() | nil) :: [Access.key()]
   def store(_type, _repo, _id, body, _version) when not (is_map(body) or is_list(body)), do: []
 
   # The `:issue_blocked_by` entry is the reader's answer to
@@ -53,12 +53,12 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   # dispatch gate's later revalidating read sends `If-None-Match` and costs a
   # free `304` when nothing changed.
   def store(:issue_blocked_by, repo, id, blocker, version) when is_map(blocker) do
-    case ResourceStore.key_for_repo(:issue_blocked_by, repo, id) do
+    case Access.key_for_repo(:issue_blocked_by, repo, id) do
       nil ->
         []
 
       key ->
-        case ResourceStore.update_resource(
+        case Access.update_resource(
                key,
                &merge_blocked_by_edge(&1, blocker),
                source: :webhook,
@@ -74,12 +74,12 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   def store(:issue_blocked_by, _repo, _id, _body, _version), do: []
 
   def store(type, repo, id, body, version) do
-    case ResourceStore.key_for_repo(type, repo, id) do
+    case Access.key_for_repo(type, repo, id) do
       nil ->
         []
 
       key ->
-        case deposit_unless_older(key, body, version) do
+        case deposit_unless_older(key, body, version, accepted_body(type, body)) do
           :unchanged ->
             []
 
@@ -93,15 +93,18 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   defp record_progress(:branch_pull_request, id, body, repo), do: ProgressStore.delivery(id, body, repo)
   defp record_progress(_type, _id, _body, _repo), do: :ok
 
-  @spec store_thread_transition(String.t(), term(), String.t(), map(), String.t() | nil, String.t() | nil) :: [ResourceStore.key()]
+  defp accepted_body(:branch_pull_request, body), do: &merge_sweep_metadata(&1, body)
+  defp accepted_body(_type, body), do: fn _held -> body end
+
+  @spec store_thread_transition(String.t(), term(), String.t(), map(), String.t() | nil, String.t() | nil) :: [Access.key()]
   def store_thread_transition(repo, id, action, thread, generation, version) do
-    case ResourceStore.key_for_repo(:pr_review_thread, repo, id) do
+    case Access.key_for_repo(:pr_review_thread, repo, id) do
       nil ->
         []
 
       key ->
         result =
-          ResourceStore.update_resource(
+          Access.update_resource(
             key,
             &accept_thread_transition(&1, &2, action, thread, generation, version),
             source: :webhook,
@@ -137,14 +140,14 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   # `:derive`: a delivery carries no GitHub ETag, so the store derives a
   # content-based validator from the body it deposits. A body without a
   # validator is exactly the state in which a strict read pays full price —
-  # `ResourceStore.etag/1` answers only beside a held body, and without one
+  # `Access.etag/1` answers only beside a held body, and without one
   # every later conditional read is a 200 instead of a free `304`. The store
   # keeps a held validator when the body is unchanged, so a re-delivery of the
   # same body never knocks out a GitHub ETag a fetch already recorded (#2126).
-  defp deposit_unless_older(key, body, version) do
-    ResourceStore.update_resource(
+  defp deposit_unless_older(key, body, version, accepted_body) do
+    Access.update_resource(
       key,
-      &accept(&1, &2, body, version),
+      &accept(&1, &2, body, version, accepted_body),
       source: :webhook,
       version: version,
       etag: :derive
@@ -154,9 +157,24 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   # Answers the body to deposit, or `:unchanged` to decline the write — evaluated
   # by the store inside its swap, so `held` is the marker the entry carries at
   # that instant rather than one read a round trip earlier.
-  defp accept(_held_body, %{version: held}, body, version) do
-    if ResourceStore.regression?(held, version), do: :unchanged, else: body
+  defp accept(held_body, %{version: held}, _body, version, accepted_body) do
+    if Access.regression?(held, version), do: :unchanged, else: accepted_body.(held_body)
   end
+
+  # The poll writes these GraphQL-only fields as a partial update. A subsequent
+  # webhook carries a whole REST-shaped body, so keep those facts only when the
+  # pull request identity and version still match the row the poll observed.
+  # A changed head or updated_at must invalidate the old landing verdict.
+  defp merge_sweep_metadata(%{"head" => %{"sha" => sha}, "updated_at" => updated_at} = held, body)
+       when is_binary(sha) and is_binary(updated_at) do
+    if get_in(body, ["head", "sha"]) == sha and Map.get(body, "updated_at") == updated_at do
+      Map.merge(body, Map.take(held, ~w(review_decision approved_head_sha reviewed_head_sha mergeable mergeQueueEntry autoMergeRequest created_at ready_for_review_at)))
+    else
+      body
+    end
+  end
+
+  defp merge_sweep_metadata(_held, body), do: body
 
   # The transition carries its own ordering clock. The marker stores the
   # transition's `updated_at` under `"updated_at"`, so it never shares the
@@ -171,7 +189,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
     held_transition_at = transition_at(held)
 
     cond do
-      ResourceStore.regression?(held_transition_at, version) ->
+      Access.regression?(held_transition_at, version) ->
         :unchanged
 
       same_thread_transition?(held, action, held_transition_at, version) ->
@@ -213,7 +231,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
   # because a delivery is the one writer that cannot be retried: nothing will
   # send this body again.
   defp confirm(key) do
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, _entry} ->
         [key]
 
@@ -224,14 +242,14 @@ defmodule Aiur.Events.GithubWebhook.Deposit.StoreWrite do
     end
   end
 
-  @spec drop(ResourceStore.resource_type(), String.t(), term()) :: [ResourceStore.key()]
+  @spec drop(Access.resource_type(), String.t(), term()) :: [Access.key()]
   def drop(type, repo, id) do
-    case ResourceStore.key_for_repo(type, repo, id) do
+    case Access.key_for_repo(type, repo, id) do
       nil ->
         []
 
       key ->
-        ResourceStore.drop_data(key)
+        Access.drop_data(key)
         []
     end
   end

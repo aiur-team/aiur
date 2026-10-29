@@ -1,3 +1,4 @@
+import { activeFeature, loadFeatureSpan } from './features.js';
 import { S, ctx, fx, resetState, renderChrome } from './state.js';
 import { createLife } from './life.js';
 import { shell } from './shell.js';
@@ -5,13 +6,32 @@ import { decide } from './protocol.js';
 import { acceptSnapshot, applyDiff } from './store.js';
 import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
+import { markFirstBoard } from './perf.js';
 import './clock.js';
 import './render.js';
-import './offline.js';
+import './columns.js';
+import './cards.js';
+import { seedDaemon } from './offline.js';
 import './tools.js';
+import './usage.js';
+
 import './span.js';
+import './edges.js';
+import './trees.js';
+import './band.js';
+import './states.js';
+import './list.js';
+import { controlMessage } from './modal/frame.js';
+import './modal/conversation.js';
+import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
+import './modal/composer.js';
+import './modal/command.js';
+import { announceState, noteDiff } from './a11y.js';
+import './filters.js';
 
 export function writeOwnData() {
+  if (ctx.bdTrees != null) ctx.root.dataset.bdTrees = ctx.bdTrees;
+  if (ctx.bdStates != null) ctx.root.dataset.bdStates = ctx.bdStates;
   Object.assign(ctx.root.dataset, { buildHomeHook: 'mounted', bdMounted: '', bdPaging: H.state, buildSocket: ctx.socket });
   if (ctx.proto.epoch !== null) {
     ctx.root.dataset.buildEpoch = ctx.proto.epoch;
@@ -23,10 +43,11 @@ function showServerState(ds) {
 }
 function firstPaint() {
   ctx.inited = true; S.loading = false;
-  renderChrome(); fx.viewport(); fx.relayout(); fx.jumpNow(true); S.ready = true;
+  renderChrome(); fx.viewport(); fx.relayout(); markFirstBoard(); fx.jumpNow(true); S.ready = true;
   ctx.life.frame('ticket', () => fx.openFromURL());
+  if (activeFeature()) loadFeatureSpan(S.feature);
 }
-function repaint() { renderChrome(); fx.relayout(); fx.update(); }
+function repaint() { renderChrome(); fx.relayout(); fx.update(); if (activeFeature()) loadFeatureSpan(S.feature); }
 function reloadOnce() {
   try {
     if (!sessionStorage.getItem('aiur-build-reloaded')) {
@@ -43,13 +64,18 @@ export function receive(msg) {
     case 'apply': {
       if (msg.kind !== 'snapshot' && msg.kind !== 'diff') return;
       const first = !ctx.snap;
+      const previous = msg.kind === 'diff' ? ctx.D : null;
       const result = msg.kind === 'snapshot' ? acceptSnapshot(msg) : applyDiff(msg);
       if (result.error) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
         return;
       }
-      if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
-      else { fx.dataChanged(msg); fx.drawEdgesSoon(30); }
+      fx.tickCardAges();
+      if (msg.kind === 'snapshot') {
+        if (first) firstPaint();
+        else { repaint(); fx.modalSync({ upsert: ctx.D.all, snapshot: true }); }
+      }
+      else { announceState(noteDiff(previous, ctx.D, msg)); fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); if (msg.set?.features && activeFeature()) loadFeatureSpan(S.feature); }
       writeOwnData();
       break;
     }
@@ -66,26 +92,34 @@ export function resync() {
   }, () => { if (current()) ctx.proto.inFlight = false; });
 }
 function onServerURL({ state }) {
-  const view = S.view, span = S.span;
+  const view = S.view, span = S.span, ticket = S.ticket, feature = S.feature;
   fromServer(state);
+  if (ticket !== S.ticket) fx.syncTicket(S.ticket);
   renderChrome();
   if (view !== S.view && !S.loading) fx.viewport();
   fx.relayout(); fx.update();
   if (span !== S.span || view !== S.view) fx.jumpNow(true);
+  if (feature !== S.feature) loadFeatureSpan(S.feature);
 }
 export function createBuildHomeHook() {
   return {
     mounted() {
       let urlState;
       try { urlState = JSON.parse(this.el.dataset.urlState || '{}'); } catch { urlState = {}; }
-      resetState(urlState);
+      resetState(urlState); seedDaemon(this.el.dataset.daemon);
       ctx.root = this.el; ctx.life = createLife(); ctx.resync = resync;
       ctx.push = (e, p) => this.pushEvent(e, p); ctx.reload = () => location.reload();
       this.buildLife = ctx.life;
       this.buildActive = shell();
       if (!this.buildActive) return;
-      fx.renderTools();
+      fx.wireTrees();
+      fx.renderTools(); fx.renderFilters(); fx.initModal();
       writeOwnData();
+      this.handleEvent('build-ticket-control', controlMessage);
+      this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));
+      this.handleEvent('build-ticket-doc', applyDoc); this.handleEvent('build-queue-add', applyQueueAdd);
+      this.handleEvent('send-status', msg => fx.sendStatus(msg));
+      this.handleEvent('modal:command', msg => fx.renderCommand(msg));
       this.handleEvent('build-diff', receive); this.handleEvent('build:url', onServerURL);
       showServerState(this.el.dataset); resync();
     },
@@ -96,7 +130,7 @@ export function createBuildHomeHook() {
     },
     reconnected() {
       if (!this.buildActive) return;
-      ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline();
+      ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline(); fx.reconnectConversation(); reconnectDoc();
     },
     destroyed() {
       this.buildLife?.dispose();

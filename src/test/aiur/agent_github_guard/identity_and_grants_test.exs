@@ -38,11 +38,11 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
     assert %{"admissions" => [%{"endpoint_family" => "issues"}]} = Jason.decode!(snapshot)
   end
 
-  test "auth token remains local when a configured budget cannot start", context do
+  test "auth token is refused when python3 cannot enforce the call deadline", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {"ok\n", 0} =
+    assert {output, 127} =
              run_guard(context, ["auth", "token"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
@@ -50,14 +50,15 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert File.read!(context.calls) == "auth token\n"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    refute File.exists?(context.calls)
   end
 
-  test "an explicitly disabled budget permits network calls without python3", context do
+  test "an explicitly disabled budget still requires python3 for the call deadline", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
 
-    assert {"ok\n", 0} =
+    assert {output, 127} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
                AIUR_GITHUB_BUDGET_ENABLED: "0",
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
@@ -66,7 +67,8 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    refute File.exists?(context.calls)
   end
 
   test "a malformed broker wait response refuses the real gh command", context do
@@ -291,17 +293,19 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Remaining: 0\nX-RateLimit-Reset: #{reset}\n\n"
              )
 
-    assert {:hold, %{reason: :shared_budget, resource: "core"}} =
-             Budget.acquire(
-               %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/1670", token: credential},
-               state_dir: budget_root,
-               enabled?: true,
-               max_inflight: 4,
-               max_inflight_per_endpoint: 2,
-               requests_per_minute: 20,
-               stagger_ms: 0,
-               timeout_ms: 1_000
-             )
+    db_path = Path.join(budget_root, "budget.sqlite3")
+    token_key = Budget.token_key(credential)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               "-c",
+               "import json, sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); rows = conn.execute('SELECT resource, until_ms FROM resource_holds WHERE token_key = ?', (sys.argv[2],)).fetchall(); print(json.dumps({'resource_holds': [{'resource': resource, 'until_ms': until_ms} for resource, until_ms in rows]}))",
+               db_path,
+               token_key
+             ])
+
+    assert %{"resource_holds" => [%{"resource" => "core", "until_ms" => until_ms}]} = Jason.decode!(snapshot)
+    assert until_ms > System.os_time(:millisecond)
   end
 
   test "git authentication uses only the agent token for github.com", context do

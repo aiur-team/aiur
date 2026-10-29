@@ -9,7 +9,7 @@ defmodule Aiur.RunTelemetry do
 
   alias Aiur.Config
   alias Aiur.LogFile
-  alias Aiur.RunTelemetry.{CaptureGaps, Lifecycle, UsageCapture, WindowEventSources, Writer}
+  alias Aiur.RunTelemetry.{CaptureGaps, Cohort, Lifecycle, UsageCapture, WindowEventSources, Writer}
 
   @filename "telemetry.ndjson"
   # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
@@ -27,6 +27,14 @@ defmodule Aiur.RunTelemetry do
   @doc "Quota-accounted GitHub evidence for an experiment window."
   @spec window_event_sources(String.t(), map(), map(), keyword()) :: {map(), [String.t()]}
   def window_event_sources(repo, sources, range, opts), do: WindowEventSources.fetch(repo, sources, range, opts)
+
+  @doc false
+  @spec work_kind([String.t()], String.t() | nil) :: String.t()
+  def work_kind(labels, title), do: Cohort.work_kind(labels, title)
+
+  @doc false
+  @spec workflow_runs(String.t(), String.t(), map(), keyword()) :: {:ok, [map()]} | {:partial, [map()]} | {:error, term()}
+  def workflow_runs(repo, branch, range, opts \\ []), do: WindowEventSources.workflow_runs(repo, branch, range, opts)
 
   @doc "Current durable telemetry schema version."
   @spec schema_version() :: pos_integer()

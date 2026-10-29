@@ -39,6 +39,8 @@ defmodule Aiur.LandingWatch.ApprovedLandingFailureTest do
         send(parent, {:alert, topic})
         :ok
       end,
+      rerun_classifier_fun: fn _, _, _, _ -> {:ok, :rework} end,
+      journal_path: journal_path(),
       rework_fun: fn _, _, _ ->
         send(parent, :rework)
         :ok
@@ -58,6 +60,12 @@ defmodule Aiur.LandingWatch.ApprovedLandingFailureTest do
       rest: %{"head" => %{"ref" => "aiur/17-work"}},
       raw: %{"reviewDecision" => "APPROVED", "headRefOid" => "head-sha", "isDraft" => false, "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "head-sha"}}]}}
     }
+  end
+
+  defp journal_path do
+    path = Path.join(System.tmp_dir!(), "landing-approved-failure-#{System.unique_integer([:positive])}.json")
+    ExUnit.Callbacks.on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+    path
   end
 
   defp failed_gate do

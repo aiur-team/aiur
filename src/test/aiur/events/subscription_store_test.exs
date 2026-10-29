@@ -1,5 +1,6 @@
 defmodule Aiur.Events.SubscriptionStoreTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Events.{IdGenerator, SubscriptionStore}
   alias Aiur.JsonStore
@@ -16,7 +17,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     identifier = "test-issue-#{System.unique_integer([:positive])}"
 
     on_exit(fn ->
-      SubscriptionStore.stop(identifier)
+      stop_store_if_alive(identifier)
 
       if original do
         Application.put_env(:aiur, :log_file, original)
@@ -44,6 +45,12 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     %{tmp_dir: tmp_dir, identifier: identifier}
   end
 
+  defp stop_store_if_alive(identifier) do
+    SubscriptionStore.stop(identifier)
+  catch
+    :exit, {reason, {GenServer, :stop, _args}} when reason in [:noproc, :normal, :shutdown] -> :ok
+  end
+
   describe "attach/1" do
     test "starts a writer with empty state", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)
@@ -67,6 +74,25 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       after
         {:ok, _pid} =
           Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+      end
+    end
+  end
+
+  describe "cleanup" do
+    test "tolerates a store exiting immediately before cleanup", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+      monitor = Process.monitor(pid)
+
+      Process.exit(pid, :shutdown)
+      receive_barrier({:DOWN, ^monitor, :process, ^pid, :shutdown})
+
+      SubscriptionStore.set_registry_lookup_fn(fn _registry, _identifier -> [{pid, nil}] end)
+
+      try do
+        assert :ok = stop_store_if_alive(id)
+      after
+        SubscriptionStore.set_registry_lookup_fn(nil)
       end
     end
   end

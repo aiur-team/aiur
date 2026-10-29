@@ -15,6 +15,7 @@
   "requires": [
     "dashboard-ui",
     "experiments",
+    "kernel",
     "web-kit",
     "web-shell"
   ],
@@ -48,5 +49,6 @@
   ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

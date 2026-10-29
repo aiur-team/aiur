@@ -7,9 +7,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureFetchTest do
     failed = group_run(101, "failure", "pr-17-a-pr-19-b")
     passed = group_run(102, "success", "pr-17-a-pr-21-c")
 
-    request = fn %{method: :get, url: url} ->
-      runs = if String.contains?(url, "status=completed"), do: [failed, passed], else: []
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/#{failed["head_branch"]}"}]}}
+
+      %{method: :get, url: url} ->
+        runs = if String.contains?(url, "status=completed"), do: [failed, passed], else: []
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     assert :ok =
@@ -51,9 +55,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureFetchTest do
     on_exit(fn -> File.rm(journal) end)
     failed = group_run(111, "failure", "pr-17-a")
 
-    request = fn %{method: :get, url: url} ->
-      runs = if String.contains?(url, "status=completed"), do: [failed], else: []
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/#{failed["head_branch"]}"}]}}
+
+      %{method: :get, url: url} ->
+        runs = if String.contains?(url, "status=completed"), do: [failed], else: []
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     options = [
@@ -101,9 +109,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureFetchTest do
     failed = group_run(121, "failure", "pr-17-a")
     calls = :atomics.new(1, [])
 
-    request = fn %{method: :get, url: url} ->
-      runs = if String.contains?(url, "status=completed"), do: [failed], else: []
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/#{failed["head_branch"]}"}]}}
+
+      %{method: :get, url: url} ->
+        runs = if String.contains?(url, "status=completed"), do: [failed], else: []
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     options = [

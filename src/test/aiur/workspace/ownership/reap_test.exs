@@ -15,6 +15,17 @@ defmodule Aiur.Workspace.Ownership.ReapTest do
       spawn(fn ->
         {:ok, lease} =
           Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            telemetry_fun: fn
+              _lease, :end, :released ->
+                send(parent, {:root_released, self()})
+
+                receive do
+                  :finish_root_release -> :ok
+                end
+
+              _lease, _boundary, _outcome ->
+                :ok
+            end,
             root_alive_fun: fn pid -> pid == root_pid and Agent.get(child_alive, & &1) end,
             process_identity_fun: &test_process_identity/1,
             root_reap_fun: fn pid ->
@@ -32,11 +43,17 @@ defmodule Aiur.Workspace.Ownership.ReapTest do
       end)
 
     assert_receive {:root_tracked, %{guardian: guardian}}, 2_000
+    guardian_ref = Process.monitor(guardian)
+    on_exit(fn -> send(guardian, :finish_root_release) end)
     Process.exit(owner, :kill)
     assert_receive {:root_reap_started, reaper, ^root_pid}, 2_000
     assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
     send(reaper, :finish_root_reap)
-    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert_receive {:root_released, ^guardian}, 2_000
+    assert :none = Ownership.current(ticket)
+    assert Process.alive?(guardian)
+    send(guardian, :finish_root_release)
+    assert_receive {:DOWN, ^guardian_ref, :process, ^guardian, :normal}, 2_000
     refute Process.alive?(guardian)
   end
 

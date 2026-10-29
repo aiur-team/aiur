@@ -111,6 +111,53 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ ~s(data-time-brush="true")
   end
 
+  test "time axes keep sub-minute ticks distinct and y-axis values monotonic" do
+    m = model()
+    start_ms = m.window.start_ms
+    short = Charts.with_exact_time_domain(m, {start_ms, start_ms + 20_000})
+    short_svg = Charts.cpu_stack(short, MapSet.new())
+    x_labels = Regex.scan(~r/<text[^>]*text-anchor="middle"[^>]*>([^<]+)<\/text>/, short_svg, capture: :all_but_first) |> List.flatten()
+
+    assert Enum.uniq(x_labels) == x_labels
+    assert Enum.any?(x_labels, &String.contains?(&1, "s"))
+
+    svg = Charts.cpu_stack(m, MapSet.new())
+
+    y_labels =
+      Regex.scan(~r/<text[^>]*text-anchor="end"[^>]*>([^<]+)<\/text>/, svg, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.flat_map(fn label ->
+        case Regex.run(~r/^(\d+(?:\.\d+)?)/, label) do
+          [_, value] -> [String.to_float(value <> if(String.contains?(value, "."), do: "", else: ".0"))]
+          nil -> []
+        end
+      end)
+
+    assert y_labels == Enum.sort(y_labels)
+  end
+
+  test "fleet pressure y-axis uses integer multiples of a nice step" do
+    for {maximum, expected} <- [{6, ["0", "2", "4", "6"]}, {3, ["0", "1", "2", "3"]}] do
+      svg =
+        Charts.fleet_pressure(%{
+          model()
+          | series: [
+              %{
+                t_ms: @t0,
+                fleet_agents_occupied: maximum,
+                fleet_agents_effective: maximum,
+                build_gate_capacity: maximum,
+                build_gate_active: maximum,
+                build_gate_queued: maximum
+              }
+            ]
+        })
+
+      y_labels = Regex.scan(~r/<text[^>]*text-anchor="end"[^>]*>([^<]+)<\/text>/, svg, capture: :all_but_first) |> List.flatten()
+      assert y_labels == expected
+    end
+  end
+
   test "fleet pressure breaks the SVG path at a gap instead of drawing through it" do
     # A gap (degraded/unavailable sample with no numeric evidence) must split
     # the line into two segments. Drawing through the gap at y=0 would render

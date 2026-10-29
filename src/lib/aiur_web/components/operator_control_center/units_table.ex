@@ -8,7 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.CodingAgent
   alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{ConversationLink, UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -51,6 +51,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <th class="ut-col-unit" data-sort-key="unit">Unit</th>
               <th class="ut-col-ticket" data-sort-key="ticket">Ticket</th>
               <th class="ut-col-latest" data-sort-key="latest" data-sort-type="number">Latest</th>
+              <th>Commands</th>
               <th class="ut-col-cmd">Command</th>
             </tr>
           </thead>
@@ -59,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 a table of its own. --%>
           <tbody :if={@status == :unavailable}>
             <tr class="units-row units-empty-row">
-              <td class="units-empty-cell" colspan="5">No active units</td>
+              <td class="units-empty-cell" colspan="6">No active units</td>
             </tr>
           </tbody>
           <tbody id="units-rows">
@@ -84,6 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <td data-label="Unit" data-sort-value={unit_sort_value(row)} class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
                   <span :if={present?(agent_label(row))} class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(row)}</span>
+                  <AiurWeb.OperatorControlCenter.ListenerMode.listener_badge listener={Map.get(row, :listener, :unavailable)} />
                   <span :if={present?(row.account)} class="u-pill u-account">{row.account}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
@@ -93,13 +95,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
               </td>
 
-              <td data-label="Ticket" data-sort-value={row.title} class="ut-ticket-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
+              <td data-label="Ticket" data-sort-value={row.title} class="ut-ticket-cell ut-open" phx-click={not UnitsPolicy.condition?(:waiting_on_you, row) && "inspect-unit"} phx-value-unit={token}>
                 <div class="ut-title">{known(row.title, "Title unknown")}</div>
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
-                <span :if={!present?(row.build_lane) && present?(row.tracker_state)} class="u-lane is-state">
-                  <span class="u-lane-dot" aria-hidden="true"></span>{row.tracker_state |> to_string() |> String.replace("-", " ") |> String.upcase()}
+                <a :if={UnitsPolicy.condition?(:waiting_on_you, row)} class="u-lane is-state" href={"/commands/#{URI.encode_www_form(row.reasons.native_hold.decision_id)}"}>
+                  Waiting for your answer <span>{UnitsPresentation.native_hold_age(row.reasons.native_hold, @now)}</span>
+                </a>
+                <span :if={state_label = not UnitsPolicy.condition?(:waiting_on_you, row) && UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{state_label}
+                </span>
+                <span :if={reason_label = UnitsPresentation.reason_label(row)} class="u-lane is-state" title={reason_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{reason_label}
                 </span>
               </td>
 
@@ -119,15 +127,28 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <div class="ut-latest-meta mono num">
                   <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
                   <span><span class="sr-only">Runtime </span>{runtime(row, @now, @view)}</span>
+                  <span :if={slot_released?(row)} title="Paused on a provider usage limit; not counted against max-agents">Slot released</span>
                 </div>
                 <div class="ut-latest-meta ut-agent-context mono num">
-                  <span title="Aiur orchestration turns in this running attempt">Turns {turn_count(row)}</span>
-                  <span title="Current context occupancy, separate from cumulative token usage">Context {AgentContextPresentation.compact(row[:context_usage])}</span>
+                  <span title={turn_count_title(row)}>Turns {turn_count(row)}</span>
+                  <span title={context_title(row)}>Context {context_usage(row)}</span>
                 </div>
               </td>
 
+              <td data-label="Commands">
+                <.link patch={AiurWeb.OperatorControlCenter.DecisionPath.inbox(:needs_you, %{ticket: row.identity.identifier})} class="chip" title="Commands that need you">
+                  {needs_you_count(@view, row.identity.identifier)}
+                </.link>
+              </td>
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
+                  <.link
+                    :if={ConversationLink.href(row.identity)}
+                    navigate={ConversationLink.href(row.identity)}
+                    class="units-icon-action"
+                    aria-label={"Full conversation for #{identity_label(row.identity)}"}
+                    title="Full conversation"
+                  >{icon(:transcript)}</.link>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
                   <button
                     id={"units-conversation-#{token}"}
@@ -158,7 +179,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
       <div :if={@view[:zero_result?]} class="units-state empty-state filtered-empty">
         <p>No units match this valid scope and condition selection.</p>
-        <button type="button" class="btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
+        <button type="button" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
       </div>
 
       <div :if={no_units?(@status, @rows, @view)} class="units-state empty-state">{empty_sentence(@status, @message)}</div>
@@ -166,8 +187,35 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     """
   end
 
+  defp needs_you_count(%{command_counts: %{needs_you_by_ticket: counts}}, identifier) when is_map(counts),
+    do: Map.get(counts, identifier, 0)
+
+  defp needs_you_count(_view, _identifier), do: "—"
+
   defp turn_count(%{turn_count: count}) when is_integer(count) and count >= 0, do: count
-  defp turn_count(_row), do: "—"
+  defp turn_count(row), do: unreported_label(row)
+
+  defp turn_count_title(%{turn_count: count}) when is_integer(count) and count >= 0,
+    do: "Aiur orchestration turns in this running attempt"
+
+  defp turn_count_title(row), do: unreported_title(row, "a turn count")
+
+  defp context_usage(%{context_usage: %{} = context}), do: AgentContextPresentation.compact(context)
+  defp context_usage(row), do: unreported_label(row)
+
+  defp context_title(%{context_usage: %{}}), do: "Current context occupancy, separate from cumulative token usage"
+  defp context_title(row), do: unreported_title(row, "context occupancy")
+
+  # A missing measurement names why it is missing instead of looking like an empty value.
+  defp unreported_label(row), do: if(running?(row), do: "not reported", else: "no attempt")
+
+  defp unreported_title(row, measurement) do
+    if running?(row),
+      do: "The #{row[:backend] || "agent"} backend has not reported #{measurement} for this attempt",
+      else: "No running attempt, so there is no #{measurement} to report"
+  end
+
+  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
 
   attr(:token, :string, required: true)
   attr(:row, :map, required: true)
@@ -234,6 +282,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp icon(:chat),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.4 9 9 0 0 1-3.9-.9L3 20.5l1.5-4.4a8.4 8.4 0 0 1-1-4.1A8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg>))
+
+  defp icon(:transcript),
+    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8"/></svg>))
 
   defp icon(:remote), do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M7 17 17 7M8 7h9v9"/></svg>))
 
@@ -303,6 +354,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     end
   end
 
+  defp attention_tone(%{reasons: %{native_hold: %{}}}), do: "is-blocked"
   defp attention_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp attention_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
   defp attention_tone(_row), do: nil
@@ -396,6 +448,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp unit_sort_value(row), do: Enum.join(Enum.reject([agent_label(row), model_label(row)], &is_nil/1), " ")
 
   defp latest_text(row), do: UnitsPresentation.latest_text(row)
+
+  defp slot_released?(row), do: get_in(row, [:reasons, :waiting]) == :provider_limited
 
   defp progress_width(progress), do: known_percent(progress) || 0
 

@@ -26,6 +26,15 @@ defmodule AiurWeb.Build.NowAgentPayloadTest do
     assert {"sections.now.0.agent.effort", :enum} in errors
   end
 
+  test "agent pause reason and reset time are constrained and nullable" do
+    for {key, value} <- [{"pause", nil}, {"pause", "usage_limit_exhausted"}, {"pause", "ci_wait"}, {"resume_at", nil}, {"resume_at", 1_791_408_000_000}] do
+      assert Payload.validate(with_agent(key, value)) == :ok
+    end
+
+    assert {:error, errors} = Payload.validate(with_agent("pause", "parked"))
+    assert {"sections.now.0.agent.pause", :enum} in errors
+  end
+
   test "regenerated fixtures carry agent names" do
     for dataset <- ~w(live dense newrepo noqueue offline) do
       {:ok, data} = FixtureSource.full(dataset: dataset)

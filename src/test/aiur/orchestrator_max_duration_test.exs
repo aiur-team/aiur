@@ -377,6 +377,18 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       refute Map.has_key?(next.running, issue_id)
     end
 
+    test "a wedged over-cap agent on a ci-wait ticket is still force-terminated" do
+      issue_id = "issue-wedged-ci-wait"
+      paused_at = DateTime.add(DateTime.utc_now(), -300, :second)
+      last_codex = DateTime.add(DateTime.utc_now(), -60, :second)
+      entry = duration_paused_entry(issue_id, "WEDGED-CI", paused_at, last_codex)
+      entry = put_in(entry, [:issue, Access.key(:state)], "ci-wait")
+
+      next = RuntimeWatchdog.apply_stall_check(state_with(%{issue_id => entry}), 60_000)
+
+      refute Map.has_key?(next.running, issue_id)
+    end
+
     test "a cooperatively-parked over-cap agent is left alone (not killed)" do
       issue_id = "issue-parked-overcap"
       identifier = "PARKED"

@@ -5,7 +5,13 @@ defmodule Aiur.GitHub.IssuesTest do
   alias Aiur.GitHub.Issues
   alias Aiur.Issue
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
+
+  test "extract_state_labels keeps runtime reasons out of the single dispatch state" do
+    labels = ["sym:ci-wait", "sym:merge-queued", "sym:ci-red", "sym:paused-usage-limit"]
+
+    assert Issues.extract_state_labels(labels, "sym") == ["ci-wait"]
+  end
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -33,9 +39,7 @@ defmodule Aiur.GitHub.IssuesTest do
 
   describe "fetch_issues_by_states/2" do
     test "direct conditional GitHub lists expose only pinned test tickets, including cached pages" do
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+      Aiur.TestScopeGuard.put_ticket_scope!("99")
 
       issue = fn number ->
         %{
@@ -82,7 +86,7 @@ defmodule Aiur.GitHub.IssuesTest do
 
       assert Enum.map(issues, & &1.identifier) |> Enum.sort() == ["2413", "99"]
 
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "")
+      Aiur.TestScopeGuard.put_ticket_scope!("")
       assert_raise ArgumentError, fn -> Aiur.TestTicketScope.validate!() end
     end
 

@@ -8,6 +8,7 @@ defmodule Aiur.Claude.Repl.Launcher do
   require Logger
 
   alias Aiur.{AgentEnvironment, ProcessReaper, Tmux}
+  alias Aiur.AgentEnvironment.ProviderAuth
   alias Aiur.Claude.Config
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
@@ -66,6 +67,19 @@ defmodule Aiur.Claude.Repl.Launcher do
   end
 
   defp do_start_session(ctx, settings_path) do
+    case ProviderAuth.stage(ctx.workspace, Keyword.get(ctx.opts, :env, [])) do
+      {:ok, env, auth_file} ->
+        opts = ctx.opts |> Keyword.put(:env, env) |> Keyword.put(:provider_auth_file, auth_file)
+        result = do_start_staged_session(%{ctx | opts: opts}, settings_path)
+        if match?({:error, _}, result), do: ProviderAuth.cleanup(auth_file)
+        result
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp do_start_staged_session(ctx, settings_path) do
     # Resume the prior conversation across an aiur restart when the runner
     # handed us a persisted session id whose transcript still exists (#613).
     # nil means a clean start (no handle, or its transcript is gone).
@@ -80,7 +94,7 @@ defmodule Aiur.Claude.Repl.Launcher do
         ctx.rc_name,
         settings_path,
         resume_id,
-        Keyword.take(ctx.opts, [:base_branch])
+        Keyword.take(ctx.opts, [:base_branch, :provider_auth_file])
       )
 
     Aiur.Perf.event(:repl_agent_spawn,

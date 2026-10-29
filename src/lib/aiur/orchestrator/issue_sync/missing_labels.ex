@@ -5,13 +5,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Issue
   alias Aiur.Orchestrator.IssueSync.LabelWrites
   alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   # A ticket observed with zero `agent:*` state labels is invisible to dispatch
   # (#2420): every reconciler consumes either the filtered candidate list or
@@ -32,10 +32,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
   # raised a false `state-label-missing-no-evidence` attention (#2610).
   # `agent:queued` likewise parks marker-only work until the queue releases it.
   @doc false
-  @spec heal_or_leave_missing_state_label(Issue.t(), State.t(), (String.t(), String.t() -> :ok | {:error, term()})) :: {Issue.t() | nil, State.t()}
+  @spec heal_or_leave_missing_state_label(Issue.t(), State.t(), (String.t(), String.t() ->
+                                                                   :ok | {:error, term()})) ::
+          {Issue.t() | nil, State.t()}
   def heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     cond do
-      Issue.paused?(issue) or Issue.parked?(issue) or Issue.queued?(issue) or parked_marker?(issue) ->
+      Issue.held?(issue) or Issue.paused?(issue) or
+        Issue.queued?(issue) or parked_marker?(issue) ->
         {issue, state}
 
       restore_target_for(issue, state) == nil ->
@@ -51,7 +54,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   defp heal_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     if TrackerTasks.owner?(state) do
-      LabelWrites.schedule_label_heal(state, issue, restore_target_for(issue, state) || "todo", update_state_fun, &heal_missing_state_label_sync/3)
+      LabelWrites.schedule_label_heal(
+        state,
+        issue,
+        restore_target_for(issue, state) || "todo",
+        update_state_fun,
+        &heal_missing_state_label_sync/3
+      )
     else
       heal_missing_state_label_sync(issue, state, update_state_fun)
     end
@@ -91,8 +100,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
   # `%{issue: %{}}`) or a prior polled copy (`%Issue{}` or `%{}`). Running
   # entries wrap the issue under `:issue`; a polled copy is the issue itself.
   defp workflow_state_from(%{issue: issue}) when is_map(issue), do: workflow_state_from(issue)
-  defp workflow_state_from(%Issue{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
-  defp workflow_state_from(%{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
+
+  defp workflow_state_from(%Issue{state: state_name})
+       when is_binary(state_name) and state_name != "", do: state_name
+
+  defp workflow_state_from(%{state: state_name}) when is_binary(state_name) and state_name != "",
+    do: state_name
+
   defp workflow_state_from(_entry), do: nil
 
   # The state to restore a stranded ticket to. Only a non-terminal state is a
@@ -152,15 +166,18 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
     topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
 
     if TransitionAlerts.active_attention?(state, topic) do
-      case Alerts.emit_system("#{topic}.resolved",
+      case Signal.alert("#{topic}.resolved",
              issue: issue.identifier,
              reason: "Tracker observation confirms a lifecycle label exists again.",
              needs_attention: false,
              severity: "info",
              central: true
            ) do
-        :ok -> %{state | active_attention_topics: MapSet.delete(state.active_attention_topics, topic)}
-        {:error, _reason} -> state
+        :ok ->
+          %{state | active_attention_topics: MapSet.delete(state.active_attention_topics, topic)}
+
+        {:error, _reason} ->
+          state
       end
     else
       state
@@ -170,7 +187,7 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
   def resolve_missing_state_label_alert(_issue, state), do: state
 
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
+    Signal.alert("ticket.#{issue.identifier}.agent.attention.state-label-missing",
       issue: issue.identifier,
       message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
       reason:

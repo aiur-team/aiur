@@ -61,17 +61,61 @@ defmodule AiurWeb.StreamdeckCommands do
       "version" => decision.version,
       "ticket" => %{"identifier" => get_in(decision.ticket, [:identifier])},
       "question" => decision.question,
+      "short_label" => decision.short_label,
+      "answerable_on_deck" => answerable_on_deck(decision),
       "context" => context(decision.context),
       "options" => Enum.map(decision.options, &option/1),
       "status" => Atom.to_string(decision.decision_status),
+      "blocking" => decision.blocking,
       "answer" => answer(Decision.active_answer(decision)),
       "created_at" => DateTime.to_iso8601(decision.created_at)
     }
   end
 
+  @doc "Whether the Command fits the deck's single-choice answer flow."
+  @spec answerable_on_deck(Decision.t()) :: boolean()
+  def answerable_on_deck(%Decision{questions: questions}) do
+    length(questions) <= 1 and not Enum.any?(questions, &Map.get(&1, :multi_select, false))
+  end
+
+  @doc "Refuse answers requiring the dashboard, including from older plugins."
+  @spec validate_deck_answer(String.t(), keyword()) :: :ok | {:error, term()}
+  def validate_deck_answer(decision_id, opts \\ []) do
+    with {:ok, %{decision: decision}} <- Commands.query_get(decision_id, store: store(opts)) do
+      if answerable_on_deck(decision), do: :ok, else: {:error, :dashboard_only}
+    end
+  end
+
   @doc "The device-side operator identity for a Command answer recorded on the deck."
   @spec actor() :: %{kind: :operator, id: String.t()}
   def actor, do: %{kind: :operator, id: @actor_id}
+
+  @doc "Maps answer outcomes onto the device's allowlisted wire replies."
+  @spec answer_reply(Aiur.Commands.Answering.outcome()) :: {:ok, map()} | {:error, map()}
+  def answer_reply(%{status: status, decision: decision}) when status in [:accepted, :duplicate],
+    do: {:ok, %{"status" => Atom.to_string(status), "decision" => item(decision)}}
+
+  def answer_reply(%{status: :already_answered, winner: winner}),
+    do: {:error, %{reason: "already_answered", winner: winner(winner)}}
+
+  def answer_reply(%{status: :withdrawn, reason: status}),
+    do: {:error, %{reason: "withdrawn", status: Atom.to_string(status)}}
+
+  def answer_reply(%{status: :stale}), do: {:error, %{reason: "stale"}}
+  def answer_reply(%{reason: reason}), do: {:error, %{reason: reason_text(reason)}}
+
+  defp winner(nil), do: nil
+
+  defp winner(winner) do
+    %{
+      "actor_kind" => Atom.to_string(winner.actor_kind),
+      "summary" => winner.summary,
+      "accepted_at" => DateTime.to_iso8601(winner.accepted_at)
+    }
+  end
+
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(reason), do: inspect(reason)
 
   defp page(result) do
     %{
@@ -86,15 +130,13 @@ defmodule AiurWeb.StreamdeckCommands do
     }
   end
 
-  defp context(context) when is_map(context) do
+  defp context(context) do
     %{
       "short" => Map.get(context, :short_summary),
       "long" => Map.get(context, :long_context_markdown)
     }
     |> reject_nils()
   end
-
-  defp context(_context), do: %{}
 
   defp option(option) when is_map(option) do
     Map.new(@option_fields, fn field -> {Atom.to_string(field), Map.get(option, field)} end)

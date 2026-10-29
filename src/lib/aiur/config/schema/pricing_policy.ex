@@ -4,7 +4,7 @@ defmodule Aiur.Config.Schema.PricingPolicy do
   which `agent.priority` route is chosen.
 
   Landed here as **shape first**, then wired: the fields are validated,
-  defaulted and documented, and `Aiur.CodingAgent`'s peak-pricing route policy
+  defaulted and documented, and the harness's peak-pricing route policy
   now reads `avoid_peak_pricing` at dispatch time (see the policy's failure
   direction below).
 

@@ -15,6 +15,26 @@ defmodule Aiur.ExecutorListenerTest do
   @listener_name Aiur.ExecutorListener.Test
   @inbox_name Aiur.ExecutorWakeInbox.ListenerTest
 
+  # Holds the listener inside each Command alert until the test releases it, so
+  # a test controls how long delivery takes instead of racing it (#4633).
+  defmodule GatedAlertSink do
+    @moduledoc false
+    def emit_system(topic, opts), do: Aiur.Alerts.emit_system(topic, opts)
+
+    # A released alert skips the real alert I/O: the test asserts wakes, not alerts.
+    def emit_custom("executor.command." <> _kind = topic, _message, _opts) do
+      send(Aiur.ExecutorListenerTest, {:alert_gate, self(), topic})
+
+      receive do
+        :release -> :ok
+      after
+        10_000 -> raise "GatedAlertSink was never released for #{topic}"
+      end
+    end
+
+    def emit_custom(topic, message, opts), do: Aiur.Alerts.emit_custom(topic, message, opts)
+  end
+
   setup do
     # The listener reads/writes its durable watermark under the per-test log
     # root (TestSupport isolates :log_file), so a "restart" in a test starts a
@@ -101,8 +121,7 @@ defmodule Aiur.ExecutorListenerTest do
     :ok = Exchange.subscribe("executor.command.requested")
     pid = start_listener(resubscribe_interval_ms: :infinity)
 
-    first = command_decision("dec-gap-first")
-    assert {:ok, first_id, 1} = ExecutorEvents.publish_requested(first)
+    assert {:ok, first_id, first_count} = ExecutorEvents.publish_requested(command_decision("dec-gap-first"))
     assert_receive {:event, %{"topic" => "executor.command.requested", "message" => first_message}}, 1000
     assert first_message =~ "dec-gap-first"
     assert :sys.get_state(pid).watermark >= first_id
@@ -110,13 +129,14 @@ defmodule Aiur.ExecutorListenerTest do
 
     # Simulate the Exchange being restarted by the supervisor: its fresh
     # binding table no longer has this listener's row. The Command below is
-    # synchronously proven to have no live subscriber during that real gap.
+    # synchronously proven to lose this listener during that real gap.
     table = :persistent_term.get({{Aiur.Events.Exchange, :table}, Aiur.Events.Exchange})
     :ets.match_delete(table, {:_, pid, :_})
     assert ExecutorListener.alive?(@listener_name) == false
 
     second = command_decision("dec-gap-second")
-    assert {:ok, second_id, 0} = ExecutorEvents.publish_requested(second)
+    assert {:ok, second_id, second_count} = ExecutorEvents.publish_requested(second)
+    assert second_count == first_count - 1
     refute_received {:event, %{"topic" => "executor.command.requested"}}
 
     # Drive the next re-subscribe tick and use the state read as a mailbox
@@ -316,6 +336,11 @@ defmodule Aiur.ExecutorListenerTest do
     :ok = Aiur.TestSupport.ensure_id_generator_running()
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
 
+    Process.register(self(), __MODULE__)
+    signal = Application.get_env(:aiur, :signal)
+    on_exit(fn -> Application.put_env(:aiur, :signal, signal) end)
+    Application.put_env(:aiur, :signal, Keyword.put(signal, :alert_sink, GatedAlertSink))
+
     suffix = System.unique_integer([:positive])
     ticket_identifier = "listener-wake-#{suffix}"
 
@@ -337,13 +362,27 @@ defmodule Aiur.ExecutorListenerTest do
 
     request = fn source_id, blocking ->
       payload = %{"question" => "Defer composed mobile pixels?", "blocking" => blocking, "authority" => "human_required", "source_id" => source_id}
-      assert {:ok, %{status: :accepted, decision: decision}} = Aiur.DecisionStore.request(payload, context, store)
+      assert {:ok, %{status: :accepted, decision: decision}} = Aiur.DecisionStoreCase.request(store, payload, context)
       decision
     end
 
     _nonblocking = request.("parity-note-#{suffix}", false)
     decision = request.("parity-#{suffix}", true)
 
+    # Both events are already in the listener's mailbox: the request publishes
+    # them before it returns. The listener raises a Command alert for each one
+    # before it reaches the blocking Decision's wake, so a wall-clock wait here
+    # races that alert work. Under CI load the alerts outlasted the wait (#4633).
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    assert :timeout = ExecutorWakeInbox.wait(0, @inbox_name)
+    send(gate, :release)
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    send(gate, :release)
+
+    # Once this barrier returns, the listener has consumed both events and
+    # enqueued every wake they produce; the wait only covers the inbox flush.
+    assert "executor.#" in Exchange.bindings_for(listener)
+    assert is_map(:sys.get_state(listener))
     assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
     wake_topic = "ticket.#{ticket_identifier}.agent.attention.operator-decision"
 
@@ -357,9 +396,6 @@ defmodule Aiur.ExecutorListenerTest do
            } = wake
 
     assert wake["decision_id"] == decision.decision_id
-    # The listener sends the wake before this barrier can be handled. Once the
-    # barrier returns, every already-published request event has been consumed.
-    assert is_map(:sys.get_state(listener))
     assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
   end
 
@@ -372,7 +408,13 @@ defmodule Aiur.ExecutorListenerTest do
     test "an exiting gate count leaves the listener alive and bound" do
       {:ok, decision} =
         Aiur.DecisionValidation.normalize(
-          %{"question" => "Defer composed pixels?", "blocking" => true, "authority" => "human_required", "source_id" => "aged"},
+          %{
+            "question" => "Defer composed pixels?",
+            "blocking" => true,
+            "authority" => "human_required",
+            "context" => %{"authority_basis" => "security"},
+            "source_id" => "aged"
+          },
           ticket: %{identifier: "3141", title: "Renderer", url: nil},
           source: %{agent_id: "codex", session_id: "s-1", event_id: nil},
           now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)

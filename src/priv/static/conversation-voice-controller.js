@@ -3,37 +3,36 @@
     constructor(hook) {
       this.hook = hook;
       this.generation = 0;
-      this.columns = new Array(120).fill(null).map(() => ({ min: 0, max: 0 }));
-      this.pending = [];
-      this.onMicClick = () => this.toggle("dictation");
+      this.waveform = window.AiurVoiceCapture && new window.AiurVoiceCapture.WaveformBuffer();
+      this.choice = new window.AiurVoiceModeChoice(this);
       this.onConversationClick = () => this.toggle("conversation");
       this.onDeviceChange = () => this.rememberDevice();
     }
-
+    get starting() { return this.state === "requesting_permission"; }
+    get recording() { return this.state === "listening"; }
+    get finishing() { return this.state === "finishing"; }
+    transition(next, detail) { window.AiurVoiceInputState.transition(this, next, detail); }
     mount() {
       this.bindElements();
       this.seenReplies = new Set(this.replyElements().map((element) => element.id));
       this.drawWaveform();
-
       if (!window.isSecureContext) {
         this.disable("Microphone access requires HTTPS or localhost. This dashboard origin is not secure.");
-      } else if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
+      } else if (
+        !navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode ||
+        !window.AiurVoiceCapture || !window.AiurVoiceTransport
+      ) {
         this.disable("This browser does not support microphone dictation with the Web Audio API.");
       } else {
         this.refreshDevices();
       }
     }
-
     bindElements() {
       const mic = this.hook.el.querySelector("[data-voice-mic]");
       const conversation = this.hook.el.querySelector("[data-voice-conversation]");
       const device = this.hook.el.querySelector("[data-voice-device]");
-
-      if (mic !== this.mic) {
-        this.mic?.removeEventListener("click", this.onMicClick);
-        this.mic = mic;
-        this.mic?.addEventListener("click", this.onMicClick);
-      }
+      this.mic = mic;
+      this.choice.bind();
       if (conversation !== this.conversation) {
         this.conversation?.removeEventListener("click", this.onConversationClick);
         this.conversation = conversation;
@@ -44,29 +43,30 @@
         this.device = device;
         this.device?.addEventListener("change", this.onDeviceChange);
       }
-
       this.input = this.hook.el.querySelector("[data-voice-input]");
       this.send = this.hook.el.querySelector("[data-voice-send]");
       this.canvas = this.hook.el.querySelector("[data-voice-waveform]");
       this.status = this.hook.el.querySelector("[data-voice-status]");
       this.form = this.input?.closest("form");
+      window.AiurVoiceInputState.availability(this);
       this.syncElements();
       this.scanReplies();
     }
 
     rememberDevice() {
-      try {
-        window.localStorage.setItem("aiur-dashboard-microphone-device", this.device?.value || "");
-      } catch (_error) {}
+      window.AiurVoiceCapture.rememberDevice(this.device?.value);
     }
 
     disable(reason) {
-      this.unavailableReason = reason;
-      this.setStatus(reason);
-      this.syncElements();
+      this.browserUnavailable = reason;
+      window.AiurVoiceInputState.availability(this);
     }
 
     syncElements() {
+      if (this.choice.root && this.state) {
+        const accepted = this.choice.root.dataset.voiceDeliveryAccepted === "true";
+        this.choice.root.dataset.voiceState = accepted && this.state === "idle" ? "sent" : this.state;
+      }
       if (this.mic) {
         this.mic.disabled = Boolean(
           this.unavailableReason || this.starting || this.finishing || this.awaitingReply || this.speaking ||
@@ -74,6 +74,8 @@
         );
         this.mic.setAttribute("aria-pressed", this.recording ? "true" : "false");
         this.mic.setAttribute("aria-label", this.recording ? "Stop dictation" : "Dictate message");
+        this.mic.classList.toggle("rec", this.recording && this.captureMode === "dictation");
+        this.mic.title = this.unavailableReason || "";
       }
       if (this.conversation) {
         this.conversation.disabled = Boolean(
@@ -93,24 +95,28 @@
       }
       const composerLocked = Boolean(this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking);
       if (this.input) {
+        if (this.recording) this.input.dataset.voiceRecording = "true";
+        else delete this.input.dataset.voiceRecording;
         this.input.readOnly = composerLocked;
         this.input.setAttribute("aria-readonly", composerLocked ? "true" : "false");
       }
       if (this.send) this.send.disabled = composerLocked;
-      if (this.status && this.statusMessage) this.status.textContent = this.statusMessage;
+      if (this.status && this.statusMessage) {
+        this.status.textContent = this.statusMessage;
+        this.status.hidden = false;
+        this.status.classList.toggle("bad", this.statusFailed === true);
+      }
+      const cancel = this.choice.root?.querySelector("[data-voice-cancel]");
+      if (cancel) cancel.hidden = !(this.recording || this.finishing);
+      this.choice.sync();
       this.drawWaveform();
     }
 
     async refreshDevices() {
       if (!this.device || !navigator.mediaDevices?.enumerateDevices) return;
-
-      let selected = "";
+      const selected = window.AiurVoiceCapture.recalledDevice();
       try {
-        selected = window.localStorage.getItem("aiur-dashboard-microphone-device") || "";
-      } catch (_error) {}
-
-      try {
-        const microphones = (await navigator.mediaDevices.enumerateDevices()).filter((item) => item.kind === "audioinput");
+        const microphones = await window.AiurVoiceCapture.listMicrophones();
         const options = [{ deviceId: "", label: "Default microphone" }, ...microphones];
         this.device.replaceChildren(...options.map((item, index) => {
           const option = document.createElement("option");
@@ -132,16 +138,23 @@
     }
 
     async start(mode = "dictation") {
-      if (this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic) return;
+      window.AiurVoiceInputState.availability(this);
+      if (this.unavailableReason || this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic || (!this.input && !this.hook.prepareVoiceInput)) return;
       const generation = this.generation + 1;
       this.generation = generation;
-      this.starting = true;
       this.captureMode = mode;
       if (mode === "conversation") this.conversationActive = true;
       this.mic.disabled = true;
-      this.setStatus("Requesting microphone permission…");
+      this.transition("requesting_permission");
 
+      let preparingField = true;
       try {
+        await this.hook.prepareVoiceInput?.();
+        if (!this.current(generation)) return;
+        if (!this.input || this.input.disabled) throw new Error("The response field did not open.");
+        this.restoreText = this.input.value;
+        preparingField = false;
+        this.limitReached = false;
         if (mode === "conversation") {
           // Browsers generally require audio playback to be unlocked by a user
           // gesture. Create and resume the reply context while this click is
@@ -150,27 +163,26 @@
           this.playbackContext ||= new window.AudioContext();
           await this.playbackContext.resume();
         }
-        const deviceId = this.device?.value || "";
-        const audio = deviceId ? { deviceId: { exact: deviceId } } : true;
-        const stream = await navigator.mediaDevices.getUserMedia({ audio });
+        const stream = await window.AiurVoiceCapture.requestMicrophone(this.device?.value || "");
         if (!this.current(generation)) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
-        this.stream = stream;
+        const capture = new window.AiurVoiceCapture.Capture(stream, (samples) => this.handleSamples(samples));
+        this.capture = capture;
+        const live = () => this.current(generation) && this.capture === capture;
         await this.openChannel(generation, mode);
-        if (!this.current(generation)) return;
-        await this.openCapture(stream, generation);
-        if (!this.current(generation)) return;
+        if (!live()) return;
+        await capture.start(live);
+        if (!live()) return;
 
-        this.recording = true;
         this.baseText = mode === "conversation" ? "" : (this.input?.value || "").trim();
         if (mode === "conversation" && this.input) {
           this.input.value = "";
           this.input.dispatchEvent(new Event("input", { bubbles: true }));
         }
         this.resetWaveform();
-        this.setStatus(mode === "conversation" ? "Listening… press the conversation button when you are finished." : "Listening… press the microphone again when you are finished.");
+        this.transition("listening", mode === "conversation" ? { message: "Listening… press the conversation button when you are finished." } : {});
         this.syncElements();
         await this.refreshDevices();
       } catch (error) {
@@ -178,12 +190,7 @@
           this.disposeCapture();
           this.closeChannel();
           this.resetConversationState({ resetContext: mode === "conversation" });
-          this.explainFailure(error);
-        }
-      } finally {
-        if (this.generation === generation) {
-          this.starting = false;
-          this.syncElements();
+          window.AiurVoiceInputState.failure(this, error, preparingField);
         }
       }
     }
@@ -192,155 +199,87 @@
       return this.generation === generation && this.hook.el.isConnected;
     }
 
-    async openCapture(stream, generation) {
-      const context = new window.AudioContext();
-      this.context = context;
-      await context.resume();
-      if (!this.current(generation)) return;
-      await context.audioWorklet.addModule("/voice-capture-worklet.js");
-      if (!this.current(generation)) return;
-      const source = context.createMediaStreamSource(stream);
-      const worklet = new window.AudioWorkletNode(context, "aiur-voice-capture");
-      const mute = context.createGain();
-      mute.gain.value = 0;
-      source.connect(worklet).connect(mute).connect(context.destination);
-      worklet.port.onmessage = (event) => this.handleSamples(event.data);
-      this.source = source;
-      this.worklet = worklet;
-      this.mute = mute;
-    }
-
     openChannel(generation, mode) {
-      return new Promise((resolve, reject) => {
-        const VoiceSocket = window.AiurVoiceSocket || window.Phoenix?.Socket;
-        if (!VoiceSocket) return reject(new Error("Dashboard voice connection is unavailable."));
+      let transport;
+      const current = () => this.current(generation) && this.channel === transport.channel;
+      const fail = (payload) => this.handleTransportFailure({ reason_code: payload?.reason_code }, generation, transport.channel);
+      transport = window.AiurVoiceTransport.open({
+        topic: mode === "conversation" ? "voice:conversation" : "voice:dictate",
+        joinPayload: mode === "conversation" ? {} : this.choice.joinPayload(),
+        handlers: {
+          transcript: (payload) => current() && this.applyTranscript(payload),
+          error: (payload) => current() && fail(payload),
+          stopped: () => {
+            if (!current()) return;
+            this.clearFinishTimer();
+            this.transition("ready", { message: this.readyCopy() });
+            this.disposeCapture();
+            if (this.captureMode === "conversation") {
+              this.submitConversationTurn();
+            } else {
 
-        const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content");
-        const socket = new VoiceSocket("/voice", { params: { _csrf_token: csrfToken } });
-        socket.connect();
-        const channel = socket.channel(mode === "conversation" ? "voice:conversation" : "voice:dictation", {});
-        const current = () => this.current(generation) && this.channel === channel;
-        channel.on("transcript", (payload) => current() && this.applyTranscript(payload));
-        channel.on("error", (payload) => current() && this.handleTransportFailure(payload?.reason || "Speech-to-text failed.", generation, channel));
-        channel.on("stopped", () => {
-          if (!current()) return;
-          this.clearFinishTimer();
-          this.finishing = false;
-          if (this.captureMode === "conversation") {
-            this.submitConversationTurn();
-          } else {
-            this.setStatus("Dictation ready. Review the text, then press Send.");
+              this.closeChannel();
+            }
+            this.syncElements();
+          },
+          audio: (payload) => current() && this.playAudio(payload),
+          audio_done: () => {
+            if (!current()) return;
+            this.finishPlaybackWhenAudible();
+          },
+          audio_error: (payload) => {
+            if (!current()) return;
+            this.resetConversationState();
             this.closeChannel();
+            this.setStatus(payload?.reason || "Voice playback failed.");
+            this.syncElements();
           }
-          this.syncElements();
-        });
-        channel.on("audio", (payload) => current() && this.playAudio(payload));
-        channel.on("audio_done", () => {
-          if (!current()) return;
-          this.finishPlaybackWhenAudible();
-        });
-        channel.on("audio_error", (payload) => {
-          if (!current()) return;
-          this.resetConversationState();
-          this.closeChannel();
-          this.setStatus(payload?.reason || "Voice playback failed.");
-          this.syncElements();
-        });
-        channel.onError(() => this.handleTransportFailure("Speech-to-text connection was lost. Try dictation again.", generation, channel));
-        channel.onClose(() => this.handleTransportFailure("Speech-to-text connection closed. Try dictation again.", generation, channel));
-        this.socket = socket;
-        this.channel = channel;
-        channel.join()
-          .receive("ok", resolve)
-          .receive("error", (reason) => reject(new Error(reason?.reason || "Speech-to-text could not start.")))
-          .receive("timeout", () => reject(new Error("Speech-to-text connection timed out.")));
+        },
+        onError: () => fail({ reason_code: "transport_lost" }),
+        onClose: () => fail({ reason_code: "transport_lost" })
       });
+      this.socket = transport.socket;
+      this.channel = transport.channel;
+      return transport.joined;
     }
 
     stop() {
       if (!this.recording) return;
-      this.finishing = true;
-      this.recording = false;
-      this.setStatus("Finishing transcription…");
+      this.transition("finishing");
       this.disposeCapture();
       this.channel?.push("stop", {});
       this.clearFinishTimer();
       this.finishTimer = window.setTimeout(() => {
         const channel = this.channel;
-        if (channel) this.handleTransportFailure("Speech-to-text final transcript timed out. Try dictation again.", this.generation, channel);
+        if (channel) this.handleTransportFailure({ reason_code: "transport_lost" }, this.generation, channel);
       }, 5000);
     }
 
-    handleSamples(payload) {
-      if (!this.recording || !payload?.samples || !payload?.sampleRate) return;
-      const samples = this.downsample(payload.samples, payload.sampleRate, 16000);
-      if (!samples.length) return;
+    cancel() {
+      if (!this.recording && !this.finishing) return;
+      this.generation += 1;
+      this.clearFinishTimer();
+      this.channel?.push("cancel", {});
+      this.disposeCapture();
+      this.closeChannel();
+      this.resetConversationState();
+      this.input.value = this.restoreText;
+      this.input.dispatchEvent(new Event("input", { bubbles: true }));
+      this.transition("cancelled");
+      this.transition("idle");
+    }
+
+    handleSamples(samples) {
+      if (!this.recording) return;
       this.pushWaveform(samples);
-      const pcm = new Uint8Array(samples.length * 2);
-      const view = new DataView(pcm.buffer);
-      samples.forEach((sample, index) => {
-        const bounded = Math.max(-1, Math.min(1, sample));
-        view.setInt16(index * 2, bounded < 0 ? bounded * 32768 : bounded * 32767, true);
-      });
-      let binary = "";
-      for (const byte of pcm) binary += String.fromCharCode(byte);
-      this.channel?.push("audio", { data: window.btoa(binary) });
+      this.channel?.push("audio", { data: window.AiurVoiceCapture.encodePcm16Base64(samples) });
     }
 
-    downsample(input, sourceRate, targetRate) {
-      if (sourceRate === targetRate) return input;
-      const outputLength = Math.max(1, Math.round(input.length * targetRate / sourceRate));
-      const output = new Float32Array(outputLength);
-      const ratio = sourceRate / targetRate;
-      for (let index = 0; index < outputLength; index += 1) {
-        const start = Math.floor(index * ratio);
-        const end = Math.max(start + 1, Math.min(input.length, Math.floor((index + 1) * ratio)));
-        let total = 0;
-        for (let cursor = start; cursor < end; cursor += 1) total += input[cursor];
-        output[index] = total / (end - start);
-      }
-      return output;
-    }
+    pushWaveform(samples) { window.AiurVoiceWaveform.pushWaveform.call(this, samples); }
 
-    pushWaveform(samples) {
-      for (const sample of samples) {
-        this.pending.push(sample);
-        if (this.pending.length !== 800) continue;
-        this.columns.push({ min: Math.min(...this.pending), max: Math.max(...this.pending) });
-        this.columns.shift();
-        this.pending = [];
-      }
-      this.drawWaveform();
-    }
+    resetWaveform() { window.AiurVoiceWaveform.resetWaveform.call(this); }
 
-    resetWaveform() {
-      this.columns = new Array(120).fill(null).map(() => ({ min: 0, max: 0 }));
-      this.pending = [];
-      this.drawWaveform();
-    }
-
-    drawWaveform() {
-      const context = this.canvas?.getContext("2d");
-      if (!this.canvas || !context || !this.columns) return;
-      const style = window.getComputedStyle(this.hook.el);
-      const middle = this.canvas.height / 2;
-      context.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      context.strokeStyle = style.getPropertyValue("--line").trim() || "#4b5563";
-      context.beginPath();
-      context.moveTo(0, middle + 0.5);
-      context.lineTo(this.canvas.width, middle + 0.5);
-      context.stroke();
-      context.strokeStyle = style.getPropertyValue("--accent").trim() || "#3ba55d";
-      context.lineWidth = Math.max(1, this.canvas.width / this.columns.length * 0.7);
-      const scale = this.canvas.height * 0.43;
-      this.columns.forEach((column, index) => {
-        const x = (index + 0.5) * this.canvas.width / this.columns.length;
-        context.beginPath();
-        context.moveTo(x, middle - column.max * scale);
-        context.lineTo(x, middle - column.min * scale);
-        context.stroke();
-      });
-    }
+    drawWaveform() { window.AiurVoiceWaveform.drawWaveform.call(this); }
 
     applyTranscript(payload) {
       if (!this.input || typeof payload?.text !== "string") return;
@@ -348,7 +287,15 @@
       if (payload.kind === "final") this.baseText = this.joinText(this.baseText, text);
       this.input.value = this.joinText(this.baseText, payload.kind === "final" ? "" : text);
       this.input.dispatchEvent(new Event("input", { bubbles: true }));
-      if (payload.kind === "final" && this.captureMode !== "conversation") this.setStatus("Dictation ready. Review the text, then press Send.");
+      if (this.input.maxLength > 0 && this.input.value.length >= this.input.maxLength && this.recording) {
+        this.limitReached = true;
+        this.stop();
+      }
+    }
+
+    readyCopy() {
+      return this.limitReached ? "Response limit reached. Edit the text before recording your answer." :
+        (this.hook.el.dataset.voiceReadyCopy || "Dictation ready. Review the text, then press Send.");
     }
 
     submitConversationTurn() {
@@ -395,70 +342,19 @@
       this.channel.push("speak", { text });
     }
 
-    playAudio(payload) {
-      if (typeof payload?.data !== "string") return;
-      const decoded = window.atob(payload.data);
-      const bytes = new Uint8Array(decoded.length + (this.audioCarry?.length || 0));
-      if (this.audioCarry?.length) bytes.set(this.audioCarry, 0);
-      for (let index = 0; index < decoded.length; index += 1) bytes[index + (this.audioCarry?.length || 0)] = decoded.charCodeAt(index);
-      const evenLength = bytes.length - (bytes.length % 2);
-      this.audioCarry = bytes.slice(evenLength);
-      if (!evenLength) return;
+    playAudio(payload) { window.AiurVoicePlayback.playAudio.call(this, payload); }
 
-      this.playbackContext ||= new window.AudioContext();
-      const samples = evenLength / 2;
-      const buffer = this.playbackContext.createBuffer(1, samples, 44100);
-      const output = buffer.getChannelData(0);
-      const view = new DataView(bytes.buffer, bytes.byteOffset, evenLength);
-      for (let index = 0; index < samples; index += 1) output[index] = view.getInt16(index * 2, true) / 32768;
-      const source = this.playbackContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(this.playbackContext.destination);
-      this.playbackSources ||= new Set();
-      this.playbackSources.add(source);
-      source.onended = () => this.playbackSources?.delete(source);
-      const startAt = Math.max(this.playbackContext.currentTime, this.nextPlaybackAt || 0);
-      source.start(startAt);
-      this.nextPlaybackAt = startAt + buffer.duration;
-    }
-
-    finishPlaybackWhenAudible() {
-      this.clearPlaybackTimer();
-      const remaining = Math.max(0, (this.nextPlaybackAt || 0) - (this.playbackContext?.currentTime || 0));
-      this.playbackTimer = window.setTimeout(() => {
-        this.playbackTimer = null;
-        this.speaking = false;
-        this.awaitingReply = false;
-        this.conversationActive = false;
-        this.audioCarry = null;
-        this.nextPlaybackAt = null;
-        this.clearPlaybackSources(false);
-        this.closeChannel();
-        this.setStatus("Reply finished. Press the conversation button to speak again.");
-        this.syncElements();
-      }, Math.ceil(remaining * 1000));
-    }
+    finishPlaybackWhenAudible() { window.AiurVoicePlayback.finishPlaybackWhenAudible.call(this); }
 
     joinText(left, right) {
       return [left, right].filter((part) => part && part.trim()).join(" ");
     }
 
-    explainFailure(error) {
-      if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
-        this.setStatus("Microphone permission was denied for this origin. Allow it in site settings, then try again.");
-      } else if (error?.name === "NotFoundError") {
-        this.setStatus("No microphone is available. Connect one or choose a different browser microphone.");
-      } else {
-        this.setStatus(error?.message || "Microphone dictation could not start.");
-      }
-    }
-
-    handleTransportFailure(message, generation, channel) {
+    handleTransportFailure(detail, generation, channel) {
       if (!this.current(generation) || this.channel !== channel) return;
       this.clearFinishTimer();
-      this.finishing = false;
       this.resetConversationState();
-      this.setStatus(message);
+      this.transition("error", detail);
       this.disposeCapture();
       this.closeChannel();
       this.syncElements();
@@ -469,20 +365,9 @@
       this.finishTimer = null;
     }
 
-    clearPlaybackTimer() {
-      if (this.playbackTimer) window.clearTimeout(this.playbackTimer);
-      this.playbackTimer = null;
-    }
+    clearPlaybackTimer() { window.AiurVoicePlayback.clearPlaybackTimer.call(this); }
 
-    clearPlaybackSources(stop = true) {
-      for (const source of this.playbackSources || []) {
-        if (stop) {
-          try { source.stop(); } catch (_error) {}
-        }
-        source.disconnect?.();
-      }
-      this.playbackSources?.clear();
-    }
+    clearPlaybackSources(stop = true) { window.AiurVoicePlayback.clearPlaybackSources.call(this, stop); }
 
     resetConversationState({ resetContext = false } = {}) {
       this.clearPlaybackTimer();
@@ -498,19 +383,19 @@
       }
     }
 
-    setStatus(message) {
+    setStatus(message, failed = false) {
       this.statusMessage = message;
-      if (this.status) this.status.textContent = message;
+      this.statusFailed = failed;
+      if (this.status) {
+        this.status.textContent = message;
+        this.status.hidden = !message;
+        this.status.classList.toggle("bad", failed);
+      }
     }
 
     disposeCapture() {
-      this.worklet?.disconnect();
-      this.source?.disconnect();
-      this.mute?.disconnect();
-      this.stream?.getTracks().forEach((track) => track.stop());
-      this.context?.close();
-      this.worklet = this.source = this.mute = this.stream = this.context = null;
-      this.recording = false;
+      this.capture?.stop();
+      this.capture = null;
       this.syncElements();
     }
 
@@ -526,7 +411,7 @@
       this.generation += 1;
       this.clearFinishTimer();
       this.resetConversationState();
-      this.mic?.removeEventListener("click", this.onMicClick);
+      this.choice.destroy();
       this.conversation?.removeEventListener("click", this.onConversationClick);
       this.device?.removeEventListener("change", this.onDeviceChange);
       this.disposeCapture();

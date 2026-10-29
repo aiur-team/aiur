@@ -8,6 +8,7 @@ defmodule Aiur.WorkflowStore.Reload do
 
   require Logger
 
+  alias Aiur.Config.Overrides
   alias Aiur.Signal
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache
@@ -32,8 +33,8 @@ defmodule Aiur.WorkflowStore.Reload do
   @spec reload_without_store(pos_integer()) :: :ok | {:error, term()}
   def reload_without_store(attempts \\ @reload_attempts) do
     case Workflow.load() do
-      {:ok, _workflow} ->
-        :ok
+      {:ok, workflow} ->
+        ReloadRejection.validate(workflow)
 
       {:error, {:workflow_parse_error, _reason}} when attempts > 1 ->
         Process.sleep(@reload_retry_delay_ms)
@@ -58,13 +59,25 @@ defmodule Aiur.WorkflowStore.Reload do
   defp reload_path(path, state) do
     case load_state(path) do
       {:ok, new_state} ->
+        validate_reloaded_path(path, new_state, state)
+
+      {:error, reason} ->
+        log_reload_error(path, reason)
+        {:error, reason, state}
+    end
+  end
+
+  defp validate_reloaded_path(path, new_state, state) do
+    case ReloadRejection.validate(new_state.workflow) do
+      :ok ->
+        ReloadRejection.clear()
         new_state = advance_generation(new_state, state)
         commit(state, new_state)
         {:ok, new_state}
 
       {:error, reason} ->
-        log_reload_error(path, reason)
-        {:error, reason, state}
+        if new_state.stamp != state.failed_stamp, do: ReloadRejection.reject(path, reason)
+        {:error, reason, %{state | failed_stamp: new_state.stamp}}
     end
   end
 
@@ -119,7 +132,9 @@ defmodule Aiur.WorkflowStore.Reload do
   def load_state(path, attempts \\ @reload_attempts) do
     with {:ok, content} <- read_config(path),
          {:ok, workflow} <- Workflow.parse_config(content, path),
-         {:ok, stamp, digest, aux} <- stamp_for_content(path, content, nil, nil) do
+         {:ok, workflow, override_stamp} <- Overrides.apply_with_stamp(workflow),
+         :ok <- run_after_override_apply_hook(),
+         {:ok, stamp, digest, aux} <- stamp_for_content(path, content, nil, nil, override_stamp) do
       {:ok,
        %State{
          path: path,
@@ -157,21 +172,21 @@ defmodule Aiur.WorkflowStore.Reload do
   # read plus one read per referenced file, and no parsing at all.
   defp stamp_with_context(path, known_digest, known_aux) do
     case read_config(path) do
-      {:ok, content} -> stamp_for_content(path, content, known_digest, known_aux)
+      {:ok, content} -> stamp_for_content(path, content, known_digest, known_aux, Overrides.stamp())
       {:error, reason} -> {:error, reason}
     end
   end
 
   # Stamps content the caller already holds, so a caller that also parses that
   # content cannot pair it with another read's digest. See `load_state/2`.
-  defp stamp_for_content(path, content, known_digest, known_aux) do
+  defp stamp_for_content(path, content, known_digest, known_aux, override_stamp) do
     case File.stat(path, time: :posix) do
       {:ok, stat} ->
         digest = :erlang.phash2(content)
         aux = if digest == known_digest and is_map(known_aux), do: known_aux, else: resolve_aux_paths(path)
 
         stamp =
-          {stat.mtime, stat.size, digest, file_stamp(aux.prompt), file_stamp(aux.hooks), file_stamp(aux.prewarm)}
+          {stat.mtime, stat.size, digest, file_stamp(aux.prompt), file_stamp(aux.hooks), file_stamp(aux.prewarm), override_stamp}
 
         {:ok, stamp, digest, aux}
 
@@ -220,6 +235,16 @@ defmodule Aiur.WorkflowStore.Reload do
 
   defp file_stamp(nil), do: nil
 
+  # A process-local seam lets the concurrency regression test land an override
+  # after it was applied but before the state is assembled. Keeping it local
+  # prevents the live singleton's poll from consuming another process's hook.
+  defp run_after_override_apply_hook do
+    case Process.get(:workflow_store_after_override_apply) do
+      hook when is_function(hook, 0) -> hook.()
+      _missing -> :ok
+    end
+  end
+
   defp log_reload_error(path, reason) do
     Logger.error("Failed to reload workflow path=#{path} reason=#{inspect(reason)}; keeping last known good configuration")
   end
@@ -239,8 +264,29 @@ defmodule Aiur.WorkflowStore.Reload do
     Cache.put(state.workflow, state.generation, path)
     broadcast_configuration(state)
     maybe_announce_base_branch_change(previous, state)
+    maybe_announce_operator_relay_enablement(previous, state)
     :ok
   end
+
+  defp maybe_announce_operator_relay_enablement(previous, current) do
+    if relay_enabled?(current) and not relay_enabled?(previous) do
+      Signal.alert("system.config.operator_relay.enabled",
+        message: "executor.relay_operator_answers enabled: Executors may record quoted operator answers",
+        reason: "The operator-answer relay gate changed from disabled to enabled.",
+        needs_attention: false,
+        severity: "info"
+      )
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => true}}}}), do: true
+  defp relay_enabled?(_state), do: false
 
   defp broadcast_configuration(%State{generation: generation}) do
     if Process.whereis(Aiur.PubSub) do

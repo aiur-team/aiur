@@ -1,0 +1,37 @@
+{
+  "authority": {
+    "aggregate_generation": 3,
+    "price_table_revision": "multi-provider-standard-global-2026-08-16",
+    "schema_version": 1,
+    "source_generation": 2,
+    "source_position": 8
+  },
+  "cap_amount": "1.25",
+  "configured_at": "2026-10-24T20:00:00Z",
+  "contract": "aiur.ticket_spend_cap",
+  "contract_version": 1,
+  "coverage": {
+    "known": 2,
+    "reasons": [],
+    "status": "known",
+    "unknown": 0
+  },
+  "currency": "USD",
+  "effects": {
+    "event": "not_applicable",
+    "stop": "not_applicable",
+    "tracker_transition": "not_applicable"
+  },
+  "end_state": null,
+  "job_id": "5693",
+  "reached_at": null,
+  "remaining_amount": "0.75",
+  "schema_version": 1,
+  "spent_amount": "0.50",
+  "state": "active",
+  "ticket": {
+    "identifier": "5693",
+    "owner": "aiur-team",
+    "repository": "aiur"
+  }
+}

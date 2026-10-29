@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.DeliveredPullRequest do
+  alias Aiur.GitHub.Access
+
   @moduledoc """
   The poll pipe's read side of `Aiur.GitHub.ResourceStore`: *which* open pull
   request belongs to a ticket, when a webhook delivery already said so.
@@ -30,7 +32,7 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
   processed-mark, so an entry whose body is hours old reads as freshly recorded
   the moment some pipe marks it handled. `fetched_at_ms` describes the body
   itself, which is what "do I already have this" has to mean — the same field
-  `ResourceStore.fetch/1` expires on. `ResourceStore.fetch/1` already declines a
+  `Access.fetch_resource/1` expires on. `Access.fetch_resource/1` already declines a
   body past the retention window; the shorter bound here is this module's own,
   because an identity a poller acts on should not be a day old when a cheap
   query would confirm it.
@@ -38,7 +40,7 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
   ## Two guards against acting on a pull request that has moved on
 
     * **The body must have come from a delivery** (`:data_source == :webhook`,
-      surfaced by `ResourceStore.fetch/1` as `:source`). That is the
+      surfaced by `Access.fetch_resource/1` as `:source`). That is the
       "distinguish delivered from polled" the store already carries. A body some
       other reader's fetch deposited is not wrong, but it is not free either,
       and restricting to deliveries keeps the saving attributable.
@@ -53,8 +55,6 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
   which puts the caller back on the branch-discovery path it used before. A
   store that cannot answer costs throughput, never correctness.
   """
-
-  alias Aiur.GitHub.ResourceStore
 
   # Long enough that a ticket under active work is nearly always covered — a
   # push, a review or a comment all deliver a `pull_request` body, and since
@@ -82,7 +82,7 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
       when is_binary(target) and is_binary(owner) and is_binary(repo) do
     if Keyword.get(opts, :delivered_identity, true) do
       :branch_pull_request
-      |> ResourceStore.key(owner, repo, target)
+      |> Access.key(owner, repo, target)
       |> held_number(opts)
     end
   end
@@ -101,7 +101,7 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
   defp held_number(nil, _opts), do: nil
 
   defp held_number(key, opts) do
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, entry} -> if delivered?(entry) and fresh?(entry, opts), do: open_number(Map.get(entry, :data))
       :miss -> nil
     end

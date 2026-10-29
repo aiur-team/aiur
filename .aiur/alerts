@@ -85,6 +85,8 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "system.conversation.subject_index.unreadable":
+    message: Conversation index skipped unreadable subject files
   "system.dispatch.prewarm_blocked":
     message: Shared prewarm is blocking dispatch
     sound:
@@ -110,7 +112,7 @@ alerts:
   "system.dispatch.decision_store_unavailable.resolved":
     message: DecisionStore reachable; dispatch resumed
   "system.github.budget_broker_degraded":
-    message: GitHub budget broker is degraded
+    message: GitHub budget broker is unavailable
     sound:
       - "~/alerts/advisor/advisor-not-enough-minerals.wav"
   "system.github.budget_broker_retry":

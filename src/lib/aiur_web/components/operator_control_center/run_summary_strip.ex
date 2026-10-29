@@ -22,13 +22,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       github_window_compact_meta: 2
     ]
 
-  import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, meter_class: 3]
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, remaining_class: 1]
 
   alias Aiur.CodingAgent
   alias AiurWeb.Build.UsageFacts
   alias AiurWeb.OperatorControlCenter.ModelProviders
   alias AiurWeb.OperatorControlCenter.ModelsPanel
   alias AiurWeb.OperatorControlCenter.Money
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip.NetlifyRow
+  alias AiurWeb.RemainingMeter
 
   # The provider card that leads the strip. The run summary moved out of the
   # strip into the compact above-filters section, so the first provider card
@@ -40,24 +42,34 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:meters, :map, required: true)
   attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:elevenlabs_quota, :map, default: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
+  attr(:netlify_dashboard, :map, default: nil)
   attr(:now, :any, required: true)
   # Provider families the workflow routes work to; nil reads the live config.
   attr(:configured_providers, :any, default: nil)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
-    assigns = assign(assigns, :cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
+    assigns =
+      assigns
+      |> assign(:cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
+      |> assign(:netlify_dashboard, assigns.netlify_dashboard || %{snapshot: usage_provider(assigns.usage, :netlify), enabled?: false})
 
     ~H"""
     <section class="run-summary" aria-label="Provider and API usage">
-      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} now={@now} />
+      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} netlify_dashboard={@netlify_dashboard} now={@now} />
       <ModelsPanel.models_panel :if={@cards != []} cards={@cards} now={@now} />
     </section>
     """
   end
 
+  defp usage_provider(usage, provider) do
+    providers = Map.get(usage || %{}, :providers, Map.get(usage || %{}, "providers", %{}))
+    Map.get(providers, provider, Map.get(providers, Atom.to_string(provider)))
+  end
+
   attr(:github_quota, :map, required: true)
   attr(:elevenlabs_quota, :map, required: true)
+  attr(:netlify_dashboard, :map, default: nil)
   attr(:now, :any, required: true)
 
   # The APIS pane holds one row per non-model API. GitHub always has a row; the
@@ -68,7 +80,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     assigns =
       assigns
       |> assign(:windows, github_windows(assigns.github_quota))
+      |> assign(:auth_mode, github_auth_mode(assigns.github_quota))
       |> assign(:backoffs, github_backoffs(assigns.github_quota))
+      |> assign(:fleet_budget, Map.get(assigns.github_quota, :fleet_budget, %{state: :unknown}))
       |> assign(:elevenlabs?, elevenlabs_configured?(assigns.elevenlabs_quota))
 
     ~H"""
@@ -77,24 +91,26 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span class="rs-group-title">APIS</span>
         <span class="rs-group-count">{api_count_label(@elevenlabs?)}</span>
       </div>
+      <p class="rs-limit-meta rs-github-budget-scope">{fleet_budget_label(@fleet_budget, @now)}</p>
       <div class="rs-apis-rows">
         <div class="rs-api rs-provider-row">
           <div class="rs-head">
             <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="Github" title="Github - for ticket state" />
+            <span class="rs-auth-mode" aria-label={"GitHub authentication: #{github_auth_label(@auth_mode)}"}>{github_auth_label(@auth_mode)}</span>
           </div>
           <div class="rs-provider-body">
             <div class="rs-limits">
               <div :if={@windows == []} class="rs-limit">
                 <span class="rs-limit-label">Quota</span>
-                <div class="rs-meter"><i style="width:0%"></i></div>
+                <div class="rs-meter is-unknown"></div>
                 <span class="rs-limit-meta rs-limit-meta-wide">Awaiting GitHub response</span>
                 <span class="rs-limit-meta rs-limit-meta-compact">Awaiting response</span>
               </div>
-              <div :for={window <- @windows} class="rs-limit">
-                <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
-                <div class="rs-meter">
-                  <i class={meter_class(window.used_percent, 80, 90)} style={"width:#{window.used_percent}%"}></i>
-                </div>
+          <div :for={window <- @windows} class="rs-limit">
+            <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
+            <div class={["rs-meter", is_nil(github_percent(window)) && "is-unknown"]}>
+              <i :if={is_number(github_percent(window))} class={remaining_class(github_percent(window))} style={"width:#{github_percent(window)}%"}></i>
+            </div>
                 <span class="rs-limit-meta rs-limit-meta-wide">{github_window_meta(window, @now)}</span>
                 <span class="rs-limit-meta rs-limit-meta-compact">{github_window_compact_meta(window, @now)}</span>
               </div>
@@ -108,10 +124,26 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           </div>
         </div>
         <.elevenlabs_api_row :if={@elevenlabs?} quota={@elevenlabs_quota} now={@now} />
+        <NetlifyRow.netlify_api_row :if={@netlify_dashboard && @netlify_dashboard.enabled?} usage={@netlify_dashboard.snapshot} />
       </div>
     </div>
     """
   end
+
+  defp fleet_budget_label(%{state: :observed, resources: resources, observed_instances: count, age_seconds: age}, _now) do
+    "Shared daemon spend: Core #{Map.get(resources, "core", 0)} requests, GraphQL #{Map.get(resources, "graphql", 0)} points across #{count} observed instances (#{age}s old); agent gh calls are counted per host."
+  end
+
+  defp fleet_budget_label(_unknown, _now), do: "Shared daemon budget has no fleet sample yet; agent gh calls are counted per host."
+
+  defp github_auth_mode(%{auth_mode: mode}), do: mode
+  defp github_auth_mode(_quota), do: :unknown
+
+  defp github_auth_label(:github_app), do: "GitHub App"
+  defp github_auth_label(:env), do: "PAT"
+  defp github_auth_label(:keyring), do: "gh keyring"
+  defp github_auth_label(:none), do: "No credential"
+  defp github_auth_label(_mode), do: "Auth unknown"
 
   attr(:quota, :map, required: true)
   attr(:now, :any, required: true)
@@ -126,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:window, window)
       |> assign(:invoice_due, elevenlabs_invoice_due(window))
-      |> assign(:meter_percent, elevenlabs_meter_percent(window))
+      |> assign(:meter_percent, api_percent(window))
 
     ~H"""
     <div class="rs-api rs-elevenlabs rs-provider-row">
@@ -137,12 +169,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-limits">
           <div class="rs-limit">
             <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
-            <div class="rs-meter">
-              <i
-                class={meter_class(@meter_percent, 80, 90)}
-                style={"width:#{@meter_percent}%"}
-              >
-              </i>
+            <div class={["rs-meter", is_nil(@meter_percent) && "is-unknown"]}>
+              <i :if={is_number(@meter_percent)} class={remaining_class(@meter_percent)} style={"width:#{meter_width(@meter_percent)}%"}></i>
             </div>
             <span class={["rs-limit-meta", "rs-limit-meta-wide", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{elevenlabs_compact_meta(@quota, @now)}</span>
@@ -151,6 +179,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       </div>
     </div>
     """
+  end
+
+  defp api_percent(window), do: elevenlabs_meter_percent(window)
+
+  defp github_percent(window) do
+    case Map.get(window, :remaining_percent) do
+      percent when is_number(percent) -> RemainingMeter.clamp(percent)
+      _ -> RemainingMeter.percent(Map.get(window, :used_percent))
+    end
+  end
+
+  defp meter_width(percent) do
+    percent = Float.round(percent / 1, 1)
+    if percent == trunc(percent), do: Integer.to_string(trunc(percent)), else: :erlang.float_to_binary(percent, decimals: 1)
   end
 
   # The compact run summary, rendered above the Units table filters. The

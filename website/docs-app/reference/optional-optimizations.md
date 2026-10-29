@@ -10,7 +10,7 @@ Everything below this section is optional. A local run needs only:
 
 | Requirement | How you satisfy it |
 | --- | --- |
-| A GitHub credential | `gh auth login` once. The boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
+| Local GitHub daemon auth | `gh auth login` once. The local boot gate can use the `gh` keyring when App credentials and `GITHUB_TOKEN` are absent. Hosted/container daemon auth requires a GitHub App unless `AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. |
 | tmux | The launcher runs each daemon in its own detached tmux session. |
 | A tracker repository | The repo you point `aiur init` at, with issues carrying `agent:todo`. |
 
@@ -79,6 +79,8 @@ The daemon read-cache TTL rises from 30s to one hour on a proven repo for commen
 4. Give the tunnel a public hostname you control and set GitHub's webhook payload URL to `https://<your-host>/api/v1/github/webhook` (`hooks.aiur.dev` is one operator's choice, not a requirement). Without a domain, `cloudflared tunnel --url` (quick tunnels) exposes the daemon on a temporary public URL — fine for a single session, gone when the process exits.
 
 Without public ingress, polling is the default mode and degrades cleanly: a repo that is configured but never delivers keeps polling at the full interval, and a repo that goes silent returns to full polling and raises an attention. Delivery states are in [Optional webhook](/apis/github-webhooks#optional-webhook).
+
+Cloudflare is one ingress among many; whichever you use can read webhook deliveries, so treat it as trusted transport.
 
 ## Tailscale
 

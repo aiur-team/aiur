@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "kind": "diff",
+  "epoch": "fixture",
+  "generation": 1,
+  "now": 1791408000000,
+  "upsert": [],
+  "remove": [
+    "9012"
+  ],
+  "set": {}
+}

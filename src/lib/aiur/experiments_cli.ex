@@ -3,6 +3,9 @@ defmodule Aiur.ExperimentsCLI do
   alias Aiur.{Experiments, JSONSafe}
 
   @switches [
+    mode: :string,
+    local: :boolean,
+    contract_json: :string,
     status: :string,
     kind: :string,
     json: :boolean,
@@ -15,11 +18,17 @@ defmodule Aiur.ExperimentsCLI do
     metric: :keep,
     hypothesis: :string,
     window: :string,
-    reason: :string
+    reason: :string,
+    confirm: :boolean
   ]
   @allowed %{
+    analyze: [:mode, :local, :json],
+    preregister: [:contract_json, :json],
+    report_submit: [:contract_json, :json],
+    stats: [:json],
     events: [:json, :refresh],
     freeze: [:window, :reason, :json],
+    abandon: [:reason, :confirm, :json],
     metrics: [:json],
     list: [:status, :kind, :json],
     show: [:json],
@@ -46,7 +55,20 @@ defmodule Aiur.ExperimentsCLI do
       else: usage(flags)
   end
 
+  defp dispatch(:stats, flags, [id]), do: result(Experiments.stats(id), flags, :stats)
+
+  defp dispatch(verb, flags, [id]) when verb in [:preregister, :report_submit] do
+    case decode_attributes(flags[:contract_json] || "") do
+      {:ok, attrs} -> submission_result(submit(verb, id, attrs), id, flags, verb)
+      error -> result(error, flags, verb)
+    end
+  end
+
   defp dispatch(:metrics, flags, []), do: result({:ok, Experiments.metric_catalog()}, flags, :metrics)
+
+  defp dispatch(:analyze, flags, [id]) do
+    if flags[:mode] in [nil, "spec", "report"], do: result(Experiments.analyze(id, Keyword.take(flags, [:mode, :local])), flags, :analyze), else: usage(flags)
+  end
 
   defp dispatch(:events, flags, [id]) do
     case Experiments.events(id, Keyword.take(flags, [:refresh])) do
@@ -73,6 +95,14 @@ defmodule Aiur.ExperimentsCLI do
     end
   end
 
+  defp dispatch(:abandon, flags, [id]) do
+    if flags[:confirm] == true and is_binary(flags[:reason]) and String.trim(flags[:reason]) != "" do
+      result(Experiments.abandon(id, flags[:reason], "operator"), flags, :abandon)
+    else
+      usage(flags)
+    end
+  end
+
   defp dispatch(:create, flags, []) do
     case attributes(flags) do
       {:ok, attrs} ->
@@ -88,6 +118,30 @@ defmodule Aiur.ExperimentsCLI do
   end
 
   defp dispatch(_verb, flags, _positional), do: usage(flags)
+
+  defp submit(:preregister, id, attrs), do: Experiments.put_preregistration(id, attrs)
+  defp submit(:report_submit, id, attrs), do: Experiments.put_report(id, attrs)
+
+  defp submission_result({:ok, data}, id, flags, verb) do
+    result({:ok, data}, flags, verb)
+
+    case Experiments.analysis_requests(id) do
+      {:ok, requests} -> submission_status(Enum.find(requests, &(&1["state"] == "open")), flags)
+      error -> result(error, flags, verb)
+    end
+  end
+
+  defp submission_result(error, _id, flags, verb), do: result(error, flags, verb)
+
+  defp submission_status(nil, _flags), do: 0
+
+  defp submission_status(request, flags) do
+    flags[:error_fun].(
+      "submission stored; analysis request #{request["request_id"]} remains open for #{request["mode"]}/#{request["analysis_type"]}; refresh the local brief before completing the ticket"
+    )
+
+    1
+  end
 
   defp attributes(flags) do
     case flags[:spec_json] do
@@ -180,7 +234,19 @@ defmodule Aiur.ExperimentsCLI do
     if data["frozen_snapshot"], do: print_snapshot(data["frozen_snapshot"])
   end
 
+  defp print_human(data, :report_submit) do
+    Enum.each(data["warnings"], &IO.puts(:stderr, &1))
+    IO.puts("report v#{data["report"]["header"]["report_version"]} stored")
+  end
+
+  defp print_human(_data, :preregister), do: IO.puts("pre-registration stored")
+
   defp print_human(data, :freeze), do: print_snapshot(data)
+
+  defp print_human(data, :analyze) do
+    if data["ticket"], do: IO.puts(data["ticket"]["url"])
+    IO.puts(data["brief"])
+  end
 
   defp print_human(data, {:show, _id}) do
     IO.puts(Jason.encode!(data, pretty: true))
@@ -202,7 +268,7 @@ defmodule Aiur.ExperimentsCLI do
     error_fun = Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1))
 
     error_fun.(
-      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, events <id> [--json] [--refresh], freeze <id> [--window before|after|observation] [--reason r] [--json], metrics [--json], or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]"
+      "aiur: experiments expects list [--status s] [--kind before_after|ab], show <id>, events <id> [--json] [--refresh], freeze <id> [--window before|after|observation] [--reason r] [--json], abandon <id> --reason <text> --confirm [--json], metrics [--json], or create --from <file|-> | --title <title> --line type:ref[@time] --metric pack/metric[:direction]; analyze <id> [--mode spec|report] [--local] [--json]; preregister <id> --file <file|->; report submit <id> --file <file|->; stats <id> [--json]"
     )
 
     64

@@ -24,7 +24,52 @@ defmodule Aiur.CodingAgent.ProvidersView do
   option, so it intentionally has no effort vocabulary.
   """
   @spec backends() :: %{backend() => Aiur.CodingAgent.Backend.capabilities()}
-  def backends, do: Registry.entries()
+  def backends, do: Process.get({__MODULE__, :backends}) || Registry.entries()
+
+  @doc false
+  @spec with_snapshot((-> result)) :: result when result: var
+  def with_snapshot(fun) do
+    key = {__MODULE__, :backends}
+
+    if Process.get(key) do
+      fun.()
+    else
+      Process.put(key, Registry.entries())
+
+      try do
+        fun.()
+      after
+        Process.delete(key)
+        Process.delete({__MODULE__, :dispatchable})
+      end
+    end
+  end
+
+  @doc false
+  @spec snapshot_dispatchable_backends(map()) :: [backend()]
+  def snapshot_dispatchable_backends(configs) do
+    key = {__MODULE__, :dispatchable}
+
+    case Process.get(key) do
+      {^configs, backends} ->
+        backends
+
+      _ ->
+        backends = dispatchable_backends(configs)
+        if Process.get({__MODULE__, :backends}), do: Process.put(key, {configs, backends})
+        backends
+    end
+  end
+
+  @doc "Child specs registry entries declare under `:children`, de-duplicated, in `init_order`."
+  @spec child_specs(%{backend() => Aiur.CodingAgent.Backend.capabilities()}) ::
+          [Supervisor.child_spec() | module() | {module(), term()}]
+  def child_specs(entries \\ backends()) do
+    entries
+    |> Enum.sort_by(fn {backend, entry} -> {Map.get(entry, :init_order, 9_999), backend} end)
+    |> Enum.flat_map(fn {_backend, entry} -> Map.get(entry, :children, []) end)
+    |> Enum.uniq_by(&Supervisor.child_spec(&1, []).id)
+  end
 
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]

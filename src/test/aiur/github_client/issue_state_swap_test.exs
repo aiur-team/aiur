@@ -5,6 +5,9 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
 
   alias Aiur.GitHub.Client
 
+  @tested_head String.duplicate("a", 40)
+  @base_sha String.duplicate("b", 40)
+
   setup do
     setup_client()
   end
@@ -62,6 +65,10 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
           {:delete, 4} ->
             assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
+
+          {:get, 5} ->
+            assert req.url =~ "/issues/42"
+            open_issue_response(["sym:paused", "sym:rework", "sym:watch"])
         end
       end
 
@@ -97,7 +104,7 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
 
           {:get, 1} ->
             assert req.url =~ "/pulls?"
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head"}}]}}
+            {:ok, %{status: 200, body: [pr()]}}
 
           {:post, 2} ->
             assert req.url == "https://api.github.com/graphql"
@@ -106,7 +113,7 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
           # The swap adds first: the active-label add re-checks the issue, then
           # POSTs the new label, then removes the old one (#2420).
           {:get, 3} ->
-            assert req.url =~ "/compare/main...tested-head"
+            assert req.url =~ "/compare/main...#{@tested_head}"
             {:ok, %{status: 200, body: %{"status" => "ahead"}}}
 
           {:get, 4} ->
@@ -132,6 +139,10 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
           {:delete, 7} ->
             assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
             {:ok, %{status: 200}}
+
+          {:get, 8} ->
+            assert req.url =~ "/issues/42"
+            open_issue_response(["sym:human-review"])
         end
       end
 
@@ -145,5 +156,10 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
 
   defp open_issue_response(labels) do
     {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+  end
+
+  defp pr do
+    body = "## Local tests\n\nPolicy: partial\nTested head: #{@tested_head}\nBase: main @ #{@base_sha}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
+    %{"number" => 77, "body" => body, "head" => %{"ref" => "aiur/42", "sha" => @tested_head}}
   end
 end

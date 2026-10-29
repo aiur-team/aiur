@@ -4,7 +4,105 @@ defmodule ScriptsAiurdevReleaseTest do
 
   import Aiur.TestSupport.AiurdevCase
 
+  test "remote targets bypass local release work and reach engine validation" do
+    root = fake_repo()
+    engine = Path.join([root, "packaging", "npm", "aiur-cli", "libexec", "aiur-engine.sh"])
+
+    File.write!(
+      engine,
+      "#!/usr/bin/env bash\n" <>
+        ~s|printf 'ENGINE_ARGS: %s\nREMOTE_INSTANCE: %s\n' "$*" "${AIUR_REMOTE_INSTANCE:-}"| <>
+        "\nif [ \"${1:-}\" = --instance ]; then shift 2; fi\n" <>
+        "if [ \"${1:-}\" = build ]; then exit 64; fi\n"
+    )
+
+    File.chmod!(engine, 0o755)
+    missing_mise = Path.join(root, "missing-mise")
+
+    for {command, expected_status} <- [{"status", 0}, {"build", 64}] do
+      {out, ^expected_status} =
+        run_shim(["--instance", "nuc", command], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", missing_mise},
+          {"TMUX", "inside-tmux"}
+        ])
+
+      assert out =~ "ENGINE_ARGS: --instance nuc #{command}"
+      assert out =~ "REMOTE_INSTANCE: "
+      refute out =~ "REMOTE_INSTANCE: nuc"
+      refute out =~ "mise not found"
+      refute out =~ "force-rebuild"
+    end
+  end
+
   describe "release provenance" do
+    test "a changed dependency lock fetches dependencies before compilation" do
+      root = fake_repo()
+      mise = fake_mise()
+      order_log = Path.join(root, "build-order.log")
+
+      seed_ready_release(root)
+      File.mkdir_p!(Path.join(root, "src/deps/example"))
+      File.write!(Path.join(root, "src/deps/example/version"), "old")
+      File.write!(Path.join(root, "src/mix.lock"), "%{\n  \"example\": {:hex, :example, \"2.0.0\"}\n}\n")
+
+      {_out, 0} =
+        run_shim(["__ensure-build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_ORDER_LOG", order_log},
+          {"TMUX", nil}
+        ])
+
+      assert File.read!(order_log) == "deps.get\ncompile\ncompile\n"
+
+      assert String.trim(File.read!(Path.join(root, "src/_build/dev/aiurdev-deps-lock-sha"))) ==
+               Base.encode16(:crypto.hash(:sha256, File.read!(Path.join(root, "src/mix.lock"))), case: :lower)
+    end
+
+    test "a failed staged build leaves the existing release untouched" do
+      root = fake_repo()
+      mise = fake_mise()
+      seed_ready_release(root)
+      existing_bin = Path.join(root, "src/_build/dev/rel/aiur/bin/aiur")
+      existing_launcher = Path.join(root, "src/bin/aiur")
+      File.write!(existing_bin, "running release sentinel")
+      File.write!(existing_launcher, "running launcher sentinel")
+      assert File.exists?(existing_bin)
+
+      {out, 9} =
+        run_shim(["build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_FAIL_RELEASE", "1"},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ "keeping the previous release"
+      assert File.read!(existing_bin) == "running release sentinel"
+      assert File.read!(existing_launcher) == "running launcher sentinel"
+      assert File.exists?(release_stamp_path(root))
+    end
+
+    test "a failed clean build preserves the existing release" do
+      root = fake_repo()
+      mise = fake_mise()
+      seed_ready_release(root)
+      existing_bin = Path.join(root, "src/_build/dev/rel/aiur/bin/aiur")
+      File.write!(existing_bin, "running release sentinel")
+
+      {out, 9} =
+        run_shim(["build", "--deps"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_FAIL_RELEASE", "1"},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ "keeping the previous release"
+      assert File.read!(existing_bin) == "running release sentinel"
+    end
+
     test "a completed build stamps the release with its repo root and source sha" do
       root = fake_repo()
       mise = fake_mise()
@@ -17,11 +115,14 @@ defmodule ScriptsAiurdevReleaseTest do
         ])
 
       stamp = File.read!(release_stamp_path(root))
+      launcher = File.read!(Path.join(root, "src/bin/aiur"))
 
       assert stamp =~ "repo_root=#{root}"
       # Outside a git work tree there is no commit to record; the field is still
       # present so a reader never has to guess whether stamping ran.
       assert stamp =~ "source_sha=unknown"
+      assert launcher =~ "release_root=\"#{root}/src/_build/dev/rel/aiur\""
+      refute launcher =~ ".aiur-staging"
       assert stamp =~ ~r/built_at=\d{4}-\d{2}-\d{2}T/
     end
 

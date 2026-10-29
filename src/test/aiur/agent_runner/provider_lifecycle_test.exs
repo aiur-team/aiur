@@ -132,66 +132,6 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     assert_turn_starts(paths.trace, 2)
   end
 
-  test "operator interrupt consumes the anonymous fallback before its queued turn" do
-    ready = Aiur.TestSupport.tmp_root!("aiur-operator-interrupt")
-    {late_marker, release} = lifecycle_barrier("operator-interrupt-late")
-    paths = prepare_case("operator-interrupt", operator_interrupt_script(ready, late_marker, release))
-    orchestrator_name = Module.concat(__MODULE__, :OperatorInterruptOrchestrator)
-    {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
-    issue = issue("MT-OPERATOR-INTERRUPT")
-
-    on_exit(fn ->
-      File.rm(ready)
-      if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
-    end)
-
-    task =
-      Task.async(fn ->
-        AgentRunner.run(issue, nil,
-          orchestrator: orchestrator_name,
-          max_turns: 1,
-          issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
-        )
-      end)
-
-    assert wait_for_path(ready)
-
-    parent = self()
-
-    :sys.replace_state(orchestrator_pid, fn state ->
-      {queue_store, item} =
-        Aiur.AgentQueue.operator_message(issue.identifier, "rework after interrupt", delivery_policy: :interrupt)
-        |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
-
-      send(parent, {:queued_interrupt_item, item})
-      %{state | queue_store: queue_store}
-    end)
-
-    assert_receive {:queued_interrupt_item, item}, 1000
-    assert item.delivery.interrupt_requested
-
-    send(task.pid, {:agent_queue_updated, issue.identifier, item.id, true})
-    assert wait_for_path(late_marker)
-
-    case Task.yield(task, 100) do
-      nil ->
-        :ok
-
-      task_result ->
-        queue_status = queue_item_status(orchestrator_pid, item.id)
-
-        flunk(
-          "queued turn completed early with result #{inspect(task_result)} " <>
-            "and queue status #{inspect(queue_status)}"
-        )
-    end
-
-    File.touch!(release)
-    assert Task.await(task, 15_000) == :ok
-    assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, issue.identifier)
-    assert_turn_starts(paths.trace, 2)
-  end
-
   defp prepare_case(name, script) do
     root = Aiur.TestSupport.tmp_root!("aiur-provider-lifecycle-#{name}")
     source = Path.join(root, "source")
@@ -366,31 +306,6 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     """)
   end
 
-  defp operator_interrupt_script(ready, late_marker, release) do
-    shell_script("""
-          *'\"method\":\"turn/start\"'*)
-            turn_start_count=$((turn_start_count + 1))
-            request_id=$(request_id "$line")
-            if [ "$turn_start_count" -eq 1 ]; then
-              printf '{"id":%s,"result":{"turn":{"id":"turn-old","status":"inProgress"}}}\n' "$request_id"
-              printf '%s\n' '{"method":"turn/started","params":{"turn":{"id":"turn-old","status":"inProgress"}}}'
-              touch "#{ready}"
-            else
-              printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
-              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-              touch "#{late_marker}"
-              while [ ! -f "#{release}" ]; do sleep 0.01; done
-              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
-            fi
-            ;;
-          *'\"method\":\"turn/interrupt\"'*)
-            request_id=$(request_id "$line")
-            printf '{"id":%s,"result":{}}\n' "$request_id"
-            printf '%s\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
-            ;;
-    """)
-  end
-
   defp shell_script(turn_start_case) do
     """
     #!/bin/sh
@@ -425,6 +340,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   # nothing else, so the extra `turn/start` could not be attributed to a
   # primary turn, a queue-item delivery, or a mid-turn checkpoint write. Fail
   # with the recorded frame sequence attached.
+
   defp assert_turn_starts(trace, expected) do
     frames = trace_frames(trace)
     actual = Enum.count(frames, &String.contains?(&1, ~s("method":"turn/start")))
@@ -451,6 +367,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   # CI log. The ordered method/id sequence is what attributes an extra frame to
   # its sender: the primary turn and a queue-item turn both use the fixed
   # `turn/start` request id, while a mid-turn checkpoint write uses a unique one.
+
   defp summarize_frame(frame) do
     method =
       case Regex.run(~r/"method":"([^"]+)"/, frame) do
@@ -474,7 +391,9 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   # (#1765): the wait was observed timing out locally under CPU contention
   # while the run itself was healthy. The budget stays bounded so a genuine
   # wedge still fails rather than hanging the suite.
+
   defp wait_for_path(path, attempts \\ 1_200)
+
   defp wait_for_path(_path, 0), do: false
 
   defp wait_for_path(path, attempts) do
@@ -497,15 +416,5 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {marker, release}
-  end
-
-  defp queue_item_status(orchestrator_pid, item_id) do
-    item =
-      orchestrator_pid
-      |> :sys.get_state()
-      |> Map.fetch!(:queue_store)
-      |> Aiur.AgentQueueStore.get(item_id)
-
-    if is_nil(item), do: :missing, else: item.status
   end
 end

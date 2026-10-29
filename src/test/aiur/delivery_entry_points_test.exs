@@ -7,6 +7,7 @@ defmodule Aiur.DeliveryEntryPointsTest do
   alias Aiur.{AgentChat, AgentControlCLI, AgentQueueStore, DecisionAnswer, DecisionDispatch, DecisionRevision, DecisionRevisionDispatch, DecisionValidation, Issue}
   alias Aiur.Opencode.ChatCompletions.OperatorDispatch
   alias Aiur.Orchestrator.{OperatorMessages, State}
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{DashboardLive, Endpoint, StreamdeckChannel}
 
   @endpoint Endpoint
@@ -42,18 +43,18 @@ defmodule Aiur.DeliveryEntryPointsTest do
     :ok
   end
 
-  test "AgentChat.send defaults to interrupt with queue_next fallback" do
+  test "AgentChat.send routes through listener with agent_chat origin" do
     record_orchestrator()
     assert {:ok, 1} = AgentChat.send(@identifier, "x")
     assert_received {:wire, @identifier, payload}
-    assert payload == %{kind: :text, body: "x", delivery_policy: :interrupt, fallback: :queue_next, turn_id: nil, message_id: nil}
+    assert payload == %{kind: :text, body: "x", delivery_policy: :listener, origin: :agent_chat, fallback: :queue_next, turn_id: nil, message_id: nil}
   end
 
-  test "TUI chat pane requests auto" do
+  test "TUI chat pane requests listener with tui origin" do
     record_orchestrator()
     assert {:ok, 1} = OperatorDispatch.send_operator(@identifier, "x", "turn-r7")
     assert_received {:wire, @identifier, payload}
-    assert payload == %{kind: :text, body: "x", delivery_policy: :auto, fallback: :queue_next, turn_id: "turn-r7", message_id: nil}
+    assert payload == %{kind: :text, body: "x", delivery_policy: :listener, origin: :tui, fallback: :queue_next, turn_id: "turn-r7", message_id: nil}
   end
 
   test "dashboard drawer passes only message_id so AgentChat governs policy" do
@@ -88,7 +89,7 @@ defmodule Aiur.DeliveryEntryPointsTest do
     assert_received {:chat, @identifier, "x", [message_id: "cli-r7"]}
   end
 
-  test "HTTP messages endpoint omits policy and retains the checkpoint default" do
+  test "HTTP messages endpoint requests listener and retains legacy checkpoint delivery" do
     record_orchestrator()
 
     conn =
@@ -99,9 +100,13 @@ defmodule Aiur.DeliveryEntryPointsTest do
 
     assert %{"request_id" => 1} = conn |> post("/api/v1/#{@identifier}/messages", %{text: "x"}) |> json_response(202)
     assert_received {:wire, @identifier, payload}
-    assert payload == %{kind: :text, body: "x"}
+    assert payload == %{kind: :text, body: "x", delivery_policy: :listener, origin: :http}
 
-    state = %State{queue_store: AgentQueueStore.new(), running: %{@identifier => %{identifier: @identifier, control: %{can_interrupt: true, immediate_delivery: false}}}}
+    state = %State{
+      queue_store: AgentQueueStore.new(),
+      running: %{@identifier => %{identifier: @identifier, issue: %Issue{id: @identifier, identifier: @identifier}, control: %{can_interrupt: true, immediate_delivery: false}}}
+    }
+
     assert {:reply, {:ok, item_id}, updated} = OperatorMessages.send_operator_message_call(state, @identifier, payload)
     [item] = AgentQueueStore.list_pending(updated.queue_store, @identifier)
     assert item.id == item_id
@@ -165,15 +170,12 @@ defmodule Aiur.DeliveryEntryPointsTest do
   defp record_chat_opts do
     owner = self()
 
-    config =
-      Application.get_env(:aiur, Endpoint, [])
-      |> Keyword.put(:agent_chat_send_fun, fn target, text, opts ->
+    EndpointStubs.put(
+      agent_chat_send_fun: fn target, text, opts ->
         send(owner, {:chat, target, text, opts})
         {:ok, 1}
-      end)
-
-    Application.put_env(:aiur, Endpoint, config)
-    Endpoint.config_change([{Endpoint, config}], [])
+      end
+    )
   end
 
   defp put_app_env(key, value) do
@@ -196,9 +198,12 @@ defmodule Aiur.DeliveryEntryPointsTest do
     Process.unlink(fake)
     Process.register(fake, name)
 
+    # Give the name back before stopping the fake: a stray call that crashed it
+    # (#4909) must fail this test, not leave the name empty for every later one.
     on_exit(fn ->
-      if Process.alive?(fake), do: GenServer.stop(fake)
+      if Process.whereis(name) == fake, do: Process.unregister(name)
       if is_pid(original) and Process.alive?(original), do: Process.register(original, name)
+      if Process.alive?(fake), do: GenServer.stop(fake)
     end)
   end
 end

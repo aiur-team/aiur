@@ -1,7 +1,21 @@
 defmodule AiurEngineRunArgvTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Workspace.WipPreservation.Command
+
   import Aiur.TestSupport.EngineCase
+
+  test "take passes the caller shell owner through the daemon RPC" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|run_control_rpc() { echo "RPC=$1"; }; cmd_executor_ownership take 44; cmd_executor_ownership release 44;|,
+        [{"AIUR_EXECUTOR_OWNER", "Caller.Name"}, {"USER", "daemon-user"}]
+      )
+
+    assert out =~ ~s|RPC=Aiur.AgentControlCLI.take(["44"], "caller-name")|
+    assert out =~ ~s|RPC=Aiur.AgentControlCLI.release(["44"], "caller-name")|
+    refute out =~ "daemon-user"
+  end
 
   test "message passes --message-id to the control RPC and validates it" do
     {out, 0} =
@@ -15,9 +29,15 @@ defmodule AiurEngineRunArgvTest do
       )
 
     encoded = Base.encode64("continue now")
-    assert out =~ ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{encoded}"), "cli-1a2b")|
+
+    assert out =~
+             ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{encoded}"), "cli-1a2b")|
+
     assert out =~ ~s|Base.decode64!("#{Base.encode64("yes")}"), "x.y:z")|
-    assert out =~ ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{Base.encode64("plain text")}"))|
+
+    assert out =~
+             ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{Base.encode64("plain text")}"))|
+
     assert out =~ "BAD=64"
     # An empty id is an error, never a silent fallback to a plain send.
     assert out =~ "EMPTY=64"
@@ -59,7 +79,11 @@ defmodule AiurEngineRunArgvTest do
     signal = Aiur.TestSupport.tmp_root!("aiur-control-retry")
     release_bin = Path.join([rel, "bin", "aiur"])
 
-    File.write!(release_bin, "#!/usr/bin/env bash\nrm -f \"$0\" \"#{rel}/releases/0.1.1/elixir\"\nexit 42\n")
+    File.write!(
+      release_bin,
+      "#!/usr/bin/env bash\nrm -f \"$0\" \"#{rel}/releases/0.1.1/elixir\"\nexit 42\n"
+    )
+
     File.chmod!(release_bin, 0o755)
 
     on_exit(fn ->
@@ -129,7 +153,9 @@ defmodule AiurEngineRunArgvTest do
 
     assert host == "127.0.0.1"
 
-    {override_host, 0} = run_sourced_engine("default_dashboard_host", [{"AIUR_DEFAULT_DASHBOARD_HOST", "0.0.0.0"}])
+    {override_host, 0} =
+      run_sourced_engine("default_dashboard_host", [{"AIUR_DEFAULT_DASHBOARD_HOST", "0.0.0.0"}])
+
     assert override_host == "0.0.0.0"
   end
 
@@ -230,15 +256,31 @@ defmodule AiurEngineRunArgvTest do
     assert engine =~ ~r/if ! wait_for_session_startup.*then\n\s+print_config_status/s
   end
 
+  test "a stalled version subprocess fails with its last output before ExUnit times out" do
+    rel = fake_release()
+    File.write!(Path.join([rel, "releases", "0.1.1", "elixir"]), "#!/usr/bin/env bash\necho version-probe-ready\nexec sleep 30\n")
+
+    error = assert_raise ExUnit.AssertionError, fn -> run_bounded_version([{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}], 5_000, Path.join([rel, "releases", "0.1.1", "elixir"])) end
+    assert error.message =~ "command_timeout"
+    assert error.message =~ "Last child output:"
+    assert error.message =~ "version-probe-ready"
+    assert error.message =~ "engine-step"
+    assert error.message =~ "elixir:"
+  end
+
   test "--version is distribution-free so it never collides with a running node" do
     rel = fake_release()
     state = Aiur.TestSupport.tmp_root!("aiur-st")
     elixir = Path.join([rel, "releases", "0.1.1", "elixir"])
     cli_version = cli_package() |> File.read!() |> Jason.decode!() |> Map.fetch!("version")
 
-    File.write!(elixir, "#!/usr/bin/env bash\necho \"CLI_VERSION=$AIUR_CLI_VERSION\"\necho \"ELIXIR_ARGS: $*\"\n")
+    File.write!(
+      elixir,
+      "#!/usr/bin/env bash\necho \"CLI_VERSION=$AIUR_CLI_VERSION\"\necho \"ELIXIR_ARGS: $*\"\n"
+    )
 
-    {out, _} = run_engine(["--version"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    {out, _} =
+      run_bounded_version([{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
     # Runs through the start_clean `elixir --eval` path (like init), never the
     # distributed release start script — so it claims no node name.
@@ -424,5 +466,23 @@ defmodule AiurEngineRunArgvTest do
     {out, 0} = run_sourced_engine(script, [{"RECORD", record}])
 
     assert String.trim(out) == root_file
+  end
+
+  defp run_bounded_version(env, timeout_ms \\ 10_000, command \\ engine()) do
+    output = Aiur.TestSupport.tmp_root!("engine-version-output")
+    File.write!(output, "")
+    trace = output <> ".bashenv"
+    File.write!(trace, ~S(set -T; trap 'printf "engine-step %s:%s %s\n" "${BASH_SOURCE[0]:-entry}" "$LINENO" "${FUNCNAME[0]:-main}" >&2' DEBUG) <> "\n")
+    on_exit(fn -> Enum.each([output, trace], &File.rm/1) end)
+    shell = System.find_executable("bash")
+    args = ["-c", ~S(exec "$@" > "$AIUR_TEST_OUTPUT" 2>&1), "version-probe", command, "--version"]
+    env = [{"USER", "tester"}, {"AIUR_TEST_OUTPUT", output}, {"BASH_ENV", trace} | env]
+    result = Command.run(shell, args, timeout_ms: timeout_ms, env: env, stderr_to_stdout: true)
+    last_output = File.read!(output)
+
+    case result do
+      {:ok, {_output, status}} -> {last_output, status}
+      {:error, reason} -> flunk("engine --version failed: #{inspect(reason)}\nLast child output:\n#{String.slice(last_output, -4_096, 4_096)}")
+    end
   end
 end

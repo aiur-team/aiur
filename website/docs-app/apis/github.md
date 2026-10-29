@@ -8,6 +8,7 @@ Aiur reads GitHub to find work, follow each ticket, and return completed changes
 - [Webhooks and resource reconciliation](/apis/github-webhooks)
 - [Credentials, trust, and tunnel security](/apis/github-auth)
 - [Shared agent reads](/apis/github-agent-cache)
+- [Standalone gh-access](/apis/gh-access)
 
 ## Legacy topic links
 
@@ -132,3 +133,7 @@ See [GitHub credentials and security](/apis/github-auth#human-review-base-checks
 ##### Writes stay on their own identity
 
 See [GitHub API budgets](/apis/github-budgets#credential-pooling).
+
+## Experiment analyst tickets
+
+See [Per-caller costs](/apis/github-costs#experiment-analyst-tickets) for issue creation, nonce reconciliation and cached ticket-state observations.

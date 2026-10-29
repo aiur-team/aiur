@@ -152,7 +152,7 @@ defmodule Aiur.AgentRunner.ContextTest do
                AgentRunner.current_comment_context_events_for_test(issue, fetchers)
     end
 
-    test "only includes comments after the latest workpad handoff" do
+    test "keeps PR conversation comments visible across the latest workpad handoff" do
       issue = %Aiur.Issue{id: "35", identifier: "35", title: "Resume comments"}
 
       fetchers = %{
@@ -228,6 +228,7 @@ defmodule Aiur.AgentRunner.ContextTest do
 
       assert Enum.map(events, & &1.summary) == [
                "new issue directive",
+               "old PR conversation directive",
                "new PR conversation directive",
                "new inline directive"
              ]

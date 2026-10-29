@@ -12,10 +12,13 @@ defmodule VoiceConverse.Testing.FakeAgentChannel do
   def fork_query(_t, _question, _opts), do: {:error, :unsupported}
 
   @impl true
-  def subscribe(_t, _pid), do: :unsupported
+  def subscribe(t, pid) do
+    if observer = t[:test_pid], do: send(observer, {:fake_channel, {:subscribe, pid}})
+    :ok
+  end
 
   @impl true
-  def capabilities(_t), do: %{fork: :none}
+  def capabilities(_t), do: %{fork: :none, ask: true}
 
   defp record(t, call) do
     if pid = t[:test_pid], do: send(pid, {:fake_channel, call})

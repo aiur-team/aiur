@@ -37,13 +37,25 @@ defmodule Aiur.BuildOrder.Features.RootImportMapping do
 
   @spec joined_at(map(), pos_integer(), String.t()) :: DateTime.t() | :unknown
   def joined_at(root, number, repository) do
-    root
-    |> entries()
-    |> Enum.filter(&(&1.ref.number == number and same_repository?(&1.ref, repository)))
-    |> Enum.map(& &1.at)
-    |> Enum.reject(&(&1 == :unknown))
-    |> Enum.max(DateTime, fn -> :unknown end)
+    Map.get(joined_at_index(root, repository), number, :unknown)
   end
+
+  @spec joined_at_index(map(), String.t()) :: map()
+  def joined_at_index(root, repository) do
+    Enum.reduce(entries(root), %{}, &index_join(&1, &2, repository))
+  end
+
+  defp index_join(%{at: :unknown}, index, _repository), do: index
+
+  defp index_join(entry, index, repository) do
+    if same_repository?(entry.ref, repository) do
+      Map.update(index, entry.ref.number, entry.at, &latest(entry.at, &1))
+    else
+      index
+    end
+  end
+
+  defp latest(at, previous), do: if(DateTime.compare(at, previous) == :gt, do: at, else: previous)
 
   @spec entries(map()) :: [map()]
   def entries(%{sub_issues_added: entries}) when is_list(entries), do: entries

@@ -1,9 +1,12 @@
 defmodule Aiur.ExecutorCommandCLI do
   @moduledoc false
 
-  alias Aiur.{Commands, ExecutorCommandAttention}
+  alias Aiur.{Commands, ExecutorCommandAck, ExecutorCommandAttention}
 
   @default_executor_id "aiur-cli"
+
+  @spec ack(keyword(), keyword()) :: 0 | 1 | 64
+  def ack(params, deps \\ []), do: ExecutorCommandAck.ack(params, deps)
 
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ [])
@@ -11,6 +14,7 @@ defmodule Aiur.ExecutorCommandCLI do
   def answer(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_answer(params),
          {:ok, result} <- call_answer(normalized, deps) do
+      ExecutorCommandAck.implicit(normalized, if(normalized.supersede, do: :supersede, else: :answer), deps)
       verb = if normalized.supersede, do: "superseded the answer of", else: "answered"
 
       IO.puts(
@@ -34,6 +38,7 @@ defmodule Aiur.ExecutorCommandCLI do
     with {:ok, normalized} <- normalize_escalation(params),
          {:ok, result} <- call_escalation(normalized, deps),
          status <- Map.get(result, :status, :opened) do
+      ExecutorCommandAck.implicit(normalized, :escalate, deps)
       IO.puts(escalation_message(normalized.decision_id, status))
       0
     else
@@ -44,6 +49,33 @@ defmodule Aiur.ExecutorCommandCLI do
 
   def escalate(_params, deps), do: usage_error("escalate expects command options", deps)
 
+  @spec reclassify(keyword(), keyword()) :: 0 | 1 | 64
+  def reclassify(params, deps \\ [])
+
+  def reclassify(params, deps) when is_list(params) and is_list(deps) do
+    with {:ok, decision_id} <- present(params, :decision_id),
+         {:ok, expected_version} <- positive_integer(params, :expected_version),
+         {:ok, rationale} <- present(params, :rationale),
+         {:ok, executor_id} <- optional_present(params, :executor_id, @default_executor_id),
+         {:ok, result} <- call_reclassification(decision_id, expected_version, rationale, executor_id, deps) do
+      IO.puts("aiur: Executor #{executor_id} reclassified Command #{decision_id} as supervisor_allowed (#{Map.get(result, :status, :accepted)})")
+      0
+    else
+      {:usage, message} -> usage_error(message, deps)
+      {:error, reason} -> command_error("reclassify", reason, deps)
+    end
+  end
+
+  def reclassify(_params, deps), do: usage_error("reclassify expects command options", deps)
+
+  defp call_reclassification(decision_id, expected_version, rationale, executor_id, deps) do
+    payload = %{expected_version: expected_version, rationale: rationale, executor_id: executor_id}
+    fun = Keyword.get(deps, :reclassify_fun, fn id, body, store -> Commands.reclassify_authority(id, body, store) end)
+    fun.(decision_id, payload, Keyword.get(deps, :decision_store, Commands.default_store()))
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
   @doc false
   @spec moot(keyword(), keyword()) :: 0 | 1 | 64
   def moot(params, deps \\ [])
@@ -51,6 +83,8 @@ defmodule Aiur.ExecutorCommandCLI do
   def moot(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_mooting(params),
          {:ok, result} <- call_mooting(normalized, deps) do
+      ExecutorCommandAck.implicit(normalized, :moot, deps)
+
       IO.puts(
         "aiur: Executor #{normalized.executor_id} mooted Command #{normalized.decision_id} " <>
           "(#{Map.get(result, :status, :accepted)})"
@@ -156,7 +190,7 @@ defmodule Aiur.ExecutorCommandCLI do
       end
 
     store = Keyword.get(deps, :decision_store, Commands.default_store())
-    answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}], store)
+    answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}, actor_source: :executor_cli], store)
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
   end
@@ -260,6 +294,16 @@ defmodule Aiur.ExecutorCommandCLI do
     1
   end
 
+  defp command_error("answer", {:conflict, {:human_answer, _action_id}}, deps) do
+    write_error(deps, "aiur: a human answered this Command; the Executor cannot replace it")
+    1
+  end
+
+  defp command_error("answer", {:conflict, {:direct_operator_answer, _action_id}}, deps) do
+    write_error(deps, "aiur: the operator answered this Command directly; a relayed answer cannot replace it")
+    1
+  end
+
   defp command_error(action, {:conflict, :answer_delivered}, deps) do
     write_error(
       deps,
@@ -302,6 +346,11 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp command_error(action, {:not_open, status}, deps) do
     write_error(deps, "aiur: cannot #{action} Command because it is not open (#{inspect(status)})")
+    1
+  end
+
+  defp command_error(_action, {:answer_invalid, {:executor_scope, :executor_originated}}, deps) do
+    write_error(deps, "aiur: you raised this Command; it needs the human")
     1
   end
 

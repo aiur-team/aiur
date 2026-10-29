@@ -9,6 +9,12 @@ defmodule Aiur.Orchestrator.Status.CompletedRunnerTest do
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Orchestrator.State
 
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
+
   test "completed runner releases its slot and an Executor message schedules replacement" do
     orchestrator_name = Module.concat(__MODULE__, :CompletedOperatorMessageOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)

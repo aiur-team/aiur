@@ -3,10 +3,27 @@ defmodule Aiur.BuildOrder.ComponentTest do
 
   alias Aiur.BuildOrder.Component
 
-  @config_keys [:build_history_backfill_enabled?, :build_order_adhoc_poll?, :build_order_pack_status_poll?, :build_order_root_import_enabled?, :orchestrator_initial_poll?]
+  @config_keys [
+    :build_history_backfill_enabled?,
+    :build_order_adhoc_poll?,
+    :build_order_pack_status_poll?,
+    :build_order_root_import_enabled?,
+    :orchestrator_initial_poll?,
+    :analytics_prewarm?
+  ]
   @metrics_path Path.join(System.tmp_dir!(), "aiur-3319-component-metrics.ndjson")
-  @opts [interactive_cli?: true, headless?: false, dashboard?: true, tailscale_funnel?: false, recording?: true, executor_mode?: false, ls_remote_ticker?: true]
+  @opts [
+    interactive_cli?: true,
+    headless?: false,
+    dashboard?: true,
+    tailscale_funnel?: false,
+    recording?: true,
+    executor_mode?: false,
+    ls_remote_ticker?: true,
+    build_index?: true
+  ]
 
+  # Conversation journals now precede producers, with the resolver bound immediately after Exchange.
   # Future regression guard: captured before extraction at d7fad40553019032df0a50354e1a9b559dd7540b, including options.
   @foreground [
     Aiur.Webhooks.ModeTable,
@@ -35,23 +52,31 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.DecisionDispatchTasks,
     Aiur.WorkflowStore,
     Aiur.RepoBase,
-    Aiur.GitHub.AppTokenRefresher,
-    Aiur.GitHub.CredentialHeadroom,
-    Aiur.GitHub.ReadCache,
-    Aiur.GitHub.Quota,
-    Aiur.GitHub.BrokerTimeout,
+    Aiur.GitHub.AppTokenRefresher.child_spec([]),
+    Aiur.GitHub.CredentialHeadroom.child_spec([]),
+    Aiur.GitHub.ReadCache.child_spec([]),
+    Aiur.GitHub.Quota.child_spec([]),
+    Aiur.GitHub.BrokerTimeout.child_spec([]),
     Aiur.GitHub.HoldPressure,
-    Aiur.GitHub.BudgetBroker,
+    Aiur.GitHub.BudgetBroker.child_spec([]),
     Aiur.ElevenLabs.Quota,
     {Aiur.BuildOrder.TicketDetailCoordinator, [runtime_config?: true]},
     {Aiur.BuildOrder.GraphProjection, [runtime_config?: true]},
-    {Aiur.Events.IdGenerator, [floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0]},
+    {Aiur.Events.IdGenerator,
+     [
+       floor_files: &Aiur.IdFloorSources.floor_files/0,
+       legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0
+     ]},
+    Aiur.Conversation.HeadTable,
+    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     {Aiur.Events.Exchange, [name: Aiur.Events.Exchange]},
+    Aiur.Conversation.ResolverSupervisor,
     Aiur.PostDeployChecklist,
     Aiur.Events.BranchRefStore,
     Aiur.GitHub.OpenIssueSnapshot,
-    Aiur.GitHub.ResourceStore,
-    Aiur.GitHub.AgentCacheBridge,
+    Aiur.GitHub.ResourceStore.child_spec([]),
+    Aiur.GitHub.AgentCacheBridge.child_spec([]),
     Aiur.RunTelemetry.Supervisor,
     Aiur.Events.Publisher,
     Aiur.Capabilities.Monitor,
@@ -60,6 +85,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ProviderMeters.Store,
     Aiur.ProviderMeters.HostObservations,
     Aiur.ProviderMeterProjection,
+    Aiur.Usage.Alerts,
     Aiur.ProviderMeterRefresh,
     Aiur.UsageLedger,
     Aiur.UsageCompaction.Coordinator,
@@ -69,7 +95,12 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.DecisionMetrics,
     Aiur.RecentMergeStore,
     {Aiur.StartTrigger.ProgressStore,
-     [seed: &Aiur.CIApprovalStore.load/0, reader: &Aiur.GitHub.BlockerProgress.approval/2, identity: &Aiur.GitHub.BlockerProgress.identity/1, repo: &Aiur.GitHub.Config.repo/0]},
+     [
+       seed: &Aiur.CIApprovalStore.load/0,
+       reader: &Aiur.GitHub.BlockerProgress.approval/2,
+       identity: &Aiur.GitHub.BlockerProgress.identity/1,
+       repo: &Aiur.GitHub.Config.repo/0
+     ]},
     Aiur.Webhooks.DeliveryLog,
     Aiur.GitHub.CodeOwners,
     {Registry, [keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry]},
@@ -95,11 +126,14 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.BuildOrder.PackStatus, [poll_on_start: true]},
     {Aiur.OpenTicketSource, [poll_on_start: true]},
     {Aiur.GitHub.ViewStateSweep, [sources: [Aiur.BuildOrder.PackStatus]]},
+    Aiur.Orchestrator.SpendCap.Store,
+    Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
+    Aiur.Commands.Routing,
     Aiur.DecisionExpiry,
     Aiur.CurrentRunMembership.Reconciler,
-    Aiur.CurrentRunProjections,
+    {Aiur.CurrentRunProjections, [idle_without_subscribers?: true]},
     Aiur.Events.LsRemoteTicker,
     Aiur.PRLifecycle.HealthScanner,
     Aiur.PRLifecycle.ReworkRequeue,
@@ -130,17 +164,27 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.AgentList.Input,
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
+    Aiur.PRLifecycle.HeadVerdictRouter,
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
+    Aiur.Experiments.StatsRunner,
     {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
     Aiur.BuildOrder.Features.LabelProjection,
-    Aiur.LandingWatch,
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager,
-    Aiur.LandingWatch.QuarantineLifter,
-    AiurWeb.Build.Index
+    Aiur.Experiments.Analyst,
+    Aiur.Experiments.AnalystTrigger,
+    Aiur.RunTelemetry.RetainedCache,
+    {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
+    {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
+    Aiur.Netlify.Usage,
+    AiurWeb.DashboardAuth.ChallengeStore,
+    AiurWeb.DashboardAuthRateLimit.Store,
+    Aiur.BuildOrder.Estimates,
+    AiurWeb.Build.IndexSupervisor
   ]
 
   setup do
@@ -159,24 +203,58 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    assert Aiur.Application.child_specs(@opts) == @foreground
+    {early, final} = Enum.split_while(@foreground, &(&1 != AiurWeb.DashboardAuth.ChallengeStore))
+    assert {:ok, voice_config} = Aiur.VoiceConversation.config()
+
+    expected =
+      early ++
+        [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
+        final ++ [Aiur.BuildOrder.History.LabelBackfill]
+
+    assert Aiur.Application.child_specs(@opts) == expected
 
     without_dashboard =
-      @foreground
-      |> Enum.reject(&(&1 in [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, AiurWeb.Build.Index, {Aiur.HttpServer, dashboard_pages?: true}]))
+      expected
+      |> Enum.reject(
+        &(&1 in [
+            AiurWeb.ControlCenterCache,
+            Aiur.RunTelemetry.RetainedCache,
+            {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+            AiurWeb.FinancialData.Supervisor,
+            AiurWeb.DashboardAuth.ChallengeStore,
+            AiurWeb.DashboardAuthRateLimit.Store,
+            AiurWeb.Build.IndexSupervisor,
+            {Aiur.HttpServer, dashboard_pages?: true}
+          ])
+      )
       |> Enum.map(fn
         {Aiur.OpenTicketSource, _} -> {Aiur.OpenTicketSource, poll_on_start: false}
         spec -> spec
       end)
 
-    assert Aiur.Application.child_specs(Keyword.put(@opts, :dashboard?, false)) == without_dashboard
+    assert Aiur.Application.child_specs(Keyword.put(@opts, :dashboard?, false)) ==
+             without_dashboard
   end
 
   test "component specs retain configured polling and import switches" do
     Enum.each(@config_keys, &Application.put_env(:aiur, &1, false))
-    assert Component.child_specs(:history, []) == [Aiur.BuildOrder.History, Aiur.BuildOrder.History.Feeder, {Aiur.BuildOrder.History.Backfill, enabled?: false}, Aiur.BuildOrder.Features]
-    assert Component.child_specs(:late, []) == [{Aiur.BuildOrder.AdHocSource, poll_on_start: false}, {Aiur.BuildOrder.PackStatus, poll_on_start: false}]
-    assert Component.child_specs(:final, []) == [Aiur.BuildOrder.EpicOverrides, {Aiur.BuildOrder.Features.RootImport, enabled?: false}]
+
+    assert Component.child_specs(:history, []) == [
+             Aiur.BuildOrder.History,
+             Aiur.BuildOrder.History.Feeder,
+             {Aiur.BuildOrder.History.Backfill, enabled?: false},
+             Aiur.BuildOrder.Features
+           ]
+
+    assert Component.child_specs(:late, []) == [
+             {Aiur.BuildOrder.AdHocSource, poll_on_start: false},
+             {Aiur.BuildOrder.PackStatus, poll_on_start: false}
+           ]
+
+    assert Component.child_specs(:final, []) == [
+             Aiur.BuildOrder.EpicOverrides,
+             {Aiur.BuildOrder.Features.RootImport, enabled?: false}
+           ]
   end
 
   test "application composition names only the declared build-order facade" do

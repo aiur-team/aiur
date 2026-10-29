@@ -32,10 +32,10 @@ defmodule Aiur.Webhooks.DeliveryLog do
 
   Eviction is **by age, not by count**. A burst of redeliveries appends many
   young entries and evicts nothing, so entries still inside the window survive
-  the burst. `@max_entries` exists only as a memory backstop far above real
-  volume; crossing it evicts the oldest entries *and* raises an alert, because
-  at that point duplicate protection is measurably degraded rather than
-  silently weakened.
+  the burst. `@max_entries` leaves headroom above typical three-day volume;
+  crossing it evicts the oldest entries *and* raises an alert, because at that
+  point duplicate protection is measurably degraded rather than silently
+  weakened.
 
   ## Surviving restart
 
@@ -63,11 +63,12 @@ defmodule Aiur.Webhooks.DeliveryLog do
   require Logger
 
   alias Aiur.{Config, Fs, Journal, Signal}
+  alias Aiur.Webhooks.DeliveryLogCeiling
 
   @filename "webhook_deliveries.ndjson"
   @retention_ms 72 * 60 * 60 * 1000
   @sweep_interval_ms 5 * 60 * 1000
-  @max_entries 200_000
+  @max_entries 300_000
   @compaction_floor 1_000
   @call_timeout 30_000
   @max_key_bytes 512
@@ -192,6 +193,8 @@ defmodule Aiur.Webhooks.DeliveryLog do
       retention_ms: positive(opts, :retention_ms, @retention_ms),
       sweep_interval_ms: positive(opts, :sweep_interval_ms, @sweep_interval_ms),
       max_entries: positive(opts, :max_entries, @max_entries),
+      eviction_low_watermark: DeliveryLogCeiling.low_watermark(opts),
+      eviction_sort_fun: Keyword.get(opts, :eviction_sort_fun, &DeliveryLogCeiling.sort_entries/1),
       compaction_floor: positive(opts, :compaction_floor, @compaction_floor)
     }
   end
@@ -403,37 +406,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
   end
 
   defp enforce_ceiling(state, now) do
-    overflow = map_size(state.entries) - state.max_entries
-
-    if overflow > 0 do
-      state |> drop_oldest(overflow) |> alert_overflow(now)
-    else
-      state
-    end
-  end
-
-  defp drop_oldest(state, overflow) do
-    dropped =
-      state.entries
-      |> Enum.sort_by(fn {_key, %{recorded_at: recorded_at}} -> recorded_at end)
-      |> Enum.take(overflow)
-      |> Enum.map(fn {key, _entry} -> key end)
-
-    %{state | entries: Map.drop(state.entries, dropped)}
-  end
-
-  defp alert_overflow(%{overflowed?: true} = state, _now), do: state
-
-  defp alert_overflow(state, _now) do
-    Logger.error("aiur_webhook_delivery_log phase=ceiling_exceeded max_entries=#{state.max_entries}")
-
-    emit_alert(
-      state,
-      "webhook_delivery_log.ceiling_exceeded",
-      "Webhook delivery dedupe log exceeded #{state.max_entries} live entries; the oldest entries were evicted before their retention window expired and duplicate protection is degraded."
-    )
-
-    %{state | overflowed?: true}
+    DeliveryLogCeiling.enforce(state, now)
   end
 
   # The stream is append-only, so expired and superseded records accumulate.

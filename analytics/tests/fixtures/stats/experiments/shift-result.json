@@ -1,0 +1,147 @@
+{
+  "defaults": {
+    "alpha": 0.05,
+    "bootstrap_exploratory": 200,
+    "bootstrap_primary": 400,
+    "fdr_q": 0.05,
+    "min_samples": 10,
+    "permutation_resamples": 500,
+    "power_target": 0.8
+  },
+  "engine": {
+    "name": "experiment-stats",
+    "version": "1.1.0"
+  },
+  "exclusions": [],
+  "experiment_id": "shift",
+  "group_order": [
+    "a",
+    "b"
+  ],
+  "inputs": {
+    "annotations_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "snapshot_sha256": "7e4119cb84a51f3595bc15c98072c7076729ba75fb6def1b87367a6c6ad58bff",
+    "spec_sha256": "0e4601f80f19caa3dd423a165ccab7057d349a9d5cf4f754ee222f57a3653e70"
+  },
+  "metrics": {
+    "latency": {
+      "adjustment": "holm",
+      "analyst_flags": [],
+      "direction": "improved",
+      "effects": {
+        "cliffs_delta": {
+          "estimate": -1.0,
+          "hi": -1.0,
+          "lo": -1.0,
+          "magnitude": "large",
+          "mc_se": 0.0,
+          "method": "percentile",
+          "null": 0,
+          "resamples": 400,
+          "unbounded": []
+        },
+        "hodges_lehmann": {
+          "confidence": 0.95,
+          "hi": -30.008,
+          "lo": -30.109,
+          "method": "moses_exact",
+          "statistic": -30.0585,
+          "unbounded": []
+        },
+        "median_difference": {
+          "estimate": -30.0585,
+          "hi": -29.98494559,
+          "lo": -30.13239542,
+          "mc_se": 0.001884969227,
+          "method": "bca",
+          "null": 0,
+          "resamples": 400,
+          "unbounded": []
+        },
+        "median_ratio": {
+          "estimate": 0.7,
+          "hi": 0.7005997705,
+          "lo": 0.6994411868,
+          "mc_se": 1.531337021e-05,
+          "method": "bca",
+          "null": 1,
+          "resamples": 400,
+          "unbounded": []
+        }
+      },
+      "excluded_counts": {
+        "a": 0,
+        "b": 0
+      },
+      "flags": [],
+      "groups": {
+        "a": {
+          "iqr": 0.195,
+          "max": 100.39,
+          "median": 100.195,
+          "min": 100.0,
+          "n": 40,
+          "n_censored": 0,
+          "p90": 100.351,
+          "q1": 100.0975,
+          "q3": 100.2925
+        },
+        "b": {
+          "iqr": 0.1365,
+          "max": 70.273,
+          "median": 70.1365,
+          "min": 70.0,
+          "n": 40,
+          "n_censored": 0,
+          "p90": 70.2457,
+          "q1": 70.06825,
+          "q3": 70.20475
+        }
+      },
+      "kind": "duration",
+      "min_achievable_p": 1.860340366e-23,
+      "p_adj": 1.860340366e-23,
+      "p_raw": 1.860340366e-23,
+      "power": {
+        "allocation_ratio": 1.0,
+        "baseline_group": "a",
+        "eta_date": null,
+        "mc_se": 0.006485676526,
+        "mde_at_current_n": 0.00087890625,
+        "power_at_current_n": 0.956,
+        "projected_p_if_effect_holds": 3.018944498e-09,
+        "samples_needed_noether": 26,
+        "samples_needed_per_group": 24,
+        "simulations": 1000,
+        "status": "estimated"
+      },
+      "primary_effect": "median_ratio",
+      "status": "significant",
+      "summary_text": "Latency: n 40 vs 40, median 4.174791667 days to 2.922354167 days, median_ratio 0.7, 95% CI [0.6994411868, 0.7005997705], p 1.860340366e-23 (holm 1.860340366e-23); significant, improved; 0 units excluded; flags: none.",
+      "tests": {
+        "mann_whitney_u": {
+          "method": "exact",
+          "min_achievable_p": 1.860340366e-23,
+          "p_value": 1.860340366e-23,
+          "statistic": 1600.0
+        },
+        "permutation": {
+          "mc_se": 0.001996007984,
+          "method": "permutation_mc",
+          "p_value": 0.001996007984,
+          "resamples": 500,
+          "statistic": -30.0585
+        }
+      }
+    }
+  },
+  "overall": {
+    "flags": [],
+    "note": "",
+    "primary_statuses": {
+      "latency": "significant"
+    }
+  },
+  "schema_version": "experiment-result/v1",
+  "warnings": []
+}

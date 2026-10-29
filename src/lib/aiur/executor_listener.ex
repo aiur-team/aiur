@@ -11,7 +11,7 @@ defmodule Aiur.ExecutorListener do
 
   require Logger
 
-  alias Aiur.Events.{Exchange, Topic}
+  alias Aiur.Events
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
@@ -68,11 +68,13 @@ defmodule Aiur.ExecutorListener do
     state = %{
       patterns: patterns,
       watermark: watermark,
+      delivery_failed?: false,
       resubscribe_interval_ms: interval,
       health: current_health,
       inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox),
+      decision_store: Keyword.get(opts, :decision_store, Aiur.Commands.default_store()),
       escalation_interval_ms: Keyword.get(opts, :escalation_interval_ms, @escalation_interval_ms),
-      escalation_opts: Keyword.get(opts, :escalation, []),
+      escalation_opts: escalation_opts(Keyword.get(opts, :escalation, []), Keyword.get(opts, :inbox, ExecutorWakeInbox)),
       escalations: %{}
     }
 
@@ -100,7 +102,7 @@ defmodule Aiur.ExecutorListener do
     subscribe_missing(state.patterns)
 
     state =
-      if executor_missing? and bound?("executor.#") do
+      if (executor_missing? or state.delivery_failed?) and "executor.#" in state.patterns and bound?("executor.#") do
         replay_and_deliver("executor.#", %{state | watermark: read_watermark()})
       else
         state
@@ -137,7 +139,7 @@ defmodule Aiur.ExecutorListener do
 
   @impl true
   def terminate(_reason, state) do
-    Enum.each(state.patterns, &Exchange.unsubscribe/1)
+    Enum.each(state.patterns, &Events.unsubscribe/1)
     :ok
   rescue
     _ -> :ok
@@ -150,7 +152,7 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp subscribe_or_arm(pattern) do
-    :ok = Exchange.subscribe(pattern)
+    :ok = Events.subscribe(pattern)
     true
   rescue
     error ->
@@ -170,7 +172,7 @@ defmodule Aiur.ExecutorListener do
   defp replay_and_deliver(pattern, state) do
     case ExecutorEvents.replay([pattern], state.watermark) do
       {:ok, events} ->
-        Enum.reduce(events, state, &process_event/2)
+        Enum.reduce_while(events, %{state | delivery_failed?: false}, &replay_event/2)
 
       {:error, reason} ->
         Logger.error("aiur_executor_listener phase=replay_failed reason=#{inspect(reason)}")
@@ -178,10 +180,15 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
+  defp replay_event(event, state) do
+    next = process_event(event, state)
+    if next.delivery_failed?, do: {:halt, next}, else: {:cont, next}
+  end
+
   defp process_event(event, state) do
     if matching_fresh_event?(event, state) do
       try do
-        :ok = deliver(event, state.inbox)
+        :ok = deliver(event, state.inbox, state.decision_store)
 
         if executor_topic?(event) do
           :ok = advance_watermark(event_id(event))
@@ -192,11 +199,11 @@ defmodule Aiur.ExecutorListener do
       rescue
         error ->
           log_delivery_failure(event, error)
-          state
+          %{state | delivery_failed?: state.delivery_failed? or executor_topic?(event)}
       catch
         kind, reason ->
           log_delivery_failure(event, {kind, reason})
-          state
+          %{state | delivery_failed?: state.delivery_failed? or executor_topic?(event)}
       end
     else
       state
@@ -206,25 +213,96 @@ defmodule Aiur.ExecutorListener do
   defp matching_fresh_event?(event, state) do
     case {event_topic(event), event_id(event)} do
       {topic, id} when is_binary(topic) and is_integer(id) ->
-        Enum.any?(state.patterns, &Topic.matches?(&1, topic)) and
-          (not String.starts_with?(topic, "executor.") or id > (state.watermark || 0))
+        Enum.any?(state.patterns, &Events.matches?(&1, topic)) and
+          (not String.starts_with?(topic, "executor.") or (not state.delivery_failed? and id > (state.watermark || 0)))
 
       _ ->
         false
     end
   end
 
-  defp deliver(event, inbox) do
-    if executor_topic?(event) do
-      scrubbed = ExecutorEvents.scrub_untrusted_output(event)
-      if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
-      wake_blocking_decision(event, inbox)
-    else
-      case ExecutorWakeProjection.project(event) do
-        {:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)
-        :ignore -> :ok
-      end
+  defp deliver(event, inbox, store) do
+    cond do
+      executor_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
+        :ok
+
+      executor_topic?(event) ->
+        deliver_executor_event(event, inbox, store)
+
+      true ->
+        case ExecutorWakeProjection.project(event) do
+          {:ok, record} -> enqueue_wake(record, inbox)
+          :ignore -> :ok
+        end
     end
+  end
+
+  defp deliver_executor_event(%{topic: "executor.decision.answered"} = event, inbox, store),
+    do: deliver_answer(event, inbox, store)
+
+  defp deliver_executor_event(%{"topic" => "executor.decision.answered"} = event, inbox, store),
+    do: deliver_answer(event, inbox, store)
+
+  defp deliver_executor_event(%{topic: "executor.voice.session_ended"} = event, inbox, _store),
+    do: deliver_voice(event, inbox)
+
+  defp deliver_executor_event(%{"topic" => "executor.voice.session_ended"} = event, inbox, _store),
+    do: deliver_voice(event, inbox)
+
+  defp deliver_executor_event(event, inbox, _store) do
+    scrubbed = ExecutorEvents.scrub_untrusted_output(event)
+    if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
+    wake_blocking_decision(event, inbox)
+  end
+
+  defp deliver_voice(event, inbox) do
+    {:ok, record} = ExecutorWakeProjection.project(event)
+    enqueue_wake(record, inbox)
+  end
+
+  defp deliver_answer(event, inbox, store) do
+    result =
+      with {:ok, record} <- ExecutorWakeProjection.project(event),
+           {:ok, %{decision: decision}} <- Aiur.Commands.get(record["decision_id"], store: store) do
+        deliver_current_answer(record, decision, inbox, store)
+      end
+
+    case result do
+      {:error, :not_found} -> skip_answer(event, :not_found)
+      {:error, {:invalid_decision_id, _reason}} -> skip_answer(event, :invalid_decision_id)
+      {:error, {:invalid_transition, :requester_notification_mismatch}} -> skip_answer(event, :requester_notification_mismatch)
+      other -> other
+    end
+  end
+
+  defp deliver_current_answer(record, decision, inbox, store) do
+    cond do
+      not match?(%{kind: :executor}, decision.requester) ->
+        skip_answer(record, :requester_notification_mismatch)
+
+      not is_nil(decision.requester_notified_at) or decision.decision_status != :decided ->
+        :ok
+
+      true ->
+        enqueue_answer(record, decision.active_action_id, inbox, store)
+    end
+  end
+
+  defp skip_answer(event, reason) do
+    Logger.warning("aiur_executor_listener phase=answer_skipped decision_id=#{inspect(value(event, :decision_id))} reason=#{inspect(reason)}")
+    :ok
+  end
+
+  defp enqueue_answer(record, action_id, inbox, store) do
+    with :ok <- enqueue_wake(record, inbox),
+         {:ok, _result} <- Aiur.Commands.requester_notified(record["decision_id"], action_id, server: store) do
+      :ok
+    end
+  end
+
+  # Another instance's ticket wakes that instance's Executor, not this one (#5803).
+  defp enqueue_wake(record, inbox) do
+    if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(record, inbox)
   end
 
   # A structured Decision reaches the Executor only as `executor.decision.requested`,
@@ -239,10 +317,23 @@ defmodule Aiur.ExecutorListener do
       record =
         DecisionEscalation.wake_record(issue, value(event, :decision_id), value(event, :title), value(event, :recommendation), event_id: event_id(event))
 
-      ExecutorWakeInbox.enqueue(record, inbox)
+      enqueue_wake(record, inbox)
     else
       :ok
     end
+  end
+
+  defp escalation_opts(opts, inbox) do
+    wake_fun = Keyword.get(opts, :wake_fun, &enqueue_wake(&1, inbox))
+    alert_fun = Keyword.get(opts, :alert_fun, &Signal.alert/2)
+
+    opts
+    |> Keyword.put(:wake_fun, fn record ->
+      if Aiur.Instance.skip?(record["ticket"], nil, :executor_decision_wake), do: :ok, else: wake_fun.(record)
+    end)
+    |> Keyword.put(:alert_fun, fn topic, alert_opts ->
+      if Aiur.Instance.skip?(Keyword.get(alert_opts, :issue), nil, :executor_decision_alert), do: :ok, else: alert_fun.(topic, alert_opts)
+    end)
   end
 
   defp emit_command_alert(event) do
@@ -318,7 +409,7 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp safe_bindings(pid) do
-    Exchange.bindings_for(pid)
+    Events.bindings_for(pid)
   rescue
     _ -> []
   catch

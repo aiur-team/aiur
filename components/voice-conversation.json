@@ -3,36 +3,60 @@
   "name": "Conversational voice",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/voice_conversation.ex",
+    "src/lib/aiur/voice_conversation/**",
+    "src/lib/aiur/voice_converse/host/**"
+  ],
   "facades": [
     "*"
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "agent-runner",
+    "commands",
+    "config",
+    "conversations",
+    "executor-attention",
+    "harness-adapters",
+    "identity",
+    "kernel",
     "listener-modes",
+    "orchestration",
+    "voice-conversation-core",
     "voice-stt"
   ],
-  "optional": [
-    "commands",
-    "conversations",
-    "executor-attention"
-  ],
+  "optional": [],
   "owns": {
-    "config": [],
+    "config": [
+      "voice"
+    ],
     "env": [],
-    "state": [],
-    "capabilities": []
+    "state": [
+      "file: <conversation_state_dir>/voice/*.json",
+      "voice_conversation_state_dir"
+    ],
+    "capabilities": [
+      "voice.conversation"
+    ]
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Supports voice conversations with a worker agent or the Executor.",
-  "status": "planned",
+  "summary": "Supports voice conversations and bounded side-by-side provider evaluations with persisted ratings.",
+  "status": "optional",
   "install": {
     "type": "included"
   },
-  "docs": [],
-  "config": [],
+  "docs": [
+    "apis/elevenlabs.md"
+  ],
+  "config": [
+    "voice"
+  ],
   "env": [],
-  "capabilities": [],
-  "added_by": "MP-E6"
+  "capabilities": [
+    "voice.conversation"
+  ],
+  "added_by": "MP-E6",
+  "goal": "voice"
 }

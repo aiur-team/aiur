@@ -1,0 +1,10 @@
+{
+  "from": "harness-adapters",
+  "to_module": "Aiur.AgentRunner.Handoff",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/app_server/turn_loop.ex",
+    "src/lib/aiur/claude/repl/hook_turn.ex"
+  ],
+  "reason": "#3844 provider loops service the runner snapshot barrier at a safe checkpoint"
+}

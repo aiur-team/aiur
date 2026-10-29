@@ -68,7 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
       usage_error: Keyword.get(opts, :usage_error, :no_usage_data),
       close_event: Keyword.get(opts, :close_event, "close-conversation"),
       fallback_focus_id: "units-title",
-      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token")
+      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token"),
+      voice_capabilities: Keyword.get(opts, :voice_capabilities, %{})
     })
   end
 
@@ -90,10 +91,12 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     assert html =~ ~s(role="log")
   end
 
-  test "states the reader is not participating and mirrors identity, not participation" do
+  test "explains sending is unavailable while preserving conversation identity" do
     html = render(Presenter.present(row(), snapshot()))
 
-    assert html =~ "not participating"
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
+    assert html =~ "Read-only dashboard — use the TUI to message or pause this agent."
     assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Responsive Units interface"
   end
@@ -216,12 +219,45 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ "Interactive voice chat is not available yet"
   end
 
+  # The client reads these attributes to tell "voice is not configured" from
+  # "voice failed" before the microphone is pressed; no visible copy changes.
+  test "the voice input carries the published voice.stt state and reason" do
+    composer = %{target_key: "1110", writable_target?: true, messages: []}
+    view = Presenter.present(row(), snapshot())
+
+    unconfigured = %{"voice.stt" => %{state: :unavailable, reason: :not_configured}, "voice.tts" => %{state: :unavailable, reason: :not_configured}}
+    html = render(view, composer: composer, writable: true, voice_capabilities: unconfigured)
+    assert html =~ ~s(data-voice-stt-state="unavailable")
+    assert html =~ ~s(data-voice-stt-reason="not_configured")
+
+    html = render(view, composer: composer, writable: true, voice_capabilities: %{"voice.stt" => %{state: :available}})
+    assert html =~ ~s(data-voice-stt-state="available")
+    refute html =~ "data-voice-stt-reason"
+
+    html = render(view, composer: composer, writable: true)
+    refute html =~ "data-voice-stt-state"
+  end
+
+  test "renders the D16 chooser for the composer's worker" do
+    html = render(Presenter.present(row(), snapshot()), composer: %{target_key: "typed-row-token", issue_identifier: "1110", writable_target?: true}, writable: true)
+    document = Floki.parse_fragment!(html)
+    assert [_] = Floki.find(document, "[data-voice-chooser][aria-haspopup=menu]")
+    assert [menu] = Floki.find(document, "[data-voice-menu][role=menu][hidden]")
+    assert Floki.attribute(Floki.find(menu, "[data-voice-mode]"), "data-voice-mode") == ["dictate", "converse"]
+    assert [root] = Floki.find(document, "[data-voice-root]")
+    assert Floki.attribute(root, "data-voice-surface") == ["agent_composer"]
+    assert [target] = Floki.attribute(root, "data-voice-target")
+    assert Jason.decode!(target) == %{"kind" => "worker", "ticket" => "1110"}
+  end
+
   test "renders the not-unique-writable-target notice when a composer is present but not writable" do
     composer = %{target_key: "1110", writable_target?: false, messages: []}
     html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
 
     refute html =~ ~s(<textarea)
     refute html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
     assert html =~ "not a unique writable target"
   end
 

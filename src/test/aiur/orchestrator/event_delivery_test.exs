@@ -34,6 +34,8 @@ defmodule Aiur.Orchestrator.EventDeliveryTest do
         Process.register(original, Aiur.Orchestrator)
         :ok = :sys.resume(original)
       end
+
+      assert :ok = Aiur.TestSupport.ensure_orchestrator_running()
     end)
 
     :ok

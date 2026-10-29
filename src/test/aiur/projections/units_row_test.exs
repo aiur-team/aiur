@@ -385,7 +385,7 @@ defmodule Aiur.Projections.UnitsRowTest do
              observed_at: observed_at
            }
 
-    refute inspect(live_row.live_conversation) =~ "private/provider"
+    Aiur.TestSupport.refute_leak(live_row.live_conversation, "private/provider")
 
     assert {:ok, unavailable_row} = UnitsRow.lookup(snapshot, unavailable_ticket)
 

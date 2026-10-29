@@ -207,7 +207,7 @@
   object-fit: contain;
 }
 
-/* C:494 */ .bm-agent > span {
+/* C:494 */ .bm-agent > span:not(:where(.sr-only)) {
   font: 600 .72rem "JetBrains Mono", monospace;
   color: var(--fg);
   padding: 0 .35rem 0 .3rem;

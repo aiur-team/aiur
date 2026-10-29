@@ -38,10 +38,12 @@ defmodule Aiur.SessionHandle do
 
   @type attrs :: %{
           required(:backend) => String.t(),
-          required(:thread_id) => String.t()
+          required(:thread_id) => String.t(),
+          optional(:pull_tool_installed) => boolean()
         }
 
   @type handle :: %{
+          optional(:pull_tool_installed) => boolean(),
           backend: String.t(),
           thread_id: String.t(),
           hostname: String.t(),
@@ -54,14 +56,15 @@ defmodule Aiur.SessionHandle do
   (defaults to this host) — both injectable for tests.
   """
   @spec save(String.t(), attrs(), keyword()) :: :ok
-  def save(identifier, %{backend: backend, thread_id: thread_id}, opts \\ [])
+  def save(identifier, %{backend: backend, thread_id: thread_id} = attrs, opts \\ [])
       when is_binary(backend) and is_binary(thread_id) do
     payload = %{
       "schema_version" => @schema_version,
       "backend" => backend,
       "thread_id" => thread_id,
       "hostname" => hostname(opts),
-      "updated_at" => timestamp()
+      "updated_at" => timestamp(),
+      "pull_tool_installed" => Map.get(attrs, :pull_tool_installed, false)
     }
 
     :global.trans({{__MODULE__, identifier}, self()}, fn ->
@@ -114,6 +117,64 @@ defmodule Aiur.SessionHandle do
     :global.trans({{__MODULE__, identifier}, self()}, fn ->
       payload = Map.put(read_payload(identifier, opts), "hook_cursor", cursor)
       JsonStore.write!(path_for(identifier, opts), payload)
+    end)
+  end
+
+  @doc """
+  Count one more consecutive resume failure for `thread_id` and return the
+  count. A failure against a different thread restarts the count at 1.
+  """
+  @spec record_resume_failure(String.t(), String.t(), keyword()) :: pos_integer()
+  def record_resume_failure(identifier, thread_id, opts \\ []) when is_binary(thread_id) do
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      payload = read_payload(identifier, opts)
+
+      count =
+        case payload["resume_failures"] do
+          %{"thread_id" => ^thread_id, "count" => count} when is_integer(count) -> count + 1
+          _ -> 1
+        end
+
+      JsonStore.write!(path_for(identifier, opts), Map.put(payload, "resume_failures", %{"thread_id" => thread_id, "count" => count}))
+      count
+    end)
+  end
+
+  @doc "Clear the consecutive resume-failure count, if any."
+  @spec reset_resume_failures(String.t(), keyword()) :: :ok
+  def reset_resume_failures(identifier, opts \\ []) do
+    update_payload(identifier, opts, &Map.delete(&1, "resume_failures"))
+  end
+
+  @doc "Clear the abandoned-thread marker after a fresh session completes a turn."
+  @spec clear_abandoned_thread(String.t(), keyword()) :: :ok
+  def clear_abandoned_thread(identifier, opts \\ []) do
+    update_payload(identifier, opts, &Map.delete(&1, "abandoned_thread"))
+  end
+
+  @doc """
+  Forget the resumable thread so the next start is clean, and remember that it
+  was abandoned so that start continues the prior work. Other state is kept.
+  """
+  @spec drop_thread(String.t(), keyword()) :: :ok
+  def drop_thread(identifier, opts \\ []) do
+    update_payload(identifier, opts, fn payload ->
+      payload
+      |> Map.drop(["thread_id", "resume_failures"])
+      |> Map.put("abandoned_thread", payload["thread_id"])
+    end)
+  end
+
+  @doc "Whether a prior thread for `identifier` was abandoned by `drop_thread/2`."
+  @spec abandoned_thread?(String.t(), keyword()) :: boolean()
+  def abandoned_thread?(identifier, opts \\ []), do: Map.has_key?(read_payload(identifier, opts), "abandoned_thread")
+
+  defp update_payload(identifier, opts, fun) do
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      payload = read_payload(identifier, opts)
+      updated = fun.(payload)
+      if updated != payload, do: JsonStore.write!(path_for(identifier, opts), updated)
+      :ok
     end)
   end
 
@@ -170,7 +231,8 @@ defmodule Aiur.SessionHandle do
          backend: expected_backend,
          thread_id: thread_id,
          hostname: host,
-         updated_at: Map.get(raw, "updated_at")
+         updated_at: Map.get(raw, "updated_at"),
+         pull_tool_installed: Map.get(raw, "pull_tool_installed", false) == true
        }}
     else
       _ ->

@@ -16,14 +16,29 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
   revalidates a shed entry is answered `304`, holds nothing, and re-reads
   unconditionally, which is the documented reader's half of the contract.
 
+  The checkpoint encoder also retains one encoded JSON entry per stored key so
+  a write to one resource does not re-encode every body. In a measured 2,000
+  entry store, its iodata was about 1.02 times the 20.06 MB of body bytes, adding
+  about 20.67 MB of off-heap binaries. With the default 128 MiB body cap, this
+  puts bodies plus their encoded copy near 256 MiB at the cap; this is an
+  approximate payload bound, not a total-memory limit, because JSON escaping
+  and entry metadata add overhead. `stats/1` and `enforce/2` report and cap
+  decoded bodies, not the encoded checkpoint cache. Shedding invalidates the
+  affected entries, and the next checkpoint caches their bodyless encoding.
+
   Sizes are `:erlang.external_size/1` of the body: computed without allocating,
   and within a few percent of the JSON the checkpoint writes for it.
   """
 
   require Logger
 
+  alias Aiur.GitHub.Access.Settings
+  alias Aiur.GitHub.ResourceStore.Checkpoint
+
   @table Aiur.GitHub.ResourceStore.Table
   @max_entries 100_000
+  @cap_attention_topic "system.github.resource_store.cap"
+  @cap_attention_latch {__MODULE__, :cap_attention_firing}
 
   # Three times what the busiest observed daemon holds (43.9 MB across 6,768
   # entries, ~10 agents and ~130 open tickets, 2026-10-10), so it does not bind
@@ -44,7 +59,7 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
   @doc "The body-byte cap: `:github_resource_store_max_body_bytes`, or 128 MiB."
   @spec max_body_bytes() :: pos_integer()
   def max_body_bytes do
-    case Application.get_env(:aiur, :github_resource_store_max_body_bytes) do
+    case Map.get(Settings.current().cache, :max_body_bytes) do
       bytes when is_integer(bytes) and bytes > 0 -> bytes
       _other -> @max_body_bytes
     end
@@ -79,6 +94,8 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
       end)
 
     shed = Enum.filter(victims, fn {key, recorded_at, _bytes} -> shed?(table, key, recorded_at) end)
+
+    if shed != [], do: Checkpoint.mark_entries_dirty(Enum.map(shed, &elem(&1, 0)))
 
     if shed != [] do
       Logger.warning(
@@ -125,15 +142,48 @@ defmodule Aiur.GitHub.ResourceStore.Memory do
   def print_status(table \\ @table) do
     case stats(table) do
       :unavailable ->
+        resolve_cap_attention()
         IO.puts("GITHUB RESOURCES unavailable (resource store is not running)")
 
       stats ->
+        update_cap_attention(stats)
+
         IO.puts(
           "GITHUB RESOURCES entries=#{stats.entries} bodies=#{stats.bodies} " <>
             "body_bytes=#{mib(stats.body_bytes)}/#{mib(stats.max_body_bytes)} process=#{mib(stats.process_bytes)}"
         )
     end
   end
+
+  defp update_cap_attention(%{body_bytes: bytes, max_body_bytes: cap}) when bytes >= cap do
+    unless :persistent_term.get(@cap_attention_latch, false) do
+      if emit_cap_attention(cap) == :ok, do: :persistent_term.put(@cap_attention_latch, true)
+    end
+
+    :ok
+  end
+
+  defp update_cap_attention(_stats) do
+    if :persistent_term.get(@cap_attention_latch, false) and resolve_cap_attention() == :ok, do: :persistent_term.put(@cap_attention_latch, false)
+    :ok
+  end
+
+  defp emit_cap_attention(cap) do
+    message = "GitHub read cache is at its #{mib(cap)} body cap; least recently written bodies will be shed on the next store sweep."
+
+    Aiur.Signal.agent_alert(@cap_attention_topic, message, reason: message, severity: "warning", needs_attention: true)
+    |> normalize_alert_result()
+  end
+
+  defp resolve_cap_attention do
+    message = "GitHub read cache is below its body cap."
+
+    Aiur.Signal.agent_alert(@cap_attention_topic <> ".resolved", message, reason: message)
+    |> normalize_alert_result()
+  end
+
+  defp normalize_alert_result(:ok), do: :ok
+  defp normalize_alert_result(_error), do: :error
 
   # One `{recorded_at_ms, key, body_bytes}` row per entry. `foldl/3` copies one
   # entry at a time, so the bodies are never all in this process at once.

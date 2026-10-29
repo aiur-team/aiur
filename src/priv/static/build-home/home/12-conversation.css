@@ -111,7 +111,7 @@
   /* C:605 */ .bm-doc {
     grid-template-columns: 1fr;
   }
-  /* C:606 */ .bm-agent > span, .bm-tt .bm-meta span:not(.bm-st) {
+  /* C:606 */ .bm-agent > span:not(:where(.sr-only)), .bm-tt .bm-meta span:not(.bm-st) {
     display: none;
   }
   /* C:607 */ .bm-h {

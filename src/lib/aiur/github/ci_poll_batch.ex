@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
+  alias Aiur.GitHub.{Access, CIPollBatchReadyReview, CIPollBatchTerminal, DeliveredPullRequest, MergeQueue, PollSnapshots}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -41,18 +41,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   # still asked of GitHub on every cycle, because a CI verdict served from a
   # cache at any age is precisely what `Aiur.GitHub.ReadCache.Policy` refuses.
   #
-  # A target whose CI a **webhook check-run delivery already answered** is
-  # dropped from the document entirely (#2310): `PollSnapshots.ci_contexts`
-  # answers when a complete snapshot the poll established has been advanced by
-  # a delivery on the same head within the delivery-fresh window — "deposited
-  # since the last read". The batch entry is then served from the delivery,
-  # never as a verdict. `GithubCIPoller` carries the served entry through as
-  # inert and the lifecycle makes no transition on it, because a CI verdict is
-  # never answered from a held body at any age (R10); the real verdict comes
-  # from the next non-displaced read. An unknown or unmatched check-run id
-  # marked the snapshot incomplete (`PollSnapshots.merge_check_run`), so
-  # `ci_contexts` answers `:miss` and the target keeps its place in the
-  # document: this displacement fails toward polling, which is the #2276 lesson.
+  # A complete snapshot advanced by a check-run delivery can serve its observed
+  # contexts (#2310); unknown or unmatched IDs mark it incomplete and fail
+  # toward polling (#2276). Served entries never answer a CI verdict (R10).
   @targets_per_query 50
   @pull_requests_per_branch 2
 
@@ -68,9 +59,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   end
 
   defp do_fetch(targets, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       repo_identity = owner <> "/" <> repo
 
       # Per-target displacement (#2310): a target a delivery answered is dropped
@@ -194,7 +185,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp fetch_chunk(request_fun, token, owner, repo, entries) do
     indexed = Enum.with_index(entries)
 
-    case Transport.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo}, caller: :ci_poll_batch) do
+    case Access.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo}, caller: :ci_poll_batch) do
       {:ok, body} ->
         case get_in(body, ["data", "repository"]) do
           %{} = repository -> {:ok, match_entries(indexed, repository)}
@@ -232,7 +223,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp branch_alias(branch, entry, index, candidate) do
     """
-    branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
+    branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: [OPEN, CLOSED], orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
       nodes { #{pull_request_fields(entry)} }
     }
@@ -241,12 +232,12 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp pull_request_fields(_entry) do
     """
-    number state headRefName headRefOid baseRefName
+    number state mergedAt createdAt headRefName headRefOid baseRefName baseRefOid
+    closingIssuesReferences(first: 100) { nodes { number } pageInfo { hasNextPage } }
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
-    timelineItems(itemTypes: [REOPENED_EVENT], last: 1) { nodes { ... on ReopenedEvent { createdAt } } }
-    mergeQueueEntry { id }
-    reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }
+    #{CIPollBatchReadyReview.fields()}
+    mergeQueueEntry { id state }
     #{contexts_selection()}
     """
   end
@@ -261,7 +252,7 @@ defmodule Aiur.GitHub.CIPollBatch do
               pageInfo { hasNextPage endCursor }
               nodes {
                 __typename
-                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { id app { databaseId } } }
+                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { id app { databaseId } workflowRun { workflow { databaseId } } } }
                 ... on StatusContext { context state targetUrl createdAt description }
               }
             }
@@ -306,7 +297,7 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
+  defp open_pull_request_node?(node), do: CIPollBatchTerminal.open?(node)
 
   defp candidate_connections(entry, repository, index) do
     connections =
@@ -319,18 +310,27 @@ defmodule Aiur.GitHub.CIPollBatch do
       else: :missing
   end
 
-  # The first candidate branch that resolves to an open PR wins. Only when no
-  # candidate matched does the "no open PR" answer stand — and then only for a
-  # branch orchestration actually knows.
+  # Prefer an open PR; select a terminal PR only when every candidate page is complete.
   defp match_candidates(acc, entry, connections) do
-    case Enum.find(connections, fn %{"nodes" => nodes} -> nodes != [] end) do
-      nil ->
+    case CIPollBatchTerminal.select(connections) do
+      :none ->
         [connection | _rest] = connections
         put_entry_result(acc, entry, [], Map.get(connection, "pageInfo") || %{})
 
-      connection ->
-        put_entry_result(acc, entry, Map.get(connection, "nodes"), Map.get(connection, "pageInfo") || %{})
+      {:terminal, node} ->
+        put_terminal_pull_request(acc, entry, node)
+
+      :incomplete ->
+        put_entry_result(acc, entry, [], %{"hasNextPage" => true})
+
+      {:open, node} ->
+        put_first_pull_request(acc, entry, node)
     end
+  end
+
+  defp put_terminal_pull_request(acc, entry, node) do
+    result = normalize_pull_request(node)
+    Map.put(acc, entry.target, %{pull_request: result.pull_request, check_runs: [], commit_status: empty_commit_status()})
   end
 
   defp put_entry_result(acc, entry, nodes, page_info) do
@@ -376,14 +376,17 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp normalize_pull_request(node) do
     {contexts, contexts_overflow} = get_in(node, ["commits", "nodes"]) |> List.wrap() |> List.last() |> status_contexts()
     {check_runs, statuses} = Enum.split_with(contexts, &(Map.get(&1, "__typename") == "CheckRun"))
+    closing_issues = Map.get(node, "closingIssuesReferences") || %{}
 
     %{
       pull_request:
         %{
           "number" => Map.get(node, "number"),
-          "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
+          "state" => if(is_binary(Map.get(node, "mergedAt")), do: "merged", else: String.downcase(to_string(Map.get(node, "state", "open")))),
+          "closing_issue_numbers" => get_in(closing_issues, ["nodes"]) |> List.wrap() |> Enum.map(&Map.get(&1, "number")),
+          "closing_issues_complete?" => get_in(closing_issues, ["pageInfo", "hasNextPage"]) != true,
           "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
-          "base" => %{"ref" => Map.get(node, "baseRefName")}
+          "base" => %{"ref" => Map.get(node, "baseRefName"), "sha" => Map.get(node, "baseRefOid")}
         }
         |> put_merge_queue_observation(node)
         |> Map.put("reopened_at", get_in(node, ["timelineItems", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["createdAt"]))),
@@ -401,22 +404,16 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_merge_queue_observation(pull_request, node) do
     case MergeQueue.normalize_graphql_pull_request(node) do
       %{} = observation ->
-        observation = Map.put(observation, :approved_review_head_sha, approved_review_head_sha(node))
-        Map.put(pull_request, "merge_queue", observation)
+        review = CIPollBatchReadyReview.project(node)
+        observation = Map.put(observation, :approved_review_head_sha, review.approved_review_head_sha)
+
+        pull_request
+        |> Map.put("merge_queue", observation)
+        |> Map.put("ready_at_ms", review.ready_at_ms)
+        |> Map.put("reviewed_head?", review.reviewed_head?)
 
       {:error, _reason} ->
         pull_request
-    end
-  end
-
-  defp approved_review_head_sha(node) do
-    with %{} = reviews <- Map.get(node, "reviews"),
-         [review | _] when is_map(review) <- Map.get(reviews, "nodes"),
-         %{} = commit <- Map.get(review, "commit"),
-         sha when is_binary(sha) <- Map.get(commit, "oid") do
-      sha
-    else
-      _ -> nil
     end
   end
 
@@ -457,7 +454,9 @@ defmodule Aiur.GitHub.CIPollBatch do
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),
       "started_at" => Map.get(check_run, "startedAt"),
       "completed_at" => Map.get(check_run, "completedAt"),
+      "details_url" => Map.get(check_run, "detailsUrl"),
       "check_suite_id" => get_in(check_run, ["checkSuite", "id"]),
+      "workflow_id" => get_in(check_run, ["checkSuite", "workflowRun", "workflow", "databaseId"]),
       "app" => %{"id" => get_in(check_run, ["checkSuite", "app", "databaseId"])},
       "output" => Map.get(check_run, "output", %{})
     }
@@ -470,7 +469,8 @@ defmodule Aiur.GitHub.CIPollBatch do
           "context" => Map.get(status, "context"),
           "state" => Map.get(status, "state") |> to_string() |> String.downcase(),
           "created_at" => Map.get(status, "createdAt"),
-          "description" => Map.get(status, "description")
+          "description" => Map.get(status, "description"),
+          "target_url" => Map.get(status, "targetUrl")
         }
       end)
 

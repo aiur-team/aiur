@@ -6,7 +6,7 @@ defmodule Aiur.MainWatch.State do
 
   @spec new() :: map()
   def new do
-    %{status: :unknown, sha: nil, last_green_sha: nil, red_since: nil, completed_at: nil, emitted_signatures: [], history: []}
+    %{status: :unknown, sha: nil, last_green_sha: nil, red_since: nil, completed_at: nil, event: nil, emitted_signatures: [], history: []}
   end
 
   @spec observe(map(), map(), integer()) :: {map(), [{String.t(), map()}]}
@@ -57,7 +57,7 @@ defmodule Aiur.MainWatch.State do
   end
 
   defp remember(state, observation) do
-    entry = Map.take(observation, [:sha, :completed_at, :checks, :digest, :run_fingerprint, :failed_workflow, :run_urls, :suspect_merges])
+    entry = Map.take(observation, [:sha, :event, :started_at, :completed_at, :checks, :digest, :run_fingerprint, :failed_workflow, :run_urls, :suspect_merges])
     history = Enum.reject(state.history, &(&1.sha == entry.sha)) ++ [entry]
     %{state | history: history}
   end
@@ -68,8 +68,9 @@ defmodule Aiur.MainWatch.State do
 
   defp green(state, observation) do
     payload = payload(state, observation)
-    events = if state.status == :red, do: [{"system.main.ci.failed.resolved", payload}], else: []
-    {%{state | status: :green, sha: observation.sha, last_green_sha: observation.sha, red_since: nil, completed_at: observation.completed_at}, events}
+    recovery = Map.merge(payload, %{red_since: state.red_since, recovered_at: observation.completed_at})
+    events = if state.status == :red, do: [{"system.main.ci.failed.resolved", recovery}], else: []
+    {%{state | status: :green, sha: observation.sha, last_green_sha: observation.sha, red_since: nil, completed_at: observation.completed_at, event: Map.get(observation, :event)}, events}
   end
 
   defp red(state, observation) do
@@ -80,8 +81,9 @@ defmodule Aiur.MainWatch.State do
     emitted? = Enum.any?(state.emitted_signatures, fn {previous, _at} -> previous == signature end)
     events = if emitted?, do: [], else: [{topic, payload(state, observation)}]
     signatures = if emitted?, do: state.emitted_signatures, else: [{signature, observation.completed_at} | state.emitted_signatures]
-    since = if state.status == :red, do: state.red_since, else: observation.completed_at
-    {%{state | status: :red, sha: observation.sha, red_since: since, completed_at: observation.completed_at, emitted_signatures: signatures}, events}
+    first_red_at = Map.get(observation, :started_at) || observation.completed_at
+    since = if state.status == :red, do: state.red_since, else: first_red_at
+    {%{state | status: :red, sha: observation.sha, red_since: since, completed_at: observation.completed_at, event: Map.get(observation, :event), emitted_signatures: signatures}, events}
   end
 
   defp signature(digest, checks, false) do

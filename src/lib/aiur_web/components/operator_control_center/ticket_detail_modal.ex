@@ -28,8 +28,8 @@ defmodule AiurWeb.OperatorControlCenter.TicketDetailModal do
             <h2 id="ticket-detail-title" tabindex="-1">#{@ticket.identifier} {@ticket.title}</h2>
           </div>
           <div class="modal-actions">
-            <a :if={@ticket.url} class="tool-btn" href={@ticket.url} target="_blank" rel="noopener noreferrer">Open on tracker</a>
-            <button type="button" class="tool-btn" phx-click="close-ticket-detail">Close</button>
+            <a :if={@ticket.url} class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" href={@ticket.url} target="_blank" rel="noopener noreferrer">Open on tracker</a>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click="close-ticket-detail">Close</button>
           </div>
         </header>
 

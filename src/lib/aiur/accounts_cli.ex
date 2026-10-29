@@ -28,7 +28,23 @@ defmodule Aiur.AccountsCLI do
     render_accounts(json, harness, snapshot_fun, true, ledger_fun)
   end
 
+  @doc """
+  The rows `aiur accounts --json` prints, read inside the daemon from its polled
+  usage observations. A missing observation keeps its reason in `freshness`.
+  """
+  @spec rows(String.t() | nil, ([String.t()] -> map())) :: [map()]
+  @spec rows(String.t() | nil, ([String.t()] -> map()), (String.t() -> map() | nil)) :: [map()]
+  def rows(harness, snapshot_fun, ledger_fun \\ &ledger_reading/1) when is_function(snapshot_fun, 1) and is_function(ledger_fun, 1) do
+    build_rows(harness, snapshot_fun, true, ledger_fun)
+  end
+
   defp render_accounts(json, harness, snapshot_fun, daemon_available?, ledger_fun \\ &ledger_reading/1) do
+    rows = build_rows(harness, snapshot_fun, daemon_available?, ledger_fun)
+    if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
+    :ok
+  end
+
+  defp build_rows(harness, snapshot_fun, daemon_available?, ledger_fun) do
     accounts = Accounts.list(harness)
     claude_names = accounts |> Enum.filter(&(&1.harness == "claude")) |> Enum.map(& &1.name)
 
@@ -41,14 +57,10 @@ defmodule Aiur.AccountsCLI do
 
     per_harness = Enum.frequencies_by(accounts, & &1.harness)
 
-    rows =
-      Enum.map(accounts, fn account ->
-        ledger? = daemon_available? and Aiur.CodingAgent.family_for(account.harness) != "claude" and Map.get(per_harness, account.harness) == 1
-        account |> account_row(snapshots, daemon_available?) |> with_ledger(ledger? && ledger_fun.(account.harness))
-      end)
-
-    if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
-    :ok
+    Enum.map(accounts, fn account ->
+      ledger? = daemon_available? and Aiur.CodingAgent.family_for(account.harness) != "claude" and Map.get(per_harness, account.harness) == 1
+      account |> account_row(snapshots, daemon_available?) |> with_ledger(ledger? && ledger_fun.(account.harness))
+    end)
   end
 
   @spec login(String.t(), String.t() | nil) :: :ok | {:error, term()}
@@ -138,30 +150,49 @@ defmodule Aiur.AccountsCLI do
     identity = identity(harness, dir)
 
     case snapshot_for(harness, name, snapshots, daemon_available?) do
-      {:ok, reading, observed_at, freshness} ->
-        age_ms = max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
-
-        %{
-          name: name,
-          harness: harness,
-          email: identity["email"],
-          org: identity["organization"] || identity["orgName"],
-          seat_tier: identity["seatTier"] || identity["subscriptionType"],
-          identity: identity,
-          weekly_percent: percent(reading.windows, "seven_day"),
-          five_hour_percent: percent(reading.windows, "five_hour"),
-          remaining_percent: HeadroomDispatch.remaining_percent(%{windows: %{"seven_day" => percent(reading.windows, "seven_day"), "five_hour" => percent(reading.windows, "five_hour")}}),
-          # Dispatch scores a reading past the headroom max age as unknown, so
-          # it is not "fresh" here either (#4127).
-          freshness: if(age_ms > HeadroomDispatch.max_reading_age_seconds() * 1000, do: "stale", else: Atom.to_string(freshness)),
-          observed_at: DateTime.to_iso8601(observed_at),
-          age_ms: age_ms
-        }
-
-      {:error, reason} ->
-        usage_unavailable_row(name, harness, identity, freshness(reason))
+      {:ok, entry} -> claude_row(name, harness, identity, entry)
+      {:error, reason} -> usage_unavailable_row(name, harness, identity, freshness(reason))
     end
   end
+
+  # Freshness and the stale cutoff come from `Aiur.Accounts.UsageReadings`, the rule the
+  # Models panel uses too. Only Claude rows carry `last_error` (#5747).
+  defp claude_row(name, harness, identity, %{reading: reading} = entry) when is_map(reading) do
+    observed_at = entry.observed_at
+
+    name
+    |> usage_unavailable_row(harness, identity, Atom.to_string(HeadroomDispatch.usage_freshness(entry)))
+    |> Map.merge(%{
+      weekly_percent: percent(reading.windows, "seven_day"),
+      five_hour_percent: percent(reading.windows, "five_hour"),
+      remaining_percent: HeadroomDispatch.remaining_percent(%{windows: %{"seven_day" => percent(reading.windows, "seven_day"), "five_hour" => percent(reading.windows, "five_hour")}}),
+      observed_at: DateTime.to_iso8601(observed_at),
+      age_ms: age_ms_since(observed_at),
+      last_error: last_error(Map.get(entry, :reason))
+    })
+  end
+
+  # The probe is failing. After an earlier good reading the row is stale with
+  # that reading's age; with none since boot it names the failure. Either way
+  # it says why the reading is not moving.
+  defp claude_row(name, harness, identity, entry) do
+    reason = Map.get(entry, :reason)
+
+    case HeadroomDispatch.usage_observed_at(entry) do
+      %DateTime{} = last_observed_at ->
+        name
+        |> usage_unavailable_row(harness, identity, "stale")
+        |> Map.merge(%{observed_at: DateTime.to_iso8601(last_observed_at), age_ms: age_ms_since(last_observed_at), last_error: last_error(reason)})
+
+      nil ->
+        name |> usage_unavailable_row(harness, identity, freshness(reason)) |> Map.put(:last_error, last_error(reason))
+    end
+  end
+
+  defp age_ms_since(observed_at), do: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
+
+  defp last_error(nil), do: nil
+  defp last_error(reason), do: freshness(reason)
 
   defp identity("claude", dir), do: Claude.identity(dir)
   defp identity("codex", dir), do: Codex.identity(dir)
@@ -169,11 +200,11 @@ defmodule Aiur.AccountsCLI do
 
   defp snapshot_for("claude", name, snapshots, daemon_available?) do
     case snapshots do
-      %{^name => %{reading: reading, observed_at: observed_at, freshness: freshness}} when is_map(reading) ->
-        {:ok, reading, observed_at, freshness}
+      %{^name => %{reading: reading, observed_at: _observed_at} = entry} when is_map(reading) ->
+        {:ok, entry}
 
-      %{^name => %{freshness: :unavailable, reason: reason}} ->
-        {:error, reason}
+      %{^name => %{freshness: :unavailable, reason: _reason} = entry} ->
+        {:ok, entry}
 
       _missing ->
         {:error, if(daemon_available?, do: :usage_not_observed, else: :daemon_not_running)}
@@ -247,7 +278,7 @@ defmodule Aiur.AccountsCLI do
     fields =
       if Map.get(row, :identity) == nil,
         do: [:name, :harness, :usage, :remaining_percent],
-        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms]
+        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms] ++ Enum.filter([:last_error], &Map.has_key?(row, &1))
 
     IO.puts(Enum.map_join(fields, "  ", fn key -> "#{key}=#{inspect(Map.get(row, key))}" end))
   end

@@ -31,6 +31,7 @@
   ],
   "optional": [
     "github",
+    "github-access",
     "github-listeners"
   ],
   "owns": {
@@ -70,5 +71,6 @@
     "AIUR_NOFILE_SOFT_LIMIT",
     "AIUR_TELEMETRY_CALLER_CWD"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "notify"
 }

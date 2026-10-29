@@ -5,10 +5,7 @@ defmodule Aiur.TestRunIsolationTest do
   alias Aiur.AgentGitHubGuard
 
   test "test support gives scoped tickets a per-test state directory" do
-    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-    on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+    Aiur.TestScopeGuard.put_ticket_scope!("99")
 
     assert {:ok, state_dir} = Aiur.TestRunState.scope_root()
     assert state_dir == System.get_env("AIUR_DEV_TEST_STATE_DIR")
@@ -20,7 +17,7 @@ defmodule Aiur.TestRunIsolationTest do
 
     on_exit(fn -> Aiur.TestScopeGuard.restore(previous_scope_state) end)
 
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "unrestored")
+    System.put_env("AIUR_DEV_TEST_STATE_DIR", "unrestored")
     Application.put_env(:aiur, :decision_state_dir, "unrestored")
 
     assert message =
@@ -30,15 +27,10 @@ defmodule Aiur.TestRunIsolationTest do
   end
 
   test "scoped remote agents use per-launch paths without a shared credential" do
-    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
     previous_run_id = System.get_env("AIUR_DEV_TEST_RUN_ID")
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99,100,101")
+    on_exit(fn -> restore_env("AIUR_DEV_TEST_RUN_ID", previous_run_id) end)
     System.put_env("AIUR_DEV_TEST_RUN_ID", "aiur-test-budget.unique")
-
-    on_exit(fn ->
-      restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope)
-      restore_env("AIUR_DEV_TEST_RUN_ID", previous_run_id)
-    end)
+    Aiur.TestScopeGuard.put_ticket_scope!("99,100,101")
 
     prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/4499", base_branch: "main")
 

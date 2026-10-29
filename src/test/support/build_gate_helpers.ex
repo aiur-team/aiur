@@ -163,12 +163,15 @@ defmodule Aiur.TestSupport.BuildGateHelpers do
       {"AIUR_BUILD_GATE_DIAGNOSTIC_PID", Integer.to_string(Map.get(context, :diagnostic_pid, 0))},
       {"AIUR_BUILD_GATE_DIAGNOSTIC_PGID", Integer.to_string(Map.get(context, :diagnostic_pgid, 0))},
       {"AIUR_BUILD_GATE_HOLDER_FAIL_AFTER_POPEN", if(Map.get(context, :holder_fail_after_popen, false), do: "1", else: "0")},
-      {"AIUR_BUILD_GATE_HOLDER_START_DELAY_SECONDS", to_string(Map.get(context, :holder_start_delay_seconds, 0))},
+      {"AIUR_BUILD_GATE_HOLDER_START_GATE", Map.get(context, :holder_start_gate, "")},
+      {"AIUR_BUILD_GATE_HANDSHAKE_SECONDS", to_string(Map.get(context, :handshake_seconds, ""))},
       {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(Map.get(context, :max_hold_seconds, 0))},
       {"AIUR_BUILD_GATE_RETAIN_SECONDS", to_string(Map.get(context, :retain_seconds, ""))},
       {"AIUR_TEST_STATUS_READ_DELAY_SECONDS", to_string(Map.get(context, :status_read_delay_seconds, 0))},
       {"AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT", Map.get(context, :handshake_fifo_fragment, "")},
       {"AIUR_TEST_DELAY_OWNER_MV", if(Map.get(context, :delay_owner_publication, false), do: "1", else: "0")},
+      {"AIUR_TEST_HOLD_OWNER_MV", Map.get(context, :hold_owner_publication, "")},
+      {"AIUR_TEST_HOLD_OWNER_MV_COUNT", Integer.to_string(Map.get(context, :hold_owner_publication_count, 3))},
       {"AIUR_TEST_FAIL_FINAL_OWNER_MV", if(Map.get(context, :fail_final_owner_publication, false), do: "1", else: "0")},
       {"AIUR_TEST_MV_COUNT", Path.join(gate_dir, "mv-count")},
       {"AIUR_BUILD_GATE_LEASE_STRATEGY", Map.get(context, :lease_strategy, "auto")},
@@ -258,6 +261,33 @@ defmodule Aiur.TestSupport.BuildGateHelpers do
       {_output, 0} -> :ok
       _ -> flunk("timed out waiting for #{path}")
     end
+  end
+
+  def wait_for_queue_entry!(gate_dir, attempts \\ 500)
+
+  def wait_for_queue_entry!(_gate_dir, 0),
+    do: flunk("timed out waiting for a queued build command")
+
+  def wait_for_queue_entry!(gate_dir, attempts) do
+    if Path.wildcard(Path.join(gate_dir, "queue/lease-v2-*")) == [] do
+      script = ~S"""
+      for ((attempt = 0; attempt < $2; attempt++)); do
+        compgen -G "$1/queue/lease-v2-*" >/dev/null && exit 0
+        sleep 0.02
+      done
+      exit 1
+      """
+
+      case System.cmd("bash", ["-c", script, "wait-for-queue", gate_dir, Integer.to_string(attempts)]) do
+        {_output, 0} -> :ok
+        _ -> flunk("timed out waiting for a queued build command")
+      end
+    end
+  end
+
+  def release_at!(path, at_ms) do
+    Process.sleep(max(0, at_ms - System.monotonic_time(:millisecond)))
+    File.write!(path, "")
   end
 
   def wait_for_status!(gate_dir, capacity, fun, attempts \\ 300)

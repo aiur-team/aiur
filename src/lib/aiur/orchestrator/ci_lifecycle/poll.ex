@@ -5,12 +5,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
   alias Aiur.CIApprovalStore
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.CIPollBatch
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{CIPollBatch, Client}
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiLifecycle.CancelledMergeGroup
   alias Aiur.Orchestrator.CiLifecycle.Outcome
   alias Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert
+  alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.DraftAlertLifecycle
@@ -36,12 +37,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
     {baseline, invalidations} = {state.ci_lifecycle, Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})}
 
-    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, opts) end, fn current, result ->
+    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, baseline, opts) end, fn current, result ->
       current |> apply_ci_poll(result, generations, baseline, opts) |> continue.()
     end)
   end
 
-  defp fetch_ci_poll(cache, invalidations, opts) do
+  defp fetch_ci_poll(cache, invalidations, baseline, opts) do
     case fetch_ci_issues(cache, opts) do
       {:ok, issues, cache} ->
         issues_by_target = ci_issues_by_target(issues)
@@ -49,7 +50,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         poll_opts = Keyword.put(opts, :base_repair_invalidations, invalidations)
         poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
 
-        observation = observe_ci_targets(targets, issues_by_target, poll_opts, poller)
+        observation =
+          observe_ci_targets(targets, issues_by_target, poll_opts, poller)
+          |> CancelledMergeGroup.annotate(baseline, poll_opts)
 
         {:ok, issues, cache, observation}
 
@@ -107,10 +110,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
     case observation do
       :no_targets ->
-        state
+        complete_no_target_poll(state)
 
       {started_at, :held} ->
-        %{state | last_ci_poll_started_at_ms: started_at}
+        Logger.warning("GithubCIPoller held by local budget; retaining the normal poll cadence")
+        state |> Map.put(:last_ci_poll_started_at_ms, started_at) |> clear_broker_retry_pending()
 
       {started_at, result} ->
         state = %{state | last_ci_poll_started_at_ms: started_at}
@@ -119,7 +123,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   end
 
   defp apply_ci_poll(state, {:error, reason}, _generations, _baseline, _opts) do
-    Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
+    state = schedule_ci_retry(state, reason, "target refresh")
+
     TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
   end
 
@@ -129,12 +134,15 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     |> merge_journaled_base_repairs()
     |> note_ci_poll_connectivity(targets, errors)
     |> log_ci_poll_errors(errors)
+    |> record_conflict_streaks(results, issues_by_target)
     |> apply_ci_poll_results(results, issues_by_target, opts)
     |> RestackScheduler.reconcile(Map.values(issues_by_target))
+    |> retry_ci_poll_on_errors(errors)
   end
 
   defp apply_ci_observation(state, {:error, reason}, _targets, _issues, _opts) do
-    Logger.warning("GithubCIPoller failed; reason=#{inspect(reason)}")
+    state = schedule_ci_retry(state, reason, "poll")
+
     TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
   end
 
@@ -239,10 +247,111 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     state
   end
 
+  defp retry_ci_poll_on_errors(state, []), do: clear_broker_retry_pending(state)
+
+  defp retry_ci_poll_on_errors(state, errors) do
+    if Enum.any?(errors, &broker_timeout_error?/1) do
+      if Map.get(state.ci_lifecycle, :broker_fast_retry_pending?, false) do
+        Logger.warning("GithubCIPoller broker timeout repeated after immediate retry; retaining the normal poll cadence")
+        clear_broker_retry_pending(state)
+      else
+        Logger.warning("GithubCIPoller broker timeout; retrying the full target set once on the next orchestrator tick after #{length(errors)} target failure(s)")
+        state |> Map.put(:last_ci_poll_started_at_ms, nil) |> put_broker_retry_pending(true)
+      end
+    else
+      Logger.warning("GithubCIPoller partial failures; retaining the normal poll cadence count=#{length(errors)}")
+      clear_broker_retry_pending(state)
+    end
+  end
+
+  defp schedule_ci_retry(state, reason, stage) do
+    if broker_timeout_error?(reason) do
+      if Map.get(state.ci_lifecycle, :broker_fast_retry_pending?, false) do
+        Logger.warning("GithubCIPoller #{stage} broker timeout repeated after immediate retry; retaining the normal poll cadence reason=#{inspect(reason)}")
+
+        state
+        |> ensure_ci_poll_timestamp()
+        |> clear_broker_retry_pending()
+      else
+        Logger.warning("GithubCIPoller #{stage} broker timeout; retrying once on the next orchestrator tick reason=#{inspect(reason)}")
+        state |> Map.put(:last_ci_poll_started_at_ms, nil) |> put_broker_retry_pending(true)
+      end
+    else
+      Logger.warning("GithubCIPoller #{stage} failed; retaining the normal poll cadence reason=#{inspect(reason)}")
+
+      state
+      |> Map.put(:last_ci_poll_started_at_ms, System.monotonic_time(:millisecond))
+      |> clear_broker_retry_pending()
+    end
+  end
+
+  defp put_broker_retry_pending(state, pending?) do
+    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :broker_fast_retry_pending?, pending?)}
+  end
+
+  defp clear_broker_retry_pending(state), do: put_broker_retry_pending(state, false)
+
+  defp complete_no_target_poll(state) do
+    if Map.get(state.ci_lifecycle, :broker_fast_retry_pending?, false) do
+      state
+      |> Map.put(:last_ci_poll_started_at_ms, System.monotonic_time(:millisecond))
+      |> clear_broker_retry_pending()
+    else
+      state
+    end
+  end
+
+  defp ensure_ci_poll_timestamp(%{last_ci_poll_started_at_ms: nil} = state),
+    do: %{state | last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+  defp ensure_ci_poll_timestamp(state), do: state
+
+  defp broker_timeout_error?(:github_budget_broker_timeout), do: true
+
+  defp broker_timeout_error?(term) when is_tuple(term),
+    do: term |> Tuple.to_list() |> Enum.any?(&broker_timeout_error?/1)
+
+  defp broker_timeout_error?(term) when is_map(term),
+    do: term |> Map.values() |> Enum.any?(&broker_timeout_error?/1)
+
+  defp broker_timeout_error?(term) when is_list(term),
+    do: Enum.any?(term, &broker_timeout_error?/1)
+
+  defp broker_timeout_error?(_term), do: false
+
   defp apply_ci_poll_results(state, results, issues_by_target, opts) do
     Enum.reduce(results, state, fn result, state_acc ->
       apply_ci_poll_result_for_target(state_acc, result, issues_by_target, opts)
     end)
+  end
+
+  defp record_conflict_streaks(state, results, issues_by_target) do
+    Enum.reduce(results, state, fn result, acc -> record_conflict_streak(acc, result, issues_by_target) end)
+  end
+
+  defp record_conflict_streak(acc, result, issues_by_target) do
+    target = Map.get(result, :target)
+    issue = Map.get(issues_by_target, target)
+    cache = Map.get(acc.ci_lifecycle, :poll_cache, %{})
+    previous = Map.get(cache, target, %{})
+
+    cond do
+      Map.get(result, :delivered) == true or is_nil(issue) or not is_binary(target) ->
+        acc
+
+      Map.get(result, :mergeable) == "CONFLICTING" ->
+        prior_head = Map.get(previous, :conflicting_head_sha)
+        head = Map.get(result, :head_sha)
+        streak = if prior_head == head and is_binary(head), do: Map.get(previous, :conflicting_polls, 0) + 1, else: 1
+        updated = Map.merge(previous, %{conflicting_head_sha: head, conflicting_polls: streak})
+        cache = Map.put(cache, target, updated)
+        %{acc | ci_lifecycle: Map.put(acc.ci_lifecycle, :poll_cache, cache)}
+
+      true ->
+        updated = Map.drop(previous, [:conflicting_head_sha, :conflicting_polls])
+        cache = if updated == %{}, do: Map.delete(cache, target), else: Map.put(cache, target, updated)
+        %{acc | ci_lifecycle: Map.put(acc.ci_lifecycle, :poll_cache, cache)}
+    end
   end
 
   # Repair markers are journaled from concurrent poll tasks before GitHub is
@@ -270,6 +379,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           # Webhook-displaced reads have no effects; held bodies never answer CI (R10).
           state
         else
+          result = classify_merge_queue_departure(state, issue, result)
+          result = confirm_conflict_streak(state, issue, result)
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state
@@ -277,6 +388,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           |> ParkedReadyAlert.reconcile_parked_ready_alert(issue, result, opts)
           |> ResultProjection.reconcile_base_repair_invalidation(issue, result)
           |> ResultProjection.publish_ready_for_review_transition(issue, result)
+          |> ResultProjection.reraise_unreviewed_ready_pr(issue, result, opts)
           |> ResultProjection.stash_last_ci_result(issue, result)
           |> Outcome.recover_ci_poll_result(issue, result, opts)
         end
@@ -284,6 +396,25 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
       _ ->
         state
     end
+  end
+
+  defp confirm_conflict_streak(state, issue, result) do
+    target = CiLifecycle.ci_target_for_issue(issue)
+    observation = get_in(state.ci_lifecycle, [:poll_cache, target]) || %{}
+    waiting? = Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state]
+
+    if waiting? and Map.get(result, :mergeable) == "CONFLICTING" and Map.get(observation, :conflicting_polls, 0) >= 2 and
+         Map.get(observation, :conflicting_head_sha) == Map.get(result, :head_sha) do
+      Map.put(result, :conflict_confirmed?, true)
+    else
+      result
+    end
+  end
+
+  defp classify_merge_queue_departure(state, issue, result) do
+    target = CiLifecycle.ci_target_for_issue(issue)
+    previous = get_in(state.ci_lifecycle, [:poll_cache, target])
+    CancelledMergeGroup.classify_departure(result, previous)
   end
 
   # ---- Parked-ready recovery alert ------------------------------------------
@@ -313,6 +444,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     passed_heads = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> prune_ci_map(targets, Map.get(baseline, :passed_heads, %{}))
     test_failure_heads = prune_ci_map(state.ci_lifecycle.test_failure_heads, targets, baseline.test_failure_heads)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+    existing_ci_observed = Map.get(state.ci_lifecycle, :ci_observed_at_ms, %{})
+    ci_observed = prune_ci_map(existing_ci_observed, targets, Map.get(baseline, :ci_observed_at_ms, %{}))
 
     poll_cache =
       existing_poll_cache
@@ -328,12 +461,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
       |> ParkedReadyAlert.ensure_parked_ready_alerts_seeded(opts)
       |> ParkedReadyAlert.resolve_departed_parked_ready_alerts(targets, opts)
 
-    state = DraftAlertLifecycle.resolve_departed(state, targets, opts)
+    state = state |> DraftAlertLifecycle.resolve_departed(targets, opts) |> PrLessReview.resolve_departed(targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
-         poll_cache == existing_poll_cache do
+         poll_cache == existing_poll_cache and ci_observed == existing_ci_observed do
       state
     else
       ci_lifecycle =
@@ -341,6 +474,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         |> Map.put(:approved_heads, approved_heads)
         |> Map.put(:passed_heads, passed_heads)
         |> Map.put(:test_failure_heads, test_failure_heads)
+        |> Map.put(:ci_observed_at_ms, ci_observed)
         |> Map.put(:poll_cache, poll_cache)
 
       CiLifecycle.persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})

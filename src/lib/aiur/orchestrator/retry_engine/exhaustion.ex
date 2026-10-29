@@ -3,21 +3,22 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
 
   require Logger
 
-  alias Aiur.Alerts
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Errors
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   defp finalize_exhausted_issue(issue_id, identifier, metadata, exhaustion_reason, opts) do
     case rework_handoff_state(identifier, metadata[:rework_head_sha], metadata) do
       {:ok, state_name} ->
-        case TicketTransition.write_state(identifier, state_name, Keyword.put(opts, :writer, :retry_engine)) do
+        case write_after_budget_hold(identifier, state_name, opts) do
           :ok ->
             emit_rework_handoff_attention(identifier, state_name)
             :ok
@@ -29,6 +30,31 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
 
       :none ->
         write_exhausted_issue_state(issue_id, identifier, exhaustion_reason, opts)
+    end
+  end
+
+  defp finalize_terminal_policy_failure(issue_id, identifier, failure, opts) do
+    case terminal_policy_state_writer(opts).(identifier, "error", terminal_policy_write_opts(opts)) do
+      :ok ->
+        message = terminal_policy_alert_message(failure)
+
+        Signal.agent_alert("ticket.#{identifier}.agent.attention.hosted-authentication-refused", message,
+          issue: identifier,
+          reason: message,
+          needs_attention: true,
+          severity: "warning",
+          central: true
+        )
+
+        :alert_emitted
+
+      {:error, {:stale_issue_state, expected, actual}} when expected != actual ->
+        handle_stale_exhaustion_write(issue_id, identifier, actual, {:stale_issue_state, expected, actual})
+
+      {:error, reason} ->
+        Logger.warning("Failed moving hosted-auth-refused issue identifier=#{identifier} to error state: #{inspect(reason)}")
+        emit_error_state_write_failed(identifier, reason)
+        {:error, {:no_state_label_written, identifier}}
     end
   end
 
@@ -44,6 +70,20 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     end)
   end
 
+  @doc false
+  @spec start_terminal_policy_state_write(State.t(), String.t(), String.t(), term(), keyword()) :: State.t()
+  def start_terminal_policy_state_write(state, issue_id, identifier, failure, opts \\ []) do
+    release = Map.get(state.released_claims, issue_id)
+    opts = Keyword.merge(exhausted_write_options(state, issue_id), opts)
+
+    TrackerTasks.run(
+      state,
+      {:terminal_policy_failure, issue_id},
+      fn -> finalize_terminal_policy_failure(issue_id, identifier, failure, opts) end,
+      fn current, result -> apply_terminal_policy_state_write(current, issue_id, release, result) end
+    )
+  end
+
   defp exhausted_write_options(state, issue_id) do
     case Map.get(state.last_polled_issues, issue_id) do
       %Issue{state: issue_state} when is_binary(issue_state) -> [expected_state: issue_state]
@@ -54,6 +94,14 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   defp apply_exhausted_state_write(current, issue_id, release, result) do
     if Map.get(current.released_claims, issue_id) == release and not Map.has_key?(current.running, issue_id) do
       maybe_mark_observed_error_alert(current, issue_id, result == :alert_emitted)
+    else
+      current
+    end
+  end
+
+  defp apply_terminal_policy_state_write(current, issue_id, release, result) do
+    if Map.get(current.released_claims, issue_id) == release and not Map.has_key?(current.running, issue_id) do
+      maybe_mark_observed_error_alert(current, issue_id, result == :alert_emitted, :terminal_policy_failure)
     else
       current
     end
@@ -78,10 +126,13 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   # which treats it as permanent.
   defp transient_exhaustion_reason?(%{__struct__: struct} = reason)
        when struct in [Req.TransportError, Mint.TransportError] do
-    Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
+    Access.retryable_github_error?(Access.classify_error({:error, reason}))
   end
 
-  defp transient_exhaustion_reason?(reason), do: Errors.retryable_github_error?(reason)
+  defp transient_exhaustion_reason?({:issue_state_refresh_failed, reason}),
+    do: transient_exhaustion_reason?(reason)
+
+  defp transient_exhaustion_reason?(reason), do: Access.retryable_github_error?(reason)
 
   # Exposed (`@doc false`) as a test seam: the distinct `{:error,
   # {:no_state_label_written, _}}` return is the F3 "do not report success for a
@@ -106,13 +157,13 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     else
       Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
-      case TicketTransition.write_state(identifier, "error", Keyword.put(opts, :writer, :retry_engine)) do
+      case write_after_budget_hold(identifier, "error", opts) do
         :ok ->
           message =
             "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
               retry_exhausted_error_suffix(exhaustion_reason)
 
-          Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
+          Signal.agent_alert("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
             issue: identifier,
             reason: message,
             needs_attention: true,
@@ -124,6 +175,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
 
           :alert_emitted
 
+        {:error, {:stale_issue_state, expected, actual} = reason} when expected != actual ->
+          handle_stale_exhaustion_write(issue_id, identifier, actual, reason)
+
         {:error, reason} ->
           Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
 
@@ -131,19 +185,58 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
           # instead of a false `:ok`, and alert rather than only logging (#2420):
           # a swallowed write here would leave the ticket with its active-state
           # label and no signal to the Executor that exhaustion never parked it.
-          Alerts.emit_custom(
-            "ticket.#{identifier}.agent.attention.error-state-write-failed",
-            "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
-            issue: identifier,
-            reason: "Exhausted retry budget, but the terminal error-state write failed (#{inspect(reason)}); the ticket was not parked in error.",
-            needs_attention: true,
-            severity: "warning",
-            central: true
-          )
-
+          emit_error_state_write_failed(identifier, reason)
           {:error, {:no_state_label_written, identifier}}
       end
     end
+  end
+
+  defp handle_stale_exhaustion_write(issue_id, identifier, actual, reason) do
+    if valid_lifecycle_state?(actual) do
+      Logger.info(
+        "Retry-exhaustion error write settled after ticket moved issue_id=#{issue_id} " <>
+          "issue_identifier=#{identifier} state=#{inspect(actual)}"
+      )
+
+      :ok
+    else
+      Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
+      emit_error_state_write_failed(identifier, reason)
+      {:error, {:no_state_label_written, identifier}}
+    end
+  end
+
+  defp valid_lifecycle_state?(state) when is_binary(state) do
+    DispatchPolicy.active_issue_state?(state, DispatchPolicy.active_state_set()) or
+      DispatchPolicy.terminal_issue_state?(state, DispatchPolicy.terminal_state_set()) or
+      DispatchPolicy.no_agent_work_state?(state) or
+      DispatchPolicy.normalize_issue_state(state) in ["error", "human-review"]
+  end
+
+  defp valid_lifecycle_state?(_state), do: false
+
+  defp emit_error_state_write_failed(identifier, reason) do
+    Signal.agent_alert(
+      "ticket.#{identifier}.agent.attention.error-state-write-failed",
+      "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
+      issue: identifier,
+      reason: "Exhausted retry budget, but the terminal error-state write failed (#{inspect(reason)}); the ticket was not parked in error.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
+  end
+
+  # Retry-exhaustion state writes are terminal and cannot be recovered by a
+  # later agent turn. Keep the tracker task alive through the broker's rolling
+  # Core reset, then apply the write once admission resumes. The retry task has
+  # no fixed task timeout for this reason; LocalHold still bounds each wait and
+  # limits repeated holds.
+  defp write_after_budget_hold(identifier, state_name, opts) do
+    Access.with_transient_retry(
+      fn -> TicketTransition.write_state(identifier, state_name, Keyword.put(opts, :writer, :retry_engine)) end,
+      Access.transient_retry_opts(opts) |> Keyword.put(:max_wait_ms, 3_600_000)
+    )
   end
 
   defp rework_handoff_state(identifier, original_head, metadata) do
@@ -161,7 +254,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   defp emit_rework_handoff_attention(identifier, state_name) do
     message = "Agent exhausted retries without handing off after pushing rework for #{identifier}; moved the ticket to agent:#{state_name}."
 
-    Alerts.emit_custom("ticket.#{identifier}.agent.rework_handoff", message,
+    Signal.agent_alert("ticket.#{identifier}.agent.rework_handoff", message,
       issue: identifier,
       reason: message,
       needs_attention: true,
@@ -170,14 +263,32 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   end
 
   defp maybe_mark_observed_error_alert(state, issue_id, true) do
-    %{
-      state
-      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
-        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, :retry_exhausted)
-    }
+    maybe_mark_observed_error_alert(state, issue_id, true, :retry_exhausted)
   end
 
   defp maybe_mark_observed_error_alert(state, _issue_id, false), do: state
+
+  defp maybe_mark_observed_error_alert(state, issue_id, true, cause) do
+    %{
+      state
+      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, cause)
+    }
+  end
+
+  defp maybe_mark_observed_error_alert(state, _issue_id, false, _cause), do: state
+
+  defp terminal_policy_state_writer(opts) do
+    Keyword.get(opts, :state_writer, fn identifier, state_name, write_opts ->
+      write_after_budget_hold(identifier, state_name, write_opts)
+    end)
+  end
+
+  defp terminal_policy_write_opts(opts), do: Keyword.drop(opts, [:state_writer])
+
+  defp terminal_policy_alert_message({:unsafe_hosted_authentication, provider, auth_class}) do
+    "Hosted execution refused #{provider} authentication class #{auth_class}; the unsafe profile will not be retried automatically."
+  end
 
   defp retry_exhausted_error_suffix(error) when is_binary(error) and error != "", do: " Last error: #{error}"
   defp retry_exhausted_error_suffix(error) when is_atom(error) or is_tuple(error) or is_map(error), do: " Last error: #{inspect(error)}"

@@ -2,8 +2,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.Exchange
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Driver, Input}
 
   import Aiur.OrchestratorDeactivateSupport
 
@@ -56,13 +55,12 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         end
       end
 
-      state = %Orchestrator.State{
-        running: %{},
-        github_comments_since: "2026-06-25T00:00:00Z"
+      state = %Cursor{
+        since: "2026-06-25T00:00:00Z"
       }
 
-      next =
-        CommentPolling.poll_github_comments(state,
+      {next, _outcome} =
+        Driver.poll_github_comments(state, input(),
           repo: "owner/repo",
           token: "test-gh-token",
           request_fun: request_fun,
@@ -70,7 +68,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
         )
 
-      assert next.github_comments_since == %{"314" => "2026-06-25T00:00:00Z"}
+      assert next.since == %{"314" => "2026-06-25T00:00:00Z"}
 
       receive_barrier(
         {:event,
@@ -128,16 +126,15 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         end
       end
 
-      state = %Orchestrator.State{
-        running: %{},
-        github_comments_since: %{
+      state = %Cursor{
+        since: %{
           "100" => "2026-06-25T00:00:00Z",
           "200" => "2026-06-25T00:00:00Z"
         }
       }
 
-      next =
-        CommentPolling.poll_github_comments(state,
+      {next, _outcome} =
+        Driver.poll_github_comments(state, input(),
           repo: "owner/repo",
           token: "test-gh-token",
           request_fun: request_fun,
@@ -147,7 +144,7 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         )
 
       # Healthy target advanced (−1s rewind); flaky target held its cursor.
-      assert next.github_comments_since == %{
+      assert next.since == %{
                "100" => "2026-06-25T00:59:59Z",
                "200" => "2026-06-25T00:00:00Z"
              }
@@ -195,11 +192,11 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         end
       end
 
-      state = %Orchestrator.State{running: %{}, github_comments_since: %{}}
+      state = %Cursor{since: %{}}
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
-          CommentPolling.poll_github_comments(state,
+          Driver.poll_github_comments(state, input(),
             repo: "owner/repo",
             token: "test-gh-token",
             request_fun: request_fun,
@@ -246,10 +243,10 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         {:ok, %{status: 200, body: []}}
       end
 
-      state = %Orchestrator.State{running: %{}, github_comments_since: %{}}
+      state = %Cursor{since: %{}}
 
-      next =
-        CommentPolling.poll_github_comments(state,
+      {next, _outcome} =
+        Driver.poll_github_comments(state, input(),
           repo: "owner/repo",
           token: "test-gh-token",
           request_fun: request_fun,
@@ -260,15 +257,10 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
           end
         )
 
-      # No targets at all (no running, no human-review, watch disabled) ->
-      # the poller is never invoked. Only the per-cycle conditional issue-list
-      # cache may differ; every other field, `approved_heads` included, must be
-      # untouched.
-      assert put_in(next.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
-               put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
+      # Empty discovery may change only the conditional issue-list cache.
+      assert %{next | issue_list_cache: %{}} == state
 
-      # poll_github_comments/2 returns after its feature gate, so neither
-      # callback can run later for this invocation.
+      # The synchronous return proves neither callback can run later.
       refute_received :unexpected_watch_fetch
       refute_received {:unexpected_request, _url}
     after
@@ -276,5 +268,9 @@ defmodule Aiur.Orchestrator.Deactivate.WatchTargetTest do
         Exchange.unsubscribe(pattern)
       end
     end
+  end
+
+  defp input do
+    %Input{running_targets: [], running_titles: %{}, ownership_key: nil, next_github_delay_ms: 0}
   end
 end

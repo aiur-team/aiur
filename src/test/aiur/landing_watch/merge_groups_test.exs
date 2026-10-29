@@ -1,9 +1,10 @@
 defmodule Aiur.LandingWatch.MergeGroupsTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.LandingWatch.MergeGroups
 
-  test "only active merge-group runs without a live PR entry are cancelled" do
+  test "a run for a PR no longer in the refreshed live queue is cancelled" do
     parent = self()
 
     runs = [
@@ -34,6 +35,9 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     ]
 
     request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: Enum.map(runs, &%{"ref" => "refs/heads/#{&1["head_branch"]}"})}}
+
       %{method: :get} ->
         {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
 
@@ -59,6 +63,60 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     refute_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/31/cancel"}
   end
 
+  test "a refs read failure skips dead-group checks but preserves other stale-run checks" do
+    parent = self()
+
+    runs = [
+      %{"id" => 91, "event" => "merge_group", "status" => "in_progress", "head_branch" => "gh-readonly-queue/main/pr-3-current"},
+      %{"id" => 92, "event" => "merge_group", "status" => "in_progress", "head_branch" => "gh-readonly-queue/main/pr-4-removed"}
+    ]
+
+    completed = %{
+      "id" => 93,
+      "event" => "merge_group",
+      "status" => "completed",
+      "conclusion" => "failure",
+      "head_branch" => "gh-readonly-queue/main/pr-5-removed"
+    }
+
+    observation = %{
+      number: 3,
+      base: "main",
+      head: "current-head",
+      head_committed_at: "2026-10-14T00:00:00Z",
+      merge_queue_entry: %{"id" => "entry-3", "pullRequest" => %{"headRefOid" => "current-head"}}
+    }
+
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 503, body: %{}}}
+
+      %{method: :get, url: url} ->
+        runs = if String.contains?(url, "status=completed"), do: [completed], else: runs
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+
+      %{method: :post, url: url} ->
+        send(parent, {:cancel, url})
+        {:ok, %{status: 202, body: %{}}}
+    end
+
+    assert :ok =
+             MergeGroups.cancel_stale([observation],
+               base_branch: "main",
+               token: "test-gh-token",
+               request_fun: request,
+               live_observations_fun: fn _, _ -> {:ok, [observation]} end,
+               jobs_fun: fn _, _ ->
+                 send(parent, :completed_failure_processed)
+                 {:ok, []}
+               end
+             )
+
+    assert_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/92/cancel"}
+    refute_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/91/cancel"}
+    refute_received :completed_failure_processed
+  end
+
   test "an active run built before the currently queued PR head is cancelled" do
     parent = self()
 
@@ -80,6 +138,9 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     ]
 
     request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: Enum.map(runs, &%{"ref" => "refs/heads/#{&1["head_branch"]}"})}}
+
       %{method: :get} ->
         {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
 
@@ -114,6 +175,61 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     refute_received {:cancel, "https://api.github.com/repos/test-org/test-repo/actions/runs/42/cancel"}
   end
 
+  test "the strict stale-run census revalidates each status list with its own ETag" do
+    parent = self()
+    base = "etag-census-test"
+    statuses = ["queued", "in_progress", "waiting", "requested", "completed"]
+
+    keys =
+      Enum.map(
+        statuses,
+        &ResourceStore.key(:landing_merge_group_runs, "test-org", "test-repo", "#{base}:#{&1}:0")
+      )
+
+    on_exit(fn -> Enum.each(keys, &ResourceStore.drop_data/1) end)
+
+    request = fn call ->
+      if String.contains?(call.url, "matching-refs") do
+        send(parent, {:refs_request, call.url})
+        {:ok, %{status: 200, body: []}}
+      else
+        status =
+          call.url |> URI.parse() |> Map.get(:query) |> URI.decode_query() |> Map.fetch!("status")
+
+        send(parent, {:census_request, status, Map.get(call, :etag)})
+
+        if is_binary(Map.get(call, :etag)) do
+          {:ok, %{status: 304, headers: [{"etag", Map.get(call, :etag)}]}}
+        else
+          {:ok, %{status: 200, body: %{"workflow_runs" => []}, headers: [{"etag", ~s("#{status}-etag")}]}}
+        end
+      end
+    end
+
+    opts = [
+      base_branch: base,
+      token: "test-gh-token",
+      request_fun: request,
+      live_observations_fun: fn _, _ -> {:ok, []} end
+    ]
+
+    assert :ok = MergeGroups.cancel_stale([], opts)
+    assert :ok = MergeGroups.cancel_stale([], opts)
+
+    assert_received {:refs_request, "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/etag-census-test/"}
+
+    requests =
+      for _ <- 1..10 do
+        assert_received {:census_request, status, etag}
+        {status, etag}
+      end
+
+    assert Enum.all?(Enum.take(requests, 5), fn {_status, etag} -> is_nil(etag) end)
+    assert Enum.sort(Enum.map(Enum.drop(requests, 5), &elem(&1, 0))) == Enum.sort(statuses)
+
+    assert Enum.all?(Enum.drop(requests, 5), fn {status, etag} -> etag == ~s("#{status}-etag") end)
+  end
+
   test "queue is re-observed after the active-run census before cancelling" do
     parent = self()
 
@@ -128,6 +244,9 @@ defmodule Aiur.LandingWatch.MergeGroupsTest do
     ]
 
     request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: Enum.map(runs, &%{"ref" => "refs/heads/#{&1["head_branch"]}"})}}
+
       %{method: :get} ->
         {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aiur Experiment Analyst"
+  short_description: "Pre-register and report reproducible experiments"
+  default_prompt: "Use $aiur-experiment to analyze this experiment in the mode named by its analyst brief."

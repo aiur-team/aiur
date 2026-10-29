@@ -43,6 +43,18 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
     assert_received {:write, "3622", "todo", "in-progress"}
   end
 
+  test "another instance's claim is never released as an orphan (#5803)" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file!(path)
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [3622]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+
+    {waiting, [_]} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts(), :now_ms, 0))
+    {_, [%Issue{state: "in-progress"}]} = StartupClaimReconciler.reconcile(waiting, [issue()], Keyword.put(opts(), :now_ms, 60_000))
+    refute_received {:write, _, _, _}
+    refute_received {:comment, _, _}
+  end
+
   test "periodic polls recover an orphan discovered after startup completed" do
     {complete, []} = StartupClaimReconciler.reconcile(%State{}, [], opts())
     {waiting, [_]} = StartupClaimReconciler.reconcile(complete, [issue()], Keyword.put(opts(), :now_ms, 0))
@@ -53,7 +65,7 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
 
   for {name, mergeable, graph_mergeability, threads, reviews, target} <- [
         {"conflict", false, "CONFLICTING", [], [], "rework"},
-        {"unresolved finding", true, nil, [%{body: "fix this"}], [], "rework"},
+        {"unresolved finding", true, nil, [%{body: "fix this"}], [%{:authoritative => true, "state" => "CHANGES_REQUESTED", "commit_id" => "head"}], "rework"},
         {"current trusted body review", true, nil, [], [%{:authoritative => true, "state" => "CHANGES_REQUESTED", "commit_id" => "head"}], "rework"},
         {"current blocking comment", true, nil, [], [%{:authoritative => true, "state" => "COMMENTED", "commit_id" => "head", "body" => "Blocking: fix the race"}], "rework"},
         {"old resolved verdict", true, nil, [], [%{:authoritative => true, "state" => "CHANGES_REQUESTED", "commit_id" => "old"}], "human-review"},
@@ -202,8 +214,9 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
 
     opts = pr_opts(pr, [], reviews)
     {waiting, [_]} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts, :now_ms, 0))
-    {_, [%Issue{state: "human-review"}]} = StartupClaimReconciler.reconcile(waiting, [issue()], Keyword.put(opts, :now_ms, 60_000))
-    assert_received {:write, "3622", "human-review", "in-progress"}
+    opts = Keyword.put(opts, :pull_request_approval_fetcher, fn 42 -> {:ok, {"head", "head"}} end)
+    {_, [%Issue{state: "ci-wait"}]} = StartupClaimReconciler.reconcile(waiting, [issue()], Keyword.put(opts, :now_ms, 60_000))
+    assert_received {:write, "3622", "ci-wait", "in-progress"}
   end
 
   test "unavailable PR evidence does not permanently exhaust release retries" do

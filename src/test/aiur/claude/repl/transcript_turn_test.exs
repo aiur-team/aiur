@@ -1,5 +1,6 @@
 defmodule Aiur.Claude.Repl.TranscriptTurnTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Claude.Repl.TranscriptTurn
   alias Aiur.Tmux
@@ -9,7 +10,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
 
     {:ok, _pid} =
-      start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+      start_supervised({Tmux, [transport: {:mock, test_pid, :infinity}, name: name, session: "test"]})
 
     %{tmux: name}
   end
@@ -122,6 +123,46 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     respond(tmux, "")
   end
 
+  test "steer wake types mid-turn while false wake leaves input held", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+    parent = self()
+
+    on_operator = fn ->
+      send(parent, :operator_claimed)
+      {:deliver_text, "native steer", fn _ -> send(parent, :operator_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task = Task.async(fn -> TranscriptTurn.run(session, "work", poll_interval_ms: 10, on_steer_claim: on_operator, on_operator_message: fn -> flunk("steer must not claim a held sync item") end) end)
+    expect_prompt_submit(tmux)
+    # False-wake behavior is an intentional existing-behavior guard.
+    send(task.pid, {:agent_queue_updated, "test", 1, false})
+    send(task.pid, {:agent_queue_updated, "test", 2, :steer})
+    expect_steer_input(tmux)
+    receive_barrier(:operator_claimed)
+    receive_barrier(:operator_delivered)
+    File.write!(path, completion_record(), [:append])
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+    refute_received :operator_claimed
+    refute_received {:delivery_failed, _}
+  end
+
+  defp expect_steer_input(tmux) do
+    receive_barrier({:tmux_mock_out, command})
+
+    case command do
+      "display-message" <> _ ->
+        respond(tmux, "4242\n")
+        expect_steer_input(tmux)
+
+      "send-keys -t %50 -l native steer" ->
+        respond(tmux, "")
+        receive_barrier({:tmux_mock_out, "send-keys -t %50 Enter"})
+        respond(tmux, "")
+    end
+  end
+
   test "cold start where the jsonl never materializes returns {:error, :no_transcript}", %{
     tmux: tmux
   } do
@@ -165,6 +206,31 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     assert is_binary(result.session_id)
     assert is_binary(result.thread_id)
     assert is_binary(result.turn_id)
+  end
+
+  test "transient pane liveness failure does not report repl gone", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(session, "do work", poll_interval_ms: 10, turn_timeout_ms: 1_000)
+      end)
+
+    expect_prompt_submit(tmux)
+
+    # The first liveness request gets a transient error; the retry succeeds,
+    # and a later probe confirms the pane remains alive until completion.
+    assert_receive {:tmux_mock_out, "display-message -p -t %50 " <> _}, 1_000
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\ncontrol temporarily unavailable\n%error 1 1 0\n"})
+    assert_receive {:tmux_mock_out, "display-message -p -t %50 " <> _}, 1_500
+    respond(tmux, "4242\n")
+    assert_receive {:tmux_mock_out, "display-message -p -t %50 " <> _}, 1_500
+    respond(tmux, "4242\n")
+
+    File.write!(path, completion_record(), [:append])
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
   end
 
   test "acknowledges provider delivery when the submitted prompt reaches the transcript", %{

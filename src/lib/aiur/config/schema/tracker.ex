@@ -1,5 +1,8 @@
 defmodule Aiur.Config.Schema.Github do
   @moduledoc false
+
+  @external_resource Path.relative_to(Path.join(__DIR__, "github_app.ex"), File.cwd!(), force: true)
+  @external_resource Path.relative_to(Path.join(__DIR__, "github_credential.ex"), File.cwd!(), force: true)
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -12,7 +15,7 @@ defmodule Aiur.Config.Schema.Github do
   @max_planning_call_budget 4
   @default_max_inflight 4
   @default_max_inflight_per_endpoint 2
-  @default_requests_per_minute 120
+  @default_requests_per_minute 300
   @default_stagger_ms 75
   @default_daemon_core_limit_per_hour 3000
   @default_daemon_graphql_limit_per_hour 4500
@@ -66,7 +69,7 @@ defmodule Aiur.Config.Schema.Github do
     field(:allowed_contributors, :map)
     # @config-reference config-configuration-01 tracker.github.human_mergers
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail tracker.github.human_mergers | array | `[]` | Explicit human-only post-merge attribution allowlist; also the identity allowlist for the planned `aiur pr merge` command. Never inherits CODEOWNERS, bot accounts, trusted accounts or dispatch users. |
+    # @config-detail tracker.github.human_mergers | array | `[]` | Explicit human-only allowlist for post-merge attribution, current-head CHANGES_REQUESTED review routing and the planned `aiur pr merge` command. Reviews from these logins can route tickets to rework independently of `trusted_accounts`. Never inherits CODEOWNERS, bot accounts or dispatch users. |
     field(:human_mergers, {:array, :string}, default: [])
     # @config-reference config-configuration-01 tracker.github.planning_root_limit
     # @config-detail tracker.github.planning_root_limit | integer | 100 | Maximum Build Order planning roots fetched in one cycle. |
@@ -84,7 +87,7 @@ defmodule Aiur.Config.Schema.Github do
     # @config-detail tracker.github.max_inflight_per_endpoint | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
     field(:max_inflight_per_endpoint, :integer, default: @default_max_inflight_per_endpoint)
     # @config-reference config-configuration-01 tracker.github.requests_per_minute
-    # @config-detail tracker.github.requests_per_minute | integer | 120 | Tracker request budget per minute (1-10000). Lower it when the tracker rate-limits Aiur. |
+    # @config-detail tracker.github.requests_per_minute | integer | 300 | Requests per minute shared by every consumer of one GitHub token (1-10000). Keep it above the hourly ceiling divided by 60 so sustained pacing never binds before the hourly ceiling; bursts above it still hold; lower it when GitHub answers with secondary rate limits. |
     field(:requests_per_minute, :integer, default: @default_requests_per_minute)
     # @config-reference config-configuration-01 tracker.github.stagger_ms
     # @config-detail tracker.github.stagger_ms | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |

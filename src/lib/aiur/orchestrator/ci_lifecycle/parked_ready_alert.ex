@@ -4,13 +4,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.GitHub.MergeQueue
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
   require Logger
 
   @doc false
@@ -162,7 +162,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert do
 
   defp parked_ready_alert_topic(target), do: "ticket.#{target}.pr.parked_ready"
 
-  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
   defp put_parked_ready_alerts(%State{} = state, alerts) do
     %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :parked_ready_alerts, alerts)}

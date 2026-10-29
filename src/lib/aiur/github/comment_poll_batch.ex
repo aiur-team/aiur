@@ -66,8 +66,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   require Logger
 
+  alias Aiur.GitHub.{Access, DeliveredPullRequest, ExecutorSweepPRCache, PollSnapshots, ReviewThreads}
   alias Aiur.GitHub.CommentPollBatch.Query
-  alias Aiur.GitHub.{DeliveredPullRequest, ExecutorSweepPRCache, GraphQLCost, PollSnapshots, ResourceStore, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -80,9 +80,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
   def fetch(targets, opts \\ []) when is_list(targets) do
     targets = targets |> Enum.map(&to_string/1) |> Enum.uniq() |> Enum.filter(&positive_number?/1)
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       repo_identity = owner <> "/" <> repo
       started_at_ms = System.system_time(:millisecond)
 
@@ -189,7 +189,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     query = Query.build(indexed)
     variables = %{"owner" => owner, "repo" => repo}
 
-    case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
+    case Access.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
       {:ok, body} ->
         report_batch_cost(query, variables, body)
 
@@ -209,14 +209,14 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   # One debug line per call, so the before/after of any connection-size change
   # is observable without reading the quota ledger. The estimate is the shape
-  # cost computed before sending (`GraphQLCost.estimate/1`); the measured cost
+  # cost computed before sending (`Access.estimate_graphql_cost/1`); the measured cost
   # is GitHub's own `rateLimit { cost }` from the response, which the transport
   # injects on every document. A batch call is one document over up to 33
   # targets, so this fires at most once per poll cycle per chunk — not per
   # target, and not per comment.
   defp report_batch_cost(query, variables, body) do
-    estimate = GraphQLCost.estimate(query)
-    measured = GraphQLCost.reported(%{body: body})
+    estimate = Access.estimate_graphql_cost(query)
+    measured = Access.reported_graphql_cost(%{body: body})
 
     Logger.debug(fn ->
       "comment_poll_batch cost report " <>
@@ -253,7 +253,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp deposit_thread_comment(owner, repo, thread_id, comment) do
     with database_id when is_integer(database_id) <- Map.get(comment, "databaseId"),
-         key when not is_nil(key) <- ResourceStore.key(:pr_review_comment_thread, owner, repo, database_id) do
+         key when not is_nil(key) <- Access.key(:pr_review_comment_thread, owner, repo, database_id) do
       remember_comment_thread(key, thread_id)
     else
       _other -> :ok
@@ -263,7 +263,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # The mapping is a constant fact, so a repeat deposit of the same value is
   # declined inside the store's swap rather than re-stamped every cycle.
   defp remember_comment_thread(key, thread_id) do
-    ResourceStore.update_resource(
+    Access.update_resource(
       key,
       fn
         ^thread_id -> :unchanged

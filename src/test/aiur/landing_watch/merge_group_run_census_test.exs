@@ -18,6 +18,9 @@ defmodule Aiur.LandingWatch.MergeGroupRunCensusTest do
       )
 
     request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: []}}
+
       %{method: :get, url: url} ->
         send(parent, {:census, url})
 
@@ -71,6 +74,9 @@ defmodule Aiur.LandingWatch.MergeGroupRunCensusTest do
     stale = %{"id" => 77, "event" => "merge_group", "status" => "in_progress", "head_branch" => "gh-readonly-queue/main/pr-7-old"}
 
     request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: []}}
+
       %{method: :get, url: url} ->
         if String.contains?(url, "status=completed"), do: send(parent, :completed_page)
 

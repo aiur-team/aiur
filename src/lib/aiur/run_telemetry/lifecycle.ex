@@ -79,6 +79,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     effort
     feature
     epic
+    work_kind
     tags
     blockers
     start_mode
@@ -228,7 +229,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     |> Enum.flat_map(fn {key, value} ->
       atom_key = metadata_key(key)
 
-      if atom_key in @metadata_fields and (not is_nil(value) or atom_key in [:model, :effort, :feature, :epic]) do
+      if atom_key in @metadata_fields and (not is_nil(value) or atom_key in [:model, :effort, :feature, :epic, :work_kind]) do
         [{atom_key, normalize_field(atom_key, value)}]
       else
         []

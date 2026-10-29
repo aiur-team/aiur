@@ -278,9 +278,18 @@ defmodule Aiur.DecisionStore.Settlement do
   end
 
   defp settle_dispatch_error(state, decision, action_id, attempt_id, reason) do
-    if dispatch_outcome_unknown?(reason),
-      do: settle_dispatch_outcome_unknown(state, decision, action_id, attempt_id, reason),
-      else: settle_dispatch_failure(state, decision, action_id, attempt_id, reason)
+    cond do
+      dispatch_outcome_unknown?(reason) -> settle_dispatch_outcome_unknown(state, decision, action_id, attempt_id, reason)
+      reason == :no_running_agent -> persist_pending_for_session(state, decision, action_id)
+      true -> settle_dispatch_failure(state, decision, action_id, attempt_id, reason)
+    end
+  end
+
+  defp persist_pending_for_session(state, decision, action_id) do
+    case Persistence.build_and_persist_event(:pending_for_session, decision, %{action_id: action_id}, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} -> FailureAttention.maybe_project_delivery_attention(next_state, decision, updated, :pending_for_session, action_id)
+      {:error, reason} -> AppendRecovery.recover_background_append(state, decision, action_id, :pending_for_session, reason)
+    end
   end
 
   defp dispatch_outcome_unknown?({:outcome_unknown, _info}), do: true

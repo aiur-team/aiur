@@ -19,7 +19,7 @@ defmodule Aiur.BuildOrder.TicketDetailInputValidationTest do
   end
 
   @configured {"owner", "repo"}
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @transport_test_options_key :github_transport_test_options
 
   setup_all do

@@ -1,33 +1,108 @@
 defmodule AiurWeb.StreamdeckChannelCommandsTest do
   use AiurWeb.StreamdeckChannelCase
 
+  alias Aiur.DecisionStore.Answers
+  alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.EndpointConfig
+  alias AiurWeb.StreamdeckChannel.CommandAnswers
+
+  require Aiur.TestSupport
+
+  defp answer_command_reply(socket, payload) do
+    ref = Phoenix.ChannelTest.push(socket, "answer_command", payload)
+    Aiur.TestSupport.receive_barrier(%Phoenix.Socket.Reply{ref: ^ref})
+  end
+
+  # The legacy double exposes retained reads only; the answer facade also reads
+  # the current decision. Delegate all other requests to that same store.
+  defmodule AnsweringStore do
+    use GenServer
+    def start_link(decision, report), do: GenServer.start_link(__MODULE__, {decision, report})
+    @impl true
+    def init({decision, report}) do
+      {:ok, store} = FakeDecisionStore.start_link(decision, report)
+      {:ok, {store, decision}}
+    end
+
+    @impl true
+    def handle_call({:get, _id}, _from, {store, decision}), do: {:reply, {:ok, decision}, {store, decision}}
+
+    def handle_call({:answer, _id, _payload, _opts} = request, _from, {store, decision} = state) do
+      result =
+        case Answers.require_answerable(decision) do
+          :ok -> GenServer.call(store, request)
+          {:error, _} = error -> error
+        end
+
+      {:reply, result, state}
+    end
+
+    def handle_call(request, _from, {store, _decision} = state), do: {:reply, GenServer.call(store, request), state}
+  end
+
+  defmodule SlowDecisionStore do
+    @moduledoc false
+    use GenServer
+
+    def start_link(delegate, report), do: GenServer.start_link(__MODULE__, {delegate, report})
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:retained_query, _query} = request, _from, {delegate, report} = state) do
+      send(report, {:slow_query_waiting, self()})
+
+      receive do
+        :continue -> :ok
+      after
+        5_000 -> exit(:slow_query_gate_timed_out)
+      end
+
+      {:reply, GenServer.call(delegate, request), state}
+    end
+
+    def handle_call(request, _from, {delegate, _report_pid} = state), do: {:reply, GenServer.call(delegate, request), state}
+  end
+
   describe "Commands" do
-    # The channel reads `Endpoint.config(:decision_store)` per call, so each
-    # test points it at a fresh fake store. The restore in `on_exit` uses
-    # `Application.put_env` — never `Endpoint.config_change`, whose ETS table is
-    # torn down before `on_exit` runs. The next test's setup re-applies the full
-    # endpoint config, which drops the stale `decision_store` entry.
+    # The channel reads `:decision_store` per call, so each test points it at a
+    # fresh fake store, scoped to the test (#4908).
     setup do
       decision = command_decision("AIUR-1")
-      {:ok, store} = FakeDecisionStore.start_link(decision, self())
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+      {:ok, store} = AnsweringStore.start_link(decision, self())
+      EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
       end)
 
       %{decision: decision}
     end
 
+    test "focus replies before a slow Commands store completes" do
+      delegate = EndpointConfig.get(:decision_store)
+      {:ok, store} = SlowDecisionStore.start_link(delegate, self())
+      EndpointStubs.put(decision_store: store)
+
+      on_exit(fn ->
+        Aiur.TestSupport.safe_stop(store)
+      end)
+
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      receive_barrier({:slow_query_waiting, store})
+      send(store, :continue)
+      assert_receive {:fake_decision_query, :hit}, 1_000
+    end
+
     test "focus pushes the focused agent's Commands page", %{decision: decision} do
-      store = Endpoint.config(:decision_store)
+      store = EndpointConfig.get(:decision_store)
       assert is_pid(store) and Process.alive?(store)
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
 
-      assert_push("commands", payload)
+      receive_barrier(%Message{event: "commands", payload: payload})
       assert_receive {:fake_decision_query, :hit}, 1000
       assert payload["identifier"] == "AIUR-1"
       assert [item] = payload["items"]
@@ -42,7 +117,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "commands_page replies with the next page" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       # The cursor is the opaque encoding the store hands back on the previous
       # page; a client passes it through untouched.
@@ -60,18 +135,15 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "answer_command records an operator-attributed answer" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-1",
-          "option_id" => "ship"
-        }),
-        :ok,
-        %{"status" => "accepted"}
-      )
+      assert %{status: :ok, payload: %{"status" => "accepted"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-1",
+                 "option_id" => "ship"
+               })
 
       # The durable record's actor is the operator on the deck, never the
       # Executor — the load-bearing attribution decision of this feature.
@@ -87,18 +159,15 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     test "answer_command sends a spoken custom response instead of an option" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-2",
-          "custom_response" => "Hold everything — verify first."
-        }),
-        :ok,
-        %{"status" => "accepted"}
-      )
+      assert %{status: :ok, payload: %{"status" => "accepted"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-2",
+                 "custom_response" => "Hold everything — verify first."
+               })
 
       assert_receive {:fake_decision_answer, _decision_id, payload, _opts}, 1000
       assert payload["custom_response"] == "Hold everything — verify first."
@@ -111,58 +180,47 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "answer_command refuses a Command that is not the focused agent's" do
       decision = command_decision("AIUR-999")
-      {:ok, other_store} = FakeDecisionStore.start_link(decision, self())
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, other_store)}, [])
+      {:ok, other_store} = AnsweringStore.start_link(decision, self())
+      EndpointStubs.put(decision_store: other_store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(other_store)
       end)
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => decision.decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-3",
-          "option_id" => "ship"
-        }),
-        :error,
-        %{reason: "command_not_focused"}
-      )
+      assert %{status: :error, payload: %{reason: "command_not_focused"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => decision.decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-3",
+                 "option_id" => "ship"
+               })
     end
 
     test "answer_command rejects a malformed payload outright" do
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       # Neither an option nor a custom response.
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-4"
-        }),
-        :error,
-        %{reason: "invalid_answer"}
-      )
+      assert %{status: :error, payload: %{reason: "invalid_answer"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-4"
+               })
 
       # A blank custom response is not an answer.
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-5",
-          "custom_response" => "   "
-        }),
-        :error,
-        %{reason: "empty_custom_response"}
-      )
+      assert %{status: :error, payload: %{reason: "empty_custom_response"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-5",
+                 "custom_response" => "   "
+               })
     end
 
     test "answer_command guard refuses a blank idempotency key and a non-positive version" do
@@ -173,7 +231,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       # store.
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
       decision_id = command_decision("AIUR-1").decision_id
 
       for bad <- [
@@ -181,41 +239,54 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
             %{"decision_id" => decision_id, "version" => 0, "idempotency_key" => "sd-key-zero", "option_id" => "ship"},
             %{"decision_id" => decision_id, "version" => -1, "idempotency_key" => "sd-key-neg", "option_id" => "ship"}
           ] do
-        assert_reply(push(socket, "answer_command", bad), :error, %{reason: "invalid_answer"})
+        assert %{status: :error, payload: %{reason: "invalid_answer"}} = answer_command_reply(socket, bad)
       end
     end
 
-    test "answer_command refuses a dismissed Command as not answerable" do
+    test "answer_command reports a dismissed Command as withdrawn" do
       # Dismissal is terminal on the device surface too — the TS client renders
       # a dismissed Command read-only, so the server must refuse the answer at
       # the same boundary. Only open and deferred are answerable (allowlisted),
       # so a newly-added status can never silently become answerable.
       dismissed = %{command_decision("AIUR-1") | decision_status: :dismissed}
-      {:ok, dismissed_store} = FakeDecisionStore.start_link(dismissed, self())
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, dismissed_store)}, [])
+      {:ok, dismissed_store} = AnsweringStore.start_link(dismissed, self())
+      EndpointStubs.put(decision_store: dismissed_store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(dismissed_store)
       end)
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
+      reply =
+        answer_command_reply(socket, %{
           "decision_id" => dismissed.decision_id,
           "version" => 1,
           "idempotency_key" => "sd-key-dismissed",
           "option_id" => "ship"
-        }),
-        :error,
-        %{reason: reason}
-      )
+        })
 
-      assert reason =~ "not_answerable"
+      assert reply.status == :error
+      assert %{reason: "withdrawn"} = reply.payload
+    end
+
+    test "answer_command accepts an expired unanswered blocking Command", %{decision: decision} do
+      expired = %{decision | decision_status: :expired, blocking: true, answer: nil}
+      {:ok, expired_store} = AnsweringStore.start_link(expired, self())
+      EndpointStubs.put(decision_store: expired_store)
+
+      on_exit(fn -> Aiur.TestSupport.safe_stop(expired_store) end)
+
+      socket = joined_socket()
+
+      assert :ok ==
+               CommandAnswers.validate_focused_command(
+                 socket,
+                 expired.decision_id,
+                 "AIUR-1"
+               )
     end
 
     test "answer_command records an operator answer durably through a real store" do
@@ -232,11 +303,9 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
           filesystem_sync_fun: fn -> :ok end
         )
 
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+      EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
         Aiur.TestCleanup.rm_rf!(dir)
       end)
@@ -246,6 +315,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
         "question" => "Ship the e2e change?",
         "blocking" => true,
         "authority" => "human_required",
+        "context" => %{"authority_basis" => "product"},
         "reversibility" => "reversible",
         "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
       }
@@ -263,7 +333,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"}, 1_000)
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       ref =
         push(socket, "answer_command", %{
@@ -281,18 +351,13 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       assert reply.payload["status"] == "accepted"
 
       assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
-      assert current.answer.actor == %{kind: :operator, id: "streamdeck"}
+      assert current.answer.actor == %{kind: :operator, id: "streamdeck", source: :streamdeck}
       assert current.answer.selected_option_id == "ship"
     end
 
     test "answer_command rejects a stale custom-response answer as a conflict" do
-      # A stale press is a conflict, never a double-answer. This drives a real
-      # store so the rejection holds only while BOTH staleness layers are
-      # present: the channel's `validate_focused_command/4` version pre-check
-      # AND `expected_version` in the `custom_response` clause reaching
-      # `DecisionAnswer.normalize/2`. The double mutant that removed both
-      # (the gap this ticket closes) lets the answer through as accepted — or
-      # as a generic error — so this assertion on `stale_version` fails.
+      # Drive the real store: expected_version on a spoken answer must reach
+      # its version validator and come back as the structured stale outcome.
       dir = Path.join(System.tmp_dir!(), "aiur-streamdeck-stale-#{System.unique_integer([:positive])}")
 
       {:ok, store} =
@@ -302,11 +367,9 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
           filesystem_sync_fun: fn -> :ok end
         )
 
-      previous_config = Application.get_env(:aiur, Endpoint)
-      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+      EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
-        Application.put_env(:aiur, Endpoint, previous_config)
         Aiur.TestSupport.safe_stop(store)
         Aiur.TestCleanup.rm_rf!(dir)
       end)
@@ -316,6 +379,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
         "question" => "Ship the stale change?",
         "blocking" => true,
         "authority" => "human_required",
+        "context" => %{"authority_basis" => "product"},
         "reversibility" => "reversible",
         "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
       }
@@ -333,23 +397,21 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
-      assert_push("commands", _payload)
+      receive_barrier(%Message{event: "commands"})
 
       # The device answers the version it read; a different version is stale.
       stale_version = decision.version + 1
 
-      assert_reply(
-        push(socket, "answer_command", %{
+      reply =
+        answer_command_reply(socket, %{
           "decision_id" => decision.decision_id,
           "version" => stale_version,
           "idempotency_key" => "sd-stale-1",
           "custom_response" => "Hold everything — this is stale."
-        }),
-        :error,
-        %{reason: reason}
-      )
+        })
 
-      assert reason =~ "stale_version"
+      assert reply.status == :error
+      assert reply.payload == %{reason: "stale"}
 
       # The stale press must not have recorded an answer: it is a conflict,
       # never a double-answer.

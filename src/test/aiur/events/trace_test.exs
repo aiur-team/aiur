@@ -75,13 +75,17 @@ defmodule Aiur.Events.TraceTest do
 
   test "default sink preserves identical global and per-identifier debug entries", %{default_sink: default} do
     assert default == DebugLog
+    identifier = "trace-#{System.unique_integer([:positive])}"
+    topic = "ticket.#{identifier}.pr.opened"
     Application.put_env(:aiur, Trace, DebugLog)
     :ok = DebugLog.subscribe()
-    :ok = DebugLog.subscribe("42")
-    assert {:ok, id, _count} = Publisher.publish("ticket.42.pr.opened", %{})
-    assert_receive {:event_debug, entry}, 500
-    assert_receive {:event_debug, ^entry}, 500
-    assert Map.delete(entry, :at) == %{kind: :publish, topic: "ticket.42.pr.opened", id: id, identifier: nil, body: %{}}
+    :ok = DebugLog.subscribe(identifier)
+    :ok = DebugLog.broadcast(:publish, "ticket.other.pr.opened", body: %{})
+    assert {:ok, id, _count} = Publisher.publish(topic, %{})
+    assert_receive {:event_debug, %{topic: ^topic} = entry}, 500
+    assert_receive {:event_debug, %{topic: ^topic} = duplicate}, 500
+    assert duplicate == entry
+    assert Map.delete(entry, :at) == %{kind: :publish, topic: topic, id: id, identifier: nil, body: %{}}
     assert is_integer(entry.at)
   end
 

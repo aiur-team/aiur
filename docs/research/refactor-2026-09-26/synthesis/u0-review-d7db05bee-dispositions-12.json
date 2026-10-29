@@ -1,0 +1,438 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 12,
+  "first_id": "loose-2-01",
+  "last_id": "loose-2-35",
+  "findings": [
+    {
+      "id": "loose-2-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:1",
+      "note": "AgentControlCLI still owns broad control, executor, watch and provider/status rendering responsibilities and imports web presentation; original exact size is historical. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:193",
+      "note": "Status report still serially reads executor, wake inbox, trust, supervision, build gate, prewarm and asks after fleet view. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-2-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_gate.ex:243",
+      "note": "Lock scan still runs synchronous System.cmd without timeout and writes temporary manifest, reached from BuildGate.status. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-2-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/executor_events.ex:487",
+      "note": "Any subscription read failure still defaults to empty state; subscribe/unsubscribe then persist that state without locking. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-2-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/executor_events.ex:386",
+      "note": "Requested/deferred dedup paths still replay journal rather than retained index; no compaction or corruption recovery established. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-2-05"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-06",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/recent_merge.ex:309",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-06"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-2-07",
+      "status": "changed",
+      "anchor": "src/lib/aiur/log_file.ex:116",
+      "note": "aa0e92525 (#2983) now retains daemon logs for launcher AIUR_LOGS_ROOT and headless runs; the blanket no-debug logging-loss premise is stale. Selected conditions remain Logger-only or swallowed without operator alert. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-2-07"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-08",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/supervision_health.ex:108",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-08"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-2-09",
+      "status": "changed",
+      "anchor": "src/lib/aiur/decision_attention.ex:205",
+      "note": "Live unanswered attentions still emit then schedule another reask with no attempt cap; stale-condition attentions now resolve instead of repeating, so unconditional wording is narrowed. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_attention.ex:20",
+      "note": "DecisionAttention open still projects synchronously through its configured DecisionStore projector inside registry handling; outer 65s timeout remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_skills.ex:384",
+      "note": "Shell claims one canonical escaper while AgentControlCLI and AgentSkills retain private replacements; AgentSkills still uses the backslash/double-quote sequence in its single-quote replacement. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-12",
+        "agent-backends-cc-32"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-13",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/process_identity.ex:5",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-13"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-2-14",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:1298",
+      "note": "CLI still repeats trim/downcase normalized_label and normalized_tracker_state while schema normalization differs; state vocabulary remains duplicated. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-15",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:2920",
+      "note": "CLI still separately renders runtime/gate/reset ages with different units/rounding alongside its common age-shape comment; age formatting ownership remains fragmented. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_orders_cli.ex:66",
+      "note": "BuildOrdersCLI and AnalyticsCLI still independently construct source/envelope maps, including duplicated unavailable-source fields; schemas remain independently owned. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-18",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:865",
+      "note": "AgentControlCLI still reads global Application env DI seams at call time, including busy mailbox/status/message hooks, alongside other injection styles. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-19",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:100",
+      "note": "Watch baseline remains one module-scoped persistent_term key; independent watch consumers still advance the same baseline. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-20",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:373",
+      "note": "units still invokes UnitsCLI.run then exit_marker without guarded, unlike neighboring build_orders; exception/exit RPC output gap remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-21",
+      "status": "present",
+      "anchor": "src/lib/aiur/executor_command_cli.ex:207",
+      "note": "CLI retains its local format_reason clause family; ExecutorCommandCLI escalation_message still only matches opened/already_open with no fallback. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-22",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:2696",
+      "note": "visible_status_row? still locally handles deactivated, latched and claim/terminal cases; visibility policy remains specific to CLI consumers. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-23",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_control_cli.ex:2309",
+      "note": "CLI stale_github_quota_measurement still compares age against fixed 120 seconds rather than the interval-dependent CapacityBinding window. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-24",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator.ex:293",
+      "note": "Orchestrator retains forwarding and *_for_test facade functions; submodule-to-facade calls preserve ownership cycles. Original exact dead-call census not remeasured. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-24"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-25",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_chat.ex:106",
+      "note": "AgentChat.pause still forwards to Orchestrator then PauseResume client/callback layer, retaining repeated operation wrappers/specs. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-26",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/conversations.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-26"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-2-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/distribution.ex:46",
+      "note": "Distribution.start! still delegates directly to hidden-node monitor and never checks epmd_address; launcher-only loopback enforcement remains the actual boundary. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-28",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_environment.ex:345",
+      "note": "AgentEnvironment still separately constructs Port and SSH env exports; local-only Claude usage TTL and differing GitHub budget scrubs remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-29",
+      "status": "present",
+      "anchor": "src/lib/aiur/env.ex:168",
+      "note": "Env and AgentEnvironment still own separate explicit provider/GitHub credential lists alongside Env.Schema groups; source-of-truth duplication remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/prompt_builder.ex:185",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-30"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-2-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/linear/tracker.ex:101",
+      "note": "Linear tracker still stubs branch PR reads to ok/nil or empty while Tracker couples PR capabilities into issue tracker behavior; duplicate fallback/adaptor coupling remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-31"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-32",
+      "status": "present",
+      "anchor": "src/lib/aiur/cli.ex:1",
+      "note": "CLI still writes runtime launch flags to global app env and captures git revision via compile-time shell-out; Escript moduledoc unchanged. Provisional disposition retained.",
+      "source_ids": [
+        "loose-2-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-33",
+      "status": "present",
+      "anchor": "src/lib/aiur/event_humanizer_helpers.ex:34",
+      "note": "EventHumanizer truncate still compares byte_size then slices graphemes, appending dots to multibyte strings below grapheme bound. Provisional disposition retained.",
+      "source_ids": [
+        "loose-2-33"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/build_gate.ex:569",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-34"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-2-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/recent_merge.ex:115",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    }
+  ]
+}

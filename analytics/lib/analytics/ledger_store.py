@@ -30,6 +30,7 @@ def _mark_partial(cache, path, touched):
 
 def _ingest(files, cache, repo=None):
     touched = set()
+    ignored_count = 0
     for path in files:
         path = Path(path)
         key = str(path.resolve())
@@ -55,8 +56,11 @@ def _ingest(files, cache, repo=None):
                     except UnicodeDecodeError:
                         record, warning = None, {'type': 'invalid_encoding', 'path': key, 'line': line}
                     if warning:
-                        _warn(warning)
-                        _mark_partial(cache, key, touched)
+                        if warning['type'] == 'ignored_kind':
+                            ignored_count += 1
+                        else:
+                            _warn(warning)
+                            _mark_partial(cache, key, touched)
                     try:
                         projected = ledger.project(record) if record else None
                     except ValueError as error:
@@ -85,6 +89,8 @@ def _ingest(files, cache, repo=None):
                 cache['files'][key] = {'inode': stat.st_ino, 'prefix': prefix, 'offset': offset, 'line': line}
         except OSError as error:
             _warn({'type': 'file_read_error', 'path': key, 'reason': str(error)})
+    if ignored_count:
+        _warn({'type': 'ignored_kinds', 'count': ignored_count})
     return touched
 
 

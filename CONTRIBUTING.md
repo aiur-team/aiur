@@ -50,7 +50,12 @@ untrusted input.
 
 Aim for 200 lines and give a cohesion reason above that target. The required
 `workflow security` job rejects new text paths over 500 lines and growth of
-paths already over 500, comparing Git blobs against the event's base commit.
+paths already over 500, comparing Git blobs against the event's base commit;
+skills and third-party vendored directories are exempt from the line-count rule.
+The imported Claude Design reference at
+`src/test/fixtures/build_home/design-source/` is also exempt because it is kept
+byte-for-byte as vendored source; sibling fixture paths remain subject to the
+limit.
 Existing oversized files may stay unchanged or shrink; renames and copies to
 new paths must fit the limit. Text becoming binary is rejected. Binary files
 are otherwise skipped, and symlinks are reported without following them.
@@ -73,6 +78,8 @@ content as added. Binary changes are counted as files, and symlinks are excluded
 Area precedence and patterns live in `scripts/file_size_census.py`. This is
 instrumentation only, with no census CI enforcement or claimed saving.
 
+Update the pinned listener contract with `scripts/vendor-listener-spec <khala-commit-sha>`; commit its `CHECKSUM` with the files.
+
 ## Reuse before invention
 
 - **The extraction trigger is the second concrete usage — not the first, not
@@ -84,6 +91,48 @@ instrumentation only, with no census CI enforcement or claimed saving.
   cross-subsystem primitives (shell escaping, identifier/path sanitization,
   atomic writes) must have exactly one implementation; a second copy is a bug.
 - Prefer config access through `Aiur.Config` over ad-hoc environment reads.
+
+## Adding a harness adapter
+
+A harness needs an adapter and a registry entry; shared dispatch must stay
+independent of provider names. Use this checklist:
+
+1. Implement [`Aiur.CodingAgent.Backend`](src/lib/aiur/coding_agent/backend.ex):
+   `start_session/2`, `run_turn/4`, `stop_session/1`, `normalize_event/1`, and
+   `send_operator_message/2`. Follow its session, resume, and cleanup contracts.
+   `interrupt/1` is optional. The optional extension points `steer/3`,
+   `reply_native_question/3`, and `release_native_question/3` have reserved
+   signatures; export them only when supported, with reply and release paired.
+2. Add a provider definition under
+   [`coding_agent/providers/`](src/lib/aiur/coding_agent/providers/) and wire its
+   entry into [`Registry.entries/0`](src/lib/aiur/coding_agent/registry.ex), exposed
+   through `Aiur.CodingAgent.backends/0`. Supply required keys and supported
+   capabilities from `Backend.capabilities/0`, including a transcript module.
+   Use `:launch_telemetry` for launch preparation/revocation, `:display_tailer`
+   for display lifecycle (required with `:rc_display_tail`), and `:children` for
+   supervised harness services. Keep their contracts in the Backend typedoc.
+3. Declare non-derivable transport facts in the entry's `:delivery` map.
+   [`Aiur.Harness.Capabilities.delivery_primitives/1`](src/lib/aiur/harness/capabilities.ex)
+   derives the delivery descriptor from those facts, scheduling flags, and
+   callback exports; do not add provider-name branches or a second profile table.
+4. Expose the shared `Aiur.AgentTools` surface through
+   [`Catalog`](src/lib/aiur/agent_tools/catalog.ex) and
+   [`Dispatch`](src/lib/aiur/agent_tools/dispatch.ex); adapt the harness transport
+   to these tools rather than copying their catalog or handlers.
+5. Keep provider implementation details inside the harness component. Add its
+   source paths and trailing-dot namespace to `paths` and `private_namespaces`
+   in [`components/harness-adapters.json`](components/harness-adapters.json).
+   Outside callers use declared facades, never private adapter modules; add a
+   neutral callback or capability instead of an upward provider reference.
+   Run `python3 scripts/check-components.py` to check the boundary.
+6. Extend the [registry contract tests](src/test/aiur/coding_agent/registry_contract_test.exs)
+   and [delivery capability tests](src/test/aiur/harness/capabilities_test.exs)
+   for new contracts. Preserve the C1 `:r7_characterization` baseline and run
+   `mise exec -- mix test --only r7_characterization --max-cases 4` from `src/`
+   before and after the change, recording the non-zero count. For app-server
+   harnesses, extend the C5 [sibling protocol replay fixture](src/test/fixtures/aiur_claude/)
+   and its [adapter replay test](src/test/aiur/claude/protocol_fixture_test.exs)
+   to guard wire compatibility without requiring a live sibling checkout.
 
 ## Testing
 
@@ -121,8 +170,13 @@ test count in each PR body. Tagged tests also run in normal partitioned CI.
   behaviour and will pass on a trivially wrong implementation. (AGENTS.md
   "Tests must fail without the production change they guard" carries the same
   rule for agents; the `aiur-run` skill carries the reviewer-side check.)
-- **Flaky tests are fixed or deleted — never retried, never ignored.** Wall-clock
-  waits are not synchronization primitives: do not use finite `Process.sleep`
+- **Flaky tests are fixed or deleted, not routinely retried or ignored.** A
+  failed PR coverage partition may retry its failed tests once only when every
+  failure is quarantined, listed in `.github/known-flaky-tests.txt`, or failed
+  on the base branch in the prior 24 hours; the PR must not touch any failing
+  test file. The retry is recorded in that partition's flake evidence artifact.
+  Merge-group jobs never retry. Wall-clock waits are not synchronization
+  primitives: do not use finite `Process.sleep`
   calls or explicit timeouts on `assert_receive` / `refute_receive` to wait for
   concurrent work. Drive periodic work with explicit tick messages, then cross
   a causal barrier such as `:sys.get_state/1`, another synchronous call, or a
@@ -155,13 +209,19 @@ test count in each PR body. Tagged tests also run in normal partitioned CI.
   `shard-flake-evidence-<shard>-<attempt>` artifact, including `attempt.json`
   and `flakes.ndjson`. On a successful rerun of the same workflow run and SHA,
   the ledger records each previously failing ExUnit test with its shard, run
-  ID, failed/passed attempts, and seeds (null when the log has no seed).
+  ID, failed/passed attempts, and seeds (null when the log has no seed). The
+  landing watcher groups failures from one merge-group attempt by test module:
+  it files one ticket for the module with the most failed tests (first module
+  wins ties), lists other modules as likely cascades, and does not quarantine
+  tests based only on that mixed-module attempt.
   The job summary shows the count and test names. Download these artifacts to
   count recurrence; they use GitHub's repository artifact retention policy.
   Ledger and artifact errors are non-blocking so they cannot fail a passing shard.
-  This records observations without relaxing the coverage gate or automatically
-  quarantining tests. Runner loss before upload and failures without a parseable
-  ExUnit test name cannot be recorded.
+  A PR-only known-flake retry also stores its selected tests, result, and retry
+  log in that artifact. Only a green retry of an eligible failure relaxes that
+  partition's gate; the evidence does not automatically quarantine tests.
+  Runner loss before upload and failures without a parseable ExUnit test name
+  cannot be recorded or retried.
 - **Extracted modules are not coverage-exempt.** The coverage
   `ignore_modules` list in `src/mix.exs` only shrinks: every module split out
   of a giant ships tests for what it extracts, or CI fails the coverage gate
@@ -174,10 +234,21 @@ Pull requests, draft or ready, run the fast set: `changes`, workflow security
 repository guards), affected tests on the merge with the base, and the aggregate
 `ci gate`. Mark completed work ready **before** entering `agent:ci-wait`.
 
+A PR also soaks the tests it adds or modifies (`scripts/ci-soak.py`): each
+changed ExUnit file runs 10 times, one `mix test` per fresh `--seed`, at
+`--max-cases 8`; each changed Playwright spec runs with `--repeat-each=5`. Any
+failure fails `ci gate`. **To reproduce a soak failure, copy the command from the
+`::error::` line**, for example
+`cd src && mix test --seed 482913 --max-cases 8 test/aiur/foo_test.exs`; the
+seed fixes the test order, so the same seed fails the same way. Fix the test
+before merging it. See
+[PR checks](website/docs-app/reference/pr-checks.md) for the limits.
+
 Merge groups and manual dispatches run the full set, including coverage, tests,
 Dialyzer, browser harness, release smoke, analytics and Stream Deck checks.
-`merge_policy.full_ci_labels`, `full_ci_paths`, and unsafe affected-test selections
-also force full PR runs. Policy is read from the base commit.
+A PR run is full only when the PR is approved or carries `ci:full` or a
+`merge_policy.full_ci_labels` label. On an approved PR, `full_ci_paths` and unsafe
+affected-test selections also force a full run. Policy is read from the base commit.
 The `ci` workflow does not run on pushes to `main`; Docker publishing and the
 website workflow still do.
 
@@ -219,16 +290,15 @@ configured integrations; missing or skipped required checks remain pending.
 - **Prefer editing an existing page over adding a new one.** Concise and correct
   beats comprehensive — a wrong doc is worse than a missing one.
 - Docs live in `website/docs-app/`: config keys in
-  `reference/configuration.md`, commands and flags in `reference/cli.md`,
+  `reference/configuration-*.md`, commands and flags in `reference/cli-*.md`,
   user-facing surfaces in `guide/`, explanations in `concepts/`. A new page also
   needs a sidebar entry in `website/docs-app/.vitepress/config.ts`. The full map
   is [`AGENTS.md`](AGENTS.md#docs-ship-with-the-change).
-- **This norm is mostly not tool-enforced, unlike the rest of this document.**
-  `scripts/check-config-docs.py` covers config keys only — it resolves each key
-  to its full dotted path and fails the required `lint` job when one has no
-  entry in the reference. CLI flags, new surfaces, and falsified pages have no
-  check behind them, so a reviewer treating a missing doc as a blocking finding
-  is the whole enforcement.
+- **Config keys and CLI rows have mechanical checks.**
+  `scripts/check-config-docs.py` resolves each key to its full dotted path and
+  checks the index and topic pages in required lint. The CLI reference checker
+  compares command/flag inventories and complete example rows across topics.
+  Other user-facing surfaces and changed behavior remain review responsibilities.
 
 ## Releasing to npm
 
@@ -328,6 +398,11 @@ and `R-optional` (required code must not depend on optional code). Failures name
 source component, target module and the reference location. Fix the boundary or
 manifest first; an exemption is temporary debt, not permission to add more.
 
+A component may declare `private_namespaces` (trailing-dot prefixes). These
+restrict outside references, including aliases and module literals, in addition
+to the existing facade rule. Exact `facades` override namespace privacy. Harness adapters use this rule; registry values inside the
+component are legal. Dynamic module construction is outside the static scan.
+
 Allowlist TSVs in `scripts/components/allowlist/` match exact
 `(rule, source component, target module)` keys. A removed violation leaves a
 stale entry that fails lint: delete it in the same PR, or run
@@ -358,11 +433,20 @@ Arrays have one member per line; string sets and exemption TSVs stay sorted.
 Workflow security enforces this layout with `scripts/check-hot-list-format.py`.
 Do not use union merges on JSON or sorted/unique exemption lists.
 
+Seams live one per file in `scripts/components/seams/`, named
+`<from>--<to_module>--<kind>.json`, never inline in `components.json`: two PRs
+that each add a seam then touch different files and merge without conflict.
+
 Every root config section and scalar field, env schema name, and public
 `Aiur.Config.Paths` function ending in `_dir` or `_path` must have exactly one
 owner in `owns.config`, `owns.env` or `owns.state`. Add the owner in the same PR
-as a new declaration; stale and duplicate ownership also fail lint.
-`shared_with` records collaborating components without assigning another owner.
+as a new declaration; stale and duplicate ownership also fail lint. Explicit dotted
+`owns.config` fields override their section owner; `shared_with` records collaborators.
+For files persisted beneath a shared runtime directory, declare exact component-owned
+patterns in `owns.state` as `file: <runtime_state_dir>/name.json` or
+`file: <runtime_state_dir>/subdirectory/*.json`. The directory placeholder must name
+a public `_dir` accessor; this assigns the files without transferring ownership of the
+shared directory itself.
 
 RQ4: root sections stay literal `embeds_one` declarations: Ecto composes the
 struct at compile time and `check-config-docs.py` reads those lines. Ownership

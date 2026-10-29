@@ -2,7 +2,9 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceWait do
   @moduledoc "Retry workspace ownership waits and release."
 
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{TicketTransition, TrackerTasks}
   alias Aiur.Workspace.Ownership
+  require Logger
 
   @doc false
   @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), term(), map()) :: State.t()
@@ -17,6 +19,7 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceWait do
     context = %{context | retry: Map.merge(retry_defaults, context.retry)}
     demonitor_workspace_runner(context.running)
     waiting_state = install_workspace_wait(state, issue_id, identifier, owner, context)
+    waiting_state = sync_handoff_modifier(waiting_state, identifier, :add)
     synchronize_workspace_wait(waiting_state, identifier, wait)
   end
 
@@ -55,7 +58,8 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceWait do
       retry_attempt: Map.get(running || %{}, :retry_attempt) || Map.get(retry, :attempt),
       prior_work: value_from(running, retry, :prior_work) == true,
       workspace_path: value_from(running, retry, :workspace_path),
-      tracker_identity: value_from(running, retry, :tracker_identity)
+      tracker_identity: value_from(running, retry, :tracker_identity),
+      stalled_alert_outstanding: Map.get(running || %{}, :stalled_alert_outstanding, Map.get(retry, :stalled_alert_outstanding, false))
     }
   end
 
@@ -113,12 +117,32 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceWait do
             ready: Map.put(workspace_ownership.ready, issue_id, envelope)
         }
 
-        %{
+        state = %{
           state
           | claimed: MapSet.delete(state.claimed, issue_id),
             dispatch_recovery: %{state.dispatch_recovery | workspace_ownership: workspace_ownership}
         }
+
+        sync_handoff_modifier(state, identifier, :remove)
     end
+  end
+
+  defp sync_handoff_modifier(state, identifier, action) do
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, identifier},
+      fn -> TicketTransition.write_reason_modifier(identifier, action, "handed-off", writer: :workspace_wait) end,
+      fn current, result ->
+        case result do
+          :ok ->
+            current
+
+          {:error, reason} ->
+            Logger.warning("workspace ownership label update failed: issue=#{identifier} reason=#{inspect(reason)}")
+            current
+        end
+      end
+    )
   end
 
   @doc false

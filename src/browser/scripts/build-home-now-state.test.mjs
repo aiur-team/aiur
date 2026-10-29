@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { AST, UNKNOWN_STATE, agentState, progress, modelLabel } from '../../priv/static/build-home/now-state.js';
+import { AST, UNKNOWN_STATE, agentState, progress, modelLabel, ticketStatus } from '../../priv/static/build-home/now-state.js';
 import { loadBuildJs } from './export-build-home-fixtures.mjs';
 
 test('unknown progress has no percentage or hue', () => {
@@ -19,7 +19,13 @@ test('unknown and prototype states remain unknown', () => {
 });
 test('AST matches the vendored design and stays frozen', () => {
   const { AST: design } = loadBuildJs({ designDir: fileURLToPath(new URL('../../test/fixtures/build_home/design-source/', import.meta.url)), expose: ['AST'] });
-  assert.deepEqual(AST, JSON.parse(JSON.stringify(design)));
+  const designStates = Object.fromEntries(Object.entries(AST).filter(([key]) => ['active', 'error', 'retries', 'command', 'paused', 'parked'].includes(key)));
+  assert.deepEqual(designStates, JSON.parse(JSON.stringify(design)));
+  assert.deepEqual(AST.retrying, { label: 'Retrying', cls: 'queued' });
+  for (const suffix of ['merge-queued', 'ci-red', 'body-fix', 'paused-usage-limit', 'paused-decision', 'paused-agent', 'blocked', 'handed-off'])
+    assert.equal(AST[suffix].label, `agent:${suffix}`);
+  assert.deepEqual(AST.usage_limited, { label: 'Paused · usage limit', cls: 'idle' });
+  assert.deepEqual(AST.ci_wait, { label: 'Waiting for CI', cls: 'idle' });
   assert.ok(Object.isFrozen(AST));
   for (const key of Object.keys(AST)) {
     assert.equal(agentState(key), AST[key]);
@@ -31,4 +37,14 @@ test('model label prefers the provider name without inventing unknown labels', (
   assert.equal(modelLabel({ model: 'kimi', name: null }), 'Kimi');
   for (const agent of [null, { model: 'muse', name: null }, { model: '__proto__', name: null }])
     assert.equal(modelLabel(agent), null);
+});
+
+test('ticket status covers current, history, planned, unfiled and unknown rows', () => {
+  assert.deepEqual(ticketStatus({ sec: 'now', agent: { state: 'ci_wait' } }), { label: 'Waiting for CI', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'hist', status: 'done' }), { label: 'Merged', tone: 'done' });
+  assert.deepEqual(ticketStatus({ sec: 'hist', status: 'constructor' }), { label: 'State unknown', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'plan', num: 7, qpos: 3 }), { label: 'Queued · Q3', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'plan', num: null, id: 'pack:test/a' }), { label: 'Planned · not filed', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'nq' }), { label: 'Not queued', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'future' }), { label: 'State unknown', tone: 'idle' });
 });

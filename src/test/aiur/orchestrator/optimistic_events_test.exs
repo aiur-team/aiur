@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.OptimisticEventsTest do
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.Events.Exchange
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{EventTopics, OptimisticEvents, OptimisticLedger, RestackScheduler, State, TrackerTasks}
+  alias Aiur.Orchestrator.{EventTopics, OptimisticEvents, OptimisticGuard, OptimisticLedger, RestackScheduler, State, TrackerTasks}
   alias Aiur.TestCleanup
 
   @sha String.duplicate("a", 40)
@@ -66,6 +66,23 @@ defmodule Aiur.Orchestrator.OptimisticEventsTest do
     assert {:ok, row} = OptimisticLedger.get("10")
     assert hd(row["blockers"])["merged_at_ms"] == 1_000
     assert_received {:lifecycle, %{event: "optimistic_outcome", head_start_ms: 900}}
+  end
+
+  test "a just-merged blocker is reported as recovered instead of conflicting churn" do
+    OptimisticLedger.record_start("11", %{attempt_id: "dependent", started_at_ms: 100, start_trigger: :pr_opened, blockers: [%{"id" => "12"}]})
+    OptimisticLedger.record_integration("11", "12", @sha, true, true)
+    OptimisticEvents.merged(%State{}, "12", %{pr: %{"merged_at" => "1970-01-01T00:16:40Z"}})
+    assert {:ok, row} = OptimisticLedger.get("11")
+    assert hd(row["blockers"])["merged_at_ms"] == 1_000_000
+    assert [{:merged_notice, "11", "12"}] = OptimisticGuard.decide([row], %{}, 1_000_000, grace_ms: 0)
+  end
+
+  test "a current merged observation is enough to request a rebase notice" do
+    row = %{"ticket" => "11", "status" => "running", "blockers" => [%{"id" => "12"}], "counters" => %{"integrations_conflict" => 3}}
+    observation = %{confirmed?: true, observed_at_ms: 1_000_000, edge_present?: true, issue_open?: true, pr_state: :merged, pr_merged: true}
+    actions = OptimisticGuard.decide([row], %{"12" => observation}, 1_000_000, grace_ms: 0)
+    assert {:merged_notice, "11", "12"} in actions
+    refute Enum.any?(actions, &match?({:attention, :optimistic_blocker_failed, _, _}, &1))
   end
 
   test "idle restack conflict records one integration through supervised task completion" do

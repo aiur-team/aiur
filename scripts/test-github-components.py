@@ -14,17 +14,19 @@ REPO = Path(__file__).resolve().parent.parent
 MANIFEST = read_manifest(REPO)
 
 
-def check(target, expected):
+def check(target, expected, owner='github', expose=False):
     manifest = copy.deepcopy(MANIFEST)
     for component in manifest['components']:
         component['paths'] = []
         component['status'] = 'core'
         if component['id'] == 'orchestration':
             component['paths'] = ['src/lib/aiur/orchestrator/probe.ex']
-            component['optional'] = sorted(set(component['optional'] + ['github']))
+            component['optional'] = sorted(set(component['optional'] + ['github', 'github-access']))
             component['dependency_kind'] = 'optional'
-        if component['id'] == 'github':
+        if component['id'] == owner:
             component['paths'] = ['src/lib/aiur/github/probe.ex']
+    if expose:
+        next(c for c in manifest['components'] if c['id'] == owner)['facades'].append(target)
     manifest['features'] = []
     with tempfile.TemporaryDirectory(prefix='github-component-') as directory:
         root = Path(directory)
@@ -49,7 +51,13 @@ def check(target, expected):
 
 # Future regression guard: existing Client access must remain allowed.
 check('Aiur.GitHub.Client', 0)
-# Future regression guard: main's status command already consumes this facade.
-check('Aiur.GitHub.ResourceStore.Memory', 0)
+# The access facade is the only public access contract.
+check('Aiur.GitHub.Access', 0, 'github-access')
+# Namespace facades include access-owned settings without exposing other modules.
+check('Aiur.GitHub.Access.Settings', 0, 'github-access')
+# GHA-4 private boundary: exposing ResourceStore is the deliberate mutation.
+check('Aiur.GitHub.ResourceStore', 1, 'github-access')
+check('Aiur.GitHub.ResourceStore', 0, 'github-access', expose=True)
+check('Aiur.GitHub.ResourceStore.Memory', 1, 'github-access')
 # RequestLog is internal at this census; PollSnapshots is already an external API.
-check('Aiur.GitHub.RequestLog', 1)
+check('Aiur.GitHub.RequestLog', 1, 'github-access')

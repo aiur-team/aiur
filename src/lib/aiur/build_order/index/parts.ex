@@ -1,8 +1,9 @@
 defmodule Aiur.BuildOrder.Index.Parts do
   @moduledoc false
   alias Aiur.BuildOrder.{EpicOverrides, Features, History}
+  alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   require Logger
-  @keys ~w(history health catch_up features overrides settings repository open queue)a
+  @keys ~w(history health catch_up features overrides settings repository open queue estimates capacity pack_metadata)a
 
   @spec read(MapSet.t() | :all, keyword()) :: map()
   def read(dirty, opts) do
@@ -11,17 +12,28 @@ defmodule Aiur.BuildOrder.Index.Parts do
 
   @spec safe(atom(), (-> term())) :: term()
   def safe(part, fun) do
-    fun.()
-  rescue
-    error -> failed(part, error.__struct__)
-  catch
-    kind, _reason -> failed(part, kind)
+    Process.put(:aiur_build_index_read_part, part)
+
+    try do
+      fun.()
+    rescue
+      error -> failed(part, {error.__struct__, Exception.message(error)})
+    catch
+      kind, reason -> failed(part, {kind, reason})
+    after
+      Process.delete(:aiur_build_index_read_part)
+    end
   end
 
   defp failed(part, reason) do
-    Logger.warning("build_index part=#{part} read_failed=#{inspect(reason)}")
+    Logger.warning("build_index part=#{part} read_failed=#{inspect(reason, limit: 20, printable_limit: 200)}")
     {:error, :read_failed}
   end
+
+  defp read_part(:estimates, opts), do: Keyword.get(opts, :estimates, Aiur.BuildOrder.Estimates).snapshot(Keyword.get(opts, :estimates_opts, []))
+  defp read_part(:capacity, opts), do: Keyword.get(opts, :capacity_fun, &Aiur.Orchestrator.dashboard_snapshot/0).()
+
+  defp read_part(:pack_metadata, opts), do: Keyword.get(opts, :pack_metadata_fun, &PackLoader.feature_metadata/0).()
 
   defp read_part(:history, opts), do: Keyword.get(opts, :history, History).snapshot(Keyword.get(opts, :history_opts, []))
   defp read_part(:health, opts), do: Keyword.get(opts, :history, History).health(Keyword.get(opts, :history_opts, []))
@@ -30,6 +42,12 @@ defmodule Aiur.BuildOrder.Index.Parts do
   defp read_part(:overrides, opts), do: Keyword.get(opts, :overrides, EpicOverrides).all(Keyword.get(opts, :overrides_opts, []))
   defp read_part(:settings, opts), do: Keyword.get(opts, :settings_fun, &Aiur.Config.settings/0).()
   defp read_part(:repository, opts), do: Keyword.get(opts, :repository_fun, &Aiur.GitHub.Config.configured_repo/0).()
-  defp read_part(:open, opts), do: Keyword.get(opts, :open_source, Aiur.OpenTicketSource).snapshot(Keyword.get(opts, :open_server, Aiur.OpenTicketSource))
+
+  defp read_part(:open, opts) do
+    source = Keyword.get(opts, :open_source, Aiur.OpenTicketSource)
+    server = Keyword.get(opts, :open_server, Aiur.OpenTicketSource)
+    source.snapshot_for_index(server, Keyword.get(opts, :open_timeout, 1_000))
+  end
+
   defp read_part(:queue, opts), do: Keyword.get(opts, :queue, Aiur.BuildQueue).show()
 end

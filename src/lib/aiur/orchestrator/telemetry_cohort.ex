@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
   @moduledoc "Bounded attempt cohort attributes resolved from the dispatched issue."
   alias Aiur.BuildOrder.Features
   alias Aiur.{CodingAgent, Config}
+  alias Aiur.RunTelemetry
   alias Aiur.Signal
 
   @spec record_dispatch(Aiur.Issue.t(), String.t(), map()) :: :ok
@@ -21,6 +22,7 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
       feature: owner[:feature],
       epic: owner[:epic],
       tags: Enum.filter(issue.labels, &String.starts_with?(&1, prefixes)),
+      work_kind: work_kind(issue.labels, issue.title),
       blockers: Enum.map(issue.blocked_by, &blocker/1),
       start_mode: "normal"
     }
@@ -32,6 +34,8 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
       {:error, _} -> ["experiment:", "cohort:", "feature:"]
     end
   end
+
+  defp work_kind(labels, title), do: RunTelemetry.work_kind(labels, title)
 
   defp blocker(value) when is_map(value), do: Map.get(value, :identifier) || Map.get(value, "identifier") || Map.get(value, :id) || Map.get(value, "id")
   defp blocker(value), do: value

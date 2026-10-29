@@ -58,6 +58,56 @@ defmodule Aiur.Commands.DeliveryTargetUnboundStoreTest do
     refute_received {:scheduled, ^pid, {:dispatch_action, _fence, _retry?}, _delay_ms}
   end
 
+  test "an absent agent leaves an answer pending for its next session without retrying", %{dir: dir} do
+    parent = self()
+
+    dispatch_scheduler = fn recipient, message, delay_ms ->
+      send(parent, {:scheduled, recipient, message, delay_ms})
+      make_ref()
+    end
+
+    dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+
+    answer_comment_publisher = fn decision ->
+      send(parent, {:answer_comment, decision})
+      :ok
+    end
+
+    pid =
+      start_supervised!(
+        {DecisionStore,
+         dispatch_delay_ms: 0,
+         reconcile_delay_ms: 0,
+         name: nil,
+         state_dir: dir,
+         filesystem_sync_fun: fn -> :ok end,
+         dispatch_scheduler: dispatch_scheduler,
+         dispatcher: dispatcher,
+         answer_comment_publisher: answer_comment_publisher}
+      )
+
+    assert_receive {:scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+    assert {:ok, %{decision: decision}} = DecisionStore.request(@request, [ticket: @ticket, source: @source], pid)
+    answer = %{"idempotency_key" => "absent-agent", "expected_version" => 1, "custom_response" => "Proceed"}
+    assert {:ok, _} = DecisionStore.answer(decision.decision_id, answer, [actor: %{kind: :operator, id: "operator-1"}], pid)
+    assert_receive {:answer_comment, %{answer: %{custom_response: "Proceed"}}}, 1_000
+    assert_receive {:scheduled, ^pid, dispatch, 0}, 2_000
+    send(pid, dispatch)
+
+    pending = wait_for_decision(pid, decision.decision_id, & &1.pending_for_session?)
+    assert pending.delivery_status == :pending
+    assert pending.dispatch_attempts == []
+    refute_receive {:scheduled, ^pid, {:dispatch_action, _, _}, _}, 100
+
+    assert :ok = DecisionStore.consume_pending_for_session(@ticket.identifier, "session-next", ["not-this-answer"], pid)
+    assert {:ok, still_pending} = DecisionStore.get(decision.decision_id, pid)
+    assert still_pending.pending_for_session?
+
+    assert :ok = DecisionStore.consume_pending_for_session(@ticket.identifier, "session-next", [pending.active_action_id], pid)
+    assert {:ok, consumed} = DecisionStore.get(decision.decision_id, pid)
+    refute consumed.pending_for_session?
+  end
+
   defp wait_for_decision(pid, decision_id, predicate, attempts \\ 100)
   defp wait_for_decision(_pid, _decision_id, _predicate, 0), do: flunk("decision did not reach expected state")
 

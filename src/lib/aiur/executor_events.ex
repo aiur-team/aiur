@@ -10,17 +10,14 @@ defmodule Aiur.ExecutorEvents do
   require Logger
 
   alias Aiur.Decision
-  alias Aiur.Events.Exchange
-  alias Aiur.Events.IdGenerator
+  alias Aiur.Events
   alias Aiur.Events.Journal
-  alias Aiur.Events.Publisher
+  alias Aiur.Events.JournaledPublish
   alias Aiur.Events.Sanitizer
-  alias Aiur.Events.Topic
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents.Requested
   alias Aiur.ExecutorWakeProjection
-  alias Aiur.JSONSafe
   alias Aiur.JsonStore
   alias Aiur.Signal
 
@@ -67,13 +64,20 @@ defmodule Aiur.ExecutorEvents do
 
     with :ok <- validate_publish_topic(topic),
          :ok <- reject_github_source(source),
-         :ok <- reject_github_payload_source(payload),
-         {:ok, id} <- IdGenerator.reserve_durable_id(),
-         event <- payload |> JSONSafe.normalize() |> Map.merge(%{"id" => id, "topic" => topic, "source" => source_name(source)}),
-         :ok <- append_event(event) do
-      Publisher.publish_persisted(topic, payload, id, source: source)
+         :ok <- reject_github_payload_source(payload) do
+      # Deliberately NOT `StatePaths.ensure/0`: this runs on every publish, and the
+      # one-time legacy import behind it costs a `mkdir_p` plus a handful of stats
+      # per append — enough to push a Command past an operator-visible latency
+      # budget under load. `Journal.prepare/2` creates the directory, and the
+      # import runs once from the supervised children's `init/1`
+      # (`Claims`, `ExecutorWakeInbox`, `ExecutorListener`).
+      JournaledPublish.publish(topic, payload, journal: journal_path(), journal_dir: StatePaths.dir(), source: source)
     end
   end
+
+  @doc false
+  @spec requested_payload(Decision.t()) :: map()
+  defdelegate requested_payload(decision), to: Requested, as: :payload
 
   @spec subscribe(String.t()) :: :ok | {:error, term()}
   def subscribe(topic) when is_binary(topic) do
@@ -126,7 +130,7 @@ defmodule Aiur.ExecutorEvents do
     cursor = if String.starts_with?(topic, "executor."), do: last_seen_event_id() || 0, else: subscription_cursor(topic)
 
     try do
-      Enum.each(patterns, &Exchange.subscribe/1)
+      Enum.each(patterns, &Events.subscribe/1)
 
       case replay(patterns, cursor) do
         {:ok, events} ->
@@ -205,9 +209,11 @@ defmodule Aiur.ExecutorEvents do
   # Executor session, run the Sanitizer's instruction-carrier strip pass over
   # those fields and name them in a top-level "untrusted_fields" key so the
   # consumer treats them as data, not instructions.
-  @command_topics ~w(executor.decision.requested executor.decision.deferred)
+  @command_topics ~w(executor.decision.requested executor.decision.deferred executor.decision.answered)
   @untrusted_command_fields ~w(title options context recommendation consequence_of_delay)
   @untrusted_command_field_keys [
+    :data,
+    "data",
     :title,
     :options,
     :context,
@@ -228,7 +234,7 @@ defmodule Aiur.ExecutorEvents do
     if topic in @command_topics do
       event
       |> scrub_command_fields()
-      |> Map.put("untrusted_fields", @untrusted_command_fields)
+      |> Map.put("untrusted_fields", if(topic == "executor.decision.answered", do: @untrusted_command_fields ++ ["data"], else: @untrusted_command_fields))
     else
       event
     end
@@ -328,9 +334,6 @@ defmodule Aiur.ExecutorEvents do
     |> reject_github_source()
   end
 
-  defp source_name(source) when is_atom(source), do: Atom.to_string(source)
-  defp source_name(source), do: source
-
   defp deferred_payload(decision, renotify?) do
     %{
       decision_id: decision.decision_id,
@@ -403,18 +406,6 @@ defmodule Aiur.ExecutorEvents do
       )
   end
 
-  # Deliberately NOT `StatePaths.ensure/0`: this runs on every publish, and the
-  # one-time legacy import behind it costs a `mkdir_p` plus a handful of stats
-  # per append — enough to push a Command past an operator-visible latency
-  # budget under load. `Journal.prepare/2` below already creates the
-  # directory, and the import runs once from the supervised children's `init/1`
-  # (`Claims`, `ExecutorWakeInbox`, `ExecutorListener`).
-  defp append_event(event) do
-    with :ok <- Journal.prepare(StatePaths.dir(), journal_path()) do
-      Journal.append(journal_path(), event)
-    end
-  end
-
   defp subscription_state do
     case JsonStore.read(subscription_path()) do
       {:ok, %{} = state} ->
@@ -444,7 +435,7 @@ defmodule Aiur.ExecutorEvents do
           %{
             "topic" => topic,
             "reason" => reason,
-            "subscription_created_at_event_id" => IdGenerator.peek()
+            "subscription_created_at_event_id" => Events.peek()
           }
         ]
     end
@@ -465,7 +456,7 @@ defmodule Aiur.ExecutorEvents do
     end)
   end
 
-  defp matches_any?(patterns, topic) when is_binary(topic), do: Enum.any?(patterns, &Topic.matches?(&1, topic))
+  defp matches_any?(patterns, topic) when is_binary(topic), do: Enum.any?(patterns, &Events.matches?(&1, topic))
   defp matches_any?(_patterns, _topic), do: false
 
   defp replayable?(event, patterns, entries, cursor) do
@@ -475,12 +466,12 @@ defmodule Aiur.ExecutorEvents do
     is_integer(id) and id > cursor and matches_any?(patterns, topic) and
       Enum.any?(entries, fn entry ->
         floor = entry["subscription_created_at_event_id"] || 0
-        is_binary(entry["topic"]) and is_integer(floor) and id > floor and Topic.matches?(entry["topic"], topic)
+        is_binary(entry["topic"]) and is_integer(floor) and id > floor and Events.matches?(entry["topic"], topic)
       end)
   end
 
   defp safe_unsubscribe(topic) do
-    Exchange.unsubscribe(topic)
+    Events.unsubscribe(topic)
   rescue
     _error -> :ok
   end

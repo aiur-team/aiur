@@ -1,12 +1,16 @@
 defmodule Aiur.BuildOrder.Component do
   @moduledoc "Component-owned startup specs, split at the application’s existing child positions."
 
-  alias Aiur.BuildOrder.{AdHocSource, EpicOverrides, Features, GraphProjection, History, PackStatus, ProgressObserver}
+  alias Aiur.BuildOrder.{AdHocSource, EpicOverrides, Estimates, Features, GraphProjection, History, PackStatus, ProgressObserver}
 
-  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final | :label_projection
+  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final | :label_projection | :estimates | :label_backfill
 
   @spec child_specs(phase(), keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
   def child_specs(phase, opts)
+
+  def child_specs(:label_backfill, opts), do: if(Keyword.get(opts, :recording?, true), do: [History.LabelBackfill], else: [])
+
+  def child_specs(:estimates, _opts), do: [Estimates]
 
   def child_specs(:early, _opts), do: [{GraphProjection, runtime_config?: true}]
 

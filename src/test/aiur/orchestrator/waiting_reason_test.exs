@@ -240,6 +240,16 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
                stall_timeout_seconds: 3600
              }) == :unresponsive
     end
+
+    test "a working agent on a ci-wait ticket past the stall timeout waits for CI, matching the watchdog's ci-wait exemption" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "ci-wait",
+               pause_reason: nil,
+               work_state: :working,
+               stale_for_seconds: 3601,
+               stall_timeout_seconds: 3600
+             }) == :waiting_for_ci
+    end
   end
 
   describe "for_retry/0" do

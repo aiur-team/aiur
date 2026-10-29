@@ -91,6 +91,19 @@ defmodule Aiur.AgentEventFeed do
   def list(_identifier, _params), do: {:error, :invalid_limit}
 
   @doc """
+  One ticket's own event-log rows as a typed read, so a caller can tell a
+  missing log (`{:error, :missing_source}`) from an unreadable one. A joinable
+  identity reads its repository-scoped log; without one, the configured
+  repository's log for `identifier`.
+  """
+  @spec ticket_events(String.t(), Aiur.TrackerIdentity.t() | nil, keyword()) :: {:ok, [map()]} | {:error, term()}
+  def ticket_events(identifier, identity, opts) when is_binary(identifier) and is_list(opts) do
+    if identity,
+      do: IssueLog.event_history(identity, opts),
+      else: IssueLog.EventHistory.read_event_history(IssueLog.event_log_path(identifier), Keyword.put_new(opts, :limit, @default_bus_limit))
+  end
+
+  @doc """
   Reads this ticket's shared-event-bus history, oldest first.
 
   Every row the ticket's `[event:<kind>]` log holds becomes one entry:

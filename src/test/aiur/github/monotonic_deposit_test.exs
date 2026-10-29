@@ -8,6 +8,11 @@ defmodule Aiur.GitHub.MonotonicDepositTest do
   @newer "2026-10-07T11:00:00Z"
 
   setup do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
     ResourceStore.reset()
     on_exit(fn -> ResourceStore.reset() end)
     :ok

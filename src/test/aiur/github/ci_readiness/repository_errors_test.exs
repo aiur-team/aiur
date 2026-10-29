@@ -135,7 +135,7 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryErrorsTest do
                CiReadiness.inspect_repository(request_fun, token, "acme", "private-repo", "main")
 
       assert detail.token_type == token_type
-      refute inspect(detail) =~ token
+      Aiur.TestSupport.refute_leak(detail, token)
     end
   end
 

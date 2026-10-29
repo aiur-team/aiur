@@ -29,41 +29,29 @@
  * support.**
  */
 
+import { InstanceAuthError } from "./channel-types.js";
+
 import { randomUUID } from "node:crypto";
 
 import { normalizeAiurDictation } from "./aiur-speech.js";
 
 import type {
-  ChatKind,
+  StreamDeckChat,
   FetchLike,
   StreamDeckAgentState,
   StreamDeckChannel,
   StreamDeckChannelOptions,
   StreamDeckCommand,
+  StreamDeckCommandAnswerError,
   StreamDeckCommandsPage,
   StreamDeckGrid,
-  StreamDeckLogs,
   StreamDeckSnapshot,
+  StreamDeckTicket,
   WebSocketFactory,
   WebSocketLike,
 } from "./channel-types.js";
 
 export type * from "./channel-types.js";
-
-/** Derives the row class from a role, for a row that did not carry one. */
-export const rowKindOfRole = (role: string): ChatKind => {
-  if (role === "assistant" || role === "agent") return "agent";
-  if (role === "command" || role === "tool") return "command";
-  if (role === "user") return "user";
-  // system, reasoning, alert, ci and anything unknown are the "logs" class —
-  // the same mapping as the server's `StreamdeckLogs.row_kind/1`.
-  return "logs";
-};
-
-export const chatKind = (value: unknown): ChatKind => {
-  if (value === "command" || value === "agent" || value === "logs" || value === "user") return value;
-  return "logs";
-};
 
 const tokenPath = "/api/v1/streamdeck/token";
 
@@ -89,12 +77,17 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   const response = await options.fetch(new URL(tokenPath, options.baseUrl).toString(), {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${options.username}:${options.password}`).toString("base64")}`,
+      Authorization: options.token
+        ? `Bearer ${options.token}`
+        : `Basic ${Buffer.from(`${options.username ?? ""}:${options.password ?? ""}`).toString("base64")}`,
       "Content-Type": "application/json",
     },
     body: "{}",
   });
-  if (!response.ok) throw new Error(`Stream Deck token request failed (${response.ok ? "ok" : "unauthorized"})`);
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) throw new InstanceAuthError("Stream Deck authentication failed");
+    throw new Error("Stream Deck token request failed (unauthorized or unavailable)");
+  }
   const tokenPayload = (await response.json()) as { token?: unknown };
   if (typeof tokenPayload.token !== "string" || tokenPayload.token.length === 0) throw new Error("Stream Deck token response was invalid");
 
@@ -120,7 +113,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   /** Refs of `commands_page` requests still waiting for their reply. */
   const commandsPageRefs = new Set<string>();
   /** Refs of `answer_command` requests still waiting for their reply. */
-  const answerCommandRefs = new Set<string>();
+  const answerCommandRefs = new Map<string, string>();
   const send = (event: string, payload: Record<string, unknown>): void => {
     if (!joined) {
       pending.push({ event, payload });
@@ -131,7 +124,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
     const ref = String(++reference);
     if (event === "voice_start") voiceStartRefs.add(ref);
     else if (event === "commands_page") commandsPageRefs.add(ref);
-    else if (event === "answer_command") answerCommandRefs.add(ref);
+    else if (event === "answer_command") answerCommandRefs.set(ref, String(payload.idempotency_key));
     socket.send(JSON.stringify(["4", ref, "streamdeck:fleet", event, payload]));
   };
 
@@ -167,6 +160,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
         }
         return;
       }
+      const answerKey = answerCommandRefs.get(ref);
       if (answerCommandRefs.delete(ref)) {
         if (reply?.status === "ok" && typeof response.decision === "object" && response.decision !== null) {
           options.events.commandAnswered({
@@ -174,7 +168,12 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
             decision: response.decision as unknown as StreamDeckCommand,
           });
         } else {
-          options.events.commandsError(typeof response.reason === "string" ? response.reason : "Answer failed");
+          const reason = typeof response.reason === "string" ? response.reason : "Answer failed";
+          if (["already_answered", "withdrawn", "stale"].includes(reason)) {
+            options.events.commandsError(reason, response as unknown as StreamDeckCommandAnswerError, answerKey);
+          } else {
+            options.events.commandsError(reason);
+          }
         }
         return;
       }
@@ -211,6 +210,9 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       options.events.fleet(fleet.agents ?? []);
       if (fleet.grid !== undefined) options.events.grid(fleet.grid);
     }
+    else if (event === "chat") options.events.chat?.(payload as StreamDeckChat);
+    else if (event === "frame") options.events.frame?.(payload as import("./frame.js").DeckFrame);
+    else if (event === "ticket") options.events.ticket?.(payload as StreamDeckTicket);
     else if (event === "usage") options.events.usage(payload as Readonly<Record<string, unknown>>);
     else if (event === "transcript") {
       // The live per-message push is the same shape as a flattened `message`
@@ -225,7 +227,6 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
         tool: null,
       });
     }
-    else if (event === "logs") options.events.logs(payload as StreamDeckLogs);
     else if (event === "control") options.events.control(payload as Readonly<Record<string, unknown>>);
     else if (event === "voice") {
       const frame = payload as { session?: unknown; kind?: unknown; text?: unknown };
@@ -266,7 +267,9 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   socket.onclose = () => notifyClosed(new Error("Stream Deck channel closed"));
 
   return {
+    input: (input) => { if (joined && !stopped) send("input", { ...input }); },
     focus: (identifier) => send("focus", { identifier }),
+    priority: (identifier, direction) => send("priority", { identifier, direction }),
     control: (identifier, action) => send("control", { identifier, action }),
     say: (identifier, text) => send("say", { identifier, text, message_id: randomUUID() }),
     voiceStart: () => send("voice_start", {}),
@@ -289,4 +292,4 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
 };
 
 export const defaultWebSocket: WebSocketFactory = (url) => new WebSocket(url) as unknown as WebSocketLike;
-export const defaultFetch: FetchLike = (input, init) => fetch(input, init) as Promise<Awaited<ReturnType<FetchLike>>>;
+export const defaultFetch: FetchLike = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10_000) }) as Promise<Awaited<ReturnType<FetchLike>>>;

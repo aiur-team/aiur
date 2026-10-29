@@ -125,8 +125,8 @@ defmodule Aiur.AgentCompaction.Orchestrator do
 
   defp session_has_compacted?(session), do: already_compacted?(session)
 
-  defp submit_compaction_request(%{port: port, thread_id: thread_id}, _state, opts) when is_port(port) and is_binary(thread_id) do
-    CodexClient.request_compact(port, thread_id, Keyword.merge([timeout_ms: Config.timeout_ms()], opts))
+  defp submit_compaction_request(%{backend: "codex", port: port, thread_id: thread_id} = session, _state, opts) when is_port(port) and is_binary(thread_id) do
+    CodexClient.request_compact(session, thread_id, Keyword.merge([timeout_ms: Config.timeout_ms()], opts))
   end
 
   defp submit_compaction_request(_session, _state, _opts), do: {:error, "live Codex session is unavailable"}

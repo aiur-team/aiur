@@ -2,9 +2,8 @@ defmodule Aiur.GitHub.EventSourcePolicy do
   @moduledoc "GitHub provenance, resource deduplication and webhook corroboration for event publication."
   @behaviour Aiur.Events.SourcePolicy
 
-  alias Aiur.GitHub.AgentMarker
+  alias Aiur.GitHub.{Access, AgentMarker}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.ResourceStore
   alias Aiur.Webhooks
 
   # Corroboration for the webhook silence sweep: the poller observed a GitHub
@@ -68,12 +67,12 @@ defmodule Aiur.GitHub.EventSourcePolicy do
 
   @impl true
   def already_processed?(opts) do
-    ResourceStore.processed?(Keyword.get(opts, :resource), Keyword.get(opts, :resource_version))
+    Access.processed?(Keyword.get(opts, :resource), Keyword.get(opts, :resource_version))
   end
 
   @impl true
   def mark_processed(opts) do
-    ResourceStore.mark_processed(
+    Access.mark_processed(
       Keyword.get(opts, :resource),
       Keyword.get(opts, :resource_source, :poll),
       Keyword.get(opts, :resource_version)
@@ -145,7 +144,7 @@ defmodule Aiur.GitHub.EventSourcePolicy do
 
   # `Aiur.Events.Sanitizer` deletes HTML comments as hidden-instruction
   # carriers, so on any path that sanitizes before publishing (notably
-  # `Aiur.Orchestrator.CommandScan`) the marker is already gone from the body by
+  # `Aiur.GitHub.Listeners.CommandScan.Scan`) the marker is already gone from the body by
   # the time this runs. The sanitizer therefore records what it saw *before*
   # stripping, and that record is consulted first. Its absence proves nothing
   # and falls through to the body, which in turn fails to human.

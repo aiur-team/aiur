@@ -3,12 +3,13 @@
 This package ships the deployment artifacts and operator runbook for the
 direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The production
 sidecar opens the device, connects to the authenticated Aiur Phoenix channel,
-renders live fleet/provider state, and routes physical key controls through the
-same AgentChat facade as the browser emulator. It renews its short-lived socket
-token after disconnects and retains hotplug/suspend recovery — the token expiry
-bounds the socket, not the deck's authority: the sidecar stores the dashboard
-credentials and re-mints the token itself, so a plugged-in deck is a
-permanently-authorized operator client. Terminal end-to-end
+rasterizes daemon SVG frames to JPEG, and forwards raw keys, dials and touch
+input to server-owned navigation. It renews its short-lived socket
+token after disconnects and retains hotplug/suspend recovery. When configured,
+`AIUR_CLIENT_TOKEN` is sent as a bearer credential rather than exchanged from
+stored dashboard credentials. Its scope sets the sidecar's API access, and
+revocation prevents it from obtaining further channel tokens. Dashboard
+username/password remain a loopback migration fallback. Terminal end-to-end
 proof remains tracked in
 [#1358](https://github.com/aiur-team/aiur/issues/1358).
 
@@ -43,6 +44,20 @@ mismatch rather than assuming an archive downloaded earlier still matches.
 
 `STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
 sidecar reapplies on open and on resume.
+
+## Image assets
+
+The archive copies the font, license and offline strip to `app/assets/`, including
+`JetBrainsMono-Variable.woff2` and its OFL license from `packages/aiur-style/fonts`.
+Startup registers JetBrains Mono with the canvas renderer; keep the font beside
+`offline.svg` when installing. No system font installation
+is needed. When disconnected, the sidecar blanks the keys and rasterizes the
+bundled **Aiur offline** strip through the same SVG-to-JPEG path.
+
+The physical process displays server-rendered frames. Local demo and drawing
+views have been removed. Voice, Commands, browser links and instance-picker
+views are not active in this frame-only entry point. The saved instance still
+selects the daemon at startup. Use the dashboard for those controls meanwhile.
 
 ## Prerequisites
 
@@ -104,8 +119,9 @@ in time.
 
 Install the downloaded sidecar and unit, then create the required private
 environment file. The entry point reads `STREAMDECK_BRIGHTNESS`,
-`AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and
-`AIUR_DASHBOARD_PASSWORD` from `~/.config/aiur/streamdeck.env`.
+`AIUR_PHOENIX_URL`, and `AIUR_CLIENT_TOKEN` from
+`~/.config/aiur/streamdeck.env`. The token is preferred; dashboard
+username/password remain supported for loopback migration.
 
 ```sh
 install -d -m755 ~/.local/share/aiur
@@ -148,8 +164,7 @@ Set the environment file to mode `600` and use the supported settings:
 ```dotenv
 STREAMDECK_BRIGHTNESS=80
 AIUR_PHOENIX_URL=http://127.0.0.1:4000
-AIUR_DASHBOARD_USERNAME=operator
-AIUR_DASHBOARD_PASSWORD=replace-me
+AIUR_CLIENT_TOKEN=replace-with-token-from-aiur-token-create
 ```
 
 Keep the EnvironmentFile private and do not commit a populated copy. The

@@ -83,6 +83,52 @@ defmodule Aiur.BuildGate.StatusTest do
   end
 
   @tag @linux_only
+  test "reads and summarizes a 30 KB owner command while reporting the locked lease", context do
+    slot_lock = Path.join(context.lock_dir, "slot-1.lock")
+    owner_path = Path.join(context.gate_dir, "slot-1.owner")
+    release_path = Path.join(context.gate_dir, "large-owner.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Aiur.BuildGateTestHolder.start!(
+        bash,
+        ~S"""
+        exec 8<>"$1"
+        flock 8
+        """,
+        ["build-gate-holder", slot_lock],
+        context.lock_dir,
+        release_path
+      )
+
+    command = "mix test " <> String.duplicate("test/aiur/build_gate/", 2_000)
+
+    File.write!(
+      owner_path,
+      "version=2\ntoken=large\npid=987654321\npgid=987654321\nholder_pid=987654321\n" <>
+        "command_pgid=987654321\ncommand_pid_namespace=pid:[987654321]\nphase=test\n" <>
+        "command=#{command}\nstarted_at=#{System.os_time(:second) - 45}\n"
+    )
+
+    assert File.stat!(owner_path).size > 30_000
+
+    assert %{active: 1, holders: [%{phase: "test", command: summary, held_for_seconds: age, lease_alive?: true}]} =
+             BuildGate.status(gate_dir: context.gate_dir, lock_dir: context.lock_dir, capacity: 1)
+
+    assert summary =~ "mix, legacy arguments truncated"
+    assert summary =~ "sha256="
+    assert age >= 44
+
+    File.write!(owner_path, "token=large\nphase=test\ncommand=#{command}\n")
+
+    assert %{active: 1, degraded?: true, holders: [], issues: [%{reason: :metadata_unreadable}]} =
+             BuildGate.status(gate_dir: context.gate_dir, lock_dir: context.lock_dir, capacity: 1)
+
+    File.touch!(release_path)
+    assert_receive {^holder, {:exit_status, 0}}, 2_000
+  end
+
+  @tag @linux_only
   test "status names a live Linux holder and keeps a long-held lease", context do
     slot_lock = Path.join(context.lock_dir, "slot-1.lock")
     owner_path = Path.join(context.gate_dir, "slot-1.owner")

@@ -22,7 +22,16 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed do
     {"cost_quality", "spend_per_merged_ticket", "count", "USD", ["accounting"]},
     {"cost_quality", "tokens_per_merged_ticket", "count", "tokens", ["accounting"]},
     {"cost_quality", "main_red_events", "bucketed", "events/day", ["main_red"]},
-    {"cost_quality", "reverts", "bucketed", "reverts/day", ["reverts"]}
+    {"cost_quality", "reverts", "bucketed", "reverts/day", ["reverts"]},
+    {"ci_stability", "ci_run_failure_rate", "binary", "runs", ["ci_runs"]},
+    {"ci_stability", "ci_rerun_rate", "binary", "runs", ["ci_runs"]},
+    {"ci_stability", "merge_group_failure_rate", "binary", "runs", ["ci_runs"]},
+    {"ci_stability", "pr_ci_wall_time", "duration", "ms", ["ci_runs"]},
+    {"ci_stability", "ci_queue_wait", "duration", "ms", ["ci_jobs"]},
+    {"ci_stability", "feature_merge_share", "bucketed", "share", ["work_kind"]},
+    {"ci_stability", "innocent_dequeues", "count", "merged PRs", ["pulls"]},
+    {"ci_stability", "flaky_failure_rate", "rate", "share", ["flake_evidence", "ci_jobs", "ci_runs"]},
+    {"ci_stability", "flake_issues_filed", "bucketed", "issues/day", ["flake_issues"]}
   ]
 
   @impl true
@@ -32,34 +41,52 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed do
 
   @impl true
   def metrics do
-    Enum.map(@definitions, fn {group, name, kind, unit, requires} ->
-      period = group == "throughput" or name in ["main_red_events", "reverts"]
-      better = if name in ["merged_per_hour", "agents_vs_cap"], do: "higher", else: "lower"
-
-      %Metric{
-        id: name,
-        pack: id(),
-        label: String.replace(name, "_", " "),
-        group: group,
-        kind: kind,
-        unit: unit,
-        unit_of_analysis: if(period, do: if(group == "throughput", do: "hour", else: "day"), else: "ticket"),
-        better: better,
-        default_direction: if(name == "binding_gate", do: "none", else: if(better == "higher", do: "increase", else: "decrease")),
-        requires: requires
-      }
-    end)
+    Enum.map(@definitions, &metric/1)
   end
+
+  defp metric({group, name, kind, unit, requires}) do
+    better = if name in ["merged_per_hour", "agents_vs_cap", "feature_merge_share"], do: "higher", else: "lower"
+
+    %Metric{
+      id: name,
+      pack: id(),
+      label: String.replace(name, "_", " "),
+      group: group,
+      kind: kind,
+      unit: unit,
+      unit_of_analysis: unit_of_analysis(group, name),
+      better: better,
+      default_direction: direction(name, better),
+      requires: requires
+    }
+  end
+
+  defp unit_of_analysis(_group, name) when name in ["ci_run_failure_rate", "ci_rerun_rate", "pr_ci_wall_time"], do: "CI run"
+  defp unit_of_analysis(_group, "merge_group_failure_rate"), do: "merge-group run"
+  defp unit_of_analysis(_group, "ci_queue_wait"), do: "job"
+  defp unit_of_analysis(_group, "innocent_dequeues"), do: "merged PR"
+  defp unit_of_analysis("throughput", _name), do: "hour"
+  defp unit_of_analysis(_group, name) when name in ["main_red_events", "reverts", "feature_merge_share", "flaky_failure_rate", "flake_issues_filed"], do: "day"
+  defp unit_of_analysis(_group, _name), do: "ticket"
+
+  defp direction("binding_gate", _better), do: "none"
+  defp direction(_name, "higher"), do: "increase"
+  defp direction(_name, _better), do: "decrease"
 
   @impl true
   def observations(ids, window, ctx) do
-    rows =
-      case TelemetrySource.load(window, Map.put(ctx, :include_accounting, Enum.any?(ids, &(&1 in ["spend_per_merged_ticket", "tokens_per_merged_ticket"])))) do
+    context =
+      ctx
+      |> Map.put(:include_accounting, Enum.any?(ids, &(&1 in ["spend_per_merged_ticket", "tokens_per_merged_ticket"])))
+      |> Map.put(:metric_ids, ids)
+
+    results =
+      case TelemetrySource.load(window, context) do
         {:error, reason} -> Map.new(ids, &{&1, Common.unavailable(reason)})
         {:ok, data} -> Map.new(Enum.filter(metrics(), &(&1.id in ids)), &{&1.id, evaluate(&1, data, window)})
       end
 
-    Map.new(rows, fn {id, result} -> {id, {result.coverage, result.observations}} end)
+    Map.new(results, fn {id, result} -> {id, {result.coverage, result.observations}} end)
   end
 
   defp evaluate(%{requires: ["accounting"]} = metric, data, window) do
@@ -69,9 +96,15 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed do
     end
   end
 
+  defp evaluate(%{requires: ["ci_runs"]}, %{ci_runs_status: :unavailable}, _window), do: Common.unavailable(:github_unavailable)
+  defp evaluate(%{id: "flaky_failure_rate"}, %{ci_runs_status: :unavailable}, _window), do: Common.unavailable(:github_unavailable)
+
+  defp evaluate(%{id: "flaky_failure_rate"}, %{flake_evidence: nil}, _window), do: Common.unavailable(:landing_watch_journal_unavailable)
+  defp evaluate(%{id: "flaky_failure_rate"}, %{ci_jobs: nil}, _window), do: Common.unavailable(:github_unavailable)
+  defp evaluate(%{requires: ["ci_jobs"]}, %{ci_jobs: nil}, _window), do: Common.unavailable(:github_unavailable)
+
   defp evaluate(metric, data, window) do
-    coverage = Coverage.classify(metric.requires, data.facts, window, data.earliest_at)
-    coverage = if data.partial? and coverage.state == :captured, do: Map.merge(coverage, %{state: :partial, reason: :telemetry_incomplete}), else: coverage
+    coverage = metric_coverage(metric, data, window)
 
     if coverage.state == :not_captured do
       Common.result(coverage, [])
@@ -89,4 +122,21 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed do
       Common.result(Map.put(coverage, :filtered, filtered), observations)
     end
   end
+
+  defp metric_coverage(metric, data, window) do
+    coverage = Coverage.classify(metric.requires, data.facts, window, data.earliest_at)
+    coverage = mark_partial(coverage, data.partial?, :telemetry_incomplete)
+    mark_partial(coverage, Enum.any?(metric.requires, &partial_source?(&1, data.source_partials)), :github_source_incomplete)
+  end
+
+  defp mark_partial(%{state: :captured} = coverage, true, reason), do: Map.merge(coverage, %{state: :partial, reason: reason})
+  defp mark_partial(coverage, _partial?, _reason), do: coverage
+
+  defp partial_source?("ci_runs", partials), do: "ci_runs" in partials
+  defp partial_source?("ci_jobs", partials), do: "jobs" in partials
+  defp partial_source?("flake_evidence", partials), do: "flake_evidence" in partials
+  defp partial_source?("work_kind", partials), do: "pulls" in partials
+  defp partial_source?("pulls", partials), do: "pulls" in partials
+  defp partial_source?("flake_issues", partials), do: "flake_issues" in partials
+  defp partial_source?(_requirement, _partials), do: false
 end

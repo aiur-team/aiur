@@ -113,6 +113,8 @@ defmodule AiurWeb.PresenterTest do
 
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
+    assert payload.contract == "aiur.status"
+    assert payload.contract_version == 1
     assert payload.counts == %{running: 1, retrying: 1, idle: 1}
     assert payload.agent_totals == %{seconds_running: 73}
 
@@ -158,6 +160,8 @@ defmodule AiurWeb.PresenterTest do
            }
 
     assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 5_000)
+    assert issue_payload.contract == "aiur.ticket"
+    assert issue_payload.contract_version == 1
     refute Map.has_key?(issue_payload.running, :tokens)
     assert issue_payload.running.waiting_reason == :waiting_for_ci
     assert issue_payload.running.live_conversation.generation_handle == conversation_handle
@@ -212,20 +216,42 @@ defmodule AiurWeb.PresenterTest do
   test "open_decision_count uses blocking Commands rather than attention chips" do
     orchestrator_name = Module.concat(__MODULE__, :DecisionCountOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
-
+    # The presenter intentionally reads the registered store; give that store
+    # a private root so a neighboring test's cleanup cannot remove it mid-append.
+    # This case must remain synchronous while it replaces the registered singleton.
+    decision_store_dir = Aiur.TestSupport.tmp_root!("presenter-decision-store")
     identifier = "MT-800"
+    previous_decision_state_dir = Application.fetch_env(:aiur, :decision_state_dir)
+    original_store_state = :sys.get_state(Aiur.DecisionStore)
+    original_store_dir = Path.dirname(original_store_state.ndjson_path)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
       SubscriptionStore.stop(identifier)
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.DecisionStore)
+      Application.put_env(:aiur, :decision_state_dir, original_store_dir)
+      {:ok, _decision_store} = Supervisor.restart_child(Aiur.Supervisor, Aiur.DecisionStore)
+      assert Path.dirname(:sys.get_state(Aiur.DecisionStore).ndjson_path) == original_store_dir
+
+      case previous_decision_state_dir do
+        :error -> Application.delete_env(:aiur, :decision_state_dir)
+        {:ok, dir} -> Application.put_env(:aiur, :decision_state_dir, dir)
+      end
+
+      Aiur.TestCleanup.rm_rf!(decision_store_dir)
     end)
+
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.DecisionStore)
+    Application.put_env(:aiur, :decision_state_dir, decision_store_dir)
+    {:ok, _decision_store} = Supervisor.restart_child(Aiur.Supervisor, Aiur.DecisionStore)
 
     :ok = SubscriptionStore.attach(identifier)
     :ok = SubscriptionStore.add_attention(identifier, "needs-review")
     :ok = SubscriptionStore.add_attention(identifier, "optional-question")
 
     assert {:ok, _} =
-             Aiur.DecisionStore.request(%{"question" => "Which release should ship?", "blocking" => true},
+             Aiur.DecisionStore.request(
+               %{"question" => "Which release should ship?", "blocking" => true},
                ticket: %{identifier: identifier},
                source: %{agent_id: "worker", session_id: "session", event_id: nil}
              )

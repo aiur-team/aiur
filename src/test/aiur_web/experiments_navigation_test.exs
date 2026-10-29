@@ -14,6 +14,16 @@ defmodule AiurWeb.ExperimentsNavigationTest do
     refute AiurWeb.Presenter.analytics_navigation(table: table).experiments_available?
   end
 
+  test "Units payload keeps the same nav items as pages reading the navigation directly" do
+    alias AiurWeb.OperatorControlCenter.RouteRegistry
+
+    navigation = %{available?: false, path: nil, message: "none", experiments_available?: true}
+    payload = AiurWeb.ControlCenterPresenter.compose(%{analytics: navigation}, [], [], %{merges: [], health: :ready})
+
+    assert Enum.map(RouteRegistry.routes(payload.analytics), & &1.id) == Enum.map(RouteRegistry.routes(navigation), & &1.id)
+    assert {:ok, _route} = RouteRegistry.route(:experiments, payload.analytics)
+  end
+
   test "experiment routes use their own session with the dashboard gate and authentication" do
     for {path, action} <- [{"/experiments", :experiments}, {"/experiments/:id", :experiment}] do
       route = Enum.find(AiurWeb.Router.__routes__(), &(&1.path == path))
@@ -23,7 +33,7 @@ defmodule AiurWeb.ExperimentsNavigationTest do
       assert session.name == :experiments
       assert Enum.map(session.extra.on_mount, &elem(&1.id, 0)) == [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess]
       info = Phoenix.Router.route_info(AiurWeb.Router, "GET", String.replace(path, ":id", "example"), "localhost")
-      assert info.pipe_through == [:dashboard_auth, :dashboard_pages, :browser]
+      assert info.pipe_through == [:browser_dashboard_auth, :dashboard_pages, :browser]
     end
   end
 end

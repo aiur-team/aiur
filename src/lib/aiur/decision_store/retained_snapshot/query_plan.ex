@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   @moduledoc false
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
   alias Aiur.DecisionStore.RetainedIndex
 
@@ -28,7 +29,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   @spec matches?(Decision.t(), map()) :: boolean()
   def matches?(decision, query) do
-    lifecycle_match?(decision, Map.get(query, :lifecycle)) and
+    Policy.matches_route?(decision, Map.get(query, :route)) and
+      lifecycle_match?(decision, Map.get(query, :lifecycle)) and
       ticket_match?(decision, Map.get(query, :ticket)) and
       search_match?(decision, Map.get(query, :search)) and
       optional_match?(decision.authority, Map.get(query, :authority)) and
@@ -42,8 +44,15 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   defp candidate(index, %{search: search} = query) when is_binary(search),
     do: RetainedIndex.search(index, search, ordering(query))
 
-  defp candidate(index, %{lifecycle: :open} = query), do: union(index, @open_statuses, query)
-  defp candidate(index, %{lifecycle: :awaiting} = query), do: union(index, @awaiting_statuses, query)
+  defp candidate(index, %{lifecycle: :open} = query) do
+    union(index, @open_statuses, query)
+    |> :gb_sets.union(RetainedIndex.recoverable_expired(index, ordering(query)))
+  end
+
+  defp candidate(index, %{lifecycle: :awaiting} = query) do
+    union(index, @awaiting_statuses, query)
+    |> :gb_sets.union(RetainedIndex.recoverable_expired(index, ordering(query)))
+  end
 
   defp candidate(index, %{lifecycle: lifecycle} = query) when lifecycle in @lifecycle_statuses,
     do: RetainedIndex.lifecycle(index, lifecycle, ordering(query))
@@ -60,12 +69,16 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp scan_limited?(query) do
-    Enum.any?([:ticket, :search, :authority, :blocking, :kind], &(not is_nil(Map.get(query, &1))))
+    Enum.any?([:ticket, :search, :authority, :blocking, :kind, :route], &(not is_nil(Map.get(query, &1))))
   end
 
   defp lifecycle_match?(_decision, nil), do: true
-  defp lifecycle_match?(decision, :open), do: decision.decision_status in @open_statuses
-  defp lifecycle_match?(decision, :awaiting), do: decision.decision_status in @awaiting_statuses
+  defp lifecycle_match?(decision, :open), do: RetainedIndex.open?(decision)
+
+  defp lifecycle_match?(%Decision{decision_status: :expired, blocking: true, answer: nil}, :awaiting),
+    do: true
+
+  defp lifecycle_match?(decision, :awaiting), do: decision.decision_status == :open
   defp lifecycle_match?(decision, :historic), do: decision.decision_status in @historic_statuses
   defp lifecycle_match?(decision, :history), do: decision.decision_status in @history_statuses
   defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle

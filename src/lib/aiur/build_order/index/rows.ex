@@ -2,7 +2,10 @@ defmodule Aiur.BuildOrder.Index.Rows do
   @moduledoc false
   alias Aiur.BuildOrder.{Epic, FeatureStats, Metadata, ProviderHealth, SourceFreshness}
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
-  alias Aiur.BuildOrder.Index.Catalogue
+  alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
+  alias Aiur.Config.Schema.GeneralEpic
+  alias Aiur.GitHub.Issues
+  alias Aiur.StartTrigger.ProgressStore
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
   def build(parts, general) do
@@ -97,10 +100,15 @@ defmodule Aiur.BuildOrder.Index.Rows do
 
     base = %{
       id: to_string(producer.num),
+      src: nil,
+      was: nil,
       num: producer.num,
       title: if(is_binary(row.title), do: row.title, else: ""),
+      lane: nullable_lane(Metadata.parse(row.labels).lane),
+      priority: priority(row.labels),
       type: type(row.labels),
       epic: resolution.key,
+      general_epics: Enum.filter(context.general, &GeneralEpic.matches?(&1, row.labels)) |> Enum.map(& &1.key),
       feature: feature,
       also: also,
       added: added,
@@ -114,10 +122,16 @@ defmodule Aiur.BuildOrder.Index.Rows do
       wave: nil,
       qpos: nil,
       cue: nil,
-      pr: pr(row)
+      pr: pr(row, producer.sec)
     }
 
-    base |> Map.merge(timing) |> Map.merge(Edges.to_payload(edges, producer.num)) |> Map.merge(producer) |> Map.update!(:created, &SourceFreshness.ms/1) |> align_dependencies()
+    base
+    |> Map.merge(timing)
+    |> Map.merge(Edges.to_payload(edges, producer.num))
+    |> Map.merge(producer)
+    |> Map.update!(:created, &SourceFreshness.ms/1)
+    |> align_dependencies()
+    |> Estimates.row(parts[:estimates])
   end
 
   defp align_dependencies(row) do
@@ -137,6 +151,18 @@ defmodule Aiur.BuildOrder.Index.Rows do
     end
   end
 
+  defp nullable_lane(:unassigned), do: nil
+  defp nullable_lane(lane), do: lane
+
+  defp priority(labels) when is_list(labels) do
+    case Issues.extract_priority(labels) do
+      priority when is_integer(priority) and priority > 0 -> priority
+      _unknown -> nil
+    end
+  end
+
+  defp priority(_labels), do: nil
+
   defp type(labels) when is_list(labels) do
     cond do
       "bug" in labels -> "bug"
@@ -149,6 +175,16 @@ defmodule Aiur.BuildOrder.Index.Rows do
   defp type(_), do: "feature"
   defp agent(%{agent_model: model, agent_effort: effort}, "hist") when is_binary(model), do: %{model: model, name: nil, effort: if(is_binary(effort), do: effort), state: nil}
   defp agent(_, _), do: nil
-  defp pr(%{pr_number: number, merged_at: %DateTime{}}) when is_integer(number), do: %{num: number, state: "merged"}
-  defp pr(_), do: nil
+  defp pr(%{pr_number: number, merged_at: %DateTime{}}, _section) when is_integer(number), do: %{num: number, state: "merged"}
+  defp pr(_row, "hist"), do: nil
+
+  defp pr(%{number: number}, _section) do
+    case ProgressStore.lookup(to_string(number)) do
+      %{pr_number: pr, stage: stage, closed_unmerged?: false} when is_integer(pr) and pr > 0 and stage != :pr_merged ->
+        %{num: pr, state: "open", ci: if(stage, do: to_string(stage))}
+
+      _ ->
+        nil
+    end
+  end
 end

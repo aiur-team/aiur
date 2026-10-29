@@ -4,7 +4,15 @@ A Unit is one agent run working one ticket while it is active, paused, or waitin
 
 ## What the Units page shows
 
-The Units page is dashboard `/` and CLI `aiur units`.
+The Units page is the hidden dashboard rollback route `/units`, retained for one release, and CLI `aiur units`. The dashboard home `/` is now Build.
+
+Paused agents remain listed, but only pauses that reserve capacity count as
+occupied slots. A provider usage-limit pause releases its slot while it waits
+for a fallback or for the provider reset.
+
+Its row shows `Slot released`. When a resume is refused for capacity,
+`aiur resume` reports the slots in use, how many are active and how many paused
+entries hold, and the load-envelope limit when it is below max-agents.
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 
@@ -21,6 +29,20 @@ The page re-reads the fleet on every daemon change and at least every 15 seconds
 
 The Summary progress bar uses the daemon's weighted current-run aggregate across Units with current inputs. When that aggregate cannot be computed, the bar keeps its shape but renders as flat grey rather than as zero or a hatched track.
 
+## Turns, context, and token usage
+
+Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. Context is separate from cumulative token usage.
+
+A running unit whose backend has not reported a count or context reads **not reported**, and the tooltip names the backend. A unit with no running attempt, such as one in CI wait, reads **no attempt**.
+
+Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, it uses the current attempt; otherwise it shows ticket scope.
+
+The panel shows input, output, cached input, derived uncached input, cached proportion, scope, and observation age. Current context occupancy remains separate.
+
+Unsupported, missing, ambiguous, or incomplete measurements remain `—`. A missing observation timestamp is labeled unknown. The panel uses Codex thread snapshots without adding the overlapping per-turn stream.
+
+The fleet table's **Context** column shows each agent's observed context occupancy when its provider reports it. If the provider reports used tokens without a window size, the table says **unknown capacity**; an absent observation shows **—**.
+
 ## API meters
 
 The Units strip shows non-model APIs beside model-provider meters.
@@ -30,7 +52,7 @@ The Units strip shows non-model APIs beside model-provider meters.
 | GitHub Core | REST request budget percentage used | [GitHub API budgets](/apis/github-budgets#api-budgets) |
 | GitHub GraphQL | Query-point budget percentage used | [GitHub API budgets](/apis/github-budgets#api-budgets) |
 | GitHub secondary limit | Active abuse-control backoff | [GitHub API budgets](/apis/github-budgets#api-budgets) |
-| ElevenLabs credit quota | Account credit pool as percentage used; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures) |
+| ElevenLabs credit quota | Account credit pool as percentage used; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-usage-meter-measures) |
 
 Every meter bar runs the full width of its pane, and every progress bar on the dashboard shares the same height. Model rows show the provider logo and usage bars only — the per-provider token count, spend figure, and the ElevenLabs next-invoice amount are not rendered on the strip.
 
@@ -42,16 +64,38 @@ An ElevenLabs account with a zero character limit renders an empty track, becaus
 
 Selecting an agent opens its live conversation without leaving Units.
 
+See [Conversations](/concepts/conversations) for transcript storage, retention
+and jump-point precision.
+
 | Control | Behavior |
 | --- | --- |
 | Composer | A writable dashboard sends typed text to the selected agent. |
-| Microphone | Transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
+| Microphone | Opens a Dictate / Converse chooser without requesting microphone access. Dictate transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
 | Waveform | Confirms the browser is receiving audio. |
-| Spoken conversation | A separate half-duplex control: press, speak, press again; settled text is sent through the ordinary composer and enters the ticket transcript. |
+| Spoken conversation | Legacy **Start interactive voice chat** control: press, speak, press again; settled text is sent automatically through the composer and enters the ticket transcript. Hidden when the assistant conversation capability is available or degraded; the assistant replaces this mode. |
 | Spoken reply | Aiur streams ElevenLabs text-to-speech audio back to the browser when the agent replies. |
-| Device selection | Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
+| Converse | Hands the current target to the assistant panel without recording or asking the agent to build context. Capture begins with the panel’s **Start** consent step. Disabled with its reason until the assistant conversation capability is available. |
+| Device selection | In the settings popover next to the mic. Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
 
 Dictation never sends a message automatically, and the browser never receives the API key.
+
+The writable agent log modal composer has the same Dictate / Converse chooser,
+microphone settings, waveform and status line. Dictate fills its message box
+and waits for **Send**. Closing the modal stops microphone capture. Read-only
+or ambiguous agent targets have no voice controls; the modal has no legacy
+interactive voice chat button.
+
+While listening or finishing transcription, **Cancel** discards the dictation and restores the exact text from before recording. **Escape** does the same when focus is in the voice controls or message field; it keeps the conversation drawer open. Outside recording, Escape keeps its usual drawer-close behavior.
+
+The voice status line follows idle → requesting microphone permission → listening → finishing transcription → ready to review. Permission denial explains how to allow the microphone; no-device errors explain how to connect one. Both allow another attempt. Channel failures keep the text captured so far; unknown failures show a neutral message.
+
+Dictated messages use the same delivery receipts and Command answer notices as typed text; voice never infers delivery from transcription or pressing Send.
+
+When speech-to-text is not configured, Dictate stays disabled with a reason and a [setup link](/apis/elevenlabs#configure-the-key). When voice is not installed, it stays disabled with “Voice input isn't installed in this Aiur. Typed messages work as usual.” Typing and Send remain available.
+
+Insecure origins and browsers without Web Audio also explain why dictation is unavailable. Capability changes during recording take effect on the next activation; the current session continues.
+
+The Build ticket modal uses the same press-to-start, press-to-stop dictation control. It remains disabled while availability is checked and, when voice is unavailable, its tooltip explains why; recording is visibly marked and failures appear in the composer status line.
 
 Configure `elevenlabs.voice_id` and grant the key **Text to Speech** permission before using spoken conversation; voice cloning and barge-in are not part of this mode.
 
@@ -75,21 +119,6 @@ their reported value (the visual bar stops at 100%).
 
 Token usage and context capacity are separate from these allowance windows;
 missing capacity or pricing is not treated as zero.
-
-The authenticated Usage and cost summary follows **Tokens by model** with **Cost by provider route**.
-
-| Route case | How it reads |
-| --- | --- |
-| Routed call | Names both hops, such as `OpenRouter -> DeepSeek`. |
-| Direct provider | Appears without an arrow. |
-| Unreported upstream | Reads `OpenRouter -> upstream unknown`. |
-| Unavailable estimate | Reads **Unknown**, never zero. |
-| `mix aiur.cost_report --json` | Keeps `provider` and `upstream_provider` as separate fields. |
-| `mix aiur.pricing_window` | Shows which peak/off-peak pricing window is currently in force, the next boundary, and how `avoid_peak_pricing` routing treats it. |
-
-Provider-reported and API-equivalent estimates stay separate. Peak/off-peak
-windowed providers (DeepSeek) price a call at the rate actually in force; when
-the window cannot be determined, the conservative peak rate is reported.
 
 ## Tickets
 

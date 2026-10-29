@@ -1,0 +1,75 @@
+{
+  "contract": "aiur.instance_summary",
+  "version": 1,
+  "instance_id": null,
+  "observed_at": "2026-10-27T00:00:00Z",
+  "agents": {
+    "active": {
+      "status": "unavailable",
+      "observed_at": "2026-10-27T00:00:00Z",
+      "age_ms": 0,
+      "reason": "not_implemented",
+      "freshness": null
+    },
+    "capacity": {
+      "status": "unavailable",
+      "observed_at": "2026-10-27T00:00:00Z",
+      "age_ms": 0,
+      "reason": "not_implemented",
+      "freshness": null
+    }
+  },
+  "fleet": {
+    "globally_paused": {
+      "status": "unavailable",
+      "observed_at": "2026-10-27T00:00:00Z",
+      "age_ms": 0,
+      "reason": "not_implemented",
+      "freshness": null
+    }
+  },
+  "commands": {
+    "awaiting": {
+      "status": "unavailable",
+      "observed_at": "2026-10-27T00:00:00Z",
+      "age_ms": 0,
+      "reason": "not_implemented",
+      "freshness": null
+    },
+    "awaiting_blocking": {
+      "status": "unavailable",
+      "observed_at": "2026-10-27T00:00:00Z",
+      "age_ms": 0,
+      "reason": "not_implemented",
+      "freshness": null
+    }
+  },
+  "executor": {
+    "status": "unavailable",
+    "observed_at": "2026-10-27T00:00:00Z",
+    "age_ms": 0,
+    "reason": "not_implemented",
+    "freshness": null
+  },
+  "build_orders": {
+    "status": "unavailable",
+    "observed_at": "2026-10-27T00:00:00Z",
+    "age_ms": 0,
+    "reason": "not_implemented",
+    "freshness": null
+  },
+  "background_agents": {
+    "status": "unavailable",
+    "observed_at": "2026-10-27T00:00:00Z",
+    "age_ms": 0,
+    "reason": "not_implemented",
+    "freshness": null
+  },
+  "capabilities": {
+    "status": "unavailable",
+    "observed_at": "2026-10-27T00:00:00Z",
+    "age_ms": 0,
+    "reason": "not_implemented",
+    "freshness": null
+  }
+}

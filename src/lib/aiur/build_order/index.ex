@@ -1,9 +1,10 @@
 defmodule Aiur.BuildOrder.Index do
   @moduledoc "Shared build-home join and changes; all input reads are local projections."
-  alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued}
-  alias Aiur.BuildOrder.Index.{Catalogue, Pages, Parts, Rows, Sources}
+  alias Aiur.AgentPubSub
+  alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued, PackStatus}
+  alias Aiur.BuildOrder.Index.{Catalogue, EpicProgress, FeatureProgress, PackRows, Pages, Parts, Rows, Sources}
   @topic "build-home:index"
-  @blocks ~w(epics features order counts sources history_meta repo)a
+  @blocks ~w(epics epic_progress epic_progress_meta features order counts feature_progress sources history_meta repo capacity)a
 
   @spec assemble(map(), keyword()) :: {:ok, map()} | {:error, atom()}
   def assemble(parts, opts \\ []) do
@@ -12,9 +13,15 @@ defmodule Aiur.BuildOrder.Index do
       now = Keyword.get(opts, :now, System.system_time(:millisecond))
       {all, undated} = Rows.build(parts, general)
       catalogue = Catalogue.build(parts, general, all, now)
+      feature_parts = Map.put(parts, :packs, Map.get(parts, :feature_packs, parts[:packs]))
+      packs = PackRows.read(parts[:packs], all, catalogue.epics)
+      parts = Map.put(parts, :packs, packs)
       sources = Sources.build(parts, now)
       complete? = sources.history.state not in ["unavailable", "incomplete"]
+      feature_progress = FeatureProgress.compute(feature_parts, all, catalogue.features, complete?, now)
+      all = PackRows.merge(all, packs)
       counts = if complete?, do: counts(all, catalogue.order)
+      progress = EpicProgress.compute(general, all, parts.resolved_history, sources)
       hist = all |> Map.values() |> Enum.filter(&(&1.sec == "hist")) |> Enum.sort_by(&{&1.end, &1.id})
       available? = sources.history.state != "unavailable"
 
@@ -23,9 +30,13 @@ defmodule Aiur.BuildOrder.Index do
          all: all,
          hist: hist,
          counts: counts,
+         epic_progress: progress.epics,
+         epic_progress_meta: progress.meta,
+         feature_progress: feature_progress,
          sources: sources,
          history_meta: %{total: if(available?, do: length(hist)), undated: if(available?, do: undated)},
          repo: repository(parts),
+         capacity: Aiur.BuildOrder.Index.Estimates.capacity(parts[:capacity]),
          now: now
        })}
     end
@@ -43,8 +54,11 @@ defmodule Aiur.BuildOrder.Index do
     %{upsert: upsert, remove: remove, set: set}
   end
 
+  @doc "Zone-independent window input, sorted once per index generation."
+  @spec base(map()) :: map()
+  defdelegate base(index), to: Pages
   @spec window(map(), String.t(), integer()) :: map()
-  def window(index, zone, now), do: Pages.window(index, zone, now)
+  defdelegate window(base, zone, now), to: Pages
   @spec earlier(map(), integer(), String.t(), integer()) :: {:ok, map()} | {:error, :invalid_params}
   def earlier(index, before, zone, days), do: Pages.earlier(index, before, zone, days)
   @spec local_midnight(Date.t(), String.t()) :: integer()
@@ -65,15 +79,34 @@ defmodule Aiur.BuildOrder.Index do
       end
 
     history = %{rows: Map.merge(Rows.open_history(parts), Rows.history(parts))}
-    nq = safe_read(:not_queued, fn -> NotQueued.build(parts[:open], parts[:queue], active: active, label_prefix: prefix) end)
+
+    nq =
+      case parts[:open] do
+        %Aiur.OpenTicketSource.Snapshot{} = open ->
+          safe_read(:not_queued, fn -> NotQueued.build(open, parts[:queue], active: active, label_prefix: prefix) end)
+
+        {:error, reason} ->
+          %{state: :unavailable, reasons: [open_failure_reason(reason)], observed_at: nil, truncated?: false, skipped: 0, rows: []}
+
+        _ ->
+          %{state: :unavailable, reasons: [:open_tickets_unavailable], observed_at: nil, truncated?: false, skipped: 0, rows: []}
+      end
+
     %{history_snapshot: {:ok, history}, todo_label: prefix <> ":todo", not_queued: nq}
   end
+
+  defp open_failure_reason(:timeout), do: :open_tickets_timeout
+  defp open_failure_reason(_reason), do: :open_tickets_read_failed
 
   @spec subscribe_sources() :: :ok | {:error, term()}
   def subscribe_sources do
     subscribers = [
       &History.subscribe/0,
+      &PackStatus.subscribe/0,
       &Features.subscribe/0,
+      &Aiur.BuildOrder.Estimates.subscribe/0,
+      &Aiur.AgentPubSub.subscribe_poll_state/0,
+      &Aiur.AgentPubSub.subscribe_fleet_invalidation/0,
       &EpicOverrides.subscribe/0,
       &Aiur.BuildProgress.subscribe/0,
       &Aiur.OpenTicketSource.subscribe/0,
@@ -90,11 +123,11 @@ defmodule Aiur.BuildOrder.Index do
     end)
   end
 
-  @spec subscribe() :: :ok | {:error, term()}
-  def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+  @spec subscribe(keyword()) :: :ok | {:error, term()}
+  def subscribe(opts \\ []), do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic, opts)
   @spec broadcast(map()) :: :ok
   def broadcast(changes) do
-    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:build_changes, changes})
+    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:build_changes, changes}, AgentPubSub)
     :ok
   end
 

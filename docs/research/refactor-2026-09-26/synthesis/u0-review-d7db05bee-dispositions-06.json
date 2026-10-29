@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 6,
+  "first_id": "dup-by-body-11",
+  "last_id": "dup-by-body-50",
+  "findings": [
+    {
+      "id": "dup-by-body-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/catalog_store.ex:170",
+      "note": "CatalogStore and Normalizer retain separate sorted lifecycle-digest and all-resolved distinct metric computations. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-12",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/operator_control_center/units_presentation.ex:224",
+      "note": "FleetTable and UnitsPresentation retain identical seconds-to-hour/minute formatters. GithubCacheLive is removed by 694f9d021 (#2841); that occurrence no longer contributes. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/git.ex:158",
+      "note": "Git.parse_origin_url and Init.Github.parse_repo still strip .git, split slash/colon and take the final owner/name pair independently. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-14",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/current_run_membership/store/file_ops.ex:28",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-14"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-15",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex:181",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-15"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-16",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/opencode/bridge_port.ex:113",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-16"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-17",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/graph_projection_options.ex:221",
+      "note": "All three BuildOrder option modules still implement the same integer >0 and <=maximum selection with fallback to supplied default. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-18",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/build_order/ad_hoc_source.ex:387",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-18"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-20",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry.ex:61",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-20"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-22",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_list/activation.ex:137",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-22"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-23",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_command_installer.ex:98",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-23"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_aggregate/paths.ex:52",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-24"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-25",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/tool_executor.ex:645",
+      "note": "DecisionAPI and DecisionQuery.StoreReader still independently catch exception/exit as store_unavailable; ToolExecutor request adapter retains narrower exit-only classification. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/github_graph/endpoint.ex:98",
+      "note": "Endpoint and Settings retain separate downcased owner/repository comparisons of TrackerIdentity against a tuple; fallback validation remains different. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-28",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_aggregate/store.ex:328",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-28"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-29",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/build_order/ticket_context_adapter.ex:272",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-29"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-30",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/ticket_history_normalizer.ex:210",
+      "note": "TicketHistory.Normalizer and TicketActivity.Projection retain separate OpaqueIdentifier normalize-then-put functions, preserving the map on rejected values. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-30"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-31",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/alert_ledger/tail.ex:37",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-31"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-32",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/credential_usage.ex:96",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-32"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-33",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/session_lifecycle.ex:650",
+      "note": "SessionLifecycle and AppServerPort retain separate positive integer/string root_pid normalization helpers; neither parser establishes liveness. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-33"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_runner/message_handler.ex:344",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-36",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/catalog_store.ex:306",
+      "note": "CatalogStore and GitHubGraph.Reconciliation retain separate strict Integer.parse positive-number helpers; wider number-parsing family remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-36"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-37",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_authority.ex:122",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-37"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-38",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex:105",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-38"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-39",
+      "status": "present",
+      "anchor": "src/lib/aiur/alert_feed.ex:459",
+      "note": "AlertFeed and StreamdeckProjection retain separate ISO8601 parsing clauses with nil on invalid strings; outer DateTime/integer policies remain independent. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-39"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-40",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage/price_table/validator.ex:200",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-40"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-41",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/github_comments_poller.ex:490",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-41"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-43",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/progress_renderer.ex:195",
+      "note": "ProgressRenderer and ExecutorWakeProjection retain separate Map.fetch-first accessors preserving present nil/false atom values before string fallback. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-43"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-44",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/member.ex:152",
+      "note": "Member and RootSummary still separately adapt Bounded URL validation into invalid_url diagnostics; generic versus identity-bound validators remain distinct. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-44"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-45",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/connectivity.ex:133",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-45"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-46",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_event_feed.ex:283",
+      "note": "AgentEventFeed and EventLine still separately split ticket scope suffixes; AlertFeed retains an independent ticket-topic regex parser. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-46"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-47",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/usage_runtime.ex:395",
+      "note": "UsageRuntime and Dashboard still separately parse nonnegative cursor integers/strings; zero remains a valid cursor. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-47"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-48",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/display_tailer.ex:280",
+      "note": "DisplayTailer and TranscriptTurn retain separate alive?/GenServer.stop(:normal,1000) wrappers swallowing exit; SessionLifecycle retains another copy. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-48"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-50",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_runner/comment_context.ex:156",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-50"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 defmodule Aiur.ControlCLI.ProtocolTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport, async: false
 
   import ExUnit.CaptureIO
 

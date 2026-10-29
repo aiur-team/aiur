@@ -93,7 +93,7 @@ defmodule Aiur.Extensions.DashboardLiveTest do
       units_activity_fun: &static_units_activity/0
     )
 
-    {:ok, view, html} = live(build_conn(), "/?v=1&scope=unfinished")
+    {:ok, view, html} = live(build_conn(), "/units?v=1&scope=unfinished")
     assert html =~ "Units"
     assert Floki.parse_document!(html) |> Floki.find("title") |> Floki.text() =~ "Dashboard"
     assert html =~ "1100"

@@ -24,7 +24,7 @@ defmodule Aiur.Claude.Repl.Reaper do
 
   # Teardown steps that touch the host process table, and so are injectable
   # from `stop_session/2` opts. Tests pass stubs; production passes none.
-  @host_seam_opts [:group_alive_fun, :group_cleanup_fun, :tree_kill_fun, :pid_alive_fun]
+  @host_seam_opts [:group_alive_fun, :group_cleanup_fun, :tree_kill_fun, :pid_alive_fun, :unregister_fun]
 
   @doc false
   @spec host_seam_opts() :: [atom()]
@@ -53,6 +53,7 @@ defmodule Aiur.Claude.Repl.Reaper do
     group_cleanup_fun = Keyword.get(opts, :group_cleanup_fun, &cleanup_process_group/3)
     tree_kill_fun = Keyword.get(opts, :tree_kill_fun, &ProcessTree.graceful_kill_tree/1)
     pid_alive_fun = Keyword.get(opts, :pid_alive_fun, &os_pid_alive?/1)
+    unregister_fun = Keyword.get(opts, :unregister_fun, &Aiur.ProcessReaper.unregister/1)
 
     group_result =
       cleanup_process_group(
@@ -73,8 +74,8 @@ defmodule Aiur.Claude.Repl.Reaper do
     result = cleanup_result(group_result, kill_result, pane_gone?, pid_gone?, group_gone?)
 
     if result == {:ok, :cleanup_proven} do
-      Aiur.ProcessReaper.unregister(Socket.pane_ref(tmux, pane_id))
-      Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+      unregister_fun.(Socket.pane_ref(tmux, pane_id))
+      unregister_fun.({:os_pid, os_pid})
       clear_spool(session[:identifier])
     end
 
@@ -132,10 +133,46 @@ defmodule Aiur.Claude.Repl.Reaper do
   def default_repl_name,
     do: "#{@repl_window_prefix}#{beam_os_pid()}-#{System.unique_integer([:positive])}"
 
+  @doc "Classify pane liveness, retrying transient tmux failures before returning unknown."
+  @spec pane_liveness(map(), non_neg_integer()) :: :alive | :gone | :unknown
+  def pane_liveness(session, retries \\ 2)
+
+  def pane_liveness(%{tmux: tmux, pane_id: pane_id} = session, retries) when retries > 0 do
+    case classify_pane_reply(Tmux.pane_pid(tmux, pane_id)) do
+      :unknown ->
+        Process.sleep(25)
+        pane_liveness(session, retries - 1)
+
+      result ->
+        result
+    end
+  end
+
+  def pane_liveness(%{tmux: tmux, pane_id: pane_id}, 0) do
+    classify_pane_reply(Tmux.pane_pid(tmux, pane_id))
+  end
+
+  defp classify_pane_reply({:ok, _pid}), do: :alive
+  defp classify_pane_reply({:error, reason}) when reason in [:no_tmux, :timeout, :no_mock_response], do: :unknown
+
+  defp classify_pane_reply({:error, reason}) when is_binary(reason),
+    do: if(missing_pane_error?(reason), do: :gone, else: :unknown)
+
+  defp classify_pane_reply({:error, [message | _]}) when is_binary(message),
+    do: if(missing_pane_error?(message), do: :gone, else: :unknown)
+
+  defp classify_pane_reply({:error, _reason}), do: :unknown
+
   @doc "Return true if the pane is still alive."
   @spec pane_alive?(map()) :: boolean()
   def pane_alive?(%{tmux: tmux, pane_id: pane_id}) do
     match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
+  end
+
+  defp missing_pane_error?(message) do
+    String.contains?(message, "can't find pane") or
+      String.contains?(message, "no such pane") or
+      String.contains?(message, "no server running")
   end
 
   defp clear_spool(nil), do: :ok

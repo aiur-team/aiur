@@ -1,7 +1,7 @@
 // Stream Deck emulator interaction hook.
 //
-// Authority model: dial gestures are local-first, while fleet page, log
-// offsets, and screen mode are server-authoritative. The hook pushes one
+// Authority model: dial gestures are local-first, while fleet page
+// and screen mode are server-authoritative. The hook pushes one
 // coarse event per gesture step and LiveView clamps the resulting state to
 // real bounds.
 //
@@ -11,14 +11,12 @@
 // to avoid duplicate-listener accumulation across patches.
 //
 // Mode machine (server-authoritative):
-//   grid → (key click) → cmd → (cycle-window) → logs
-//   logs → (back) → cmd → (back) → grid
+//   grid → (key click) → cmd → (back) → grid
 (function () {
   "use strict";
 
   // The dial controller lives in streamdeck-emulator-knob.js, loaded first.
   var Knob = window.AiurStreamdeckKnob.Knob;
-  var clamp = window.AiurStreamdeckKnob.clamp;
 
   window.AiurStreamdeckEmulatorHook = {
     mounted() {
@@ -133,22 +131,18 @@
       this._knobs = [];
     },
 
-    _handleDialStep(index, delta) {
+    _handleDialStep(index, delta, onReply) {
       if (!delta) return;
-      var dial = this._knobs && this._knobs[index];
-      var value = dial ? dial.value : 0;
-      if (this._mode === "grid" && index === 3) {
-        this._requestGridPage(value);
-      } else if (this._mode === "logs" && index === 3) {
-        this.pushEvent("logs-scroll", { axis: "events", delta: delta > 0 ? 1 : -1 });
-      } else if (this._mode === "logs" && index === 0) {
-        this.pushEvent("logs-scroll", { axis: "transcript", delta: delta > 0 ? 1 : -1 });
-      }
+      this.pushEvent("input", { kind: "dial", index: index, action: "turn", delta: delta > 0 ? 1 : -1 }, onReply);
     },
 
-    _requestGridPage(value) {
-      if (!Number.isFinite(value)) return;
-      this.pushEvent("grid-page", { value: clamp(value, 0, 100) });
+    _handleDialRelease(index, delta) {
+      if (index === 3) {
+        if (delta) this._handleDialStep(index, delta, () => this._syncPageKnob());
+        else this._syncPageKnob();
+      } else {
+        this._handleDialStep(index, delta);
+      }
     },
 
     _syncPageKnob() {
@@ -157,21 +151,19 @@
       if (!keys || !knob) return null;
       var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
       if (!Number.isFinite(value)) return null;
-      knob._setLogicalValue(value);
+      if (!knob.isDragging) knob._setLogicalValue(value);
       return value;
     },
 
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
-      // Both key grids bind here: #sd-keys carries the agent keys (and, in cmd
-      // mode, the command keys) and #sd-log-keys carries the eight logs keys.
-      // Scoping to the two grids keeps stray .sd-key markup elsewhere in the
-      // device out of the agent key-press path.
+      // Bind only the server-rendered key grid.
       var keys = Array.prototype.slice.call(
-        this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty), #sd-log-keys .sd-key:not(.is-empty)")
+        this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty)")
       );
       keys.forEach(function (key) {
+        if (key.hasAttribute("phx-click") || key.hasAttribute("data-streamdeck-command") || key.disabled) return;
         var timer = null;
         var handler = function () {
           // Cancel any outstanding removal timer so rapid clicks don't race.
@@ -182,21 +174,14 @@
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
 
-          var logEventIndex = key.getAttribute("data-log-event-index");
-
-          // Log keys index the flattened transcript instead of selecting an
-          // agent. The server owns the resulting transcript offset.
-          // `data-log-event-index` is authoritative on its own; the
-          // client-tracked `_mode` only reconciles at the end of updated(),
-          // so gating on it would silently drop a click while it lagged.
-          if (logEventIndex !== null) {
-            self.pushEvent("log-key-select", { index: Number(logEventIndex) });
+          if (key.hasAttribute("data-chat-turn") || key.hasAttribute("data-chat-live")) {
+            self.pushEvent("input", { kind: "key_press", index: Number(key.getAttribute("data-streamdeck-key")) });
             return;
           }
 
           var identifier = key.getAttribute("data-streamdeck-identifier");
           if (identifier) {
-            self.pushEvent("key-press", { identifier: identifier });
+            self.pushEvent("input", { kind: "key", index: Number(key.getAttribute("data-streamdeck-key")), action: "down" });
           }
         };
         var keydownHandler = function (event) {
@@ -231,6 +216,17 @@
         // than relying on the server to refuse one the client still sent.
         if (key.disabled) return;
 
+        var target = key.getAttribute("data-streamdeck-url");
+        if (target) {
+          var openLink = function () {
+            var url = new URL(target, window.location.href);
+            if (url.protocol === "http:" || url.protocol === "https:") window.open(url.href, "_blank", "noopener,noreferrer");
+          };
+          key.addEventListener("click", openLink);
+          self._commandHandlers.push({ el: key, handler: openLink });
+          return;
+        }
+
         if (command === "mic") {
           self._micKey = key;
           // preventDefault keeps a press-and-hold from turning into a synthesized
@@ -260,10 +256,10 @@
           var push = function () {
             self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
           };
-          // Logs and Settings each replace the command keys with a pane of
+          // Settings and Commands replace the command keys with a pane of
           // their own, so leave the flash visible before asking the
           // server-authoritative mode machine to change mode.
-          if (command === "logs" || command === "settings") setTimeout(push, 500);
+          if (command === "settings" || command === "commands") setTimeout(push, 500);
           else push();
         };
         key.addEventListener("click", handler);
@@ -309,32 +305,6 @@
       }
     },
 
-    // Grid page cycling remains optimistic; all mode transitions wait for the
-    // server-rendered data-mode so the active panel is never temporarily absent.
-    _handleLocalDialPress(action) {
-      if (action === "cycle-window" && this._mode === "grid") {
-        this._requestGridWindowCycle();
-      }
-    },
-
-    _requestGridWindowCycle() {
-      var keys = this.el.querySelector("#sd-keys");
-      var dial = this._knobs && this._knobs[3];
-      if (keys && dial) {
-        var total = parseInt(keys.getAttribute("data-grid-total") || "0", 10);
-        var windows = parseInt(keys.getAttribute("data-grid-page-count") || "1", 10);
-        var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
-        var maxOffset = Math.max(0, Math.ceil(total / 2) - 4);
-        var nextPage = (page + 1) % Math.max(windows, 1);
-        var offset = Math.min(nextPage * 4, maxOffset);
-        var value = maxOffset === 0 ? 0 : Math.round((offset / maxOffset) * 100);
-        // A page cycle changes logical value, not the physical marker.
-        this._pendingPageDialValue = value;
-        dial._setLogicalValue(value);
-      }
-      this.pushEvent("grid-page", { action: "cycle" });
-    },
-
     // Set the active mode. Updates data-mode on .sd-device and aria-hidden on
     // each data-mode-view panel. Pass pushHistory=false when restoring state.
     _setMode(mode, pushHistory) {
@@ -347,7 +317,7 @@
       if (device) device.setAttribute("data-mode", mode);
       var views = Array.prototype.slice.call(this.el.querySelectorAll("[data-mode-view]"));
       views.forEach(function (view) {
-        var isActive = view.getAttribute("data-mode-view") === mode;
+        var isActive = view.getAttribute("data-mode-view") === mode || view.getAttribute("data-mode-view") === mode + "-strip";
         view.setAttribute("aria-hidden", isActive ? "false" : "true");
       });
     }
