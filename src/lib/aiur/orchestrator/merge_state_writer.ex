@@ -17,11 +17,15 @@ defmodule Aiur.Orchestrator.MergeStateWriter do
       {:ok, [%Issue{state: state}]} when is_binary(state) ->
         refuse_labels = if StatePolicy.terminal_state_name?(target), do: [], else: operator_hold_labels()
 
+        prefix = Config.label_prefix()
+        terminal_labels = if StatePolicy.terminal_state_name?(target), do: ["#{prefix}:merge-queued", "#{prefix}:body-fix"], else: []
+
         TicketTransition.write_state(identifier, target,
           writer: :comment_wake,
           expected_state: state,
           refuse_labels: refuse_labels,
           clear_terminal_state_overrides: StatePolicy.terminal_state_name?(target),
+          clear_terminal_state_labels: terminal_labels,
           tracker: tracker
         )
 

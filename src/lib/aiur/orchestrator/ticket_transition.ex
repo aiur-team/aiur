@@ -118,7 +118,7 @@ defmodule Aiur.Orchestrator.TicketTransition do
   @doc "Removes transient runtime reasons, preserving the dependency blocker marker."
   @spec clear_transient_reason_modifiers(String.t(), keyword()) :: :ok | {:error, term()}
   def clear_transient_reason_modifiers(issue_id, opts) do
-    retained = ["blocked", "body-fix"]
+    retained = ["blocked"]
     removals = Labels.reason_modifier_suffixes() -- retained
     prefix = Keyword.get(opts, :label_prefix, Config.label_prefix())
     labels = Enum.map(removals, &"#{prefix}:#{&1}")
