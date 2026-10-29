@@ -5,6 +5,7 @@ defmodule Aiur.VoiceConverse.Host.AgentChannel do
   Subscribed sessions own the observer's lifetime. No draft or confirmation state lives here.
   """
   @behaviour VoiceConverse.Ports.AgentChannel
+  alias Aiur.Listener.CapabilityProvider
   alias Aiur.VoiceConverse.Host.{DeliveryObserver, Worker}
 
   @impl true
@@ -89,6 +90,6 @@ defmodule Aiur.VoiceConverse.Host.AgentChannel do
   end
 
   defp listener_available? do
-    Aiur.Listener.CapabilityProvider.capabilities(%{})["listener_modes"].state == :available
+    CapabilityProvider.capabilities(%{})["listener_modes"].state == :available
   end
 end
