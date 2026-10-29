@@ -2,7 +2,7 @@ defmodule AiurWeb.ExecutorVoiceReceiptChannel do
   @moduledoc "Authenticated acknowledgement updates that outlive microphone sessions."
   use Phoenix.Channel
 
-  alias Aiur.VoiceConversation.Receipts
+  alias Aiur.VoiceConversation.{Receipts, Selection}
   alias AiurWeb.{EndpointConfig, FinancialDataAccess}
 
   @interval_ms 1_000
@@ -24,6 +24,19 @@ defmodule AiurWeb.ExecutorVoiceReceiptChannel do
   def join(_topic, _payload, _socket), do: {:error, %{reason: "Unauthorized receipt access."}}
 
   @impl true
+  def handle_in("comparison_list", _payload, socket), do: comparison_snapshot(socket)
+
+  def handle_in("comparison_rate", %{"id" => id, "rating" => rating, "note" => note}, socket) do
+    case Selection.rate(id, rating, note) do
+      :ok ->
+        comparison_snapshot(socket)
+
+      _ ->
+        push(socket, "comparison_error", %{reason: "Rating could not be saved. Choose 1–5 and a note under 2000 bytes."})
+        {:noreply, socket}
+    end
+  end
+
   def handle_in("watch", %{"id" => id}, socket) when is_integer(id) and id > 0 do
     ids = MapSet.put(socket.assigns.event_ids, id)
 
@@ -36,6 +49,15 @@ defmodule AiurWeb.ExecutorVoiceReceiptChannel do
   end
 
   def handle_in(_event, _payload, socket), do: {:noreply, socket}
+
+  defp comparison_snapshot(socket) do
+    case Selection.snapshot() do
+      {:ok, snapshot} -> push(socket, "comparison", snapshot)
+      _ -> push(socket, "comparison_error", %{reason: "Comparison usage is unavailable; Start will refuse unreadable usage."})
+    end
+
+    {:noreply, socket}
+  end
 
   @impl true
   def handle_info(:check_receipts, socket) do
