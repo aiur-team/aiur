@@ -8,12 +8,10 @@ defmodule Aiur.Listener do
   @type result :: {:ok, Effective.view()} | {:error, term()}
 
   @doc false
-  @spec routing() :: :listener | :legacy
-  @spec routing(keyword()) :: :listener | :legacy
+  @spec routing() :: :listener | :unavailable
+  @spec routing(keyword()) :: :listener | :unavailable
   def routing(opts \\ []) do
-    if Application.get_env(:aiur, :listener_send_routing, :listener) == :listener and Keyword.get_lazy(opts, :spec_status, &SpecStatus.read/0) == :ok,
-      do: :listener,
-      else: :legacy
+    if Keyword.get_lazy(opts, :spec_status, &SpecStatus.read/0) == :ok, do: :listener, else: :unavailable
   end
 
   @doc """
@@ -26,10 +24,8 @@ defmodule Aiur.Listener do
 
   Options:
 
-    * `:origin` — required in practice: `:agent_chat`, `:voice_assistant`,
+    * `:origin` — attribution: `:agent_chat`, `:voice_assistant`,
       `:http` or `:tui`. An absent or unknown origin becomes `:internal`.
-      With the default delivery policy, `:legacy` routing rejects `:internal`
-      with `{:error, :invalid_message}`.
     * `:client_request_id` — optional identifier for one user action; reuse it
       when retrying. Without an identifier, every send queues a new item.
     * `:message_id` — compatibility alias for `:client_request_id`; an explicit
@@ -41,7 +37,7 @@ defmodule Aiur.Listener do
     * `:turn_id` — optional turn identifier.
     * `:fallback` — defaults to `:queue_next`; used by explicit interrupt
       delivery when interruption is unavailable. Listener routing resolves
-      the origin's legacy policy or the effective listener mode.
+      the effective listener mode (default `sync`).
 
   Returns `{:ok, request_id}` on acceptance. `request_id` is an integer usable
   with `receipt/2`, which reads `DeliveryTarget.read_snapshot/2`. Acceptance

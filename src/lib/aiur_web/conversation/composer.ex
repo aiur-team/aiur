@@ -17,7 +17,6 @@ defmodule AiurWeb.Conversation.Composer do
         <p class="conversation-mode" role="status">
           {mode_label(@listener)}
           <span :if={is_map(@listener) && @listener[:effective_reason]}> · {inspect(@listener[:effective_reason])}</span>
-          <span :if={is_map(@listener) && @listener[:routing] == :legacy}> · Legacy routing</span>
         </p>
         <form id="conversation-composer" phx-submit="send" phx-change="draft">
           <label for="conversation-text">Message to agent</label>
@@ -36,6 +35,7 @@ defmodule AiurWeb.Conversation.Composer do
     """
   end
 
+  defp mode_label(%{routing: :unavailable}), do: "Listener unavailable · messages cannot be sent"
   defp mode_label(%{effective: :sync}), do: "Sync · next turn"
   defp mode_label(%{effective: :steer}), do: "Steer · interrupts"
   defp mode_label(%{effective: :async}), do: "Async · on demand"

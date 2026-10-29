@@ -76,8 +76,8 @@ The conversation header selector offers **Steer · interrupts**,
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
-The selector is hidden under legacy delivery routing and disabled on read-only
-dashboards. Changes wait for confirmation; a concurrent change shows the winning
+The selector is disabled on read-only dashboards. Conversation input defaults to
+Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
 remain pull-only.
 

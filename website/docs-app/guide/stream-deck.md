@@ -1,6 +1,10 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. Focused ticket frames show conversation turns from the desktop modal’s source. The browser also retains its legacy Settings and Commands controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state.
+
+Conversation dictation follows the ticket’s listener mode: default Sync waits for turn end; Steer delivers mid-turn when supported; Async holds messages for agent pull. If a turn is stuck, use the existing operator interrupt control.
+
+Focused ticket frames show conversation turns from the desktop modal’s source. The browser also retains its legacy Settings and Commands controls.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 

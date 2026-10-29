@@ -2,27 +2,14 @@ defmodule Aiur.Listener.SchedulerTest do
   use ExUnit.Case, async: false
   alias Aiur.Listener.{Effective, Scheduler}
 
-  setup do
-    warning_key = {Scheduler, :invalid_flag_warned}
-    warning_before = :persistent_term.get(warning_key, :not_present)
-    :persistent_term.put(warning_key, false)
-
-    on_exit(fn ->
-      if warning_before == :not_present, do: :persistent_term.erase(warning_key), else: :persistent_term.put(warning_key, warning_before)
-    end)
-
-    previous = Application.fetch_env(:aiur, :listener_send_routing)
-    Application.delete_env(:aiur, :listener_send_routing)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, flag} -> Application.put_env(:aiur, :listener_send_routing, flag)
-        :error -> Application.delete_env(:aiur, :listener_send_routing)
-      end
-    end)
+  test "no production code or config references the removed listener routing flag" do
+    root = Path.expand("../../..", __DIR__)
+    files = Path.wildcard(Path.join(root, "{lib,config}/**/*.{ex,exs}"))
+    assert files != []
+    assert Enum.filter(files, &(File.read!(&1) =~ "listener_send_routing")) == []
   end
 
-  test "unset flag uses sync for every conversation origin with a usable spec" do
+  test "default uses sync for every conversation origin with a usable spec" do
     assert Scheduler.routing(spec_status: :ok) == :listener
 
     for interrupt <- [true, false], immediate <- [true, false], origin <- [:agent_chat, :voice_assistant, :http, :tui, :internal] do
@@ -31,23 +18,14 @@ defmodule Aiur.Listener.SchedulerTest do
     end
   end
 
-  test "listener flag requires usable installed spec and rejects misspelled flags" do
-    Application.put_env(:aiur, :listener_send_routing, :listener)
-    assert Scheduler.routing(spec_status: :ok) == :listener
-
-    for status <- [{:error, :not_installed}, {:error, :spec_invalid}] do
-      assert Scheduler.routing(spec_status: status) == :legacy
-      assert Scheduler.resolve(:agent_chat, %{effective: :sync}, %{can_interrupt: true}, nil, spec_status: status) == {:ok, delivery_policy: :interrupt, fallback: :queue_next}
+  test "unusable spec refuses conversation delivery without falling back to interrupt" do
+    for status <- [{:error, :not_installed}, {:error, :spec_invalid}, :unknown] do
+      assert Scheduler.routing(spec_status: status) == :unavailable
+      assert Scheduler.resolve(:agent_chat, %{effective: :sync}, %{can_interrupt: true}, nil, spec_status: status) == {:error, :listener_mode_unavailable}
     end
-
-    if not Code.ensure_loaded?(Module.concat([Aiur, Listener, Spec])), do: assert(Scheduler.spec_status() == {:error, :not_installed})
-    Application.put_env(:aiur, :listener_send_routing, :misspelled)
-    assert Scheduler.routing(spec_status: :ok) == :legacy
   end
 
   test "listener policies use effective mode and reject unavailable or unwired views" do
-    Application.put_env(:aiur, :listener_send_routing, :listener)
-
     for origin <- [:agent_chat, :http, :tui, :internal] do
       assert Scheduler.resolve(origin, %{effective: :sync}, %{}, nil, spec_status: :ok) == {:ok, delivery_policy: :checkpoint, listener_mode: :sync}
       assert Scheduler.resolve(origin, %{effective: :async}, %{}, nil, spec_status: :ok) == {:ok, listener_mode: :async}
@@ -76,7 +54,6 @@ defmodule Aiur.Listener.SchedulerTest do
   end
 
   test "emulated steer requires explicit effective support acceptance" do
-    Application.put_env(:aiur, :listener_send_routing, :listener)
     harness = %{source: :session, harness_id: "codex", callbacks: %{steer: :none}, primitives: %{turn_boundary_start: true, hard_interrupt: :in_band, pull_tool: false}}
     record = %{requested: :steer, version: 0, actor: :human}
     view = Effective.compute(record, harness)
