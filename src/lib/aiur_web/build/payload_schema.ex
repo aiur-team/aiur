@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.PayloadSchema do
   @moduledoc false
   alias AiurWeb.Build.ConversationPayload
-  # Cohesive schema definitions: required keys are literal; only epic flags are optional.
+  # Cohesive schema definitions: required keys are literal; epic flags and account reset arrays are optional.
   @spec row() :: map()
   def row do
     %{
@@ -207,11 +207,11 @@ defmodule AiurWeb.Build.PayloadSchema do
       "hue" => nullable(:number),
       "tag" => nullable(:string),
       "accounts" => nullable(list(:string)),
-      "session" => nullable(object(window())),
-      "weekly" => nullable(object(window())),
+      "session" => nullable(object(window(), ["resets"])),
+      "weekly" => nullable(object(window(), ["resets"])),
       "credits" => nullable(object(%{"pct" => nullable({:range, 0, 100}), "left" => :string, "tip" => list({:pair, :string})})),
       "none" => :boolean,
-      "lines" => nullable(list(object(line()))),
+      "lines" => nullable(list(object(line(), ["resets"]))),
       "icon" => nullable(enum(~w(github bars))),
       "stale" => :boolean,
       "observed_at" => nullable(:integer),
@@ -220,7 +220,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
   end
 
-  defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "reset_at" => nullable(:integer), "win" => nullable(:string)}
+  defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "resets" => list(nullable(:integer)), "reset_at" => nullable(:integer), "win" => nullable(:string)}
   defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
   defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier ticket)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 

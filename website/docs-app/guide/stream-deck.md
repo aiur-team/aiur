@@ -15,6 +15,17 @@ The browser retains the focused controls below. Its grid dial D turns pages
 and presses to cycle Ticket, Feature, Epic and Fleet; dial B scrolls the category chips.
 The current physical client uses the navigation controls described above.
 
+## Read provider accounts
+
+On the physical deck, turn dial 4 past the eight Fleet categories
+to reach the provider meter keys. Press a meter to open one key per
+account, sorted by name, with 5h and weekly remaining percentages and reset
+countdowns. Missing windows show “—” with a hatched bar. Stale values stay
+visible, dimmed and labelled “stale”.
+
+The touch strip names the provider and
+its summary account; hold dial 4 to return. Account keys are read-only.
+
 ## Drive the deck
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |

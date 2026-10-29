@@ -12,7 +12,7 @@ defmodule AiurWeb.Streamdeck.Render do
   Coordinates inside a region are local. The same parts compose every group.
   """
 
-  alias AiurWeb.Streamdeck.Render.{Card, Feature, FeatureGrid, Grid, Key, Parts, Svg, Views}
+  alias AiurWeb.Streamdeck.Render.{Card, Feature, FeatureGrid, Grid, Key, MeterDetail, Parts, Svg, Views}
   import Svg, only: [field: 2, field: 3]
 
   @type image :: %{svg: String.t(), hash: String.t(), label: String.t()}
@@ -27,6 +27,7 @@ defmodule AiurWeb.Streamdeck.Render do
   @spec key(map()) :: image()
   def key(face) do
     case field(face, :kind) do
+      :account -> MeterDetail.key(face.account, face.now_ms)
       kind when kind in [:card, "card"] -> Card.render(face)
       kind when kind in [:feature, "feature"] -> Feature.render(face)
       _ -> Key.render(face)
