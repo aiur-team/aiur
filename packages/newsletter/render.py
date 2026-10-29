@@ -68,7 +68,7 @@ def html(report, timezone_name=None, notes=None):
                            + (pattern_html or text(patterns.get("status", "unavailable"))) + '</section>',
                   notes='<section class="notes"><span class="kick">Executor notes</span>'
                         + (notes_html or shown(None)) + '</section>',
-                  sources=text(', '.join(report.get("sources", ["NEWS metrics source-field paths"]))), omitted='')
+                  sources="GitHub issues/PRs; daemon build/units; local telemetry and meta/actions (availability in report.json)", omitted='')
     document = Template((HERE / "template.html").read_text()).substitute(fields)
     omitted = max(0, len(ordered) - 12) + max(0, len(themes) - 3) + max(0, len(editorial.get("shipped", [])) - 6)
     return document.replace('</body>', trim_script(omitted) + '</body>')

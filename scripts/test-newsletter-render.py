@@ -140,6 +140,19 @@ class RendererTest(unittest.TestCase):
             self.assertEqual(stored['editorial']['blockers'], data['editorial']['blockers'])
             self.assertEqual(compile_report.call_args.args[0], stored)
 
+    def test_linked_action_reason_and_measure_result_render_as_prose(self):
+        today = fixtures.snapshot()
+        today['meta'] = [{'id': 'b', 'timestamp': fixtures.stamp(-3), 'bottleneck': 'Review queue'}]
+        today['executor_actions'] = [{'id': 'a', 'bottleneck_id': 'b', 'at': fixtures.stamp(-2),
+                                      'outcome': 'action', 'reason': 'Reduced agent cap'}]
+        today['measures'] = [{'action_id': 'a', 'at': fixtures.stamp(-1), 'result': 'Queue cleared'}]
+        page = render.html(compute(today))
+        card = page.split('class="bns"')[1].split('</section>')[0]
+        self.assertIn('Reduced agent cap', card)
+        self.assertIn('Queue cleared', card)
+        self.assertNotIn('action_id', card)
+        self.assertNotIn('unavailable', card)
+
     def test_program_states_and_daily_work_are_disjoint(self):
         today = fixtures.snapshot()
         today['program']['tickets'] = [fixtures.ticket(1, 'closed', 'completed'),

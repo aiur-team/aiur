@@ -213,21 +213,30 @@ seven days, and current todo labels cannot establish first-dispatch intake.
 
 Run `python3 packages/newsletter/newsletter.py build --repo owner/repo` to
 collect a snapshot, compute metrics and compile the approved dark broadsheet.
-Chromium or Google Chrome is required. The command writes `report.json`,
+Chromium or Google Chrome is required.
+
+The command writes `report.json`,
 `newsletter.html` and a checked one-page US Letter `newsletter.pdf` under the
-repository state root at `newsletter/<UTC-date>/`. `--state-dir <dir>` selects
+repository state root at `newsletter/<UTC-date>/`.
+
+`--state-dir <dir>` selects
 a different root; repeat `--instance <name>` for additional daemon sources.
 
 Use `--timezone <IANA-zone>` for the operator's printed window end (default:
 local time). `--notes <file>` accepts Markdown paragraphs or editorial JSON with
 `notes`, `blockers[{label,action}]`, `shipped[{icon,label}]` and
-`bottlenecks[{problem,action,result,tone}]`. These fields add context without
-replacing metrics. Missing inputs visibly say `unavailable`.
+`bottlenecks[{problem,action,result,tone}]`. 
+
+These fields add context without replacing metrics. Missing inputs visibly say `unavailable`.
 
 `preprocess` runs collection plus metrics without Chromium; `compile <report>`
-prints an existing report, with the same notes/timezone options. Fonts, logo and
+prints an existing report, with the same notes/timezone options.
+
+Fonts, logo and
 dark tokens are embedded from `packages/aiur-style`; rendering needs no font
 network access. The page drops lower-priority list items to fit, preserving
-readable fonts and all data in the report. Overflow or missing Chromium fails
+readable fonts and all data in the report.
+
+Overflow or missing Chromium fails
 with a clear error. See `packages/newsletter/README.md` for the notes schema and
 exact trimming order. This package does not send messages or schedule delivery.

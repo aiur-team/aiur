@@ -66,8 +66,9 @@ def automated_bottlenecks(report):
     for row in rows:
         actions = row.get("actions")
         linked = actions if isinstance(actions, list) else []
-        action = '; '.join(str(r["action"].get("summary", r["action"].get("action", "unavailable"))) for r in linked)
-        outcomes = '; '.join(str(r["result"]) for r in linked)
+        action = '; '.join(str(r["action"].get("summary", r["action"].get("action", r["action"].get("reason", "unavailable")))) for r in linked)
+        outcomes = '; '.join('; '.join(str(m.get("result", "unavailable")) for m in r["result"])
+                             if isinstance(r["result"], list) else str(r["result"]) for r in linked)
         result.append({"problem": row.get("bottleneck"), "action": action or actions,
                        "result": outcomes or "impact not measured"})
     return result
