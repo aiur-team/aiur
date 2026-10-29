@@ -68,9 +68,10 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     assert last.svg =~ "81% left"
     assert empty == List.duplicate(nil, 7)
     assert %{"page" => 1} = input_frame(socket, %{"kind" => "dial_turn", "index" => 3, "ticks" => 1})
-    assert %{reason: "disabled"} = reply = request(socket, "priority", %{"identifier" => "AIUR-1", "direction" => "up"}, :error)
+    assert :sys.get_state(socket.channel_pid).assigns.focused_agent == nil
+    assert %{reason: "unavailable"} = reply = request(socket, "priority", %{"identifier" => "AIUR-1", "direction" => "up"}, :error)
     refute Map.has_key?(reply, :frame)
-    %{keys: [preserved | _]} = flush_frame(socket)
+    assert %{"page" => 1, :frame => %{keys: [preserved | _]}} = input_frame(socket, %{"kind" => "dial_turn", "index" => 1, "ticks" => 1})
     assert preserved.label == "a09"
     assert preserved.svg =~ "81% left"
     assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:meter_detail, "claude"}]
