@@ -1,8 +1,6 @@
 defmodule Aiur.VoiceQuotaTest do
   use ExUnit.Case, async: false
 
-  import Phoenix.LiveViewTest
-
   alias Aiur.GitHub.{BrokerTimeout, BudgetBroker}
   alias Aiur.Voice
 
@@ -68,5 +66,9 @@ defmodule Aiur.VoiceQuotaTest do
     Application.put_env(:aiur, :voice_provider, nil)
     refute Aiur.ElevenLabs.Quota in children()
     assert Enum.at(children(), index + 1) == Enum.at(children, index + 2)
+  end
+
+  defp children do
+    Aiur.Application.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, tailscale_funnel?: false)
   end
 end
