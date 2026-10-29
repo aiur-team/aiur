@@ -363,7 +363,7 @@ for (const writable of [false, true]) {
     const drawer = page.getByRole('dialog')
     const selector = drawer.getByRole('combobox', { name: 'Listener mode' })
     await expect(selector).toHaveValue('async')
-    await expect(selector.locator('option')).toHaveText(['Steer · interrupts', 'Sync · next turn', 'Async · on demand'])
+    await expect(selector.locator('option')).toHaveText(['Steer · interrupts', 'Sync · next turn', 'Async · pings only', 'Mute · silent'])
     await expect(drawer.locator('[data-unread-count]')).toContainText('Unread 2 · oldest 120s ago')
     if (writable) await expect(selector).toBeEnabled()
     else {
