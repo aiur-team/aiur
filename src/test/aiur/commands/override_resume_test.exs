@@ -189,7 +189,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
 
   test "a pending resume reserves released capacity before ordinary dispatch", ctx do
     alias Aiur.Orchestrator.ControlLifecycle
-    identity = %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "aiur-team", repository: "aiur", provider_id: "I_kwDOissue1", identifier: "6909"}
+    identity = %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "aiur-team", repository: "aiur", provider_id: "I_kwDOissue1", identifier: "6909", reason: nil}
     issue = %{ctx.issue | state: "ci-wait", tracker_identity: identity}
     entry = %{entry(issue) | control: %{status: :paused}}
     attrs = %{request_id: "resume", issue_id: issue.id, tracker_identity: identity, action: :resume, generation: "worker", expected_status: :paused, expected_version: 1, requester: :automatic}
