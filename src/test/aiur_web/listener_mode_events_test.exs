@@ -130,6 +130,24 @@ defmodule AiurWeb.ListenerModeEventsTest do
     assert Enum.all?(unavailable.assigns.listener_receipts, &(&1.receipt == :unknown))
   end
 
+  test "a later failed receipt restores the untouched draft and retry id", %{socket: socket} do
+    {store, item} = AgentQueueStore.enqueue(AgentQueueStore.new(), AgentQueue.operator_message("42", "dictated", listener_mode: :async))
+    failed = %{item | status: :failed}
+    :sys.replace_state(Orchestrator, &%{&1 | queue_store: %{store | items: Map.put(store.items, item.id, failed)}})
+    token = make_ref()
+
+    socket =
+      %{socket | transport_pid: self(), view: DashboardLive}
+      |> assign(listener_timer: token, listener_receipts_busy: false, drafts: %{}, pending_message_ids: %{})
+      |> ListenerModeEvents.sent({:ok, item.id}, "same-message-id", "dictated")
+
+    observed = receipt_tick(socket, token)
+    assert observed.assigns.drafts == %{"42" => "dictated"}
+    assert observed.assigns.pending_message_ids == %{"42" => {"same-message-id", "dictated"}}
+    edited = socket |> assign(drafts: %{"42" => "new draft"}) |> receipt_tick(token)
+    assert edited.assigns.drafts == %{"42" => "new draft"}
+  end
+
   test "failed set mode shows the failure state and error text", %{socket: socket} do
     stop_supervised!(Server)
     {:noreply, failed} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, socket)
@@ -152,7 +170,14 @@ defmodule AiurWeb.ListenerModeEventsTest do
 
   test "send result keeps accepted, failed and outcome unknown distinct", %{socket: socket} do
     socket = socket |> ListenerModeEvents.sent({:ok, 12}) |> ListenerModeEvents.sent({:error, :unavailable}) |> ListenerModeEvents.sent({:error, {:outcome_unknown, %{}}})
-    assert socket.assigns.listener_receipts == [%{request_id: nil, receipt: :outcome_unknown}, %{request_id: nil, receipt: :failed}, %{request_id: 12, receipt: :accepted}]
+
+    assert Enum.map(socket.assigns.listener_receipts, &Map.take(&1, [:request_id, :receipt])) == [
+             %{request_id: nil, receipt: :outcome_unknown},
+             %{request_id: nil, receipt: :failed},
+             %{request_id: 12, receipt: :accepted}
+           ]
+
+    assert Enum.all?(socket.assigns.listener_receipts, &(&1.target_key == "42"))
   end
 
   defp assert_error_rendered(socket) do

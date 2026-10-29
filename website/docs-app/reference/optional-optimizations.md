@@ -80,6 +80,8 @@ The daemon read-cache TTL rises from 30s to one hour on a proven repo for commen
 
 Without public ingress, polling is the default mode and degrades cleanly: a repo that is configured but never delivers keeps polling at the full interval, and a repo that goes silent returns to full polling and raises an attention. Delivery states are in [Optional webhook](/apis/github-webhooks#optional-webhook).
 
+Cloudflare is one ingress among many; whichever you use can read webhook deliveries, so treat it as trusted transport.
+
 ## Tailscale
 
 ### Bottleneck it solves

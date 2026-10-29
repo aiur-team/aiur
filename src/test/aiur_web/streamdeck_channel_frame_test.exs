@@ -39,7 +39,8 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     assert_reply(ref, :ok, %{"page" => 1})
     flush_frame(socket)
     assert_push("frame", %{keys: later, strip: strip})
-    assert List.last(strip).label == "9–12 / 12"
+    assert List.last(strip).svg =~ "2 / 2"
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.pages.ticket == 1
     ref = push(socket, "input", %{"kind" => "key", "index" => 1, "action" => "down"})
     assert_reply(ref, :ok, _reply)
     [{:open_ticket, selected}] = :sys.get_state(socket.channel_pid).assigns.deck_effects
@@ -108,8 +109,10 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     flush_frame(socket)
     assert_push("frame", latest)
     assert latest == FrameUpdates.frame(:sys.get_state(socket.channel_pid))
-    refute latest.strip == initial.strip
-    assert Enum.find(latest.strip, &(&1.x == 200)).svg =~ "10%"
+    # Grid bands show agent counts and backlog; meters belong to other surfaces.
+    assert latest.strip == initial.strip
+    assert Enum.find(latest.strip, &(&1.x == 200)).svg =~ ~s(data-state="active")
+    refute Enum.find(latest.strip, &(&1.x == 200)).svg =~ "10%"
   end
 
   test "usage and fleet changes refresh frames and stale flushes are ignored" do

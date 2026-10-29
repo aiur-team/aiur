@@ -1,6 +1,8 @@
 defmodule AiurWeb.Streamdeck.Render.Style do
   @moduledoc false
 
+  alias Aiur.BuildOrder.TicketStatus
+
   # Renderer-owned visual tokens; no mirrored visual contract remains.
   @states %{
     "alert" => %{
@@ -34,6 +36,16 @@ defmodule AiurWeb.Streamdeck.Render.Style do
       label: "Unstarted"
     }
   }
+
+  @glyphs %{"error" => "×", "command" => "!", "retrying" => "↻", "active" => "▶", "ci_wait" => "◷", "usage_limited" => "Ⅱ", "parked" => "P", "paused" => "Ⅱ"}
+  @class_glyphs %{"active" => "▶", "stuck" => "!", "queued" => "↻", "idle" => "Ⅱ"}
+
+  @spec agent(String.t() | nil) :: map()
+  def agent(agent_state) do
+    status = TicketStatus.encode(%{sec: "now", agent: %{state: agent_state}})
+    glyph = if agent_state in TicketStatus.agent_states(), do: Map.get(@glyphs, agent_state, @class_glyphs[status.tone]), else: "?"
+    %{label: status.label, glyph: glyph, color: state(status.tone).accent}
+  end
 
   @spec state(atom() | String.t()) :: map()
   def state(:active), do: state("running")

@@ -349,7 +349,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-agent-log", _params, socket) do
-    {:noreply, assign(socket, :agent_log_modal, nil)}
+    {:noreply, socket |> AiurWeb.ListenerModeEvents.close() |> assign(:agent_log_modal, nil)}
   end
 
   def handle_event(

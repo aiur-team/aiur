@@ -76,7 +76,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   end
 
   defp safe_open_decision_ids(identifier, store) do
-    Commands.open_blocking_decision_ids([identifier], store, 100)
+    Commands.open_blocking_decision_ids([identifier], store, 1_000)
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -84,7 +84,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   defp safe_open_decision_ids_by_ticket([], _store), do: {:ok, %{}}
 
   defp safe_open_decision_ids_by_ticket(identifiers, store) do
-    Commands.open_blocking_decision_ids_by_ticket(identifiers, store, 100)
+    Commands.open_blocking_decision_ids_by_ticket(identifiers, store, 1_000)
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
