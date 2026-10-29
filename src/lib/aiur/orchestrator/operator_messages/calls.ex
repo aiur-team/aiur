@@ -33,9 +33,14 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
         %{kind: :text, body: body} = payload
       )
       when is_binary(issue_identifier) and is_binary(body) do
-    issue_identifier = canonical_idle_identifier(state, issue_identifier)
-    {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
-    {:reply, reply, next_state}
+    case canonical_idle_identifier(state, issue_identifier) do
+      nil ->
+        {:reply, {:error, :no_running_agent}, state}
+
+      canonical_identifier ->
+        {reply, next_state} = enqueue_operator_message(state, canonical_identifier, body, payload)
+        {:reply, reply, next_state}
+    end
   end
 
   def send_operator_message_call(%State{} = state, %TrackerIdentity{} = identity, payload) do
@@ -60,7 +65,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
         |> Enum.find(&Aiur.Issue.identifier_matches?(&1.id, &1.identifier, identifier))
         |> case do
           %{identifier: canonical} when is_binary(canonical) -> canonical
-          _not_found -> identifier
+          _not_found -> nil
         end
     end
   end

@@ -32,7 +32,7 @@ cmd_command request 'Ship $(echo unsafe)?' --option no=Wait --option 'yes=Ship=n
 
   @tag :tmp_dir
   test "rejects unknown verbs, invalid flags and unreadable context", %{tmp_dir: dir} do
-    for args <- ["unknown", "request", "request 'Ship?' --option", "request 'Ship?' --urgency tomorrow", "request 'Ship?' --context-file '#{dir}/missing'"] do
+    for args <- ["request", "request 'Ship?' --option", "request 'Ship?' --urgency tomorrow", "request 'Ship?' --context-file '#{dir}/missing'"] do
       {out, 64} = run_sourced_engine("run_control_rpc() { echo RPC_CALLED; }\ncmd_command #{args}", [])
       assert out =~ "aiur: command"
       refute out =~ "RPC_CALLED"

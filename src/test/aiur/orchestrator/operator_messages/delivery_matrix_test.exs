@@ -57,7 +57,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryMatrixTest do
     assert observe(row) == {@checkpoint, false}
   end
 
-  test "no running entry rejects messages without enqueuing or waking" do
+  test "unknown ticket without a running entry rejects messages without enqueuing or waking" do
     state = %State{queue_store: AgentQueueStore.new()}
     assert {:reply, {:error, :no_running_agent}, ^state} = OperatorMessages.send_operator_message_call(state, "missing-r7", %{kind: :text, body: "x"})
     refute_received {:agent_queue_updated, "missing-r7", _, _}
