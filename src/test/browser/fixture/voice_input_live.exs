@@ -4,6 +4,7 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
   import AiurWeb.Components.VoiceInput
 
   alias Aiur.BrowserHarness.CommandAnswerFixture
+  alias AiurWeb.OperatorControlCenter.AgentLogModal
 
   @impl true
   def mount(params, _session, socket) do
@@ -11,7 +12,16 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
     Phoenix.Config.put(AiurWeb.Endpoint, :capabilities_report_fun, fn -> %{capabilities: %{"voice.stt" => %{state: :available}}} end)
     Phoenix.Config.put(AiurWeb.Endpoint, :voice_target_payload_fun, fn -> %{fleet: %{running: [%{issue_identifier: "1110"}]}} end)
 
-    {:ok, assign(socket, draft: "", patch: 0, sent: "", visible: true, capabilities: %{"voice.stt" => %{state: :available}})}
+    {:ok,
+     assign(socket,
+       draft: "",
+       modal_draft: "",
+       patch: 0,
+       sent: "",
+       visible: true,
+       modal: if(params["modal"] == "true", do: AgentLogModal.build(%{issue_identifier: "1110"})),
+       capabilities: %{"voice.stt" => %{state: :available}}
+     )}
   end
 
   @impl true
@@ -23,6 +33,9 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
   def handle_event("unavailable", _params, socket), do: {:noreply, assign(socket, :capabilities, %{"voice.stt" => %{state: :unavailable, reason: :not_configured}})}
   def handle_event("available", _params, socket), do: {:noreply, assign(socket, :capabilities, %{"voice.stt" => %{state: :available}})}
   def handle_event("remove", _params, socket), do: {:noreply, assign(socket, :visible, false)}
+  def handle_event("composer-change", %{"message" => message}, socket), do: {:noreply, assign(socket, :modal_draft, message)}
+  def handle_event("send-operator-message", %{"message" => message}, socket), do: {:noreply, assign(socket, :sent, message)}
+  def handle_event("close-agent-log", _params, socket), do: {:noreply, assign(socket, :modal, nil)}
 
   @impl true
   def render(assigns) do
@@ -46,6 +59,7 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
         </.voice_input>
       </form>
       <div id="missing-input" phx-hook="VoiceInput"><.voice_input id="missing-controls" legacy_conversation={false} capabilities={@capabilities} target={%{kind: "worker", ticket: "1110"}} /></div>
+      <AgentLogModal.agent_log_modal modal={@modal} writable={true} drafts={%{"1110" => @modal_draft}} errors={%{}} voice_capabilities={@capabilities} />
     </main>
     """
   end

@@ -20,12 +20,12 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     socket = joined_socket()
     assert_reply(push(socket, "focus", %{"identifier" => "7"}), :ok, %{"focused" => "7"})
     assert_push("chat", %{"id" => "7", "state" => "ended", "latest" => %{"k" => "say", "text" => "seeded reply"}}, 2_000)
-    assert_push("logs", %{"transcript" => rows}, 2_000)
-    assert Enum.any?(rows, &(&1["body"] == "seeded reply"))
+    rows = :sys.get_state(socket.channel_pid).assigns.deck_chat.entries
+    assert Enum.any?(rows, &(&1[:text] == "seeded reply"))
     File.write!(path, line("appended reply"), [:append])
     assert_push("chat", %{"latest" => %{"text" => "appended reply"}}, 2_000)
-    assert_push("logs", %{"transcript" => rows}, 2_000)
-    assert Enum.any?(rows, &(&1["body"] == "appended reply"))
+    rows = :sys.get_state(socket.channel_pid).assigns.deck_chat.entries
+    assert Enum.any?(rows, &(&1[:text] == "appended reply"))
     assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
   end
 
@@ -58,7 +58,7 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     assert Process.read_timer(timer) == false
   end
 
-  test "retained tool arguments and assistant text are masked before chat and Logs pushes", %{workspace: workspace} do
+  test "retained tool arguments and assistant text are masked before the chat projection", %{workspace: workspace} do
     token = "ghp_" <> String.duplicate("a", 36)
     url = "https://capability.example.test/session/private"
     command = "curl -H \"Authorization: Bearer #{token}\" #{url}"
@@ -70,9 +70,9 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     socket = joined_socket()
     assert_reply(push(socket, "focus", %{"identifier" => "7"}), :ok, %{"focused" => "7"})
     assert_push("chat", %{"latest" => %{"k" => "tool", "arg" => ^masked_command, "res" => "✗ exit 2"}}, 2_000)
-    assert_push("logs", %{"transcript" => rows}, 2_000)
-    assert Enum.any?(rows, &(&1["body"] == masked_command <> " · ✗ exit 2"))
-    assert Enum.any?(rows, &(&1["body"] == "reply [REDACTED:ghp] [REDACTED:url]"))
+    rows = :sys.get_state(socket.channel_pid).assigns.deck_chat.entries
+    assert Enum.any?(rows, &(&1[:arg] == masked_command and &1[:res] == "✗ exit 2"))
+    assert Enum.any?(rows, &(&1[:text] == "reply [REDACTED:ghp] [REDACTED:url]"))
     refute Jason.encode!(rows) =~ token
     refute Jason.encode!(rows) =~ url
     assert File.read!(path) == retained
@@ -159,9 +159,9 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     socket = joined_socket()
     assert_reply(push(socket, "focus", %{"identifier" => "7"}), :ok, %{"focused" => "7"})
     assert_push("chat", %{"latest" => %{"k" => "tool", "arg" => "token [REDACTED:ghp]", "res" => "result [REDACTED:url]"}}, 2_000)
-    assert_push("logs", %{"transcript" => rows}, 2_000)
-    for kind <- ~w(say op sys), do: assert(Enum.any?(rows, &(&1["body"] == "#{kind} [REDACTED:ghp] [REDACTED:url]")))
-    assert Enum.any?(rows, &(&1["body"] == "token [REDACTED:ghp] · result [REDACTED:url]"))
+    rows = :sys.get_state(socket.channel_pid).assigns.deck_chat.entries
+    for kind <- ~w(say op sys), do: assert(Enum.any?(rows, &(&1[:text] == "#{kind} [REDACTED:ghp] [REDACTED:url]")))
+    assert Enum.any?(rows, &(&1[:arg] == "token [REDACTED:ghp]" and &1[:res] == "result [REDACTED:url]"))
     refute Jason.encode!(rows) =~ token
     refute Jason.encode!(rows) =~ url
     assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil}, 2_000)

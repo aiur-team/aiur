@@ -57,7 +57,7 @@ deck DTOs. Nothing in the dashboard needs the sidecar installed.
 ## Events
 
 Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
-`fleet`, `usage` and `logs` are kept for the emulator until SD-104/SD-105;
+`fleet` and `usage` remain for the emulator;
 the physical sidecar consumes `frame` images only.
 
 | Event | Payload | Meaning |
@@ -69,7 +69,7 @@ the physical sidecar consumes `frame` images only.
 | `usage` | `{provider_family: meter}` | One entry per provider family, from Build.Usage; semantic session/weekly windows carry `remaining_percent` and `used_percent`. Updates coalesce over 250 ms. |
 | `decisions` | `{count}` | Updated decision summary. |
 | `chat` | `{v:1, kind:"chat", id, state, observed_at, latest}` | Newest allowlisted conversation entry from the same source as the desktop modal. |
-| `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Shared allowlisted conversation window on focus and tail updates; event keys retain their existing bus anchors. |
+| `chat_page` request | `{before: opaque_cursor}` | Pages the focused ticket through `ConversationSource.page/3`; replies `{v:1, kind:"chat-page", id, before, more, turns}`. Frames remain pushed separately. |
 | `alert` | `{identifier, name, message, severity, needs_attention, timestamp}` | Focused agent alert. |
 | `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
 | `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
@@ -148,7 +148,7 @@ states remain visible in Active; unavailable counts stay explicitly unavailable.
 Physical and emulator pixels use the shared server renderer, including Fleet.
 In the emulator grid, dial D press cycles Ticket → Feature → Epic → Fleet;
 turn, drag, wheel or arrow keys page the current view with clamped bounds.
-The focused command/log controls retain their mode-specific actions.
+On a focused ticket, seven turn keys plus LIVE replace the grid. Turn keys select the strip text; dial 1 scrolls it. Dial 4 turns page older/newer turns (negative means older), while LIVE returns to the tail. The legacy browser Logs controls remain separate.
 The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
@@ -157,14 +157,9 @@ Send `focus` with `{identifier}` to watch one agent, or `unfocus` to stop. A
 channel subscribes to only that one `agent:<identifier>` source; it never fans
 out subscriptions for every agent. Re-focusing unsubscribes the prior agent.
 
-Physical key toggles send `control` with `{identifier, action}`. The accepted
-actions are exactly `pause` and `resume`, and nothing else is accepted: the
-agent view's five keys are pause, logs, mic, settings and commands, so there is
-no surface that can send a priority action and the channel does not pretend to
-offer one. Orchestrator priority itself is unchanged and remains reachable from
-the dashboard's own controls. The channel routes the request through
-`Aiur.AgentChat` and returns the orchestrator result; the device does not
-implement a second pause/resume path.
+`control` with `{identifier, action}` retains the pause/resume and implement
+facades. Priority uses the separate `priority` request or dial 2 input.
+Ticket frame keys select conversation turns rather than dispatching controls.
 
 Ticket chat uses `Build.ConversationSource` in its owning channel or LiveView process. Both owners use `FrameUpdates.transition/3` for focus effects and `frame/5` for the same masked, full-width SVG. Navigation away clears the subscription.
 
@@ -175,9 +170,25 @@ poll catches file appends and generation changes. Reads and pushes are bounded
 to four per second. Refocus, unfocus and termination unsubscribe and cancel the
 timer. `chat.latest` uses the shared Entries allowlist; prompt bodies, raw events
 and tool output are excluded. Remote-device masking removes secrets and URLs
-from conversation text before either chat or Logs rows reach the device.
+from conversation text before chat pages or frames reach the device. The focus
+path no longer pushes `logs`.
 Missing, unavailable and stale conversations are named on the strip; stale state
 includes the observation age.
+
+### Conversation pages
+
+A turn groups one `say` with preceding `tool`/`sys` entries back to the previous
+`say` or `op`; each `op` is its own turn. Turns retain their entry IDs and order
+from the desktop modal source and include a tool count. The ticket frame shows
+seven turns oldest-first plus a pinned LIVE key. Bus events are excluded.
+
+`chat_page` accepts the focused conversation’s opaque `before` cursor. It calls
+`ConversationSource.page/3` and replies with `turns`, the next `before`, and
+`more`. The server keeps selection and paging on `Nav`; the physical sidecar
+only draws pushed frames. `input` replies still carry navigation only.
+
+At most 500 conversation entries are retained. `:reset` or `:invalid_cursor`
+discards loaded pages and reloads the tail, resetting selection to LIVE.
 
 ## Commands and answering
 

@@ -231,6 +231,7 @@ defmodule AiurWeb.DashboardLive.Page do
         writable={@writable}
         drafts={@drafts}
         errors={@chat_errors}
+        voice_capabilities={@voice_capabilities}
       />
       <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
       <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={@writable} />

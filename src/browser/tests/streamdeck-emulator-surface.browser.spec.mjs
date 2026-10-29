@@ -2,6 +2,41 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { anchor, dragDialThroughAngles, openStreamdeck } from './support/streamdeck-emulator.mjs'
 
+test('seeded retained transcript appears as ticket turn keys and pages without repeats', async ({ page }) => {
+  await openStreamdeck(page)
+  const seed = await page.request.get('/streamdeck-transcript/seed')
+  expect(seed.status()).toBe(200)
+  try {
+    await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
+    const keys = page.locator('#sd-keys .sd-key')
+    await expect(keys).toHaveCount(8)
+    await expect(keys.last()).toHaveAttribute('aria-label', 'LIVE')
+    await expect(keys.nth(6)).toHaveAttribute('aria-label', /Seeded turn 30/)
+    const turns = page.locator('#sd-keys [data-chat-turn]')
+    await expect(turns).toHaveCount(7)
+    await expect(turns.first()).toHaveAttribute('aria-label', /Seeded turn 24/)
+    const firstPage = await turns.evaluateAll(nodes => nodes.map(node => node.dataset.chatTurn))
+
+    await turns.first().click()
+    await expect(turns.first()).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('#sd-screen')).toContainText('Seeded turn 24')
+    await keys.last().click()
+    await expect(keys.last()).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('#sd-screen')).toContainText('Seeded turn 30')
+
+    await dragDialThroughAngles(page, page.locator('.sd-knob').nth(3), [90, 0, -90])
+    await expect(turns.last()).toHaveAttribute('aria-label', /Seeded turn 23/)
+    await expect(turns.first()).toHaveAttribute('aria-label', /Seeded turn 17/)
+    const olderPage = await turns.evaluateAll(nodes => nodes.map(node => node.dataset.chatTurn))
+    expect(olderPage.filter(id => firstPage.includes(id))).toEqual([])
+    await expect(keys.last()).toHaveAttribute('aria-label', 'LIVE')
+    await keys.last().click()
+    await expect(page.locator('#sd-screen')).toContainText('Seeded turn 30')
+  } finally {
+    expect((await page.request.get('/streamdeck-transcript/reset')).status()).toBe(200)
+  }
+})
+
 test('clicking a logs event key positions the flattened transcript at that event', async ({ page }) => {
   await openStreamdeck(page)
 
