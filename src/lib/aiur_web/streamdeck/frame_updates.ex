@@ -14,11 +14,12 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
         socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
         {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
-        PriorityInput.reply(
-          socket,
-          %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)},
-          effects
-        )
+        navigation = %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "chip_offset" => nav.chip_offset}
+
+        case PriorityInput.reply(socket, navigation, effects) do
+          {:reply, {:ok, _result}, socket} -> {:reply, {:ok, navigation}, socket}
+          error -> error
+        end
 
       :noop ->
         {:reply, {:ok, %{}}, socket}
@@ -93,6 +94,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
           usage: usage,
           page: Nav.page(nav),
           provider_offset: nav.scroll,
+          chip_offset: nav.chip_offset,
           surface: nav.surface
         },
         context

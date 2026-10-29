@@ -1,0 +1,14 @@
+{
+  "frame": "<frame/>",
+  "harness": "claude",
+  "parsed": {
+    "continuation": false,
+    "event": "start",
+    "sessionId": "session-1",
+    "transcriptPath": "/workspace/transcript.jsonl",
+    "workspace": "/workspace"
+  },
+  "stdin": "{\"session_id\":\"session-1\",\"hook_event_name\":\"SessionStart\",\"cwd\":\"/workspace\",\"transcript_path\":\"/workspace/transcript.jsonl\",\"stop_hook_active\":false}",
+  "stdout": "",
+  "stop_context": false
+}
