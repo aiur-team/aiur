@@ -481,4 +481,5 @@ The override record and routing state are visible in
 `aiur commands --json`. Absent or paused workers receive the override at their next
 session. A merged PR creates a corrective ticket for a new worker and PR; later
 overrides reuse its open work. Implementation requires the corrective PR to merge.
+
 Physical override controls are separate from this transport operation.
