@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Renderer and package contract, including a real Chromium one-page stress test."""
+"""Renderer and package contract, including a real Chromium one-page stress test.
+
+Kept above 200 lines: one suite shares report fixtures and the real print boundary.
+"""
 import copy
 from datetime import datetime, timedelta, timezone
 import importlib.util
