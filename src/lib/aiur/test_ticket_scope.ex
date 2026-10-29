@@ -9,26 +9,10 @@ defmodule Aiur.TestTicketScope do
   The inverse also holds: a daemon without the scope never reads or writes the
   pinned sandbox tickets of the repository they belong to, so a live fleet does
   not race a concurrent `--test3` run for them (#4741). The pinned ids are read
-  at compile time, so a changed `.aiur-test-tickets.json` takes effect only
-  after a rebuild.
+  from the active workflow's repo root at runtime and cached by that path.
   """
 
   @env "AIUR_DEV_TEST_TICKET_IDS"
-
-  # Read at compile time: the live daemon's cwd is not necessarily a checkout.
-  @pinned_file Path.expand("../../../.aiur-test-tickets.json", __DIR__)
-  @external_resource @pinned_file
-  {pinned_repo, pinned_ids} =
-    with {:ok, raw} <- File.read(@pinned_file),
-         {:ok, %{"expected_remote" => remote, "tickets" => tickets}} when is_list(tickets) <- Jason.decode(raw),
-         [_, repo] <- Regex.run(~r{github\.com[:/]([^/]+/[^/]+?)(?:\.git)?\z}, remote) do
-      {String.downcase(repo), tickets |> Enum.filter(&is_integer/1) |> Enum.map(&Integer.to_string/1)}
-    else
-      _ -> {nil, []}
-    end
-
-  @pinned_repo pinned_repo
-  @pinned_ids pinned_ids
 
   alias Aiur.GitHub.Config
 
@@ -214,12 +198,40 @@ defmodule Aiur.TestTicketScope do
 
   # Only the repository the pinned file names: another repo's #2897 is unrelated.
   defp live_exclusions do
-    with [_ | _] <- @pinned_ids,
+    {pinned_repo, pinned_ids} = pinned_tickets()
+
+    with [_ | _] <- pinned_ids,
          repo when is_binary(repo) <- Config.repo(),
-         true <- String.downcase(repo) == @pinned_repo do
-      {:except, MapSet.new(@pinned_ids)}
+         true <- String.downcase(repo) == pinned_repo do
+      {:except, MapSet.new(pinned_ids)}
     else
       _ -> :all
+    end
+  end
+
+  defp pinned_tickets do
+    path = Path.expand(".aiur-test-tickets.json", Aiur.Codeowners.repo_root())
+
+    key = {__MODULE__, :pinned_tickets, path}
+
+    case :persistent_term.get(key, :not_loaded) do
+      :not_loaded ->
+        result = read_pinned_tickets(path)
+        :persistent_term.put(key, result)
+        result
+
+      result ->
+        result
+    end
+  end
+
+  defp read_pinned_tickets(path) do
+    with {:ok, raw} <- File.read(path),
+         {:ok, %{"expected_remote" => remote, "tickets" => tickets}} when is_list(tickets) <- Jason.decode(raw),
+         [_, repo] <- Regex.run(~r{github\.com[:/]([^/]+/[^/]+?)(?:\.git)?\z}, remote) do
+      {String.downcase(repo), tickets |> Enum.filter(&is_integer/1) |> Enum.map(&Integer.to_string/1)}
+    else
+      _ -> {nil, []}
     end
   end
 
