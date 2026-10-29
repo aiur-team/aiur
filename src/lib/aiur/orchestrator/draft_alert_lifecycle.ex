@@ -21,13 +21,6 @@ defmodule Aiur.Orchestrator.DraftAlertLifecycle do
   @spec resolve_departed(State.t(), [String.t()], keyword()) :: State.t()
   def resolve_departed(%State{} = state, targets, opts) do
     state = ensure_draft_stall_seeded(state, opts)
-    active_alerts = Map.get(state.ci_lifecycle, :draft_stall_alerts, MapSet.new())
-
-    state =
-      Enum.reduce(MapSet.to_list(active_alerts) -- targets, state, fn target, acc ->
-        resolve_draft_stall_alert(acc, %Issue{id: target, identifier: target}, %{}, target, active_alerts, opts)
-      end)
-
     CiWaitDraftStall.resolve_departed(state, targets, opts)
   end
 

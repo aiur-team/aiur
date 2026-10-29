@@ -29,8 +29,7 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
     tracked =
       (Map.keys(since_map(state)) ++
          MapSet.to_list(alerts(state)) ++
-         MapSet.to_list(recovered(state)) ++
-         MapSet.to_list(commented(state)))
+         MapSet.to_list(recovered(state)))
       |> Enum.uniq()
 
     state = Enum.reduce(tracked -- targets, state, fn target, acc -> clear(acc, target, opts) end)
@@ -53,7 +52,7 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
     end
   end
 
-  defp held?(state, issue) do
+  defp held?(%State{} = state, %Issue{} = issue) do
     running_entry = running_entry(state, issue)
 
     Issue.paused?(issue) or Issue.parked?(issue, running_entry || %{}) or
