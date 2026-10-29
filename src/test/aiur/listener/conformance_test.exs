@@ -2,13 +2,17 @@ defmodule Aiur.Listener.ConformanceTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{AgentQueue, AgentQueueStore}
+  alias Aiur.AgentRunner.QueueTurn
   alias Aiur.Listener.{Effective, ModeStore, Scheduler, Spec}
   alias Aiur.Orchestrator.{OperatorMessages, State}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
-  @modes [:steer, :sync, :async]
+  @delivery_modes [:steer, :sync, :async]
+  @modes @delivery_modes ++ [:mute]
   @not_applicable %{
-    mute: "Khala-only mode; Aiur exposes steer, sync and async",
+    agent_self_mode: "Khala agents may lower their own mode; Aiur v1 retains human and Executor mode control",
+    owner_lock: "Khala owner locks have no counterpart in Aiur v1's operator authority model",
+    channel_addressing: "Khala channel broadcasts, agent senders and mention parsing are outside Aiur's addressed operator-message port",
     start: "Hook session registration has no Aiur queue-claim boundary",
     prompt: "Claude hook prompt busy/age rules do not apply to Aiur's runner-owned turn boundaries",
     continuation: "Hook Stop continuations do not end the Aiur turn"
@@ -20,7 +24,6 @@ defmodule Aiur.Listener.ConformanceTest do
     %{dir: dir}
   end
 
-  # Future regression guards: this test-only change locks existing behavior to the vendored contract.
   test "every shared row is classified and modeled boundaries agree with delivers" do
     rows = scheduler_rows!()
 
@@ -40,8 +43,8 @@ defmodule Aiur.Listener.ConformanceTest do
            "aiur disagrees with scheduler.v1.json:\n" <> Enum.map_join(mismatches, "\n", &inspect(&1, limit: :infinity, printable_limit: :infinity))
   end
 
-  test "async rows never claim at either boundary or wake an idle runner" do
-    async_rows = Enum.filter(scheduler_rows!(), &(&1["mode"] == "async"))
+  test "held async and mute bodies never claim at either boundary or directly wake an idle runner" do
+    async_rows = Enum.filter(scheduler_rows!(), &(&1["mode"] in ["async", "mute"]))
     assert async_rows != []
 
     for row <- async_rows do
@@ -56,9 +59,9 @@ defmodule Aiur.Listener.ConformanceTest do
     end
   end
 
-  test "shared modes match persisted Aiur modes plus Khala-only mute, defaulting to sync", %{dir: dir} do
+  test "all shared modes round-trip through persistence, defaulting to sync", %{dir: dir} do
     assert Spec.status() == :ok, "spec unavailable"
-    assert Enum.sort(Spec.modes()) == Enum.sort(Enum.map(@modes, &Atom.to_string/1) ++ ["mute"])
+    assert Enum.sort(Spec.modes()) == Enum.sort(Enum.map(@modes, &Atom.to_string/1))
     opts = [dir: dir, repo_name: "conformance"]
     assert ModeStore.get("default", opts).requested == :sync
 
@@ -67,8 +70,41 @@ defmodule Aiur.Listener.ConformanceTest do
       assert record.requested == mode
       assert ModeStore.get(Atom.to_string(mode), opts).requested == mode
     end
+  end
 
-    assert {:error, :invalid_mode} = ModeStore.put("mute", :mute, 0, %{actor: :human}, opts)
+  test "addressed operator sends follow the shared wake table without reading held bodies" do
+    assert Spec.status() == :ok
+    rows = Application.app_dir(:aiur, "priv/listener_spec/v1/wake.v1.json") |> File.read!() |> Jason.decode!()
+    assert rows != []
+    modeled = Enum.filter(rows, &(&1["addressed"] == true and &1["from_agent"] == false))
+    assert Enum.sort(Enum.map(modeled, & &1["mode"])) == Enum.sort(Enum.map(@modes, &Atom.to_string/1))
+
+    for row <- rows -- modeled do
+      assert row["from_agent"] or not row["addressed"]
+      assert Map.fetch!(@not_applicable, :channel_addressing) != ""
+    end
+
+    for row <- modeled do
+      {state, item, id} = queued(row)
+      entry = %{identifier: id, pid: self(), control: %{status: :sleeping}}
+      store = Scheduler.notify_enqueued(state, entry, item)
+      expected = row["wakes"]
+      assert_received {:agent_queue_updated, ^id, _, ^expected}
+
+      if row["mode"] in ["async", "mute"] do
+        assert AgentQueueStore.get(store, item.id).status == :pending
+        assert AgentQueueStore.get(store, item.id).body.text == "shared spec row"
+      end
+
+      nudges = Enum.filter(AgentQueueStore.list_pending(store, id), &(&1.event_type == :listener_ping))
+      assert length(nudges) == if(row["mode"] == "async" and expected, do: 1, else: 0)
+
+      for nudge <- nudges do
+        text = QueueTurn.queue_item_text(nudge)
+        assert text =~ "aiur_read_messages"
+        refute text =~ "shared spec row"
+      end
+    end
   end
 
   test "Effective support statuses and steer carriers belong to the shared schema" do
@@ -85,7 +121,7 @@ defmodule Aiur.Listener.ConformanceTest do
     observed =
       for harness <- [nil, %{primitives: :unknown, source: :session} | harnesses], requested <- @modes, accepted <- [false, true], installed <- [false, true] do
         view = Effective.compute(%{requested: requested, version: 0, actor: :default}, harness, emulated_interrupt_accepted?: accepted, pull_tool_installed?: installed)
-        assert Enum.sort(Map.keys(view.support)) == Enum.sort(@modes)
+        assert Enum.sort(Map.keys(view.support)) == Enum.sort(@delivery_modes)
         assert is_nil(view.effective) or Atom.to_string(view.effective) in Spec.modes()
 
         for {_mode, support} <- view.support do
@@ -148,7 +184,6 @@ defmodule Aiur.Listener.ConformanceTest do
 
   defp boundary(row), do: flunk("unclassified scheduler row: #{inspect(row)}")
 
-  defp classify_boundary(%{"mode" => "mute"}), do: {:not_applicable, :mute}
   defp classify_boundary(%{"event" => "start"}), do: {:not_applicable, :start}
   defp classify_boundary(%{"event" => "prompt", "harness" => "claude"}), do: {:not_applicable, :prompt}
   defp classify_boundary(%{"event" => "prompt"}), do: :stop

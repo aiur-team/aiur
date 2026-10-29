@@ -96,10 +96,11 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "held", delivery_policy: :listener, origin: :http})
     assert_received {:agent_queue_updated, ^id, _, true}
     assert {:reply, {:ok, %{effective: :mute}}, muted} = ListenerModes.set_mode(queued, id, :mute, expected_version: 1)
-    assert_received {:agent_queue_updated, ^id, ^request, false}
+    refute_received {:agent_queue_updated, ^id, _, true}
     assert {:reply, :empty, ^muted} = OperatorMessages.claim_next_queue_item_call(muted, id)
     assert AgentQueueStore.get(muted.queue_store, request).status == :pending
     assert Unread.queue_summary(muted.queue_store, id).listener.unread_count == 1
+    assert Enum.map(AgentQueueStore.list_pending(muted.queue_store, id), & &1.id) == [request]
   end
 
   test "mute never restarts deactivated or completed agents", %{id: id, entry: entry, state: state} do

@@ -2,6 +2,7 @@ defmodule AiurWeb.Conversation.Composer do
   @moduledoc "Shared worker and Executor message form and local delivery observations."
   use Phoenix.Component
   alias Aiur.Conversation.Ref
+  alias Aiur.Listener.ModeCopy
   alias AiurWeb.Components.VoiceInput
 
   attr(:writable, :boolean, required: true)
@@ -52,9 +53,7 @@ defmodule AiurWeb.Conversation.Composer do
     """
   end
 
-  defp mode_label(%{effective: :sync}), do: "Sync · next turn"
-  defp mode_label(%{effective: :steer}), do: "Steer · interrupts"
-  defp mode_label(%{effective: :async}), do: "Async · on demand"
+  defp mode_label(%{effective: mode}) when mode in [:steer, :sync, :async, :mute], do: ModeCopy.label(mode)
   defp mode_label(_), do: "mode unknown"
   defp state_label(:accepted, _), do: "Accepted; awaiting journal entry"
   defp state_label(:queued, %{effective: :sync}), do: "Queued for next boundary"
