@@ -216,7 +216,7 @@ When you answer a Command in conversation with an attended Executor, it can reco
 
 Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
 
-Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; delivery-state guards still apply.
+Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; withdrawal delivery guards still apply.
 
 <span id="who-can-replace-an-answer"></span>
 
@@ -225,23 +225,43 @@ Enabling the relay gate raises an info alert. Every relay also raises an info al
 The first accepted answer wins. If another responder answers first, the conflict
 shows the accepted answer and its delivery state instead of overwriting it.
 
-Use **Replace** while the answer has not reached the recipient and is not in
-flight. Replacement preserves the prior answer in history and delivers only the
-new answer. A failed send permits replacement again.
-
-After delivery, use **Send correction** to append corrected direction with its
-own delivery tracking. It cannot retract what the agent already received.
+Use **Replace** before delivery, or **Send correction** after delivery. Both
+record an override of the original Command. Before delivery the new answer
+replaces the pending answer; after delivery it sends corrective direction to the
+active worker on the existing work. It cannot retract earlier effects.
 
 Both revise and supersede use the current active answer's precedence:
 **direct operator > operator relayed by an Executor > Executor or supervisor**.
-A caller can replace an answer of equal or lower precedence while delivery guards
-permit it.
+A caller can override an answer of equal or lower precedence, including after
+delivery or acknowledgement.
 
 A relayed answer never replaces a direct operator answer; an Executor
 or supervisor cannot replace either human-attributed kind.
 
-Supersede is refused once an answer has been delivered or is in flight.
-Revisions keep their existing delivery and correction follow-up rules.
+An override retains its original Command, prior/new action IDs, ticket, and the
+PR number and merged state observed when routed. Unknown PR state stays explicit.
+`aiur commands --json` includes an `overrides` array with route, state and timestamps.
+
+
+A newer override supersedes the previous one; stale queued messages cannot deliver.
+Records survive daemon restart.
+
+Active-worker overrides progress from `queued` to `delivered` after confirmed
+delivery, then `implemented` when the worker acknowledges the override or a later
+branch push is confirmed as a changed head on the same PR. The record names the
+evidence.
+
+Push evidence needs a verified PR head-update timestamp later than
+delivery; unknown or same-second chronology stays unproven until acknowledgement
+or a later proven push. Queue acceptance alone does not mean implementation.
+
+Other routes (`resume_pending`, `capacity_wait`, `corrective_ticket`, `replacement`)
+retain the existing delivery path. An absent or paused worker receives the answer
+at its next session start; a terminal ticket raises an Executor follow-up.
+
+Automatic resumption and corrective-ticket creation are subsequent routing work.
+Override acceptance never spawns a worker or rewrites merged work. Direct legacy
+supersede calls retain their pre-delivery guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.

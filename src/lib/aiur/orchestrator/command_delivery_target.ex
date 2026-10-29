@@ -34,4 +34,25 @@ defmodule Aiur.Orchestrator.CommandDeliveryTarget do
   catch
     :exit, reason -> {:error, {:orchestrator_unavailable, reason}}
   end
+
+  @impl true
+  def override_context(ticket_identifier) do
+    context = worker_context(ticket_identifier)
+    Map.put(context, :pr, pull_request(ticket_identifier))
+  end
+
+  defp pull_request(ticket_identifier) when is_binary(ticket_identifier) do
+    case Aiur.Tracker.ticket_pull_request(ticket_identifier) do
+      {:ok, pr} when is_map(pr) -> pr
+      _ -> :unknown
+    end
+  end
+
+  defp pull_request(_ticket_identifier), do: :unknown
+
+  defp worker_context(ticket_identifier) do
+    GenServer.call(Aiur.Orchestrator, {:command_override_context, ticket_identifier}, @active_identifiers_timeout)
+  catch
+    :exit, _ -> %{worker: :unknown, capacity: :unknown}
+  end
 end
