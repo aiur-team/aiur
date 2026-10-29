@@ -64,7 +64,7 @@ defmodule AiurWeb.Streamdeck.Render do
   def compose(model) do
     case {to_string(field(model, :surface, :grid)), field(field(model, :nav), :view)} do
       {"grid", :feature} -> FeatureGrid.compose(model, field(model, :nav))
-      {"grid", view} when view in [:fleet, "fleet"] -> Views.compose(model)
+      {"grid", view} when view in [:epic, :fleet, "epic", "fleet"] -> Views.compose(model)
       {"grid", _view} -> Grid.compose(model)
       _focused -> Views.compose(model)
     end
