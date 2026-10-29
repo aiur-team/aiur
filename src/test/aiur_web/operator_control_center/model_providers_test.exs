@@ -69,7 +69,8 @@ defmodule AiurWeb.OperatorControlCenter.ModelProvidersTest do
       })
 
     assert html =~ ~s(data-provider="claude")
-    assert html =~ ~s(<span class="rs-no">unknown</span>)
+    notes = html |> Floki.parse_fragment!() |> Floki.find(".rs-no") |> Enum.map(&Floki.text/1)
+    assert notes == ["unknown"]
     assert html =~ "1 model"
     assert html =~ "Shared daemon spend: Core 31 requests, GraphQL 60 points across 2 observed instances (8s old)"
     assert html =~ "agent gh calls are counted per host"

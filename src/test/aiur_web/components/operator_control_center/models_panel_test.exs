@@ -87,8 +87,9 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
 
   test "a real provider with nothing observed reads unknown, never zero" do
     html = render([card(:codex, [])])
+    notes = html |> Floki.parse_fragment!() |> Floki.find(".rs-no") |> Enum.map(&Floki.text/1)
 
-    assert html =~ ~s(<span class="rs-no">unknown</span>)
+    assert notes == ["unknown"]
     assert html =~ "rs-meter is-unknown"
     refute html =~ ~s(<i style="width:0%"></i>)
     refute html =~ "0%"
@@ -120,11 +121,13 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
 
   test "Codex headroom uses the dispatch value and visibly includes its age" do
     html = render([card(:codex, [], %{headroom: %{status: :observed, remaining_percent: 74, age_seconds: 75}})])
+    notes = html |> Floki.parse_fragment!() |> Floki.find(".rs-no") |> Enum.map(&Floki.text/1)
 
     assert html =~ ~s(<span class="rs-pc">74% left</span>)
     assert html =~ "74% left · 75s old"
-    assert html =~ "74% remaining · observed 75s ago"
-    refute html =~ ~s(class="rs-no">unknown</span>)
+    assert html =~ "Codex headroom · 74% left · 75s old"
+    assert notes == ["74% left · 75s old"]
+    refute "unknown" in notes
   end
 
   test "stale Codex headroom stays unknown and displays the reason and age" do

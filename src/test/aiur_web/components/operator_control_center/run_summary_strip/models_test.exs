@@ -312,7 +312,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
         [_, models_html] = String.split(html, "rs-models", parts: 2)
         # No window label and no filler row: Kimi, with nothing observed, reads unknown.
         refute models_html =~ "rs-limit-label" or models_html =~ "resets in"
-        assert models_html =~ ~s(<span class="rs-no">unknown</span>)
+        notes = models_html |> Floki.parse_fragment!() |> Floki.find(".rs-no") |> Enum.map(&Floki.text/1)
+
+        assert notes == ["unknown"]
         # The SPEND label is deleted from the model rows; the amount keeps its
         # accessible name on the containing stat.
         refute models_html =~ ~s(<span class="rs-stat-label">Spend</span>)
