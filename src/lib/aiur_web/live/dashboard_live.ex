@@ -172,6 +172,10 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_event("refresh_listen_mode", _params, socket), do: AiurWeb.ListenerModeEvents.retry(socket)
 
+  def handle_event("open-voice-conversation", params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.open(socket, params)}
+
+  def handle_event("close-voice-conversation", _params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.close(socket)}
+
   def handle_event("set_listen_mode", params, socket), do: AiurWeb.ListenerModeEvents.change(params, socket)
 
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}

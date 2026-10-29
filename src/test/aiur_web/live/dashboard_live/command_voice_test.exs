@@ -29,6 +29,7 @@ defmodule AiurWeb.DashboardLive.CommandVoiceTest do
       assert has_element?(view, "#{selector}[phx-hook=VoiceInput][data-voice-select-custom='answer[choice]']")
       assert has_element?(view, "#{selector} [data-voice-mode=dictate][aria-disabled=false]")
       refute has_element?(view, "#{selector} [data-voice-conversation]")
+      refute has_element?(view, "#{selector} [data-voice-mode=converse]")
       refute has_element?(view, "#{selector} [data-voice-input]")
       target = view |> element("#{selector} [data-voice-root]") |> render() |> Floki.parse_fragment!() |> Floki.attribute("data-voice-target") |> hd() |> Jason.decode!()
       assert target == %{"kind" => "command", "decision_id" => decision.decision_id, "expected_version" => decision.version}
