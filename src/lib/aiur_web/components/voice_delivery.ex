@@ -9,7 +9,7 @@ defmodule AiurWeb.Components.VoiceDelivery do
 
       item ->
         state = if item[:receipt] in [:accepted, :held_async, :waiting_turn_end, :harness_queued, :in_context, :read, :failed, :outcome_unknown], do: item.receipt, else: :unknown
-        delivery = %{state: state, message_id: item[:message_id] || item[:request_id]}
+        delivery = %{state: state, message_id: item[:message_id]}
         if delivery.state in [:failed, :outcome_unknown] && errors[key], do: Map.put(delivery, :copy, errors[key]), else: delivery
     end
   end
