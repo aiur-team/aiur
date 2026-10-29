@@ -103,8 +103,14 @@ defmodule Aiur.Orchestrator.Status.OperatorMessageFencesTest do
     assert {:error, :empty_message} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "   "})
 
-    assert {:error, :no_running_agent} =
-             Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+    assert {:ok, queued_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello", message_id: "idle-message-1"})
+
+    assert {:ok, ^queued_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello", message_id: "idle-message-1"})
+
+    assert {:ok, %{id: ^queued_id, category: :operator_message}} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MISSING")
+    assert :empty = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MISSING")
   end
 
   test "orchestrator records queued evidence before notifying the worker" do

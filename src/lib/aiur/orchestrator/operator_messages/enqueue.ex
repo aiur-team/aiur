@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   @moduledoc """
-  Validates, dedupes, and queues Executor messages and event digests for a running agent.
+  Validates, dedupes, and queues Executor messages and event digests for running or next workers.
   Public API stays on `Aiur.Orchestrator.OperatorMessages`.
   """
 
@@ -128,11 +128,34 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
       :continue ->
         case State.find_running_by_identifier(state.running, issue_identifier) do
           nil ->
-            {{:error, :no_running_agent}, state}
+            enqueue_for_next_worker(state, issue_identifier, text, request)
 
           running_entry ->
             enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
         end
+    end
+  end
+
+  defp enqueue_for_next_worker(state, issue_identifier, text, request) do
+    attrs =
+      AgentQueue.operator_message(issue_identifier, text,
+        delivery_policy: :checkpoint,
+        origin: request.origin,
+        actor: request.actor,
+        turn_id: request.turn_id,
+        action_id: request.action_id,
+        correlation: request.correlation
+      )
+
+    case enqueue_plain(state.queue_store, attrs, request) do
+      {:ok, queue_store, item, _status} ->
+        Unread.broadcast_change(state.queue_store, queue_store, issue_identifier)
+        record_operator_queued_evidence(item)
+        next_state = %{state | queue_store: queue_store} |> LifecycleFence.protect_queued_item(issue_identifier, item)
+        {{:ok, item.id}, next_state}
+
+      {:error, _reason} = error ->
+        {error, state}
     end
   end
 

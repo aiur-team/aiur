@@ -85,6 +85,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur restart [--keep-agents] [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
+       aiur command [<decision-id> [--option id|--custom-response text [--relayed --quote words]]]  list open, show, or answer a Command
        aiur command request <question> [--option id=label]… [--recommend id] [--blocking] [--urgency low|normal|high|critical] [--ticket n] [--context-file path] [--short-summary text] [--executor-id id] [--idempotency-key key] [--json]
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
@@ -279,6 +280,12 @@ aiur_engine_main() {
       shift
       cmd_agents "$@"
       ;;
+    # @cli-reference aiur command | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | aiur command
+    # @cli-reference aiur command --filter open | Applies the existing Command filters through the canonical singular command. | aiur command --filter open
+    # @cli-reference aiur command DECISION-ID | Shows question, options, recommendation, context, status and delivery. | aiur command dec_123
+    # @cli-reference aiur command DECISION-ID --option ID | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | aiur command dec_123 --option keep
+    # @cli-reference aiur command DECISION-ID --custom-response TEXT | Records a local operator's bounded text answer after interactive confirmation. | aiur command dec_123 --custom-response 'Wait for a fresh build'
+    # @cli-reference aiur command DECISION-ID --option ID --relayed --quote TEXT | Relays an operator's already-given answer with the current version and a generated idempotency key; requires the relay config gate. | aiur command dec_123 --option keep --relayed --quote 'Keep them'
     # @cli-reference aiur command request <question> --context-file PATH | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | aiur command request 'Ship?' --context-file release.md
     # @cli-reference aiur command request <question> --recommend ID | Moves the named supplied option first; omitted by default. | aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes
     # @cli-reference aiur command request <question> --short-summary TEXT | Adds a concise Command title; omitted by default. | aiur command request 'Ship?' --short-summary 'Beta release'

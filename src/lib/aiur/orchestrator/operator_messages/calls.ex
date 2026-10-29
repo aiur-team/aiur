@@ -33,6 +33,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
         %{kind: :text, body: body} = payload
       )
       when is_binary(issue_identifier) and is_binary(body) do
+    issue_identifier = canonical_idle_identifier(state, issue_identifier)
     {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
     {:reply, reply, next_state}
   end
@@ -46,6 +47,22 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
 
   def send_operator_message_call(%State{} = state, _issue_identifier, _payload) do
     {:reply, {:error, :invalid_message}, state}
+  end
+
+  defp canonical_idle_identifier(state, identifier) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{identifier: canonical} when is_binary(canonical) ->
+        canonical
+
+      _not_running ->
+        state.last_polled_issues
+        |> Map.values()
+        |> Enum.find(&Aiur.Issue.identifier_matches?(&1.id, &1.identifier, identifier))
+        |> case do
+          %{identifier: canonical} when is_binary(canonical) -> canonical
+          _not_found -> identifier
+        end
+    end
   end
 
   @spec send_correlated_operator_message_call(State.t(), String.t(), map()) ::
