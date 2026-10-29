@@ -230,6 +230,11 @@ of the composer.
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
 | Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
 
+**Dictate** on a Command selects Custom response and appends speech without
+recording an answer. Review it, then use the answer button. Revision dictation
+also waits for a reviewed correction and its reason. If another tab answers
+first, the conflict notice keeps your text for review.
+
 Command details include an escalation timeline from recorded facts, with the
 cause, absolute time, and relative age. An unavailable timeline is labeled
 explicitly.
