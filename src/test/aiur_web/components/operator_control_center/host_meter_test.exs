@@ -37,5 +37,8 @@ defmodule AiurWeb.OperatorControlCenter.HostMeterTest do
     assert card.health.age_seconds == nil
     assert card.health.age_label == nil
     html = render_component(&ProviderMeters.provider_meters/1, view: view)
+    # Keep the existing live-card guards after the strip renderer retires.
+    refute html =~ "0 seconds old"
+    assert html =~ "Current host · account unverified"
   end
 end

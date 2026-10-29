@@ -1,11 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
-  # #3937: one slow provider must not fail the whole dashboard load, and when a
-  # load does fail the Units page must name the re-served list as stale and keep
-  # re-reading without waiting for an event.
+  # #3937: one slow provider must not fail a load; retained catalog snapshots
+  # must name stale data and preserve its measured age.
   use Aiur.TestSupport
-
-  import Phoenix.ConnTest
-  import Phoenix.LiveViewTest
 
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.TestSupport.EndpointStubs
@@ -13,7 +9,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
   alias AiurWeb.{ControlCenterCache, Endpoint}
   alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPresenter}
 
-  @endpoint Endpoint
   @orchestrator __MODULE__.Orchestrator
 
   # The cache reads this clock, so a retained payload's age is set, not slept for.
@@ -186,14 +181,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
     refute Map.has_key?(recovered.units, :retained_age_seconds)
   end
 
-  # The tick queues the reload behind itself; wait for the tick before rendering.
-  defp tick(view) do
-    send(view.pid, :github_quota_tick)
-    _state = :sys.get_state(view.pid)
-  end
-
-  defp unit_rows(html), do: html |> Floki.parse_document!() |> Floki.find("#units-rows .units-row")
-
   defp identity(number) do
     %TrackerIdentity{
       status: :joinable,
@@ -250,59 +237,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
       open_decision_count_health: :available,
       control: %{},
       ci_result: nil
-    }
-  end
-
-  defp row do
-    %{
-      identity: %TrackerIdentity{
-        status: :joinable,
-        kind: :github,
-        owner: "acme",
-        repository: "aiur",
-        provider_id: "NODE-1110",
-        database_id: 1110,
-        identifier: "1110",
-        reason: nil
-      },
-      title: "Responsive Units interface",
-      url: "https://github.com/acme/aiur/issues/1110",
-      lifecycle: :active,
-      terminal?: false,
-      replacement_boundary?: false,
-      tracker_state: "in-progress",
-      backend: :codex,
-      agent_family: :codex,
-      requested_model: "gpt-5.6-terra",
-      resolved_model: "gpt-5.6",
-      effort: :high,
-      account: nil,
-      complexity: 3,
-      build_lane: "L2",
-      reasons: %{waiting: :active, blocking: nil, alert: nil, pause: nil, stuck: nil},
-      runtime: %{
-        bucket: :running,
-        work_state: :working,
-        waiting_reason: :active,
-        runtime_seconds: 3_900,
-        stale_for_seconds: 15,
-        tracker_paused?: false,
-        membership_lifecycle: :active
-      },
-      timestamps: %{
-        first_observed_at: ~U[2026-07-17 10:00:00Z],
-        last_observed_at: ~U[2026-07-17 11:59:00Z],
-        started_at: "2026-07-17T10:55:00Z",
-        last_activity_at: "2026-07-17T11:59:00Z"
-      },
-      open_command_count: 0,
-      turn_count: 3,
-      context_usage: %{used_tokens: 50_000, window_tokens: 100_000},
-      progress: %{status: :known, percent: 40, source: :checkin, freshness: :stale},
-      latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}},
-      provider_health: %{membership: :available, status: :available, activity: :available, decisions: :available, issue: :available},
-      field_sources: %{},
-      sources: %{}
     }
   end
 end
