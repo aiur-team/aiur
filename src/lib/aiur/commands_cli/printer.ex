@@ -57,7 +57,10 @@ defmodule Aiur.CommandsCLI.Printer do
   end
 
   defp print_detail(decision, captured_at, history) do
-    IO.puts("#{decision["decision_id"]} · #{decision["lifecycle"]} · blocking #{decision["blocking"]} · superseded #{decision["superseded?"]}")
+    IO.puts(
+      "#{decision["decision_id"]} · #{decision["lifecycle"]} · status #{decision["decision_status"]} · delivery #{decision["delivery_status"]} · blocking #{decision["blocking"]} · superseded #{decision["superseded?"]}"
+    )
+
     IO.puts(decision["question"])
     IO.puts("Route: #{route(decision["route_state"])}; Why: #{cause(decision)}")
     if decision["needs_you_ms"], do: IO.puts("Needs you since: #{duration(decision["needs_you_ms"])} ago")
@@ -66,6 +69,7 @@ defmodule Aiur.CommandsCLI.Printer do
     IO.puts("Origin: #{get_in(decision, ["source", "agent_id"]) || "unknown"}")
     IO.puts("Age: #{age(decision["created_at"], captured_at)}")
     IO.puts("Context: #{get_in(decision, ["context", "short"]) || "none"}")
+    if get_in(decision, ["context", "long_markdown"]), do: IO.puts("Details:\n#{get_in(decision, ["context", "long_markdown"])}")
     IO.puts("Consequence of delay: #{decision["consequence_of_delay"] || "none"}")
     IO.puts("Recommendation: #{recommendation(decision["recommendation"])}")
 

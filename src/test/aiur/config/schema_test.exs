@@ -208,6 +208,15 @@ defmodule Aiur.Config.SchemaTest do
     assert message =~ "relay_operator_answers"
   end
 
+  test "reversible human-required Executor delegation defaults off and is boolean" do
+    assert {:ok, defaults} = Schema.parse(%{})
+    refute defaults.executor.allow_reversible_human_required_answers
+    assert {:ok, enabled} = Schema.parse(%{"executor" => %{"allow_reversible_human_required_answers" => true}})
+    assert enabled.executor.allow_reversible_human_required_answers
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"executor" => %{"allow_reversible_human_required_answers" => "yes"}})
+    assert message =~ "allow_reversible_human_required_answers"
+  end
+
   describe "agent Mix scheduler cap" do
     test "defaults to four and accepts an explicit override" do
       assert {:ok, defaults} = Schema.parse(%{})

@@ -1,12 +1,12 @@
 ## Command decision loop
 
 Handle each Command when the daemon listener delivers it (via the
-needs-attention alert) or when you read it with `aiur commands <decision-id>`.
+needs-attention alert) or when you read it with `aiur command <decision-id>`.
 The listener remains the primary command path. As a backstop, sweep decisions
 every `executor-wait` cycle; use [`open-decisions-sweep.sh`](open-decisions-sweep.sh)
 to list open decisions and report new ones or blockers at least 15 minutes old.
 
-Triage Commands currently routed to you with `aiur commands --filter
+Triage Commands currently routed to you with `aiur command --filter
 with-executor`; this is a triage view, while the listener remains the primary
 arrival path. Read [when a Command becomes yours](../../../../website/docs-app/concepts/commands.md#when-a-command-becomes-yours)
 for the acknowledgement and answer deadlines and how Commands reach the human.
@@ -30,9 +30,9 @@ Requests default to blocking and go directly to the human. `aiur ask` is a
 deprecated alias; use the canonical command for new requests. An
 `executor.decision.answered` record arrives on `executor-wait` with the
 `decision_id`, not the answer text. Read the answer with
-`aiur commands <decision-id> --json`, then act on the human's choice.
+`aiur command <decision-id> --json`, then act on the human's choice.
 You cannot answer a Command you raised, including through
-`operator-relay-answer`, or replace an answer recorded directly by the
+`command --relayed`, or replace an answer recorded directly by the
 operator. Have the human answer your request through an authenticated
 surface such as the dashboard. See [Executor Command requests](../../../../website/docs-app/reference/cli-operations.md#executor-command-requests).
 
@@ -61,13 +61,19 @@ defaults to `aiur-cli`. The expected version prevents a stale listener event
 from overwriting a later answer, while the idempotency key makes event replay
 safe.
 
+If the operator explicitly configures
+`executor.allow_reversible_human_required_answers: true`, the Executor may also
+answer reversible legacy engineering Commands. The durable record retains the
+Executor actor and rationale. Product, spend, external-publication, and
+security basis remain human-only; the setting is not permission to answer an
+operator-owned choice.
+
 When the operator has already answered a worker-originated human-only Command
 in this attended conversation, record their answer through the opt-in relay path:
 
 ```bash
-"$AIUR_CMD" operator-relay-answer <decision-id> --expected-version <n> \
-  --option <id> --quote <verbatim-operator-words> --relayed-by <executor-id> \
-  --idempotency-key <key>
+"$AIUR_CMD" command <decision-id> --option <id> --relayed \
+  --quote <verbatim-operator-words>
 ```
 
 Use `--custom-response` instead of `--option` for free text. The operator must
@@ -126,7 +132,7 @@ and restarts the listener, it subscribes to
 `executor.decision.requested` / `executor.decision.deferred`, and it replays
 from its own durable watermark so a restart re-delivers only what was missed.
 Each Command surfaces as a needs-attention alert in `aiur watch` / `aiur
-alerts --needs-attention`; read the Command's payload with `aiur commands
+alerts --needs-attention`; read the Command's payload with `aiur command
 <decision-id>`. This listener is the command inbox: do not discover new
 Commands by polling or sweeping the decision store. Periodic monitoring remains
 necessary for runtime health, but it is not a parallel decision-discovery
@@ -150,7 +156,7 @@ when available (the CLI otherwise records `aiur-cli`), so replay stays
 idempotent and stale events cannot overwrite a later answer.
 
 If the human has already answered a worker-originated Command in the attended
-conversation, use `operator-relay-answer` with the current version, one choice, a verbatim
+conversation, use `command --relayed` with one choice and a verbatim
 `--quote`, stable `--relayed-by` identity and an idempotency key. The operator
 must first enable `executor.relay_operator_answers`. The distinct
 `operator_relayed` actor and info alert preserve who decided and who recorded.
