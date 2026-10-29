@@ -65,7 +65,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
         |> Enum.find(&Aiur.Issue.identifier_matches?(&1.id, &1.identifier, identifier))
         |> case do
           %{identifier: canonical} when is_binary(canonical) -> canonical
-          _not_found -> nil
+          _not_found -> identifier
         end
     end
   end

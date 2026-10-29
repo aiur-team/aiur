@@ -57,10 +57,17 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryMatrixTest do
     assert observe(row) == {@checkpoint, false}
   end
 
-  test "unknown ticket without a running entry rejects messages without enqueuing or waking" do
+  test "ticket without a running entry queues for the next worker without waking" do
     state = %State{queue_store: AgentQueueStore.new()}
-    assert {:reply, {:error, :no_running_agent}, ^state} = OperatorMessages.send_operator_message_call(state, "missing-r7", %{kind: :text, body: "x"})
+
+    assert {:reply, {:ok, item_id}, updated} =
+             OperatorMessages.send_operator_message_call(state, "missing-r7", %{kind: :text, body: "x"})
+
     refute_received {:agent_queue_updated, "missing-r7", _, _}
+    assert [item] = AgentQueueStore.list_pending(updated.queue_store, "missing-r7")
+    assert item.id == item_id
+    assert item.body == %{text: "x"}
+    assert item.delivery == @checkpoint
   end
 
   defp observe(row) do
