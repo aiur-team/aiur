@@ -23,6 +23,18 @@ defmodule Aiur.Commands.Overrides do
 
   def normalize_metadata(_raw), do: {:error, :invalid_override_metadata}
 
+  @doc "Effective work target, retaining the original Command identity."
+  @spec target_ticket(Decision.t(), String.t() | nil) :: map()
+  def target_ticket(decision, action_id \\ nil) do
+    action_id = action_id || decision.active_action_id
+
+    case Enum.find(decision.overrides, &(&1.action_id == action_id)) do
+      %{corrective_ticket: ticket} when is_map(ticket) -> ticket
+      %{ticket: ticket} -> ticket
+      _missing -> decision.ticket
+    end
+  end
+
   @spec public(Decision.t()) :: [map()]
   def public(decision), do: JSONSafe.normalize(decision.overrides)
 
@@ -30,13 +42,19 @@ defmodule Aiur.Commands.Overrides do
   def observe(decision, %{type: :revision_recorded, data: %{override: metadata} = revision} = event) when is_map(metadata) do
     previous = Enum.map(decision.overrides, &supersede(&1, event.occurred_at))
 
+    prior = List.last(decision.overrides)
+    ticket = if prior, do: Map.get(prior, :corrective_ticket) || prior.ticket, else: decision.ticket
+    corrective = if prior && metadata.pr_merged != true, do: Map.get(prior, :corrective_ticket)
+    metadata = if corrective, do: Map.put(metadata, :route, :corrective_ticket), else: metadata
+
     record =
       Map.merge(metadata, %{
         override_id: revision.action_id,
         decision_id: decision.decision_id,
         prior_action_id: revision.prior_action_id,
         action_id: revision.action_id,
-        ticket: decision.ticket,
+        ticket: ticket,
+        corrective_ticket: corrective,
         state: :queued,
         queued_at: event.occurred_at,
         delivered_at: nil,

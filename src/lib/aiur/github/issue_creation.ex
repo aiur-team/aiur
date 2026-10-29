@@ -10,7 +10,7 @@ defmodule Aiur.GitHub.IssueCreation do
         method: :post,
         url: "#{Access.base_url()}/repos/#{owner}/#{repo}/issues",
         token: token,
-        caller: "experiment_analysis_create",
+        caller: Keyword.get(opts, :caller, "experiment_analysis_create"),
         body: %{"title" => title, "body" => body, "labels" => labels}
       }
 

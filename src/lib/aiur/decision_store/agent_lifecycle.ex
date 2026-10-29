@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.AgentLifecycle do
   @moduledoc false
 
+  alias Aiur.Commands.Overrides
   alias Aiur.Decision
   alias Aiur.DecisionEvent
   alias Aiur.DecisionStore.Answers
@@ -55,10 +56,11 @@ defmodule Aiur.DecisionStore.AgentLifecycle do
 
   defp validate_agent_lifecycle_target(decision, context) do
     active_answer = Decision.active_answer(decision)
+    target = Overrides.target_ticket(decision, context.data.action_id).identifier
 
     cond do
-      decision.ticket.identifier != context.ticket_identifier ->
-        {:error, {:conflict, {:ticket_mismatch, context.ticket_identifier, decision.ticket.identifier}}}
+      target != context.ticket_identifier ->
+        {:error, {:conflict, {:ticket_mismatch, context.ticket_identifier, target}}}
 
       is_nil(active_answer) ->
         {:error, {:invalid_transition, :answer_missing}}

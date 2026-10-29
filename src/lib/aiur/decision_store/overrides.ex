@@ -22,6 +22,8 @@ defmodule Aiur.DecisionStore.Overrides do
   def dispatchable?(decision) do
     case Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id)) do
       %{state: :superseded} -> false
+      %{route: :corrective_ticket, corrective_ticket: nil} -> false
+      %{route: :corrective_ticket} = record -> is_map(Map.get(record, :corrective_ticket))
       _observed_route -> true
     end
   end

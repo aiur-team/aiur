@@ -124,3 +124,10 @@ GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-rep
 Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
 
 Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. The listing must have begun after the request's latest revision; its completion time cannot prove closure. Missing observation provenance also cannot prove closure. No quota saving is claimed.
+
+
+## Corrective Command tickets
+
+Post-merge Command overrides create corrective issues through the governed transport as `command_override_create`. Their marker lookup uses `command_override_reconcile`, paging the repository issue listing rather than GitHub search so reconciliation does not depend on search indexing.
+
+The lookup shares the creation-time window and incomplete-read refusal described under [Experiment analyst tickets](#experiment-analyst-tickets). A read failure never proves absence or authorizes another create.

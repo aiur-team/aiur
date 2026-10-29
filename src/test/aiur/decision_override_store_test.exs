@@ -42,6 +42,7 @@ defmodule Aiur.DecisionOverrideStoreTest do
       dispatch_delay_ms: 60_000,
       reconcile_delay_ms: 60_000,
       dispatcher: dispatcher,
+      corrective_override_reconciler: fn _, _ -> {:ok, []} end,
       answer_comment_publisher: fn _ -> :ok end,
       override_context_reader: fn _ -> %{@context | pr: Map.merge(@context.pr, %{head_sha: "after", head_updated_at: DateTime.add(DateTime.utc_now(), 1)})} end
     ]
@@ -113,17 +114,13 @@ defmodule Aiur.DecisionOverrideStoreTest do
     refute_receive {:worker_message, _item}, 0
   end
 
-  test "observational routes retain legacy retry, startup prompt and delivery", ctx do
+  test "merged override waits for its corrective ticket before delivery", ctx do
     context = %{@context | pr: %{@context.pr | merged?: true}, worker: :active}
     override = override!(ctx, "merged", context)
     assert [%{route: :corrective_ticket, state: :queued}] = override.overrides
-    assert Aiur.Commands.override_dispatchable?(override)
-    assert Retry.dispatchable?(override, true)
-    assert [%{action_id: action_id, answer: "merged"}] = AnsweredDecisions.for_ticket("6908", ctx.store, 1_000)
-    assert action_id == override.active_action_id
-    item = dispatch!(ctx, override)
-    assert item.action_id == override.active_action_id
-    assert {:ok, :accepted} = DecisionStore.validate_delivery(item, ctx.store)
+    refute Aiur.Commands.override_dispatchable?(override)
+    refute Retry.dispatchable?(override, true)
+    assert [] == AnsweredDecisions.for_ticket("6908", ctx.store, 1_000)
   end
 
   test "verified branch push after delivery implements the override on its ticket PR", ctx do

@@ -15,6 +15,9 @@ defmodule Aiur.Commands do
   defdelegate override(id, payload, opts \\ [], server \\ Aiur.DecisionStore), to: Aiur.DecisionStore
 
   @doc "Whether the active override may use the existing delivery path."
+  @spec override_target_ticket(Aiur.Decision.t()) :: map()
+  defdelegate override_target_ticket(decision), to: Aiur.Commands.Overrides, as: :target_ticket
+
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
 

@@ -228,7 +228,8 @@ shows the accepted answer and its delivery state instead of overwriting it.
 Use **Replace** before delivery, or **Send correction** after delivery. Both
 record an override of the original Command. Before delivery the new answer
 replaces the pending answer; after delivery it sends corrective direction to the
-active worker on the existing work. It cannot retract earlier effects.
+active worker on unmerged work. If the PR has merged, it creates a corrective
+ticket for a new worker and PR. It cannot retract earlier effects.
 
 Both revise and supersede use the current active answer's precedence:
 **direct operator > operator relayed by an Executor > Executor or supervisor**.
@@ -255,11 +256,19 @@ Push evidence needs a verified PR head-update timestamp later than
 delivery; unknown or same-second chronology stays unproven until acknowledgement
 or a later proven push. Queue acceptance alone does not mean implementation.
 
-Other routes (`resume_pending`, `capacity_wait`, `corrective_ticket`, `replacement`)
+When the PR has merged, the override creates one corrective ticket, with the
+question, old and new answers, original PR and merge SHA. Its `corrective_ticket`
+link survives restart, and comments link the original ticket and merged PR to it.
+Retries reconcile the override marker before creating a ticket. The corrective
+ticket enters normal dispatch and capacity limits; merged history is preserved.
+A later override targets this corrective ticket while its PR remains unmerged.
+For this route, `implemented` requires the corrective PR to merge.
+
+Other routes (`resume_pending`, `capacity_wait`, `replacement`)
 retain the existing delivery path. An absent or paused worker receives the answer
 at its next session start; a terminal ticket raises an Executor follow-up.
 
-Automatic resumption and corrective-ticket creation are subsequent routing work.
+Automatic resumption for other routes is subsequent routing work.
 Override acceptance never spawns a worker or rewrites merged work. Direct legacy
 supersede calls retain their pre-delivery guard.
 
