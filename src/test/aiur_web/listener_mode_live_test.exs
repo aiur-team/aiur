@@ -31,7 +31,6 @@ defmodule AiurWeb.ListenerModeLiveTest do
     replace_counting_snapshot(orchestrator, %{snapshot | running: [Map.put(running, :listener, listener)]})
 
     start_test_endpoint(
-      orchestrator: orchestrator,
       snapshot_timeout_ms: 100,
       control_center_cache: false,
       units_membership_fun: fn -> units_membership(identity) end,
@@ -40,6 +39,8 @@ defmodule AiurWeb.ListenerModeLiveTest do
       live_conversation_subscribe_fun: fn _ -> :ok end,
       live_conversation_unsubscribe_fun: fn _ -> :ok end
     )
+
+    Aiur.TestSupport.EndpointStubs.put(orchestrator: name)
 
     {:ok, view, html} = live(build_conn(), "/voice")
     refute html =~ ~s(data-requested-mode="async")
@@ -76,7 +77,6 @@ defmodule AiurWeb.ListenerModeLiveTest do
     stop_supervised!(CountingOrchestrator)
 
     start_test_endpoint(
-      orchestrator: orchestrator,
       snapshot_timeout_ms: 100,
       dashboard_writable: true,
       control_center_cache: false,
@@ -86,6 +86,8 @@ defmodule AiurWeb.ListenerModeLiveTest do
       live_conversation_subscribe_fun: fn _ -> :ok end,
       live_conversation_unsubscribe_fun: fn _ -> :ok end
     )
+
+    Aiur.TestSupport.EndpointStubs.put(orchestrator: name)
 
     {:ok, view, _html} = live(build_conn(), "/voice")
     html = view |> element(~s(button[phx-click="read-conversation"])) |> render_click()

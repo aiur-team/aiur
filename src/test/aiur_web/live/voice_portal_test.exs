@@ -30,12 +30,10 @@ defmodule AiurWeb.VoicePortalTest do
     activity = if context[:empty_workers], do: %{activity | entries: []}, else: activity
 
     start_test_endpoint(
-      orchestrator: orchestrator,
       snapshot_timeout_ms: 100,
       control_center_cache: if(context[:missing_cache], do: __MODULE__.MissingCache, else: false),
       dashboard_writable: !context[:read_only],
       browser_basic_auth: true,
-      voice_conversation_panel_module: InstalledPanel,
       voice_target_payload_fun: fn -> %{fleet: %{running: Enum.map(snapshot.running, &%{issue_identifier: &1.identifier})}} end,
       capabilities_report_fun: fn -> %{capabilities: Map.new(~w(voice.stt voice.tts voice.conversation), &{&1, %{state: :available}})} end,
       units_membership_fun: fn -> membership end,
@@ -54,6 +52,8 @@ defmodule AiurWeb.VoicePortalTest do
       end,
       usage_snapshot_fun: fn _identifier, _opts -> {:error, :no_usage_data} end
     )
+
+    Aiur.TestSupport.EndpointStubs.put(orchestrator: orchestrator_name, voice_conversation_panel_module: InstalledPanel)
 
     %{handle: handle}
   end

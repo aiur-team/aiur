@@ -29,8 +29,9 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
       %{capabilities: %{"voice.stt" => stt, "voice.tts" => stt, "voice.conversation" => stt, "streamdeck" => %{state: :available}}}
     end
 
-    # PID providers stay in the per-test override table; named atoms enter shared config.
-    start_test_endpoint(orchestrator: pid, snapshot_timeout_ms: 5, capabilities_report_fun: report_fun, voice_conversation_panel_module: InstalledPanel)
+    # Named providers need an explicit private override; atoms otherwise enter shared config.
+    start_test_endpoint(snapshot_timeout_ms: 5, capabilities_report_fun: report_fun)
+    Aiur.TestSupport.EndpointStubs.put(orchestrator: orchestrator_name, voice_conversation_panel_module: InstalledPanel)
     {:ok, view, _html} = live(build_conn(), "/commands")
     assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured, "voice.conversation" => unconfigured}
 
@@ -45,7 +46,8 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
 
-    start_test_endpoint(orchestrator: pid, snapshot_timeout_ms: 5, capabilities_report_fun: fn -> raise "registry unavailable" end)
+    start_test_endpoint(snapshot_timeout_ms: 5, capabilities_report_fun: fn -> raise "registry unavailable" end)
+    Aiur.TestSupport.EndpointStubs.put(orchestrator: orchestrator_name)
     {:ok, view, _html} = live(build_conn(), "/commands")
     assert voice_capabilities(view) == %{}
   end
