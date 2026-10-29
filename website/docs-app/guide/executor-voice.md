@@ -6,8 +6,10 @@ The shared Executor composer supports **Dictate** and **Converse**, like worker
 composers, when Executor messaging is enabled. Voice controls are hidden when
 the composer is read-only or its effective listener mode is unavailable.
 
-This integration awaits the Executor view and send adapter; the existing
-**Talk to Executor** prototype below remains separately available.
+Dictate appends speech to the editable draft and waits for **Send**. Delivery
+receipts come from the Executor send path. Cancel restores the pre-recording
+draft; closing the conversation stops capture. The existing **Talk to Executor**
+prototype below remains separately available.
 
 ## Voice prototype
 

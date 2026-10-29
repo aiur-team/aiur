@@ -87,7 +87,7 @@ interactive voice chat button.
 
 While listening or finishing transcription, **Cancel** discards the dictation and restores the exact text from before recording. **Escape** does the same when focus is in the voice controls or message field; it keeps the conversation drawer open. Outside recording, Escape keeps its usual drawer-close behavior.
 
-The voice status line follows idle → requesting microphone permission → listening → finishing transcription → ready to review. Permission denial explains how to allow the microphone; no-device errors explain how to connect one. Both allow another attempt. Channel failures keep the text captured so far; unknown failures show a neutral message.
+The voice status line follows idle → requesting microphone permission → listening → finishing transcription → ready to review. Permission denial explains how to allow the microphone; no-device errors explain how to connect one. Both allow another attempt. Channel failures keep the text captured so far; unknown failures show a neutral message. Dictation stops at the five-minute session limit with an explanation and keeps the text for review.
 
 Dictated messages use the same delivery receipts and Command answer notices as typed text; voice never infers delivery from transcription or pressing Send.
 

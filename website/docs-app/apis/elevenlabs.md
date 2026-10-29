@@ -6,7 +6,7 @@ Aiur uses ElevenLabs for Stream Deck and Dashboard voice input, and for spoken D
 
 | Capability | Where | What happens |
 | --- | --- | --- |
-| Speech to text | Stream Deck Mic key, Dashboard agent composer, and Command custom response | Dictation returns text to the composer, custom Command response, or Stream Deck buffer for review. |
+| Speech to text | Stream Deck Mic key, Dashboard agent and Executor composers, and Command responses or revisions | Dictation returns text to the composer, custom Command response, or Stream Deck buffer for review. |
 | Text to speech | Dashboard interactive conversation | The agent's reply is streamed back to the browser as speech. |
 
 Aiur holds the credential and makes every ElevenLabs call; neither the Stream Deck sidecar nor the browser ever receives it.
@@ -23,7 +23,7 @@ Aiur holds the credential and makes every ElevenLabs call; neither the Stream De
 
 Interactive voice chat on the Dashboard sends each finished utterance to the agent without a Send press.
 
-Command dictation appends to the custom response on cards and detail pages.
+Command dictation appends to the custom response on cards, detail pages and revision forms.
 Review the text and record it with the existing answer button; speaking does not
 submit an answer or choose a suggested option.
 
@@ -68,9 +68,16 @@ Voice transcription is cloud processing: while you dictate, your audio and the r
 | State | Data path |
 | --- | --- |
 | Dictation held open | Microphone audio goes to ElevenLabs; returned text stays in the composer, Command response, or deck buffer until you submit it. |
-| Dictation released | Capture stops; there is no always-on listener or wake word. |
+| Stop dictation | Capture stops and final transcription settles before review; there is no always-on listener or wake word. |
+| Cancel or Escape during dictation | Capture stops and the pre-recording draft is restored. Audio already sent to ElevenLabs cannot be recalled. |
+| Submit reviewed text | Agent and Executor messages, Command answers and revisions use their normal delivery and retention paths. Transcription alone is not a delivery receipt. |
+| Legacy interactive agent chat | Finished utterances are sent automatically and enter the ticket transcript. |
+| Executor voice prototype | Conversation transcripts and summaries are retained and handed to the Executor; see [Executor voice](/guide/executor-voice). |
 | Key absent | No ElevenLabs connection opens and no audio leaves the machine. |
 | Agent process | `ELEVENLABS_API_KEY` is scrubbed from coding-agent environments and never logged. |
+
+Aiur stores no microphone audio. This does not promise deletion or non-retention
+by a cloud provider; provider retention follows its account settings and policy.
 
 See [Stream Deck voice input](/guide/stream-deck#voice-input) for operator controls and [Configuration](/reference/configuration#elevenlabs) for field defaults.
 
