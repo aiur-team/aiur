@@ -25,7 +25,13 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
   @spec resolve_departed(State.t(), [String.t()], keyword()) :: State.t()
   def resolve_departed(state, targets, opts) do
     state = ensure_seeded(state, opts)
-    tracked = Map.keys(since_map(state)) ++ MapSet.to_list(alerts(state)) ++ MapSet.to_list(recovered(state))
+
+    tracked =
+      (Map.keys(since_map(state)) ++
+         MapSet.to_list(alerts(state)) ++
+         MapSet.to_list(recovered(state)) ++
+         MapSet.to_list(commented(state)))
+      |> Enum.uniq()
 
     state = Enum.reduce(tracked -- targets, state, fn target, acc -> clear(acc, target, opts) end)
     retry_pending_alerts(state, opts)
@@ -39,19 +45,30 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
     recovery_alerted? = MapSet.member?(alerts(state), target)
 
     cond do
-      live_worker?(state, issue) -> state
+      held?(state, issue) -> put_since(state, Map.put(since_map(state), target, now_ms))
+      live_worker?(state, issue) -> put_since(state, Map.put(since_map(state), target, now_ms))
       now_ms - since >= timeout_ms and not MapSet.member?(recovered(state), target) -> recover(state, issue, result, target, opts)
       now_ms - since >= Keyword.get(opts, :ci_wait_rewake_minutes, Config.ci_wait_rewake_minutes()) * 60_000 and not recovery_alerted? -> emit(state, issue, result, target, opts)
       true -> state
     end
   end
 
+  defp held?(state, issue) do
+    running_entry = running_entry(state, issue)
+
+    Issue.paused?(issue) or Issue.parked?(issue, running_entry || %{}) or
+      LifecycleFence.handoff_blocked?(state, issue) or
+      match?(%{control: %{status: :paused}}, running_entry)
+  end
+
   defp live_worker?(state, issue) do
-    case Map.get(state.running, issue.id) do
+    case running_entry(state, issue) do
       %{pid: pid, control: %{status: status}} when is_pid(pid) and status in [:working, :starting, :resuming] -> Process.alive?(pid)
       _ -> false
     end
   end
+
+  defp running_entry(state, issue), do: Map.get(state.running, issue.id || issue.identifier)
 
   defp recover(state, issue, result, target, opts) do
     message = "PR is still a draft; finish and mark ready"
@@ -59,17 +76,22 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
     comment = Keyword.get(opts, :draft_stall_comment, fn id, body -> TicketTransition.write_comment(id, body, writer: :ci_lifecycle, tracker: Keyword.get(opts, :tracker, Aiur.Tracker)) end)
     transition = Keyword.get(opts, :draft_stall_transition, fn current, ticket -> transition_to_rework(current, ticket, opts) end)
 
-    case comment.(issue_id, message) do
-      :ok ->
-        continue_recovery(state, issue, result, target, opts, transition)
+    if MapSet.member?(commented(state), target) do
+      continue_recovery(state, issue, result, target, opts, transition)
+    else
+      case comment.(issue_id, message) do
+        :ok ->
+          state = put_commented(state, MapSet.put(commented(state), target))
+          continue_recovery(state, issue, result, target, opts, transition)
 
-      {:error, reason} ->
-        Logger.warning("Draft CI-wait recovery comment failed: ticket=#{target} reason=#{inspect(reason)}")
-        state
+        {:error, reason} ->
+          Logger.warning("Draft CI-wait recovery comment failed: ticket=#{target} reason=#{inspect(reason)}")
+          state
 
-      other ->
-        Logger.warning("Draft CI-wait recovery comment returned unexpected result: ticket=#{target} result=#{inspect(other)}")
-        state
+        other ->
+          Logger.warning("Draft CI-wait recovery comment returned unexpected result: ticket=#{target} result=#{inspect(other)}")
+          state
+      end
     end
   end
 
@@ -128,6 +150,7 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
   defp clear(state, target, opts) do
     state = put_since(state, Map.delete(since_map(state), target))
     state = put_recovered(state, MapSet.delete(recovered(state), target))
+    state = put_commented(state, MapSet.delete(commented(state), target))
 
     if MapSet.member?(alerts(state), target) do
       topic = "ticket.#{target}.pr.draft_ci_wait.resolved"
@@ -186,6 +209,8 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
   defp put_alerts(state, items), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_alerts, items)}
   defp recovered(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new())
   defp put_recovered(state, targets), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_recovered, targets)}
+  defp commented(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_comments, MapSet.new())
+  defp put_commented(state, targets), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_comments, targets)}
   defp pending_alerts(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_pending_alerts, %{})
   defp put_pending_alert(state, target, nil), do: %{state | ci_lifecycle: Map.update(state.ci_lifecycle, :ci_wait_draft_pending_alerts, %{}, &Map.delete(&1, target))}
   defp put_pending_alert(state, target, pending), do: %{state | ci_lifecycle: Map.update(state.ci_lifecycle, :ci_wait_draft_pending_alerts, %{target => pending}, &Map.put(&1, target, pending))}

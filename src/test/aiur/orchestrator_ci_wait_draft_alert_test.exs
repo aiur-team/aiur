@@ -86,13 +86,28 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
       :ok
     end
 
-    comment = fn _id, _body -> :ok end
-    failing_transition = fn state, _ticket -> {:error, :tracker_unavailable, state} end
+    comment = fn _id, _body ->
+      send(self(), {:comment, ref})
+      :ok
+    end
+
+    failing_transition = fn state, _ticket ->
+      send(self(), {:transition, ref})
+      {:error, :tracker_unavailable, state}
+    end
 
     state = poll_ci(%State{}, issue, result, emitter, 1_000, comment, failing_transition)
     state = poll_ci(state, issue, result, emitter, 1_000 + 60 * 60_000, comment, failing_transition)
+    assert MapSet.member?(state.ci_lifecycle.ci_wait_draft_comments, identifier)
+    state = poll_ci(state, issue, result, emitter, 1_000 + 61 * 60_000, comment, failing_transition)
 
     refute MapSet.member?(Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new()), identifier)
+    assert MapSet.member?(state.ci_lifecycle.ci_wait_draft_comments, identifier)
+    assert_received {:comment, ^ref}
+    refute_received {:comment, ^ref}
+    assert_received {:transition, ^ref}
+    assert_received {:transition, ^ref}
+    refute_received {:transition, ^ref}
     assert_received {:alert, ^ref, _, _}
   end
 
@@ -145,15 +160,101 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
       :ok
     end
 
-    worker = spawn(fn -> Process.sleep(:infinity) end)
-    on_exit(fn -> Process.exit(worker, :kill) end)
-    state = put_in(%State{}.running[identifier], %{pid: worker, control: %{status: :working}})
+    state = poll_ci(%State{}, issue, result, emitter, 1_000)
+    state = put_in(state.running[identifier], %{pid: self(), control: %{status: :working}})
 
     _state = poll_ci(state, issue, result, emitter, 1_000 + 61 * 60_000)
 
     refute_received {:alert, ^ref, _, _}
     refute_received {:comment, _, _}
     refute_received {:memory_tracker_state_update, _, _}
+  end
+
+  test "does not recover paused or parked draft tickets" do
+    ref = make_ref()
+    result = %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 955, draft?: true}
+
+    emitter = fn topic, opts ->
+      send(self(), {:alert, ref, topic, opts})
+      :ok
+    end
+
+    comment = fn identifier, body ->
+      send(self(), {:comment, ref, identifier, body})
+      :ok
+    end
+
+    transition = fn state, issue ->
+      send(self(), {:transition, ref, issue.identifier})
+      {:ok, state}
+    end
+
+    held_cases = [
+      {:issue_pause, fn issue -> %{issue | paused: true} end, nil},
+      {:issue_park, fn issue -> %{issue | parked: true} end, nil},
+      {:running_pause, fn issue -> issue end, %{pid: self(), control: %{status: :paused}, paused_reason: :operator_pause}},
+      {:running_park, fn issue -> issue end, %{pid: self(), control: %{status: :working}, operator_parked: true}},
+      {:lifecycle_fence, fn issue -> issue end, %{pid: self(), control: %{status: :working}, lifecycle_fence: %{pending_item_ids: MapSet.new([955])}}}
+    ]
+
+    for {suffix, adjust_issue, running_entry} <- held_cases do
+      identifier = "ci-wait-draft-held-#{suffix}-#{System.unique_integer([:positive])}"
+      issue = adjust_issue.(%Issue{id: identifier, identifier: identifier, state: "ci-wait"})
+      initial = %State{}
+      initial = if running_entry, do: put_in(initial.running[identifier], running_entry), else: initial
+
+      first = poll_ci(initial, issue, result, emitter, 1_000, comment, transition)
+      _overdue = poll_ci(first, issue, result, emitter, 1_000 + 61 * 60_000, comment, transition)
+
+      refute_received {:alert, ^ref, _, _}
+      refute_received {:comment, ^ref, ^identifier, _}
+      refute_received {:transition, ^ref, ^identifier}
+    end
+  end
+
+  test "starts the recovery timeout after the live worker stops" do
+    identifier = "ci-wait-draft-idle-reset-#{System.unique_integer([:positive])}"
+    issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait"}
+    result = %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 956, draft?: true}
+    ref = make_ref()
+
+    emitter = fn topic, opts ->
+      send(self(), {:alert, ref, topic, opts})
+      :ok
+    end
+
+    comment = fn id, body ->
+      send(self(), {:comment, ref, id, body})
+      :ok
+    end
+
+    transition = fn state, ticket ->
+      send(self(), {:transition, ref, ticket.identifier})
+      {:ok, state}
+    end
+
+    at = 1_000
+    first = poll_ci(%State{}, issue, result, emitter, at, comment, transition)
+    working = put_in(first.running[identifier], %{pid: self(), control: %{status: :working}})
+    worker_seen_at = at + 61 * 60_000
+    state = poll_ci(working, issue, result, emitter, worker_seen_at, comment, transition)
+
+    assert state.ci_lifecycle.ci_wait_draft_since[identifier] == worker_seen_at
+    refute_received {:comment, ^ref, _, _}
+    refute_received {:transition, ^ref, _}
+
+    stopped = update_in(state.running, &Map.delete(&1, identifier))
+    state = poll_ci(stopped, issue, result, emitter, worker_seen_at + 59 * 60_000, comment, transition)
+
+    refute MapSet.member?(Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new()), identifier)
+    refute_received {:comment, ^ref, _, _}
+    refute_received {:transition, ^ref, _}
+
+    state = poll_ci(state, issue, result, emitter, worker_seen_at + 60 * 60_000, comment, transition)
+
+    assert MapSet.member?(state.ci_lifecycle.ci_wait_draft_recovered, identifier)
+    assert_received {:comment, ^ref, ^identifier, "PR is still a draft; finish and mark ready"}
+    assert_received {:transition, ^ref, ^identifier}
   end
 
   test "resolves when the draft clears and starts a fresh alert delay on re-entry" do
