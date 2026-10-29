@@ -56,6 +56,33 @@ defmodule Aiur.Orchestrator.OperatorMessages.PendingStoreRestartTest do
     GenServer.stop(fourth_pid)
   end
 
+  test "loading an existing queue tightens file permissions before restoring messages" do
+    root = Aiur.TestSupport.tmp_root!("pending-operator-messages-private-on-load")
+    path = Path.join(root, "messages.json")
+    previous = Application.get_env(:aiur, :pending_operator_messages_store_path)
+    Application.put_env(:aiur, :pending_operator_messages_store_path, path)
+    name = Module.concat(__MODULE__, InsecureStoreOrchestrator)
+
+    on_exit(fn ->
+      restore_application_env(:pending_operator_messages_store_path, previous)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    {store, _item} =
+      AgentQueue.operator_message("45", "private queued message", persist_across_restart?: true)
+      |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+    assert :ok = PendingStore.save(store)
+    File.chmod!(path, 0o644)
+
+    {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+
+    assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
+    assert [%{body: %{text: "private queued message"}}] = AgentQueueStore.list_pending(:sys.get_state(pid).queue_store, "45")
+
+    GenServer.stop(pid)
+  end
+
   test "corrupt pending state is quarantined, alerts and starts with an empty queue" do
     root = Aiur.TestSupport.tmp_root!("pending-operator-messages-corrupt")
     path = Path.join(root, "messages.json")

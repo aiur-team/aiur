@@ -43,6 +43,13 @@ defmodule Aiur.Orchestrator.OperatorMessages.PendingStore do
   end
 
   defp load_path(path) do
+    case ensure_private_file(path) do
+      :ok -> load_document(path)
+      {:error, reason} -> recover(path, {:permission_failed, reason})
+    end
+  end
+
+  defp load_document(path) do
     case JsonStore.read(path, :missing) do
       {:ok, :missing} ->
         AgentQueueStore.new()
@@ -55,6 +62,16 @@ defmodule Aiur.Orchestrator.OperatorMessages.PendingStore do
 
       {:error, reason} ->
         recover(path, {:read_failed, reason})
+    end
+  end
+
+  defp ensure_private_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> File.chmod(path, 0o600)
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:symlink_rejected, path}}
+      {:ok, %File.Stat{}} -> {:error, {:not_a_regular_file, path}}
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
