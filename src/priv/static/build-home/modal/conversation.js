@@ -6,6 +6,7 @@ import { MS, registerBody, bodyRenderer, onModalClose } from './frame.js';
 import { itemEl } from './conversation-items.js';
 import { footer, notRetainedCue } from './conversation-footer.js';
 import { timed } from '../perf.js';
+import { teardownComposer } from './composer.js';
 export const prependEntries = timed('convPage', prependEntriesImpl);
 export { itemEl, notRetainedCue };
 export const MAX_DOM = 500;
@@ -66,6 +67,7 @@ function state(msg) {
 export function renderConversation(msg, t = open?.ticket, model = open?.model) {
   if (!open || !t) return;
   const body = $('#tk-body'); open.renderOff?.();
+  teardownComposer();
   if (msg.state === 'not_retained') {
     const doc = bodyRenderer('doc');
     if (doc) doc(t, body, { note: 'Conversation not retained' }); else body.innerHTML = notRetainedCue();

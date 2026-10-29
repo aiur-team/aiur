@@ -123,23 +123,3 @@ test('the component hook attribute contains the caller-owned composer', async ({
   await expect(page.locator('#standalone-input')).toHaveValue('')
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
 })
-
-test('modal dictation fills the message box and waits for Send', async ({ page }) => {
-  await openVoice(page, '?modal=true')
-  const form = await dictate(page, '#agent-log-composer-1110')
-  await expect(form.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
-  await form.getByRole('button', { name: 'Stop dictation' }).click()
-  await expect(form.getByLabel('Message agent', { exact: true })).toHaveValue('hello browser')
-  await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
-  await expect(page.locator('#standalone-input')).toHaveValue('')
-  await form.getByRole('button', { name: 'Send', exact: true }).click()
-  await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'hello browser')
-})
-
-test('closing the agent log modal releases its recording', async ({ page }) => {
-  await openVoice(page, '?modal=true')
-  await dictate(page, '#agent-log-composer-1110')
-  await page.getByRole('dialog', { name: '1110', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(page.locator('#agent-log-composer-1110')).toHaveCount(0)
-  await expect.poll(() => page.evaluate(() => window.__trackStops)).toBe(1)
-})

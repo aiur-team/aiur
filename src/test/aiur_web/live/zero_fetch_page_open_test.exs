@@ -43,7 +43,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   # Linear tracker where `OpenTicketSource` is `:unsupported`.
   @zero_fetch_pages [
     {"/", "build-root"},
-    {"/units", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
     {"/streamdeck", "streamdeck-page"}
@@ -226,27 +225,27 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github", tracker_repo: "owner/repo")
 
       # Release the prior test's read and observe its completion before opening
-      # /units, so only requests still in flight can race this measurement.
+      # /commands, so only requests still in flight can race this measurement.
       ref = Process.monitor(inherited_task)
       send(inherited_task, :continue)
       receive_barrier({:DOWN, ^ref, :process, ^inherited_task, _reason})
 
-      assert {:ok, view, html} = live(build_conn(), "/units")
-      assert html =~ "dashboard-shell", "/units did not render the dashboard shell"
-      assert html =~ "usage-watch", "/units rendered a shell but not its own content"
-      assert render(view) =~ "usage-watch"
+      assert {:ok, view, html} = live(build_conn(), "/commands")
+      assert html =~ "dashboard-shell", "/commands did not render the dashboard shell"
+      assert html =~ "control-panel", "/commands rendered a shell but not its own content"
+      assert render(view) =~ "control-panel"
 
       requests = Agent.get(counter, & &1)
 
       assert requests == [],
-             "opening /units under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
+             "opening /commands under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
       assert_egress_open!(counter)
     end
 
     @tag :comment_poll_leak_probe
     test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
-      assert {:ok, view, html} = live(build_conn(), "/units")
+      assert {:ok, view, html} = live(build_conn(), "/commands")
       assert html =~ "dashboard-shell"
 
       # Exercise the real Orchestrator poll-cycle entry point while the page is

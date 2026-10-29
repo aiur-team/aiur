@@ -1,10 +1,10 @@
 import { expect } from '@playwright/test'
 
-export async function openUnits(page, path = '/units-fixture') {
+export async function openVoice(page, path = '/voice-fixture') {
   await page.goto('/auth/read_only')
   await page.goto('/streamdeck-control/read_only')
   await page.goto(path)
-  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
+  await expect(page.locator('[data-voice-drawer-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   // `isConnected()` reports the socket, not the view: the root still carries
   // `phx-loading` until the first connected render is applied, and a click
@@ -13,11 +13,11 @@ export async function openUnits(page, path = '/units-fixture') {
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
-export async function openWritableUnits(page) {
+export async function openWritableVoice(page) {
   await page.goto('/auth/writable')
   await page.goto('/streamdeck-control/writable')
-  await page.goto('/units-fixture')
-  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
+  await page.goto('/voice-fixture')
+  await expect(page.locator('[data-voice-drawer-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }

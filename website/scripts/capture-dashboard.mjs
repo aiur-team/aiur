@@ -36,12 +36,6 @@ const surfaces = [
     modelMeters: false,
     usageMeters: true,
   },
-  // `#ax-frame` is the shell including the navigation rail (`.dashboard-shell` is
-  // only the content column). `clipHeight` keeps each image to the part of the
-  // surface worth documenting;
-  // Units is the tall one because the page's point is the fleet table and the
-  // Tickets backlog panel below it.
-  { name: "units", path: "/units", selector: "#ax-frame", clipHeight: 1700, marker: "example/ex-142", modelMeters: true },
   { name: "commands", path: "/commands", selector: "#ax-frame", clipHeight: 1250, marker: "dec-example-blocking", modelMeters: false },
   { name: "streamdeck", path: "/streamdeck", selector: "#ax-frame", clipHeight: 900, marker: "EX-142", modelMeters: false },
 ];

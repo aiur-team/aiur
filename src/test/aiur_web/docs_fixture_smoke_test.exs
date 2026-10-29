@@ -7,7 +7,7 @@ defmodule AiurWeb.DocsFixtureSmokeTest do
   @moduletag timeout: 180_000
   @fixture "test/manual/executor_control_center_docs_fixture.exs"
 
-  test "the docs fixture serves Build at home and its alias and synthetic Units at the rollback route" do
+  test "the docs fixture serves Build at home and its alias without the retired Units board" do
     port = free_port()
     tmp = Path.join(System.tmp_dir!(), "aiur-docs-fixture-#{System.unique_integer([:positive])}")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
@@ -33,11 +33,6 @@ defmodule AiurWeb.DocsFixtureSmokeTest do
       body = await_page(fixture, "http://127.0.0.1:#{port}#{path}", System.monotonic_time(:millisecond) + 150_000, "")
       assert body =~ ~s(id="build-root")
     end
-
-    # Build loads its timeline after connection; the HTTP fixture's synthetic
-    # repository remains visible on the server-rendered Units rollback page.
-    units = await_page(fixture, "http://127.0.0.1:#{port}/units", System.monotonic_time(:millisecond) + 150_000, "")
-    assert units =~ "example-org"
   end
 
   defp await_page(fixture, url, deadline, output) do

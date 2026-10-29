@@ -30,7 +30,7 @@ from Aiur's `voice.conversation` configuration.
 ## Executor voice prototype setup
 
 The Executor conversation prototype supports **ElevenLabs Agents** (default)
-and **OpenAI Realtime** through the same dashboard microphone. For ElevenLabs,
+and **OpenAI Realtime**. From Home, open **Settings → Talk to Executor** (`/voice`) to compare providers and record ratings; see [Executor voice](/guide/executor-voice). These settings configure the same retained backend APIs. For ElevenLabs,
 create the Agent and set:
 
 ```yaml
@@ -83,9 +83,7 @@ voice:
 ```
 
 No ElevenLabs Agent id or client-tool setup is needed for OpenAI. `llm` is sent
-as the Realtime model; `voice_id` is optional. The provider setting selects the drawer default; choose either provider and an explicit
-model in the drawer before starting, without a config edit or restart. Restart after
-changing credentials or the other daemon settings.
+as the Realtime model; `voice_id` is optional. The provider setting selects the backend default. Restart after changing credentials or other daemon settings.
 
 The adapter converts 16 kHz mic PCM to 24 kHz and emits tagged 24 kHz output;
 the browser and transcript/summary handoff are shared. Input transcription uses
@@ -124,14 +122,13 @@ revised ideas in `ideas`. Empty arrays mean none. The payload keeps these
 categories separate beside the full transcript; all summary text is untrusted.
 
 If no valid summary was recorded, the payload contains
-`summary: {status: "unstructured"}` and the drawer labels it unstructured.
+`summary: {status: "unstructured"}`.
 Ending a session never promotes the transcript into decisions or instructions.
 
-Each handoff keeps its **sent** event id and timestamp in the drawer after the
-session ends. **Received** appears only after the Executor acknowledges the
-matching durable wake id. While waiting, the item says sent, not received;
+Each handoff retains its **sent** event id and timestamp after the session ends. Acknowledgment is recorded only after the Executor acknowledges the
+matching durable wake id. While waiting, the handoff is sent, not received;
 missing or unavailable acknowledgment evidence is shown explicitly.
 
 Received means the wake was acknowledged, not that its contents were approved
-or executed. The displayed acknowledgment timestamp is when Aiur observed the
+or executed. The acknowledgment timestamp is when Aiur observed the
 acknowledgment. Starting another voice session does not erase earlier receipts.

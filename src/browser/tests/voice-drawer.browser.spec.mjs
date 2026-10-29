@@ -1,9 +1,9 @@
 import './support/voice-modules-cases.mjs'
 import './support/voice-choice-cases.mjs'
 import { expect, test } from '@playwright/test'
-import { openUnits, openWritableUnits } from './support/units-helpers.mjs'
+import { openVoice, openWritableVoice } from './support/voice-drawer-helpers.mjs'
 
-test('Units dictation explains microphone permission denial in the standard composer', async ({ page }) => {
+test('Voice drawer dictation explains microphone permission denial in the standard composer', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
@@ -16,7 +16,7 @@ test('Units dictation explains microphone permission denial in the standard comp
     })
   })
 
-  await openUnits(page)
+  await openVoice(page)
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
 
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
@@ -32,7 +32,7 @@ test('Units dictation explains microphone permission denial in the standard comp
   await expect(drawer.locator('[data-voice-mic]')).toHaveAttribute('aria-pressed', 'false')
 })
 
-test('Units dictation releases a microphone that arrives after the modal closes', async ({ page }) => {
+test('Voice drawer dictation releases a microphone that arrives after the modal closes', async ({ page }) => {
   await page.addInitScript(() => {
     window.__voiceTrackStops = 0
     Object.defineProperty(navigator, 'mediaDevices', {
@@ -44,7 +44,7 @@ test('Units dictation releases a microphone that arrives after the modal closes'
     })
   })
 
-  await openUnits(page)
+  await openVoice(page)
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
   await drawer.getByRole('button', { name: 'Choose voice input' }).click()
@@ -61,7 +61,7 @@ test('Units dictation releases a microphone that arrives after the modal closes'
   await expect.poll(() => page.evaluate(() => window.__voiceTrackStops)).toBe(1)
 })
 
-test('Units dictation streams a waveform into the composer and waits for Send', async ({ page }) => {
+test('Voice drawer dictation streams a waveform into the composer and waits for Send', async ({ page }) => {
   await page.addInitScript(() => {
     window.__voiceTrackStops = 0
     const track = { stop() { window.__voiceTrackStops += 1 } }
@@ -74,7 +74,7 @@ test('Units dictation streams a waveform into the composer and waits for Send', 
     })
   })
 
-  await openUnits(page)
+  await openVoice(page)
   await page.evaluate(() => {
     class FakePush {
       receive(status, callback) {
@@ -164,10 +164,10 @@ test('Units dictation streams a waveform into the composer and waits for Send', 
   await expect(drawer.getByLabel('Message agent')).toHaveValue('hello browser')
   await expect(drawer.getByLabel('Message agent')).not.toHaveAttribute('readonly', '')
   await expect(drawer.getByRole('button', { name: 'Send' })).toBeEnabled()
-  await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-sent-message', '')
+  await expect(page.locator('[data-voice-drawer-fixture]')).toHaveAttribute('data-sent-message', '')
 
   await drawer.getByRole('button', { name: 'Send' }).click()
-  await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-sent-message', 'hello browser')
+  await expect(page.locator('[data-voice-drawer-fixture]')).toHaveAttribute('data-sent-message', 'hello browser')
 
   await drawer.getByRole('button', { name: 'Choose voice input' }).click()
   await drawer.getByRole('menuitem', { name: 'Dictate message' }).click()
@@ -180,7 +180,7 @@ test('Units dictation streams a waveform into the composer and waits for Send', 
   await expect.poll(() => page.evaluate(() => window.__voiceTrackStops)).toBe(2)
 })
 
-test('Units dictation crosses the authenticated Phoenix voice socket', async ({ page }) => {
+test('Voice drawer dictation crosses the authenticated Phoenix voice socket', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
@@ -191,7 +191,7 @@ test('Units dictation crosses the authenticated Phoenix voice socket', async ({ 
     })
   })
 
-  await openWritableUnits(page)
+  await openWritableVoice(page)
   await page.evaluate(() => {
     window.AudioContext = class {
       constructor() {
@@ -232,7 +232,7 @@ test('Units dictation crosses the authenticated Phoenix voice socket', async ({ 
   await expect(drawer.getByRole('button', { name: 'Send' })).toBeEnabled()
 })
 
-test('Units interactive voice chat sends speech and plays the next agent reply', async ({ page }) => {
+test('Voice drawer interactive voice chat sends speech and plays the next agent reply', async ({ page }) => {
   await page.addInitScript(() => {
     window.__voicePlaybackStarts = 0
     Object.defineProperty(navigator, 'mediaDevices', {
@@ -280,7 +280,7 @@ test('Units interactive voice chat sends speech and plays the next agent reply',
     }
   })
 
-  await openWritableUnits(page)
+  await openWritableVoice(page)
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
 
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
@@ -297,7 +297,7 @@ test('Units interactive voice chat sends speech and plays the next agent reply',
   await expect(drawer.getByLabel('Message agent')).toHaveValue('hello')
   await drawer.getByRole('button', { name: 'Stop interactive voice chat' }).click()
 
-  await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-sent-message', 'hello browser')
+  await expect(page.locator('[data-voice-drawer-fixture]')).toHaveAttribute('data-sent-message', 'hello browser')
   await expect(drawer.locator('[data-voice-mic]')).toBeDisabled()
   await expect(drawer.getByRole('button', { name: 'Cancel waiting for voice reply' })).toBeEnabled()
   await expect(drawer.locator('.conversation-message-agent[data-message-complete="false"]')).toContainText('Voice reply')
@@ -310,7 +310,7 @@ test('Units interactive voice chat sends speech and plays the next agent reply',
   )
 })
 
-test('Units dictation recovers when the voice connection closes while capture starts', async ({ page }) => {
+test('Voice drawer dictation recovers when the voice connection closes while capture starts', async ({ page }) => {
   await page.addInitScript(() => {
     window.__voiceTrackStops = 0
     window.__openAudioContexts = 0
@@ -323,7 +323,7 @@ test('Units dictation recovers when the voice connection closes while capture st
     })
   })
 
-  await openUnits(page)
+  await openVoice(page)
   await page.evaluate(() => {
     class FakePush {
       receive(status, callback) {
