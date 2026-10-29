@@ -5,6 +5,7 @@ defmodule Aiur.CommandsFacadeTest do
 
   @renamed %{
     pending_override: {Aiur.Commands.Overrides, :pending},
+    pending_resume_override: {Aiur.Commands.Overrides, :resume_request},
     prepare_override_prompt: {Aiur.Commands.OverridePrompt, :prepare},
     render_pending_overrides: {Aiur.Commands.OverridePrompt, :render},
     record_override_prompt_receipt: {Aiur.Commands.OverridePrompt, :received},

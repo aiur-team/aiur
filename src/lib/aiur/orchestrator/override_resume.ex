@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.OverrideResume do
 
   require Logger
   alias Aiur.{Commands, Issue, Tracker}
-  alias Aiur.Commands.Overrides
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, IssueSync, Slots, State, TrackerTasks}
   alias Aiur.Orchestrator.Dispatcher.Capacity
   alias Aiur.Orchestrator.PauseResume.{QueuedDispatch, Resume}
@@ -28,7 +27,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
   def waiting(decisions) do
     decisions
     |> Enum.filter(fn decision ->
-      case Overrides.resume_request(decision) do
+      case Commands.pending_resume_override(decision) do
         %{state: :queued} -> true
         _ -> false
       end
@@ -61,7 +60,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
 
     with {:ok, %{decision: decision}} <- Commands.get(snapshot.decision_id, store: store),
          true <- decision.active_action_id == snapshot.active_action_id,
-         %{state: :queued} <- Overrides.resume_request(decision) do
+         %{state: :queued} <- Commands.pending_resume_override(decision) do
       entry = State.find_running_by_identifier(state.running, issue.identifier)
       entry = if entry, do: Map.put(entry, :issue, issue)
       current = put_issue(state, issue, entry)

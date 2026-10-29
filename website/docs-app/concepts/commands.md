@@ -275,6 +275,7 @@ to authorize resumption. Capacity-only waits need no approval.
 Merged and unknown PR observations retain the legacy delivery path. A terminal
 target retains its Executor follow-up; it is not resumed or injected into a worker
 prompt. The resume scheduler requires a freshly confirmed live ticket.
+
 Corrective-ticket creation and unrecoverable worker replacement are separate
 routing work. Overrides never rewrite merged work. Direct legacy supersede
 calls retain their pre-delivery guard.
