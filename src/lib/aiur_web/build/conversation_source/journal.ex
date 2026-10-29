@@ -30,7 +30,7 @@ defmodule AiurWeb.Build.ConversationSource.Journal do
   end
 
   defp resolve_locator(ref, identity) do
-    repo = if is_map(identity), do: {identity[:owner] || identity["owner"], identity[:repository] || identity["repository"]}
+    repo = if is_map(identity), do: {Map.get(identity, :owner) || Map.get(identity, "owner"), Map.get(identity, :repository) || Map.get(identity, "repository")}
 
     case repo || configured_repository() do
       {owner, repository} when is_binary(owner) and is_binary(repository) -> History.resolve_worker(owner, repository, ref.id)
