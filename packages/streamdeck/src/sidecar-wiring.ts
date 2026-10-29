@@ -47,4 +47,3 @@ export const logLine = ({ level, message, cause }: LogEntry): void => {
     console.info(line);
   }
 };
-

@@ -148,7 +148,7 @@ states remain visible in Active; unavailable counts stay explicitly unavailable.
 Physical and emulator pixels use the shared server renderer, including Fleet.
 In the emulator grid, dial D press cycles Ticket → Feature → Epic → Fleet;
 turn, drag, wheel or arrow keys page the current view with clamped bounds.
-On a focused ticket, seven turn keys plus LIVE replace the grid. Turn keys select the strip text; dial 1 scrolls it. Dial 4 turns page older/newer turns (negative means older), while LIVE returns to the tail. 
+On a focused ticket, seven turn keys plus LIVE replace the grid. Turn keys select the strip text; dial 1 scrolls it. Dial 4 turns page older/newer turns (negative means older), while LIVE returns to the tail.
 The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
