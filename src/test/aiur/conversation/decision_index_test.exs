@@ -1,7 +1,8 @@
 Code.require_file("journal_support.exs", __DIR__)
 
 defmodule Aiur.Conversation.DecisionIndexTest do
-  use ExUnit.Case, async: false
+  use Aiur.DecisionStoreCase, async: false
+  import Aiur.OrchestratorStatusSupport, only: [eventually?: 2]
   import Aiur.Conversation.TestSupport
   alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, ResolverSupervisor, Store, TestSupport}
   alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionConversation}
@@ -11,11 +12,70 @@ defmodule Aiur.Conversation.DecisionIndexTest do
 
   setup context do
     on_exit(fn -> Supervisor.restart_child(ResolverSupervisor, AnchorResolver) end)
+    decision_store_dir = context.dir
     ctx = TestSupport.setup(context)
     opts = Application.fetch_env!(:aiur, :conversation_journal) |> Keyword.put(:store, Store)
     Application.put_env(:aiur, :conversation_journal, opts)
     on_exit(fn -> Supervisor.terminate_child(ResolverSupervisor, AnchorResolver) end)
-    Map.put(ctx, :decision_id, "decision-" <> Path.basename(ctx.root))
+    :ok = Supervisor.terminate_child(ResolverSupervisor, AnchorResolver)
+    {:ok, _resolver} = Supervisor.restart_child(ResolverSupervisor, AnchorResolver)
+    ctx |> Map.put(:decision_id, "decision-" <> Path.basename(ctx.root)) |> Map.put(:decision_store_dir, decision_store_dir)
+  end
+
+  test "a worker Command request is anchored from the durable DecisionStore publish", ctx do
+    alias Aiur.TrackerIdentity
+
+    identity = %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "aiur-team",
+      repository: "aiur",
+      provider_id: "issue-node-979",
+      database_id: 979,
+      identifier: "979",
+      reason: nil
+    }
+
+    {:ok, ref} = Ref.worker(identity)
+    store = start_store!(ctx.decision_store_dir)
+    assert "ticket.*.agent.#" in Aiur.Events.bindings_for(Process.whereis(AnchorResolver))
+    ticket = %Issue{identifier: "979", tracker_identity: identity}
+    tool_id = "decision-tool-#{System.unique_integer([:positive])}"
+    source = %{source() | role: :worker, harness: "codex", provider_session_id: "worker-session"}
+    Ingest.append(ref, source, [%{role: "tool", msg_id: tool_id, body: "emit_event decision.requested", timestamp: ctx.now, payload: %{tool: "emit_event", tool_call_id: tool_id}}])
+    assert :ok = flush(ref)
+    assert {:ok, [_session]} = History.list_sessions(ref)
+    :ok = Aiur.Events.subscribe("ticket.979.agent.decision.requested")
+
+    decision_source = %{agent_id: "agent-1", session_id: "worker-session", event_id: tool_id}
+
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(
+               %{"question" => "Use this PR?", "blocking" => true, "source_id" => tool_id},
+               [ticket: ticket, source: decision_source],
+               store
+             )
+
+    assert Map.get(decision.ticket, :tracker_identity) == identity
+    assert_receive {:event, %{ticket_observation: %{status: :joinable, tracker_identity: ^identity}}}, 500
+    conversation_id = Ref.conversation_id(ref)
+
+    assert eventually?(
+             fn ->
+               assert :ok = flush(ref)
+
+               match?(
+                 {:ok, %{conversation_id: ^conversation_id, pos: 1, precision: precision}}
+                 when precision in ["observed", "causal", "exact"],
+                 History.command_anchor(decision.decision_id)
+               )
+             end,
+             100
+           )
+
+    assert %{href: href, precision: precision} = DecisionConversation.link(decision.decision_id)
+    assert href == "/conversations/#{conversation_id}?pos=1"
+    assert precision in ["observed", "causal", "exact"]
   end
 
   test "durable request lookup upgrades to exact, ignores resolution, and survives resolver restart", ctx do

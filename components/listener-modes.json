@@ -47,7 +47,7 @@
     "AiurWeb.Router"
   ],
   "dependency_kind": "required",
-  "summary": "Controls steer, sync, async ping and mute delivery for agent conversations.",
+  "summary": "Controls steer, sync, async ping and mute delivery, defaulting to sync after the active turn ends.",
   "status": "experimental",
   "install": {
     "type": "included"

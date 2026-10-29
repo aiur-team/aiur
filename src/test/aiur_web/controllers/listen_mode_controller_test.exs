@@ -46,7 +46,7 @@ defmodule AiurWeb.ListenModeControllerTest do
     assert first.status == 200
     assert request(:post, body).resp_body == first.resp_body
     assert request(:get, %{}).resp_body == first.resp_body
-    assert %{"requested" => "async", "effective" => nil, "effective_reason" => "not_running", "version" => 1, "actor" => "executor", "routing" => "legacy"} = Jason.decode!(first.resp_body)
+    assert %{"requested" => "async", "effective" => nil, "effective_reason" => "not_running", "version" => 1, "actor" => "executor", "routing" => "listener"} = Jason.decode!(first.resp_body)
   end
 
   test "mute is accepted and round-trips through the HTTP mode control" do

@@ -47,7 +47,8 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur resume --all` | Resumes every individually paused ticket. | `aiur resume --all` |
 | `aiur reset-budget 142` | Clears a named ticket's dispatch-budget latch. It does not accept `--all`; `resume` cannot clear this latch. | `aiur reset-budget 142` |
 | `aiur listen-mode <ticket> [mode] [--actor human]` | Reads or sets a ticket's listener mode (`steer`, `sync`, `async`, `mute`). Async is pings only; mute is silent. Writes use compare-and-set; `--expected-version N` pins the version (otherwise the command reads it first). Conflicts print the current record and exit 3. `--actor human\|executor` records the caller (default human). `--json` includes requested/effective mode, reason, version, actor, `observed_at`, `age_ms`, and freshness. | `aiur listen-mode 142 async --expected-version 0 --json` |
-| `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. If no worker is running for the ticket, it reports `queued for next worker on #142 (request N)`. That queue survives daemon restarts; the message is delivered when the ticket's next worker starts and claims its queue. At most 256 undelivered next-worker messages (pending or claimed but not yet acknowledged by the provider) are persisted; when full, the send fails instead of reporting that it was queued. Text must be nonblank and at most 8,000 characters. Otherwise, the command reports `delivered message to #142` once a running agent has claimed it, or `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0. Use `aiur message --status REQUEST_ID` to check the queued message: it remains queued until claimed, then reports delivered (or consumed if the worker has already acted on it). | `aiur message 142 "Check the latest review"` |
+| `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Conversation sends follow the ticket’s listener mode, default `sync`: input waits until the turn ends. `steer` delivers mid-turn when supported; `async` nudges on an addressed message while holding its body for agent pull; `mute` holds input silently. Messages leave an operator-paused worker paused until `aiur resume`; only workers that paused themselves for input resume on a message, in Sync or Steer. Sending reactivates a deactivated entry unless its listener mode is mute. If no worker is running for the ticket, it reports `queued for next worker on #142 (request N)`. That queue survives daemon restarts; the message is delivered when the ticket's next worker starts and claims its queue. At most 256 undelivered next-worker messages (pending or claimed but not yet acknowledged by the provider) are persisted; when full, the send fails instead of reporting that it was queued. Text must be nonblank and at most 8,000 characters. Otherwise, the command reports `delivered message to #142` once a running agent has claimed it, or `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0. Use `aiur message --status REQUEST_ID` to check the queued message: it remains queued until claimed, then reports delivered (or consumed if the worker has already acted on it). | `aiur message 142 "Check the latest review"` |
+
 | `aiur message 142 --message-id ID "Check review"` | Names this send. A repeat with the same id, ticket and text returns the first copy and queues nothing new. The same id with other text is refused. Use it only to retry a send whose outcome was unknown. | `aiur message 142 --message-id cli-1a2b "Check the latest review"` |
 | `aiur stop` | Gracefully stops the BEAM and its tmux lifetime session, reaping agent process trees and workspace-rooted descendants before a final launcher backstop removes stragglers. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
 | `aiur restart` | Stops the running session, refreshes the release, and starts it again detached. See [Restart semantics](#restart-semantics). | `aiur restart` |
@@ -88,11 +89,11 @@ Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label
 
 If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-budget` mutation in time, the command exits 124 and reports `outcome unknown`. The queued request may still apply after the command exits. Check the ticket status and log before retrying; a reset is confirmed by its completed dispatch-budget reset alert.
 
-Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. The current legacy routing ignores the stored mode; `listen-mode` says so explicitly.
+Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. Conversation sends use the effective listener mode; new runs default to `sync`. An unavailable listener specification refuses conversation sends instead of interrupting.
 
-When a send receipt carries a listener mode, `aiur message` also prints `accepted under <mode> listener mode`; legacy sends retain their existing output.
+`aiur message` prints `accepted under <mode> listener mode` when its receipt carries the mode. Command answers and coordination digests keep their separate delivery policies.
 
-With listener routing enabled and async support usable, leaving `async` queues one notice with the unread count. Earlier bodies stay pull-only through `aiur_read_messages`.
+With async support usable, leaving `async` queues one notice with the unread count. Earlier bodies stay pull-only through `aiur_read_messages`.
 
 If the pull tool becomes unavailable, held bodies follow the effective mode instead; no new pull notice is queued. An empty backlog adds no notice. Returning to `async` supersedes an undelivered backlog notice.
 
@@ -102,7 +103,7 @@ The authenticated HTTP equivalent is `GET /api/v1/:issue_identifier/listen-mode`
 
 POST uses the message endpoint's origin/header and dashboard-writable protections.
 
-Success returns the record and `routing: "legacy"`; stale versions return `409 {error: "mode_conflict", current: …}`, invalid metadata returns 422, unknown tickets 404, and unavailable/unknown outcomes 503.
+Success returns the record and `routing: "listener"` (or `"unavailable"` if the listener specification is unusable); stale versions return `409 {error: "mode_conflict", current: …}`, invalid metadata returns 422, unknown tickets 404, and unavailable/unknown outcomes 503.
 
 GET remains available when the dashboard is read-only.
 

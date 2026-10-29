@@ -334,7 +334,7 @@ async or mute operator messages. Its optional `max` accepts 1–50 (default 50).
 contain `messages` (`id`, `text`, `from`, `accepted_at`) and `remaining`, oldest
 first.
 
-With listener routing enabled, a message sent to one agent counts as addressed.
+A message sent to one agent counts as addressed.
 Async queues one content-free nudge per accepted message telling the agent to
 call `aiur_read_messages`; retries of the same message ID do not add a nudge.
 The nudge carries no message body and does not advance the read cursor or
@@ -346,7 +346,7 @@ Mute retains messages for explicit reads and never wakes for them. The labels
 follow Khala `7d0a3d44` (listener v1): **Async · pings only**, **Mute · silent**.
 
 Agent self-mode changes and owner locks are Khala-only features; Aiur v1 keeps
-human and Executor mode controls. The default legacy routing remains unchanged.
+human and Executor mode controls. Conversation sends default to Sync.
 
 Each batch contains at most 64 KiB of text; a clipped final message has
 `truncated: true` and is acknowledged in full. Normal sync messages stay with
