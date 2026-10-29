@@ -2,11 +2,12 @@ defmodule AiurWeb.Streamdeck.Deck.MetersTest do
   use ExUnit.Case, async: false
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
   alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.OperatorControlCenter.RedactedMeterSource
   alias AiurWeb.Streamdeck.Deck.Meters
 
   defp read(inputs) do
     load = fn :streamdeck, opts ->
-      assert opts[:meter_source] == AiurWeb.Build.RedactedMeterSource
+      assert opts[:meter_source] == RedactedMeterSource
       inputs
     end
 

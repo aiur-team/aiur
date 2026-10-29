@@ -1,7 +1,8 @@
 defmodule AiurWeb.Streamdeck.Deck.Meters do
   @moduledoc "Deck usage from the Build page, selecting the account closest to its limit."
-  alias AiurWeb.Build.{RedactedMeterSource, Usage}
+  alias AiurWeb.Build.Usage
   alias AiurWeb.EndpointConfig
+  alias AiurWeb.OperatorControlCenter.RedactedMeterSource
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do

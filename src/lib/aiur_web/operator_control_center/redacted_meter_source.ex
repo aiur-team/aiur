@@ -1,4 +1,4 @@
-defmodule AiurWeb.Build.RedactedMeterSource do
+defmodule AiurWeb.OperatorControlCenter.RedactedMeterSource do
   @moduledoc "Redacted provider observations for authenticated device read models."
   alias Aiur.{CodingAgent, ProviderMeterProjection}
 
