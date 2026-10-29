@@ -60,7 +60,7 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
 
     case comment.(issue_id, message) do
       :ok ->
-        finish_recovery(transition.(state, issue), state, issue, result, target, opts)
+        continue_recovery(state, issue, result, target, opts, transition)
 
       {:error, reason} ->
         Logger.warning("Draft CI-wait recovery comment failed: ticket=#{target} reason=#{inspect(reason)}")
@@ -69,6 +69,16 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
       other ->
         Logger.warning("Draft CI-wait recovery comment returned unexpected result: ticket=#{target} result=#{inspect(other)}")
         state
+    end
+  end
+
+  defp continue_recovery(state, issue, result, target, opts, transition) do
+    state = if MapSet.member?(alerts(state), target), do: state, else: emit(state, issue, result, target, opts)
+
+    if MapSet.member?(alerts(state), target) do
+      finish_recovery(transition.(state, issue), state, issue, result, target, opts)
+    else
+      state
     end
   end
 

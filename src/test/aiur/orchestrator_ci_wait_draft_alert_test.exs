@@ -93,7 +93,41 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
     state = poll_ci(state, issue, result, emitter, 1_000 + 60 * 60_000, comment, failing_transition)
 
     refute MapSet.member?(Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new()), identifier)
-    refute_received {:alert, ^ref, _, _}
+    assert_received {:alert, ^ref, _, _}
+  end
+
+  test "retries a failed attention publish before moving the ticket to rework" do
+    identifier = "ci-wait-draft-alert-retry-#{System.unique_integer([:positive])}"
+    issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait"}
+    result = %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 954, draft?: true}
+    ref = make_ref()
+
+    emitter = fn topic, opts ->
+      attempt = Process.get(:draft_alert_attempt, 0) + 1
+      Process.put(:draft_alert_attempt, attempt)
+      result = if attempt == 1, do: {:error, :temporarily_unavailable}, else: :ok
+      send(self(), {:alert_attempt, ref, topic, opts, result})
+      result
+    end
+
+    transition = fn state, _ticket ->
+      send(self(), {:transition, ref})
+      {:ok, state}
+    end
+
+    comment = fn _id, _body -> :ok end
+    state = poll_ci(%State{}, issue, result, emitter, 1_000, comment, transition)
+    state = poll_ci(state, issue, result, emitter, 1_000 + 60 * 60_000, comment, transition)
+
+    assert_received {:alert_attempt, ^ref, _, _, {:error, :temporarily_unavailable}}
+    refute_received {:transition, ^ref}
+    refute MapSet.member?(Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new()), identifier)
+
+    state = poll_ci(state, issue, result, emitter, 1_001 + 60 * 60_000, comment, transition)
+
+    assert_received {:alert_attempt, ^ref, _, _, :ok}
+    assert_received {:transition, ^ref}
+    assert MapSet.member?(state.ci_lifecycle.ci_wait_draft_recovered, identifier)
   end
 
   test "leaves an overdue draft ticket alone while a worker is live" do
