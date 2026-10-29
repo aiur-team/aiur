@@ -36,6 +36,7 @@ defmodule Aiur.TestSupport.StreamdeckBuildFixture do
   end
 
   defp state(%{open_decision_count: count}, _source) when count > 0, do: "command"
+  defp state(%{tracker_paused: true}, _source), do: "paused"
   defp state(%{work_state: :paused}, _source), do: "paused"
   defp state(%{work_state: :error}, _source), do: "error"
   defp state(%{waiting_reason: :waiting_for_dependency}, _source), do: "queued"
