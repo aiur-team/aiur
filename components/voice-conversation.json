@@ -4,7 +4,6 @@
   "layer": 3,
   "kind": "in-app",
   "paths": [
-    "src/lib/aiur/voice_cli.ex",
     "src/lib/aiur/voice_conversation.ex",
     "src/lib/aiur/voice_conversation/**",
     "src/lib/aiur/voice_converse/host/**"
