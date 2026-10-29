@@ -110,7 +110,7 @@ defmodule AiurWeb.Build.Conversation do
   defp first(socket, id) do
     with {:ok, row} <- Read.safe_read(fn -> DataSource.call(socket.assigns.build_source, :ticket, [id, Read.source_opts(socket)]) end),
          true <- eligible?(row),
-         :ok <- Payload.validate(Payload.ticket(row, socket.assigns.build_epoch, socket.assigns.build_generation)) do
+         :ok <- Payload.validate(Payload.ticket(public_ticket_row(row), socket.assigns.build_epoch, socket.assigns.build_generation)) do
       socket = clear(socket)
       ref = %{id: id, identity: row["identity"], running: row["running"], closed?: row["sec"] == "hist", row: row}
 
@@ -134,6 +134,8 @@ defmodule AiurWeb.Build.Conversation do
         reply_error(socket, :unavailable)
     end
   end
+
+  defp public_ticket_row(row), do: Map.drop(row, ["identity", "running"])
 
   defp eligible?(row), do: is_map(row["agent"]) and row["start"] != nil
 

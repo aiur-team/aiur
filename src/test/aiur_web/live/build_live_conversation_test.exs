@@ -8,6 +8,7 @@ defmodule AiurWeb.BuildLiveConversationTest do
 
     def prepare(ref, opts) do
       send(opts[:test_pid], {:prepare, ref.id})
+      send(opts[:test_pid], {:identity, ref.identity, ref.running[:tracker_identity]})
       entry = %{identifier: ref.id, workspace_path: opts[:workspace], tracker_identity: ref.identity}
       generation = Agent.get(opts[:control], &Map.get(&1, :generation, ""))
       {:ok, Map.merge(ref, %{handle: "h:" <> ref.id <> generation, path: Path.join(opts[:workspace], "agent.ndjson"), running: entry, fleet: %{fleet: %{running: [entry]}}})}
@@ -63,11 +64,14 @@ defmodule AiurWeb.BuildLiveConversationTest do
 
     defdelegate snapshot(opts), to: FixtureSource
     defdelegate subscribe(opts), to: FixtureSource
+    defdelegate earlier(before, zone, opts), to: FixtureSource
 
     def ticket(id, _opts) do
       identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "example", repository: "aiur", provider_id: "I_issue_#{id}", identifier: id}
-      row = %{"id" => id, "identity" => identity, "running" => %{identifier: id, tracker_identity: identity}, "sec" => "now", "start" => 1, "agent" => %{"state" => "active"}}
-      {:ok, row}
+
+      with {:ok, row} <- FixtureSource.ticket(id, dataset: "live") do
+        {:ok, Map.merge(row, %{"identity" => identity, "running" => %{identifier: id, tracker_identity: identity}})}
+      end
     end
   end
 
@@ -119,9 +123,11 @@ defmodule AiurWeb.BuildLiveConversationTest do
     on_exit(fn -> Application.put_env(:aiur, :build_data_source, previous) end)
 
     view = view()
-    render_hook(view, "conversation-page", %{id: "3173"})
-    assert_reply(view, %{"kind" => "conversation", "id" => "3173", "state" => "live"})
-    assert_received {:prepare, "3173"}
+    id = hd(rows())["id"]
+    render_hook(view, "conversation-page", %{id: id})
+    assert_reply(view, %{"kind" => "conversation", "id" => ^id, "state" => "live"})
+    assert_received {:prepare, ^id}
+    assert_received {:identity, %TrackerIdentity{status: :joinable}, %TrackerIdentity{status: :joinable}}
     assert :sys.get_state(view.pid).socket.assigns.conversation_ref.running.tracker_identity.status == :joinable
   end
 
