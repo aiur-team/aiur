@@ -51,7 +51,9 @@ defmodule AiurWeb.OperatorControlCenter.OperatorSendTest do
     stub_send([{:error, :no_running_agent}, {:ok, 9}])
     pending = %{"42" => {"dashboard-kept", "go"}}
     assert {:error, :no_running_agent, "dashboard-kept", ^pending} = OperatorSend.send(@composer, "go", pending)
-    assert {:ok, 9, "dashboard-kept", %{}} = OperatorSend.send(@composer, "go", pending)
+    assert {:ok, 9, "dashboard-kept", cleared} = OperatorSend.send(@composer, "go", pending)
+    assert cleared == %{}
+    assert_received {:sent, "42", "go", "dashboard-kept"}
     assert_received {:sent, "42", "go", "dashboard-kept"}
   end
 
