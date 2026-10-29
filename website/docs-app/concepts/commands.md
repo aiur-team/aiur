@@ -255,7 +255,7 @@ Push evidence needs a verified PR head-update timestamp later than
 delivery; unknown or same-second chronology stays unproven until acknowledgement
 or a later proven push. Queue acceptance alone does not mean implementation.
 
-For an unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
+For a confirmed unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
 journal-backed resume queue. Resumable workers continue on the same ticket,
 branch and PR, oldest request first, within the fleet and pressure limits.
 
@@ -272,7 +272,9 @@ Aiur raises an Executor Command,
 “Resume #N to apply the override?”; the operator uses the normal resume control
 to authorize resumption. Capacity-only waits need no approval.
 
-Merged and unknown PR observations are held by this resume scheduler.
+Merged and unknown PR observations retain the legacy delivery path. A terminal
+target retains its Executor follow-up; it is not resumed or injected into a worker
+prompt. The resume scheduler requires a freshly confirmed live ticket.
 Corrective-ticket creation and unrecoverable worker replacement are separate
 routing work. Overrides never rewrite merged work. Direct legacy supersede
 calls retain their pre-delivery guard.

@@ -289,8 +289,10 @@ defmodule Aiur.DecisionStore.Settlement do
   end
 
   defp override_resume_error?(decision, reason) do
-    not is_nil(Overrides.pending(decision)) and
-      reason in [:no_running_agent, :max_concurrent_agents_reached]
+    case Overrides.pending(decision) do
+      %{pr_merged: false, route: :active_worker} -> reason in [:no_running_agent, :max_concurrent_agents_reached]
+      _observational -> false
+    end
   end
 
   defp persist_override_resume(state, decision, action_id, reason) do

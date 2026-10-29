@@ -15,10 +15,9 @@ defmodule Aiur.Commands.OverridePrompt do
       store
       |> Commands.list_decisions()
       |> Enum.filter(fn decision ->
-        record = Overrides.pending(decision)
+        record = Overrides.resume_request(decision)
 
-        decision.ticket.identifier == identifier and not is_nil(record) and
-          record.route in [:resume_pending, :capacity_wait]
+        decision.ticket.identifier == identifier and not is_nil(record)
       end)
 
     Keyword.put(opts, :pending_overrides, pending)

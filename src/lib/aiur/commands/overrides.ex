@@ -75,6 +75,17 @@ defmodule Aiur.Commands.Overrides do
 
   def pending(_decision), do: nil
 
+  @doc "A confirmed unmerged resume request with no terminal follow-up."
+  @spec resume_request(Decision.t()) :: map() | nil
+  def resume_request(%{revision_result: :no_longer_applicable}), do: nil
+
+  def resume_request(decision) do
+    case pending(decision) do
+      %{pr_merged: false, route: route} = record when route in [:resume_pending, :capacity_wait] -> record
+      _observational -> nil
+    end
+  end
+
   @spec resume_fact(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
   def resume_fact(decision, %{data: %{action_id: action_id}} = event) do
     case pending(decision) do

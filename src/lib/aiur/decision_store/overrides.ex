@@ -22,7 +22,7 @@ defmodule Aiur.DecisionStore.Overrides do
   def dispatchable?(decision) do
     case Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id)) do
       %{state: :superseded} -> false
-      %{route: route} when route in [:resume_pending, :capacity_wait] -> false
+      %{pr_merged: false, route: route} when route in [:resume_pending, :capacity_wait] -> false
       _observed_route -> true
     end
   end
