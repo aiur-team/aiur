@@ -66,7 +66,10 @@
     }
 
     syncElements() {
-      if (this.choice.root && this.state) this.choice.root.dataset.voiceState = this.state;
+      if (this.choice.root && this.state) {
+        const accepted = this.choice.root.dataset.voiceDeliveryAccepted === "true";
+        this.choice.root.dataset.voiceState = accepted && this.state === "idle" ? "sent" : this.state;
+      }
       if (this.mic) {
         this.mic.disabled = Boolean(
           this.unavailableReason || this.starting || this.finishing || this.awaitingReply || this.speaking ||
