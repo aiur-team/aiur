@@ -1,4 +1,7 @@
-"""Read local evidence sources for the newsletter's per-machine allocation."""
+"""Read local evidence sources for the newsletter's per-machine allocation.
+
+Kept together above 200 lines: the three readers share source-coverage validation.
+"""
 from datetime import datetime, timedelta, timezone
 
 from local_sources import iso

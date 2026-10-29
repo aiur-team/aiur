@@ -267,7 +267,7 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 ## Newsletter snapshots
 
-`scripts/newsletter/collect.py` is an on-demand reader, separate from daemon
+`packages/newsletter/collect.py` is an on-demand reader, separate from daemon
 polling. It searches open and closed issues separately for each discovered
 `phase:*` label, then deduplicates by issue number.
 
