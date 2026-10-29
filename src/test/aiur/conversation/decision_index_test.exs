@@ -2,6 +2,7 @@ Code.require_file("journal_support.exs", __DIR__)
 
 defmodule Aiur.Conversation.DecisionIndexTest do
   use Aiur.DecisionStoreCase, async: false
+  import Aiur.OrchestratorStatusSupport, only: [eventually?: 2]
   import Aiur.Conversation.TestSupport
   alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, ResolverSupervisor, Store, TestSupport}
   alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionConversation}
@@ -57,9 +58,23 @@ defmodule Aiur.Conversation.DecisionIndexTest do
 
     assert Map.get(decision.ticket, :tracker_identity) == identity
     assert_receive {:event, %{ticket_observation: %{status: :joinable, tracker_identity: ^identity}}}, 500
-    assert wait_for_anchor(decision.decision_id, Ref.conversation_id(ref), 1, ref, 100)
+    conversation_id = Ref.conversation_id(ref)
+
+    assert eventually?(
+             fn ->
+               assert :ok = flush(ref)
+
+               match?(
+                 {:ok, %{conversation_id: ^conversation_id, pos: 1, precision: precision}}
+                 when precision in ["observed", "causal", "exact"],
+                 History.command_anchor(decision.decision_id)
+               )
+             end,
+             100
+           )
+
     assert %{href: href, precision: precision} = DecisionConversation.link(decision.decision_id)
-    assert href == "/conversations/#{Ref.conversation_id(ref)}?pos=1"
+    assert href == "/conversations/#{conversation_id}?pos=1"
     assert precision in ["observed", "causal", "exact"]
   end
 
@@ -121,21 +136,5 @@ defmodule Aiur.Conversation.DecisionIndexTest do
     assert :ok = flush(ctx.ref)
     # Journal flush acknowledges after it sends the cache update; this call drains that update.
     AnchorResolver.stats()
-  end
-
-  defp wait_for_anchor(_decision_id, _conversation_id, _pos, _ref, 0), do: false
-
-  defp wait_for_anchor(decision_id, conversation_id, pos, ref, attempts) do
-    assert :ok = flush(ref)
-
-    case History.command_anchor(decision_id) do
-      {:ok, %{conversation_id: ^conversation_id, pos: ^pos, precision: precision}}
-      when precision in ["observed", "causal", "exact"] ->
-        true
-
-      _ ->
-        Process.sleep(10)
-        wait_for_anchor(decision_id, conversation_id, pos, ref, attempts - 1)
-    end
   end
 end
