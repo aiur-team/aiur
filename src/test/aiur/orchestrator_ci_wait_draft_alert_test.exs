@@ -3,7 +3,6 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CiLifecycle, State}
-  alias Aiur.Orchestrator.CiLifecycle.Transition
 
   setup do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
@@ -44,11 +43,13 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
     end
 
     previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+    previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
     Application.put_env(:aiur, :memory_tracker_recipient, self())
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
     on_exit(fn ->
       if previous_recipient, do: Application.put_env(:aiur, :memory_tracker_recipient, previous_recipient), else: Application.delete_env(:aiur, :memory_tracker_recipient)
+      if previous_issues, do: Application.put_env(:aiur, :memory_tracker_issues, previous_issues), else: Application.delete_env(:aiur, :memory_tracker_issues)
     end)
 
     comment = fn id, body ->
@@ -58,20 +59,41 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
 
     transition = fn state, ticket ->
       send(self(), {:transition, ticket.identifier, "rework"})
-      Transition.transition_ci_ticket(state, ticket, "rework")
+      {:ok, state}
     end
 
     first = poll_ci(%State{}, issue, result, emitter, 1_000, comment, transition)
     overdue = poll_ci(first, issue, result, emitter, 1_000 + 60 * 60_000, comment, transition)
 
     assert is_struct(overdue, State)
-    assert_received {:comment, ^identifier, "PR #951 is still a draft; finish and mark ready"}
+    assert_received {:comment, ^identifier, "PR is still a draft; finish and mark ready"}
     assert_received {:transition, ^identifier, "rework"}
     assert_received {:alert, ^ref, ^topic, alert_opts}
     assert Keyword.get(alert_opts, :needs_attention)
     assert alert_opts[:message] =~ identifier
     assert alert_opts[:message] =~ "#951"
     assert MapSet.member?(overdue.ci_lifecycle.ci_wait_draft_recovered, identifier)
+  end
+
+  test "does not mark recovery complete when the state write fails" do
+    identifier = "ci-wait-draft-retry-#{System.unique_integer([:positive])}"
+    issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait"}
+    result = %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 953, draft?: true}
+    ref = make_ref()
+
+    emitter = fn topic, opts ->
+      send(self(), {:alert, ref, topic, opts})
+      :ok
+    end
+
+    comment = fn _id, _body -> :ok end
+    failing_transition = fn state, _ticket -> {:error, :tracker_unavailable, state} end
+
+    state = poll_ci(%State{}, issue, result, emitter, 1_000, comment, failing_transition)
+    state = poll_ci(state, issue, result, emitter, 1_000 + 60 * 60_000, comment, failing_transition)
+
+    refute MapSet.member?(Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new()), identifier)
+    refute_received {:alert, ^ref, _, _}
   end
 
   test "leaves an overdue draft ticket alone while a worker is live" do

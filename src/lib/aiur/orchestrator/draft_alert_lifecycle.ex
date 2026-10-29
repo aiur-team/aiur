@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.DraftAlertLifecycle do
   @moduledoc false
 
-  alias Aiur.{AlertFeed, Config, Issue, Signal}
-  alias Aiur.Orchestrator.CiLifecycle.Transition
-  alias Aiur.Orchestrator.{State, TicketTransition}
+  alias Aiur.{AlertFeed, Issue, Signal}
+  alias Aiur.Orchestrator.CiWaitDraftStall
+  alias Aiur.Orchestrator.State
   require Logger
 
   @spec reconcile(State.t(), Issue.t(), map(), boolean(), keyword()) :: State.t()
@@ -12,13 +12,7 @@ defmodule Aiur.Orchestrator.DraftAlertLifecycle do
 
     if is_binary(target) do
       state = reconcile_draft_stall(state, issue, result, target, opts)
-      state = ensure_seeded(state, opts)
-
-      if Map.get(result, :pending_reason) == :draft_pull_request and in_ci_wait? do
-        observe(state, issue, result, target, opts)
-      else
-        clear(state, issue, target, opts)
-      end
+      CiWaitDraftStall.reconcile(state, issue, result, in_ci_wait?, opts)
     else
       state
     end
@@ -26,12 +20,15 @@ defmodule Aiur.Orchestrator.DraftAlertLifecycle do
 
   @spec resolve_departed(State.t(), [String.t()], keyword()) :: State.t()
   def resolve_departed(%State{} = state, targets, opts) do
-    state = state |> ensure_draft_stall_seeded(opts) |> ensure_seeded(opts)
-    tracked = Map.keys(since_map(state)) ++ MapSet.to_list(alerts(state)) ++ MapSet.to_list(recovered(state)) ++ MapSet.to_list(Map.get(state.ci_lifecycle, :draft_stall_alerts, MapSet.new()))
+    state = ensure_draft_stall_seeded(state, opts)
+    active_alerts = Map.get(state.ci_lifecycle, :draft_stall_alerts, MapSet.new())
 
-    Enum.reduce(tracked -- targets, state, fn target, acc ->
-      clear(acc, %Issue{id: target, identifier: target}, target, opts)
-    end)
+    state =
+      Enum.reduce(MapSet.to_list(active_alerts) -- targets, state, fn target, acc ->
+        resolve_draft_stall_alert(acc, %Issue{id: target, identifier: target}, %{}, target, active_alerts, opts)
+      end)
+
+    CiWaitDraftStall.resolve_departed(state, targets, opts)
   end
 
   @spec keep_pending_reason(map(), map()) :: map()
@@ -128,96 +125,6 @@ defmodule Aiur.Orchestrator.DraftAlertLifecycle do
     state
   end
 
-  defp observe(state, issue, result, target, opts) do
-    now_ms = Keyword.get(opts, :ci_wait_draft_now_ms, System.monotonic_time(:millisecond))
-    since_map = since_map(state)
-    since = Map.get(since_map, target, now_ms)
-    state = put_since(state, Map.put_new(since_map, target, now_ms))
-    timeout_ms = Keyword.get(opts, :ci_wait_draft_timeout_minutes, 60) * 60_000
-    recovery_alerted? = MapSet.member?(alerts(state), target)
-
-    cond do
-      live_worker?(state, issue) -> state
-      now_ms - since >= timeout_ms and not MapSet.member?(recovered(state), target) -> recover_draft_stall(state, issue, result, target, opts)
-      now_ms - since >= Keyword.get(opts, :ci_wait_rewake_minutes, Config.ci_wait_rewake_minutes()) * 60_000 and not recovery_alerted? -> emit(state, issue, result, target, opts)
-      true -> state
-    end
-  end
-
-  defp live_worker?(state, issue) do
-    case Map.get(state.running, issue.id) do
-      %{pid: pid, control: %{status: status}} when is_pid(pid) and status in [:working, :starting, :resuming] -> Process.alive?(pid)
-      _ -> false
-    end
-  end
-
-  defp recover_draft_stall(state, issue, result, target, opts) do
-    pr_number = Map.get(result, :pr_number) || "unknown"
-    message = "PR ##{pr_number} is still a draft; finish and mark ready"
-    issue_id = issue.id || issue.identifier
-    comment = Keyword.get(opts, :draft_stall_comment, fn id, body -> TicketTransition.write_comment(id, body, writer: :ci_lifecycle, tracker: Keyword.get(opts, :tracker, Aiur.Tracker)) end)
-    transition = Keyword.get(opts, :draft_stall_transition, fn current, ticket -> Transition.transition_ci_ticket(current, ticket, "rework") end)
-
-    case comment.(issue_id, message) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Draft CI-wait recovery comment failed: ticket=#{target} reason=#{inspect(reason)}")
-      other -> Logger.warning("Draft CI-wait recovery comment returned unexpected result: ticket=#{target} result=#{inspect(other)}")
-    end
-
-    state = transition.(state, issue)
-    state = put_recovered(state, MapSet.put(recovered(state), target))
-
-    if MapSet.member?(alerts(state), target), do: state, else: emit(state, issue, result, target, opts)
-  end
-
-  defp emit(state, issue, result, target, opts) do
-    topic = "ticket.#{target}.pr.draft_ci_wait"
-    message = "Ticket #{target} PR ##{Map.get(result, :pr_number) || "unknown"} is still a draft; finish and mark ready"
-
-    case alert_emitter(opts).(topic, issue: issue, central: true, message: message, reason: message, needs_attention: true) do
-      :ok -> put_alerts(state, MapSet.put(alerts(state), target))
-      {:error, reason} -> log_failure(topic, reason, state)
-    end
-  end
-
-  defp clear(state, issue, target, opts) do
-    state =
-      state
-      |> put_since(Map.delete(since_map(state), target))
-      |> put_recovered(MapSet.delete(recovered(state), target))
-
-    state = if MapSet.member?(alerts(state), target), do: resolve(state, issue, target, opts), else: state
-    active_draft_alerts = Map.get(state.ci_lifecycle, :draft_stall_alerts, MapSet.new())
-
-    if MapSet.member?(active_draft_alerts, target), do: resolve_draft_stall_alert(state, issue, %{}, target, active_draft_alerts, opts), else: state
-  end
-
-  defp resolve(state, issue, target, opts) do
-    topic = "ticket.#{target}.pr.draft_ci_wait.resolved"
-
-    case alert_emitter(opts).(topic,
-           issue: issue,
-           central: true,
-           message: "Ticket #{target} is no longer waiting on draft PR checks",
-           reason: "The PR is ready or no longer visible.",
-           needs_attention: false
-         ) do
-      :ok -> put_alerts(state, MapSet.delete(alerts(state), target))
-      {:error, reason} -> log_failure(topic, reason, state)
-    end
-  end
-
-  defp ensure_seeded(state, opts) do
-    if is_nil(Map.get(state.ci_lifecycle, :ci_wait_draft_alerts)) do
-      alerts =
-        load_alerts(opts, :ci_wait_draft_alert_loader, "draft_ci_wait")
-
-      put_alerts(state, alerts)
-    else
-      state
-    end
-  end
-
   defp load_alerts(opts, loader_key, alert_name) do
     case Keyword.fetch(opts, loader_key) do
       {:ok, loader} -> loader.()
@@ -236,16 +143,5 @@ defmodule Aiur.Orchestrator.DraftAlertLifecycle do
   defp target(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
   defp target(%Issue{id: id}) when is_binary(id) and id != "", do: id
   defp target(_issue), do: nil
-  defp since_map(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_since, %{})
-  defp alerts(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_alerts) || MapSet.new()
-  defp put_since(state, since), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_since, since)}
-  defp put_alerts(state, alerts), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_alerts, alerts)}
-  defp recovered(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new())
-  defp put_recovered(state, targets), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_recovered, targets)}
   defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Signal.alert/2)
-
-  defp log_failure(topic, reason, state) do
-    Logger.warning("Draft CI-wait alert emission failed: topic=#{topic} reason=#{inspect(reason)}")
-    state
-  end
 end
