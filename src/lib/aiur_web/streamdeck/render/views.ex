@@ -1,6 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
-  alias AiurWeb.Streamdeck.Deck.EpicFrame
+  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame}
   alias AiurWeb.Streamdeck.Render.{Fleet, Settings, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
@@ -18,6 +18,18 @@ defmodule AiurWeb.Streamdeck.Render.Views do
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{nav: %{chat: chat, surface: :chat}} = model) when is_map(chat) do
+    turns = ChatNavigation.visible(chat)
+
+    faces =
+      Enum.map(turns, fn turn ->
+        card(turn.text, turn.text, "#{turn.tools} tools", chat_turn: turn.id, selected: turn.id == chat.selected)
+      end)
+
+    faces = List.duplicate(nil, 7 - length(faces)) ++ faces
+    {faces ++ [card("LIVE", "LIVE", "", live: true, selected: is_nil(chat.selected))], chat_regions(model)}
+  end
+
   def compose(%{nav: %{view: :epic} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"],
     do: with_toast(EpicFrame.compose(field(model, :grid) || model, nav), model)
 
@@ -36,6 +48,13 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     faces = keys(surface, context)
     faces = Enum.take(faces ++ List.duplicate(nil, 8), 8)
     {faces, ViewStrip.compose(model, context)}
+  end
+
+  defp chat_regions(model) do
+    case field(model, :toast) do
+      text when is_binary(text) -> [%{x: 0, width: 800, label: text, parts: [%{kind: :text_line, text: text, y: 50, size: 12}]}]
+      _ -> ViewStrip.compose(model, %{})
+    end
   end
 
   @spec settings_text() :: [String.t()]

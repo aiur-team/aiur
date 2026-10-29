@@ -37,6 +37,7 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     assert streamdeck_assigns(view).deck_nav.surface == :settings
     assert streamdeck_assigns(view).deck_nav.settings.return_surface == :cmd
     assert streamdeck_assigns(view).deck_chat == nil
+    assert streamdeck_assigns(view).deck_nav.chat == nil
     assert streamdeck_assigns(view).deck_chat_view == nil
     assert Registry.lookup(Aiur.PubSub, topic) == []
     assert Process.read_timer(chat.timer) == false
@@ -56,19 +57,21 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     assert {:ok, saved} = Settings.read(path)
     assert saved["brightness"] == 30
     assert streamdeck_assigns(view).deck_chat == nil
+    assert streamdeck_assigns(view).deck_nav.chat == nil
     assert streamdeck_assigns(view).deck_chat_view == nil
     assert Registry.lookup(Aiur.PubSub, topic) == []
     {:ok, second, _html} = live(build_conn(), "/streamdeck")
     assert :sys.get_state(second.pid).socket.assigns.grid.settings_snapshot.settings["brightness"] == 30
     dial(view, 3, "long_press")
     dial(view, 3, "long_press")
-    assert :sys.get_state(view.pid).socket.assigns.deck_nav.surface == :cmd
+    assert :sys.get_state(view.pid).socket.assigns.deck_nav.surface == :chat
     reopened = streamdeck_assigns(view).deck_chat
     assert reopened.ref.id == "1352"
     assert {^pid, _} = List.keyfind(Registry.lookup(Aiur.PubSub, topic), pid, 0)
     render_click(view, "command-press", %{"command" => "settings"})
     assert streamdeck_assigns(view).deck_nav.surface == :settings
     assert streamdeck_assigns(view).deck_chat == nil
+    assert streamdeck_assigns(view).deck_nav.chat == nil
     assert streamdeck_assigns(view).deck_chat_view == nil
     assert Registry.lookup(Aiur.PubSub, topic) == []
     assert Process.read_timer(reopened.timer) == false
@@ -76,7 +79,15 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     dial(view, 0, "turn", 3)
     dial(view, 0, "press")
     assert streamdeck_assigns(view).deck_chat == nil
+    assert streamdeck_assigns(view).deck_nav.chat == nil
     assert Registry.lookup(Aiur.PubSub, topic) == []
+    assert streamdeck_assigns(view).deck_nav.settings.return_surface == :chat
+    dial(view, 3, "long_press")
+    dial(view, 3, "long_press")
+    assert streamdeck_assigns(view).deck_nav.surface == :chat
+    assert streamdeck_assigns(view).sd_mode == :cmd
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
+    assert {^pid, _} = List.keyfind(Registry.lookup(Aiur.PubSub, topic), pid, 0)
   end
 
   test "browser uses reported PC inventory and shows unavailable when its owner disconnects", %{path: path} do

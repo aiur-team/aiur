@@ -26,7 +26,8 @@ defmodule AiurWeb.StreamdeckLive.Settings do
   def open(socket) do
     nav = socket.assigns.deck_nav
     menu = %{section: nil, cursor: 0, return_surface: nav.surface, notice: nil}
-    socket |> Chat.clear() |> assign(sd_mode: :settings, deck_nav: %{nav | surface: :settings, settings: menu})
+    socket = Chat.clear(socket)
+    assign(socket, sd_mode: :settings, deck_nav: %{socket.assigns.deck_nav | surface: :settings, settings: menu})
   end
 
   @spec handles?(map(), Phoenix.LiveView.Socket.t()) :: boolean()
@@ -47,7 +48,8 @@ defmodule AiurWeb.StreamdeckLive.Settings do
 
     case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
       {:ok, nav, effects} ->
-        socket = socket |> assign(deck_nav: nav, deck_effects: effects, sd_mode: nav.surface, deck_toast: nil) |> ChatFocus.apply(effects)
+        mode = if nav.surface == :chat, do: :cmd, else: nav.surface
+        socket = socket |> assign(deck_nav: nav, deck_effects: effects, sd_mode: mode, deck_toast: nil) |> ChatFocus.apply(effects)
         {:noreply, Enum.reduce(effects, socket, &apply_effect/2)}
 
       _invalid ->

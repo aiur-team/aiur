@@ -34,19 +34,11 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @doc "Apply raw deck input to channel or browser navigation using the same mapping."
   @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
   def transition(previous, raw, grid) do
-    with {:ok, input} <- normalize(raw), true <- Nav.valid_input?(input) do
-      grid = prepare_grid(grid)
-      snapshot = Map.get(grid, :settings_snapshot, SettingsSnapshot.unavailable())
-      nav = SettingsMenu.clamp(previous, snapshot)
-
-      {nav, effects} =
-        case SettingsMenu.reduce(nav, input, snapshot) do
-          :pass -> Input.reduce(nav, input, Deck.navigation(grid))
-          result -> result
-        end
-
+    with {:ok, input} <- normalize(raw),
+         input = focused_key(previous, raw, input),
+         true <- Nav.valid_input?(input),
+         {%Nav{} = nav, effects} <- reduce_navigation(previous, input, prepare_grid(grid)) do
       effects = transition_effects(previous, nav, input, effects)
-
       {:ok, nav, effects}
     else
       :noop -> :noop
@@ -54,11 +46,26 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     end
   end
 
-  defp transition_effects(%{surface: :settings}, nav, _input, effects) do
-    if nav.surface == :cmd and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: effects
+  defp reduce_navigation(previous, input, grid) do
+    snapshot = Map.get(grid, :settings_snapshot, SettingsSnapshot.unavailable())
+    nav = SettingsMenu.clamp(previous, snapshot)
+
+    case SettingsMenu.reduce(nav, input, snapshot) do
+      :pass -> Input.reduce(nav, input, Deck.navigation(grid))
+      result -> result
+    end
   end
 
+  defp transition_effects(%{surface: :settings}, nav, _input, effects) do
+    if nav.surface in [:cmd, :chat] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: effects
+  end
+
+  defp transition_effects(%{surface: :chat, chat: chat}, _nav, %{"kind" => "dial_turn", "index" => 3}, effects) when is_map(chat), do: effects
+
   defp transition_effects(previous, _nav, input, effects), do: focus_effects(previous, input, effects)
+
+  defp focused_key(%{chat: chat, surface: :chat}, %{"kind" => "key", "index" => index}, input) when is_map(chat), do: Map.put(input, "index", index)
+  defp focused_key(_nav, _raw, input), do: input
 
   defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
     if nav.surface in [:logs, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
@@ -116,7 +123,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
       )
 
     images = renderer.(model)
-    images = if context[:chat] && not is_binary(context[:toast]), do: Map.put(images, :strip, ChatRender.strip(context.chat, System.system_time(:millisecond))), else: images
+    images = if context[:chat] && not is_binary(context[:toast]), do: Map.put(images, :strip, ChatRender.strip(context.chat, System.system_time(:millisecond), nav)), else: images
     {nav, model, images}
   end
 
@@ -126,6 +133,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     Enum.each(effects, fn
       {:open_ticket, id} -> send(self(), {:streamdeck_frame_focus, id})
       :close_ticket -> send(self(), :streamdeck_frame_unfocus)
+      {:chat_page, before} -> send(self(), {:streamdeck_chat_page, before})
       _ -> :ok
     end)
   end

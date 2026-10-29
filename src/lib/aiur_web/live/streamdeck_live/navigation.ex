@@ -17,7 +17,9 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
 
     case FrameUpdates.transition(nav, frame, grid) do
       {:ok, nav, effects} ->
-        socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
+        socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
+        # Keep explicit legacy command events available while device input opens turn keys.
+        if event == "key-press", do: assign(socket, :deck_nav, %{socket.assigns.deck_nav | surface: socket.assigns.sd_mode}), else: socket
 
       _ ->
         socket

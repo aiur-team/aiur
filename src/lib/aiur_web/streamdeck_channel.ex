@@ -8,8 +8,9 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
+  alias AiurWeb.Build.Payload
   alias AiurWeb.{EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckProjection}
-  alias AiurWeb.Streamdeck.Deck.{Chat, Nav, PriorityInput, Signals, TicketUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Chat, ChatPage, Nav, PriorityInput, Signals, TicketUpdates}
 
   alias AiurWeb.Streamdeck.{FrameUpdates, SettingsUpdates, UsageUpdates}
 
@@ -72,6 +73,14 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_in("devices", payload, socket), do: SettingsUpdates.devices(payload, socket)
   def handle_in("settings_set", patch, socket), do: SettingsUpdates.set(patch, socket)
   def handle_in("voice_status", payload, socket), do: SettingsUpdates.status(payload, socket)
+
+  def handle_in("chat_page", %{"before" => before}, socket) do
+    {page, socket} = ChatPage.page(socket, before)
+    {:noreply, socket} = AiurWeb.StreamdeckFleetUpdates.schedule(socket)
+    {:reply, {if(page[:reason], do: :error, else: :ok), Payload.scrub(page)}, socket}
+  end
+
+  def handle_in("chat_page", _, socket), do: {:reply, {:error, %{reason: "invalid_chat_page"}}, socket}
 
   def handle_in("priority", %{"identifier" => id, "direction" => direction}, socket)
       when is_binary(id) and direction in ["up", "down"] do
@@ -323,6 +332,11 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info({:streamdeck_frame_focus, id}, socket) do
     {:reply, _reply, socket} = handle_in("focus", %{"identifier" => id}, socket)
     {:noreply, socket}
+  end
+
+  def handle_info({:streamdeck_chat_page, before}, socket) do
+    {_page, socket} = ChatPage.page(socket, before)
+    AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   end
 
   def handle_info(:streamdeck_frame_unfocus, socket) do

@@ -7,6 +7,8 @@ defmodule AiurWeb.StreamdeckLive.Input do
   alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Settings, Surface}
 
   @spec handle(map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  def handle(raw, %{assigns: %{deck_nav: %{chat: chat, surface: :chat}}} = socket) when is_map(chat), do: StreamdeckLive.reduce_input(raw, socket)
+
   def handle(raw, socket) do
     if Settings.handles?(raw, socket), do: Settings.input(raw, socket), else: route(raw, socket)
   end

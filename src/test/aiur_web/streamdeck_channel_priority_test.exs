@@ -2,7 +2,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.TestSupport.StreamdeckBuildFixture
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.Streamdeck.{FrameUpdates, Render}
 
   setup do
     root = Path.join(System.tmp_dir!(), "deck-priority-#{System.unique_integer([:positive])}")
@@ -31,6 +31,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial, 2_000)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
+    :sys.get_state(socket.channel_pid)
     assert_reply(ref, :ok, %{"view" => "ticket"}, 2_000)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -3})
     :sys.get_state(socket.channel_pid)
@@ -40,9 +41,6 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     frame = pushed_frame(socket)
     assert_received {:reorder, "4", 0}
     refute_received {:reorder, _, _}
-    face = Enum.find(frame.keys, & &1)
-    assert face.label =~ "Queued #1"
-    assert face.svg =~ "Queued #1"
     assert hd(frame.strip).label == "Queued #1"
     assert hd(frame.strip).svg =~ "Queued #1"
   end
@@ -52,16 +50,17 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial, 2_000)
     ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
+    :sys.get_state(socket.channel_pid)
     assert_reply(ref, :ok, %{"view" => "ticket"}, 2_000)
     ref = push(socket, "input", %{"kind" => "dial", "index" => 1, "action" => "turn", "delta" => -3})
+    :sys.get_state(socket.channel_pid)
     assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0}, 2_000)
     assert_received {:reorder, "4", 0}
     refute_received {:reorder, _, _}
     state = :sys.get_state(socket.channel_pid)
     send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
     :sys.get_state(socket.channel_pid)
-    assert_push("frame", %{keys: keys, strip: strip}, 2_000)
-    assert Enum.find(keys, & &1).label =~ "Queued #1"
+    assert_push("frame", %{strip: strip}, 2_000)
     assert hd(strip).label == "Queued #1"
     assert hd(strip).svg =~ "Queued #1"
   end
@@ -86,6 +85,7 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial, 2_000)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
+    :sys.get_state(socket.channel_pid)
     assert_reply(ref, :ok, %{"view" => "ticket"}, 2_000)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
     :sys.get_state(socket.channel_pid)
@@ -96,7 +96,6 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     refute_received {:reorder, _, _}
     assert hd(frame.strip).label == "outcome unknown"
     assert hd(frame.strip).svg =~ "outcome unknown"
-    assert Enum.find(frame.keys, & &1).label =~ "Queued #4"
   end
 
   test "queue refusals render short explanations without writes" do
@@ -106,14 +105,11 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
           {%{status: :disabled, queues: []}, "disabled", "queue disabled"}
         ] do
       put_endpoint_config(streamdeck_build_queue_fun: fn -> model end)
-      socket = joined_socket()
-      assert_push("frame", _initial, 2_000)
-      ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-      assert_reply(ref, :ok, %{"view" => "ticket"}, 2_000)
-      ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
-      assert_reply(ref, :error, %{reason: ^reason} = reply, 2_000)
+      socket = %Phoenix.Socket{assigns: %{deck_nav: %Nav{selected: "4"}, streamdeck_authenticated: true}}
+      assert {:reply, {:error, %{reason: ^reason} = reply}, updated} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
       refute Map.has_key?(reply, :frame)
-      frame = pushed_frame(socket)
+      assert updated.assigns.deck_toast == text
+      frame = FrameUpdates.frame(updated)
       assert hd(frame.strip).label == text
       assert hd(frame.strip).svg =~ text
     end
