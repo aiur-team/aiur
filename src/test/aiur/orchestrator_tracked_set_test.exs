@@ -4,6 +4,18 @@ defmodule Aiur.OrchestratorTrackedSetTest do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.TrackedSet
 
+  test "tracked snapshot retains the validated issue identity for publishers" do
+    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "NODE-681", "number" => 681}, {"acme", "repo"}, {"acme", "repo"})
+    issue = %Aiur.Issue{id: "issue-681", identifier: "681", tracker_identity: identity}
+    state = %Aiur.Orchestrator.State{running: %{"issue-681" => %{identifier: "681", issue: issue}}}
+    on_exit(fn -> TrackedSet.reset([]) end)
+
+    assert state == TrackedSet.refresh(state)
+    assert Orchestrator.issue_tracked?(681)
+    assert TrackedSet.tracker_identity("681") == identity
+    assert TrackedSet.tracker_identity("682") == nil
+  end
+
   test "tracked set table is owned outside the orchestrator process" do
     tracked_set_owner = Process.whereis(TrackedSet)
     orchestrator_pid = Process.whereis(Orchestrator)

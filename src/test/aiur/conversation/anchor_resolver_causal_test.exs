@@ -3,7 +3,8 @@ Code.require_file("journal_support.exs", __DIR__)
 defmodule Aiur.Conversation.AnchorResolverCausalTest do
   use ExUnit.Case, async: false
   alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, TestSupport}
-  alias Aiur.Events.Exchange
+  alias Aiur.Events.{BranchRefStore, Exchange, LsRemoteTicker, Publisher}
+  alias Aiur.Orchestrator.TrackedSet
   import TestSupport
 
   setup context do
@@ -22,6 +23,56 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
     publish(ctx, "branch.push", %{sha: "abcdef1234567890", ref: "refs/heads/feature"})
     assert [%{"precision" => "causal", "pos" => 1, "placement" => "at"}] = anchors(ctx.worker)
     refute File.exists?(ctx.dir)
+  end
+
+  test "real ls-remote publish carries trusted identity into the resolver", ctx do
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
+    :ok = BranchRefStore.reset()
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = %Aiur.Issue{id: "issue-6628", identifier: "6628", tracker_identity: ctx.identity}
+    tracked_state = %Aiur.Orchestrator.State{running: %{"issue-6628" => %{identifier: "6628", issue: issue}}}
+    assert tracked_state == TrackedSet.refresh(tracked_state)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(&Aiur.Orchestrator.issue_tracked?/1)
+      TrackedSet.reset([])
+      BranchRefStore.reset()
+    end)
+
+    owner = self()
+    global_resolver = start_supervised!({AnchorResolver, name: nil, exchange: Aiur.Events.exchange_server(), pubsub: ctx.pubsub}, id: :global_exchange_resolver)
+    assert "ticket.*.branch.push" in Exchange.bindings_for(global_resolver)
+    :ok = Aiur.Events.subscribe("ticket.6628.branch.push")
+    {:ok, refs} = Agent.start_link(fn -> %{"refs/heads/aiur/6628" => "first"} end)
+
+    {:ok, ticker} =
+      LsRemoteTicker.start_link(
+        name: nil,
+        ls_remote_fun: fn _remote, _pattern -> {:ok, Agent.get(refs, & &1)} end,
+        publisher: fn topic, payload, opts ->
+          result = Aiur.Events.publish(topic, payload, opts)
+          send(owner, {:ticker_publish, result})
+          result
+        end,
+        repo: "aiur-team/aiur",
+        start_paused?: true
+      )
+
+    send(ticker, :tick)
+    :sys.get_state(ticker)
+    command(ctx, ctx.worker, "git push", "b27e56454..abcdef123 HEAD -> aiur/6628")
+    Agent.update(refs, &Map.put(&1, "refs/heads/aiur/6628", "abcdef1234567890"))
+    send(ticker, :tick)
+    :sys.get_state(ticker)
+    :sys.get_state(Aiur.Events.exchange_server())
+    assert_receive {:ticker_publish, {:ok, _, subscribers}} when subscribers > 0, 1_000
+    assert_receive {:event, %{topic: "ticket.6628.branch.push", ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
+    assert identity == ctx.identity
+    # The production exchange serves the global worker; the local exchange is the
+    # isolated resolver harness used by this test's conversation journal.
+    publish(ctx, "branch.push", %{sha: "abcdef1234567890", ref: "refs/heads/aiur/6628"})
+    assert Enum.any?(anchors(ctx.worker), &(&1["kind"] == "push" and &1["precision"] == "causal" and &1["pos"] == 1))
+    Agent.stop(refs)
   end
 
   test "matching Executor merge and unmatched worker persist different precision for the same event", ctx do

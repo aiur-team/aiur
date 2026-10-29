@@ -47,20 +47,32 @@ defmodule Aiur.Orchestrator.TrackedSet do
     ArgumentError -> true
   end
 
+  @spec tracker_identity(String.t() | integer() | nil) :: Aiur.TrackerIdentity.t() | nil
+  def tracker_identity(nil), do: nil
+
+  def tracker_identity(identifier) do
+    case :ets.lookup(@table, to_string(identifier)) do
+      [{_identifier, %Aiur.TrackerIdentity{} = identity}] -> identity
+      _ -> nil
+    end
+  rescue
+    ArgumentError -> nil
+  end
+
   @spec refresh(State.t()) :: State.t()
   def refresh(%State{} = state) do
     # Deactivated rows remain visible in state but must reject late publisher events.
-    issue_ids =
+    entries =
       state.running
       |> Enum.reject(fn {_id, entry} ->
         get_in(entry, [:control, :status]) == :deactivated
       end)
       |> Enum.map(fn {_id, entry} ->
-        entry[:identifier] || Map.get(entry, :identifier)
+        {entry[:identifier] || Map.get(entry, :identifier), Aiur.Issue.tracker_identity(Map.get(entry, :issue))}
       end)
-      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(fn {identifier, _identity} -> is_nil(identifier) end)
 
-    reset(issue_ids)
+    call({:reset, entries})
     state
   end
 
@@ -93,7 +105,12 @@ defmodule Aiur.Orchestrator.TrackedSet do
   defp replace_all(issue_ids, attempts_left \\ 2) do
     ensure_table()
     :ets.delete_all_objects(@table)
-    Enum.each(issue_ids, &:ets.insert(@table, {&1, true}))
+
+    Enum.each(issue_ids, fn
+      {identifier, identity} -> :ets.insert(@table, {to_string(identifier), identity})
+      identifier -> :ets.insert(@table, {to_string(identifier), true})
+    end)
+
     :ok
   rescue
     ArgumentError ->
