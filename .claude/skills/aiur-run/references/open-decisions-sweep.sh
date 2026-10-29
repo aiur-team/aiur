@@ -6,7 +6,7 @@ set -euo pipefail
 : "${AIUR_CMD:?set AIUR_CMD to the aiur CLI path}"
 : "${AIUR_DECISIONS_SEEN_FILE:?set AIUR_DECISIONS_SEEN_FILE to a persistent per-run file}"
 
-"$AIUR_CMD" commands --filter open --json | python3 -c '
+"$AIUR_CMD" command --filter open --json | python3 -c '
 import datetime as dt
 import json
 import os

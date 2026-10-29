@@ -212,7 +212,13 @@ defmodule AiurWeb.Build.Usage do
 
   defp account_window(accounts, names, key, label) do
     values = Enum.map(names, fn name -> Enum.find(get_in(accounts[name], [:reading, :windows]) || [], &(&1.window == key)) || %{} end)
-    %{acc: Enum.map(values, &(Map.get(&1, :used_percent) |> RemainingMeter.percent() |> percent())), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
+
+    %{
+      resets: Enum.map(values, &ms(Map.get(&1, :resets_at))),
+      acc: Enum.map(values, &(Map.get(&1, :used_percent) |> RemainingMeter.percent() |> percent())),
+      reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))),
+      win: label
+    }
   end
 
   defp duration(minutes, _id) when is_integer(minutes) and minutes > 0 do

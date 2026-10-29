@@ -53,6 +53,7 @@ async function openStreamdeck(page) {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 async function openUnits(page) {
@@ -245,53 +246,8 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   await shot(page, '04-resume.png')
 
-  // ------------------------------------------------------------------ 5 --
-  // Logs mode: dial D scrolls events, dial A the transcript, hints track the
-  // real bounds.
-  await dialD.click()
-  await expect(device).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('#sd-logs-view')).toHaveAttribute('data-focused-identifier', CONTROLLED)
-
-  const events = page.locator('#sd-log-keys')
-  const transcript = page.locator('#sd-screen')
-  const eventsMax = Number.parseInt(await events.getAttribute('data-max-offset'), 10)
-  const transcriptMax = Number.parseInt(await transcript.getAttribute('data-transcript-max-offset'), 10)
-  expect(eventsMax).toBeGreaterThan(0)
-  expect(transcriptMax).toBeGreaterThan(0)
-
-  // Both surfaces open at the live end, so the hint that has nowhere to go is
-  // hidden and the one that does is shown.
-  await expect(events).toHaveAttribute('data-offset', String(eventsMax))
-  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
-  await shot(page, '05-logs-live-end.png')
-
-  // Overshoot each dial past its own clamp: the offsets stop at the real
-  // bounds and the hints flip there, not at a shared guess.
-  await dialD.hover()
-  for (let step = 0; step < eventsMax + 3; step += 1) await page.mouse.wheel(0, 100)
-  await expect(events).toHaveAttribute('data-offset', '0')
-
-  await dialA.hover()
-  for (let step = 0; step < transcriptMax + 3; step += 1) await page.mouse.wheel(0, 100)
-  await expect(transcript).toHaveAttribute('data-transcript-offset', '0')
-  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
-  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'false')
-  await shot(page, '05-logs-bounds.png')
-
-  await record(
-    '05-logs-bounds.txt',
-    [
-      `Step 5 — focused agent #${CONTROLLED}.`,
-      `event window max offset: ${eventsMax} (scrolled to 0, clamped)`,
-      `transcript max offset: ${transcriptMax} (scrolled to 0, clamped)`,
-      'up hint hidden at the origin, down hint shown — both read from the server render.'
-    ].join('\n')
-  )
-
   // ------------------------------------------------------------------ 6 --
-  // Dial A backs out logs → cmd → grid, onto the window the run started on.
-  await dialA.click()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
+  // Dial A returns from the focused conversation to the opening grid page.
   await dialA.click()
   await expect(device).toHaveAttribute('data-mode', 'grid')
   expect(await visibleIdentifiers(page)).toEqual(openingWindow)
@@ -424,7 +380,6 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
       '| 2 | `02-grid.png`, `02-grid.txt`, then after the live fleet change `02-grid-after-change.png`, `02-units.png`, `02-grid-units-parity.txt` |',
       '| 3 | `03-paging.png` |',
       '| 4 | `04-pause-cmd.png`, `04-pause-grid.png`, `04-pause.txt`, `04-resume.png` |',
-      '| 5 | `05-logs-live-end.png`, `05-logs-bounds.png`, `05-logs-bounds.txt` |',
       '| 6 | `06-back-navigation.png` |',
       '| 7 | `07-touch-strip.png`, `07-touch-strip.txt` |',
       '| 1–7 | `session.webm` — the whole run as one recording |',

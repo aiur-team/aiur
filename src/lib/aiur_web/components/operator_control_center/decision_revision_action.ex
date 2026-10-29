@@ -134,7 +134,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
           :if={@live_connected}
           id={"decision-revision-voice-#{@decision.decision_id}"}
           capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_revision})}
-          legacy_conversation={false}
+          legacy_conversation={false} converse={false}
           surface="command_revision"
           target={%{kind: "command", decision_id: @decision.decision_id, expected_version: @decision.version}}
           status_copy="Choose Dictate to speak a revised response. Review the text, then send your correction."

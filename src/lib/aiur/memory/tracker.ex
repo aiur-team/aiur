@@ -196,7 +196,9 @@ defmodule Aiur.Memory.Tracker do
   end
 
   defp send_event(message) do
-    case Application.get_env(:aiur, :memory_tracker_recipient) do
+    recipient = Process.get(:memory_tracker_recipient) || Application.get_env(:aiur, :memory_tracker_recipient)
+
+    case recipient do
       pid when is_pid(pid) -> send(pid, message)
       _ -> :ok
     end

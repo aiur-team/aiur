@@ -1,0 +1,25 @@
+/* Shared build-lane icon styles used by the epic icon component. */
+.bo-epic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.bo-epic-ic {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--accent-ink);
+  flex: none;
+}
+
+.bo-epic-ic svg {
+  width: 100%;
+  height: 100%;
+}

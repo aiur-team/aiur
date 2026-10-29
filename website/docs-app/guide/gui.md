@@ -262,58 +262,7 @@ In read-only mode, the `/units` Tickets panel shows the Add an agent action as u
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
 
-### Executor voice prototype
-
-Open a conversation drawer, choose **ElevenLabs** or **OpenAI**, enter its model,
-and press **Talk to Executor** to start a continuous spoken session. Change the
-provider between sessions without editing config or restarting.
-
-Both credentials and the ElevenLabs Agent id must be configured for a two-provider comparison. The voice control
-always targets the Executor, regardless of the worker shown in the drawer.
-
-The drawer shows each provider's cumulative used or reserved minutes. Comparison
-limits are 45 minutes each for OpenAI and ElevenLabs on this runtime, separate
-from the existing shared daily cap. Starts at the comparison cap are refused;
-remaining minutes also shorten the session's automatic stop.
-
-A reservation is
-written before connecting. Failed starts and interrupted sessions without a saved
-end line charge the whole reservation, including after a daemon restart.
-
-Expand **Compare providers and record Kevin’s rating** for side-by-side session
-lines: model, first audio, duration, budget cost estimate, rating (1–5) and note.
-
-First audio measures server session startup to first received agent audio, before
-browser playback; sessions with no audio show unavailable.
-
-Ratings and redacted notes survive reloads. The private `comparison.json` sits beside the transcripts;
-no audio is stored. Stop the current session before choosing another provider.
-
-The estimates allocate USD 8 / 45 OpenAI minutes and USD 8 / 45 ElevenLabs
-minutes; these are evaluation budget rates, not vendor tariffs or invoice limits.
-The ledger starts at deployment and excludes earlier provider/account usage.
-
-Before each attended comparison, reconcile actual prior spend and account usage
-against the USD 25 approval on #4084; record each delta there. End both sessions
-after evaluation and disable the demo. Kevin's choice (or “not yet”) belongs on
-#4083 before Stream Deck voice work is filed.
-
-The control shows not configured, connecting, live, ended or failed. Press
-**End Executor conversation** to send the transcript and categorized summary.
-Each item keeps its sent event id and timestamp after the session ends.
-
-Receipts say **sent, not received** until the Executor acknowledges the
-matching wake. **Received** confirms acknowledgment, not approval or execution.
-A missing acknowledgment stays visible; re-rendering the drawer or starting
-another session preserves earlier receipts. A failed handoff shows an error.
-
-The summary separates decisions, open questions and ideas. If the assistant did
-not record one before ending, the drawer says **unstructured**; the transcript
-is still sent without inventing decisions.
-
-Use HTTPS or localhost for microphone access. See
-[Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
-for provider configuration, credentials and ElevenLabs client-tool setup.
+See [Executor voice](/guide/executor-voice) for composer voice and the conversation drawer prototype.
 
 ## Authentication and network exposure
 
@@ -412,10 +361,31 @@ Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
 
-## Full conversation
+## Open a full conversation
 
-`/conversations/:conversation_id` opens the durable conversation as a read-only
-page. It starts with the latest 50 entries. **Load older**, **Jump to start**,
+From **Units**, select the document icon for **Full conversation**, or open the
+chat drawer with the speech bubble and select **Full conversation** in its
+header. The drawer remains the quick view.
+
+Units without a joinable repository identity have no full-view link;
+a conversation without recorded messages shows **No messages yet**. Until its
+journal exists, it also says **Conversation not found**; storage failures show
+**Conversation unavailable** instead. The first recorded message appears without
+reloading the page.
+
+The event navigation lists progress, pushes, PRs and Commands. Select an event
+to jump to and highlight its transcript position. Filter chips include CI and
+reviews when needed. **Approximate position** means the event was observed near
+that entry; it does not claim an exact causal match.
+
+On phones the event list
+sits above the transcript and scrolls independently.
+
+`/conversations/:conversation_id` opens the durable conversation page. Read-only
+dashboards keep the transcript and event navigation available; sending requires
+writable access and an available listener.
+
+It starts with the latest 50 entries. **Load older**, **Jump to start**,
 and **Load newer** browse earlier history; **Latest entries** returns to the
 live tail.
 

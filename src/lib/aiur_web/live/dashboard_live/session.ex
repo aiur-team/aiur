@@ -54,6 +54,7 @@ defmodule AiurWeb.DashboardLive.Session do
       |> assign(:github_quota, github_quota_snapshot())
       |> assign(:netlify_dashboard, NetlifyUsage.snapshot())
       |> Voice.assign_voice()
+      |> AiurWeb.VoiceConversationEvents.close()
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:pending_message_ids, %{})

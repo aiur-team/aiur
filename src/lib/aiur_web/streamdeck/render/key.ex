@@ -70,8 +70,14 @@ defmodule AiurWeb.Streamdeck.Render.Key do
 
   defp footer(face, percent, freshness) do
     if to_string(field(face, :bucket, "queued")) == "queued" do
-      label = if field(face, :dependency_ready) == true, do: "Unblocked", else: "Blocked"
-      text(label, 9, 112, 9, fill: if(label == "Unblocked", do: "#88e0a6", else: "#ff9a90"))
+      {label, color} =
+        case field(face, :dependency_ready) do
+          true -> {"Unblocked", "#88e0a6"}
+          false -> {"Blocked", "#ff9a90"}
+          _ -> {"Readiness unknown", "#9096a4"}
+        end
+
+      text(label, 9, 112, 9, fill: color)
     else
       if is_number(percent) or is_nil(field(face, :face)), do: Parts.bar(percent, freshness, 9, 106, 102), else: []
     end

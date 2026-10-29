@@ -84,7 +84,6 @@ export const main = async (): Promise<void> => {
         grid: () => undefined,
         usage: () => undefined,
         transcript: () => undefined,
-        logs: () => undefined,
         control: () => undefined,
         commands: () => undefined,
         commandAnswered: () => undefined,

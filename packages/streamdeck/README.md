@@ -47,16 +47,16 @@ sidecar reapplies on open and on resume.
 
 ## Image assets
 
-The archive copies `assets/` to `app/assets/`, including
+The archive copies the font, license and offline strip to `app/assets/`, including
 `JetBrainsMono-Variable.woff2` and its OFL license from `packages/aiur-style/fonts`.
 Startup registers JetBrains Mono with the canvas renderer; keep the font beside
-`offline.svg` and the vendor marks when installing. No system font installation
+`offline.svg` when installing. No system font installation
 is needed. When disconnected, the sidecar blanks the keys and rasterizes the
 bundled **Aiur offline** strip through the same SVG-to-JPEG path.
 
-The physical process now displays the server grid; legacy local demo, voice,
-Commands, browser links and instance-picker views remain in source for migration/cleanup
-and are not active in this frame-only entry point. The saved instance still
+The physical process displays server-rendered frames. Local demo and drawing
+views have been removed. Voice, Commands, browser links and instance-picker
+views are not active in this frame-only entry point. The saved instance still
 selects the daemon at startup. Use the dashboard for those controls meanwhile.
 
 ## Prerequisites

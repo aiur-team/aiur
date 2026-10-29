@@ -3,16 +3,16 @@ defmodule AiurWeb.Streamdeck.Render do
   Pure SVG renderer for the Stream Deck's eight 120×120 keys and 800×100 strip.
 
   `frame/1` consumes the SD-101 projection (`grid` plus `usage`) and optional
-  `column_offset` / `provider_offset` integers. It also accepts the grid itself.
+  `column_offset` / `chip_offset` integers. It also accepts the grid itself.
   Pass a `Deck.Nav` in `:nav` for feature pages and their ticket drill-in.
   Both atom and wire string keys are supported. No reads or clock access occur.
 
   `strip/1` accepts region maps with `x`, `width`, `label`, and `parts`. Parts
-  have a `kind`: `title_bar`, `meter_row`, `count_row`, `text_line`, or `pager`.
+  have a `kind`: `title_bar`, `meter_row`, `count_row`, `text_line`, `pager`, `category_chips`, or `backlog`.
   Coordinates inside a region are local. The same parts compose every group.
   """
 
-  alias AiurWeb.Streamdeck.Render.{Card, Feature, FeatureGrid, Grid, Key, Parts, Svg, Views}
+  alias AiurWeb.Streamdeck.Render.{Card, Feature, FeatureGrid, Grid, Key, MeterDetail, Parts, Svg, Views}
   import Svg, only: [field: 2, field: 3]
 
   @type image :: %{svg: String.t(), hash: String.t(), label: String.t()}
@@ -27,6 +27,7 @@ defmodule AiurWeb.Streamdeck.Render do
   @spec key(map()) :: image()
   def key(face) do
     case field(face, :kind) do
+      :account -> MeterDetail.key(face.account, face.now_ms)
       kind when kind in [:card, "card"] -> Card.render(face)
       kind when kind in [:feature, "feature"] -> Feature.render(face)
       _ -> Key.render(face)

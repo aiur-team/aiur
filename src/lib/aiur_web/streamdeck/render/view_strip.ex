@@ -54,21 +54,6 @@ defmodule AiurWeb.Streamdeck.Render.ViewStrip do
     ]
   end
 
-  defp parts("logs", context) do
-    entries = field(context, :strip_entries, [])
-
-    entries =
-      if entries == [], do: [%{shape: :message, text: "No recent transcript."}], else: entries
-
-    entries
-    |> Enum.flat_map(&entry_lines/1)
-    |> Enum.take(6)
-    |> Enum.with_index()
-    |> Enum.map(fn {line, index} ->
-      Map.merge(line, %{kind: :text_line, y: 14 + index * 16, size: 10})
-    end)
-  end
-
   defp parts("settings", _context) do
     Views.settings_text()
     |> Enum.flat_map(&Svg.wrap(&1, 91, 3))
@@ -106,23 +91,4 @@ defmodule AiurWeb.Streamdeck.Render.ViewStrip do
         do: "UNAVAILABLE",
         else: "#{field(panel, :active, 0)} OPEN"
       )
-
-  defp entry_lines(%{shape: :evhdr} = entry),
-    do: lines("#{entry.direction} #{entry.text} #{entry.time}", :evhdr, entry.colour)
-
-  defp entry_lines(%{shape: :diff} = entry),
-    do:
-      lines(
-        "#{entry.file} +#{entry.additions} -#{entry.deletions} #{entry.line}",
-        :diff,
-        "#f1f3f6"
-      )
-
-  defp entry_lines(%{shape: :diff_line} = entry), do: lines(entry.line, :diff, "#f1f3f6")
-
-  defp entry_lines(entry),
-    do: lines("#{field(entry, :glyph, "")} #{field(entry, :text, "")}", :message, "#f1f3f6")
-
-  defp lines(text, shape, colour),
-    do: Enum.map(Svg.wrap(text, 91, 3), &%{text: &1, shape: shape, colour: colour})
 end

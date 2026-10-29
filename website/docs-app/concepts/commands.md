@@ -55,10 +55,16 @@ re-raise moots the stale record before opening its replacement. The Executor
 can also moot or dismiss a blocker whose ticket is closed or question is moot.
 
 Agents classify the action, not the subsystem around it. Routine,
-reversible operational choices should use `supervisor_allowed`; irreversible
-actions, spend, external publication, and product direction remain
-`human_required`. The Executor can answer only a Command that declares
-`supervisor_allowed` or `supervisor_preferred` together with `reversible`.
+reversible operational choices should use `supervisor_allowed`.
+
+Irreversible actions, spend, external publication, and product direction
+remain `human_required`. By default, the Executor can answer only a Command
+that declares `supervisor_allowed` or `supervisor_preferred` together with
+`reversible`.
+
+Operators may opt in to delegation for reversible legacy
+engineering Commands with `executor.allow_reversible_human_required_answers`;
+product, spend, publication, and security decisions remain human-only.
 
 Classification is consequence-based and defaults delegable: a Command that
 omits `authority`/`reversibility` is treated as `supervisor_allowed` +
@@ -109,7 +115,7 @@ Command's age, so a restart continues it. `aiur status` prints
 `DECISIONS open N (E expired) ids=[…] oldest <age> (#ticket, gates M)`;
 the sorted IDs identify the exact Commands included in the count.
 
-That line counts the same Commands as `aiur commands --filter open`, including
+That line counts the same Commands as `aiur command --filter open`, including
 unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
 is older than 15 minutes.
 
