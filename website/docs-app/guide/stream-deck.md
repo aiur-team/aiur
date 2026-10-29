@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. Focused ticket frames and the desktop modal read masked journal entries that survive daemon restarts and workspace removal; tickets without a journal fall back to workspace logs. The browser also retains its legacy Settings and Commands controls.
+Open `/streamdeck` in the [GUI](/guide/gui) for the emulator, or install the physical Stream Deck + sidecar. Both show the same daemon-rendered images. Ticket frames and the desktop modal read masked journal entries that survive restarts and workspace removal, falling back to workspace logs only without a journal. The browser retains Settings and Commands.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 

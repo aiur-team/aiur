@@ -206,11 +206,11 @@ show complexity, section status and queue cues. Unknown progress, points and
 estimates read `—`; unknown progress has no progress bar. Closed tickets
 distinguish merged, failed, not planned and other closed outcomes.
 
-Open a card, or a `/?ticket=<number>` link, to read the ticket's conversation.
-The modal starts with the newest entries; scroll to the top to load earlier
-ones. Masked journal entries survive daemon restarts and workspace removal;
-tickets without a journal fall back to workspace logs. Missing history reads
-“Conversation not retained”; an unknown ticket reads “Ticket not found”.
+Open a card or `/?ticket=<number>` link to read its conversation, newest first;
+scroll up for earlier entries. Masked journal entries survive restarts and
+workspace removal, falling back to workspace logs only without a journal.
+Missing history reads “Conversation not retained”; unknown tickets read
+“Ticket not found”.
 
 Without a journal, remote workers show only their retained live window; stale
 or unavailable live state is labeled separately from the transcript.
