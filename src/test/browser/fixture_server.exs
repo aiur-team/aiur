@@ -15,7 +15,7 @@ Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live graph_live ticket_context_live units_live_data units_live voice_input_live
+      route_shell_live fixture_live ticket_context_live units_live_data units_live voice_input_live
       support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
@@ -50,7 +50,6 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
     get("/assets/phoenix_live_view.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_live_view)
     get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
-    get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
     get("/assets/streamdeck-emulator-:file", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator)
     get("/assets/sortable-table-hook.js", Aiur.BrowserHarness.FixtureAssets, :sortable_table_hook)
