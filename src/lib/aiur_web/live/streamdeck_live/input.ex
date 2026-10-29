@@ -2,7 +2,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
   @moduledoc "Route device-shaped input to the emulator's existing focused controls."
   import Phoenix.Component, only: [assign: 2]
   alias AiurWeb.Streamdeck.{Deck, FrameUpdates}
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{MeterPage, Nav}
   alias AiurWeb.StreamdeckLive
   alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Surface}
 
@@ -38,7 +38,9 @@ defmodule AiurWeb.StreamdeckLive.Input do
     case FrameUpdates.transition(socket.assigns.deck_nav, raw, Map.put(socket.assigns.grid, :meter_usage, socket.assigns.usage)) do
       {:ok, nav, effects} ->
         socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
-        sizes = Deck.Input.sizes(nav, Deck.navigation(socket.assigns.grid))
+        meter_grid = Map.put(socket.assigns.grid, :meter_usage, socket.assigns.usage)
+        sections = MeterPage.sections(meter_grid, nav)
+        sizes = Deck.Input.sizes(nav, sections)
         total = if nav.stack == [], do: sizes[nav.view], else: sizes.drill
         dial_value = Surface.dial_value_from_offset(Nav.page(nav) * 4, total)
         socket = Grid.assign_grid(socket, socket.assigns.grid, 0, socket.assigns.usage, dial_value)
