@@ -20,12 +20,15 @@ defmodule Aiur.VoiceConversation.HostTest do
     assert {:ok, config} = VoiceConversation.build_config(settings, "/tmp/voice-transcripts")
     assert config.name == Aiur.VoiceConversation.Instance
     assert config.provider == {Aiur.VoiceConversation.Provider, [agent_id: "agent_demo"]}
-    assert config.credentials == Aiur.VoiceConversation.Credentials
-    assert config.agent_channel == nil
+    assert config.credentials == Aiur.VoiceConverse.Host.Credentials
+    assert config.agent_channel == Aiur.VoiceConverse.Host.AgentChannel
     assert config.briefing_source == Aiur.VoiceConverse.Host.BriefingSource
     assert config.command_source == Aiur.VoiceConverse.Host.CommandSource
     assert config.llm == "chosen-model"
     assert config.roles_dir == "/tmp/voice-roles"
+    refute config.redactor.("Bearer secret-value") =~ "secret-value"
+    refute config.redactor.("sk-abcdefghijklmnopqrstuv https://user:pass@example.com") =~ "sk-abcdefghijklmnopqrstuv"
+    refute config.redactor.("https://user:pass@example.com") =~ "example.com"
     assert config.transcript_root == "/tmp/voice-transcripts"
     assert config.limits.max_session_seconds == 90
     assert config.limits.idle_timeout_seconds == 30

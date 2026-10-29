@@ -19,6 +19,7 @@
     "conversations",
     "executor-attention",
     "harness-adapters",
+    "identity",
     "kernel",
     "listener-modes",
     "orchestration",
@@ -31,12 +32,17 @@
       "voice"
     ],
     "env": [],
-    "state": [],
-    "capabilities": []
+    "state": [
+      "file: <conversation_state_dir>/voice/*.json",
+      "voice_conversation_state_dir"
+    ],
+    "capabilities": [
+      "voice.conversation"
+    ]
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Supports voice conversations with a worker agent or the Executor.",
+  "summary": "Supports voice conversations and bounded side-by-side provider evaluations with persisted ratings.",
   "status": "optional",
   "install": {
     "type": "included"
@@ -48,7 +54,9 @@
     "voice"
   ],
   "env": [],
-  "capabilities": [],
+  "capabilities": [
+    "voice.conversation"
+  ],
   "added_by": "MP-E6",
   "goal": "voice"
 }

@@ -13,7 +13,7 @@ defmodule AiurWeb.Streamdeck.MeterFramesTest do
     usage = Meters.read()
     grid = Map.put(StreamdeckProjection.grid(), :meter_usage, usage)
     nav = Enum.reduce(1..3, %Nav{}, fn _, nav -> transition(nav, grid, "press") end)
-    {:ok, nav, []} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => "turn", "delta" => 1}, grid)
+    {:ok, nav, [:close_ticket]} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => "turn", "delta" => 1}, grid)
     {:ok, nav, []} = FrameUpdates.transition(nav, %{"kind" => "key", "index" => 0, "action" => "down"}, grid)
     assert nav.stack == [{:meter_detail, "claude"}]
     {same, model, frame} = FrameUpdates.frame(nav, grid, usage)
@@ -26,14 +26,14 @@ defmodule AiurWeb.Streamdeck.MeterFramesTest do
     {_nav, _model, focused} = FrameUpdates.frame(%{same | surface: :settings}, grid, usage)
     assert String.starts_with?(hd(focused.keys).label, "Microphone selection")
     assert hd(focused.keys).svg =~ "Microphone"
-    {:ok, closed, []} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => "long_press"}, grid)
+    {:ok, closed, [:close_ticket]} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => "long_press"}, grid)
     assert closed.stack == []
     {_nav, _model, back} = FrameUpdates.frame(closed, grid, usage)
     assert hd(back.keys).svg =~ "claude usage"
   end
 
   defp transition(nav, grid, action) do
-    {:ok, nav, []} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => action}, grid)
+    {:ok, nav, [:close_ticket]} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => action}, grid)
     nav
   end
 end

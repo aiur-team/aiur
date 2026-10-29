@@ -2,6 +2,7 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
   @moduledoc "Browser wrappers for trusted images produced by Streamdeck.Render."
 
   use Phoenix.Component
+  alias Phoenix.LiveView.JS
 
   alias AiurWeb.Streamdeck.Render
 
@@ -48,7 +49,7 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
     ~H"""
     <div id={container_id(@mode)} data-mode-view={@mode} data-focused-identifier={@selected_identifier}>
       <div id={keys_id(@mode)} class="sd-keys" role="group" aria-label={keys_label(@mode)} data-mode-view={@mode}
-        data-grid-total={@mode == :grid && @grid[:tickets_status] != "unavailable" && @grid.total} data-tickets-status={@mode == :grid && @grid[:tickets_status]} data-grid-windows={@mode == :grid && @grid.windows}
+        data-deck-view={@model.nav.view} data-grid-total={@mode == :grid && @grid[:tickets_status] != "unavailable" && @grid.total} data-tickets-status={@mode == :grid && @grid[:tickets_status]} data-grid-windows={@mode == :grid && @grid.windows}
         data-grid-page={@mode == :grid && @page} data-grid-page-count={@mode == :grid && @grid.windows}
         data-grid-column-offset={@mode == :grid && @page * 4} data-grid-dial-value={@mode == :grid && @dial_value}
         data-grid-selected-identifier={@mode == :grid && @selected_identifier} data-commands-view={@mode == :commands && @commands_view}
@@ -59,10 +60,11 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
           data-streamdeck-url={value(face, :url)} data-streamdeck-command={value(face, :command)} data-streamdeck-icon={value(face, :icon)}
           data-command-state={value(face, :state)} data-command-hold={value(face, :hold) && "true"}
           data-command-label={value(face, :title)} data-command-sub={value(face, :sub)}
-          data-log-event-index={value(face, :event_index)} aria-current={if @mode == :logs, do: to_string(value(face, :selected, false))}
+          data-chat-turn={value(face, :chat_turn)} data-chat-live={@model.nav.surface == :chat && value(face, :live) && "true"}
+          data-log-event-index={value(face, :event_index)} aria-current={if @mode == :logs or not is_nil(value(face, :chat_turn)) or value(face, :live), do: to_string(value(face, :selected, false))}
           data-command-key={value(face, :decision_id)} data-command-option={@commands_view == :detail && value(face, :option_index)}
           data-command-selected={value(face, :selected) && "true"}
-          phx-click={not is_nil(value(face, :option_index)) && "command-select"} phx-value-index={value(face, :option_index)} />
+          phx-click={key_click(@mode, face, index)} phx-value-index={value(face, :option_index)} />
       </div>
       <div :if={@mode == :logs} hidden>
         <div id="sd-log-events" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
@@ -77,6 +79,12 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
     </div>
     """
   end
+
+  defp key_click(:grid, _face, index),
+    do: JS.push("input", value: %{kind: "key", index: index, action: "down"})
+
+  defp key_click(_mode, face, _index),
+    do: not is_nil(value(face, :option_index)) && "command-select"
 
   defp value(nil, _key, default), do: default
   defp value(face, key, default), do: Map.get(face, key, default)

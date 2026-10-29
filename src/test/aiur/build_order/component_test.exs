@@ -203,7 +203,13 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    expected = @foreground ++ [Aiur.BuildOrder.History.LabelBackfill]
+    {early, final} = Enum.split_while(@foreground, &(&1 != AiurWeb.DashboardAuth.ChallengeStore))
+    assert {:ok, voice_config} = Aiur.VoiceConversation.config()
+
+    expected =
+      early ++
+        [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
+        final ++ [Aiur.BuildOrder.History.LabelBackfill]
 
     assert Aiur.Application.child_specs(@opts) == expected
 

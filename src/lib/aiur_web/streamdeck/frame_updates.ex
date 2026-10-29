@@ -2,6 +2,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render}
   alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput}
+  alias AiurWeb.Streamdeck.Render.Chat, as: ChatRender
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 
@@ -9,14 +10,16 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   def input(raw, socket) do
     case transition(socket.assigns.deck_nav, raw, grid(socket)) do
       {:ok, nav, effects} ->
+        dispatch(effects)
         socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
         {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
-        PriorityInput.reply(
-          socket,
-          %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)},
-          effects
-        )
+        navigation = %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "chip_offset" => nav.chip_offset}
+
+        case PriorityInput.reply(socket, navigation, effects) do
+          {:reply, {:ok, _result}, socket} -> {:reply, {:ok, navigation}, socket}
+          error -> error
+        end
 
       :noop ->
         {:reply, {:ok, %{}}, socket}
@@ -28,17 +31,29 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @doc "Apply raw deck input to channel or browser navigation using the same mapping."
   @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
-  def transition(nav, raw, grid) do
+  def transition(previous, raw, grid) do
     with {:ok, input} <- normalize(raw),
+         input = focused_key(previous, raw, input),
          true <- Nav.valid_input?(input),
          {%Nav{} = nav, effects} <-
-           Input.reduce(nav, input, MeterPage.sections(normalize_grid(grid), nav)) do
+           Input.reduce(previous, input, MeterPage.sections(normalize_grid(grid), previous)) do
+      effects = if previous.surface == :chat && previous.chat && input["index"] == 3 && input["kind"] == "dial_turn", do: effects, else: focus_effects(previous, input, effects)
       {:ok, nav, effects}
     else
       :noop -> :noop
       _invalid -> :error
     end
   end
+
+  defp focused_key(%{chat: chat, surface: :chat}, %{"kind" => "key", "index" => index}, input) when is_map(chat), do: Map.put(input, "index", index)
+  defp focused_key(_nav, _raw, input), do: input
+
+  defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
+    if nav.surface in [:logs, :settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
+  end
+
+  defp focus_effects(_nav, %{"kind" => kind, "index" => 3}, effects) when kind in ["dial_press", "dial_long_press", "dial_turn"], do: [:close_ticket | effects]
+  defp focus_effects(_nav, _input, effects), do: effects
 
   @spec push(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def push(socket) do
@@ -57,7 +72,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
         grid(socket),
         socket.assigns[:deck_usage] || %{},
         &Render.frame/1,
-        %{toast: socket.assigns[:deck_toast]}
+        %{toast: socket.assigns[:deck_toast], chat: socket.assigns[:deck_chat_view]}
       )
 
     {nav, images}
@@ -79,12 +94,26 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
           usage: usage,
           page: Nav.page(nav),
           provider_offset: nav.scroll,
+          chip_offset: nav.chip_offset,
           surface: nav.surface
         },
         context
       )
 
-    {nav, model, renderer.(model)}
+    images = renderer.(model)
+    images = if context[:chat] && not is_binary(context[:toast]), do: Map.put(images, :strip, ChatRender.strip(context.chat, System.system_time(:millisecond), nav)), else: images
+    {nav, model, images}
+  end
+
+  @doc "Deliver shared focus effects in the owning channel or LiveView process."
+  @spec dispatch([Nav.effect()]) :: :ok
+  def dispatch(effects) do
+    Enum.each(effects, fn
+      {:open_ticket, id} -> send(self(), {:streamdeck_frame_focus, id})
+      :close_ticket -> send(self(), :streamdeck_frame_unfocus)
+      {:chat_page, before} -> send(self(), {:streamdeck_chat_page, before})
+      _ -> :ok
+    end)
   end
 
   defp grid(socket), do: Map.put(socket.assigns[:deck_grid] || StreamdeckProjection.grid(), :meter_usage, socket.assigns[:deck_usage] || %{})

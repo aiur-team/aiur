@@ -1,10 +1,24 @@
 defmodule AiurWeb.Streamdeck.Deck.Input do
   @moduledoc "Resolve raw keys against ordered Deck sections before reducing navigation."
 
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, Nav}
+  alias AiurWeb.Streamdeck.Render.StripCounts
 
   @doc "Sections map each view to ordered `%{id: id, tickets: [...]}` items (tickets need only `id`)."
   @spec reduce(Nav.t(), map(), map()) :: {Nav.t(), [Nav.effect()]} | {:error, map()}
+  def reduce(%{chat: chat, surface: :chat} = nav, input, _sections) when is_map(chat) do
+    case input do
+      %{"kind" => kind, "index" => 3} when kind in ["dial_press", "dial_long_press"] ->
+        Nav.reduce(%{nav | chat: nil, surface: :grid}, input, %{})
+
+      %{"kind" => "dial_press", "index" => 0} ->
+        {%{nav | chat: nil, surface: :grid}, []}
+
+      _ ->
+        ChatNavigation.reduce(nav, input)
+    end
+  end
+
   def reduce(nav, input, sections) do
     sizes = sizes(nav, sections)
     nav = Nav.clamp(nav, sizes)
@@ -15,6 +29,7 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
   @spec sizes(Nav.t(), map()) :: map()
   def sizes(nav, sections) do
     Map.new([:ticket, :feature, :epic, :fleet], &{&1, length(Map.get(sections, &1, []))})
+    |> Map.put(:chip_max_offset, StripCounts.model(Map.get(sections, :counts), 999).offset)
     |> Map.put(:drill, if(nav.stack == [], do: nil, else: drill_size(nav, sections)))
   end
 

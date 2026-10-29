@@ -83,7 +83,9 @@ voice:
 ```
 
 No ElevenLabs Agent id or client-tool setup is needed for OpenAI. `llm` is sent
-as the Realtime model; `voice_id` is optional. Restart after changing provider.
+as the Realtime model; `voice_id` is optional. The provider setting selects the drawer default; choose either provider and an explicit
+model in the drawer before starting, without a config edit or restart. Restart after
+changing credentials or the other daemon settings.
 
 The adapter converts 16 kHz mic PCM to 24 kHz and emits tagged 24 kHz output;
 the browser and transcript/summary handoff are shared. Input transcription uses

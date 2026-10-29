@@ -5,6 +5,7 @@ import { anchor, dragDialThroughAngles, openStreamdeck as openStreamdeckPage } f
 // Pointer coordinates must stay fixed after anchoring in this gesture spec.
 async function openStreamdeck(page, mode) {
   await openStreamdeckPage(page, mode)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await page.evaluate(() => {
     document.documentElement.style.scrollBehavior = 'auto'
     window.scrollTo({ top: window.scrollY, behavior: 'instant' })
@@ -191,11 +192,6 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   const key = page.locator('#sd-keys .sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
-  // The key the operator pressed and the panel it opens must agree about the
-  // Build state's label and accent, carried through the same renderer.
-  const keyStatus = await key.locator('[data-part="status-label"]').textContent()
-  const keyAccent = await key.locator('[data-part="status-label"]').getAttribute('fill')
-
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   // #1607 deleted the standalone #sd-cmd-view and fills the cmd-mode grid with
@@ -208,11 +204,10 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
   await expect(page.locator('[data-streamdeck-command]')).toHaveCount(8)
   await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')).toBeVisible()
-  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('CONTROLLING')
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
   const panel = page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')
-  await expect(panel).toContainText(keyStatus)
-  await expect(panel.locator(`text[fill="${keyAccent}"]`)).toContainText(keyStatus)
-  await expect(panel.locator('[data-part="progress-fill"]')).toBeVisible()
+  await expect(panel).toHaveCSS('width', '800px')
+  await expect(panel).toContainText('Conversation unavailable')
 
   await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
@@ -249,6 +244,12 @@ test('command keys render real state-derived controls, flash on click, and emit 
     const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
     window.__streamdeckCommandEvents = []
     window.__streamdeckGridEvents = []
+    window.__streamdeckFlashes = []
+    // Observe after the key handler, before an asynchronous pane swap can remove it.
+    document.addEventListener('click', (event) => {
+      const key = event.target.closest('[data-streamdeck-command]')
+      if (key) window.__streamdeckFlashes.push({ command: key.dataset.streamdeckCommand, flashing: key.classList.contains('is-flashing') })
+    })
     const pushEvent = hook.pushEvent.bind(hook)
     hook.pushEvent = (name, payload) => {
       if (name === 'command-press') window.__streamdeckCommandEvents.push({ name, payload })
@@ -260,7 +261,7 @@ test('command keys render real state-derived controls, flash on click, and emit 
   for (const command of ['pause', 'commands', 'settings']) {
     const key = page.locator(`[data-streamdeck-command="${command}"]`)
     await key.click()
-    await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+    expect(await page.evaluate(() => window.__streamdeckFlashes.at(-1))).toEqual({ command, flashing: true })
     // Commands and Settings are navigation keys: each opens its own pane
     // and dial A backs out of it.
     if (command === 'commands' || command === 'settings') {

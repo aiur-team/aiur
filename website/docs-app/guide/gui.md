@@ -184,6 +184,17 @@ forward, so measuring the gate never perturbs a real build acquisition.
 See [Conversations](/concepts/conversations) for journal storage, retention,
 secret handling, earlier history and jump-point precision.
 
+### Answer a Command
+
+Open Commands from this agent appear beside their anchored conversation entry,
+with a top link that jumps to the card. A Command with no known position is
+pinned above the history and marked **Position unknown**.
+
+The cards use the same
+answer controls as the Commands inbox, including multi-question answers and
+conflict outcomes. Answers recorded elsewhere update the card live; they never
+edit the transcript. Read-only dashboards show cards without answer controls.
+
 ### Send a message
 
 On a worker's full conversation page, writable dashboards offer a **Message to
@@ -253,10 +264,39 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 
 ### Executor voice prototype
 
-Open a conversation drawer and press **Talk to Executor** to start a continuous
-spoken session through the configured ElevenLabs Agents or OpenAI Realtime
-provider. The voice control
+Open a conversation drawer, choose **ElevenLabs** or **OpenAI**, enter its model,
+and press **Talk to Executor** to start a continuous spoken session. Change the
+provider between sessions without editing config or restarting.
+
+Both credentials and the ElevenLabs Agent id must be configured for a two-provider comparison. The voice control
 always targets the Executor, regardless of the worker shown in the drawer.
+
+The drawer shows each provider's cumulative used or reserved minutes. Comparison
+limits are 45 minutes each for OpenAI and ElevenLabs on this runtime, separate
+from the existing shared daily cap. Starts at the comparison cap are refused;
+remaining minutes also shorten the session's automatic stop.
+
+A reservation is
+written before connecting. Failed starts and interrupted sessions without a saved
+end line charge the whole reservation, including after a daemon restart.
+
+Expand **Compare providers and record Kevin’s rating** for side-by-side session
+lines: model, first audio, duration, budget cost estimate, rating (1–5) and note.
+
+First audio measures server session startup to first received agent audio, before
+browser playback; sessions with no audio show unavailable.
+
+Ratings and redacted notes survive reloads. The private `comparison.json` sits beside the transcripts;
+no audio is stored. Stop the current session before choosing another provider.
+
+The estimates allocate USD 8 / 45 OpenAI minutes and USD 8 / 45 ElevenLabs
+minutes; these are evaluation budget rates, not vendor tariffs or invoice limits.
+The ledger starts at deployment and excludes earlier provider/account usage.
+
+Before each attended comparison, reconcile actual prior spend and account usage
+against the USD 25 approval on #4084; record each delta there. End both sessions
+after evaluation and disable the demo. Kevin's choice (or “not yet”) belongs on
+#4083 before Stream Deck voice work is filed.
 
 The control shows not configured, connecting, live, ended or failed. Press
 **End Executor conversation** to send the transcript and categorized summary.

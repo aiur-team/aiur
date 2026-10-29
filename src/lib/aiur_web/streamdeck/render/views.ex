@@ -1,6 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame, Nav}
   alias AiurWeb.Streamdeck.Render.{Fleet, MeterDetail, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
@@ -22,11 +22,23 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     MeterDetail.compose(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, Nav.page(nav))
   end
 
+  def compose(%{nav: %{chat: chat, surface: :chat}} = model) when is_map(chat) do
+    turns = ChatNavigation.visible(chat)
+
+    faces =
+      Enum.map(turns, fn turn ->
+        card(turn.text, turn.text, "#{turn.tools} tools", chat_turn: turn.id, selected: turn.id == chat.selected)
+      end)
+
+    faces = List.duplicate(nil, 7 - length(faces)) ++ faces
+    {faces ++ [card("LIVE", "LIVE", "", live: true, selected: is_nil(chat.selected))], chat_regions(model)}
+  end
+
+  def compose(%{nav: %{view: :epic} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"],
+    do: with_toast(EpicFrame.compose(field(model, :grid) || model, nav), model)
+
   def compose(%{nav: %{view: :fleet} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"] do
-    {faces, regions} = Fleet.compose(field(model, :grid) || model, nav)
-    toast = field(model, :toast)
-    regions = if is_binary(toast), do: List.replace_at(regions, 0, %{x: 0, width: 200, label: toast, parts: [%{kind: :text_line, text: toast, y: 50, size: 12}]}), else: regions
-    {faces, regions}
+    with_toast(Fleet.compose(field(model, :grid) || model, nav), model)
   end
 
   def compose(model) do
@@ -36,8 +48,21 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     {faces, ViewStrip.compose(model, context)}
   end
 
+  defp chat_regions(model) do
+    case field(model, :toast) do
+      text when is_binary(text) -> [%{x: 0, width: 800, label: text, parts: [%{kind: :text_line, text: text, y: 50, size: 12}]}]
+      _ -> ViewStrip.compose(model, %{})
+    end
+  end
+
   @spec settings_text() :: [String.t()]
   def settings_text, do: [@microphone, @voice]
+
+  defp with_toast({faces, regions}, model) do
+    toast = field(model, :toast)
+    regions = if is_binary(toast), do: List.replace_at(regions, 0, %{x: 0, width: 200, label: toast, parts: [%{kind: :text_line, text: toast, y: 50, size: 12}]}), else: regions
+    {faces, regions}
+  end
 
   defp keys("cmd", context) do
     context

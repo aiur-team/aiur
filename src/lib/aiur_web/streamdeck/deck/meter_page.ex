@@ -24,6 +24,7 @@ defmodule AiurWeb.Streamdeck.Deck.MeterPage do
   defp providers(grid, %{view: view}, usage) when view in [:epic, :fleet] do
     keys =
       usage
+      |> Meters.providers()
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.map(fn {provider, meter} ->
         %{id: provider, kind: :meter_detail, title: "#{provider} usage", label: meter["summary_label"] || "Unknown", face: :idle, bucket: :paused}

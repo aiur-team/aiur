@@ -33,6 +33,10 @@ defmodule AiurWeb.StreamdeckFleet do
     |> Map.put(:tickets_status, deck.tickets.status)
     |> Map.put(:counts, deck.counts)
     |> Map.put(:fleet, deck.fleet)
+    |> Map.put(:epics, deck.epics.keys)
+    |> Map.put(:epics_message, deck.epics.message)
+    |> Map.put(:features, deck.features.keys)
+    |> Map.put(:features_status, deck.features.status)
     |> Deck.Priority.decorate(deck.queue_positions)
   end
 

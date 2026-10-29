@@ -1,21 +1,5 @@
 defmodule AiurWeb.StreamdeckLive do
-  @moduledoc """
-  Browser emulator for the Stream Deck control surface.
-
-  The view renders the same orchestrator snapshot projection used by the
-  Stream Deck API and subscribes to the fleet topics so browser state follows
-  the dashboard. Key presses use the existing AgentChat control facade; the
-  orchestrator remains the authority for the resulting pause/resume state.
-
-  Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`
-  and projects the durable classified feed (`AgentEventFeed`) through
-  `StreamdeckLogs`. That projection is one newest-first document read at two
-  granularities: the eight keys are the event index (LIVE first, then a
-  scrolling window of event rows) and the touch strip is the transcript text at
-  the selected event's offset. Selecting a key positions the strip; scrolling
-  the strip reselects the event under the cursor. The production path reads the
-  real feed; `streamdeck_logs_fun` exists only as a test seam.
-  """
+  @moduledoc "Browser emulator using shared deck frames and owner-process conversation tails."
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
@@ -24,8 +8,7 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Modes
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
-  alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.Streamdeck.FrameUpdates
+  alias AiurWeb.Streamdeck.Deck.{Chat, Nav}
   alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLive.TicketActions
@@ -60,6 +43,7 @@ defmodule AiurWeb.StreamdeckLive do
   def mount(_params, _session, socket) do
     socket =
       socket
+      |> Chat.init()
       |> DashboardShell.mount()
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
@@ -331,10 +315,15 @@ defmodule AiurWeb.StreamdeckLive do
   # `:decision_metrics_changed` rides the same channel. Without this clause an
   # unrelated Command action anywhere in the fleet takes down the Stream Deck,
   # which is a control surface the operator runs the fleet from.
+  def handle_info({:deck_chat_tick, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_changed, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_restarted, _, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def terminate(_reason, socket) do
+    Chat.clear(socket)
     # The transcript relay is `start_link`ed to this LiveView, so a normal exit
     # does not kill it through the link alone. Stop it explicitly so focus
     # changes across repeated visits do not leak one subscribed relay per visit.
@@ -387,24 +376,7 @@ defmodule AiurWeb.StreamdeckLive do
   @doc false
   @spec reduce_input(map(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
-  def reduce_input(raw, socket) do
-    case FrameUpdates.transition(socket.assigns.deck_nav, raw, Map.put(socket.assigns.grid, :meter_usage, socket.assigns.usage)) do
-      {:ok, nav, effects} ->
-        socket = assign(socket, deck_nav: nav, deck_effects: effects)
-
-        {:noreply,
-         assign_grid(
-           socket,
-           socket.assigns.grid,
-           0,
-           socket.assigns.usage,
-           Nav.page(nav)
-         )}
-
-      _unchanged ->
-        {:noreply, socket}
-    end
-  end
+  def reduce_input(raw, socket), do: Input.reduce(raw, socket)
 
   defp control_feedback(nil), do: ""
   defp control_feedback(feedback), do: feedback

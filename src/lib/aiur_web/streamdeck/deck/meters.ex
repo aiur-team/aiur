@@ -17,6 +17,10 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
     |> Map.new(fn {family, row} -> {Atom.to_string(family), meter(family, row, inputs.accounts)} end)
   end
 
+  @doc "Provider readings, excluding the separate API-credit summary."
+  @spec providers(map()) :: map()
+  def providers(usage), do: Map.delete(usage, "apis")
+
   @spec detail(String.t(), keyword()) :: map()
   def detail(provider, opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)

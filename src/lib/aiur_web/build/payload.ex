@@ -134,6 +134,9 @@ defmodule AiurWeb.Build.Payload do
   def validate(_message), do: {:error, [{"", :type}]}
 
   @spec scrub(term()) :: term()
+  # Label memberships are Deck-only index metadata, not part of the browser wire schema.
+  def scrub(%{general_epics: _, num: _} = row), do: row |> Map.delete(:general_epics) |> scrub()
+
   def scrub(value) when is_binary(value), do: String.replace_invalid(value)
   def scrub(value) when is_list(value), do: Enum.map(value, &scrub/1)
   def scrub(value) when is_map(value), do: Map.new(value, fn {key, child} -> {scrub_key(key), scrub(child)} end)

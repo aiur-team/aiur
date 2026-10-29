@@ -1,10 +1,10 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. The browser also retains its Command, Logs, Settings and Commands controls, drawn by that shared renderer.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. Focused ticket frames show conversation turns from the desktop modal’s source. The browser also retains its legacy Logs, Settings and Commands controls.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
-The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
+The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
 The server also maintains independent Ticket, Feature, Epic and Fleet navigation
 for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
@@ -12,7 +12,7 @@ hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
 Dial 3 is reserved for the sidecar's instance switch.
 
 The browser retains the focused controls below. Its grid dial D turns pages
-and presses for the next window; dial A scrolls the shared provider panel.
+and presses to cycle Ticket, Feature, Epic and Fleet; dial B scrolls the category chips.
 The current physical client uses the navigation controls described above.
 
 ## Read provider accounts
@@ -26,25 +26,68 @@ visible, dimmed and labelled “stale”.
 The touch strip names the provider and
 its summary account; hold dial 4 to return. Account keys are read-only.
 
-## Drive the four modes
+## Drive the deck
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: scroll browser provider panel. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page tickets; press for next window. |
-| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold to go back. |
+| **Ticket conversation** | Press a ticket key | Seven conversation turns plus LIVE | Selected turn, or the latest entry at LIVE | A: scroll text; press for Grid. B: priority. C: physical instance switcher. D: turn for older/newer turns; press to leave the ticket. |
+| **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
-The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
+The server-rendered Ticket strip uses three bands: build progress at the left
+(200 px), category chips across the middle (400 px), and `Queued M` / `Not queued K`
+with pager dots at the right (200 px).
 
-| Control state | Behavior |
+Chips show a state glyph and count, ordered
+error, command, retrying, active, waiting for CI, usage limited, parked, paused,
+then other Build states alphabetically and unknown last.
+
+Zero counts are hidden;
+missing counts read `Counts unavailable`, never zero. A dimmed band marked `stale`
+retains the last counts.
+
+More than eight categories show seven chips and `+N more`;
+dial B (zero-based dial 1) moves that window one category per detent. On a selected
+ticket, dial B retains the priority action.
+
+Physical display and raw dial routing
+require the server-image sidecar update (SD-103).
+
+Physical and emulator ticket frames show the same masked turn keys and full-width conversation strip.
+
+### Feature view
+
+The server Feature view uses the Build Features snapshot's closed/total percentage,
+rounded down, with closed, published/open (including CI wait) and unpublished bar layers and a positive, known CI-wait
+badge.
+
+Missing closed or total counts show “—” with the source reason. Missing bar
+counts leave an empty bar while a known closed/total percentage stays visible.
+
+Each key represents a parent feature, summing its epic counts in snapshot order. Dial 4 pages eight keys;
+press a key to drill into the parent feature's tickets, then hold Dial 4 to return
+with the feature page preserved.
+
+The strip names closed/total, unpublished count and
+observation age in minutes for the first visible feature (the selected feature while drilled in).
+
+The browser emulator and physical deck use the same SVG frames, pushed through the
+shared frame updates.
+
+Input acknowledgements carry navigation; images arrive in frame events.
+
+The legacy browser modes retain their own controls.
+
+| Legacy control state | Behavior |
 | --- | --- |
 | Pause | The label reflects the selected agent's current state. |
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
 | Read-only Dashboard | Pause, priority and Mic are disabled; Commands, links, Logs and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
-| Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. Server-rendered keys show `Queued #k`. The orchestrator priority star is separate. |
+| Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. The strip reports `Queued #k`. The orchestrator priority star is separate. |
 
 Multiple detents in one frame produce one move. The strip reports “not in a queue”,
 “plan order is fixed”, “queue disabled”, or “outcome unknown”; unknown outcomes are
@@ -67,38 +110,37 @@ The strip shows daemon state and heartbeat age, capacity (including staleness),
 and global pause state. Unknown capacity shows `—`; a stale daemon stays
 labelled stale. Fleet only displays global pause.
 
-## Read the Logs surface
+## Read ticket conversation turns
 
-Logs runs from oldest at the far left to newest at the far right.
+The keys and strip use the same conversation source, entry IDs and chronological
+order as the desktop Build modal, including retained messages after a daemon restart.
+
+Press a ticket key to read its conversation.
 
 | Key | Meaning |
 | --- | --- |
-| Ticket opened | Leftmost origin; owns transcript lines before the first event. |
-| Event key | One ticket event: progress, phase, comment, CI, PR, decision, or attention. |
-| LIVE | Rightmost current view; opens the newest transcript row and uses green selection ink. |
+| Turn | One agent reply plus the tool/system entries since the previous reply or operator message. An operator message is its own turn. |
+| LIVE | Pinned eighth key; returns to the newest entry. |
 
-Transcript lines stay beneath the event active when they arrived; agent prose is not promoted into extra event keys.
+Bus events such as CI and PR updates do not become conversation keys.
 
-### Selection and live typing
+The seven turn keys run from oldest to newest, with the newest next to LIVE.
 
 | Action | Result |
 | --- | --- |
-| Press an event key | Activates it, scrolls to the event, and deactivates LIVE. |
-| Press LIVE | Jumps to the newest transcript line. |
-| Turn dial A | Scrolls the transcript and updates the active event key. |
-| Enter Logs | Opens at LIVE. |
-| New text while LIVE | Reveals the message as it arrives and follows the feed. |
-| Scroll away from LIVE | Stops following so history stays still. |
+| Press a turn key | Selects that turn and shows its text on the strip. |
+| Press LIVE | Returns to the tail and follows new entries. |
+| Turn dial A (1) | Scrolls the selected conversation text. |
+| Turn dial D (4) backwards | Pages to seven older turns; crossing the retained window loads an earlier page. |
+| Turn dial D forwards | Pages towards the live end. |
+| Press dial A or D | Leaves the focused ticket. |
 
-### Transcript styling
+Pages retain at most 500 entries. A changed transcript or invalid page cursor
+clears loaded pages and reloads the tail, so history never silently skips a gap.
+Missing history says “Conversation not retained”; read failures say
+“Conversation unavailable”; stale conversations show their age.
 
-| Row | Display |
-| --- | --- |
-| Agent prose | Bright, without a label. |
-| Tool call | Glyph gutter; muted after completion. |
-| Shell command | `$` prefix. |
-| Operator message | Coloured bar. |
-| File edit | File path, addition/deletion counts and changed lines. |
+The legacy browser Logs surface remains separate from the ticket turn keys.
 
 ### Progress bars
 
@@ -128,13 +170,27 @@ Missing progress draws no bar and never becomes 0%. Tickets without an agent app
 only when queued; pressing a key opens that ticket’s deck page.
 The order is the same in the browser emulator and on the physical deck.
 
+## Epic view
+
+Epic keys show remaining open tickets, open/total, and the percentage closed.
+They use Build's `epic_progress`: most remaining first, then epic label;
+unknown counts show “—” with a reason and sort last. A ticket counts under every
+matching general epic, including tickets owned by a feature.
+
+Press an epic key to list its matching tickets; hold dial 4 for 500 ms to go
+back. With `build_order.general_epics: []`, or when every configured epic has zero total tickets, the view says “No epics configured”
+and names that setting, without showing a zero remaining count.
+
+Epic keys and the empty-state strip use the same shared SVG renderer in the
+browser emulator and on the physical deck.
+
 ## Physical sidecar status
 
 The daemon draws every image. The sidecar rasterizes its SVG frames to JPEG,
 forwards raw input, and shows **Aiur offline** with blank keys when the channel
 is down. On reconnect, the daemon sends a full frame and resets navigation.
 
-The physical entry point currently shows the server grid. The legacy local
+The physical entry point shows the server grid; selecting a ticket opens its shared conversation strip. The legacy local
 voice, Commands, browser links, demo and instance-picker views await server migrations;
 use the dashboard for those controls.
 
@@ -219,11 +275,13 @@ Voice input captures speech from a microphone attached to the sidecar machine, t
 
 ### The keys
 
-Voice lives in the agent view, reached by pressing an agent key in Grid.
+Shared ticket frames use the conversation keys described above; these slots do not describe the physical frame keys.
+
+The legacy browser Command controls retain the voice layout below.
 
 | Key | Slot | Behavior |
 | --- | --- | --- |
-| Pause/Play | First | Pauses or resumes the selected agent; physical tickets without an agent offer Implement here. |
+| Pause/Play | First | Pauses or resumes the selected agent. |
 | Priority up/down | Second/third | Moves a ticket one place in a list queue; disabled at edges or outside a list queue. |
 | Mic | Seventh | Press-and-hold; live only while held. |
 | Settings | Eighth | Opens the microphone picker on the deck, or a text pane in the emulator; dial A backs out of either. |
@@ -232,13 +290,13 @@ Voice lives in the agent view, reached by pressing an agent key in Grid.
 | Send | Fifth, once dictation has text | Delivers the accumulated text to the agent. |
 | Cancel | Sixth, once dictation has text | Discards the accumulated text. |
 
-Dial D opens Logs. A missing PR disables Open PR. Link keys accept only HTTP(S) URLs. Rebuild the sidecar after updating Aiur to use the ticket action layout.
+In the legacy Command layout, dial D opens Logs. A missing PR disables Open PR. Link keys accept only HTTP(S) URLs.
 
 The emulator shows a text pane because the microphones are attached to the machine running the sidecar, which a browser tab cannot see.
 
 ### Dictate to an agent
 
-Select an agent in Grid, then hold Mic and speak.
+In the legacy Command layout, hold Mic and speak.
 
 | Step | What happens |
 | --- | --- |
@@ -249,7 +307,7 @@ Select an agent in Grid, then hold Mic and speak.
 | Cancel | Discards the buffer and leaves you in the agent view. |
 | Back out to Grid | Discards the buffer, so a message about one ticket never follows you into the next. |
 
-Open Logs after sending to find your own message at the live end of the feed.
+Your operator message appears as its own conversation turn; LIVE returns to the newest entry.
 
 ### Choose a microphone
 

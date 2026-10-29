@@ -171,7 +171,7 @@ For the next 10 handoffs after rollout, record the tested PR head, observed base
 
 ## Cloudflare tunnel boundary
 
-Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
+Cloudflare is one example of webhook ingress — any HTTPS ingress that forwards only `/api/v1/github/webhook` works, and none is required: polling is the complete fallback; ingress is transport, not an API Aiur calls.
 
 | Boundary | Operator requirement |
 | --- | --- |
@@ -179,6 +179,7 @@ Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
 | Public host | Serve the webhook at a hostname you control (`hooks.aiur.dev` here); without one, a quick tunnel (`cloudflared tunnel --url`) works for a single session. |
 | Reachable path | Route only `/api/v1/github/webhook`; finish the ingress list with a catch-all `404`. |
 | Network | No inbound firewall rule is needed or wanted because `cloudflared` dials out. |
+| Other ingress | Any reverse proxy or tunnel that forwards only this path, with TLS, works the same; Aiur reads no proxy headers. |
 
 The path scope and webhook signature are independent locks:
 
@@ -186,6 +187,7 @@ The path scope and webhook signature are independent locks:
 | --- | --- |
 | Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's bound address. |
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
+| What a lock does not hide | The ingress operator terminates TLS, so it can read each delivery's headers and body; the signature stops forgery, not reading. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
 
