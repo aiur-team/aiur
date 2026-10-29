@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.DeliveryCorrelation
   alias Aiur.{DecisionDispatch, DecisionPubSub, DecisionStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, PauseResume}
 
@@ -59,6 +60,8 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
   setup do
     :ok = DecisionPubSub.subscribe()
     dir = Aiur.TestSupport.tmp_root!("override-legacy-delivery")
+    previous_pending = Application.fetch_env(:aiur, :pending_operator_messages_store_path)
+    Application.put_env(:aiur, :pending_operator_messages_store_path, Path.join(dir, "messages.json"))
     previous = Application.fetch_env(:aiur, :control_lifecycle_store_path)
     Application.put_env(:aiur, :control_lifecycle_store_path, Path.join(dir, "controls.json"))
 
@@ -68,6 +71,11 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
         :error -> Application.delete_env(:aiur, :control_lifecycle_store_path)
       end
 
+      case previous_pending do
+        {:ok, value} -> Application.put_env(:aiur, :pending_operator_messages_store_path, value)
+        :error -> Application.delete_env(:aiur, :pending_operator_messages_store_path)
+      end
+
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
@@ -75,36 +83,43 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     %{runtime: runtime, dir: dir}
   end
 
-  test "before-delivery override replaces an absent worker answer in its first session input exactly once", ctx do
+  test "before-delivery override replaces an absent worker answer in its first queued input exactly once", ctx do
     store = start_store!(ctx)
     decision = answer!(store)
-    pending = wait_for(store, decision.decision_id, & &1.pending_for_session?)
+    pending = wait_for(store, decision.decision_id, &(&1.delivery_status == :queued))
     revised = override!(store, pending, "replacement")
     assert revised.answer.action_id == pending.answer.action_id
     assert revised.active_action_id != pending.active_action_id
-    assert revised.pending_for_session?
+    refute revised.pending_for_session?
+    wait_for(store, revised.decision_id, &(&1.delivery_status == :queued))
 
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, [answer]}, 2_000
-    assert answer.action_id == revised.active_action_id
-    assert answer.answer == "replacement"
-    assert_session_consumed_once(store, revised, ctx.runtime)
+    assert_receive {:first_session_input, ^worker, []}, 2_000
+    send(worker, :read_next)
+    assert_receive {:worker_input, ^worker, action, body}, 2_000
+    assert action == revised.active_action_id
+    assert body =~ "replacement"
+    assert_queue_consumed_once(store, revised)
     assert OperatorMessages.claim_next_queue_item(ctx.runtime, @identifier) == :empty
   end
 
-  test "two absent-worker overrides deliver only the newest answer at session start", ctx do
+  test "two absent-worker overrides deliver only the newest answer through the next-worker queue", ctx do
     store = start_store!(ctx)
     decision = answer!(store)
-    pending = wait_for(store, decision.decision_id, & &1.pending_for_session?)
+    pending = wait_for(store, decision.decision_id, &(&1.delivery_status == :queued))
     first = override!(store, pending, "earlier direction")
     latest = override!(store, first, "newest direction")
     assert [%{state: :superseded}, %{state: :queued}] = latest.overrides
 
+    wait_for(store, latest.decision_id, &(&1.delivery_status == :queued))
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, [answer]}, 2_000
-    assert answer.action_id == latest.active_action_id
-    assert answer.answer == "newest direction"
-    assert_session_consumed_once(store, latest, ctx.runtime)
+    assert_receive {:first_session_input, ^worker, []}, 2_000
+    send(worker, :read_next)
+    assert_receive {:worker_input, ^worker, action, body}, 2_000
+    assert action == latest.active_action_id
+    assert body =~ "newest direction"
+    refute body =~ "earlier direction"
+    assert_queue_consumed_once(store, latest)
     refute_receive {:worker_input, ^worker, _, _}, 0
     assert OperatorMessages.claim_next_queue_item(ctx.runtime, @identifier) == :empty
   end
@@ -208,7 +223,11 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
 
   defp answer!(store) do
     assert {:ok, %{decision: decision}} =
-             DecisionStore.request(%{source_id: "legacy", question: "Which direction?", blocking: false}, [ticket: %{identifier: @identifier, title: "Override", url: nil}, source: @source], store)
+             DecisionStore.request(
+               %{source_id: "legacy-#{System.unique_integer([:positive])}", question: "Which direction?", blocking: false},
+               [ticket: %{identifier: @identifier, title: "Override", url: nil}, source: @source],
+               store
+             )
 
     assert {:ok, %{decision: answered}} = DecisionStore.answer(decision.decision_id, payload("original direction"), [actor: @actor], store)
     answered
@@ -281,33 +300,28 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
   defp read_input(parent, runtime, issue, store) do
     case OperatorMessages.claim_next_queue_item(runtime, issue.identifier) do
       {:ok, item} ->
-        if item.action_id do
-          :ok = accept_delivery(item, store)
-        end
+        case DeliveryCorrelation.prepare_operator_delivery(item, issue, store) do
+          :ok ->
+            :ok = DeliveryCorrelation.record_provider_delivery(item, issue, store)
+            :ok = OperatorMessages.acknowledge_queue_item_delivery(runtime, item.id, %{turn_id: "new-turn"})
+            :ok = OperatorMessages.mark_queue_item_consumed(runtime, item.id)
+            :ok = DecisionStore.record_transport_batch_async(:consumed, [item], nil, store)
+            send(parent, {:worker_input, self(), item.action_id, item.body.text})
 
-        :ok = OperatorMessages.mark_queue_item_consumed(runtime, item.id)
-        :ok = DecisionStore.record_transport_batch_async(:consumed, [item], nil, store)
-        send(parent, {:worker_input, self(), item.action_id, item.body.text})
+          {:error, {:failed, reason}} ->
+            :ok = OperatorMessages.mark_queue_item_failed(runtime, item.id, reason)
+            read_input(parent, runtime, issue, store)
+        end
 
       :empty ->
         send(parent, {:worker_queue_empty, self()})
     end
   end
 
-  defp accept_delivery(item, store) do
-    {:ok, :accepted} = DecisionStore.validate_delivery(item, store)
-    {:ok, :accepted} = DecisionStore.record_delivery(item, store)
-    :ok
-  end
-
-  defp assert_session_consumed_once(store, decision, runtime) do
-    wait_for(store, decision.decision_id, &(!&1.pending_for_session?))
-    update = %{event: :notification, timestamp: DateTime.utc_now(), payload: %{"method" => "turn/started"}}
-    send(runtime, {:codex_worker_update, @identifier, update})
-    GenServer.call(runtime, :worker_status)
+  defp assert_queue_consumed_once(store, decision) do
+    wait_for(store, decision.decision_id, &(&1.delivery_status == :consumed))
     assert {:ok, history} = DecisionStore.audit_history(decision.decision_id, store)
-    assert [%{data: %{action_id: action}}] = Enum.filter(history, &(&1.type == :session_started))
-    assert action == decision.active_action_id
+    assert Enum.count(history, &(&1.type == :delivered and &1.data.action_id == decision.active_action_id)) == 1
   end
 
   defp wait_for(store, id, predicate), do: wait_for(store, id, predicate, System.monotonic_time(:millisecond) + 3_000)
@@ -323,7 +337,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
       receive do
         {:decision_changed, ^id, _version} -> wait_for(store, id, predicate, deadline)
       after
-        remaining -> flunk("Decision did not reach expected state: #{inspect(decision, limit: 30)}")
+        remaining -> flunk("Decision did not reach expected state: #{inspect(Map.take(decision, [:delivery_status, :dispatch_attempts, :revision_outcomes, :pending_for_session?]), limit: :infinity)}")
       end
     end
   end
