@@ -66,6 +66,7 @@ defmodule Aiur.Workspace.HostLockTest do
   end
 
   describe "stale locks" do
+    @tag :real_proc
     test "dead owner pid is proof only when the lock owner is stale" do
       holder = %{
         node: to_string(Node.self()),
@@ -76,22 +77,34 @@ defmodule Aiur.Workspace.HostLockTest do
 
       assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease")
 
-      live_holder = %{holder | os_pid: System.pid() |> String.to_integer()}
-      assert nil == HostLock.dead_owner_proof(live_holder, to_string(Node.self()), "live-lease")
+      workspace = workspace_path("host-lock-live-owner-proof")
+      assert {:ok, lock} = HostLock.acquire(workspace, "24")
+      assert is_binary(lock.holder.owner_started_at)
+      assert nil == HostLock.dead_owner_proof(lock.holder, to_string(Node.self()), "live-lease")
+      assert :ok = HostLock.release(lock)
+
       assert nil == HostLock.dead_owner_proof(%{holder | os_pid: nil}, to_string(Node.self()), "live-lease")
       assert nil == HostLock.dead_owner_proof(%{holder | owner_id: "live-lease"}, to_string(Node.self()), "live-lease")
     end
 
+    @tag :real_proc
     test "a pid reused after the recorded owner start is treated as dead" do
       holder = %{
         node: to_string(Node.self()),
         os_pid: System.pid() |> String.to_integer(),
         owner_id: "old-lock",
         acquired_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-        owner_started_at: "2000-01-01T00:00:00Z"
+        owner_started_at: DateTime.add(DateTime.utc_now(), -36_500, :day) |> DateTime.to_iso8601()
       }
 
       assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease")
+    end
+
+    test "an unavailable proc root does not prove owner exit" do
+      holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, owner_id: "old-lock", acquired_at: DateTime.utc_now() |> DateTime.to_iso8601()}
+      proc_root = Path.join(Aiur.TestSupport.tmp_root!("host-lock-unavailable-proc"), "missing-proc")
+
+      assert nil == HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease", proc_root: proc_root)
     end
 
     test "a lock whose owning pid is dead is reclaimed" do

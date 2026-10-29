@@ -33,21 +33,21 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
   end
 
   def maybe_release_or_reap(%{provider: nil, provider_expected?: true} = state) do
-    if exit_proof(state) do
-      proof = exit_proof(state)
+    case exit_proof(state) do
+      nil ->
+        {:wait, Retention.mark(state)}
 
-      case record_provider_exit_audit(state, "guardian", "workspace_hold_auto_release", proof) do
-        :ok ->
-          Logger.warning("Automatically released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
-          Receipt.emit_telemetry(state, :point, :automatic_release_after_provider_exit_proof)
-          {:release, state}
+      proof ->
+        case record_provider_exit_audit(state, "guardian", "workspace_hold_auto_release", proof) do
+          :ok ->
+            Logger.warning("Automatically released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
+            Receipt.emit_telemetry(state, :point, :automatic_release_after_provider_exit_proof)
+            {:release, state}
 
-        {:error, reason} ->
-          Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{state.lease.generation} reason=#{inspect(reason)}")
-          {:wait, Retention.mark(state, "recovery_audit_failed")}
-      end
-    else
-      {:wait, Retention.mark(state)}
+          {:error, reason} ->
+            Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{state.lease.generation} reason=#{inspect(reason)}")
+            {:wait, Retention.mark(state, "recovery_audit_failed")}
+        end
     end
   end
 
@@ -214,21 +214,21 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
 
   @spec release_with_provider_exit_proof(map(), term()) :: tuple()
   def release_with_provider_exit_proof(%{lease: %{generation: generation, phase: :reaping}, provider: nil, provider_expected?: true} = state, generation) do
-    if exit_proof(state) do
-      proof = exit_proof(state)
+    case exit_proof(state) do
+      nil ->
+        {{:error, :cannot_release_without_exit_proof}, state}
 
-      case record_provider_exit_audit(state, System.get_env("USER") || "unknown", "workspace_hold_release", proof) do
-        :ok ->
-          Logger.warning("Operator released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
-          Receipt.emit_telemetry(state, :point, :operator_release_after_provider_exit_proof)
-          {:ok, %{state | provider_cleanup: :succeeded}}
+      proof ->
+        case record_provider_exit_audit(state, System.get_env("USER") || "unknown", "workspace_hold_release", proof) do
+          :ok ->
+            Logger.warning("Operator released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
+            Receipt.emit_telemetry(state, :point, :operator_release_after_provider_exit_proof)
+            {:ok, %{state | provider_cleanup: :succeeded}}
 
-        {:error, reason} ->
-          Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{generation} reason=#{inspect(reason)}")
-          {{:error, {:audit_write_failed, reason}}, state}
-      end
-    else
-      {{:error, :cannot_release_without_exit_proof}, state}
+          {:error, reason} ->
+            Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{generation} reason=#{inspect(reason)}")
+            {{:error, {:audit_write_failed, reason}}, state}
+        end
     end
   end
 

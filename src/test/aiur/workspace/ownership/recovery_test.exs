@@ -7,6 +7,7 @@ defmodule Aiur.Workspace.Ownership.RecoveryTest do
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.{AuditLog, Guardian, HoldStatus, Store}
 
+  @tag :real_proc
   test "dead local lock pid proves exit for audited operator recovery" do
     ticket = "ownership-dead-pid-#{System.unique_integer([:positive])}"
     {:ok, calls} = Agent.start_link(fn -> 0 end)
@@ -27,7 +28,7 @@ defmodule Aiur.Workspace.Ownership.RecoveryTest do
 
     assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun)
     assert :ok = Ownership.expect_provider(lease, :local)
-    holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, ticket: ticket, owner_id: "old-host-lock", acquired_at: "2020-01-01T00:00:00Z"}
+    holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, ticket: ticket, owner_id: "old-host-lock", acquired_at: DateTime.add(DateTime.utc_now(), -1, :day) |> DateTime.to_iso8601()}
     assert :ok = Ownership.track_host_lock(lease, %{path: "/unused/#{ticket}.lock", workspace: "/unused/#{ticket}", holder: holder})
     assert {:ok, receipt} = Store.get(ticket)
 
@@ -43,6 +44,42 @@ defmodule Aiur.Workspace.Ownership.RecoveryTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
     assert [line] = File.read!(audit_path) |> String.split("\n", trim: true)
     assert {:ok, record} = Jason.decode(line)
+    assert record["proof"] == "owner_pid_dead"
+  end
+
+  @tag :real_proc
+  test "dead local lock pid auto-releases with audit and telemetry" do
+    ticket = "ownership-dead-pid-auto-#{System.unique_integer([:positive])}"
+    {:ok, telemetry} = Agent.start_link(fn -> [] end)
+    audit_path = Path.join(Aiur.TestSupport.tmp_root!("workspace-dead-pid-auto-audit"), "#{ticket}.ndjson")
+    telemetry_fun = fn ownership, boundary, outcome -> Agent.update(telemetry, &[{ownership, boundary, outcome} | &1]) end
+    audit_fun = &AuditLog.write(&1, path: audit_path)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(telemetry)
+      File.rm(audit_path)
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun, telemetry_fun: telemetry_fun)
+    assert :ok = Ownership.expect_provider(lease, :local)
+    holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, ticket: ticket, owner_id: "old-host-lock", acquired_at: DateTime.add(DateTime.utc_now(), -1, :day) |> DateTime.to_iso8601()}
+    assert :ok = Ownership.track_host_lock(lease, %{path: "/unused/#{ticket}.lock", workspace: "/unused/#{ticket}", holder: holder})
+    assert {:ok, receipt} = Store.get(ticket)
+
+    Process.exit(lease.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:ok, _restored} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun, telemetry_fun: telemetry_fun)
+    assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
+
+    assert Enum.any?(Agent.get(telemetry, & &1), fn
+             {%{generation: generation}, :point, :automatic_release_after_provider_exit_proof} -> generation == lease.generation
+             _ -> false
+           end)
+
+    assert [line] = File.read!(audit_path) |> String.split("\n", trim: true)
+    assert {:ok, record} = Jason.decode(line)
+    assert record["action"] == "workspace_hold_auto_release"
     assert record["proof"] == "owner_pid_dead"
   end
 

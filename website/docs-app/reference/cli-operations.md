@@ -6,13 +6,13 @@ pageClass: cli-reference
 ## Inspect and operate a running daemon
 A `workspace_retained` row means provider exit is unproven, or the recovery audit could not be written. It reports the retention age (or `since unknown` for leases saved before retention tracking) and raises one `workspace_lease_retained` attention per lease.
 
-Time alone never releases the lease, and a release call that times out returns `{:error, :release_timeout}`. Use `aiur stop` for graceful provider containment; restarting alone does not clear persisted ownership. Only a local hold with verified reboot proof is eligible for `aiur workspace-recover <ticket-identifier> <generation>`.
+Time alone never releases the lease; a timed-out release returns `{:error, :release_timeout}`. Use `aiur stop` for graceful provider containment; restarting alone does not clear persisted ownership. Recover only a local hold with verified reboot or stale owner-PID proof using `aiur workspace-recover <ticket-identifier> <generation>`.
 
 A `workspace_ownership_waiting` row reports the held generation and provider-exit proof state. A reboot changes a local hold with recorded boot ID to `boot_changed_release_pending`. The guardian releases it automatically after writing its durable recovery audit record.
 
 Before release, the daemon appends and fsyncs an audit record with actor, ticket, generation, proof, and timestamp to `workspace-ownership/workspace-recovery-audit.ndjson` in its state directory. Automatic releases identify the guardian; operator retries identify the daemon's OS account.
 
-If writing fails, the lease stays held and status names `aiur workspace-recover <ticket-identifier> <generation>` as the retry command; legacy receipts, remote providers, same-boot holds, and unreadable boot IDs are ineligible.
+If writing fails, the lease stays held and status names `aiur workspace-recover <ticket-identifier> <generation>` as the retry command; legacy receipts and remote providers are ineligible, while same-boot recovery needs stale owner-PID proof.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
