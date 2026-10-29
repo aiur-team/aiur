@@ -33,11 +33,23 @@ defmodule Aiur.DecisionStore.CorrectiveOverridesTest do
   end
 
   test "read-only and implemented records never schedule work" do
+    tasks = start_supervised!({DecisionDispatchTasks, name: nil})
+    owner = self()
+
+    reconcile = fn decision, record ->
+      send(owner, {:unexpected_corrective_job, decision.decision_id, record.action_id})
+      {:ok, []}
+    end
+
     record = %{route: :corrective_ticket, state: :implemented, action_id: "action"}
-    decision = %{decision_id: "command", active_action_id: "action", overrides: [record]}
-    state = CorrectiveOverrides.configure(%{current: %{"command" => decision}, writable?: true, health: :writable}, [])
+    decision = %{decision_id: "command", ticket: %{identifier: "50"}, active_action_id: "action", overrides: [record]}
+    state = %{current: %{"command" => decision}, writable?: true, health: :writable, decision_dispatch_tasks: tasks}
+    state = CorrectiveOverrides.configure(state, corrective_override_reconciler: reconcile)
     assert CorrectiveOverrides.reconcile(state) == state
-    held = %{state | writable?: false}
+    refute_receive {:unexpected_corrective_job, "command", "action"}, 10
+    queued = %{decision | overrides: [%{record | state: :queued}]}
+    held = %{state | writable?: false, current: %{"command" => queued}}
     assert CorrectiveOverrides.reconcile(held) == held
+    refute_receive {:unexpected_corrective_job, "command", "action"}, 10
   end
 end
