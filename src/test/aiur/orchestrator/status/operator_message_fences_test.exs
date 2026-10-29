@@ -10,10 +10,15 @@ defmodule Aiur.Orchestrator.Status.OperatorMessageFencesTest do
 
   test "orchestrator enqueues operator messages and pause requests for the running agent task" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
+    store_root = Aiur.TestSupport.tmp_root!("operator-message-fences")
+    previous_store_path = Application.get_env(:aiur, :pending_operator_messages_store_path)
+    Application.put_env(:aiur, :pending_operator_messages_store_path, Path.join(store_root, "messages.json"))
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     :ok = ActiveTurns.put("MT-CHAT", "turn-chat")
 
     on_exit(fn ->
+      restore_application_env(:pending_operator_messages_store_path, previous_store_path)
+      Aiur.TestCleanup.rm_rf!(store_root)
       ActiveTurns.mark_closed("MT-CHAT", "turn-chat", :test_cleanup)
       if Process.alive?(pid), do: Process.exit(pid, :normal)
     end)
@@ -109,7 +114,11 @@ defmodule Aiur.Orchestrator.Status.OperatorMessageFencesTest do
     assert {:ok, ^queued_id} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello", message_id: "idle-message-1"})
 
-    assert {:ok, %{id: ^queued_id, category: :operator_message}} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MISSING")
+    assert {:ok, %{id: ^queued_id, category: :operator_message}} =
+             OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MISSING")
+
+    assert :ok = OperatorMessages.acknowledge_queue_item_delivery(orchestrator_name, queued_id, %{turn_id: "worker-turn"})
+    assert :ok = OperatorMessages.mark_queue_item_consumed(orchestrator_name, queued_id)
     assert :empty = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-MISSING")
   end
 
