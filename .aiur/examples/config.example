@@ -238,6 +238,16 @@ alerts:
 #     llm: <model id>                  # required; the model the assistant reasons with
 #     cloud_disclosure_accepted: true  # required; true = accept that audio and text go to the cloud voice provider
 #     agent_id: <agent id>             # ElevenLabs Agents agent; an account-visible id, not a secret
+#     providers:
+#       preference: [elevenlabs_agents, openai_live, gemini_live, cascade]
+#       mode: voice                      # voice | text
+#       on_missing_credential: next       # next | text_only | refuse
+#       openai: {live_model: null, realtime_model: null}  # null = adapter default
+#       gemini: {live_model: null}
+#       cascade:
+#         stt: [browser_stt]
+#         llm: anthropic:<model id>       # cascade/text_only only; conversation.llm is separate
+#         tts: [browser_tts]
 #     roles_dir: voice/roles           # role pre-context files; a relative path resolves next to this config
 #     max_session_seconds: 1800        # 60..3600
 #     idle_timeout_seconds: 120        # 15..900

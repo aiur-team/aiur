@@ -16,6 +16,15 @@ Optional settings for the conversational voice assistant; an absent `voice:` blo
 | `voice.conversation.llm` | string or nil | nil (required) | Model the assistant reasons with. No default: a voice session refuses to start until it is set. |
 | `voice.conversation.max_session_seconds` | integer | 1800 | Longest one voice session may run, 60 to 3600 seconds. |
 | `voice.conversation.provider` | string | elevenlabs_agents | Conversation provider: `elevenlabs_agents` or `openai_realtime`. OpenAI requires `llm` and the daemon's `OPENAI_API_KEY`; no Agent id. |
+| `voice.conversation.providers.cascade.llm` | string or nil | nil | Cascade/text-only model as `anthropic:model`, `openai:model` or `gemini:model`. |
+| `voice.conversation.providers.cascade.stt` | list of strings | [browser_stt] | Ordered speech recognition parts, validated by the core. |
+| `voice.conversation.providers.cascade.tts` | list of strings | [browser_tts] | Ordered speech synthesis parts, validated by the core. |
+| `voice.conversation.providers.gemini.live_model` | string or nil | nil | Gemini Live model; nil uses the adapter default. |
+| `voice.conversation.providers.mode` | string | voice | Requested conversation mode: `voice` or `text`. |
+| `voice.conversation.providers.on_missing_credential` | string | next | Missing-key policy: `next`, `text_only` or `refuse`. |
+| `voice.conversation.providers.openai.live_model` | string or nil | nil | OpenAI Live model; nil uses the adapter default. |
+| `voice.conversation.providers.openai.realtime_model` | string or nil | nil | OpenAI Realtime model; nil uses the adapter default. |
+| `voice.conversation.providers.preference` | list of strings | [elevenlabs_agents, openai_live, gemini_live, cascade] | Ordered core registry option ids. Unknown ids fail config loading; unavailable adapters are skipped. |
 | `voice.conversation.roles_dir` | string or nil | nil | Directory of role pre-context files. A relative path resolves against the config file's directory, like `prompt_file`. |
 | `voice.conversation.voice_id` | string or nil | nil | OpenAI Realtime voice; nil uses `marin`. ElevenLabs keeps its Agent voice. |
 
@@ -26,6 +35,53 @@ The `daily_minutes_cap` default is a proposed default you may change. Minutes fr
 Standalone VoiceConverse hosts can set `ask_requires_confirm` in `VoiceConverse.Config` to
 `:first_in_session` (the default), `:always`, or `:never`. This package setting is separate
 from Aiur's `voice.conversation` configuration.
+
+## Provider preferences
+
+`voice.conversation.providers` maps into the shared VoiceConverse provider resolver.
+The default order comes from the core: ElevenLabs Agents, OpenAI Live, Gemini Live,
+then cascade. Unknown option ids fail loading with the config field path. An adapter
+that is not installed remains unsupported and is skipped, even if its key is present.
+
+```yaml
+voice:
+  conversation:
+    providers:
+      preference: [elevenlabs_agents, openai_live, gemini_live, cascade]
+      mode: voice
+      on_missing_credential: next
+      openai: {live_model: null, realtime_model: null}
+      gemini: {live_model: null}
+      cascade:
+        stt: [browser_stt]
+        llm: anthropic:<model id>
+        tts: [browser_tts]
+```
+
+Model overrides default to `null`, meaning the adapter's default; choose a model
+available to your account. `cascade.llm` applies to cascade and text-only options.
+The existing `conversation.llm` configures the hosted Agent model and the prototype's
+explicit Realtime selection below; these are separate settings.
+
+`next` skips missing keys; `refuse` stops at the first missing key (including an
+ElevenLabs key with the default order); `text_only` tries text fallback when the
+preference list has no usable option, and still requires the cascade model key.
+Text mode excludes options that support only voice.
+
+Cascade STT ids are `browser_stt`, `elevenlabs_stt`, `openai_stt`, `text_in`;
+TTS ids are `browser_tts`, `elevenlabs_tts`, `openai_tts`, `none`. The core validates
+these parts and the `vendor:model` LLM syntax, with failures reported at the full
+Aiur config path. Browser parts require client support.
+
+Keys come from the daemon environment at use time: `OPENAI_API_KEY`, `GEMINI_API_KEY`
+and `ANTHROPIC_API_KEY`; ElevenLabs retains `elevenlabs.api_key` / `ELEVENLABS_API_KEY`.
+Do not put keys under `providers`. Probes return presence only, and configuration
+structs retain no credential values. Capability details report the preferred option
+and skipped reasons, such as `OpenAI Realtime skipped: OPENAI_API_KEY missing`.
+The prototype drawer below still permits explicit provider/model selection.
+
+See provider data paths and retention boundaries for [OpenAI](/apis/openai),
+[Gemini](/apis/gemini), [Anthropic](/apis/anthropic) and [ElevenLabs](/apis/elevenlabs).
 
 ## Executor voice prototype setup
 

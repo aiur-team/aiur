@@ -5,6 +5,8 @@ defmodule VoiceConverse.ProviderConfig do
   @defaults %{
     preference: @default_preference,
     mode: :voice,
+    openai: %{live_model: nil, realtime_model: nil},
+    gemini: %{live_model: nil},
     cascade: %{stt: [:browser_stt], llm: nil, tts: [:browser_tts]},
     on_missing_credential: :next,
     features: %{codex_realtime: false}
@@ -23,9 +25,11 @@ defmodule VoiceConverse.ProviderConfig do
 
   def merge(providers) when is_map(providers) do
     @defaults
-    |> Map.merge(Map.drop(providers, [:cascade, :features]))
+    |> Map.merge(Map.drop(providers, [:cascade, :features, :openai, :gemini]))
     |> Map.put(:cascade, merge_nested(@defaults.cascade, Map.get(providers, :cascade, %{})))
     |> Map.put(:features, merge_nested(@defaults.features, Map.get(providers, :features, %{})))
+    |> Map.put(:openai, merge_nested(@defaults.openai, Map.get(providers, :openai, %{})))
+    |> Map.put(:gemini, merge_nested(@defaults.gemini, Map.get(providers, :gemini, %{})))
   end
 
   def merge(providers), do: providers
@@ -42,7 +46,9 @@ defmodule VoiceConverse.ProviderConfig do
          {:ok, cascade} <- fetch(providers, :cascade),
          :ok <- check_cascade(cascade),
          {:ok, features} <- fetch(providers, :features),
-         :ok <- check_features(features) do
+         :ok <- check_features(features),
+         :ok <- check_models(providers, :openai, [:live_model, :realtime_model]),
+         :ok <- check_models(providers, :gemini, [:live_model]) do
       :ok
     end
   end
@@ -100,6 +106,20 @@ defmodule VoiceConverse.ProviderConfig do
   end
 
   defp check_llm(_llm), do: invalid(:llm)
+
+  defp check_models(providers, key, fields) do
+    case Map.get(providers, key) do
+      models when is_map(models) ->
+        with :ok <- check_keys(models, fields) do
+          if Enum.all?(models, fn {_field, value} ->
+               is_nil(value) or (is_binary(value) and String.trim(value) != "")
+             end), do: :ok, else: invalid(key)
+        end
+
+      _ ->
+        invalid(key)
+    end
+  end
 
   defp check_features(features) when is_map(features) do
     if Enum.all?(features, fn {_key, value} -> is_boolean(value) end), do: :ok, else: invalid(:features)
