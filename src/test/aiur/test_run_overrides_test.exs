@@ -1,9 +1,7 @@
 defmodule Aiur.TestRunOverridesTest do
   # `aiurdev --test` beside the live daemon (#5121): the sandbox run caps at its
   # pinned tickets, ignores host load gates, and takes a free dashboard port.
-  use ExUnit.Case, async: false
-
-  import ExUnit.CaptureLog
+  use Aiur.TestSupport
 
   alias Aiur.Config.{Schema, TestRunOverrides}
   alias Aiur.HttpServer
@@ -58,6 +56,7 @@ defmodule Aiur.TestRunOverridesTest do
 
   test "a sandbox dashboard binds loopback even when config requests a public host" do
     Aiur.TestScopeGuard.put_ticket_scope!("2897")
+    configure_public_dashboard_host!()
     previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint, [])
 
     try do
@@ -73,6 +72,51 @@ defmodule Aiur.TestRunOverridesTest do
     after
       Application.put_env(:aiur, AiurWeb.Endpoint, previous_endpoint)
     end
+  end
+
+  test "an ordinary run binds the configured public host" do
+    System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
+    configure_public_dashboard_host!()
+    previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+
+    try do
+      assert :ignore =
+               HttpServer.start_link(
+                 port: 0,
+                 dashboard_writable: false,
+                 endpoint_start_fun: fn -> :ignore end
+               )
+
+      assert Application.get_env(:aiur, AiurWeb.Endpoint)[:http][:ip] == {0, 0, 0, 0}
+      assert Application.get_env(:aiur, AiurWeb.Endpoint)[:public_bind] == true
+    after
+      Application.put_env(:aiur, AiurWeb.Endpoint, previous_endpoint)
+    end
+  end
+
+  defp configure_public_dashboard_host! do
+    previous_client_id = System.get_env("AIUR_GOOGLE_CLIENT_ID")
+    previous_client_secret = System.get_env("AIUR_GOOGLE_CLIENT_SECRET")
+    previous_host_override = Application.get_env(:aiur, :server_host_override)
+    Application.delete_env(:aiur, :server_host_override)
+    System.put_env("AIUR_GOOGLE_CLIENT_ID", "test-client")
+    System.put_env("AIUR_GOOGLE_CLIENT_SECRET", "test-secret")
+
+    on_exit(fn ->
+      restore_env("AIUR_GOOGLE_CLIENT_ID", previous_client_id)
+      restore_env("AIUR_GOOGLE_CLIENT_SECRET", previous_client_secret)
+
+      if previous_host_override,
+        do: Application.put_env(:aiur, :server_host_override, previous_host_override),
+        else: Application.delete_env(:aiur, :server_host_override)
+    end)
+
+    path = Workflow.workflow_file_path()
+    write_workflow_file!(path, server_host: "0.0.0.0")
+    content = File.read!(path)
+    content = String.replace(content, "  host: \"0.0.0.0\"", "  host: \"0.0.0.0\"\n  public_url: \"https://dashboard.example.com\"")
+    File.write!(path, content <> "\ndashboard_auth:\n  browser_basic_auth: false\n  google:\n    allowed_emails: [\"operator@example.com\"]\n")
+    :ok = Aiur.WorkflowStore.force_reload(5_000)
   end
 
   test "parse errors pass through" do

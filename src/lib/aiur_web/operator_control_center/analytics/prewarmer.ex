@@ -13,12 +13,21 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Prewarmer do
   @impl true
   def init(opts) do
     if Keyword.get(opts, :prewarm_on_start, true), do: send(self(), :check_identity)
-    {:ok, %{identity: nil, refresh: nil, refresh_identity: nil}}
+
+    {:ok,
+     %{
+       identity: nil,
+       refresh: nil,
+       refresh_identity: nil,
+       prewarm_fun: Keyword.get(opts, :prewarm_fun, &Runtime.prewarm/0),
+       bound_port_fun: Keyword.get(opts, :bound_port_fun, &Aiur.HttpServer.bound_port/0),
+       http_unavailable_logged?: false
+     }}
   end
 
   @impl true
   def handle_info(:check_identity, state) do
-    state = if http_server_running?(), do: prewarm_identity(state), else: warn_http_unavailable(state)
+    state = if http_server_running?(state), do: prewarm_identity(state), else: warn_http_unavailable(state)
 
     Process.send_after(self(), :check_identity, @check_interval_ms)
     {:noreply, state}
@@ -38,7 +47,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Prewarmer do
   defp start_refresh(%{refresh: refresh} = state) when not is_nil(refresh), do: state
 
   defp start_refresh(state) do
-    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, &Runtime.prewarm/0)
+    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, state.prewarm_fun)
     %{state | refresh: task.ref, refresh_identity: state.identity}
   end
 
@@ -52,9 +61,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Prewarmer do
     if identity != state.identity, do: start_refresh(%{state | identity: identity}), else: state
   end
 
-  defp http_server_running? do
-    is_pid(Process.whereis(Aiur.HttpServer)) and is_integer(Aiur.HttpServer.bound_port())
-  end
+  defp http_server_running?(state), do: is_integer(state.bound_port_fun.())
 
   defp warn_http_unavailable(state) do
     if not Map.get(state, :http_unavailable_logged?, false) do
