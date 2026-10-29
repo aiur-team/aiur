@@ -2,8 +2,8 @@ defmodule AiurWeb.VoiceTargets do
   @moduledoc """
   Join-time target check for `voice:dictate` (voice-session contract §5.1).
 
-  A dictation aimed at an agent that has stopped, or at a Command that was
-  already resolved, is refused before recording starts instead of failing only
+  A dictation aimed at an agent that has stopped, or at a Command that cannot
+  take the requested answer or revision, is refused before recording starts instead of failing only
   when the operator presses Send. This module owns the voice-side rules
   (surface per target kind, instance match, refusal text); whether a worker
   or Command can still take text is asked through `AiurWeb.VoiceTargetResolver`,
