@@ -6,6 +6,7 @@ defmodule AiurWeb.ConversationLinkTest do
   import AiurWeb.DashboardLiveSupport.Processes
   import AiurWeb.DashboardLiveSupport.UnitFixtures
   alias Aiur.Conversation.Ref
+  alias AiurWeb.Conversation.Components
   alias AiurWeb.OperatorControlCenter.UnitsTableFixtures
   @endpoint AiurWeb.Endpoint
 
@@ -43,11 +44,11 @@ defmodule AiurWeb.ConversationLinkTest do
 
   test "unrecorded conversation offers an empty hint without hiding not-found or failures" do
     age = %{observed_at: nil, age_ms: nil, freshness: :unknown, text: "age unknown"}
-    html = render_component(&AiurWeb.Conversation.Components.status/1, state: :not_found, age: age)
+    html = render_component(&Components.status/1, state: :not_found, age: age)
     assert html =~ "No messages yet"
     assert html =~ "Conversation not found"
     assert html =~ ~s(data-state="not_found")
-    unavailable = render_component(&AiurWeb.Conversation.Components.status/1, state: :unavailable, age: age)
+    unavailable = render_component(&Components.status/1, state: :unavailable, age: age)
     refute unavailable =~ "No messages yet"
     assert unavailable =~ "Conversation unavailable"
   end
