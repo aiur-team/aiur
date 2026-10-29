@@ -38,6 +38,7 @@ conversation capability before assigning `voice_conversation_panel` to
 `%{target: parsed_target, surface: surface}`. Refusal clears the panel request
 and assigns `voice_conversation_error` with `reason_code` and inline `reason`.
 `close/1` clears both assigns; neither function starts capture or a session.
+Known unmapped capability causes stay in `reasons` beside a neutral `unknown` code.
 
 MP-E6-C7-T02 consumes this assign to render `AiurWeb.Components.ConversePanel`.
 Until that component is installed, the dashboard reports Converse as

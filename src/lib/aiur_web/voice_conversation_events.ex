@@ -54,5 +54,5 @@ defmodule AiurWeb.VoiceConversationEvents do
   defp capability_refusal(reason) when reason in [:not_configured, "not_configured"],
     do: %{reason_code: "not_configured", reason: "Converse is not configured."}
 
-  defp capability_refusal(_reason), do: %{reason_code: "unknown", reason: "Converse availability could not be checked. Try again shortly."}
+  defp capability_refusal(reason), do: %{reason_code: "unknown", reason: "Converse availability could not be checked. Try again shortly.", reasons: [reason]}
 end

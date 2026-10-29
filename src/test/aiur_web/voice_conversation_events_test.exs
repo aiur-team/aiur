@@ -77,15 +77,17 @@ defmodule AiurWeb.VoiceConversationEventsTest do
   end
 
   test "unavailable and unreadable capabilities never become an available panel", %{view: view, params: params, capability: capability} do
-    for {entry, code, copy} <- [
-          {%{state: :unavailable, reason: :not_installed}, "not_installed", "Converse isn't installed"},
-          {%{state: :unavailable, reason: :not_configured}, "not_configured", "Converse is not configured."},
-          {%{state: :unknown}, "unknown", "Converse availability could not be checked."}
+    for {entry, code, copy, reasons} <- [
+          {%{state: :unavailable, reason: :not_installed}, "not_installed", "Converse isn't installed", []},
+          {%{state: :unavailable, reason: :not_configured}, "not_configured", "Converse is not configured.", []},
+          {%{state: :unavailable, reason: :not_running}, "unknown", "Converse availability could not be checked.", [:not_running]},
+          {%{state: :unknown}, "unknown", "Converse availability could not be checked.", [:unknown]}
         ] do
       Agent.update(capability, fn _ -> entry end)
       render_hook(view, "open-voice-conversation", params)
       assert assigns(view).voice_conversation_panel == nil
       assert has_element?(view, "[data-voice-conversation-error=#{code}]", copy)
+      assert Map.get(assigns(view).voice_conversation_error, :reasons, []) == reasons
     end
   end
 
