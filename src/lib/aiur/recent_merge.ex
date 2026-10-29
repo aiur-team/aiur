@@ -13,6 +13,7 @@ defmodule Aiur.RecentMerge do
 
   alias Aiur.RecentMerge.ClosingReferences
   alias Aiur.RecentMerge.CommitMessages
+  alias Aiur.RecentMerge.IssueReferences
   alias Aiur.{SecretRedactor, TicketBranch}
 
   @schema_version 1
@@ -124,7 +125,7 @@ defmodule Aiur.RecentMerge do
   Derived references are cached in memory and excluded from persisted audit hashes.
   """
   @spec closing_issue_identifiers(t()) :: [String.t()]
-  def closing_issue_identifiers(%__MODULE__{} = merge), do: merge |> Aiur.RecentMerge.IssueReferences.get() |> elem(0)
+  def closing_issue_identifiers(%__MODULE__{} = merge), do: merge |> IssueReferences.get() |> elem(0)
 
   @doc """
   `closing_issue_identifiers/1` against a raw pull request body.
@@ -153,7 +154,7 @@ defmodule Aiur.RecentMerge do
 
   @doc "Returns linked issue identifiers from the PR body and its commit messages."
   @spec linked_issue_identifiers(t()) :: [String.t()]
-  def linked_issue_identifiers(%__MODULE__{} = merge), do: merge |> Aiur.RecentMerge.IssueReferences.get() |> elem(1)
+  def linked_issue_identifiers(%__MODULE__{} = merge), do: merge |> IssueReferences.get() |> elem(1)
 
   defp normalize_github_merge(event, pull, opts) do
     live? = Keyword.get(opts, :live?, false) == true
@@ -200,7 +201,7 @@ defmodule Aiur.RecentMerge do
         last_observed_at: observed_at,
         content_hash: ""
       }
-      |> Aiur.RecentMerge.IssueReferences.prepare()
+      |> IssueReferences.prepare()
       |> with_content_hash()
       |> then(&{:ok, &1})
     else
@@ -228,7 +229,7 @@ defmodule Aiur.RecentMerge do
           observed_run_id: prefer(incoming.observed_run_id, existing.observed_run_id),
           last_observed_at: incoming.last_observed_at
       }
-      |> Aiur.RecentMerge.IssueReferences.prepare()
+      |> IssueReferences.prepare()
       |> with_content_hash()
 
     if comparable(candidate) == comparable(existing) do
@@ -326,7 +327,7 @@ defmodule Aiur.RecentMerge do
       }
 
       if with_content_hash(merge).content_hash == content_hash do
-        {:ok, Aiur.RecentMerge.IssueReferences.prepare(merge)}
+        {:ok, IssueReferences.prepare(merge)}
       else
         {:error, :content_hash_mismatch}
       end
