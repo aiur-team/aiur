@@ -1,7 +1,7 @@
 defmodule AiurWeb.ExecutorVoiceTargetTest do
   use ExUnit.Case, async: true
-  alias AiurWeb.VoiceTargets
   alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.VoiceTargets
   @target %{kind: :executor, instance_id: "machine/run"}
 
   test "available and degraded Executor conversations accept dictation" do
