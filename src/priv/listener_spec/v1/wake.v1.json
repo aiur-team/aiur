@@ -1,0 +1,98 @@
+[
+  {
+    "addressed": false,
+    "from_agent": false,
+    "mode": "steer",
+    "wakes": true
+  },
+  {
+    "addressed": false,
+    "from_agent": true,
+    "mode": "steer",
+    "wakes": true
+  },
+  {
+    "addressed": true,
+    "from_agent": false,
+    "mode": "steer",
+    "wakes": true
+  },
+  {
+    "addressed": true,
+    "from_agent": true,
+    "mode": "steer",
+    "wakes": true
+  },
+  {
+    "addressed": false,
+    "from_agent": false,
+    "mode": "sync",
+    "wakes": true
+  },
+  {
+    "addressed": false,
+    "from_agent": true,
+    "mode": "sync",
+    "wakes": false
+  },
+  {
+    "addressed": true,
+    "from_agent": false,
+    "mode": "sync",
+    "wakes": true
+  },
+  {
+    "addressed": true,
+    "from_agent": true,
+    "mode": "sync",
+    "wakes": true
+  },
+  {
+    "addressed": false,
+    "from_agent": false,
+    "mode": "async",
+    "wakes": false
+  },
+  {
+    "addressed": false,
+    "from_agent": true,
+    "mode": "async",
+    "wakes": false
+  },
+  {
+    "addressed": true,
+    "from_agent": false,
+    "mode": "async",
+    "wakes": true
+  },
+  {
+    "addressed": true,
+    "from_agent": true,
+    "mode": "async",
+    "wakes": true
+  },
+  {
+    "addressed": false,
+    "from_agent": false,
+    "mode": "mute",
+    "wakes": false
+  },
+  {
+    "addressed": false,
+    "from_agent": true,
+    "mode": "mute",
+    "wakes": false
+  },
+  {
+    "addressed": true,
+    "from_agent": false,
+    "mode": "mute",
+    "wakes": false
+  },
+  {
+    "addressed": true,
+    "from_agent": true,
+    "mode": "mute",
+    "wakes": false
+  }
+]
