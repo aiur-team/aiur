@@ -5,6 +5,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   alias AiurWeb.OperatorControlCenter.{DecisionDetail, LifecycleComponents}
 
+  import AiurWeb.OperatorControlCenterComponentsFixtures
+
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
     failed = render_component(&LifecycleComponents.lifecycle_stepper/1, %{lifecycle: :delivery_failed})
     superseded = render_component(&LifecycleComponents.lifecycle_stepper/1, %{lifecycle: :superseded})
