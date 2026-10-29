@@ -15,7 +15,7 @@ Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live ticket_context_live units_live_data units_live voice_input_live
+      route_shell_live fixture_live ticket_context_live units_live_data units_live voice_input_live
       support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)

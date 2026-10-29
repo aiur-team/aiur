@@ -18,9 +18,9 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
           main > *, nav, .controls { min-width: 0; }
           nav:not(.sidenav-nav), .controls { display: flex; flex-wrap: wrap; gap: .5rem; }
           nav button, .controls button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-          #graph-viewport { border: 1px solid currentColor; min-width: 0; min-height: 8rem; overflow: auto; padding: 1rem; }
-          #graph-content { min-width: 36rem; }
-          @media (prefers-reduced-motion: no-preference) { #graph-content { transition: transform 120ms ease; } }
+          #fixture-viewport { border: 1px solid currentColor; min-width: 0; min-height: 8rem; overflow: auto; padding: 1rem; }
+          #fixture-content { min-width: 36rem; }
+          @media (prefers-reduced-motion: no-preference) { #fixture-content { transition: transform 120ms ease; } }
         </style>
         <script defer src="/assets/phoenix_html.js"></script>
         <script defer src="/assets/phoenix.js"></script>
