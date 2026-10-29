@@ -2,8 +2,8 @@ defmodule AiurWeb.VoiceTargets do
   @moduledoc """
   Join-time target check for `voice:dictate` (voice-session contract §5.1).
 
-  A dictation aimed at an agent that has stopped, or at a Command that was
-  already resolved, is refused before recording starts instead of failing only
+  A dictation aimed at an agent that has stopped, or at a Command that cannot
+  take the requested answer or revision, is refused before recording starts instead of failing only
   when the operator presses Send. This module owns the voice-side rules
   (surface per target kind, instance match, refusal text); whether a worker
   or Command can still take text is asked through `AiurWeb.VoiceTargetResolver`,
@@ -18,7 +18,7 @@ defmodule AiurWeb.VoiceTargets do
   alias Aiur.Identity
   alias AiurWeb.VoiceTargetResolver
 
-  @surfaces %{worker: "agent_composer", command: "command_response", executor: "executor_composer"}
+  @surfaces %{worker: ["agent_composer"], command: ["command_response", "command_revision"], executor: ["executor_composer"]}
 
   @type refusal :: %{reason: String.t(), reason_code: String.t()}
 
@@ -27,9 +27,9 @@ defmodule AiurWeb.VoiceTargets do
   def validate(%{kind: kind} = target, surface) do
     result =
       cond do
-        Map.get(@surfaces, kind) != surface -> {:error, :invalid_payload}
+        surface not in Map.get(@surfaces, kind, []) -> {:error, :invalid_payload}
         not same_instance?(target) -> {:error, :target_not_found}
-        true -> check(target)
+        true -> check(target, surface)
       end
 
     case result do
@@ -42,10 +42,13 @@ defmodule AiurWeb.VoiceTargets do
     end
   end
 
-  defp check(%{kind: :executor}), do: {:error, :unsupported_target}
-  defp check(%{kind: :worker, ticket: ticket}), do: resolve(fn resolver -> resolver.worker(ticket) end)
+  defp check(%{kind: :executor}, _surface), do: {:error, :unsupported_target}
+  defp check(%{kind: :worker, ticket: ticket}, _surface), do: resolve(fn resolver -> resolver.worker(ticket) end)
 
-  defp check(%{kind: :command, decision_id: decision_id, expected_version: version}),
+  defp check(%{kind: :command, decision_id: decision_id, expected_version: version}, "command_revision"),
+    do: resolve(fn resolver -> resolver.command_revision(decision_id, version) end)
+
+  defp check(%{kind: :command, decision_id: decision_id, expected_version: version}, "command_response"),
     do: resolve(fn resolver -> resolver.command(decision_id, version) end)
 
   @resolver_refusals [:target_not_found, :target_not_writable, :target_stale, :unsupported_target, :unknown]

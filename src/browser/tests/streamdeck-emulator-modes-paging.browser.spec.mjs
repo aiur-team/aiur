@@ -83,10 +83,9 @@ test('full-width chat replaces the cmd pager and the pager returns on back', asy
 
   const pager = page.locator('[data-streamdeck-region="600"]')
 
-  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
-  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
-  await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  await expect(pager).toContainText('Queued')
+  await expect(pager).toHaveAttribute('aria-label', /Queued \d+; Not queued \d+/)
+  await expect(pager.locator('circle[data-page="0"]')).toHaveAttribute('fill', '#9fd0ff')
   expect(await pager.locator('svg > text').first().evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
 
   const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
@@ -122,11 +121,10 @@ test('full-width chat replaces the cmd pager and the pager returns on back', asy
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
-  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
-  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
-  await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
+  await expect(pager).toContainText('Queued')
+  await expect(pager).toHaveAttribute('aria-label', /Queued \d+; Not queued \d+/)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('Queued')
+  await expect(pager.locator('circle[data-page="0"]')).toHaveAttribute('fill', '#9fd0ff')
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
@@ -325,7 +323,7 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
   await dragDialThroughAngles(page, dialD, [-90, 0, 90])
   await expect(keys).toHaveAttribute('data-grid-page', '1')
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /9–16/)
+  await expect(page.locator('[data-streamdeck-region="600"] circle[data-page="1"]')).toHaveAttribute('fill', '#9fd0ff')
   const angle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
   await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '2')

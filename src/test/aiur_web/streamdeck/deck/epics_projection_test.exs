@@ -82,7 +82,8 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsProjectionTest do
 
   defp input_frame(socket, input) do
     assert_reply(push(socket, "input", input), :ok, reply)
-    assert Enum.sort(Map.keys(reply)) == ~w(page view)
+    assert Enum.sort(Map.keys(reply)) == ~w(chip_offset page view)
+    assert reply["chip_offset"] == 0
     pushed_frame(socket)
   end
 

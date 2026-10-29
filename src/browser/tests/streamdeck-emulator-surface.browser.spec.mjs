@@ -2,6 +2,41 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { anchor, dragDialThroughAngles, openStreamdeck } from './support/streamdeck-emulator.mjs'
 
+test('seeded retained transcript appears as ticket turn keys and pages without repeats', async ({ page }) => {
+  await openStreamdeck(page)
+  const seed = await page.request.get('/streamdeck-transcript/seed')
+  expect(seed.status()).toBe(200)
+  try {
+    await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
+    const keys = page.locator('#sd-keys .sd-key')
+    await expect(keys).toHaveCount(8)
+    await expect(keys.last()).toHaveAttribute('aria-label', 'LIVE')
+    await expect(keys.nth(6)).toHaveAttribute('aria-label', /Seeded turn 30/)
+    const turns = page.locator('#sd-keys [data-chat-turn]')
+    await expect(turns).toHaveCount(7)
+    await expect(turns.first()).toHaveAttribute('aria-label', /Seeded turn 24/)
+    const firstPage = await turns.evaluateAll(nodes => nodes.map(node => node.dataset.chatTurn))
+
+    await turns.first().click()
+    await expect(turns.first()).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('#sd-screen')).toContainText('Seeded turn 24')
+    await keys.last().click()
+    await expect(keys.last()).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('#sd-screen')).toContainText('Seeded turn 30')
+
+    await dragDialThroughAngles(page, page.locator('.sd-knob').nth(3), [90, 0, -90])
+    await expect(turns.last()).toHaveAttribute('aria-label', /Seeded turn 23/)
+    await expect(turns.first()).toHaveAttribute('aria-label', /Seeded turn 17/)
+    const olderPage = await turns.evaluateAll(nodes => nodes.map(node => node.dataset.chatTurn))
+    expect(olderPage.filter(id => firstPage.includes(id))).toEqual([])
+    await expect(keys.last()).toHaveAttribute('aria-label', 'LIVE')
+    await keys.last().click()
+    await expect(page.locator('#sd-screen')).toContainText('Seeded turn 30')
+  } finally {
+    expect((await page.request.get('/streamdeck-transcript/reset')).status()).toBe(200)
+  }
+})
+
 test('clicking a logs event key positions the flattened transcript at that event', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -138,20 +173,24 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await expect(logKeys).toHaveAttribute('data-offset', maxOffset)
 })
 
-test('touch strip renders common provider SVGs at native device coordinates', async ({ page }) => {
+test('touch strip renders category and backlog SVG bands at native device coordinates', async ({ page }) => {
   await openStreamdeck(page)
   const strip = page.locator('#sd-screen')
   await expect(strip).toBeVisible()
   const box = await strip.boundingBox()
   expect(box.width).toBe(800)
   expect(box.height).toBe(100)
-  await expect(strip.locator('[data-provider="claude"]')).toContainText('70% left')
-  await expect(strip.locator('[data-provider="codex"]')).toContainText('50% left')
+  await expect(strip.locator('[data-provider]')).toHaveCount(0)
+  await expect(strip.locator('[data-streamdeck-region="200"] [data-state="active"]')).toHaveCount(1)
+  await expect(strip.locator('[data-streamdeck-region="200"]')).toContainText('Agents')
   const regions = await strip.locator(':scope > [data-streamdeck-region]').evaluateAll((nodes) => nodes.map((node) => ({
     x: Number(node.dataset.streamdeckRegion), left: parseFloat(node.style.left), svgs: node.querySelectorAll('svg').length
   })))
+  expect(regions.map((region) => region.x)).toEqual([0, 200, 600])
   expect(regions.every((region) => region.x === region.left && region.svgs === 1)).toBe(true)
-  await expect(strip.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
+  await expect(strip.locator('[data-streamdeck-region="600"]')).toContainText('Queued 15')
+  await expect(strip.locator('[data-streamdeck-region="600"]')).toContainText('Not queued 0')
+  await expect(strip.locator('[data-streamdeck-region="600"] circle[data-page]')).not.toHaveCount(0)
 })
 
 test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {
