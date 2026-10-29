@@ -39,6 +39,7 @@ defmodule AiurWeb.DashboardLive.Session do
       })
       |> assign(:time_zone, browser_time_zone(socket))
       |> Voice.assign_voice()
+      |> AiurWeb.VoiceConversationEvents.close()
       |> assign(:decision_actions, %{})
       |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)

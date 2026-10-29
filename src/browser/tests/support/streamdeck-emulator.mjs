@@ -13,6 +13,7 @@ export async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await anchor(page.locator('.sd-device'))
 }
 

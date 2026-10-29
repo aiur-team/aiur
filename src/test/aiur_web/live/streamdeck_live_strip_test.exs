@@ -8,7 +8,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
   end
 
-  alias Aiur.TestSupport.EndpointStubs
+  alias Aiur.TestSupport.{EndpointStubs, StreamdeckBuildFixture}
 
   setup %{meter_agent: meter_agent} do
     EndpointStubs.put(
@@ -81,18 +81,18 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert :sys.get_state(view.pid).socket.assigns.usage["claude"]["windows"]["session"]["used_percent"] == 60
   end
 
-  test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{
+  test "a provider meter change refreshes meters without re-reading the shared Build window", %{
     snapshot_agent: snapshot_agent,
     meter_agent: meter_agent
   } do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
-    counting_snapshot_fun = fn ->
+    counting_window_fun = fn _, _, _ ->
       Agent.update(counter, &(&1 + 1))
-      Agent.get(snapshot_agent, & &1)
+      snapshot_agent |> Agent.get(& &1) |> StreamdeckBuildFixture.window()
     end
 
-    EndpointStubs.put(streamdeck_snapshot_fun: counting_snapshot_fun)
+    EndpointStubs.put(streamdeck_build_window_fun: counting_window_fun)
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
@@ -108,8 +108,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
       assert :sys.get_state(view.pid).socket.assigns.usage["claude"]["windows"]["session"]["used_percent"] == 60
       refute strip(html) =~ "40% left"
-      # Meter observations must not re-project the fleet: the grid snapshot was
-      # read once at mount and not again for the meter refresh.
+      # A usage-only refresh must leave the shared ticket population retained.
       assert Agent.get(counter, & &1) == reads_before
     after
       Agent.stop(counter)
@@ -162,19 +161,6 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
     refute html =~ "MORE AGENTS"
     refute html =~ "data-pager-page="
-
-    # Descending into logs swaps the strip to this ticket's three-shape
-    # transcript window, but #1662/#1707 keep the pager segment so dial D stays
-    # labelled with the agent being read. Both hold at once.
-    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
-    assert has_element?(view, "#sd-screen[data-mode-view='logs-strip']")
-    refute html =~ "MORE AGENTS"
-    assert strip(html) =~ "#1352"
-    assert html =~ ~s(data-streamdeck-region="600")
-
-    # Backing out of logs restores the shared conversation strip.
-    html = render_click(view, "dial-press", %{"action" => "back"})
-    assert html =~ "Conversation unavailable"
 
     # Backing all the way out restores the segment row and its pager dots.
     html = render_click(view, "dial-press", %{"action" => "back"})

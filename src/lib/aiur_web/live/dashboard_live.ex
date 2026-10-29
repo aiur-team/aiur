@@ -84,6 +84,11 @@ defmodule AiurWeb.DashboardLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+
+  def handle_event("open-voice-conversation", params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.open(socket, params)}
+
+  def handle_event("close-voice-conversation", _params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.close(socket)}
+
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
   @impl true

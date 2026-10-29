@@ -20,7 +20,6 @@ defmodule AiurWeb.StaticAssets do
     aiur-dom-svg-layout-adapter.js
     aiur-dom-svg-layout-loader.js
     build-home
-    build-order-grid-hook.js
     conversation-scroll-hook.js
     conversation-voice-controller.js
     dashboard.css
@@ -35,7 +34,9 @@ defmodule AiurWeb.StaticAssets do
     voice-capture-worklet.js
     voice-input-hook.js
     voice-mode-choice.js
+    voice-playback.js
     voice-transport.js
+    voice-waveform.js
   )
   @long_lived_static_paths ~w(aiur-logo.png)
   # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.
@@ -60,7 +61,6 @@ defmodule AiurWeb.StaticAssets do
   @runtime_static_assets %{
     "/decision-questions-validation.js" => {"application/javascript", "priv/static/decision-questions-validation.js"},
     "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
-    "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},

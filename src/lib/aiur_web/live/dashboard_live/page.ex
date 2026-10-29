@@ -30,6 +30,7 @@ defmodule AiurWeb.DashboardLive.Page do
       |> Map.put_new(:history_has_more, false)
       |> Map.put_new(:history_health, :ok)
       |> Map.put_new(:voice_capabilities, %{})
+      |> Map.put_new(:voice_conversation_error, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
 
     ~H"""

@@ -341,10 +341,13 @@ defmodule Aiur.RecentMerge do
   def decode_record(_raw), do: {:error, :not_a_map}
 
   defp with_content_hash(merge) do
+    hash_fields = [:content_hash, :reconciled_ticket_ids]
+    hash_fields = if merge.commit_messages == [], do: [:commit_messages | hash_fields], else: hash_fields
+
     hash =
       merge
       |> Map.from_struct()
-      |> Map.drop([:content_hash, :reconciled_ticket_ids])
+      |> Map.drop(hash_fields)
       |> :erlang.term_to_binary([:deterministic])
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)

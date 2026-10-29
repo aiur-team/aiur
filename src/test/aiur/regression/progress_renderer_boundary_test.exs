@@ -59,8 +59,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       "ProgressRenderer.json(",
       "ProgressRenderer.json(",
       "ProgressRenderer.json("
-    ],
-    "aiur_web/components/operator_control_center/build_order_graph.ex" => ["ProgressRenderer.html("]
+    ]
   }
 
   # These files own separate live-execution progress domains — including the

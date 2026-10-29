@@ -38,6 +38,9 @@ defmodule AiurWeb.Build.NowRows do
           start: integer() | nil,
           start_src: String.t(),
           pct: 0..100 | nil,
+          progress_freshness: String.t(),
+          priority: pos_integer() | nil,
+          lane: String.t() | nil,
           agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, pause: String.t() | nil, resume_at: integer() | nil, effort: String.t() | nil}
         }
   @type source_block :: %{
@@ -109,6 +112,9 @@ defmodule AiurWeb.Build.NowRows do
       # The session start is the agent's dispatch; an unknown start has an unknown source (MP-E8-C4-T04).
       start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row),
+      progress_freshness: progress_freshness(row),
+      priority: priority(row[:priority]),
+      lane: lane(row[:build_lane]),
       agent: %{
         model: model(family),
         name: UnitsPresentation.agent_label(family),
@@ -224,6 +230,17 @@ defmodule AiurWeb.Build.NowRows do
        do: %{progress: round(value), progress_resolution: :resolved}
 
   defp progress_contract(_row), do: %{progress: nil, progress_resolution: :unknown}
+
+  defp progress_freshness(row) do
+    progress = if is_map(row[:progress]), do: row.progress, else: %{}
+    hint = progress[:freshness] || row[:progress_freshness]
+    if not is_nil(pct(row)) and hint in [:fresh, :stale, "fresh", "stale"], do: to_string(hint), else: "unknown"
+  end
+
+  defp priority(value) when is_integer(value) and value > 0, do: value
+  defp priority(_value), do: nil
+  defp lane(value) when is_binary(value) and value != "", do: value
+  defp lane(_value), do: nil
   defp timestamp(%DateTime{} = time), do: DateTime.to_unix(time, :millisecond)
 
   defp timestamp(time) when is_binary(time) do

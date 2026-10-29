@@ -27,22 +27,22 @@ use the shared domain sources directly.
 
 | Module | Role | Needs the sidecar? | Other consumers |
 | --- | --- | --- | --- |
-| `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | No non-deck consumer yet; MP-E4 conversations planned. `History` re-exports it; production caller: `StreamdeckLogs`. |
+| `Aiur.Conversation.History` | Shared conversation history and anchoring | No | Desktop conversation sources and deck conversation pages |
 | `AiurWeb.StreamdeckProjection` | Fleet, voice availability, decisions and transcript DTOs for the deck channel | No | `/streamdeck` emulator |
 | `AiurWeb.Streamdeck.Deck` | Guarded deck sections over shared read models; focus lane from `BuildQueue.show/0` | No | Emulator |
 | `AiurWeb.Streamdeck.Deck.TicketPage` | Focused ticket over Build DataSource and TicketControl; shared server status labels | No | Physical cmd ticket page |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
 | `AiurWeb.Streamdeck.FrameUpdates`, `AiurWeb.Streamdeck.Render` | Shared navigation-to-frame adapter and SVG images | No | Emulator keys and strip |
-| `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
 | `AiurWeb.Streamdeck.Deck.Chat` | Shared-source live conversation tail and lifecycle | No | Physical and emulator ticket strip |
-| `AiurWeb.StreamdeckTranscriptRelay` | Legacy browser Logs refresh | No | Emulator Logs |
-| `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip` | Deck presentation projections: paging, LIVE and structured log windows | No; the emulator renders them | — |
 | `AiurWeb.StreamdeckAuth`, `AiurWeb.StreamdeckSocket`, `AiurWeb.StreamdeckChannel` | Deck transport | Only for a physical deck | — |
 
 `StreamdeckProjection.voice/0` reads availability from the shared `Aiur.Voice`
 port. Command answers retain the operator actor `%{kind: :operator, id: "streamdeck"}`.
-`StreamDeckGrid.dependency_ready?/2` remains an internal grid helper with no
-external caller.
+The legacy grid HTTP endpoint has been removed. Use the Build page payload
+for shared ticket data; deck clients consume pushed frames.
+
+Priority, lane icons, per-ticket progress freshness and prerequisite readiness
+are shared Build index facts. Unknown readiness is displayed explicitly.
 
 The channel and browser emulator use `FrameUpdates.frame/5` and
 `Render.frame/1` to produce the same SVG bytes for the same view state.
@@ -57,7 +57,7 @@ deck DTOs. Nothing in the dashboard needs the sidecar installed.
 ## Events
 
 Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
-`fleet` and `usage` remain for the emulator;
+`fleet` and `usage` remain as compatibility data events;
 the physical sidecar consumes `frame` images only.
 
 | Event | Payload | Meaning |
@@ -80,7 +80,7 @@ status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
 identity, progress fields and `eta_seconds: null`. Unknown percent and completed
 counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and carry a stale label. Build changes share the channel’s 250 ms fleet coalescing.
 
-`ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the legacy ticket detail renders its age after 60 seconds. The physical conversation strip uses the shared conversation state and names stale age or unavailable history.
+`ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds. The conversation strip uses the shared conversation state and names stale age or unavailable history.
 
 `links` contains server-built `modal` and nullable `pr` URLs. `actions.pause`, `priority_up` and `priority_down` are `enabled` or `disabled`; queue edges, read-only dashboards and tickets outside editable list queues disable priority. Send `priority` with `{identifier, direction: "up" | "down"}` for the focused ticket; replies reuse the queue read-back/error shape. The physical client opens HTTP(S) URLs with injected `xdg-open`; the emulator uses links with `target="_blank"`.
 
@@ -148,7 +148,7 @@ states remain visible in Active; unavailable counts stay explicitly unavailable.
 Physical and emulator pixels use the shared server renderer, including Fleet.
 In the emulator grid, dial D press cycles Ticket → Feature → Epic → Fleet;
 turn, drag, wheel or arrow keys page the current view with clamped bounds.
-On a focused ticket, seven turn keys plus LIVE replace the grid. Turn keys select the strip text; dial 1 scrolls it. Dial 4 turns page older/newer turns (negative means older), while LIVE returns to the tail. The legacy browser Logs controls remain separate.
+On a focused ticket, seven turn keys plus LIVE replace the grid. Turn keys select the strip text; dial 1 scrolls it. Dial 4 turns page older/newer turns (negative means older), while LIVE returns to the tail.
 The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
@@ -171,7 +171,7 @@ to four per second. Refocus, unfocus and termination unsubscribe and cancel the
 timer. `chat.latest` uses the shared Entries allowlist; prompt bodies, raw events
 and tool output are excluded. Remote-device masking removes secrets and URLs
 from conversation text before chat pages or frames reach the device. The focus
-path no longer pushes `logs`.
+path sends conversation frames and chat updates.
 Missing, unavailable and stale conversations are named on the strip; stale state
 includes the observation age.
 
@@ -195,6 +195,14 @@ discards loaded pages and reloads the tail, resetting selection to LIVE.
 The Commands page is history-first: opening it shows the focused agent's past
 Commands newest first, with open and deferred ones answerable and completed
 ones read-only.
+
+Input replies carry navigation only. Account images use the coalesced pushed
+`frame` event (eight optional key SVGs and strip regions).
+Turn dial 4 past the eight Fleet category keys to reach provider meter keys.
+Pressing one opens read-only account keys with 5h/weekly remaining values, per-account
+resets and stale/unknown indicators. Hold dial 4 to return to the provider page.
+While Fleet is open, coalesced usage observations push a `frame` event with fresh
+images, alongside the existing `usage` event. Clients apply only pushed frames.
 
 ### Device → Aiur
 
