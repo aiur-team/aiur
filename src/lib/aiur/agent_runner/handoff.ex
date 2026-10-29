@@ -129,7 +129,7 @@ defmodule Aiur.AgentRunner.Handoff do
         context.issue.identifier,
         TurnLoop.build_turn_prompt(context.issue, context.workspace, Keyword.delete(context.opts, :pending_overrides), context.turn_number, context.max_turns)
       )
-      |> then(fn {prompt, notices} -> {Aiur.Commands.OverridePrompt.render(context.opts) <> prompt, notices} end)
+      |> then(fn {prompt, notices} -> {Aiur.Commands.render_pending_overrides(context.opts) <> prompt, notices} end)
     end
   end
 

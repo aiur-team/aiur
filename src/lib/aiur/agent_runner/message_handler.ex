@@ -51,7 +51,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
-      Aiur.Commands.OverridePrompt.received(message, lifecycle_opts)
+      Aiur.Commands.record_override_prompt_receipt(message, lifecycle_opts)
 
       maybe_steer_repeated_command(message, lifecycle_opts)
 
