@@ -237,6 +237,67 @@ defmodule AiurWeb.DashboardLive.CommandHistoryTest do
     assert history_row_count(view) == 1
   end
 
+  test "keeps a just-revised Command expanded when it enters history from beyond the loaded page" do
+    orchestrator_name = Module.concat(__MODULE__, :RevisionPromotionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RevisionPromotionDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 515}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    # Fill the first history page before adding the target so it enters only
+    # when the operator revises it from its direct detail page.
+    for index <- 1..10 do
+      decision = request_dashboard_decision(store, "revision-promotion-#{index}")
+
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.answer(
+                 decision.decision_id,
+                 %{"idempotency_key" => "revision-promotion-#{index}", "expected_version" => decision.version, "option_id" => "ship"},
+                 [actor: %{kind: :operator, id: "operator"}],
+                 store
+               )
+    end
+
+    target = request_dashboard_decision(store, "revision-promotion-target")
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               target.decision_id,
+               %{"idempotency_key" => "revision-promotion-target", "expected_version" => target.version, "custom_response" => "hold the rollout"},
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/commands/#{target.decision_id}")
+    assert history_row_count(view) == 10
+
+    view
+    |> element("#decision-revision-form-#{target.decision_id}")
+    |> render_submit(%{
+      "decision_id" => target.decision_id,
+      "revision" => %{
+        "choice" => "custom",
+        "custom_response" => "hold the rollout after review",
+        "reason" => "new evidence"
+      }
+    })
+
+    assert eventually(fn -> has_element?(view, "#history-detail-history-#{target.decision_id} #decision-detail-#{target.decision_id}") end, 100)
+    assert has_element?(view, "#history-#{target.decision_id} .history-decision", "hold the rollout after review")
+  end
+
   test "keeps a deep-linked Command readable when history has not loaded its page" do
     orchestrator_name = Module.concat(__MODULE__, :DeepLinkHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DeepLinkHistoryDecisionStore)
