@@ -9,7 +9,7 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReview do
 
   @spec filter([map()], (map() -> :current | {:stale, atom()} | :unknown)) :: {[map()], [map()]}
   def filter(records, reader) when is_list(records) and is_function(reader, 1) do
-    {deliver, stale} = Enum.split_with(records, &(not stale?(reader.(&1))))
+    {deliver, stale} = Enum.split_with(records, &(not stale?(safely_read_state(reader, &1))))
     Enum.each(stale, &log_stale/1)
     {deliver, stale}
   end
@@ -29,6 +29,14 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReview do
   end
 
   def current_state(_wake), do: :current
+
+  defp safely_read_state(reader, record) do
+    reader.(record)
+  rescue
+    _ -> :unknown
+  catch
+    :exit, _ -> :unknown
+  end
 
   defp read_state(repo, number) do
     issue = Access.data(Access.key_for_repo(:issue, repo, number))

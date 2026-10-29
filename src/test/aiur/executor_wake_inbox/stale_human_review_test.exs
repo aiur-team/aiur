@@ -59,6 +59,15 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
     assert ExecutorWakeInbox.cursor(__MODULE__) == 0
   end
 
+  test "delivers a human-review wake when the live state reader raises", %{opts: opts} do
+    put_human_review_wake(opts)
+    start_supervised!({ExecutorWakeInbox, with_failing_state_reader(opts)})
+
+    assert [%{"wake_id" => 1, "action" => "human_review"}] = ExecutorWakeInbox.pending(__MODULE__)
+    assert_state_read()
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 0
+  end
+
   test "delivers a human-review wake when the issue projection has no readable labels", %{opts: opts} do
     put_human_review_wake(opts)
     repo = Aiur.GitHub.Config.repo(Aiur.Config.settings!())
@@ -76,6 +85,17 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
     reader = fn record ->
       send(caller, {:human_review_state_read, record["wake_id"]})
       StaleHumanReview.current_state(record)
+    end
+
+    Keyword.put(opts, :human_review_state_reader, reader)
+  end
+
+  defp with_failing_state_reader(opts) do
+    caller = self()
+
+    reader = fn record ->
+      send(caller, {:human_review_state_read, record["wake_id"]})
+      raise "issue state read failed"
     end
 
     Keyword.put(opts, :human_review_state_reader, reader)
