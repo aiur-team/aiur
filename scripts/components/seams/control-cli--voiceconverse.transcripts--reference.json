@@ -1,0 +1,9 @@
+{
+  "from": "control-cli",
+  "to_module": "VoiceConverse.Transcripts",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/voice_cli.ex"
+  ],
+  "reason": "#4140 explicit transcript command reads the optional standalone package; guarded RPC reports an unavailable package as a failed command"
+}
