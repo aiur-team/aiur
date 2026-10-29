@@ -49,6 +49,8 @@ defmodule AiurWeb.DashboardLive.AgentLogTest do
 
     render_submit(view, "send-operator-message", %{"message" => "typed hello"})
     assert_receive {:typed_agent_message, ^identity, "typed hello"}, 1000
+    assert has_element?(view, "[data-voice-root][data-voice-state=sent]")
+    assert has_element?(view, "[data-voice-delivery][data-delivery-state=accepted]", "Sent — waiting for the agent")
 
     render_hook(view, "pause-agent", %{})
     assert_receive {:typed_agent_pause, ^identity}, 1000
@@ -206,6 +208,8 @@ defmodule AiurWeb.DashboardLive.AgentLogTest do
 
     render_submit(view, "send-operator-message", %{"message" => "drawer hello"})
     assert_receive {:drawer_agent_message, ^identity, "drawer hello"}, 1000
+    assert has_element?(view, "[data-voice-root][data-voice-state=sent]")
+    assert has_element?(view, "[data-voice-delivery][data-delivery-state=accepted]", "Sent — waiting for the agent")
 
     render_hook(view, "pause-agent", %{})
     assert_receive {:drawer_agent_pause, ^identity}, 1000
