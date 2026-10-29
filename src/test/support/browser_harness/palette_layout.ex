@@ -27,8 +27,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/voice-capture.js"></script>
-        <script defer src="/voice-transport.js"></script>
+        <script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script>
         <script defer src="/conversation-voice-controller.js"></script>
+        <script defer src="/executor-voice-controller.js"></script>
+        <script defer src="/voice-input-hook.js"></script>
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
@@ -235,6 +237,8 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
 
+            if (window.AiurVoiceInputHook) window.BrowserHarnessHooks.VoiceInput = window.AiurVoiceInputHook;
+
             if (window.AiurConversationDrawerHook) {
               window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
             }
@@ -257,6 +261,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: window.BrowserHarnessHooks,
+              dom: { onBeforeElUpdated: window.AiurVoiceInputBeforeUpdate },
               params: {_csrf_token: csrfToken}
             });
             window.liveSocket.connect();

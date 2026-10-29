@@ -1,9 +1,11 @@
 defmodule AiurWeb.StreamdeckFloodTest do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.AgentPubSub
   alias Aiur.AgentPubSub.FleetRefresh
+  alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
@@ -38,7 +40,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
         streamdeck_fleet_subscribe_fun: subscriber,
         server: false,
         streamdeck_snapshot_fun: reader,
-        streamdeck_provider_meters_fun: fn -> %{} end,
+        streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_decisions_fun: fn -> %{count: 0} end
       )
       |> EndpointStubs.scope()
@@ -81,6 +83,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
       AgentPubSub.broadcast_running_change([%{identifier: "foreign", title: "foreign"}])
       AgentPubSub.broadcast_status_change("foreign", :pane_opened)
       SnapshotStore.publish(foreign_key, %{running: [], retrying: [], idle: []})
+      BuildIndex.broadcast(%{index_generation: 123})
     end
 
     assert FleetRefresh.latest(channel) |> hd() |> Map.fetch!(:identifier) == "3875"

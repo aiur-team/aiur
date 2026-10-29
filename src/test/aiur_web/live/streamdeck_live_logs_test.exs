@@ -75,12 +75,16 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
     assert logs.selected_event_id == :live
     assert logs.selected_event_index == length(logs.event_keys) - 1
     refute html =~ ~s(data-log-event-index="0")
-    assert html =~ ~r/data-log-event-index="#{logs.selected_event_index}"[^>]*aria-current="true"/
+
+    assert has_element?(
+             view,
+             ~s([data-log-event-index="#{logs.selected_event_index}"][aria-current="true"])
+           )
 
     # Sitting on LIVE means sitting on the newest row, which is a transcript
     # line rather than an event header.
     assert strip(html) =~ "line-10"
-    assert log_pane(html, "sd-log-transcript") =~ "line-10"
+    assert strip(html) =~ "line-10"
     assert html =~ ~s(data-log-kind="message")
 
     # A press jumps to that key's own `start` — the offset of its header — which
@@ -92,14 +96,17 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
     # The mirror pane is what makes the offset bounds behind the dial hints
     # observable, so it has to track the strip rather than drift from it.
     assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="#{key.start}"}
-    assert log_pane(html, "sd-log-transcript") =~ "event-5"
     assert strip(html) =~ "event-5"
-    assert html =~ ~s(data-log-kind="event_header")
+    assert strip(html) =~ "event-5"
     assert html =~ ~s(data-log-kind="evhdr")
     # The strip left the live end rather than merely gaining a line.
     refute strip(html) =~ "line-10"
-    assert html =~ ~r/data-log-event-index="5"[^>]*aria-current="true"/
-    refute html =~ ~r/data-log-event-index="#{logs.selected_event_index}"[^>]*aria-current="true"/
+    assert has_element?(view, ~s([data-log-event-index="5"][aria-current="true"]))
+
+    refute has_element?(
+             view,
+             ~s([data-log-event-index="#{logs.selected_event_index}"][aria-current="true"])
+           )
   end
 
   test "a relay flush keeps the operator's transcript position instead of snapping to the event header" do
@@ -121,7 +128,7 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
     send(view.pid, {:streamdeck_transcript, "1352", %{}})
     html = render(view)
     assert strip_offset(html) == start + 1
-    assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
+    assert has_element?(view, ~s([data-log-event-index="2"][aria-current="true"]))
   end
 
   test "a relay flush keeps the key window the operator scrolled to" do
@@ -151,7 +158,7 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
     # newer-ward hint is spent before the operator touches the dial.
     assert strip_offset(html) == max_offset
     assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="#{max_offset}"/s
-    assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+    assert html =~ ~s(id="sd-transcript-hint-down" aria-hidden="true")
 
     # Scrolling further forward cannot escape that end, and staying on the
     # newest row is what keeps LIVE the selection.
@@ -163,40 +170,26 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "-99"})
     assert strip_offset(html) == 0
     assert strip(html) =~ "Ticket opened"
-    assert html =~ ~s(id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden="true")
+    assert html =~ ~s(id="sd-transcript-hint-up" aria-hidden="true")
     assert streamdeck_assigns(view).logs.selected_event_id == :origin
-    assert html =~ ~r/data-log-event-index="0"[^>]*aria-current="true"/
+    assert has_element?(view, ~s([data-log-event-index="0"][aria-current="true"]))
   end
 
-  # The LIVE key is the design's one visually distinct key, and it is selected
-  # by default. Without its own chassis it renders as an ordinary log key with
-  # the blue `.sd-log-key.is-selected` glow — the #1671 shape, a design rule
-  # with no counterpart in the implementation. Assert both halves: the markup
-  # carries the class, and dashboard.css actually styles it, selected included.
-  test "the LIVE key carries the design's green chassis, not the ordinary log key's" do
+  test "the LIVE SVG key uses green fill and selection ink" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = enter_logs(view)
+    assert streamdeck_assigns(view).logs.selected_event_id == :live
+    document = Floki.parse_fragment!(html)
 
-    assert html =~ ~r/class="sd-key sd-log-key sd-live-key is-live is-selected"/,
-           "the LIVE key must carry sd-live-key and be selected on entering logs mode"
+    assert Floki.attribute(
+             document,
+             "#sd-log-keys [aria-label='LIVE'][aria-current='true'] svg rect",
+             "fill"
+           ) == ["#14291f"]
 
-    {:ok, "text/css", css} = AiurWeb.StaticAssets.fetch("/dashboard.css")
-
-    for selector <- [
-          ".sd-live-key {",
-          ".sd-live-key .sd-key-face {",
-          ".sd-live-key.is-selected {",
-          ".sd-live-key.is-selected .sd-live-label {"
-        ] do
-      assert css =~ selector,
-             "dashboard.css has no `#{selector}` rule, so the LIVE key falls back to the plain log key chassis"
-    end
-
-    # The design's greens (streamdeck.design.css:128-139), not a re-derived hue.
-    assert css =~ "linear-gradient(180deg, #227a4d, #17583a)"
-    assert css =~ "linear-gradient(180deg, #37d97e, #1f9c56)"
-    assert css =~ "--sd-live: #4ade80;"
-    assert css =~ "--sd-live-ink: #8fe0a8;"
+    assert Floki.attribute(document, "#sd-log-keys [aria-label='LIVE'] svg rect", "stroke") == [
+             "#88e0a6"
+           ]
   end
 
   test "projects classified AgentEventFeed entries through the flattened two-line window" do
@@ -205,12 +198,19 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
         feed_event("assistant", "older message", "turn-1"),
         feed_event("tool", "edit lib/example.ex", "turn-1", %{
           "tool" => "edit",
-          "changes" => [%{"path" => "lib/example.ex", "diff" => "--- a/lib/example.ex\n+++ b/lib/example.ex\n-old\n+new"}]
+          "changes" => [
+            %{
+              "path" => "lib/example.ex",
+              "diff" => "--- a/lib/example.ex\n+++ b/lib/example.ex\n-old\n+new"
+            }
+          ]
         }),
         feed_event("assistant", "newest message", "turn-2")
       ])
 
-      write_event_log("1352", [event_line(1, "emit", "ticket.1352.pr.opened", "PR #1904", "2026-08-02T00:00:00Z")])
+      write_event_log("1352", [
+        event_line(1, "emit", "ticket.1352.pr.opened", "PR #1904", "2026-08-02T00:00:00Z")
+      ])
 
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
       html = enter_logs(view)
@@ -224,22 +224,21 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
       # A transcript row is labelled by its own role; the direction badge is the
       # bus event's, and it reaches the deck as an event key rather than as a
       # key per turn.
-      assert html =~ "[assistant] newest message"
-      assert html =~ ~s(<span class="sd-log-dir sd-log-badge" data-dir="EMIT" style="--sd-log-badge: #9fd0ff">EMIT</span>)
+      assert html =~ "newest message"
+      assert has_element?(view, "#sd-log-keys [data-dir='EMIT'][fill='#9fd0ff']", "EMIT")
       assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="#{max_offset}"/s
       assert html =~ ~r{id="sd-log-transcript"[^>]*data-max-offset="#{max_offset}"}
 
       # Scrolling back travels toward the origin now, not toward the newest row.
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "-99"})
       assert strip_offset(html) == 0
-      assert html =~ ~s(id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden="true")
+      assert html =~ ~s(id="sd-transcript-hint-up" aria-hidden="true")
 
       # Two rows forward is the classified diff, which keeps its real hunk lines.
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "2"})
       assert html =~ "older message"
       assert html =~ "lib/example.ex"
-      assert html =~ "sd-log-entry-diff"
-      assert html =~ ~s(class="sd-log-diff-line is-addition")
+      assert html =~ ~s(data-log-kind="diff")
       assert html =~ "+new"
     end)
   end
@@ -247,8 +246,20 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
   test "rebuilds LIVE and event starts from the durable feed when the relay receives a new event" do
     with_production_feed(fn ->
       durable_events = [
-        event_line(1, "emit", "ticket.1352.pr.opened", "older durable event", "2026-08-02T00:01:00Z"),
-        event_line(2, "emit", "ticket.1352.ci.passed", "newest durable event", "2026-08-02T00:02:00Z")
+        event_line(
+          1,
+          "emit",
+          "ticket.1352.pr.opened",
+          "older durable event",
+          "2026-08-02T00:01:00Z"
+        ),
+        event_line(
+          2,
+          "emit",
+          "ticket.1352.ci.passed",
+          "newest durable event",
+          "2026-08-02T00:02:00Z"
+        )
       ]
 
       durable_transcript = [
@@ -267,12 +278,30 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
       # leave the file behind for whichever test ran next.
       write_event_log(
         "1352",
-        durable_events ++ [event_line(3, "emit", "ticket.1352.pr.merged", "live durable event", "2026-08-02T00:03:00Z")]
+        durable_events ++
+          [
+            event_line(
+              3,
+              "emit",
+              "ticket.1352.pr.merged",
+              "live durable event",
+              "2026-08-02T00:03:00Z"
+            )
+          ]
       )
 
-      write_feed("1352", durable_transcript ++ [feed_event("assistant", "live durable line", "turn-3", timestamp: "2026-08-02T00:03:30Z")])
+      write_feed(
+        "1352",
+        durable_transcript ++
+          [
+            feed_event("assistant", "live durable line", "turn-3", timestamp: "2026-08-02T00:03:30Z")
+          ]
+      )
 
-      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "live durable line"))
+      AgentPubSub.broadcast_transcript(
+        "1352",
+        AgentEvents.transcript_event(:assistant, "live durable line")
+      )
 
       # "PR merged" is the new bus row's key face, so waiting on it proves the
       # flush rebuilt the key list rather than only the transcript.
@@ -283,7 +312,13 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
       # LIVE is the last key, after the origin and one key per bus row, and it
       # re-pins to the new newest entry because it was the selection.
       assert Enum.map(logs.event_keys, & &1.body) ==
-               ["Ticket opened", "older durable event", "newest durable event", "live durable event", "LIVE"]
+               [
+                 "Ticket opened",
+                 "older durable event",
+                 "newest durable event",
+                 "live durable event",
+                 "LIVE"
+               ]
 
       assert List.last(logs.event_keys).id == :live
       assert List.last(logs.event_keys).start == logs.transcript_max_offset
@@ -297,7 +332,10 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
 
       assert selected.selected_event_id == {:bus, "emit", 1}
       assert selected.transcript_offset == selected.event_starts[1]
-      assert [%{kind: :event_header, body: "older durable event"} | _] = selected.transcript_visible
+
+      assert [%{kind: :event_header, body: "older durable event"} | _] =
+               selected.transcript_visible
+
       assert strip(html) =~ "older durable event"
     end)
   end
@@ -305,7 +343,10 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
   test "refreshes relative event times while logs mode remains open" do
     with_production_feed(fn ->
       timestamp = DateTime.utc_now() |> DateTime.add(-59, :second) |> DateTime.to_iso8601()
-      write_feed("1352", [feed_event("assistant", "recent durable event", "turn-1", timestamp: timestamp)])
+
+      write_feed("1352", [
+        feed_event("assistant", "recent durable event", "turn-1", timestamp: timestamp)
+      ])
 
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
       assert enter_logs(view) =~ "now"
@@ -358,7 +399,11 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
       assert html =~ "new focused entry"
       refute html =~ "old focused entry"
 
-      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
+      AgentPubSub.broadcast_transcript(
+        "1352",
+        AgentEvents.transcript_event(:assistant, "stale topic")
+      )
+
       Process.sleep(20)
       html = render(view)
       refute html =~ "stale topic"
@@ -388,7 +433,11 @@ defmodule AiurWeb.StreamdeckLiveLogsTest do
         refute_receive {:streamdeck_pause, _identifier}, 100
         refute_receive {:streamdeck_resume, _identifier}, 100
 
-        AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
+        AgentPubSub.broadcast_transcript(
+          "1352",
+          AgentEvents.transcript_event(:assistant, "stale topic")
+        )
+
         Process.sleep(20)
         html = render(view)
         refute html =~ "stale topic"

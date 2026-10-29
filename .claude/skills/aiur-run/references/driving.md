@@ -45,7 +45,8 @@ them log anything. Work this ladder before any per-agent triage:
    roughly half agents and half the Executor's own identity, including two
    tickets the Executor filed the same day it was failing to notice them. Check
    your own filings, not just the fleet's — every ticket you open during a run
-   needs todo or the queued Build Order marker at creation unless parked.
+   needs an explicit disposition at creation. Non-feature findings start with
+   `needs-triage` plus the instance parked label; see [intake](continuous-build-intake.md).
 
    Tracked as #1793.
 

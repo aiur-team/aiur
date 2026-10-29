@@ -3,13 +3,13 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   Publishes observed state, pause, and human-review transitions.
   """
 
-  alias Aiur.AlertFeed
   alias Aiur.Config
   alias Aiur.DispatchBudgetStore
   alias Aiur.Events.GithubKeys
   alias Aiur.GitHub.Access
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.State
   alias Aiur.Signal
   alias Aiur.TicketBranch
@@ -45,11 +45,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
 
   @doc false
   @spec active_attention_topics() :: MapSet.t()
-  def active_attention_topics do
-    [needs_attention: true]
-    |> AlertFeed.list()
-    |> MapSet.new(& &1["topic"])
-  end
+  def active_attention_topics, do: AttentionSnapshot.topics()
 
   @doc false
   @spec emit_task_state_transition_alert(State.t(), Issue.t() | nil, term()) :: State.t()
@@ -135,6 +131,8 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
       bypass_contamination: true,
       exchange_payload: %{
         "action" => "human_review",
+        "observed_state" => DispatchPolicy.state_slug(issue.state),
+        "observed_updated_at" => issue.updated_at && DateTime.to_iso8601(issue.updated_at),
         "pr_number" => pr_number,
         "head_sha" => head_sha,
         "last_review_sha" => last_review_sha

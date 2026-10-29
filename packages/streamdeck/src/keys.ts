@@ -1,12 +1,12 @@
 import {
   bucketContract,
   type BucketId,
-  KEY_FACE_CONTRACT,
+  LEGACY_STYLE,
   progressBarColor,
   UNKNOWN_PROGRESS_COLOR,
-} from "./key-face-contract.js";
+} from "./legacy-style.js";
 
-export type { BucketId } from "./key-face-contract.js";
+export type { BucketId } from "./legacy-style.js";
 export { progressBarColor, UNKNOWN_PROGRESS_COLOR };
 export type Vendor = string;
 
@@ -55,6 +55,7 @@ export type Footer = ProgressFooter | QueuedFooter;
 
 export interface AgentKey {
   readonly kind: "agent";
+  readonly stateLabel?: string | null;
   readonly identifier: string;
   readonly title: string;
   readonly vendor: Vendor;
@@ -87,6 +88,8 @@ export interface EmptyKey {
 export type KeyDescriptor = AgentKey | EmptyKey;
 
 export interface AgentInput {
+  readonly label?: string | null;
+  readonly face?: string | null;
   readonly identifier: string;
   readonly title?: string | null;
   readonly vendor: Vendor;
@@ -129,7 +132,7 @@ export const agentIndexForKey = (columnOffset: number, key: number): number =>
  */
 export const BUCKET_STYLES: Readonly<Record<BucketId, Readonly<BucketStyle>>> = Object.freeze(
   Object.fromEntries(
-    Object.entries(KEY_FACE_CONTRACT.states).map(([bucket, style]) => [
+    Object.entries(LEGACY_STYLE.states).map(([bucket, style]) => [
       bucket,
       Object.freeze({
         accent: style.accent,
@@ -175,12 +178,12 @@ export function progressFreshness(reported: unknown, percent: number | null): Pr
 
 function buildFooter(agent: AgentInput): Footer {
   if (agent.bucket === "queued") {
-    const footer = KEY_FACE_CONTRACT.footers.queued;
+    const footer = LEGACY_STYLE.footers.queued;
     const unblocked = agent.dependency_ready === footer.ready_when;
 
     return {
       kind: footer.kind,
-      label: bucketContract("queued").label,
+      label: agent.label ?? bucketContract("queued").label,
       unblocked,
       statusLabel: unblocked ? footer.ready_label : footer.blocked_label,
     };
@@ -193,7 +196,7 @@ function buildFooter(agent: AgentInput): Footer {
   // state a measurement that was never taken.
   const pct = freshness === "unknown" ? null : clamped;
   return {
-    kind: KEY_FACE_CONTRACT.footers.progress.kind,
+    kind: LEGACY_STYLE.footers.progress.kind,
     barColor: pct === null ? UNKNOWN_PROGRESS_COLOR : progressBarColor(pct),
     percent: pct,
     freshness,
@@ -202,11 +205,13 @@ function buildFooter(agent: AgentInput): Footer {
 
 function buildAgentKey(agent: AgentInput): AgentKey {
   const pct = clampPercent(agent.progress_percent);
-  const style = BUCKET_STYLES[agent.bucket];
+  const palette = agent.face === "active" ? "running" : agent.face === "idle" || agent.face === "unknown" ? "paused" : agent.face;
+  const style = BUCKET_STYLES[(palette ?? agent.bucket) as BucketId];
   if (style === undefined) throw new Error(`unhandled Stream Deck key state: ${agent.bucket}`);
 
   return {
     kind: "agent",
+    stateLabel: agent.label ?? null,
     identifier: agent.identifier,
     title: agent.title ?? "",
     vendor: agent.vendor,
@@ -217,7 +222,7 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     selected: agent.selected === true,
     priority: agent.priority,
     bucket: agent.bucket,
-    style,
+    style: agent.label ? { ...style, label: agent.label } : style,
     progressPercent: pct,
     footer: buildFooter(agent),
   };

@@ -1,3 +1,4 @@
+import { drawTicketChat } from "./ticket-chat.js";
 /** The logs-mode chat readout: the transcript painted in opencode's grammar. */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
@@ -7,7 +8,7 @@ import {
   BADGE_IDS,
   directionBadgeColor,
   type DirectionBadge,
-} from "../key-face-contract.js";
+} from "../legacy-style.js";
 import { ageLabel, fit, rightText } from "./segmentText.js";
 import {
   LABEL,
@@ -42,7 +43,7 @@ const badgeColour = (badge: string): string => directionBadgeColor(isBadge(badge
  *
  * COLOURS ARE BORROWED, NOT INVENTED. Every hex in {@link OPENCODE} is taken
  * from opencode's default `opencode` theme. They deliberately do NOT come from
- * `key-face-contract.json`: that contract is Aiur's *fleet-state* palette —
+ * `legacy-style.json`: that contract is Aiur's *fleet-state* palette —
  * bucket accents and direction badges, shared with the dashboard so the two
  * surfaces cannot disagree about what "stuck" looks like. This is a different
  * palette on purpose, quoting another tool's transcript, and mixing the two
@@ -355,6 +356,10 @@ export const drawHint = (
  * there is something further in that direction.
  */
 export const drawChatLog = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "chatLog" }, now: number): void => {
+  if (content.fullWidth) {
+    drawTicketChat(context, width, content.chat ?? null, now);
+    return;
+  }
   if (content.rows.length === 0) {
     context.font = CHAT_BODY_FONT;
     context.fillStyle = OPENCODE.textMuted;

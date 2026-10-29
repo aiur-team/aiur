@@ -4,7 +4,7 @@ import { type AgentKeyFace, type KeyFace } from "./keys/keyFace.js";
 import { KEY_IMAGE_SIZE } from "./keys/keyImage.js";
 import { createPaint } from "./art/gradient.js";
 import { commandFragment, commandIsFilled, drawIcon, iconFragment, UNBLOCKED_ICON } from "./art/icons.js";
-import { KEY_FACE_CONTRACT } from "./key-face-contract.js";
+import { LEGACY_STYLE } from "./legacy-style.js";
 import { drawVendorMark } from "./art/vendorMark.js";
 
 /* Key geometry, scaled from the mock's proportions to the 120px key. */
@@ -55,7 +55,7 @@ const TAG_BLOCKED_TEXT = "#ff9a90";
  * direction falls back to the neutral INFO colour.
  */
 const directionColor = (direction: string): string => {
-  const badges = KEY_FACE_CONTRACT.direction_badges as Readonly<Record<string, { color: string }>>;
+  const badges = LEGACY_STYLE.direction_badges as Readonly<Record<string, { color: string }>>;
   return (badges[direction.toUpperCase()] ?? badges.INFO).color;
 };
 
@@ -190,7 +190,7 @@ const drawKeyHeader = (context: SKRSContext2D, face: AgentKeyFace): void => {
 const drawKeyTitle = (context: SKRSContext2D, face: AgentKeyFace): void => {
   context.font = `600 ${TITLE_SIZE}px sans-serif`;
   context.fillStyle = TEXT_TITLE;
-  const maxLines = face.footer.kind === "queued" ? TITLE_MAX_LINES - 1 : TITLE_MAX_LINES;
+  const maxLines = (face.footer.kind === "queued" || face.stateLabel) ? TITLE_MAX_LINES - 1 : TITLE_MAX_LINES;
   const lines = wrapToWidth(context, face.title, KEY_IMAGE_SIZE - PAD_X * 2, maxLines);
   lines.forEach((line, index) => {
     context.fillText(line, PAD_X, TITLE_TOP + index * TITLE_LINE_HEIGHT);
@@ -234,6 +234,13 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
     context.fillStyle = TAG_BLOCKED_TEXT;
     context.fillText(tag, PAD_X + 5, tagTop + TAG_HEIGHT - 3.5);
     return;
+  }
+
+  if (face.stateLabel) {
+    context.font = `700 ${face.stateLabel.length > 18 ? 8 : 10}px sans-serif`;
+    context.fillStyle = face.accent;
+    context.fillText(face.stateLabel, PAD_X, FOOTER_BASE - TAG_HEIGHT - 5);
+    if (face.footer.percent === null) return;
   }
 
   const dotY = FOOTER_BASE - DOT_SIZE;

@@ -137,6 +137,7 @@ export default withMermaid(defineConfig({
           text: 'Concepts',
           items: [
             { text: 'Executor', link: '/concepts/executor' },
+            { text: 'Conversations', link: '/concepts/conversations' },
             { text: 'Units', link: '/concepts/units' },
             { text: 'Commands', link: '/concepts/commands' },
             { text: 'Continuous build history', link: '/concepts/build-history' },

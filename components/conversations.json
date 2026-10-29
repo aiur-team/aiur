@@ -11,9 +11,13 @@
   ],
   "facades": [
     "Aiur.AgentEventFeed",
+    "Aiur.Conversation.AnchorResolver",
     "Aiur.Conversation.Anchors",
     "Aiur.Conversation.Entry",
+    "Aiur.Conversation.HeadTable",
     "Aiur.Conversation.History",
+    "Aiur.Conversation.Ingest",
+    "Aiur.Conversation.JumpPoints",
     "Aiur.Conversation.Ref",
     "Aiur.Conversation.Session",
     "Aiur.Conversation.Store"
@@ -21,7 +25,9 @@
   "facade_pending": null,
   "requires": [
     "agent-runner",
+    "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel"
   ],

@@ -6,19 +6,18 @@ names and tuple shapes are not part of this API.
 
 ## Authentication
 
-The device first requests `POST /api/v1/streamdeck/token` with the existing
-dashboard HTTP Basic credentials. The response is `{token, expires_in_seconds}`.
-Pass that token as the Phoenix socket parameter (`/streamdeck/websocket?token=…`),
-then join `streamdeck:fleet`.
+The device first requests `POST /api/v1/streamdeck/token` with
+`Authorization: Bearer <client-token>` (created with `aiur token create`) or the
+existing dashboard HTTP Basic credentials on loopback. The response is
+`{token, expires_in_seconds}`. Pass that short-lived token as the Phoenix socket
+parameter (`/streamdeck/websocket?token=…`), then join `streamdeck:fleet`.
 
-This adds no device credential: the token can only be minted after dashboard
-Basic authentication, expires after five minutes, is signed by the endpoint,
-and stops verifying when the dashboard username, password, or signing key
-changes. A joined channel closes when that five-minute token window expires or
-the dashboard credential configuration changes.
-The WebSocket handshake therefore avoids placing a reusable dashboard password
-in the upgrade URL while retaining the same authorization boundary. Use
-HTTPS/WSS when the dashboard is exposed beyond loopback.
+The physical sidecar uses the saved instance from `~/.aiur/remote-instances.yaml`
+and its bearer credential, or the local daemon environment credentials. Connection
+failures retry with bounded backoff; authentication failures require corrected
+credentials. Disconnects blank the keys and display **Aiur offline**. A reconnect
+receives a new full frame and starts fresh server navigation. Client bearer tokens
+never appear in the WebSocket URL or debug output.
 
 ## Shared projections vs deck presentation
 
@@ -30,10 +29,14 @@ use the shared domain sources directly.
 | --- | --- | --- | --- |
 | `Aiur.Conversation.Anchors` | Shared event-to-transcript anchoring | No | No non-deck consumer yet; MP-E4 conversations planned. `History` re-exports it; production caller: `StreamdeckLogs`. |
 | `AiurWeb.StreamdeckProjection` | Fleet, voice availability, decisions and transcript DTOs for the deck channel | No | `/streamdeck` emulator |
+| `AiurWeb.Streamdeck.Deck` | Guarded deck sections over shared read models; focus lane from `BuildQueue.show/0` | No | Emulator |
+| `AiurWeb.Streamdeck.Deck.TicketPage` | Focused ticket over Build DataSource and TicketControl; shared server status labels | No | Physical cmd ticket page |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
+| `AiurWeb.Streamdeck.FrameUpdates`, `AiurWeb.Streamdeck.Render` | Shared navigation-to-frame adapter and SVG images | No | Emulator keys and strip |
 | `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
-| `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
-| `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip`, `AiurWeb.StreamdeckKeyFaceContract` | Deck presentation: paging, LIVE, log windows and key faces | No; the emulator renders them | — |
+| `AiurWeb.Streamdeck.Deck.Chat` | Shared-source live conversation tail and lifecycle | No | Physical and emulator ticket strip |
+| `AiurWeb.StreamdeckTranscriptRelay` | Legacy browser Logs refresh | No | Emulator Logs |
+| `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip` | Deck presentation projections: paging, LIVE and structured log windows | No; the emulator renders them | — |
 | `AiurWeb.StreamdeckAuth`, `AiurWeb.StreamdeckSocket`, `AiurWeb.StreamdeckChannel` | Deck transport | Only for a physical deck | — |
 
 `StreamdeckProjection.voice/0` reads availability from the shared `Aiur.Voice`
@@ -41,10 +44,11 @@ port. Command answers retain the operator actor `%{kind: :operator, id: "streamd
 `StreamDeckGrid.dependency_ready?/2` remains an internal grid helper with no
 external caller.
 
-The canonical visual contract is `src/priv/streamdeck/key-face-contract.json`;
-the parity vectors also live in `src/priv/streamdeck/`. The sidecar keeps
-byte-checked mirrors in `packages/streamdeck/src/`. Edit the canonical files,
-then copy them to the mirrors.
+The channel and browser emulator use `FrameUpdates.frame/5` and
+`Render.frame/1` to produce the same SVG bytes for the same view state.
+The emulator inserts those trusted images into accessible key buttons and
+absolutely positioned strip regions; it has no separate face drawing code.
+Renderer-owned colours replace the deleted key-face parity contract and mirrors.
 
 New dashboard, phone or watch surfaces should read `Aiur.DecisionStore`, the
 orchestrator snapshot or `Aiur.Conversation.Anchors` directly, rather than the
@@ -53,23 +57,99 @@ deck DTOs. Nothing in the dashboard needs the sidecar installed.
 ## Events
 
 Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
+`fleet` and `usage` remain for the emulator;
+the physical sidecar consumes `frame` images only.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
-| `snapshot` | `{version, fleet, usage, decisions, voice}` | Complete state sent immediately after a successful join. |
-| `fleet` | `{agents}` | Complete fleet replacement after a fleet change. |
-| `usage` | `{codex, claude}` | Redacted provider-meter projection for the touch-strip usage segments. |
+| `frame` | `{keys: [{svg, hash, label} or null] × 8, strip: [{x, width, svg, hash}]}` | Full physical image state on join and coalesced input/data changes (250 ms). Hashes skip unchanged images; regions tile 800×100. |
+| `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
+| `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
+| `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, links, actions, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
+| `usage` | `{provider_family: meter}` | One entry per provider family, from Build.Usage; semantic session/weekly windows carry `remaining_percent` and `used_percent`. Updates coalesce over 250 ms. |
 | `decisions` | `{count}` | Updated decision summary. |
-| `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
-| `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Pushed on focus and again whenever a new transcript line lands. |
+| `chat` | `{v:1, kind:"chat", id, state, observed_at, latest}` | Newest allowlisted conversation entry from the same source as the desktop modal. |
+| `chat_page` request | `{before: opaque_cursor}` | Pages the focused ticket through `ConversationSource.page/3`; replies `{v:1, kind:"chat-page", id, before, more, turns}`. Frames remain pushed separately. |
 | `alert` | `{identifier, name, message, severity, needs_attention, timestamp}` | Focused agent alert. |
 | `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
 | `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
+
+`grid.build_status` is `ok`, `none` (no lane with a positive total), or
+`unavailable` (queue model could not be read). `grid.build` is null unless
+status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
+identity, progress fields and `eta_seconds: null`. Unknown percent and completed
+counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and carry a stale label. Build changes share the channel’s 250 ms fleet coalescing.
+
+`ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the legacy ticket detail renders its age after 60 seconds. The physical conversation strip uses the shared conversation state and names stale age or unavailable history.
+
+`links` contains server-built `modal` and nullable `pr` URLs. `actions.pause`, `priority_up` and `priority_down` are `enabled` or `disabled`; queue edges, read-only dashboards and tickets outside editable list queues disable priority. Send `priority` with `{identifier, direction: "up" | "down"}` for the focused ticket; replies reuse the queue read-back/error shape. The physical client opens HTTP(S) URLs with injected `xdg-open`; the emulator uses links with `target="_blank"`.
+
+Ticket reads run in one background task per channel, coalesce refreshes, and discard results from an old focus so Commands and unfocus stay responsive.
 
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,
 `tracker_paused`, `backend`, and `model`. Fields absent from the source are
 omitted rather than represented by implementation-specific sentinels.
+
+### Device input navigation
+
+Physical devices send `input` with `{kind, index, action, delta?, x?}`:
+`key` carries `down`/`up` (0–7), `dial` carries `down`/`up`, `turn`, `press`
+or `long_press` (0–3), and `touch` carries `tap` with `x` in 0–799.
+Turns carry integer `delta` in -32–32. Keys are numbered across the top row,
+then the bottom row; the server maps those positions to its ordered tickets.
+Dial holds of at least 500 ms send `long_press` on release instead of `press`.
+Releases, dial edges and touch taps are accepted without navigation changes.
+Only key down and classified dial actions enter the reducer. Offline input is
+not replayed after reconnect. The device has no local navigation or repaint
+response to a press; the next server frame supplies the image.
+
+The emulator also accepts `input` with `{kind, index, ticks?}`. Kinds are `key_press`, `dial_press`,
+`dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
+turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
+out-of-range values reply `error` with `{reason: "invalid_input"}`.
+
+Accepted navigation replies `ok` with only `{view, page, chip_offset}` (zero-based page
+and chip offset). Refused effects reply with an error `reason`; feedback
+and queue position changes arrive in the coalesced pushed `frame`, never in
+the input reply. This includes Fleet categories and their state-filtered drills.
+
+Each connection starts at `ticket`, page 0 and chip offset 0; reconnects reset
+navigation.
+
+Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
+root pages and clearing drills and the selected ticket. Turning it moves one
+eight-key page per tick,
+clamped against the current list, including after a shrink.
+
+Holding it for 500 ms emits **one** `dial_long_press`; clients suppress the release press.
+That input pops the drill stack; at root it does nothing.
+
+Dial 1 scrolls and its press is reserved. Dial 2 (B) turns produce selected-ticket priority effects
+(negative = up); with no selection they scroll the category chips.
+Dial 3 has no navigation action in the reducer.
+
+Keys resolve from server-owned sections:
+feature, epic and fleet keys drill into tickets; ticket keys select and produce
+an open-ticket effect.
+
+Priority moves execute against editable list queues;
+fixed-order queues and unavailable reads return feedback without a write.
+Open-ticket execution belongs to SD-301.
+
+`Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
+`%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
+plus the current drill count. The current grid supplies tickets and fleet
+categories. Fleet category IDs resolve `{:state, states}` ticket filters using the same
+filed, deduplicated population as `Tickets.keys/2`. `grid.fleet` contains the
+eight summary keys and daemon/capacity/global-pause strip metadata. Unknown
+states remain visible in Active; unavailable counts stay explicitly unavailable.
+
+Physical and emulator pixels use the shared server renderer, including Fleet.
+In the emulator grid, dial D press cycles Ticket → Feature → Epic → Fleet;
+turn, drag, wheel or arrow keys page the current view with clamped bounds.
+On a focused ticket, seven turn keys plus LIVE replace the grid. Turn keys select the strip text; dial 1 scrolls it. Dial 4 turns page older/newer turns (negative means older), while LIVE returns to the tail. The legacy browser Logs controls remain separate.
+The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
 
@@ -77,27 +157,52 @@ Send `focus` with `{identifier}` to watch one agent, or `unfocus` to stop. A
 channel subscribes to only that one `agent:<identifier>` source; it never fans
 out subscriptions for every agent. Re-focusing unsubscribes the prior agent.
 
-Physical key toggles send `control` with `{identifier, action}`. The accepted
-actions are exactly `pause` and `resume`, and nothing else is accepted: the
-agent view's five keys are pause, logs, mic, settings and commands, so there is
-no surface that can send a priority action and the channel does not pretend to
-offer one. Orchestrator priority itself is unchanged and remains reachable from
-the dashboard's own controls. The channel routes the request through
-`Aiur.AgentChat` and returns the orchestrator result; the device does not
-implement a second pause/resume path.
+`control` with `{identifier, action}` retains the pause/resume and implement
+facades. Priority uses the separate `priority` request or dial 2 input.
+Ticket frame keys select conversation turns rather than dispatching controls.
 
-Transcript traffic is latest-value coalesced in 250 ms windows (four pushes per
-second maximum per joined channel). A dedicated relay is the sole subscription
-to the focused agent, so the channel mailbox is not filled by a transcript
-burst. A burst produces one `transcript` event containing the final line from
-that window; intermediate lines are intentionally discarded because the device
-renders only a small live-log region.
+Ticket chat uses `Build.ConversationSource` in its owning channel or LiveView process. Both owners use `FrameUpdates.transition/3` for focus effects and `frame/5` for the same masked, full-width SVG. Navigation away clears the subscription.
+
+Focus reads
+retained history, including after a daemon restart, and subscribes to the live
+conversation handle. Live notifications coalesce on a 250 ms tick; a one-second
+poll catches file appends and generation changes. Reads and pushes are bounded
+to four per second. Refocus, unfocus and termination unsubscribe and cancel the
+timer. `chat.latest` uses the shared Entries allowlist; prompt bodies, raw events
+and tool output are excluded. Remote-device masking removes secrets and URLs
+from conversation text before chat pages or frames reach the device. The focus
+path no longer pushes `logs`.
+Missing, unavailable and stale conversations are named on the strip; stale state
+includes the observation age.
+
+### Conversation pages
+
+A turn groups one `say` with preceding `tool`/`sys` entries back to the previous
+`say` or `op`; each `op` is its own turn. Turns retain their entry IDs and order
+from the desktop modal source and include a tool count. The ticket frame shows
+seven turns oldest-first plus a pinned LIVE key. Bus events are excluded.
+
+`chat_page` accepts the focused conversation’s opaque `before` cursor. It calls
+`ConversationSource.page/3` and replies with `turns`, the next `before`, and
+`more`. The server keeps selection and paging on `Nav`; the physical sidecar
+only draws pushed frames. `input` replies still carry navigation only.
+
+At most 500 conversation entries are retained. `:reset` or `:invalid_cursor`
+discards loaded pages and reloads the tail, resetting selection to LIVE.
 
 ## Commands and answering
 
 The Commands page is history-first: opening it shows the focused agent's past
 Commands newest first, with open and deferred ones answerable and completed
 ones read-only.
+
+Input replies carry navigation only. Account images use the coalesced pushed
+`frame` event (eight optional key SVGs and strip regions).
+Turn dial 4 past the eight Fleet category keys to reach provider meter keys.
+Pressing one opens read-only account keys with 5h/weekly remaining values, per-account
+resets and stale/unknown indicators. Hold dial 4 to return to the provider page.
+While Fleet is open, coalesced usage observations push a `frame` event with fresh
+images, alongside the existing `usage` event. Clients apply only pushed frames.
 
 ### Device → Aiur
 
@@ -206,3 +311,31 @@ Only transcribed text round-trips. The waveform and the decibel bar are computed
 on the sidecar from the captured PCM and never wait on Aiur, so "is my
 microphone working" is bounded by the 20 ms capture latency rather than by any
 network round trip.
+
+## Server-rendered images
+
+`AiurWeb.Streamdeck.Render` is a pure SVG renderer; transport remains a separate
+consumer. `key/1` draws a projected grid agent. `frame/1` accepts the existing
+`grid` and `usage` snapshot plus optional `column_offset` and `provider_offset`,
+returning exactly eight keys (empty slots are `nil`) and strip regions tiling
+800×100. `strip/1` composes regions from title/bar, meter, count, text and pager
+parts, so later views share the same drawing path.
+
+Key images use physical row order; ranked input agents fill each column top-to-bottom.
+
+The grid provider panels retain the current session-only layout and show remaining quota.
+
+Each image carries `svg`, a 16-character lowercase SHA-256 content `hash`, and a
+plain-text accessible `label`; strip images also carry `x` and `width`. Keys
+have width/height/viewBox 120×120; strip regions have their local width ×100.
+SVGs contain only inline assets, including the DeepSeek base64 PNG, and escaped
+text. There are no external asset references or scripts. The same input gives
+identical bytes and hashes; relative ages must arrive in the input model.
+
+All text uses `JetBrains Mono, monospace`. Consumers register the bundled
+JetBrains Mono font before rasterizing. Wrapping uses a fixed advance of
+0.6 em; key titles occupy at most three lines with a final ellipsis. Unknown
+progress draws only a grey track, measured zero draws a visible fill stub, and
+stale readings retain their value with reduced opacity. Fixture keys target
+4 KiB and 200-wide regions 6 KiB; the original embedded DeepSeek PNG exceeds
+that key target and must be budgeted separately.

@@ -7,8 +7,9 @@ import path from "node:path";
 import process from "node:process";
 
 import type { AudioDevice } from "./audio/index.js";
-import type { StreamDeckGrid } from "./channel.js";
+import type { StreamDeckChat, StreamDeckGrid } from "./channel.js";
 import type { ControllerState } from "./controller.js";
+import { demoTicket } from "./demo.js";
 import { debugEnabled } from "./debug.js";
 import { debug } from "./hid-device.js";
 import { decodeInputReport } from "./input.js";
@@ -61,8 +62,11 @@ export const surfaceState = (
   current: ControllerState,
   microphones: readonly AudioDevice[],
   voice: VoicePanelInput | undefined,
+  demoGrid?: StreamDeckGrid,
 ): PhysicalSurfaceState => ({
   mode: current.mode,
+  chat: demoGrid === undefined ? current.chat : demoChat(current),
+  ticket: demoGrid === undefined ? current.ticket : demoTicket(demoGrid, current.focusedIdentifier),
   focusedIdentifier: current.focusedIdentifier,
   micHeld: current.micHeld,
   columnOffset: current.columnOffset,
@@ -102,4 +106,11 @@ export const logLine = ({ level, message, cause }: LogEntry): void => {
   } else {
     console.info(line);
   }
+};
+
+const demoChat = (current: ControllerState): StreamDeckChat | null => {
+  const row = [...current.transcriptRows].reverse().find((entry) => entry.kind === "message");
+  if (current.focusedIdentifier === null || row?.kind !== "message") return null;
+  return { v: 1, kind: "chat", id: current.focusedIdentifier, state: "live", observed_at: null,
+    latest: { id: "demo", at: null, k: row.role === "user" ? "op" : "say", text: row.body } };
 };

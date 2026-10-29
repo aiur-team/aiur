@@ -24,6 +24,8 @@ defmodule Aiur.Events.Catalog.Entries do
     %Entry{pattern: "ticket.*.agent.decision.#", class: :journaled, export?: true, refs: [:ticket, :decision_id, :decision_version], attrs: [slug: {:enum, @decision_slugs}], owner: "commands"},
     # aiur/executor_events.ex — private to the Executor principal.
     %Entry{pattern: "executor.#", class: :journaled, owner: "executor-attention"},
+    # aiur/voice_conversation/handoff.ex — transcript and summary remain private.
+    %Entry{pattern: "executor.voice.session_ended", class: :journaled, owner: "voice-conversation"},
     # aiur/alerts.ex; aiur/agent_runner/tool_executor.ex
     Entry.alert("ticket.*.agent.attention.#", "harness-adapters", export?: true),
     Entry.alert("system.#", "signal", export?: true)

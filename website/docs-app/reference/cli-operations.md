@@ -62,6 +62,14 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur cleanup-stale --dry-run` | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
 | `aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]` | Requires an allowlisted human identity and ten-minute gates for head, draft, approval, changes, CI, conflicts, attribution and merge result. Agents, Apps and self-review refuse. Queues report `ENQUEUED`; rerun after merge. Exit 0: merged/enqueued/observed/dry run; 2: refusal; 1: tool error. Records: `~/.aiur/logs/pr-merge/`; observed merges notify `system.pr.merged`. | `aiur pr merge 42 --reviewed-sha <40-character-sha> --dry-run` |
 
+### Units
+
+`aiur units --json` includes `auxiliary.running_build` with the running daemon's
+release-stamp `sha` and `built_at` (UTC). Missing stamp fields are `null`; the
+collector never substitutes the current checkout's commit or file time.
+
+### Fleet status and messages
+
 Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason, owner and elapsed age, for example `· backing_off · RetryEngine · 45s`. `aiur agents` summarizes ordinary idle tickets in one count; use `aiur agents --all` to print every idle row.
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
@@ -83,6 +91,10 @@ If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-bu
 Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. The current legacy routing ignores the stored mode; `listen-mode` says so explicitly.
 
 When a send receipt carries a listener mode, `aiur message` also prints `accepted under <mode> listener mode`; legacy sends retain their existing output.
+
+With listener routing enabled and async support usable, leaving `async` queues one notice with the unread count. Earlier bodies stay pull-only through `aiur_read_messages`.
+
+If the pull tool becomes unavailable, held bodies follow the effective mode instead; no new pull notice is queued. An empty backlog adds no notice. Returning to `async` supersedes an undelivered backlog notice.
 
 Use `--idempotency-key KEY` on `listen-mode` to retry an uncertain write with the same mode and `--expected-version`. A write timeout reports `outcome unknown` and the key; it does not prove failure. `--actor executor` is permitted for a worker's mode.
 

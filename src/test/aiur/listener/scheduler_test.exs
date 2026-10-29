@@ -61,6 +61,23 @@ defmodule Aiur.Listener.SchedulerTest do
     end
   end
 
+  test "held bodies stay pull-only only while actual async support is usable" do
+    delivery = Aiur.AgentQueue.operator_message("held", "private", listener_mode: :async).delivery
+
+    for status <- [:proven, :experimental] do
+      view = %{effective: :sync, support: %{async: %{status: status}}}
+      assert Scheduler.restamp_fun(view).(delivery) == delivery
+    end
+
+    for support <- [%{}, %{async: %{status: :unknown}}, %{async: %{status: :unsupported, reason: :pull_tool_unavailable}}] do
+      restamped = Scheduler.restamp_fun(%{effective: :sync, support: support}).(delivery)
+      assert restamped.consume_at == :safe_checkpoint
+      assert restamped.listener_mode_at_claim == :sync
+    end
+
+    assert Scheduler.restamp_fun(%{effective: :sync}).(delivery).consume_at == :safe_checkpoint
+  end
+
   test "emulated steer requires explicit effective support acceptance" do
     Application.put_env(:aiur, :listener_send_routing, :listener)
     harness = %{source: :session, harness_id: "codex", callbacks: %{steer: :none}, primitives: %{turn_boundary_start: true, hard_interrupt: :in_band, pull_tool: false}}

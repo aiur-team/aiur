@@ -1,3 +1,7 @@
+import type { DeckFrame } from "./frame.js";
+import type { RawInput } from "./frame-input.js";
+import type { BuildProgressInput } from "./touchStrip/summarySegment.js";
+
 /** Wire types of the `streamdeck:fleet` channel contract; re-exported from `channel.ts`. */
 
 export interface StreamDeckAgentState {
@@ -32,7 +36,48 @@ export interface StreamDeckSnapshot {
   readonly voice?: StreamDeckVoiceState;
 }
 
+/** Build ticket projection; unknown evidence remains null. */
+/** Allowlisted entry from the shared desktop conversation source. */
+export interface StreamDeckChat {
+  readonly v: 1;
+  readonly kind: "chat";
+  readonly id: string;
+  readonly state: "live" | "ended" | "known_empty" | "stale" | "unavailable" | "restart_unknown" | "not_retained";
+  readonly observed_at: number | null;
+  readonly latest: { readonly id: string; readonly at: number | null; readonly k: "say" | "op" | "sys" | "tool"; readonly text?: string; readonly name?: string; readonly arg?: string; readonly res?: string; readonly bad?: boolean } | null;
+}
+
+export interface StreamDeckTicket {
+  readonly v: 1;
+  readonly kind: "ticket";
+  readonly id: string;
+  readonly title: string | null;
+  readonly sec: string | null;
+  readonly status: { readonly label: string; readonly tone: string; readonly agent_state: string | null };
+  readonly agent: { readonly model: string | null; readonly name: string | null; readonly effort: string | null; readonly pct: number | null; readonly start: number | null } | null;
+  readonly pr: { readonly num: number; readonly state: string; readonly ci?: string | null } | null;
+  readonly control: { readonly action: string | null; readonly state: string; readonly title: string | null } | null;
+  readonly links?: { readonly modal: string | null; readonly pr: string | null };
+  readonly actions?: { readonly pause: string; readonly priority_up: string; readonly priority_down: string; readonly mic?: string };
+  readonly qpos: number | null;
+  readonly observed_at: number | null;
+}
+
+export interface StreamDeckCounts {
+  readonly status: "ok" | "stale" | "unavailable";
+  readonly observed_at: number | null;
+  readonly agents: number | null;
+  readonly live: number | null;
+  readonly queued: number | null;
+  readonly not_queued: number | null;
+  readonly by_state: Readonly<Record<string, number>> | null;
+}
+
 export interface StreamDeckGrid {
+  readonly tickets_status?: string;
+  readonly counts?: StreamDeckCounts;
+  readonly build?: BuildProgressInput | null;
+  readonly build_status?: "ok" | "none" | "unavailable";
   readonly agents: readonly Record<string, unknown>[];
   readonly total: number;
   readonly windows: number;
@@ -202,9 +247,12 @@ export type StreamDeckCommandAnswerError =
   | { readonly reason: "stale" };
 
 export interface StreamDeckChannelEvents {
+  frame?(frame: DeckFrame): void;
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
+  chat?(chat: StreamDeckChat): void;
+  ticket?(ticket: StreamDeckTicket): void;
   usage(usage: Readonly<Record<string, unknown>>): void;
   transcript(row: TranscriptRow): void;
   logs(logs: StreamDeckLogs): void;
@@ -245,6 +293,7 @@ export interface WebSocketLike {
 export type WebSocketFactory = (url: string) => WebSocketLike;
 export type FetchLike = (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
   ok: boolean;
+  status?: number;
   json(): Promise<unknown>;
 }>;
 
@@ -259,6 +308,8 @@ export interface StreamDeckChannelOptions {
 }
 
 export interface StreamDeckChannel {
+  input(input: RawInput): void;
+  priority(identifier: string, direction: "up" | "down"): void;
   focus(identifier: string): void;
   /**
    * The two fleet verbs the deck can perform.
@@ -320,3 +371,5 @@ export interface StreamDeckChannel {
   ): void;
   close(): void;
 }
+
+export class InstanceAuthError extends Error {}

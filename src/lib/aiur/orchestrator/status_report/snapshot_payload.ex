@@ -11,11 +11,11 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   import Aiur.Orchestrator.StatusReport.RowFacts
 
   alias Aiur.CodingAgent
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.Dispatcher
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
@@ -28,6 +28,10 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   @doc false
   @spec snapshot_payload(State.t()) :: map()
   def snapshot_payload(%State{} = state) do
+    CodingAgent.with_snapshot(fn -> SettingsSnapshot.run(fn -> do_snapshot_payload(state) end) end)
+  end
+
+  defp do_snapshot_payload(state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
@@ -296,7 +300,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     retrying_issue_ids = MapSet.new(Map.keys(state.retry_attempts))
 
     excluded_issue_ids = MapSet.union(running_issue_ids, retrying_issue_ids)
-    terminal_states = DispatchPolicy.terminal_state_set()
 
     idle_issues =
       visible_polled_issues(state)
@@ -310,7 +313,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       idle_issue_snapshot(
         state,
         issue,
-        terminal_states,
         now_ms,
         latch_statuses,
         activity_by_identity,
@@ -322,7 +324,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   defp idle_issue_snapshot(
          %State{} = state,
          %Issue{} = issue,
-         _terminal_states,
          now_ms,
          latch_statuses,
          activity_by_identity,

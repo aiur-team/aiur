@@ -28,6 +28,7 @@ export type FooterFace = Footer;
 /** A composed agent key: everything the canvas needs to draw one agent. */
 export interface AgentKeyFace {
   readonly kind: "agent";
+  readonly stateLabel?: string | null;
   readonly face: string;
   readonly accent: string;
   readonly glow: string;
@@ -131,6 +132,7 @@ export function composeKeyFace(
 function composeAgentFace(agent: AgentKey, lineChars: number): AgentKeyFace {
   return {
     kind: "agent",
+    stateLabel: agent.stateLabel,
     face: agent.style.face,
     accent: agent.style.accent,
     glow: agent.style.glow,

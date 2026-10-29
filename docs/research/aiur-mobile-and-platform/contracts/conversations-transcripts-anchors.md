@@ -1,10 +1,10 @@
 # Conversations, transcripts and anchors — persisted foundation
 
-This records the foundation implemented by MP-E4-C1-T01. The earlier contract
-referenced by the research tickets is absent from the integration branch and
-its cited research revision. These sections restate the ticket's specified
-identity, records and storage contract; they do not define the later reader,
-writer process or anchor APIs.
+This records the foundation implemented by MP-E4-C1-T01 and the journal
+writer from MP-E4-C1-T02. The earlier contract referenced by the research
+tickets is absent from the integration branch and its cited research revision.
+These sections state the implemented identity, records, storage and writer
+contracts; the later page-reader API remains separate.
 
 ## §3 — Conversation identity
 
@@ -97,6 +97,38 @@ Directories use mode 0700; files use 0600. Symlinked conversation paths and
 files are refused. Only `head.json` is replaced atomically. Recovery syncs surviving complete
 entry and session records before publishing their positions.
 
+## §7 — Serialized ingestion
+
+`Ingest.append(ref, source, events)`, `end_session(ref, provider_id, reason)`
+and `gap(ref, reason, from, to)` return `:ok` without waiting for disk. The
+facade converts transcript events before casting to a Registry-named writer.
+Each conversation has one `Journal` process under `JournalSupervisor`; initial
+file preparation runs after process startup. Producers are wired separately.
+
+The writer assigns dense positions, batches at most 50 transcript inputs from
+one source per entry append, and flushes small batches after 200 ms. Session
+identity is `{harness, provider_session_id}`. A changed identity closes the old
+session as `superseded`. An explicit end applies only to the matching provider
+(or any open session when its provider ID argument is null). Deduplication is
+scoped to the open session and retains the latest 50,000 distinct keys.
+Provider-file ingestion also rebuilds a bounded replay index from durable
+entries for the same harness and provider session, so replaying the file after
+a daemon restart or a stop/resume does not duplicate retained records.
+This index is loaded by the writer, never by the producer.
+
+On reload, a session from the current BEAM run continues with dedup rebuilt
+from its durable entries. A session from another run closes as
+`daemon_restart_unknown`; the next source starts a `resume` session. An idle
+writer flushes and stops after 15 minutes. Detected loss spans survive idle
+eviction in BEAM-local memory; a later input starts another writer.
+
+Failed writes require head reconstruction before any retry. Complete surviving
+records are retained and deduplicated; only the store's eligible torn final
+entry tail is repaired. Interior corruption leaves the writer read-only.
+Readers that use the store's recovering APIs must serialize those calls with
+this writer; calling `read_head` or `stream_entries` independently during an
+append is unsafe. This writer does not add a journal page-reading API.
+
 ## §8 — Segments and recovery
 
 Segments are named `entries.000001.jsonl`, `entries.000002.jsonl`, and so on,
@@ -159,3 +191,19 @@ and the first anchor at equal precision. Causal inference belongs to C3-T03.
 with SHA-256 and returns `anc_` plus the first 26 lowercase, unpadded Base32
 characters. Position and labels do not affect identity; upgraded precision
 creates a new identity for append-only resolution.
+
+## §11 — Gaps and durable notifications
+
+A failed flush retries with exponential backoff, starting at 1 second, for up
+to five retries. Exhaustion drops buffered inputs while retaining their observed
+span for a later `source_unreadable` gap. A mailbox exceeding 5,000 messages
+drops incoming transcript batches, increments the per-conversation dropped
+counter, and retains a `backpressure` span. Gap bounds are daemon observation
+times; provider occurrence times never define a missing observation span.
+
+The first failure emits `system.conversation.journal.degraded`, naming only the
+conversation and error class. Recovery emits its `.resolved` companion.
+After fsync, PubSub topic `conversation:<conversation_id>` receives
+`{:entries_appended, conversation_id, entries}` and
+`{:session_changed, conversation_id, session}`. Head reconstruction syncs
+uncertain surviving records before their recovery notifications are published.

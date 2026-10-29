@@ -3,6 +3,53 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
   alias Aiur.TestSupport.EndpointStubs
 
+  defmodule BuildSource do
+    def ticket(_, _), do: {:ok, %{title: "Ticket", pr: nil}}
+
+    def unit_row(id, _) do
+      snapshot = AiurWeb.EndpointConfig.get(:streamdeck_snapshot_fun).()
+      agent = Enum.find(snapshot.running ++ snapshot.idle ++ snapshot.retrying, &(to_string(&1.identifier) == id))
+      paused = agent && agent[:work_state] == :paused
+
+      {:ok,
+       %{
+         identity: %Aiur.TrackerIdentity{status: :joinable, kind: :github, owner: "acme", repository: "aiur", provider_id: "node", database_id: 1, identifier: id},
+         lifecycle: :active,
+         terminal?: false,
+         replacement_boundary?: false,
+         reasons: %{pause: nil},
+         runtime: %{bucket: if(paused, do: :paused, else: :running), work_state: if(paused, do: :paused, else: :working), tracker_paused?: false}
+       }}
+    end
+  end
+
+  setup do
+    EndpointStubs.put(streamdeck_build_source: BuildSource)
+    :ok
+  end
+
+  test "ticket link buttons carry the server target and priority keys reorder the focused queue" do
+    queue = start_supervised!({Agent, fn -> [11, 22, 1352] end})
+
+    EndpointStubs.put(
+      streamdeck_build_queue_fun: fn ->
+        items = Agent.get(queue, & &1) |> Enum.with_index() |> Enum.map(fn {n, i} -> %{number: n, position: i} end)
+        %{status: :running, queues: [%{kind: :list, name: "ops", items: items}]}
+      end,
+      streamdeck_reorder_fun: fn id, at ->
+        Agent.update(queue, fn ids -> List.insert_at(Enum.reject(ids, &(to_string(&1) == id)), at, String.to_integer(id)) end)
+        :ok
+      end
+    )
+
+    {:ok, view, _} = live(build_conn(), "/streamdeck")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert has_element?(view, ~s(button[data-streamdeck-url="#{Endpoint.url()}/build?ticket=1352"][aria-label="Dashboard"]))
+    assert has_element?(view, ~s|button[data-streamdeck-command="priority_up"]:not([disabled])|)
+    render_hook(view, "command-press", %{"command" => "priority_up"})
+    assert Agent.get(queue, & &1) == [11, 1352, 22]
+  end
+
   test "key presses request pause for running and resume for paused agents" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
@@ -65,7 +112,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
     # 1352 is the prioritized running agent in the fixture, so its grid key
     # wears the star before anything is pressed.
-    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] .sd-ag-prio))
+    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] svg text), "★")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_receive {:streamdeck_pause, "1352"}, 1000
@@ -80,7 +127,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     refute html =~ "Deprioritize requested"
 
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
-    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] .sd-ag-prio))
+    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] svg text), "★")
   end
 
   test "the settings key opens a pane that admits microphone choice lives on the sidecar host" do
@@ -105,26 +152,36 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
   test "read-only mode renders the command keys disabled and refuses the control call" do
     endpoint_config = Application.get_env(:aiur, Endpoint)
-    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    Endpoint.config_change(
+      %{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)},
+      []
+    )
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
-      html = render_hook(view, "key-press", %{"identifier" => "1352"})
+      render_hook(view, "key-press", %{"identifier" => "1352"})
 
-      assert html =~ "sd-cmd-key is-disabled"
+      assert has_element?(
+               view,
+               "[data-streamdeck-command='pause'][disabled][aria-disabled='true']"
+             )
 
       # Element selectors rather than substring checks: a bare `html =~ "disabled"`
       # also matches the `is-disabled` class, so it would pass on a button that is
       # still clickable. The hook skips `disabled` keys, so a disabled attribute
       # is what actually stops the press from ever being emitted.
       for command <- ~w(pause mic) do
-        assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][disabled][aria-disabled="true"]))
+        assert has_element?(
+                 view,
+                 ~s(button[data-streamdeck-command="#{command}"][disabled][aria-disabled="true"])
+               )
       end
 
       # Logs and Settings are navigation rather than fleet control, so they stay
       # available. They are the negative control: they prove the disabling above
       # is the read-only gate and not simply every key being rendered inert.
-      for command <- ~w(logs settings) do
+      for command <- ~w(commands settings) do
         assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][aria-disabled="false"]))
         refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][disabled]))
       end
@@ -169,27 +226,28 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     assert command_key(html, "pause") =~ "Play"
   end
 
-  test "cmd mode offers the design's five command keys, with Mic as press-and-hold" do
+  test "ticket mode offers action keys, with Mic as press-and-hold" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_receive {:streamdeck_pause, "1352"}, 1000
 
-    # Five keys, in the design's order, with the design's labels and sub lines.
-    # Prioritize is not among them: the slot it held is Settings now.
     assert [
              {"pause", "Pause", "HOLD"},
-             {"logs", "Logs", "SCROLL"},
+             {"priority_up", "Priority up", "QUEUE"},
+             {"priority_down", "Priority down", "QUEUE"},
+             {"commands", "Commands", "OPEN"},
+             {"pr", "Open PR", "OPEN"},
+             {"modal", "Dashboard", "OPEN"},
              {"mic", "Mic", "HOLD"},
-             {"settings", "Settings", "OPEN"},
-             {"commands", "Commands", "OPEN"}
-           ] == rendered_command_keys(html)
+             {"settings", "Settings", "OPEN"}
+           ] == svg_command_keys(html)
 
     # Mic is the only press-and-hold key, so it is the only one the hook drives
     # from pointer events rather than a click.
     assert has_element?(view, ~s(button[data-streamdeck-command="mic"][data-command-hold="true"]))
 
-    for command <- ~w(pause logs settings) do
+    for command <- ~w(pause commands settings) do
       refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][data-command-hold]))
     end
 
@@ -220,13 +278,20 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
   test "read-only mode disables the mic key and refuses the hold" do
     endpoint_config = Application.get_env(:aiur, Endpoint)
-    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    Endpoint.config_change(
+      %{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)},
+      []
+    )
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
       render_hook(view, "key-press", %{"identifier" => "1352"})
 
-      assert has_element?(view, ~s(button[data-streamdeck-command="mic"][disabled][aria-disabled="true"]))
+      assert has_element?(
+               view,
+               ~s(button[data-streamdeck-command="mic"][disabled][aria-disabled="true"])
+             )
 
       html = render_hook(view, "mic-hold", %{"active" => true})
 
@@ -238,7 +303,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     end
   end
 
-  test "renders state-derived command keys with three disabled blank slots" do
+  test "renders ticket action keys with unavailable PR disabled" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     refute html =~ "data-streamdeck-command"
@@ -246,8 +311,8 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
 
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "settings") =~ "Settings"
-    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 5
-    assert length(Regex.scan(~r/<button[^>]*disabled[^>]*aria-hidden="true"[^>]*>/, html)) == 3
+    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 8
+    assert has_element?(view, ~s(button[data-streamdeck-command="pr"][disabled]))
 
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
@@ -260,7 +325,7 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
     assert command_icon(html, "pause") == "pause"
-    assert command_icon(html, "logs") == "logs"
+    assert command_icon(html, "priority_up") == "up"
     assert command_icon(html, "mic") == "mic"
     assert command_icon(html, "settings") == "settings"
 
@@ -347,5 +412,16 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     assert_receive {:streamdeck_pause, "1352"}, 1000
     html = render_hook(view, "command-press", %{"command" => "commands"})
     assert html =~ "UNAVAILABLE"
+  end
+
+  defp svg_command_keys(html) do
+    html
+    |> Floki.parse_fragment!()
+    |> Floki.find("[data-streamdeck-command]")
+    |> Enum.map(fn node ->
+      [command] = Floki.attribute(node, "data-streamdeck-command")
+      [label] = Floki.attribute(node, "aria-label")
+      {command, label, Floki.find(node, "[data-part='caption']") |> Floki.text()}
+    end)
   end
 end

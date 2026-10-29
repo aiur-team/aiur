@@ -15,7 +15,7 @@
   var DRAG_DIVISOR = 2.7;
 
   // Index → server-side press action. Dials 1 and 2 have no press action.
-  var PRESS_ACTIONS = { 0: "back", 3: "cycle-window" };
+  var LONG_PRESS_MS = 500;
 
   function angleDeg(cx, cy, x, y) {
     return (Math.atan2(y - cy, x - cx) * 180) / Math.PI;
@@ -76,6 +76,7 @@
     this.dragAngle = angleDeg(c.x, c.y, e.clientX, e.clientY);
     this.accumulatedDeg = 0;
     this.netDeltaDeg = 0;
+    this._pressedAt = performance.now();
     this.isDragging = true;
 
     this._bindDragListeners();
@@ -115,16 +116,9 @@
     var netDeltaDeg = this.netDeltaDeg;
     this._endDrag();
     if (accumulatedDeg < PRESS_THRESHOLD_DEG) {
-      this._press();
+      this._press(performance.now() - this._pressedAt >= LONG_PRESS_MS);
     } else {
-      // Keep the gesture local until release, then commit its final value once.
-      // Press detection uses absolute travel. Log scrolling needs signed net
-      // movement for both transcript (A) and event (D) dials, while grid dial D
-      // retains absolute accumulation so back-and-forth travel still commits
-      // its final logical value.
-      var signedCommit = this.index === 0 || (this.index === 3 && this.hook._mode === "logs");
-      var commitDelta = signedCommit ? netDeltaDeg : accumulatedDeg;
-      this.hook._handleDialStep(this.index, commitDelta);
+      this.hook._handleDialRelease(this.index, netDeltaDeg);
     }
   };
 
@@ -181,10 +175,7 @@
     if (inner) inner.textContent = String(this.value).padStart(2, "0");
   };
 
-  Knob.prototype._press = function () {
-    var action = PRESS_ACTIONS[this.index];
-    // Dials without a press action do not flash or emit an event.
-    if (!action) return;
+  Knob.prototype._press = function (longPress) {
 
     var el = this.knobEl;
     // Cancel any in-flight press timer before starting a new one so rapid
@@ -197,9 +188,7 @@
     el.classList.add("press");
     this._pressTimer = setTimeout(function () { el.classList.remove("press"); }, PRESS_FLASH_MS);
 
-    // Handle local mode transition before pushing to server.
-    this.hook._handleLocalDialPress(action);
-    this.hook.pushEvent("dial-press", { index: this.index, action: action });
+    this.hook.pushEvent("input", { kind: "dial", index: this.index, action: longPress ? "long_press" : "press" });
   };
 
   Knob.prototype.destroy = function (preserveDrag) {
@@ -230,6 +219,7 @@
       visualAngle: this.visualAngle,
       drag: this.isDragging ? {
         pointerId: this._activePid,
+        pressedAt: this._pressedAt,
         dragAngle: this.dragAngle,
         accumulatedDeg: this.accumulatedDeg,
         netDeltaDeg: this.netDeltaDeg
@@ -248,6 +238,7 @@
     if (state.drag) {
       this.isDragging = true;
       this._activePid = state.drag.pointerId;
+      this._pressedAt = state.drag.pressedAt;
       this.dragAngle = state.drag.dragAngle;
       this.accumulatedDeg = state.drag.accumulatedDeg;
       this.netDeltaDeg = state.drag.netDeltaDeg;
