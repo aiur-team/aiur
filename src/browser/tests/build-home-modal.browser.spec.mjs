@@ -69,6 +69,22 @@ test('card open, header identity, notices, focus trap and all close paths', asyn
   ]).flat())
 })
 
+test('epic icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
+  await open(page)
+  const t = await row(page)
+  await display(page, t)
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport)
+    const icon = page.locator('#tk-head .bm-ep svg')
+    await expect(icon).toHaveCount(1)
+    await expect.poll(() => icon.evaluate(el => {
+      const { width, height } = el.getBoundingClientRect()
+      return [width, height]
+    })).toEqual([17, 17])
+  }
+})
+
 test('focused cards open once with Enter and Space through the mounted hook', async ({ page }) => {
   await open(page); await installSpy(page)
   const t = await row(page), card = page.locator('.bd-card[data-id="' + t.id + '"]').first()
