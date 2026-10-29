@@ -293,7 +293,7 @@ defmodule Aiur.Orchestrator.Client do
       reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context/1)
       reader.(identifier)
     else
-      {:error, :legacy}
+      {:error, :listener_mode_unavailable}
     end
   end
 

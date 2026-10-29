@@ -1,15 +1,26 @@
 defmodule AiurWeb.Conversation.Composer do
-  @moduledoc "Worker conversation message form and local delivery observations."
+  @moduledoc "Shared worker and Executor message form and local delivery observations."
   use Phoenix.Component
+  alias Aiur.Conversation.Ref
+  alias AiurWeb.Components.VoiceInput
 
   attr(:writable, :boolean, required: true)
   attr(:target, :any, required: true)
   attr(:draft, :string, required: true)
   attr(:overlay, :map, required: true)
   attr(:listener, :any, required: true)
+  attr(:voice_capabilities, :map, default: %{})
+  attr(:instance_id, :string, default: nil)
 
   @spec composer(map()) :: Phoenix.LiveView.Rendered.t()
   def composer(assigns) do
+    executor? = match?(%Ref{subject: :executor}, assigns.target)
+
+    assigns =
+      assigns
+      |> assign(:executor?, executor?)
+      |> assign(:voice_enabled?, executor? && assigns.writable && is_map(assigns.listener) && assigns.listener[:effective] in [:sync, :steer, :async])
+
     ~H"""
     <section id="conversation-compose" aria-label="Send a message">
       <p :if={!@writable}>Read-only dashboard — messages cannot be sent.</p>
@@ -18,10 +29,15 @@ defmodule AiurWeb.Conversation.Composer do
           {mode_label(@listener)}
           <span :if={is_map(@listener) && @listener[:effective_reason]}> · {inspect(@listener[:effective_reason])}</span>
         </p>
-        <form id="conversation-composer" phx-submit="send" phx-change="draft">
-          <label for="conversation-text">Message to agent</label>
-          <textarea id="conversation-text" name="text" rows="3" required>{@draft}</textarea>
-          <button type="submit" phx-disable-with="Sending…">Send message</button>
+        <form id="conversation-composer" phx-submit="send" phx-change="draft" phx-hook={if @voice_enabled?, do: "VoiceInput"}>
+          <label for="conversation-text">{if @executor?, do: "Message to Executor", else: "Message to agent"}</label>
+          <textarea id="conversation-text" name="text" rows="3" required data-voice-input={if @voice_enabled?, do: ""}
+            disabled={@executor? && !@voice_enabled?}>{@draft}</textarea>
+          <VoiceInput.voice_input :if={@voice_enabled?} id="executor-composer-voice" surface="executor_composer"
+            target={%{kind: "executor", instance_id: @instance_id || Aiur.Identity.instance_id()}}
+            capabilities={@voice_capabilities} legacy_conversation={false} />
+          <button type="submit" phx-disable-with="Sending…" data-voice-send={if @voice_enabled?, do: ""}
+            disabled={@executor? && !@voice_enabled?}>Send message</button>
         </form>
       <% end %>
       <p :if={@writable && !@target}>Messaging is unavailable for this conversation.</p>
