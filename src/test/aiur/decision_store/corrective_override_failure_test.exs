@@ -1,8 +1,8 @@
 defmodule Aiur.DecisionStore.CorrectiveOverrideFailureTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Commands.{CorrectiveFailures, CorrectiveTicket}
   alias Aiur.{Commands, DecisionPubSub, DecisionStore}
+  alias Aiur.Commands.{CorrectiveFailures, CorrectiveTicket}
 
   test "a rejected create backs off across replay, exposes its failure and alerts once until recovery" do
     %{store: store, opts: opts, decision: decision, revised: revised, clock: clock, outcome: outcome, now: now} = failed_override("rejected-create")
