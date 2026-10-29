@@ -51,7 +51,7 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
         ls_remote_fun: fn _remote, _pattern -> {:ok, Agent.get(refs, & &1)} end,
         publisher: fn topic, payload, opts ->
           result = Aiur.Events.publish(topic, payload, opts)
-          send(owner, {:ticker_publish, result})
+          send(owner, {:ticker_publish, topic, Keyword.get(opts, :identity), result})
           result
         end,
         repo: "aiur-team/aiur",
@@ -65,8 +65,9 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
     send(ticker, :tick)
     :sys.get_state(ticker)
     :sys.get_state(Aiur.Events.exchange_server())
-    assert_receive {:ticker_publish, {:ok, _, subscribers}} when subscribers > 0, 1_000
-    assert_receive {:event, %{topic: "ticket.6628.branch.push", ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
+    assert_receive {:ticker_publish, "ticket.6628.branch.push", published_identity, {:ok, _, subscribers}} when subscribers > 0, 1_000
+    assert published_identity == ctx.identity
+    assert_receive {:event, %{topic: "ticket.6628.branch.push", sha: "abcdef1234567890", ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
     assert identity == ctx.identity
     # The production exchange serves the global worker; the local exchange is the
     # isolated resolver harness used by this test's conversation journal.
