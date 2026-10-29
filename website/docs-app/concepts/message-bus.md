@@ -345,6 +345,11 @@ It waits for the turn boundary when the agent is busy.
 Mute retains messages for explicit reads and never wakes for them. The labels
 follow Khala `7d0a3d44` (listener v1): **Async · pings only**, **Mute · silent**.
 
+Leaving Async or Mute for Sync or Steer queues one count-only backlog notice
+when unread bodies remain and the read tool is available. The bodies stay
+unread until explicitly read. Leaving Async supersedes its pending pings so
+the backlog notice is the only remaining nudge.
+
 Agent self-mode changes and owner locks are Khala-only features; Aiur v1 keeps
 human and Executor mode controls. Conversation sends default to Sync.
 
