@@ -252,6 +252,8 @@ class AllocationTest(unittest.TestCase):
                          {"boot-a", "boot-b"})
         self.assertEqual(len(records), 4)
         self.assertTrue(all(row["started_at"] != row["ended_at"] for row in records))
+        boot_a_turn = next(row for row in records if row["attempt_id"].startswith("boot-a:attempt:turn:1:"))
+        self.assertEqual(boot_a_turn["ended_at"], iso(NOW - timedelta(minutes=135)))
         headline = compute(snapshot)["allocation"]["headline"]["pc"]["window_24h"]
         self.assertAlmostEqual(headline["turn_hours"]["value"], 1.5)
 
