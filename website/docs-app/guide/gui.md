@@ -243,7 +243,9 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 ### Retired drawer controls
 
 The Units conversation drawer and its listener selector, interactive worker voice
-chat and Executor voice prototype controls have been retired. Backend listener
+chat and Executor voice prototype controls have been retired.
+
+Backend listener
 modes and Executor voice APIs remain available; their configuration is documented
 in [voice configuration](/reference/configuration-voice). Build retains message
 sending and dictation; full conversation pages retain their own composer.
