@@ -13,7 +13,7 @@ cmd_command() {
       ;;
   esac
 
-  local decision_id="" option_id="" custom_response="" quote="" relayed=0 arg
+  local decision_id="" option_id="" custom_response="" quote="" idempotency_key="" relayed=0 arg
   if [ "$#" -gt 0 ] && [[ "$1" != -* ]]; then
     decision_id="$1"
     shift
@@ -39,6 +39,8 @@ cmd_command() {
       --relayed) relayed=1 ;;
       --quote) [ "$#" -gt 1 ] || { echo "aiur: command --quote requires a value" >&2; exit 64; }; shift; quote="$1" ;;
       --quote=*) quote="${arg#--quote=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: command --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
       *) echo "aiur: command received an unexpected argument: $arg" >&2; exit 64 ;;
     esac
     shift
@@ -48,6 +50,7 @@ cmd_command() {
     [ -n "$quote" ] || { echo "aiur: command --relayed requires --quote" >&2; exit 64; }
     local relayed_by="${AIUR_EXECUTOR_ID:-${USER:-executor}}"
     local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), quote: Base.decode64!(\"$(encode_control_value "$quote")\"), relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\"), auto_current: true"
+    [ -z "$idempotency_key" ] || opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
     if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
       opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
     elif [ -z "$option_id" ] && [ -n "$custom_response" ]; then
@@ -58,6 +61,7 @@ cmd_command() {
     fi
     run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts])"
   else
+    [ -z "$idempotency_key" ] || { echo "aiur: command --idempotency-key requires --relayed" >&2; exit 64; }
     [ -z "$quote" ] || { echo "aiur: command --quote requires --relayed" >&2; exit 64; }
     if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
       cmd_operator_answer "$decision_id" --option "$option_id" --operator

@@ -18,7 +18,7 @@ defmodule Aiur.AgentQueue do
       causal_refs: Keyword.get(opts, :causal_refs, []),
       turn_id: Keyword.get(opts, :turn_id)
     }
-    |> Map.merge(Map.new(Keyword.take(opts, [:origin, :actor])))
+    |> Map.merge(Map.new(Keyword.take(opts, [:origin, :actor, :persist_across_restart?])))
   end
 
   defp operator_delivery(opts) do
