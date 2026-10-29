@@ -230,6 +230,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
                  assert String.starts_with?(text, "Operator override — this replaces your earlier instruction for Command")
                  assert text =~ "Use the new direction"
                  assert String.ends_with?(text, "Queued superseded instructions")
+                 turn_opts[:on_message].(%{event: :notification, timestamp: DateTime.utc_now(), payload: %{"method" => "turn/started", "params" => %{}}})
                  {:ok, %{session_id: "queue-session"}}
                end
              )
