@@ -32,7 +32,7 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
     assert index.epic_progress_meta == %{unmatched: 1, observed_at: observed_at, reason: nil}
   end
 
-  test "legacy label snapshots preserve epic counts while explicitly incomplete labels stay unknown" do
+  test "legacy snapshots count and incomplete rows preserve only certain epic membership" do
     epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
     p = parts([row(1, %{labels: ["area:ui"], labels_complete: :unknown})])
     settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic])
@@ -45,10 +45,38 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
     {:ok, history} = p.history
     rows = Map.update!(history.rows, 1, &%{&1 | labels_complete: false})
     incomplete = put_in(p, [:history], {:ok, %{history | rows: rows}})
-    assert {:ok, unknown} = assemble(incomplete)
-    assert unknown.epic_progress["ui"].reason == "Some ticket labels are incomplete"
-    assert unknown.epic_progress["ui"].total == nil
-    assert unknown.epic_progress_meta.reason == "Some ticket labels are incomplete"
+    assert {:ok, partial} = assemble(incomplete)
+    assert partial.epic_progress["ui"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert partial.epic_progress_meta.unmatched == nil
+    assert partial.epic_progress_meta.reason == "Some ticket labels are incomplete"
+  end
+
+  test "incomplete labels only hide epics the row could still join" do
+    epic_a = %Aiur.Config.Schema.GeneralEpic{key: "a", label: "A", labels: ["area:a"], hue: 120, icon: "pen"}
+    epic_b = %Aiur.Config.Schema.GeneralEpic{key: "b", label: "B", labels: ["area:b"], hue: 240, icon: "docs"}
+    p = parts([row(1, %{labels: ["area:a"], labels_complete: false}), row(2, %{labels: ["area:other"]})])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic_a, epic_b])
+    p = Map.put(p, :settings, {:ok, settings})
+
+    assert {:ok, index} = assemble(p)
+    assert index.epic_progress["a"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert index.epic_progress["b"] == %{closed: nil, open: nil, total: nil, observed_at: now(), reason: "Some ticket labels are incomplete"}
+    assert index.epic_progress_meta == %{unmatched: nil, observed_at: now(), reason: "Some ticket labels are incomplete"}
+
+    rows = [{"1", %{num: 1, sec: "hist"}}]
+    history = %{1 => %{labels: ["area:a"], labels_complete: false}}
+
+    sources = %{
+      history: %{state: "unavailable", reason: "history_corrupt"},
+      agents: %{state: "ok", observed_at: now()},
+      queue: %{state: "ok", observed_at: now()},
+      open_tickets: %{state: "ok", observed_at: now(), truncated: false}
+    }
+
+    failed = EpicProgress.compute([epic_a, epic_b], rows, history, sources)
+    assert failed.epics["a"].reason == "history:history_corrupt"
+    assert failed.epics["b"].reason == "history:history_corrupt"
+    assert failed.meta == %{unmatched: nil, observed_at: nil, reason: "history:history_corrupt"}
   end
 
   test "epic progress counts history maps without a label completeness marker" do
