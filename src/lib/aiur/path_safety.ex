@@ -47,9 +47,16 @@ defmodule Aiur.PathSafety do
   end
 
   defp remember_root(path, canonical, roots) do
-    if match?({:ok, %File.Stat{type: :directory}}, File.stat(canonical, [:raw])),
+    if match?({:ok, %File.Stat{type: :directory}}, raw_stat(canonical, :follow)),
       do: Process.put(@roots_key, Map.put(roots, path, canonical))
   end
+
+  # Elixir's File.stat/lstat option contracts exclude :raw. Use the Erlang
+  # API that declares it, retaining File.Stat for the path policy below.
+  defp raw_stat(path, :follow), do: path |> :file.read_file_info([:raw]) |> file_stat()
+  defp raw_stat(path, :nofollow), do: path |> :file.read_link_info([:raw]) |> file_stat()
+  defp file_stat({:ok, record}), do: {:ok, File.Stat.from_record(record)}
+  defp file_stat({:error, _reason} = error), do: error
 
   @spec canonicalize(Path.t()) :: {:ok, Path.t()} | {:error, term()}
   def canonicalize(path) when is_binary(path) do
@@ -76,7 +83,7 @@ defmodule Aiur.PathSafety do
   defp resolve_segments(root, resolved_segments, [segment | rest], visited, depth) do
     candidate_path = join_path(root, resolved_segments ++ [segment])
 
-    case File.lstat(candidate_path, [:raw]) do
+    case raw_stat(candidate_path, :nofollow) do
       {:ok, %File.Stat{type: :symlink}} ->
         follow_symlink(candidate_path, root, resolved_segments, rest, visited, depth)
 
