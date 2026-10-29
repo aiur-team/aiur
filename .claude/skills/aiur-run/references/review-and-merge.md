@@ -153,8 +153,12 @@ relabel if the ticket has already moved on. A
 the ticket is still there: when CI is pending the daemon moves it to
 `agent:ci-wait` within minutes. Swapping `agent:human-review` for
 `agent:rework` from that stale wake leaves `agent:rework` + `agent:ci-wait`,
-and dispatch authorization refuses the pair (#5796). When you do relabel, make
-two sequential calls: add the new state label first, then remove the old one.
+and dispatch authorization refuses the pair (#5796). Handoff wakes carry
+`observed_state` and `observed_updated_at` as emission-time context only: always
+re-fetch the live ticket and require its current state to remain `human-review`
+before any label write. The timestamp is diagnostic, not a substitute for the
+live read. When you do relabel, make two sequential calls: add the new state
+label first, then remove the old one.
 `gh issue edit --add-label X --remove-label Y` runs both mutations concurrently
 and is not atomic, so do not combine them.
 

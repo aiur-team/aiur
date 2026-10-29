@@ -218,6 +218,14 @@ dispatch ramp.
 
 Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
 
+An `agent.handoff.human_review` wake is a historical observation, not proof of
+the ticket's current state. Before acting on it, re-fetch the issue labels; if
+`agent:human-review` is no longer the sole current agent state (for example,
+the daemon has advanced it to `agent:ci-wait`), discard the wake without
+relabeling. Wake records may include `observed_state` and
+`observed_updated_at`; these identify the state/version at emission and do not
+replace the live label read.
+
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`
 automatically — the `pull_request_review` webhook and the review-submission
