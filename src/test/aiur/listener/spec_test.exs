@@ -70,7 +70,7 @@ defmodule Aiur.Listener.SpecTest do
 
   test "repinning CHECKSUM alone cannot bypass the upstream manifest", %{root: root} do
     copy_spec(root)
-    File.write!(Path.join(root, "v1/scheduler.v1.json"), "[]")
+    File.write!(Path.join(root, "v1/scheduler.v1.json"), " ", [:append])
     repin(root)
     assert Spec.status(root) == {:error, :spec_invalid}
   end
