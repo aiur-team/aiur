@@ -34,7 +34,7 @@ defmodule Aiur.Commands.OverridePrompt do
   @spec received(map(), keyword()) :: :ok
   def received(message, opts) do
     payload = Map.get(message, :payload, Map.get(message, "payload", message))
-    method = Map.get(payload, :method, Map.get(payload, "method"))
+    method = if is_map(payload), do: Map.get(payload, :method, Map.get(payload, "method"))
 
     if method in ["turn/started", :turn_started] or Map.get(message, :event) == :turn_started do
       Enum.each(Keyword.get(opts, :pending_overrides, []), &persist_receipt(&1, opts))

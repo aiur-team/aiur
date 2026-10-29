@@ -91,7 +91,7 @@ defmodule Aiur.DecisionStore.AgentLifecycle do
   end
 
   defp delivered_once?(decision) do
-    match?(%{state: :delivered}, Overrides.pending(decision)) or
+    match?(%{delivered_at: %DateTime{}}, Overrides.pending(decision)) or
       Enum.any?(Decision.active_dispatch_attempts(decision), &(not is_nil(&1.delivered_at)))
   end
 

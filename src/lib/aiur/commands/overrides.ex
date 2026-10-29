@@ -70,7 +70,7 @@ defmodule Aiur.Commands.Overrides do
   @doc "The current unacknowledged override, including journal-backed resume requests."
   @spec pending(Decision.t()) :: map() | nil
   def pending(%{decision_status: :decided} = decision) do
-    Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id and &1.state in [:queued, :delivered]))
+    Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id and &1.state in [:queued, :delivered, :implemented]))
   end
 
   def pending(_decision), do: nil

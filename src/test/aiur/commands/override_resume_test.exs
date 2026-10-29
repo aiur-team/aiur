@@ -49,7 +49,14 @@ defmodule Aiur.Commands.OverrideResumeTest do
 
     assert :ok = OverridePrompt.received(%{event: :notification, payload: %{"method" => "turn/started"}}, opts)
     {:ok, delivered} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
-    assert [%{state: :delivered, delivered_at: %DateTime{}}] = delivered.overrides
+    assert [%{state: :delivered, delivered_at: at}] = delivered.overrides
+    assert match?(%DateTime{}, at)
+
+    assert {:ok, _} =
+             Commands.record_command_fact(ctx.decision.decision_id, :override_implemented, %{action_id: ctx.decision.active_action_id, head_sha: "after", pr_number: 77, at: DateTime.add(at, 1)},
+               server: ctx.store
+             )
+
     assert OverridePrompt.prepare(ctx.issue.identifier, decision_store: ctx.store)[:pending_overrides] != []
 
     assert {:ok, %{decision_status: :acknowledged}} =
@@ -62,7 +69,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
 
     assert OverridePrompt.prepare(ctx.issue.identifier, decision_store: ctx.store)[:pending_overrides] == []
     {:ok, done} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
-    assert [%{state: :implemented, evidence: :acknowledged}] = done.overrides
+    assert [%{state: :implemented, evidence: %{kind: :push, head_sha: "after"}}] = done.overrides
   end
 
   test "capacity wait survives restart then resumes only one worker on the same ticket", ctx do
