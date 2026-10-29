@@ -78,6 +78,10 @@ and `ANTHROPIC_API_KEY`; ElevenLabs retains `elevenlabs.api_key` / `ELEVENLABS_A
 Do not put keys under `providers`. Probes return presence only, and configuration
 structs retain no credential values. Capability details report the preferred option
 and skipped reasons, such as `OpenAI Realtime skipped: OPENAI_API_KEY missing`.
+The public capability entry includes `preferred_provider`, `preference_state` and
+`provider_reason`. These describe the core resolver's preference result separately
+from the prototype's `state`, which describes its explicit provider selection.
+They do not claim that the prototype has used the preferred provider.
 The prototype drawer below still permits explicit provider/model selection.
 
 See provider data paths and retention boundaries for [OpenAI](/apis/openai),

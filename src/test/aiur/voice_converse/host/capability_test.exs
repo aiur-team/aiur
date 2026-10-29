@@ -18,14 +18,23 @@ defmodule Aiur.VoiceConverse.Host.CapabilityTest do
     result = Capability.evaluate(context, http_port_fun: fn -> 4000 end, availability_fun: fn -> :ok end, running_fun: fn -> true end, resolve_fun: resolve)
     assert result.state == :available
     assert result.preferred_provider == :elevenlabs_agents
-    assert result.detail == "OpenAI Realtime skipped: OPENAI_API_KEY missing"
+    assert result.preference_state == :available
+    wire = Aiur.Capabilities.to_wire(%{capabilities: %{"voice.conversation" => result}})
+    assert wire["capabilities"]["voice.conversation"]["preferred_provider"] == "elevenlabs_agents"
+    assert wire["capabilities"]["voice.conversation"]["provider_reason"] == "OpenAI Realtime skipped: OPENAI_API_KEY missing"
+    assert result.provider_reason == "OpenAI Realtime skipped: OPENAI_API_KEY missing"
+    report = %{machine: nil, instance: nil, repository: nil, executor: nil, revision: 1, age_ms: 0, freshness: "current", capabilities: %{"voice.conversation" => result}}
+    rendered = Aiur.CapabilitiesCLI.render(report)
+    assert rendered =~ "preference=available preferred=elevenlabs_agents"
+    assert rendered =~ result.provider_reason
   end
 
   test "ElevenLabs missing reason includes both host credential names" do
     assert {:ok, config} = Aiur.VoiceConverse.Host.Config.build(%Aiur.Config.Schema.VoiceConversation{}, "/unused/voice")
     result = Capability.resolution_detail(config, {:error, :no_usable_option, [{:elevenlabs_agents, {:missing_credential, :elevenlabs}}]})
     assert result.preferred_provider == nil
-    assert result.detail == "ElevenLabs Agents skipped: elevenlabs.api_key / ELEVENLABS_API_KEY missing"
+    assert result.preference_state == :unavailable
+    assert result.provider_reason == "ElevenLabs Agents skipped: elevenlabs.api_key / ELEVENLABS_API_KEY missing"
   end
 
   test "reports the conversation availability and dashboard prerequisites" do

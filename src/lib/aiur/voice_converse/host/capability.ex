@@ -25,8 +25,7 @@ defmodule Aiur.VoiceConverse.Host.Capability do
       {:ok, config} ->
         resolution = Keyword.get(opts, :resolve_fun, &VoiceConverse.Providers.resolve/1).(config)
         details = resolution_detail(config, resolution)
-        detail = [Map.get(status, :detail), details.detail] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join("; ")
-        Map.merge(status, %{details | detail: detail})
+        Map.merge(status, details)
 
       {:error, _reason} ->
         status
@@ -38,11 +37,11 @@ defmodule Aiur.VoiceConverse.Host.Capability do
   @doc false
   @spec resolution_detail(VoiceConverse.Config.t(), tuple()) :: map()
   def resolution_detail(config, {:ok, option, skipped: skipped}) do
-    %{preferred_provider: option.id, detail: render_skipped(config, skipped)}
+    %{preferred_provider: option.id, preference_state: :available, provider_reason: render_skipped(config, skipped)}
   end
 
   def resolution_detail(config, {:error, :no_usable_option, skipped}) do
-    %{preferred_provider: nil, detail: render_skipped(config, skipped)}
+    %{preferred_provider: nil, preference_state: :unavailable, provider_reason: render_skipped(config, skipped)}
   end
 
   defp render_skipped(config, skipped) do
