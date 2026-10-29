@@ -43,7 +43,10 @@ def chromium_available():
 
 class RendererTest(unittest.TestCase):
     def test_missing_baseline_marks_each_trend_and_scope_unavailable(self):
-        data = compute(fixtures.snapshot())
+        today = fixtures.snapshot()
+        today["merges"] = [fixtures.merge(1), fixtures.merge(2, **{"class": "other"})]
+        today["allocation"]["units"] = {"running": {"feature": 1, "tooling": 1}}
+        data = compute(today)
         page = render.html(data)
         for heading in ("Allocation trend", "Scope changes", "Feature share of merges"):
             self.assertIn(heading, page)
@@ -51,7 +54,15 @@ class RendererTest(unittest.TestCase):
         self.assertIn('class="unav">unavailable</span>', page.split('class="facts"')[1].split('Feature focus')[0])
         scope = page.split('Scope changes')[1].split('Shipped today')[0]
         self.assertEqual(scope.count('class="unav">unavailable'), 5)
-        self.assertNotIn('stroke-dasharray=', page)
+        self.assertIn('stroke-dasharray="50.0 100"', page)
+
+    def test_unknown_feature_share_does_not_draw_zero_gauge(self):
+        data = compute(fixtures.snapshot())
+        page = render.html(data)
+        gauge = page.split('class="gauge"')[1].split('class="facts"')[0]
+        self.assertIn('unavailable', gauge)
+        self.assertNotIn('stroke-dasharray=', gauge)
+        self.assertNotIn('0<small>%', gauge)
 
     def test_real_metrics_drive_gauge_progress_classes_and_timezone(self):
         page = render.html(report(), "America/Los_Angeles")
