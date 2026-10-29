@@ -17,6 +17,7 @@ export function mountMic(root, ctx) {
     mic.removeAttribute('aria-disabled');
     root.querySelector('[data-voice-root]').dataset.voiceSttState = reply.state;
     voice = new Controller({ el: root });
+    voice.state = 'idle'; // Keep the composer's existing idle status copy.
     voice.mount();
   }, () => {
     if (!dead && root.isConnected) off(mic, UNKNOWN);

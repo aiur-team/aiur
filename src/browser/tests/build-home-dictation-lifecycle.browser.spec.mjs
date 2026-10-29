@@ -47,6 +47,8 @@ test('closing the Build modal releases a microphone granted after dismissal', as
     })
   })
   await open(page, { voice: { state: 'available' } })
+  await expect(page.locator('#cv-mic')).toBeEnabled()
+  await expect(page.locator('#cv-in-st')).toBeHidden()
   await page.locator('#cv-mic').click()
   await expect.poll(() => page.evaluate(() => typeof window.grantLateMic)).toBe('function')
   await page.locator('#bd-tk-close').click()
