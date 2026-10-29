@@ -293,7 +293,7 @@ defmodule Aiur.Orchestrator.Slots do
   def used_slots(%State{} = state), do: used_slots(state, state.running)
 
   defp used_slots(state, running) do
-    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running) + pending_resume_slots(state, running, :unreserved)
+    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running) + pending_resume_slots(state, running)
   end
 
   # Active agents plus rework claims whose tracker write is still in flight.
@@ -301,16 +301,16 @@ defmodule Aiur.Orchestrator.Slots do
   # check, so it must hold its slot from the moment it is claimed (#4683).
   @spec active_slots(State.t()) :: non_neg_integer()
   def active_slots(%State{} = state) do
-    State.active_running_count(state.running) + pending_rework_claims(state) + pending_resume_slots(state, state.running, :all)
+    State.active_running_count(state.running) + pending_rework_claims(state)
   end
 
   # Correlated resumes can be accepted before the worker confirms :working.
-  # Reserve that slot now, without double-counting a pause that retained one.
-  defp pending_resume_slots(state, running, mode) do
+  # Reserve admission capacity without counting the still-paused worker as active.
+  defp pending_resume_slots(state, running) do
     Enum.count(running, fn {id, entry} ->
       State.paused_running_entry?(entry) and
         match?(%{action: :resume}, ControlLifecycle.current_pending(state.control_lifecycle, id)) and
-        (mode == :all or State.reserved_paused_running_count(%{id => entry}) == 0)
+        State.reserved_paused_running_count(%{id => entry}) == 0
     end)
   end
 

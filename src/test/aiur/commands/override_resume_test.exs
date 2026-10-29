@@ -226,7 +226,8 @@ defmodule Aiur.Commands.OverrideResumeTest do
     {:ok, _, lifecycle} = ControlLifecycle.request(ControlLifecycle.new(), attrs)
     {:ok, _, lifecycle} = ControlLifecycle.accept(lifecycle, "resume", "worker")
     state = %State{max_concurrent_agents: 1, running: %{issue.id => entry}, control_lifecycle: lifecycle}
-    assert Slots.active_slots(state) == 1
+    assert Slots.active_slots(state) == 0
+    assert Slots.used_slots(state) == 1
     assert Slots.available_slots(state) == 0
     refute Slots.dispatch_slots_available?(%Issue{id: "other", state: "in-progress"}, state)
     {:ok, _, lifecycle} = ControlLifecycle.apply(lifecycle, "resume", "worker")
