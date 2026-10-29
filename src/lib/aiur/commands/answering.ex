@@ -20,6 +20,10 @@ defmodule Aiur.Commands.Answering do
   @spec supersede(String.t(), map(), keyword()) :: outcome()
   def supersede(decision_id, payload, opts), do: submit(:supersede, decision_id, payload, opts)
 
+  @doc "Override an earlier answer, recording a revision when delivery has already begun."
+  @spec override(String.t(), map(), keyword()) :: outcome()
+  def override(decision_id, payload, opts), do: submit(:override, decision_id, payload, opts)
+
   @doc "Normalize a store result; opts carry the decision_id, actor, and store context."
   @spec outcome(term(), keyword()) :: outcome()
   def outcome(result, opts), do: Outcome.normalize(result, opts)
@@ -62,7 +66,7 @@ defmodule Aiur.Commands.Answering do
     client = Keyword.get(opts, :client, %{})
 
     with {:ok, actor} <- DecisionAnswer.normalize_actor(Keyword.get(opts, :actor)),
-         true <- direct_human?(actor) or (operation == :answer and client[:surface] == :cli and actor.kind == :executor) do
+         true <- direct_human?(actor) or (operation in [:answer, :override] and client[:surface] == :cli and actor.kind == :executor) do
       attribute_client(actor, client)
     end
   end
@@ -129,6 +133,7 @@ defmodule Aiur.Commands.Answering do
   defp retry_cross_device(result, _operation, _id, _payload, _opts, _store), do: result
 
   defp call_store(:answer, id, payload, opts, store), do: DecisionStore.answer(id, payload, opts, store)
+  defp call_store(:override, id, payload, opts, store), do: DecisionStore.override(id, payload, opts, store)
 
   defp call_store(:supersede, id, payload, opts, store) do
     case DecisionStore.supersede(id, payload, opts, store) do

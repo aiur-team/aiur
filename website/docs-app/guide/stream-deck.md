@@ -471,3 +471,13 @@ A plugged-in deck can keep requesting channel tokens while its configured creden
 A stolen or unattended deck carries the write authority of its configured token, so treat it like a logged-in session. Answers remain version-checked regardless: the deck answers the exact Command version it read, and a stale press is rejected as a conflict — never recorded as a second decision.
 
 Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.
+
+The channel's `answer_command` operation also accepts `override: true` with a
+nonblank `rationale` (up to 4,000 characters) to override an existing answer,
+including after delivery. Ordinary answer submissions retain first-answer-wins
+semantics. 
+
+The override record and routing state are visible in
+`aiur commands --json`. Absent or paused workers receive the override at their next
+session; terminal tickets raise an Executor follow-up.
+Physical override controls are separate from this transport operation.

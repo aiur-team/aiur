@@ -55,6 +55,7 @@
     "Aiur.GitHub.OpenIssueListing",
     "Aiur.GitHub.OpenIssueSnapshot",
     "Aiur.GitHub.PollSnapshots",
+    "Aiur.GitHub.PullRequestHeadUpdate",
     "Aiur.GitHub.PullRequests",
     "Aiur.GitHub.PullRequests.CommitCiStatus",
     "Aiur.GitHub.ReviewThreads",

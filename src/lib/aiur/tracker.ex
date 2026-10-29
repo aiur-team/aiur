@@ -29,6 +29,7 @@ defmodule Aiur.Tracker do
                optional(:version) => String.t() | nil,
                optional(:head_ref) => String.t() | nil,
                optional(:head_sha) => String.t() | nil,
+               optional(:head_updated_at) => String.t() | nil,
                optional(:base_ref) => String.t() | nil,
                optional(:merge_commit_sha) => String.t() | nil
              }}
