@@ -289,7 +289,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = render_hook(view, "key-press", %{"identifier" => "1400"})
 
-    assert streamdeck_assigns(view).sd_active.bucket == :stuck
+    assert streamdeck_assigns(view).sd_active.bucket == :alert
     assert strip(html) =~ "Conversation unavailable"
     assert streamdeck_assigns(view).sd_active.state == "command"
   end
