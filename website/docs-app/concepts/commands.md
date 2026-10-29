@@ -258,6 +258,7 @@ or a later proven push. Queue acceptance alone does not mean implementation.
 For an unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
 journal-backed resume queue. Resumable workers continue on the same ticket,
 branch and PR, oldest request first, within the fleet and pressure limits.
+
 Capacity waits remain visible with `resume_reason: capacity` and survive restart.
 A newer override supersedes the earlier pending actions; only its text is used.
 
