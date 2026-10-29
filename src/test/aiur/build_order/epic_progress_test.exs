@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Index, Lifecycle}
+  alias Aiur.BuildOrder.Index.EpicProgress
   alias Aiur.Heroicons
 
   test "epic progress counts every matching label regardless of feature ownership" do
@@ -48,6 +49,24 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
     assert unknown.epic_progress["ui"].reason == "Some ticket labels are incomplete"
     assert unknown.epic_progress["ui"].total == nil
     assert unknown.epic_progress_meta.reason == "Some ticket labels are incomplete"
+  end
+
+  test "epic progress counts history maps without a label completeness marker" do
+    epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
+
+    sources = %{
+      history: %{state: "ok", observed_at: now()},
+      agents: %{state: "ok", observed_at: now()},
+      queue: %{state: "ok", observed_at: now()},
+      open_tickets: %{state: "ok", observed_at: now(), truncated: false}
+    }
+
+    rows = [{"1", %{num: 1, sec: "hist"}}]
+    history = %{1 => %{labels: ["area:ui"]}}
+    result = EpicProgress.compute([epic], rows, history, sources)
+
+    assert result.epics["ui"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert result.meta == %{unmatched: 0, observed_at: now(), reason: nil}
   end
 
   test "epic progress excludes unpublished planned rows without label records" do

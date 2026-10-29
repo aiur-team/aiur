@@ -63,7 +63,7 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
         # Rows written before labels_complete was introduced still carry the
         # complete label snapshot that was used to classify them. New partial
         # reads explicitly persist false (including catch-up pagination caps).
-        %{labels_complete: complete, labels: labels} when is_list(labels) and complete != false -> false
+        %{labels: labels} = row when is_list(labels) -> Map.get(row, :labels_complete) == false
         _ -> true
       end
     end)
