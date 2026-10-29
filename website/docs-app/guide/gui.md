@@ -262,6 +262,14 @@ In read-only mode, the `/units` Tickets panel shows the Add an agent action as u
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
 
+### Executor composer voice
+
+The shared Executor composer supports **Dictate** and **Converse**, like worker
+composers, when Executor messaging is enabled. Voice controls are hidden when
+the composer is read-only or its effective listener mode is unavailable.
+This integration awaits the Executor view and send adapter; the existing
+**Talk to Executor** prototype below remains separately available.
+
 ### Executor voice prototype
 
 Open a conversation drawer, choose **ElevenLabs** or **OpenAI**, enter its model,

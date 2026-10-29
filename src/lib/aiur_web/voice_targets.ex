@@ -7,8 +7,8 @@ defmodule AiurWeb.VoiceTargets do
   when the operator presses Send. This module owns the voice-side rules
   (surface per target kind, instance match, refusal text); whether a worker
   or Command can still take text is asked through `AiurWeb.VoiceTargetResolver`,
-  bound to the same rules the Send paths use. Executor targets are not
-  addressable yet (`unsupported_target`).
+  bound to the same rules the Send paths use. Executor targets follow the
+  instance capability report.
 
   Delivery stays with the surface's own Send; this check only refuses early.
   """
@@ -28,6 +28,7 @@ defmodule AiurWeb.VoiceTargets do
     result =
       cond do
         surface not in Map.get(@surfaces, kind, []) -> {:error, :invalid_payload}
+        kind == :executor -> AiurWeb.ExecutorVoiceTarget.validate(target)
         not same_instance?(target) -> {:error, :target_not_found}
         true -> check(target, surface)
       end
@@ -42,7 +43,6 @@ defmodule AiurWeb.VoiceTargets do
     end
   end
 
-  defp check(%{kind: :executor}, _surface), do: {:error, :unsupported_target}
   defp check(%{kind: :worker, ticket: ticket}, _surface), do: resolve(fn resolver -> resolver.worker(ticket) end)
 
   defp check(%{kind: :command, decision_id: decision_id, expected_version: version}, "command_revision"),
@@ -68,7 +68,9 @@ defmodule AiurWeb.VoiceTargets do
   end
 
   defp reason(:target_not_found, :worker), do: "Agent is no longer running."
+  defp reason(:target_not_found, :executor), do: "Executor is no longer available on this instance."
   defp reason(:target_not_found, _kind), do: "This Command no longer exists."
+  defp reason(:target_not_writable, :executor), do: "Executor conversation cannot receive messages."
   defp reason(:target_not_writable, _kind), do: "Agent actions require a unique typed target."
   defp reason(:target_stale, _kind), do: "This Command has changed. Reload it before dictating an answer."
   defp reason(:unsupported_target, _kind), do: "Voice input can't address this target yet."
