@@ -73,6 +73,8 @@ defmodule Aiur.ExecutorWakeProjection do
          "head_sha" => head_sha,
          "last_review_sha" => last_review_sha,
          "action" => enum(value(event, :action) || action_from_topic(topic), @actions),
+         "observed_state" => value(event, :observed_state),
+         "observed_updated_at" => value(event, :observed_updated_at),
          "draft" => strict_boolean(first_present(value(pr, :draft), value(event, :draft))),
          "author_trusted?" => trusted_github_author?(event),
          "author_id" => positive_integer(value(event, :author_id)),

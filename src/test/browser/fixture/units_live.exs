@@ -272,6 +272,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         :if={@conversation_drawer}
         id="units-fixture-conversation-drawer"
         view={@conversation_drawer.view}
+        full_conversation_href={AiurWeb.OperatorControlCenter.ConversationLink.href(@conversation_drawer.row.identity)}
         voice_capabilities={%{"voice.stt" => %{state: :available}, "voice.conversation" => %{state: @voice_conversation_state, reason: :not_installed}}}
         composer={%{target_key: "1110", writable_target?: true, messages: []}}
         writable={if(@listener_test, do: @writable, else: true)}

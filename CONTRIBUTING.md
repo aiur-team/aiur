@@ -78,6 +78,8 @@ content as added. Binary changes are counted as files, and symlinks are excluded
 Area precedence and patterns live in `scripts/file_size_census.py`. This is
 instrumentation only, with no census CI enforcement or claimed saving.
 
+Update the pinned listener contract with `scripts/vendor-listener-spec <khala-commit-sha>`; commit its `CHECKSUM` with the files.
+
 ## Reuse before invention
 
 - **The extraction trigger is the second concrete usage — not the first, not

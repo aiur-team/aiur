@@ -1,8 +1,10 @@
 defmodule AiurWeb.Streamdeck.Deck.Meters do
   @moduledoc "Deck usage from the Build page, selecting the account closest to its limit."
+  alias Aiur.Accounts
   alias AiurWeb.Build.Usage
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.RedactedMeterSource
+  alias AiurWeb.Streamdeck.Deck.MeterDetail
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
@@ -15,6 +17,27 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
     |> Enum.zip(block.providers)
     |> Map.new(fn {family, row} -> {Atom.to_string(family), meter(family, row, inputs.accounts)} end)
   end
+
+  @doc "Provider readings, excluding the separate API-credit summary."
+  @spec providers(map()) :: map()
+  def providers(usage), do: Map.delete(usage, "apis")
+
+  @spec detail(String.t(), keyword()) :: map()
+  def detail(provider, opts \\ []) do
+    load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
+    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
+    MeterDetail.from_inputs(provider, detail_accounts(provider, inputs, opts), Keyword.get(opts, :now, DateTime.utc_now()))
+  end
+
+  defp detail_accounts("claude", inputs, opts) do
+    names = Keyword.get_lazy(opts, :account_names, &Accounts.configured_names/0)
+    names = Enum.uniq(names ++ Map.keys(inputs.accounts))
+    names = if names == [], do: ["default"], else: names
+    unknown = %{reading: nil, observed_at: nil, freshness: :unavailable}
+    %{inputs | accounts: Map.new(names, &{&1, Map.get(inputs.accounts, &1, unknown)})}
+  end
+
+  defp detail_accounts(_provider, inputs, _opts), do: inputs
 
   defp meter(family, row, accounts) do
     names = row.accounts || if(family == :claude, do: Enum.sort(Map.keys(accounts)))

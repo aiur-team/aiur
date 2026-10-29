@@ -17,7 +17,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
             selected: nil,
             chat: nil,
             scroll: 0,
-            chip_offset: 0
+            chip_offset: 0,
+            meter_count: 0
 
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
@@ -28,7 +29,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
           selected: String.t() | nil,
           chat: map() | nil,
           scroll: non_neg_integer(),
-          chip_offset: non_neg_integer()
+          chip_offset: non_neg_integer(),
+          meter_count: non_neg_integer()
         }
   @type effect :: {:chat_page, String.t()} | :close_ticket | {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
 
@@ -93,6 +95,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   defp transition(nav, %{"kind" => "dial_turn", "index" => 0, "ticks" => ticks}),
     do: {%{nav | scroll: max(nav.scroll + ticks, 0)}, []}
 
+  defp transition(%{stack: [{:meter_detail, _provider} | _]} = nav, %{"kind" => "dial_turn", "index" => 1}), do: {nav, []}
+
   defp transition(%{selected: id} = nav, %{"kind" => "dial_turn", "index" => 1, "ticks" => ticks})
        when is_binary(id) and ticks != 0,
        do: {nav, [{:priority, id, if(ticks < 0, do: :up, else: :down), abs(ticks)}]}
@@ -103,9 +107,8 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   defp transition(nav, %{"kind" => "key_press", target: {:ticket, id}}) when is_binary(id),
     do: {%{nav | selected: id}, [{:open_ticket, id}]}
 
-  defp transition(nav, %{"kind" => "key_press", target: {kind, id}})
-       when kind in [:feature, :epic, :fleet] and is_binary(id),
-       do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
+  defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :epic, :fleet, :meter_detail] and is_binary(id),
+    do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
 
   defp transition(nav, _input), do: {nav, []}
 

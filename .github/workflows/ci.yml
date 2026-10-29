@@ -97,7 +97,7 @@ jobs:
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
-        run: bash scripts/test-check-test-shard-parity.sh
+        run: bash scripts/test-check-test-shard-parity.sh && bash scripts/test-check-listener-spec.sh
       - name: Test bare assert_receive and on_exit rm_rf guards
         run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh && test "${{ needs['pre-handoff'].result }}" = success
       - name: Test hourly retrospective visual check

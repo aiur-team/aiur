@@ -35,7 +35,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
 
   @spec reduce(map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def reduce(raw, socket) do
-    case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
+    case FrameUpdates.transition(socket.assigns.deck_nav, raw, Map.put(socket.assigns.grid, :meter_usage, socket.assigns.usage)) do
       {:ok, nav, effects} ->
         socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
         sizes = Deck.Input.sizes(nav, Deck.navigation(socket.assigns.grid))

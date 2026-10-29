@@ -1,0 +1,7 @@
+{
+  "backlog_on_leave_async": "notice",
+  "effective": "sync",
+  "effective_reason": null,
+  "requested": "sync",
+  "version": 1
+}

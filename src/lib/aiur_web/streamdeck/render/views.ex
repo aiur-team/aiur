@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
-  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame}
-  alias AiurWeb.Streamdeck.Render.{Fleet, Svg, ViewStrip}
+  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame, Nav}
+  alias AiurWeb.Streamdeck.Render.{Fleet, MeterDetail, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
   @glyphs %{
@@ -18,6 +18,10 @@ defmodule AiurWeb.Streamdeck.Render.Views do
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{surface: :grid, nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
+    MeterDetail.compose(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, Nav.page(nav))
+  end
+
   def compose(%{nav: %{chat: chat, surface: :chat}} = model) when is_map(chat) do
     turns = ChatNavigation.visible(chat)
 
