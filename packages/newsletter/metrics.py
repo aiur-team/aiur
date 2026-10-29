@@ -84,7 +84,8 @@ def instant_allocation(snapshot, yesterday):
     old_ratio = percent(prior["feature"], sum(prior.values())) if prior is not None and "feature" in prior else UNAVAILABLE
     fields = ("allocation.units.running", "sources.allocation")
     hours = snapshot.get("allocation", {}).get("agent_hours") if available(snapshot, "agent_hours") else None
-    return {"running_agents": metric(total, *fields), "running_feature_agents": metric(feature, *fields),
+    return {"running_agents": metric(total, *fields),
+            "running_by_class": {k: metric(v, *fields) for k, v in running.items()} if running is not None else UNAVAILABLE, "running_feature_agents": metric(feature, *fields),
             "feature_percent": metric(ratio, *fields),
             "trend_pp": metric(difference(ratio, old_ratio), *fields, "yesterday.allocation.units.running"),
             "held_slots": {life: {kind: metric(value, f"allocation.units.{life}.{kind}") for kind, value in classes.items()}

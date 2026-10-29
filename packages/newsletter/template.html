@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>The Aiur Daily</title>
+<style>$styles</style></head><body>
+<header class="mast"><div class="name"><img src="$logo" alt="Aiur logo"><h1>The Aiur <span>Daily</span></h1></div></header>
+<div class="rules"></div>
+<div class="dateline"><b>$date</b><span>Window end $window_end</span><span>PC + NUC combined</span></div><div class="rule1"></div>
+<section class="cols lead"><div><span class="kick">Feature share of merges · goal 95%</span>
+<h2>Building toward the goal</h2>
+<div class="hero">$gauge<div class="facts"><div class="fact"><b>$feature_count<i>/$merged</i></b><span>feature merges</span></div><div>$trend</div></div></div>
+$focus</div><div class="vrule"></div>
+<aside class="byou"><header>$hand<h3>Blocked by you</h3><span class="count">$blocker_count</span></header><ul>$blockers</ul></aside></section>
+<section class="cols body"><div><div class="sec-h"><h3>Feature progress</h3><span class="kick">Before · today · left</span></div>
+<div class="board">$program$lanes</div>
+<div class="legend2"><span class="lg"><i class="accent"></i>done before</span><span class="lg"><i class="today"></i>done in window</span></div>
+$states$patterns$notes</div><div class="vrule"></div><div class="rail">
+<div class="card"><span class="kick">Merged · live · verified</span>$funnel</div>
+<div class="card scope"><span class="kick">Scope changes</span>$scope</div>
+<div class="card"><span class="kick">Shipped today</span><ul class="ship">$shipped</ul></div></div></section>
+<section class="bns">$bottlenecks</section>
+<p class="omitted">$omitted</p>
+<footer class="foot">Sources: $sources. Feature share = feature PRs / merged PRs in this 24h window. Live = merge in running build; verified = completed feature with Executor evidence. Scope is separate from completion. Bars: before + today + left. Missing evidence = unavailable.</footer>
+</body></html>

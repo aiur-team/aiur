@@ -2,7 +2,7 @@
 
 `metrics.compute(today, yesterday_or_none)` consumes collector schema v1 and
 returns a JSON-serializable dictionary without I/O, mutation or wall-clock reads.
-Import it with `scripts/newsletter` on Python's module search path. No network,
+Import it with `packages/newsletter` on Python's module search path. No network,
 git process, local daemon, or dependency is required.
 
 The report separates `outcomes`, `allocation`, `program`, `bottlenecks`, `actions`
@@ -148,3 +148,16 @@ starvation is a real zero; no recorded interval cannot prove that zero.
 Run `python3 scripts/test-newsletter-metrics.py`,
 `python3 scripts/test-newsletter-allocation.py` and
 `python3 scripts/test-newsletter-collect.py` for fixture-only contract tests.
+
+## Rendering fields
+
+`program.done_in_window` counts completed tickets whose closing timestamp is in
+the report window. `program.states` partitions deduplicated tickets into done,
+active, todo, paused, shelved and removed. Not-planned tickets are removed;
+paused mobile/watch tickets are shelved. Active means a running/allocated/
+waiting/retrying lifecycle or an in-progress/CI/review/rework/merging label.
+Other unfinished tickets are todo. Removed tickets remain outside program total.
+Lane `paused` is true only when every member is paused.
+`allocation.instant_context.running_by_class` carries the existing observed
+running counts by class, with source paths. None of these fields substitutes a
+baseline or changes the seven-day allocation headline.

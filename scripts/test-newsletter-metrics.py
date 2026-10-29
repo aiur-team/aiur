@@ -10,7 +10,7 @@ import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "newsletter"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packages" / "newsletter"))
 from metrics import compute
 from local_sources import iso
 
