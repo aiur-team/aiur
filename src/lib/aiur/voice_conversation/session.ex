@@ -5,7 +5,7 @@ defmodule Aiur.VoiceConversation.Session do
   require Logger
 
   alias Aiur.VoiceConversation
-  alias Aiur.VoiceConversation.Handoff
+  alias Aiur.VoiceConversation.{Handoff, SessionComparison}
   alias Elixir.VoiceConverse.{Events, Redact, SessionRegistry}
 
   @spec start(pid(), keyword()) :: {:ok, pid(), String.t()} | {:error, term()}
@@ -28,10 +28,12 @@ defmodule Aiur.VoiceConversation.Session do
     instance = Keyword.get(opts, :instance, VoiceConversation.Instance)
     start = Keyword.get(opts, :start_session, &VoiceConversation.start_session/2)
 
-    with {:ok, id} <- start.(self(), Keyword.drop(opts, [:instance, :start_session, :deliver])),
+    with {:ok, comparison, opts} <- SessionComparison.prepare(opts),
+         {:ok, id} <- start.(self(), Keyword.drop(opts, [:instance, :start_session, :deliver, :comparison])),
          {:ok, session} <- SessionRegistry.lookup(instance, id) do
       monitor = Process.monitor(session)
-      {:ok, %{owner: owner, id: id, instance: instance, monitor: monitor, turns: [], pending_user: nil, deliver: Keyword.get(opts, :deliver), summary: nil, stopping?: false}}
+      SessionComparison.schedule(comparison)
+      {:ok, %{owner: owner, id: id, instance: instance, monitor: monitor, turns: [], pending_user: nil, deliver: Keyword.get(opts, :deliver), summary: nil, stopping?: false, comparison: comparison}}
     else
       {:error, reason} -> {:stop, reason}
     end
@@ -50,6 +52,8 @@ defmodule Aiur.VoiceConversation.Session do
   def handle_cast(:stop, state), do: {:noreply, end_session(state)}
 
   @impl true
+  def handle_info(:comparison_cap, state), do: {:noreply, end_session(state, :max_duration)}
+
   def handle_info({:voice_conversation, id, {:ended, reason}}, %{id: id} = state), do: finish(state, reason)
 
   def handle_info({:voice_conversation, id, event}, %{id: id} = state) do
@@ -70,10 +74,11 @@ defmodule Aiur.VoiceConversation.Session do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp end_session(%{stopping?: true} = state), do: state
+  defp end_session(state, reason \\ :user_end)
+  defp end_session(%{stopping?: true} = state, _reason), do: state
 
-  defp end_session(state) do
-    case Elixir.VoiceConverse.end_session(state.instance, state.id) do
+  defp end_session(state, reason) do
+    case Elixir.VoiceConverse.end_session(state.instance, state.id, reason) do
       :ok ->
         %{state | stopping?: true}
 
@@ -84,6 +89,7 @@ defmodule Aiur.VoiceConversation.Session do
   end
 
   defp finish(state, reason) do
+    SessionComparison.finish(Map.get(state, :comparison), state.id, state.owner)
     turns = if state.pending_user, do: state.turns ++ [%{role: "user", text: state.pending_user}], else: state.turns
 
     case deliver(state, turns, reason) do
@@ -105,6 +111,8 @@ defmodule Aiur.VoiceConversation.Session do
   defp deliver(state, turns, reason), do: Handoff.deliver(state.id, turns, reason, Map.get(state, :summary))
 
   defp record(state, {:summary_recorded, summary}), do: %{state | summary: summary}
+
+  defp record(state, %Events.AgentAudio{}), do: %{state | comparison: SessionComparison.audio(state.comparison)}
 
   defp record(state, %Events.UserTranscript{text: text, final?: false}),
     do: %{state | pending_user: Redact.redact(text)}

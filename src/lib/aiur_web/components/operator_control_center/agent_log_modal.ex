@@ -3,6 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
 
   use Phoenix.Component
 
+  import AiurWeb.Components.VoiceInput, only: [voice_input: 1]
+
   alias Aiur.Conversation.History
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
@@ -11,6 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   attr(:writable, :boolean, required: true)
   attr(:drafts, :map, required: true)
   attr(:errors, :map, required: true)
+  attr(:receipts, :list, default: [])
+  attr(:voice_capabilities, :map, default: %{})
 
   @spec agent_log_modal(map()) :: Phoenix.LiveView.Rendered.t()
   def agent_log_modal(assigns) do
@@ -41,7 +45,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
           </div>
         </div>
 
-        <form :if={@composer_writable} class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
+        <form :if={@composer_writable} id={"agent-log-composer-#{@modal.target_key}"} phx-hook="VoiceInput"
+          class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
           <p :if={error = @errors[@modal.target_key]} class="agent-chat-error">{error}</p>
           <textarea
             class="agent-chat-textarea"
@@ -50,10 +55,18 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             placeholder="Message agent…"
             aria-label="Message agent"
             enterkeyhint="send"
+            data-voice-input
           >{@drafts[@modal.target_key] || ""}</textarea>
+          <.voice_input delivery={AiurWeb.Components.VoiceDelivery.receipt(@receipts, @modal.target_key, @errors)}
+            id={"agent-log-voice-#{@modal.target_key}"}
+            capabilities={@voice_capabilities}
+            surface="agent_composer"
+            target={%{kind: "worker", ticket: to_string(@modal.issue_identifier)}}
+            legacy_conversation={false}
+          />
           <div class="agent-chat-actions">
             <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
-            <button class="aiur-button aiur-button--dashboard btn" type="submit">Send</button>
+            <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send>Send</button>
           </div>
         </form>
 
