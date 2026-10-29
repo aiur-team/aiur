@@ -39,6 +39,7 @@ defmodule AiurWeb.UnitsRedirectTest do
     method
     |> conn(path)
     |> Map.put(:secret_key_base, String.duplicate("s", 64))
+    |> put_private(:phoenix_endpoint, AiurWeb.Endpoint)
     |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
     |> AiurWeb.Session.call(Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session"))
     |> fetch_session()
