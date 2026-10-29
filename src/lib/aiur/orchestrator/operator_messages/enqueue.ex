@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseResume, State, TicketTransition}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
 
   @doc false
   @spec payload_key(map(), term()) :: String.t() | nil
@@ -137,26 +137,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   end
 
   defp enqueue_for_next_worker(state, issue_identifier, text, request) do
-    attrs =
-      AgentQueue.operator_message(issue_identifier, text,
-        delivery_policy: :checkpoint,
-        origin: request.origin,
-        actor: request.actor,
-        turn_id: request.turn_id,
-        action_id: request.action_id,
-        correlation: request.correlation
-      )
-
-    case enqueue_plain(state.queue_store, attrs, request) do
-      {:ok, queue_store, item, _status} ->
-        Unread.broadcast_change(state.queue_store, queue_store, issue_identifier)
-        record_operator_queued_evidence(item)
-        next_state = %{state | queue_store: queue_store} |> LifecycleFence.protect_queued_item(issue_identifier, item)
-        {{:ok, item.id}, next_state}
-
-      {:error, _reason} = error ->
-        {error, state}
-    end
+    EnqueueNextWorker.enqueue(state, issue_identifier, text, request, &enqueue_plain/3, &record_operator_queued_evidence/1)
   end
 
   defp replay_existing_correlated_message(

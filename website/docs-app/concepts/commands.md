@@ -50,11 +50,14 @@ re-raise moots the stale record before opening its replacement. The Executor
 can also moot or dismiss a blocker whose ticket is closed or question is moot.
 
 Agents classify the action, not the subsystem around it. Routine,
-reversible operational choices should use `supervisor_allowed`; irreversible
-actions, spend, external publication, and product direction remain
-`human_required`. By default, the Executor can answer only a Command that
-declares `supervisor_allowed` or `supervisor_preferred` together with
-`reversible`. Operators may opt in to delegation for reversible legacy
+reversible operational choices should use `supervisor_allowed`.
+
+Irreversible actions, spend, external publication, and product direction
+remain `human_required`. By default, the Executor can answer only a Command
+that declares `supervisor_allowed` or `supervisor_preferred` together with
+`reversible`.
+
+Operators may opt in to delegation for reversible legacy
 engineering Commands with `executor.allow_reversible_human_required_answers`;
 product, spend, publication, and security decisions remain human-only.
 

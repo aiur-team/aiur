@@ -39,6 +39,12 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --unfiled` | Includes tickets without an issue identifier in supported listing commands. | `aiur --unfiled` |
 | `aiur --urgency LEVEL` | Sets urgency for a supported command. | `aiur --urgency high` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
+| `aiur command` | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | `aiur command` |
+| `aiur command --filter open` | Applies the existing Command filters through the canonical singular command. | `aiur command --filter open` |
+| `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery. | `aiur command dec_123` |
+| `aiur command DECISION-ID --custom-response TEXT` | Records a local operator's bounded text answer after interactive confirmation. | `aiur command dec_123 --custom-response 'Wait for a fresh build'` |
+| `aiur command DECISION-ID --option ID` | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | `aiur command dec_123 --option keep` |
+| `aiur command DECISION-ID --option ID --relayed --quote TEXT` | Relays an operator's already-given answer with the current version and a generated idempotency key; requires the relay config gate. | `aiur command dec_123 --option keep --relayed --quote 'Keep them'` |
 | `aiur command request <question>` | Creates an Executor-originated Command for the human; requires a running daemon. | `aiur command request 'Ship today?' --option yes=Ship --option no=Wait` |
 | `aiur command request <question> --context-file PATH` | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | `aiur command request 'Ship?' --context-file release.md` |
 | `aiur command request <question> --recommend ID` | Moves the named supplied option first; omitted by default. | `aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes` |
