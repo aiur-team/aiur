@@ -168,3 +168,33 @@ critical-path capacity, or prevent completion.
   separately still open and does not become deferred through this entry.
 - Future disposition: compare mode positions using #5181's captures and add
   the requested browser layout assertion when correcting the alignment.
+
+## DF-015 — MP-R1 historical ratchet criterion needs reconciliation
+
+- Severity: P2 acceptance-documentation debt.
+- Evidence: #3342's 2026-10-26 census found raw allowlist rows increased in
+  #4021 (586 → 589), #4409 (573 → 577), and #5026 (521 → 545).
+  Their diffs carry explicit MP-R1-C9 extraction reasons. Initial checker
+  bootstrap PRs #3530 and #3578 also introduced new rule baselines.
+- Affected component: MP-R1 plan §7 criterion 3 and component-checker policy.
+- Why deferred: the current full checker passes; ticket-reasoned exceptions
+  are supported by the current policy. Raw allowance rows are not reference
+  occurrences, and no new runtime failure was observed. A current green
+  checker does not establish the plan's stricter historical monotonic claim.
+- Future disposition: reconcile criterion 3 with reviewed extraction exceptions
+  and retain the dated [acceptance evidence](../research/aiur-mobile-and-platform/acceptance/MP-R1/README.md).
+
+## DF-016 — MP-R1-GHA-6 physical promotion record remains open
+
+- Severity: P2 conditional packaging debt; owner #3828 (still OPEN).
+- Evidence: #3342 acceptance review found that root #3252 includes GHA-1..6
+  beyond its original 69-member list. GHA-1..5 merged as #5030, #5482, #6179,
+  #6241 and #6340; their receipts now appear in the acceptance report.
+- Affected component: github-access physical package promotion.
+- Why deferred: migration-plan §5 makes physical packaging conditional; the
+  logical component, settings/ports, facade and standalone wrapper are already
+  present. This QA report does not promote the component or assert that the
+  outstanding five-condition go/no-go record exists.
+- Future disposition: #3828 must publish its cited promotion record, then
+  either perform the gated package move or link the required no-go follow-up.
+  It remains open; capstone acceptance is limited to the current logical form.
