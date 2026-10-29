@@ -195,6 +195,8 @@ test('delivery states: queued, delivered shows confirmed receipt, failed restore
   await expect(line(page)).toHaveText('Queued · waiting for the agent')
   await status(page, { request_id: 7, status: 'delivered' })
   await expect(line(page)).toHaveText('Delivered to the agent')
+  await status(page, { request_id: 7, status: 'unrecognized_receipt' })
+  await expect(line(page)).toHaveText('Delivery outcome unknown. Check the log before you send again.')
   await status(page, { request_id: 7, status: 'failed' })
   await expect(line(page)).toHaveText('Not delivered (failed)'); await expect(line(page)).toHaveClass(/bad/)
   await expect(box(page)).toHaveValue('one')

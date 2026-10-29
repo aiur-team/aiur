@@ -108,8 +108,8 @@ export function claimLocalOp(entry) {
   return localOps.splice(i, 1)[0].el;
 }
 export function sendStatus(msg) {
-  if (!st || msg?.v !== 1 || msg.id !== st.id || msg.request_id !== st.last || !Object.hasOwn(STATUS, msg.status)) return;
-  const words = STATUS[msg.status];
+  if (!st || msg?.v !== 1 || msg.id !== st.id || msg.request_id !== st.last) return;
+  const words = Object.hasOwn(STATUS, msg.status) ? STATUS[msg.status] : ['Delivery outcome unknown. Check the log before you send again.', ''];
   setLine(words?.[0], words?.[1]);
   const ta = $('#cv-in textarea');
   if (msg.status === 'failed' && ta && !ta.value) { ta.value = st.sent; drafts.set(st.id, st.sent); grow(ta); }
