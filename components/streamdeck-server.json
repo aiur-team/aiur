@@ -44,7 +44,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Renders shared Stream Deck frames with Build ticket states, PR checks, Commands, paged conversation turns, account windows, queue controls and links.",
+  "summary": "Renders shared Stream Deck frames with ticket states, PR checks, Commands, paged conversations, account windows and queue controls.",
   "status": "optional",
   "install": {
     "type": "included"
