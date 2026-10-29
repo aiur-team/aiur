@@ -208,11 +208,12 @@ distinguish merged, failed, not planned and other closed outcomes.
 
 Open a card, or a `/?ticket=<number>` link, to read the ticket's conversation.
 The modal starts with the newest entries; scroll to the top to load earlier
-ones. A missing past transcript reads “Conversation not retained”, and an
-unknown ticket reads “Ticket not found”.
+ones. Masked journal entries survive daemon restarts and workspace removal;
+tickets without a journal fall back to workspace logs. Missing history reads
+“Conversation not retained”; an unknown ticket reads “Ticket not found”.
 
-Remote workers show only their retained live window; stale or unavailable live
-state is labeled separately from the transcript.
+Without a journal, remote workers show only their retained live window; stale
+or unavailable live state is labeled separately from the transcript.
 
 On a writable dashboard, a Not queued ticket's modal offers **Add to queue**.
 In a running ticket's modal, use **Pause agent** or **Resume agent** with writable

@@ -90,7 +90,7 @@ defmodule AiurWeb.Build.Conversation do
     if socket.assigns.conversation_poll_token == token do
       signature = signature(socket.assigns.conversation_ref)
       socket = assign(socket, conversation_timer: nil)
-      socket = if socket.assigns.conversation_drain or signature != socket.assigns.conversation_stat, do: update(socket, false), else: socket
+      socket = if socket.assigns.conversation_ref[:journal_id] != nil or socket.assigns.conversation_drain or signature != socket.assigns.conversation_stat, do: update(socket, false), else: socket
       schedule(socket)
     else
       socket
@@ -223,7 +223,7 @@ defmodule AiurWeb.Build.Conversation do
   end
 
   defp changed_ref?(old, ref) do
-    fields = [:handle, :running_unknown?, :reason, :remote?, :workspace]
+    fields = [:journal_id, :handle, :running_unknown?, :reason, :remote?, :workspace]
     Map.take(old, fields) != Map.take(ref, fields) or old[:running] == nil != (ref[:running] == nil)
   end
 
@@ -273,6 +273,8 @@ defmodule AiurWeb.Build.Conversation do
       socket
     end
   end
+
+  defp local?(%{journal_id: id}) when is_binary(id), do: true
 
   defp local?(ref), do: is_binary(ref[:path]) and not is_binary((ref[:running] || %{})[:worker_host])
 
