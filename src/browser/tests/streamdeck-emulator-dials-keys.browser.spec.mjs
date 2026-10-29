@@ -407,11 +407,10 @@ test('command mic deactivates when a mode transition removes the held key', asyn
   await micButton.dispatchEvent('pointerdown')
   await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
 
-  const dial = page.locator('.sd-knob').nth(3)
-  await dial.click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
-
   await page.locator('.sd-knob').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   await expect(page.locator('.sd-mic-key')).not.toHaveClass(/mic-live/, { timeout: 500 })
 })

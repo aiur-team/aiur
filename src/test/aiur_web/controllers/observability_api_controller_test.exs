@@ -5,7 +5,6 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Test
 
   alias Aiur.{Claude.HookEvents, Config, DecisionStore, IssueLog}
-  alias Aiur.Orchestrator.SnapshotStore
 
   defmodule ControlOrchestrator do
     use GenServer
@@ -130,16 +129,6 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
         :ets.delete(AiurWeb.Endpoint, key)
       else
         Phoenix.Config.put(AiurWeb.Endpoint, key, previous_value)
-      end
-    end
-  end
-
-  defp config_change_if_running(changed) do
-    if Process.whereis(AiurWeb.Endpoint) do
-      try do
-        AiurWeb.Endpoint.config_change(changed, [])
-      rescue
-        ArgumentError -> :ok
       end
     end
   end
@@ -385,78 +374,6 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     assert Jason.decode!(invalid.resp_body)["error"]["code"] == "invalid_cursor"
   end
 
-  test "GET /api/v1/streamdeck/grid returns the grid projection" do
-    orchestrator = start_control_orchestrator()
-    configure_endpoint(orchestrator)
-
-    :ok =
-      SnapshotStore.publish(orchestrator, %{
-        running: [],
-        retrying: [],
-        idle: []
-      })
-
-    conn = call(conn(:get, "/api/v1/streamdeck/grid") |> authed())
-
-    assert conn.status == 200
-
-    assert %{
-             "agents" => [],
-             "agents_per_page" => 8,
-             "columns_per_page" => 4,
-             "max_column_offset" => 0,
-             "rows_per_column" => 2,
-             "snapshot_freshness" => %{"reason" => nil, "status" => "current"},
-             "total" => 0,
-             "windows" => 0
-           } = Jason.decode!(conn.resp_body)
-  end
-
-  test "GET /api/v1/streamdeck/grid preserves the pre-first-snapshot error" do
-    orchestrator = start_control_orchestrator()
-    configure_endpoint(orchestrator)
-
-    conn = call(conn(:get, "/api/v1/streamdeck/grid") |> authed())
-
-    assert conn.status == 200
-
-    assert Jason.decode!(conn.resp_body) == %{
-             "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
-           }
-  end
-
-  test "GET /api/v1/streamdeck/grid uses the sibling read auth pipeline" do
-    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
-    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
-
-    on_exit(fn ->
-      config_change_if_running(dashboard_auth_required: false)
-      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
-      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
-    end)
-
-    System.put_env("AIUR_DASHBOARD_USERNAME", "streamdeck-user")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "streamdeck-password")
-
-    Application.put_env(
-      :aiur,
-      AiurWeb.Endpoint,
-      Keyword.put(Application.get_env(:aiur, AiurWeb.Endpoint, []), :dashboard_auth_required, true)
-    )
-
-    AiurWeb.Endpoint.config_change([dashboard_auth_required: true], [])
-
-    assert call(conn(:get, "/api/v1/streamdeck/grid")).status == 401
-
-    authorized_conn =
-      :get
-      |> conn("/api/v1/streamdeck/grid")
-      |> put_req_header("authorization", "Basic " <> Base.encode64("streamdeck-user:streamdeck-password"))
-      |> call()
-
-    assert authorized_conn.status == 200
-  end
-
   defp install_decision_history!(count) do
     original_state = :sys.get_state(DecisionStore)
 
@@ -473,9 +390,6 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
       _pid -> :sys.replace_state(DecisionStore, fn _state -> original_state end)
     end
   end
-
-  defp restore_env(key, nil), do: System.delete_env(key)
-  defp restore_env(key, value), do: System.put_env(key, value)
 
   defp decision_histories(count) do
     %{

@@ -3,7 +3,7 @@ import { connectStreamDeckChannel } from "../src/channel.js";
 import { InstanceAuthError, type StreamDeckChannelEvents, type WebSocketLike } from "../src/channel-types.js";
 import { guardChannelEvents } from "../src/instance-events.js";
 
-const events = (): StreamDeckChannelEvents => ({ snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(), voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn() });
+const events = (): StreamDeckChannelEvents => ({ snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(), voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn() });
 it.each([401, 403, 500])("classifies token response %i without disclosing credentials", async (status) => {
   const websocket = vi.fn();
   const promise = connectStreamDeckChannel({ baseUrl: "https://remote.test", token: "never-print-me", fetch: async () => ({ ok: false, status, json: async () => ({}) }), websocket, events: events() });

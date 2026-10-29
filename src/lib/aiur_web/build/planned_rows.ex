@@ -92,7 +92,24 @@ defmodule AiurWeb.Build.PlannedRows do
       unknown: item.state == :unknown or item.verdict == :unknown
     }
 
-    %{id: to_string(item.number), num: item.number, sec: "plan", status: "queued", ord: 0, qpos: 1, wave: graph.waves[item.number], deps: Enum.map(item.prerequisites, &to_string(&1.number)), cue: cue}
+    %{
+      id: to_string(item.number),
+      num: item.number,
+      dependency_ready: dependency_ready(cue, item.prerequisites),
+      sec: "plan",
+      status: "queued",
+      ord: 0,
+      qpos: 1,
+      wave: graph.waves[item.number],
+      deps: Enum.map(item.prerequisites, &to_string(&1.number)),
+      cue: cue
+    }
+  end
+
+  defp dependency_ready(%{unknown: true}, _prerequisites), do: nil
+
+  defp dependency_ready(cue, prerequisites) do
+    if Enum.any?(prerequisites, &(&1.verdict == :unknown)), do: nil, else: not cue.waitAny and is_nil(cue.failed) and not cue.blockedChain
   end
 
   defp waiting(edges, active) do
@@ -145,6 +162,7 @@ defmodule AiurWeb.Build.PlannedRows do
       status: "queued",
       ord: 0,
       qpos: nil,
+      dependency_ready: nil,
       wave: 1,
       deps: [],
       cue: %{held: nil, promoted: nil, wait: nil, waitAny: false, failed: nil, blockedChain: false, unknown: false}

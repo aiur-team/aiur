@@ -6,7 +6,7 @@ defmodule AiurWeb.Streamdeck.Deck.MetersTest do
 
   defp read(inputs) do
     load = fn :streamdeck, opts ->
-      assert opts[:meter_source] == AiurWeb.Streamdeck.Deck.MeterSource
+      assert opts[:meter_source] == AiurWeb.Build.RedactedMeterSource
       inputs
     end
 

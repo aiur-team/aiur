@@ -49,7 +49,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   defp focused_key(_nav, _raw, input), do: input
 
   defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
-    if nav.surface in [:logs, :settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
+    if nav.surface in [:settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
   end
 
   defp focus_effects(_nav, %{"kind" => kind, "index" => 3}, effects) when kind in ["dial_press", "dial_long_press", "dial_turn"], do: [:close_ticket | effects]

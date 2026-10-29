@@ -30,7 +30,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     assert_received :window_read
     refute_received :window_read
     {_nav, model, frame} = FrameUpdates.frame(%Nav{}, grid, %{})
-    html = render_component(&ImageComponents.keys/1, frame: frame, model: model, grid: grid, page: 0, dial_value: 0, selected_identifier: nil, mode: :grid, logs: %{}, commands_view: :history)
+    html = render_component(&ImageComponents.keys/1, frame: frame, model: model, grid: grid, page: 0, dial_value: 0, selected_identifier: nil, mode: :grid, commands_view: :history)
     assert html =~ "Waiting for CI"
     refute html =~ ~s(data-part="progress-fill")
 
@@ -45,8 +45,8 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     receive_barrier(%Phoenix.Socket.Message{event: "fleet", payload: %{"grid" => %{agents: [%{label: "Awaiting command", progress_percent: 40}]}}})
   end
 
-  test "Build facts win while control metadata and stale progress survive merging" do
-    row = %{num: 77, id: "77", title: "Build title", sec: "now", agent: %{state: "retrying", model: "codex"}, pct: 40}
+  test "Build facts retain priority stars and stale progress without legacy snapshot metadata" do
+    row = %{num: 77, id: "77", title: "Build title", sec: "now", agent: %{state: "retrying", model: "codex"}, pct: 40, priority: 1, progress_freshness: "stale"}
     window = %{sources: %{agents: %{state: "ok", observed_at: 123}}, sections: %{now: [row], plan: [], nq: []}}
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, window} end)
     snapshot = %{running: [%{identifier: "77", title: "Old title", work_state: :working, progress_percent: 30, progress_freshness: :stale, priority: 1}], retrying: [], idle: []}
@@ -55,7 +55,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     assert key.label == "Retrying"
     assert key.progress_percent == 40
     assert key.progress_freshness == "stale"
-    assert key.bucket == :running
+    assert key.bucket == :stuck
     assert key.priority == true
     assert Render.key(key).label =~ "40% stale"
 

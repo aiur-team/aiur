@@ -1,5 +1,5 @@
-defmodule AiurWeb.Streamdeck.Deck.MeterSource do
-  @moduledoc "Redacted provider observations for the token-authenticated deck."
+defmodule AiurWeb.Build.RedactedMeterSource do
+  @moduledoc "Redacted provider observations for authenticated device read models."
   alias Aiur.{CodingAgent, ProviderMeterProjection}
 
   @spec load(term(), keyword()) :: map()

@@ -138,6 +138,8 @@ defmodule AiurWeb.Build.IndexReader do
       reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
       timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),
+      priority: Map.get(summary, :priority),
+      build_lane: Aiur.BuildOrder.Metadata.parse(Map.get(summary, :labels, [])).lane,
       open_command_count: Map.get(summary, :open_decision_count, 0),
       agent_family: Map.get(summary, :agent_family),
       backend: Map.get(summary, :backend),

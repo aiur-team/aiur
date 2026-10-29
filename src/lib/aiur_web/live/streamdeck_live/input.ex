@@ -11,24 +11,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
 
   def handle(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
       when index in 0..3 and is_integer(delta) and delta in -32..32 do
-    case {socket.assigns.sd_mode, index} do
-      {:logs, 0} ->
-        StreamdeckLive.handle_event(
-          "logs-scroll",
-          %{"axis" => "transcript", "delta" => delta},
-          socket
-        )
-
-      {:logs, 3} ->
-        StreamdeckLive.handle_event(
-          "logs-scroll",
-          %{"axis" => "events", "delta" => delta},
-          socket
-        )
-
-      _ ->
-        StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
-    end
+    StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
   end
 
   def handle(%{"kind" => "dial", "index" => 0, "action" => "press"}, socket),

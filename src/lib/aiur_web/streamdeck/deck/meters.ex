@@ -2,12 +2,12 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
   @moduledoc "Deck usage from the Build page, selecting the account closest to its limit."
   alias AiurWeb.Build.Usage
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.Streamdeck.Deck.MeterSource
+  alias AiurWeb.Build.RedactedMeterSource
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
-    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, MeterSource))
+    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
     block = Usage.block({:ok, :streamdeck}, inputs, Keyword.get(opts, :now, DateTime.utc_now()))
 
     inputs.families

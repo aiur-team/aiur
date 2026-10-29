@@ -466,7 +466,6 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
         agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
       )
-      |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
     Application.put_env(:aiur, :voice_provider, Aiur.BrowserHarness.VoiceProvider)

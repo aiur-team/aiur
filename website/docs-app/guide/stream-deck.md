@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. Focused ticket frames show conversation turns from the desktop modal’s source. The browser also retains its legacy Logs, Settings and Commands controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. Focused ticket frames show conversation turns from the desktop modal’s source. The browser also retains its legacy Settings and Commands controls.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -21,9 +21,8 @@ The current physical client uses the navigation controls described above.
 | --- | --- | --- | --- | --- |
 | **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold to go back. |
 | **Ticket conversation** | Press a ticket key | Seven conversation turns plus LIVE | Selected turn, or the latest entry at LIVE | A: scroll text; press for Grid. B: priority. C: physical instance switcher. D: turn for older/newer turns; press to leave the ticket. |
-| **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
+| **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: conversation navigation. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
-| **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 The server-rendered Ticket strip uses three bands: build progress at the left
@@ -46,6 +45,8 @@ Physical display and raw dial routing
 require the server-image sidecar update (SD-103).
 
 Physical and emulator ticket frames show the same masked turn keys and full-width conversation strip.
+Ticket-key priority stars, lane icons and progress freshness come from the shared Build rows.
+Queued keys use the shared prerequisite verdict: Blocked, Unblocked, or Readiness unknown when facts are missing.
 
 ### Feature view
 
@@ -74,7 +75,7 @@ The legacy browser modes retain their own controls.
 | --- | --- |
 | Pause | The label reflects the selected agent's current state. |
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
-| Read-only Dashboard | Pause, priority and Mic are disabled; Commands, links, Logs and Settings stay available because they change what you see, not what the fleet does. |
+| Read-only Dashboard | Pause, priority and Mic are disabled; Commands, links and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
 | Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. The strip reports `Queued #k`. The orchestrator priority star is separate. |
 
@@ -129,7 +130,7 @@ clears loaded pages and reloads the tail, so history never silently skips a gap.
 Missing history says “Conversation not retained”; read failures say
 “Conversation unavailable”; stale conversations show their age.
 
-The legacy browser Logs surface remains separate from the ticket turn keys.
+
 
 ### Progress bars
 
@@ -180,7 +181,7 @@ forwards raw input, and shows **Aiur offline** with blank keys when the channel
 is down. On reconnect, the daemon sends a full frame and resets navigation.
 
 The physical entry point shows the server grid; selecting a ticket opens its shared conversation strip. The legacy local
-voice, Commands, browser links, demo and instance-picker views await server migrations;
+voice, Commands and browser links await server migrations;
 use the dashboard for those controls.
 
 The control and voice sections below
@@ -279,7 +280,7 @@ The legacy browser Command controls retain the voice layout below.
 | Send | Fifth, once dictation has text | Delivers the accumulated text to the agent. |
 | Cancel | Sixth, once dictation has text | Discards the accumulated text. |
 
-In the legacy Command layout, dial D opens Logs. A missing PR disables Open PR. Link keys accept only HTTP(S) URLs.
+A missing PR disables Open PR. Link keys accept only HTTP(S) URLs.
 
 The emulator shows a text pane because the microphones are attached to the machine running the sidecar, which a browser tab cannot see.
 
@@ -304,7 +305,7 @@ Settings lists the microphones attached to the sidecar's machine, six to a page.
 
 | Control or state | Behavior |
 | --- | --- |
-| Microphone key | Selects that device; the selected key wears the same plate, rail, and chip that marks the active key in Logs. |
+| Microphone key | Selects that device; the selected key is highlighted. |
 | Paging key | Eighth key; present when more than six devices are attached. |
 | TestMic | Seventh key; hold it to see the voice panel without delivering anything to an agent. |
 | Stored choice | `~/.config/aiur/streamdeck-mic.json`; survives a sidecar restart. |

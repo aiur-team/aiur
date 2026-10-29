@@ -1,79 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { anchor, dragDialThroughAngles, openStreamdeck, openUnits } from './support/streamdeck-emulator.mjs'
 
-test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
-  await openStreamdeck(page)
-
-  const device = page.locator('.sd-device')
-  const keysView = page.locator('#sd-keys[data-mode-view="grid"]')
-  const cmdView = page.locator('#sd-keys[data-mode-view="cmd"]')
-  const logsView = page.locator('#sd-logs-view')
-
-  // Initial state: grid mode, keys visible, cmd and logs hidden.
-  await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(keysView).toBeVisible()
-  await expect(cmdView).not.toBeVisible()
-  await expect(logsView).not.toBeVisible()
-
-  // Click a key to enter cmd mode.
-  const key = page.locator('.sd-key:not(.is-empty)').first()
-  await key.click()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
-  await expect(keysView).not.toBeVisible()
-  await expect(cmdView).toBeVisible()
-  await expect(logsView).not.toBeVisible()
-
-  // Dial 3 press (cycle-window) → logs mode.
-  const dial3 = page.locator('.sd-knob').nth(3)
-  await anchor(dial3)
-  const d3box = await dial3.boundingBox()
-  const d3cx = d3box.x + d3box.width / 2
-  const d3cy = d3box.y + d3box.height / 2
-  await page.mouse.move(d3cx, d3cy)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(device).toHaveAttribute('data-mode', 'logs')
-  await expect(keysView).not.toBeVisible()
-  await expect(cmdView).not.toBeVisible()
-  await expect(logsView).toBeVisible()
-
-  // Dial 0 press (back) → cmd mode.
-  const dial0 = page.locator('.sd-knob').first()
-  await anchor(dial0)
-  const d0box = await dial0.boundingBox()
-  const d0cx = d0box.x + d0box.width / 2
-  const d0cy = d0box.y + d0box.height / 2
-  await page.mouse.move(d0cx, d0cy)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
-
-  // Dial 0 press (back) again → grid mode.
-  // Re-fetch bounding box: the layout reflowed when keys became hidden (cmd mode),
-  // so cached coordinates from the logs-mode capture may miss the knob.
-  await anchor(dial0)
-  const d0box2 = await dial0.boundingBox()
-  const d0cx2 = d0box2.x + d0box2.width / 2
-  const d0cy2 = d0box2.y + d0box2.height / 2
-  await page.mouse.move(d0cx2, d0cy2)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(keysView).toBeVisible()
-})
-
-test('Dial D transitions from cmd to logs mode', async ({ page }) => {
-  await openStreamdeck(page)
-
-  await page.locator('.sd-key:not(.is-empty)').first().click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-
-  await page.locator('.sd-knob').nth(3).click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('#sd-logs-view')).toBeVisible()
-  await expect(page.locator('#sd-keys')).toHaveCount(0)
-})
-
 // Read-only command keys are covered by 'read-only mode disables the
 // fleet-control command keys and a mic hold does not arm it' above, which
 // asserts the same gating plus the `is-disabled` face and the inert hold.
@@ -88,7 +15,6 @@ test('full-width chat replaces the cmd pager and the pager returns on back', asy
   await expect(pager.locator('circle[data-page="0"]')).toHaveAttribute('fill', '#9fd0ff')
   expect(await pager.locator('svg > text').first().evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
 
-  const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
@@ -103,22 +29,8 @@ test('full-width chat replaces the cmd pager and the pager returns on back', asy
   await expect(chat).toContainText('Conversation unavailable')
   await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
-  const dialD = page.locator('.sd-knob').nth(3)
-  await dialD.click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('[data-mode-view="logs-strip"] [data-streamdeck-region="0"]')).toBeVisible()
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${identifier}`)
-  await expect(page.locator('.sd-seg-info')).toHaveCount(0)
-
-  // Dial A is the back press: logs -> cmd -> grid.
-  const dialA = page.locator('.sd-knob').first()
-  await dialA.click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(pager).toHaveCount(0)
-  await expect(chat).toHaveCSS('width', '800px')
-  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
-  await dialA.click()
+  // Dial A returns from the focused ticket to the fleet grid.
+  await page.locator('.sd-knob').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
   await expect(pager).toContainText('Queued')
