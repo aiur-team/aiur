@@ -26,6 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
 
   attr(:id, :string, required: true)
   attr(:view, :map, default: nil)
+  attr(:full_conversation_href, :string, default: nil)
   attr(:close_event, :any, default: nil)
   attr(:fallback_focus_id, :string, default: nil)
   attr(:origin_id, :string, default: nil)
@@ -36,6 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:usage_snapshot, :map, default: nil)
   attr(:usage_error, :atom, default: nil)
   attr(:context_occupancy, :map, default: nil)
+  attr(:voice_conversation_error, :map, default: nil)
   attr(:voice_capabilities, :map, default: %{})
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
@@ -75,6 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             </h2>
           </div>
           <div class="modal-actions">
+            <.link :if={@full_conversation_href} navigate={@full_conversation_href} class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn">Full conversation</.link>
             <button
               :if={@close_event}
               type="button"
@@ -178,6 +181,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
         </div>
 
         <footer class="conversation-drawer-footer">
+          <AiurWeb.OperatorControlCenter.ExecutorVoice.executor_voice id={"#{@id}-executor-voice"} writable={@writable} />
           <AiurWeb.OperatorControlCenter.ListenerMode.receipt :for={receipt <- @receipts} receipt={receipt} />
           <dl class="conversation-drawer-provenance">
             <div><dt>Last observation</dt><dd><.timestamp value={@view.observed_at} /></dd></div>
@@ -200,7 +204,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               enterkeyhint="send"
               data-voice-input
             >{@drafts[@composer_key] || ""}</textarea>
-            <.voice_input id={"#{@id}-voice"} capabilities={@voice_capabilities} />
+            <.voice_input conversation_error={@voice_conversation_error} delivery={AiurWeb.Components.VoiceDelivery.receipt(@receipts, @composer_key, @errors)} id={"#{@id}-voice"} capabilities={@voice_capabilities} surface="agent_composer" target={%{kind: "worker", ticket: to_string(Map.get(@composer || %{}, :issue_identifier, @composer_key))}} />
             <div class="agent-chat-actions">
               <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
               <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send>Send</button>

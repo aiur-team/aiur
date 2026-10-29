@@ -10,6 +10,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
     %{
       adapter: Aiur.Claude.CodingAgent,
       transcript: Aiur.Claude.Transcript,
+      native_transcript: Aiur.Claude.NativeTranscript,
       launch_telemetry: Aiur.Claude.Telemetry,
       children: [Aiur.Claude.Telemetry],
       family: "claude",
@@ -90,6 +91,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
     %{
       adapter: Aiur.Claude.ReplAgent,
       transcript: Aiur.Claude.Transcript,
+      native_transcript: Aiur.Claude.NativeTranscript,
       launch_telemetry: Aiur.Claude.Telemetry,
       family: "claude",
       accounts: %{kind: :profile, multi: :available, usage: :claude_api, supported: true},

@@ -2,7 +2,7 @@ defmodule Aiur.Conversation.Journal do
   @moduledoc "Serialized, recoverable writer for one conversation. All disk work stays in this process."
   use GenServer, restart: :transient
   alias Aiur.Config.Paths
-  alias Aiur.Conversation.{Entry, Ingest, JournalSessions, Ref}
+  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalAnchors, JournalImport, JournalSessions, ProviderReplay, Ref}
 
   @spec start_link(Ref.t()) :: GenServer.on_start()
   def start_link(ref), do: GenServer.start_link(__MODULE__, ref, name: via(ref))
@@ -24,6 +24,7 @@ defmodule Aiur.Conversation.Journal do
       next_pos: 1,
       session_seq: 0,
       open_session: nil,
+      anchor_ids: nil,
       dedup: MapSet.new(),
       dedup_order: :queue.new(),
       buffer: :queue.new(),
@@ -34,6 +35,9 @@ defmodule Aiur.Conversation.Journal do
       retries: 0,
       recover: false,
       read_only: false,
+      import_new: false,
+      importing: nil,
+      import_waiters: [],
       resume: false,
       dropped_span: dropped_span,
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
@@ -50,11 +54,33 @@ defmodule Aiur.Conversation.Journal do
   @impl true
   def handle_continue(:load, state), do: {:noreply, load(state) |> touch()}
 
+  def handle_continue(:import, state) do
+    case JournalImport.step(state, &write_import/2, &publish/3) do
+      {:ok, %{importing: nil} = state} ->
+        state = flush(state)
+        result = if state.outage, do: {:error, :degraded}, else: :ok
+        {:noreply, reply_import_waiters(state, result)}
+
+      {:ok, state} ->
+        send(self(), :import_step)
+        {:noreply, state}
+
+      {:error, reason, state} ->
+        state = failure(state, reason) |> reply_import_waiters({:error, :degraded})
+        {:noreply, state}
+    end
+  end
+
   @impl true
   def handle_cast({:append, source, entries}, state) do
+    state = if is_nil(state.importing), do: JournalImport.start(state, source, entries), else: state
     inputs = Enum.map(entries, &{:entry, source, &1, stamp(state.clock.())})
-    {:noreply, enqueue(state, inputs)}
+    state = enqueue(state, inputs)
+    if state.importing, do: send(self(), :import_step)
+    {:noreply, state}
   end
+
+  def handle_cast({:anchor, anchor}, state), do: {:noreply, enqueue(state, [{:anchor, anchor}])}
 
   def handle_cast({:end_session, provider_id, reason}, state), do: {:noreply, enqueue(state, [{:end_session, provider_id, reason}])}
   def handle_cast({:gap, reason, from, to}, state), do: {:noreply, enqueue(state, [{:gap, reason, stamp(from), stamp(to)}])}
@@ -65,13 +91,40 @@ defmodule Aiur.Conversation.Journal do
   end
 
   @impl true
-  def handle_call(:flush, _from, state) do
+  def handle_call(:head, _from, state), do: {:reply, if(state.segment_state, do: {:ok, state.segment_state}, else: {:error, :unavailable}), state}
+
+  def handle_call(:flush, from, %{importing: import} = state) when not is_nil(import) do
+    send(self(), :import_step)
+    {:noreply, %{state | import_waiters: [from | state.import_waiters]}}
+  end
+
+  def handle_call(:flush, from, state) do
     state = cancel_flush(state) |> flush()
-    result = if state.outage, do: {:error, :degraded}, else: :ok
-    {:reply, result, state}
+
+    if state.importing do
+      {:noreply, %{state | import_waiters: [from | state.import_waiters]}}
+    else
+      result = if state.outage, do: {:error, :degraded}, else: :ok
+      {:reply, result, state}
+    end
   end
 
   @impl true
+  def handle_info(:import_step, %{read_only: true} = state), do: {:noreply, reply_import_waiters(state, {:error, :degraded})}
+  def handle_info(:import_step, %{importing: nil} = state), do: {:noreply, state}
+
+  def handle_info(:import_step, state) do
+    case recover(state) do
+      {:ok, state} -> {:noreply, state, {:continue, :import}}
+      {:error, reason} -> {:noreply, failure(state, reason) |> reply_import_waiters({:error, :degraded})}
+    end
+  end
+
+  def handle_info({:flush, token}, %{timer: {_timer, token}, importing: import} = state) when not is_nil(import) do
+    send(self(), :import_step)
+    {:noreply, %{state | timer: nil}}
+  end
+
   def handle_info({:flush, token}, %{timer: {_timer, token}} = state), do: {:noreply, flush(%{state | timer: nil})}
   def handle_info({:flush, _token}, state), do: {:noreply, state}
 
@@ -89,8 +142,38 @@ defmodule Aiur.Conversation.Journal do
 
   @impl true
   def terminate(reason, state) do
-    if reason == :shutdown or match?({:shutdown, _}, reason), do: state |> flush() |> retain_losses()
+    if reason == :shutdown or match?({:shutdown, _}, reason) do
+      state = finish_import(state)
+      JournalImport.halt(state)
+      state = if state.recover, do: state, else: flush(state)
+      retain_losses(state)
+    else
+      JournalImport.halt(state)
+    end
+
     :ok
+  end
+
+  defp finish_import(%{read_only: true} = state), do: state
+
+  defp finish_import(%{importing: nil} = state) do
+    case recover_buffered(state) do
+      {:ok, state} ->
+        if state.importing, do: finish_import(state), else: state
+
+      {:error, reason} ->
+        failure(state, reason)
+    end
+  end
+
+  defp finish_import(state) do
+    with {:ok, state} <- recover(state),
+         {:ok, state} <- JournalImport.step(state, &write_import/2, &publish/3) do
+      finish_import(state)
+    else
+      {:error, reason, updated} -> failure(updated, reason)
+      {:error, reason} -> failure(state, reason)
+    end
   end
 
   defp retain_losses(state) do
@@ -103,9 +186,10 @@ defmodule Aiur.Conversation.Journal do
   defp load(state) do
     with {:ok, root} <- Paths.conversation_state_dir(),
          state = %{state | dir: Path.join(root, state.id)},
+         state = %{state | import_new: not File.exists?(Path.join(state.dir, "head.json")) and Path.wildcard(Path.join(state.dir, "entries.*.jsonl")) == []},
          {:ok, head} <- state.store.prepare(state.dir, state.ref),
          {:ok, loaded} <- JournalSessions.load(state, head) do
-      loaded
+      cache_head(loaded)
     else
       {:error, reason} -> failure(state, reason)
     end
@@ -120,16 +204,33 @@ defmodule Aiur.Conversation.Journal do
     else
       state = %{state | buffer: Enum.reduce(inputs, state.buffer, &:queue.in/2)}
       state = if state.outage, do: %{state | failed_since: span_inputs(state.failed_since, inputs, state.clock.())}, else: state
-      if :queue.len(state.buffer) >= 50 and not state.outage, do: cancel_flush(state) |> flush(), else: schedule(state, 200)
+      if :queue.len(state.buffer) >= 50 and not state.outage and is_nil(state.importing), do: cancel_flush(state) |> flush(), else: schedule(state, 200)
     end
   end
 
   defp flush(%{read_only: true} = state), do: state
+  defp flush(%{importing: import} = state) when not is_nil(import), do: state
 
   defp flush(state) do
-    case recover(state) do
-      {:ok, state} -> drain(state)
-      {:error, reason} -> failure(state, reason)
+    case recover_buffered(state) do
+      {:ok, state} ->
+        if state.importing do
+          send(self(), :import_step)
+          state
+        else
+          drain(state)
+        end
+
+      {:error, reason} ->
+        failure(state, reason)
+    end
+  end
+
+  defp recover_buffered(state) do
+    recovering = state.recover
+
+    with {:ok, state} <- recover(state) do
+      {:ok, if(recovering, do: JournalImport.start_buffered(state), else: state)}
     end
   end
 
@@ -143,15 +244,12 @@ defmodule Aiur.Conversation.Journal do
   defp recover(state) do
     with {:ok, head} <- state.store.rebuild_head(state.dir),
          {:ok, state} <- JournalSessions.load(state, head) do
-      {:ok, %{state | recover: false}}
+      {:ok, cache_head(%{state | recover: false})}
     end
   end
 
   defp drain(state) do
-    {inputs, rest} = take(state.buffer)
-
-    {inputs, rest} =
-      if match?([{:end_session, _, _}], inputs) and (state.failed_since || state.dropped_span), do: {[], state.buffer}, else: {inputs, rest}
+    {inputs, rest} = next_batch(state)
 
     if inputs == [] and is_nil(state.failed_since) and is_nil(state.dropped_span) do
       recovered(state)
@@ -159,12 +257,40 @@ defmodule Aiur.Conversation.Journal do
       case write(state, inputs) do
         {:ok, updated, entries, sessions} ->
           publish(updated, entries, sessions)
-          updated = recovered(%{updated | buffer: rest, retries: 0, failed_since: nil, dropped_span: nil})
+          # Keep recovery latched until every retained entry and anchor is durable.
+          updated = %{updated | buffer: rest, retries: if(inputs == [], do: state.retries, else: 0), failed_since: nil, dropped_span: nil}
           drain(updated)
 
         {:error, reason} ->
           failure(state, reason)
       end
+    end
+  end
+
+  defp next_batch(state) do
+    {inputs, rest} = take(state.buffer)
+    # Persist a retained gap before acknowledging session or anchor metadata.
+    if (match?([{:end_session, _, _}], inputs) or match?([{:anchor, _}], inputs)) and (state.failed_since || state.dropped_span),
+      do: {[], state.buffer},
+      else: {inputs, rest}
+  end
+
+  defp reply_import_waiters(state, result) do
+    Enum.each(state.import_waiters, &GenServer.reply(&1, result))
+    %{state | import_waiters: []}
+  end
+
+  defp write_import(state, [{:gap, :pre_journal, _, _}] = inputs) do
+    # The history boundary precedes outage/backpressure gaps retained during preparation.
+    with {:ok, updated, entries, sessions} <- write(%{state | failed_since: nil, dropped_span: nil}, inputs) do
+      {:ok, %{updated | failed_since: state.failed_since, dropped_span: state.dropped_span}, entries, sessions}
+    end
+  end
+
+  defp write_import(state, inputs) do
+    with {:ok, updated, entries, sessions} <- write(state, inputs) do
+      updated = recovered(%{updated | retries: 0, failed_since: nil, dropped_span: nil})
+      {:ok, updated, entries, sessions}
     end
   end
 
@@ -186,6 +312,8 @@ defmodule Aiur.Conversation.Journal do
     end
   end
 
+  defp write(state, [{:anchor, anchor}]), do: JournalAnchors.write(state, anchor)
+
   defp write(state, [{:end_session, id, reason}]) do
     if state.open_session && (is_nil(id) or state.open_session.provider_session_id == id) do
       with {:ok, updated, session} <- JournalSessions.close(state, reason), do: {:ok, updated, [], [session]}
@@ -195,7 +323,8 @@ defmodule Aiur.Conversation.Journal do
   end
 
   defp write(state, inputs) do
-    with {:ok, state, sessions} <- resolve(state, inputs) do
+    with {:ok, state, inputs} <- ProviderReplay.filter(state, inputs),
+         {:ok, state, sessions} <- resolve(state, inputs) do
       gaps =
         gap_inputs(state) ++
           Enum.flat_map(inputs, fn
@@ -215,7 +344,7 @@ defmodule Aiur.Conversation.Journal do
       with {:ok, stat} <- File.stat(Path.join(state.dir, "sessions.jsonl")),
            head = %{state.segment_state | "last_session_seq" => state.session_seq, "sessions_bytes" => stat.size},
            {:ok, head} <- state.store.append_entries(state.dir, head, Enum.map(entries, &Entry.to_json/1)) do
-        {:ok, %{updated | segment_state: head}, entries, sessions}
+        {:ok, ProviderReplay.remember(%{updated | segment_state: head}, entries), entries, sessions}
       end
     end
   end
@@ -263,7 +392,7 @@ defmodule Aiur.Conversation.Journal do
   defp failure(state, reason) do
     unless state.outage, do: alert(state, "system.conversation.journal.degraded", true, error_class(reason))
     span = span_inputs(state.failed_since, :queue.to_list(state.buffer), state.clock.())
-    state = %{state | outage: true, recover: true, failed_since: span, retries: state.retries + 1}
+    state = %{state | outage: true, recover: true, anchor_ids: nil, failed_since: span, retries: state.retries + 1}
 
     if corrupt?(reason) do
       Ingest.count_dropped(state.id, :queue.len(state.buffer))
@@ -289,7 +418,7 @@ defmodule Aiur.Conversation.Journal do
   defp recovered(%{outage: true} = state) do
     :persistent_term.erase({__MODULE__, state.id, :pending_gaps})
     alert(state, "system.conversation.journal.degraded.resolved", false, "recovered")
-    %{state | outage: false}
+    %{state | outage: false, retries: 0}
   end
 
   defp recovered(state) do
@@ -298,10 +427,18 @@ defmodule Aiur.Conversation.Journal do
   end
 
   defp alert(state, name, attention, class) do
+    HeadTable.degraded(state.id, state.dir, attention)
+    Phoenix.PubSub.broadcast(state.pubsub, "conversation:" <> state.id, {:journal_degraded, state.id, attention})
     state.alerts.emit_system(name, message: "Conversation #{state.id}: #{class}", needs_attention: attention)
   end
 
+  defp cache_head(state) do
+    HeadTable.put(state.id, state.dir, state.segment_state)
+    state
+  end
+
   defp publish(state, entries, sessions) do
+    cache_head(state)
     topic = "conversation:" <> state.id
     if entries != [], do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:entries_appended, state.id, entries})
     for session <- sessions, do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:session_changed, state.id, session})

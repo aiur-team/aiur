@@ -1,6 +1,7 @@
-import { isUnfiled, refText, refTitle, queueText, srcTitle } from '../unfiled.js';
+import { isUnfiled, refText, refTitle, srcTitle } from '../unfiled.js';
 import { ctx } from '../state.js';
-import { rowState, modelInfo } from '../agents.js';
+import { modelInfo } from '../agents.js';
+import { ticketStatus } from '../now-state.js';
 import { esc } from '../dom.js';
 import { I, MI } from '../icons.js';
 
@@ -10,15 +11,6 @@ const title = t => '<h3 id="bm-title" tabindex="-1" data-dialog-heading><span cl
   (' title="' + esc(refTitle(t)) + '"') + '>' + esc(refText(t)) + '</span>' + esc(t.title) + '</h3>';
 const lookup = (map, key) => map && Object.hasOwn(map, key) ? map[key] : null;
 
-function status(t) {
-  if (t.sec === 'now') { const ag = rowState(t); return { label: ag.label, tone: ag.cls || 'idle' }; }
-  if (t.sec === 'hist') {
-    const states = { done: ['Merged', 'done'], failed: ['Failed', 'stuck'], not_planned: ['Not planned', 'idle'], closed: ['Closed', 'idle'] };
-    const [label, tone] = lookup(states, t.status) || ['State unknown', 'idle']; return { label, tone };
-  }
-  if (t.sec === 'plan') return { label: isUnfiled(t) ? 'Planned · not filed' : 'Queued · ' + queueText(t) , tone: 'idle' };
-  return { label: t.sec === 'nq' ? 'Not queued' : 'State unknown', tone: 'idle' };
-}
 function agent(t) {
   if (!t.agent) return '';
   const m = modelInfo(t.agent.model), name = t.agent.name || m.name;
@@ -42,7 +34,7 @@ function links(t) {
   return '<div class="bm-links">' + issue + pr + '<button class="bm-ib" type="button" data-a="link" title="Copy link" aria-label="Copy link">' + I.link + '</button></div>';
 }
 export function headerHTML(t) {
-  const e = lookup(ctx.D?.epics, t.epic || 'unsorted') || lookup(ctx.D?.epics, 'unsorted'), f = lookup(ctx.D?.features, t.feature), st = status(t);
+  const e = lookup(ctx.D?.epics, t.epic || 'unsorted') || lookup(ctx.D?.epics, 'unsorted'), f = lookup(ctx.D?.features, t.feature), st = ticketStatus(t);
   const known = Number.isFinite(t.pct) && t.pct >= 0 && t.pct <= 100;
   return '<div class="bm-h"><span class="bm-ep"' + (Number.isFinite(e?.hue) ? ' style="--h:' + e.hue + '"' : '') + ' title="' + esc(e?.label || 'Unsorted') + '">' + (ctx.D?.icons?.[e?.icon] || e?.svg || lookup(I, e?.icon) || '') + '</span>' +
     '<div class="bm-tt">' + title(t) + '<div class="bm-meta"><span class="bm-st ' + st.tone + '"' +

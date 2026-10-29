@@ -1,0 +1,8 @@
+{
+  "frame": "<frame/>",
+  "harness": "codex",
+  "parsed": null,
+  "stdin": "{\"session_id\":\"session-1\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"/workspace\",\"transcript_path\":\"/workspace/transcript.jsonl\",\"prompt\":\"hello\",\"stop_hook_active\":\"false\"}",
+  "stdout": "",
+  "stop_context": false
+}

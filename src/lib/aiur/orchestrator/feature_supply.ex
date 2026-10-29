@@ -1,8 +1,11 @@
 defmodule Aiur.Orchestrator.FeatureSupply do
   @moduledoc "Observes feature supply without changing admission or dispatch order."
 
-  alias Aiur.{AlertFeed, RunTelemetry, Signal}
-  alias Aiur.Orchestrator.{FeatureSupplySnapshot, State}
+  alias Aiur.Orchestrator.FeatureSupplySnapshot
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
+  alias Aiur.Orchestrator.State
+  alias Aiur.RunTelemetry
+  alias Aiur.Signal
 
   @topic "system.feature_supply_low"
   @hold_ms 30 * 60_000
@@ -19,7 +22,7 @@ defmodule Aiur.Orchestrator.FeatureSupply do
       record = Keyword.get(opts, :record, &RunTelemetry.record/2)
       emit = Keyword.get(opts, :emit, &Signal.alert/2)
       previous = state.feature_supply
-      active = Map.get_lazy(previous, :active, fn -> AlertFeed.active_system_attention?(@topic) end)
+      active = Map.get_lazy(previous, :active, fn -> AttentionSnapshot.active_system_attention?(@topic) end)
       deficit = max(0, sample.free - sample.feature_ready)
       record_interval(previous, now, timestamp, record)
       episode = transition(previous, active, deficit > 0, now, sample, emit, record)

@@ -37,9 +37,9 @@ defmodule AiurWeb.Layouts do
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/ticket-context-dialog-hook.js"></script>
-        <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/conversation-voice-controller.js"></script>
-        <script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
-        <script defer src="/build-order-grid-hook.js"></script>
+        <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script><script defer src="/voice-waveform.js"></script><script defer src="/voice-playback.js"></script><script defer src="/conversation-voice-controller.js"></script>
+        <script defer src="/executor-voice-controller.js"></script><script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/conversation-scroll-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>
         <script defer src="/streamdeck-emulator-knob.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
@@ -54,7 +54,7 @@ defmodule AiurWeb.Layouts do
 
             if (!window.Phoenix || !window.LiveView) return;
 
-            var Hooks = {};
+            var Hooks = {ConversationScroll: window.AiurConversationScrollHook};
 
             Hooks.AgentLogPanel = {
               mounted: function () {
@@ -383,10 +383,6 @@ defmodule AiurWeb.Layouts do
             }
             if (window.AiurDomSvgLayout) {
               Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
-            }
-
-            if (window.AiurBuildOrderGridHook) {
-              Hooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
             }
 
             if (window.AiurTimeBrushHook) {

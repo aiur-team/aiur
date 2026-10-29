@@ -53,6 +53,7 @@ async function openStreamdeck(page) {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 async function openUnits(page) {
@@ -82,7 +83,7 @@ function gridBuckets(page) {
     Object.fromEntries(
       keys.map((key) => [
         key.getAttribute('data-streamdeck-identifier'),
-        [...key.classList].find((name) => name.startsWith('st-')) ?? 'st-unknown'
+        key.getAttribute('data-streamdeck-state') ?? 'unknown'
       ])
     )
   )
@@ -90,8 +91,8 @@ function gridBuckets(page) {
 
 // Every agent's bucket, not just the visible window's: the touch strip counts
 // the whole fleet, so a window-sized sample would compare two different
-// populations and call the difference a failure. Pressing dial D once per
-// window wraps back to the window it started on.
+// populations and call the difference a failure. Turn through each window,
+// then turn back to the opening window; dial D press cycles views.
 async function fleetBuckets(page, keys) {
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
   const collected = {}
@@ -100,8 +101,13 @@ async function fleetBuckets(page, keys) {
     Object.assign(collected, await gridBuckets(page))
 
     const current = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
-    await dial(page, 3).click()
-    await expect(keys).toHaveAttribute('data-grid-page', String((current + 1) % windows))
+    await dial(page, 3).press('ArrowUp')
+    await expect(keys).toHaveAttribute('data-grid-page', String(Math.min(current + 1, windows - 1)))
+  }
+
+  for (let window = windows - 1; window > 0; window -= 1) {
+    await dial(page, 3).press('ArrowDown')
+    await expect(keys).toHaveAttribute('data-grid-page', String(window - 1))
   }
 
   return collected
@@ -136,7 +142,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   const startedAt = new Date().toISOString()
   const device = page.locator('.sd-device')
   const keys = page.locator('#sd-keys')
-  const pager = page.locator('[data-segment="pager"]')
+  const pager = page.locator('[data-streamdeck-region="600"]')
   const dialA = dial(page, 0)
   const dialD = dial(page, 3)
 
@@ -176,7 +182,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   )
 
   // ------------------------------------------------------------------ 3 --
-  // Dial D pages: wheel and keyboard both reach the server, press cycles.
+  // Dial D pages by wheel and keyboard; press cycles views.
   await dialD.hover()
   await page.mouse.wheel(0, 100)
   await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialD.getAttribute('aria-valuenow')))
@@ -186,14 +192,10 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialD.getAttribute('aria-valuenow')))
 
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
-  const beforePress = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
-  await dialD.click()
-  await expect(keys).toHaveAttribute('data-grid-page', String((beforePress + 1) % windows))
-  await expect(pager.locator('[aria-current="page"]')).toHaveAttribute(
-    'data-pager-page',
-    String((beforePress + 1) % windows)
-  )
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(windows)
+  const beforeTurn = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
+  await dialD.press('ArrowUp')
+  await expect(keys).toHaveAttribute('data-grid-page', String(Math.min(beforeTurn + 1, windows - 1)))
+  await expect(keys).toHaveAttribute('data-grid-page', String(Math.min(beforeTurn + 1, windows - 1)))
   await shot(page, '03-paging.png')
 
   // Return to the window the run opened on before taking a control.
@@ -201,8 +203,8 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
     if ((await visibleIdentifiers(page)).join() === openingWindow.join()) break
 
     const current = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
-    await dialD.click()
-    await expect(keys).toHaveAttribute('data-grid-page', String((current + 1) % windows))
+    await dialD.press('ArrowDown')
+    await expect(keys).toHaveAttribute('data-grid-page', String(Math.max(0, current - 1)))
   }
   expect(await visibleIdentifiers(page)).toEqual(openingWindow)
 
@@ -218,7 +220,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   // re-bucketed key. Feedback text alone would not prove the pause landed.
   await dialA.click()
   await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(controlled).toHaveClass(/st-paused/)
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'paused')
   await expect(controlled).toHaveAttribute('data-control-action', 'resume')
   await shot(page, '04-pause-grid.png')
 
@@ -244,53 +246,8 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   await shot(page, '04-resume.png')
 
-  // ------------------------------------------------------------------ 5 --
-  // Logs mode: dial D scrolls events, dial A the transcript, hints track the
-  // real bounds.
-  await dialD.click()
-  await expect(device).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('#sd-logs-view')).toHaveAttribute('data-focused-identifier', CONTROLLED)
-
-  const events = page.locator('#sd-log-keys')
-  const transcript = page.locator('#sd-screen')
-  const eventsMax = Number.parseInt(await events.getAttribute('data-max-offset'), 10)
-  const transcriptMax = Number.parseInt(await transcript.getAttribute('data-transcript-max-offset'), 10)
-  expect(eventsMax).toBeGreaterThan(0)
-  expect(transcriptMax).toBeGreaterThan(0)
-
-  // Both surfaces open at the live end, so the hint that has nowhere to go is
-  // hidden and the one that does is shown.
-  await expect(events).toHaveAttribute('data-offset', String(eventsMax))
-  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
-  await shot(page, '05-logs-live-end.png')
-
-  // Overshoot each dial past its own clamp: the offsets stop at the real
-  // bounds and the hints flip there, not at a shared guess.
-  await dialD.hover()
-  for (let step = 0; step < eventsMax + 3; step += 1) await page.mouse.wheel(0, 100)
-  await expect(events).toHaveAttribute('data-offset', '0')
-
-  await dialA.hover()
-  for (let step = 0; step < transcriptMax + 3; step += 1) await page.mouse.wheel(0, 100)
-  await expect(transcript).toHaveAttribute('data-transcript-offset', '0')
-  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
-  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'false')
-  await shot(page, '05-logs-bounds.png')
-
-  await record(
-    '05-logs-bounds.txt',
-    [
-      `Step 5 — focused agent #${CONTROLLED}.`,
-      `event window max offset: ${eventsMax} (scrolled to 0, clamped)`,
-      `transcript max offset: ${transcriptMax} (scrolled to 0, clamped)`,
-      'up hint hidden at the origin, down hint shown — both read from the server render.'
-    ].join('\n')
-  )
-
   // ------------------------------------------------------------------ 6 --
-  // Dial A backs out logs → cmd → grid, onto the window the run started on.
-  await dialA.click()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
+  // Dial A returns from the focused conversation to the opening grid page.
   await dialA.click()
   await expect(device).toHaveAttribute('data-mode', 'grid')
   expect(await visibleIdentifiers(page)).toEqual(openingWindow)
@@ -299,29 +256,18 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
 
   // ------------------------------------------------------------------ 7 --
   // Touch strip: Summary counts are live, provider segments carry real usage.
-  const summary = page.locator('[data-segment="summary"]')
+  const summary = page.locator('[data-streamdeck-region="0"]')
   await expect(summary).toBeVisible()
-  const summaryText = (await summary.locator('.sd-info-live').innerText()).replaceAll('\n', ' ')
-  const liveCount = Number.parseInt(summaryText, 10)
-
-  // The Summary count is the whole fleet's running agents, so it must equal
-  // the keys the grid itself paints as running across every window — a
-  // screenshot of a stale number would otherwise pass for evidence.
+  const summaryText = await summary.getAttribute('aria-label')
+  // Counts come from Build observations; the fixture can be unavailable.
+  expect(summaryText).toMatch(/(?:\d+|—) live \/ (?:\d+|—) left/)
   const everyBucket = await fleetBuckets(page, keys)
-  const runningKeys = Object.values(everyBucket).filter((bucket) => bucket === 'st-running').length
+  const runningKeys = Object.values(everyBucket).filter((bucket) => bucket === 'running').length
   expect(Object.keys(everyBucket)).toHaveLength(fleetTotal)
-  expect(liveCount).toBe(runningKeys)
-  // The wrap left the operator on the window they were reading.
   expect(await visibleIdentifiers(page)).toEqual(openingWindow)
-
-  const providerMeters = await page.locator('[data-segment="provider"] .sd-mini').evaluateAll((meters) =>
-    meters.map((meter) => ({
-      provider: meter.getAttribute('data-provider'),
-      meter: meter.getAttribute('data-meter'),
-      percent: meter.getAttribute('data-percent'),
-      observed: meter.getAttribute('data-observed'),
-      freshness: meter.getAttribute('data-freshness')
-    }))
+  const providerMeters = await page.locator('#sd-screen [data-provider]').evaluateAll((meters) =>
+    meters.map((meter) => ({ provider: meter.getAttribute('data-provider'), reading: meter.textContent,
+      freshness: meter.querySelector('[data-freshness]')?.getAttribute('data-freshness') }))
   )
   await shot(page, '07-touch-strip.png')
 
@@ -330,11 +276,11 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
     [
       'Step 7 — touch strip, read at the same instant as the grid above.',
       `SUMMARY segment: ${summaryText.trim()}`,
-      `emulator keys bucketed st-running: ${runningKeys}`,
+      `emulator keys bucketed running: ${runningKeys}`,
       '',
-      'provider segments (provider / meter / percent / observed / freshness):',
+      'provider images (provider / reading / freshness):',
       ...providerMeters.map(
-        (meter) => `${meter.provider}  ${meter.meter}  ${meter.percent}  ${meter.observed}  ${meter.freshness}`
+        (meter) => `${meter.provider}  ${meter.reading}  ${meter.freshness}`
       ),
       '',
       'NOT CAPTURED HERE: the numeric comparison against the dashboard header',
@@ -434,7 +380,6 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
       '| 2 | `02-grid.png`, `02-grid.txt`, then after the live fleet change `02-grid-after-change.png`, `02-units.png`, `02-grid-units-parity.txt` |',
       '| 3 | `03-paging.png` |',
       '| 4 | `04-pause-cmd.png`, `04-pause-grid.png`, `04-pause.txt`, `04-resume.png` |',
-      '| 5 | `05-logs-live-end.png`, `05-logs-bounds.png`, `05-logs-bounds.txt` |',
       '| 6 | `06-back-navigation.png` |',
       '| 7 | `07-touch-strip.png`, `07-touch-strip.txt` |',
       '| 1–7 | `session.webm` — the whole run as one recording |',

@@ -34,6 +34,7 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.config.operator_relay.enabled", "config"},
     # aiur/workflow_store/reload_rejection.ex
     {"system.config.reload_rejected", "config"},
+    {"system.conversation.subject_index.unreadable", "conversations"},
     # aiur/conversation/journal.ex
     {"system.conversation.journal.degraded", "conversations"},
     # aiur/conversation/journal.ex
@@ -132,6 +133,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr.landing.merge_group_repeat_failure", "orchestration"},
     # aiur/landing_watch/merge_group_failure_processor.ex
     {"system.pr.landing.merge_group_unclassified", "orchestration"},
+    # aiur/landing_watch/merge_group_failure_processor.ex
+    {"system.pr.landing.runner_degraded", "orchestration"},
     # aiur/landing_watch/merge_queue_watchdog.ex
     {"system.pr.landing.merge_queue_recovered", "orchestration"},
     # aiur/landing_watch/merge_queue_watchdog_recovery.ex

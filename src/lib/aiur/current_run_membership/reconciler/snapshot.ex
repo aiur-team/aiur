@@ -39,24 +39,22 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
     |> Enum.flat_map(&observe_row(&1, observe_fun, terminal_states))
   end
 
-  @spec reconcile_changes(map(), map(), (TrackerIdentity.t(), atom() -> term()), MapSet.t()) ::
+  @type observer :: ([{TrackerIdentity.t(), atom()}] -> term()) | (TrackerIdentity.t(), atom() -> term())
+
+  @spec reconcile_changes(map(), map(), observer(), MapSet.t()) ::
           {[term()], map()}
   def reconcile_changes(snapshot, previous, observe_fun, terminal_states)
-      when is_map(snapshot) and is_map(previous) and is_function(observe_fun, 2) and
+      when is_map(snapshot) and is_map(previous) and is_function(observe_fun) and
              is_struct(terminal_states, MapSet) do
     current = lifecycle_map(snapshot, terminal_states)
 
-    results =
-      Enum.flat_map(current, fn {identity, lifecycle} ->
-        if Map.get(previous, identity) == lifecycle do
-          []
-        else
-          [observe_fun.(identity, lifecycle)]
-        end
-      end)
-
-    {results, current}
+    changes = Enum.reject(current, fn {identity, lifecycle} -> Map.get(previous, identity) == lifecycle end)
+    {observe_changes(changes, observe_fun), current}
   end
+
+  defp observe_changes([], _fun), do: []
+  defp observe_changes(changes, fun) when is_function(fun, 1), do: [fun.(changes)]
+  defp observe_changes(changes, fun), do: Enum.map(changes, fn {identity, lifecycle} -> fun.(identity, lifecycle) end)
 
   @spec lifecycle_map(map(), MapSet.t()) :: %{TrackerIdentity.t() => atom()}
   def lifecycle_map(snapshot, terminal_states)

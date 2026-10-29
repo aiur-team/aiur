@@ -7,6 +7,10 @@ decides who is asked first; authority decides who may answer.
 
 The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 
+A Command's **Open in conversation** link carries its agent's recorded request
+position, including after the Command is answered. An observed position is marked
+**approximate**; when no position is known, the detail shows **Conversation position unknown**.
+
 <img src="/images/dashboard/commands-dark.png" alt="Desktop Commands decision inbox populated with synthetic decisions">
 
 | Field | Meaning |
@@ -23,6 +27,20 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 | Answer directly | Pick an option or write a bounded response and send it to the agent. |
 | Defer | Leave the Command for a designated Executor agent to investigate and decide. |
 | Send correction | Append a corrected action without rewriting the original record. |
+
+On writable Command cards and detail pages, open the microphone menu and choose
+**Dictate** to speak a custom response. This selects **Custom response** and
+appends to any text already there. Review and edit the text, then use the existing
+answer button to record it; dictation never submits an answer.
+
+Capture stops at the 4,000-character limit and keeps the full transcript for editing. If voice is
+unavailable, you can still type. Structured multi-question forms use their own
+answer fields and do not offer this custom-response microphone.
+
+On an answered Command, **Send correction** offers the same dictation flow for
+the revised response. Dictation selects **Custom response** and appends to your draft.
+Review the text, type a reason for revision, then press **Send correction**.
+A rejected correction keeps your draft and shows the existing revision error.
 
 ## Authority and attention signals
 

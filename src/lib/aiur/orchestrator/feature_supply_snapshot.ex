@@ -8,9 +8,10 @@ defmodule Aiur.Orchestrator.FeatureSupplySnapshot do
 
   @spec build(State.t(), [Issue.t()]) :: map()
   def build(state, issues) do
+    active = DispatchPolicy.active_state_set()
     terminal = DispatchPolicy.terminal_state_set()
     features = issues |> Enum.uniq_by(& &1.id) |> Enum.filter(&feature?/1)
-    decisions = Enum.map(features, &decide(&1, state))
+    decisions = Enum.map(features, &decide(&1, state, active, terminal))
     todos = Enum.filter(decisions, fn {issue, _} -> DispatchPolicy.normalize_issue_state(issue.state) == "todo" end)
 
     %{
@@ -33,14 +34,14 @@ defmodule Aiur.Orchestrator.FeatureSupplySnapshot do
   @spec feature?(Issue.t()) :: boolean()
   def feature?(issue), do: RunTelemetry.work_kind(issue.labels || [], issue.title) == "feature"
 
-  defp decide(issue, state) do
+  defp decide(issue, state, active, terminal) do
     case cached(issue) do
       {:ok, hydrated} ->
-        {hydrated, DispatchPolicy.dispatch_candidate_decision(hydrated, state)}
+        {hydrated, DispatchPolicy.dispatch_candidate_decision(hydrated, state, active, terminal, state.blocked_ticket_ids)}
 
       {:error, _unknown} ->
         # A cache miss cannot erase an independently known hold or prove readiness.
-        case DispatchPolicy.dispatch_candidate_decision(issue, state) do
+        case DispatchPolicy.dispatch_candidate_decision(issue, state, active, terminal, state.blocked_ticket_ids) do
           {:skip, reason} when reason != :dependency -> {issue, {:skip, reason}}
           _ -> {issue, {:skip, :dependency_unknown}}
         end

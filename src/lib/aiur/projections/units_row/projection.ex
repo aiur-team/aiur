@@ -69,6 +69,7 @@ defmodule Aiur.Projections.UnitsRow.Projection do
       effort: values.effort,
       account: values.account,
       complexity: values.complexity,
+      priority: values.priority,
       build_lane: values.build_lane,
       reasons: Fields.reasons(status_row, open_command_count),
       runtime: Fields.runtime(status_row, member),
@@ -181,7 +182,8 @@ defmodule Aiur.Projections.UnitsRow.Projection do
       {effort, effort_source},
       {account, account_source},
       {complexity, complexity_source},
-      {build_lane, build_lane_source}
+      {build_lane, build_lane_source},
+      {priority, priority_source}
     } =
       {
         Fields.sourced_value(issue_fact, status_row, [:title]),
@@ -194,7 +196,8 @@ defmodule Aiur.Projections.UnitsRow.Projection do
         Fields.sourced_value(issue_fact, status_row, [:effort]),
         Fields.sourced_value(issue_fact, status_row, [:account]),
         Fields.sourced_complexity(issue_fact, status_row),
-        Fields.sourced_build_lane(issue_fact, status_row)
+        Fields.sourced_build_lane(issue_fact, status_row),
+        Fields.sourced_priority(issue_fact, status_row)
       }
 
     %{
@@ -209,6 +212,7 @@ defmodule Aiur.Projections.UnitsRow.Projection do
       account: account,
       complexity: complexity,
       build_lane: build_lane,
+      priority: priority,
       sources: %{
         title: title_source,
         url: url_source,
@@ -220,7 +224,8 @@ defmodule Aiur.Projections.UnitsRow.Projection do
         effort: effort_source,
         account: account_source,
         complexity: complexity_source,
-        build_lane: build_lane_source
+        build_lane: build_lane_source,
+        priority: priority_source
       }
     }
   end
@@ -238,6 +243,7 @@ defmodule Aiur.Projections.UnitsRow.Projection do
       effort: values.effort,
       account: values.account,
       complexity: values.complexity,
+      priority: values.priority,
       build_lane: values.build_lane,
       progress: if(is_nil(activity_row), do: :unknown, else: :activity),
       turn_count: if(is_nil(running_turn_count(status_row)), do: :unknown, else: :status_report),

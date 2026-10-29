@@ -91,6 +91,7 @@ defmodule AiurWeb.DashboardLive.Page do
       |> Map.put_new(:instance_agent_roster, :disabled)
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
       |> Map.put_new(:voice_capabilities, %{})
+      |> Map.put_new(:voice_conversation_error, nil)
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -128,6 +129,7 @@ defmodule AiurWeb.DashboardLive.Page do
           <p>{Commands.selected_decision_error_message(@selected_decision_status, @selected_decision_id)}</p>
         </div>
         <DecisionInbox.decision_inbox
+          voice_capabilities={@voice_capabilities}
           decisions={Enum.reject(@decision_page.decisions, &(&1.decision_id == @selected_decision_id))}
           selected_decision={CommandHistory.inbox_selected_decision(@selected_decision, @history_rows)}
           selected_decision_id={@selected_decision_id}
@@ -143,6 +145,7 @@ defmodule AiurWeb.DashboardLive.Page do
           history_total={@history_total}
         />
         <History.history
+          voice_capabilities={@voice_capabilities}
           rows={@history_rows}
           loaded={MapSet.size(@history_ids)}
           total={@history_total}
@@ -226,9 +229,12 @@ defmodule AiurWeb.DashboardLive.Page do
       <AgentLogModal.agent_log_modal
         :if={is_nil(@conversation_drawer)}
         modal={@agent_log_modal}
+        receipts={@listener_receipts}
         writable={@writable}
         drafts={@drafts}
         errors={@chat_errors}
+        voice_capabilities={@voice_capabilities}
+        voice_conversation_error={@voice_conversation_error}
       />
       <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
       <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={@writable} />
@@ -243,6 +249,7 @@ defmodule AiurWeb.DashboardLive.Page do
         :if={@conversation_drawer}
         id="units-conversation-drawer"
         view={@conversation_drawer}
+        full_conversation_href={AiurWeb.OperatorControlCenter.ConversationLink.href(Map.get(@conversation_row || %{}, :identity))}
         composer={@agent_log_modal}
         writable={@writable}
         drafts={@drafts}
@@ -251,6 +258,7 @@ defmodule AiurWeb.DashboardLive.Page do
         usage_error={@conversation_usage_error}
         context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
         voice_capabilities={@voice_capabilities}
+        voice_conversation_error={@voice_conversation_error}
         listener={@listener_view}
         listener_feedback={@listener_feedback}
         receipts={@listener_receipts}

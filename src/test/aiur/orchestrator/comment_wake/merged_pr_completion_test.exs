@@ -6,6 +6,16 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, State}
 
+  defmodule TerminalLabelTracker do
+    def update_issue_state(id, "done", opts) do
+      send(self(), {:terminal_write, id, opts})
+      :ok
+    end
+
+    def add_label(_id, _label), do: :ok
+    def remove_label(_id, _label), do: :ok
+  end
+
   defp base_state do
     %State{
       running: %{},
@@ -35,6 +45,31 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   end
 
   describe "mark_pr_merged_issue_done/2" do
+    test "merged closing PR clears merge markers and does not alert on terminal success" do
+      issue = %Issue{id: "closed-42", identifier: "42", state: "human-review", labels: ["agent:merge-queued"], tracker_identity: tracker_identity("42")}
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(base_state(), "42",
+          pr_body: "Closes #42",
+          fetch_issue_states_fun: fn ["42"] -> {:ok, [issue]} end,
+          tracker: TerminalLabelTracker,
+          update_issue_state_fun: fn id, target ->
+            MergeStateWriter.write_if_current(id, target,
+              fetch_issue_states_fun: fn ["42"] -> {:ok, [issue]} end,
+              tracker: TerminalLabelTracker
+            )
+          end,
+          emit_alert_fun: fn name, _opts -> send(parent, {:alert, name}) end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
+        )
+
+      assert result == base_state()
+      assert_received {:terminal_write, "42", opts}
+      assert Keyword.fetch!(opts, :clear_terminal_state_labels) == ["agent:merge-queued", "agent:body-fix"]
+      refute_received {:alert, "ticket.42.agent.attention.merge_terminal_write_failed"}
+    end
+
     test "skips terminal writes when the fetched issue belongs to another GitHub label prefix" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",

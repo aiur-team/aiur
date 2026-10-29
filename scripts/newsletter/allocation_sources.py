@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from local_sources import iso
 from telemetry_sources import read_records
 
+MAX_SUPPLY_GAP = timedelta(minutes=10)
+
 
 def _unavailable(reason):
     return {"state": "unavailable", "complete": False, "window_start": None,
@@ -51,74 +53,97 @@ def collect_allocation_evidence(state_dir, now, current_issues, github, instance
 
 
 def _events(rows):
-    events, supplies, coverage_start, latest = [], [], None, None
+    events, supplies, run_boundaries, coverage_start, latest = [], [], [], None, None
     for row in rows:
         attrs = row.get("attributes", {})
         at = _timestamp(row["timestamp"])
         latest = at if latest is None else max(latest, at)
         if row.get("kind") in ("run_context", "restart"):
             coverage_start = at if coverage_start is None else min(coverage_start, at)
+            run_boundaries.append((row.get("boot_id"), row["kind"], at))
         if row.get("kind") == "lifecycle" and attrs.get("event") == "implement":
+            attrs = {**attrs, "_boot_id": row.get("boot_id") or "unknown"}
             events.append((attrs, at))
         if row.get("kind") == "feature_supply":
             supplies.append((attrs, at))
     events.sort(key=lambda item: item[1])
     supplies.sort(key=lambda item: item[1])
-    deduplicated, boundaries = [], {}
+    deduplicated, seen_boundaries = [], {}
     for attrs, at in events:
-        boundary = (attrs.get("attempt_id"), attrs.get("operation_id"),
+        event_key = (attrs.get("_boot_id"), attrs.get("attempt_id"), attrs.get("operation_id"),
                     attrs.get("ticket"), attrs.get("boundary"))
-        previous = boundaries.get(boundary)
+        previous = seen_boundaries.get(event_key)
         if previous is not None and at - previous <= timedelta(milliseconds=1):
             continue
-        boundaries[boundary] = at
+        seen_boundaries[event_key] = at
         deduplicated.append((attrs, at))
-    return deduplicated, supplies, coverage_start, latest
+    return deduplicated, supplies, run_boundaries, coverage_start, latest
 
 
-def _turn_records(events, issues, window_start, now):
-    starts, records, complete = {}, [], True
-    for attrs, at in events:
+def _turn_records(events, run_boundaries, issues, window_start, now):
+    starts, closed_operations, records, complete = {}, set(), [], True
+    timeline = [(at, 0, boot_id, kind, None) for boot_id, kind, at in run_boundaries]
+    timeline.extend((at, 1, None, "lifecycle", attrs) for attrs, at in events)
+    timeline.sort(key=lambda row: (row[0], row[1]))
+
+    def close(key, attrs, start, end):
+        nonlocal complete
+        if end <= start or end < window_start or start > now:
+            return
+        clipped_start = max(start, window_start)
+        if end <= clipped_start:
+            return
+        number = int(attrs["ticket"])
+        issue = issues.get(number)
+        if issue is None:
+            complete = False
+            return
+        record = _turn_record(key, number, clipped_start, end, issue)
+        if record is not None:
+            records.append(record)
+
+    for at, _order, boot_id, kind, attrs in timeline:
+        if attrs is None:
+            for key, (opened, start) in list(starts.items()):
+                opened_boot = key[0]
+                closes_boot = kind == "restart"
+                closes_previous_run = kind == "run_context" and opened_boot != boot_id
+                if at > start and (closes_boot or closes_previous_run):
+                    close(key, opened, start, at)
+                    closed_operations.add((key[1], key[2], opened.get("ticket")))
+                    starts.pop(key)
+            continue
         in_window = at >= window_start
-        key = (attrs.get("attempt_id"), attrs.get("operation_id"))
+        key = (attrs.get("_boot_id"), attrs.get("attempt_id"), attrs.get("operation_id"))
         if not key[0] or not attrs.get("ticket"):
             complete = complete and not in_window
             continue
         if attrs.get("boundary") == "start":
-            # A second open boundary for the same operation cannot prove the
-            # first interval's end. Keep the later interval and omit the
-            # ambiguous earlier one rather than poisoning a narrower window.
             starts[key] = (attrs, at)
         elif attrs.get("boundary") == "end" and key in starts:
             began, start = starts.pop(key)
-            number = int(attrs.get("ticket"))
-            complete = complete and (str(number) == str(began.get("ticket")) or not in_window)
-            if at < window_start:
-                continue
-            issue = issues.get(number)
-            if issue is None:
-                complete = complete and not in_window
-                continue
-            records.append(_turn_record(key, number, start, at, issue))
+            complete = complete and (str(attrs.get("ticket")) == str(began.get("ticket")) or not in_window)
+            close(key, began, start, at)
         elif attrs.get("boundary") == "end":
-            complete = complete and not in_window
+            operation = (attrs.get("attempt_id"), attrs.get("operation_id"), attrs.get("ticket"))
+            complete = complete and (not in_window or operation in closed_operations)
     active = 0
     for key, (attrs, start) in starts.items():
         number_value = attrs.get("ticket")
         if not number_value or start > now:
             continue
-        issue = issues.get(int(number_value))
-        if issue is None:
-            complete = False
-            continue
-        records.append(_turn_record(key, int(number_value), max(start, window_start), now, issue))
-        active += 1
+        close(key, attrs, start, now)
+        if now > start:
+            active += 1
     return records, complete, active
 
 
 def _turn_record(key, number, start, end, issue):
-    return {"attempt_id": key[0] + ":" + str(key[1]), "number": number,
-            "phase": "implement", "started_at": iso(start), "ended_at": iso(end),
+    started_at, ended_at = iso(start), iso(end)
+    if ended_at <= started_at:
+        return None
+    return {"attempt_id": ":".join(str(part) for part in (*key, started_at)), "number": number,
+            "phase": "implement", "started_at": started_at, "ended_at": ended_at,
             "labels": issue["labels"], "title": issue["title"]}
 
 
@@ -155,6 +180,21 @@ def _supply_observation(records, start, end):
     return observed, max(0.0, (upper - lower) / 60_000 - observed)
 
 
+def _supply_max_gap(records, start, end):
+    lower, upper = int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+    spans = sorted((max(lower, row["attributes"]["interval_start_ms"]),
+                    min(upper, row["attributes"]["interval_end_ms"]))
+                   for row in records if row["attributes"]["interval_end_ms"] > lower
+                   and row["attributes"]["interval_start_ms"] < upper)
+    cursor, largest = lower, 0
+    for left, right in spans:
+        if right <= left:
+            continue
+        largest = max(largest, left - cursor)
+        cursor = max(cursor, right)
+    return max(largest, upper - cursor)
+
+
 def allocation_evidence(state_dir, now, issues, instances=(), telemetry_root=None, telemetry_rows=None):
     """Return strict metric-reader evidence; partial telemetry never becomes zero."""
     pc = {"turns": _unavailable("complete seven-day daemon telemetry unavailable"),
@@ -166,12 +206,12 @@ def allocation_evidence(state_dir, now, issues, instances=(), telemetry_root=Non
         unavailable = _unavailable(str(error))
         return {"pc": {name: unavailable.copy() for name in pc},
                 "nuc": {name: unavailable.copy() for name in pc}}
-    events, supply_rows, coverage_start, latest = _events(rows)
+    events, supply_rows, run_boundaries, coverage_start, latest = _events(rows)
     start7, start1 = now - timedelta(days=7), now - timedelta(days=1)
     fresh = latest is not None and latest >= now - timedelta(minutes=5)
     if coverage_start is not None and fresh:
         for window_start in (start7, start1):
-            turns, paired, active = _turn_records(events, issues, window_start, now)
+            turns, paired, active = _turn_records(events, run_boundaries, issues, window_start, now)
             relevant = {int(attrs["ticket"]) for attrs, at in events
                         if attrs.get("ticket") and at >= window_start}
             if paired and relevant <= set(issues):
@@ -182,15 +222,18 @@ def allocation_evidence(state_dir, now, issues, instances=(), telemetry_root=Non
     supply = _supply_records(supply_rows, now)
     start_ms = int(start1.timestamp() * 1000)
     observed_minutes, unobserved_minutes = _supply_observation(supply, start1, now)
+    max_gap_ms = _supply_max_gap(supply, start1, now)
     first_supply = min((row["attributes"]["interval_start_ms"] for row in supply), default=0)
     latest_supply = max((row["attributes"]["interval_end_ms"] for row in supply), default=0)
     if (first_supply <= start_ms + 1_000
             and latest_supply >= int((now - timedelta(minutes=5)).timestamp() * 1000)
-            and observed_minutes > 0):
+            and observed_minutes > 0
+            and max_gap_ms <= MAX_SUPPLY_GAP.total_seconds() * 1000):
         block_start = min(start1, datetime.fromtimestamp(first_supply / 1000, timezone.utc))
         pc["feature_supply"] = _evidence_block(supply, block_start, now, True)
         pc["feature_supply"]["observed_minutes"] = observed_minutes
         pc["feature_supply"]["unobserved_minutes"] = unobserved_minutes
+        pc["feature_supply"]["max_gap_ms"] = max_gap_ms
     unavailable = {name: _unavailable("machine telemetry not reachable")
                    for name in ("turns", "intake", "feature_supply")}
     return {"pc": pc, "nuc": unavailable}

@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from datetime import date
 
 
 SCRIPT = Path(__file__).with_name("run-quarantined-tests.py")
@@ -61,7 +62,16 @@ class QuarantinedTestSelectionTest(unittest.TestCase):
             (tests / "fixture_test.exs").write_text(FIXTURE)
             quarantine = Path(root) / "quarantine.txt"
             quarantine.write_text("".join(f"{module}\t{name}\t#1\t2026-12-31\n" for module, name in listed))
-            return RUNNER.selectors(tests, RUNNER.entries(quarantine))
+            return RUNNER.selectors(tests, RUNNER.entries(quarantine, today=date(2026, 12, 20)))
+
+    def test_new_expiry_beyond_14_days_is_rejected_but_exact_baseline_row_is_grandfathered(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "quarantine.txt"
+            row = ("Aiur.FixtureTest", "unique exact name", "#1", "2027-01-10")
+            path.write_text("\t".join(row) + "\n")
+            with self.assertRaisesRegex(ValueError, "exceeds 14 days"):
+                RUNNER.entries(path, today=date(2026, 12, 20))
+            self.assertEqual(RUNNER.entries(path, grandfathered={row}, today=date(2026, 12, 20)), [row])
 
     def test_describe_entry_uses_the_full_exunit_name(self):
         self.assertEqual(self.select(("Aiur.FixtureTest", "outer inside")), ["test/fixture_test.exs:5"])

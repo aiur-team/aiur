@@ -13,6 +13,7 @@ export async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await anchor(page.locator('.sd-device'))
 }
 
@@ -22,7 +23,8 @@ export async function openStreamdeck(page, mode = 'read_only') {
 // own scroll is used rather than a raw `scrollIntoView`, because it waits for
 // the element to settle first — a box read mid-scroll aims the drag at stale
 // coordinates. It scrolls minimally, so clear the sticky topbar afterwards or
-// the gesture lands on the topbar instead of the dial.
+// the gesture lands on the topbar instead of the dial. The corrective scroll is
+// instant because CSS smooth scrolling would keep moving after this returns.
 export async function anchor(locator) {
   await locator.scrollIntoViewIfNeeded()
   await locator.evaluate((element) => {
@@ -30,7 +32,7 @@ export async function anchor(locator) {
     if (!topbar) return
 
     const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
-    if (overlap > 0) window.scrollBy(0, -overlap - 8)
+    if (overlap > 0) window.scrollBy({ top: -overlap - 8, behavior: 'instant' })
   })
 }
 

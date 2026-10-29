@@ -54,7 +54,22 @@ defmodule Aiur.GitHub.Transport do
 
   @spec parse_repo() :: {:ok, {String.t(), String.t()}} | {:error, term()}
   def parse_repo do
-    case Settings.current().repo do
+    repo = Settings.current().repo
+    key = {__MODULE__, :parsed_repo}
+
+    case Process.get(key) do
+      {^repo, parsed} ->
+        parsed
+
+      _ ->
+        parsed = parse_repo_value(repo)
+        Process.put(key, {repo, parsed})
+        parsed
+    end
+  end
+
+  defp parse_repo_value(repo) do
+    case repo do
       nil ->
         {:error, :missing_github_repo}
 

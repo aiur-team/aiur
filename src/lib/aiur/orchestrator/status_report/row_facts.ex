@@ -76,7 +76,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   end
 
   defp safe_open_decision_ids(identifier, store) do
-    Commands.open_blocking_decision_ids([identifier], store, 100)
+    Commands.open_blocking_decision_ids([identifier], store, 1_000)
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -84,7 +84,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   defp safe_open_decision_ids_by_ticket([], _store), do: {:ok, %{}}
 
   defp safe_open_decision_ids_by_ticket(identifiers, store) do
-    Commands.open_blocking_decision_ids_by_ticket(identifiers, store, 100)
+    Commands.open_blocking_decision_ids_by_ticket(identifiers, store, 1_000)
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -112,10 +112,8 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   def retry_snapshot_tracker_identity(_retry, issue), do: Issue.tracker_identity(issue)
 
   # Distinguishes "this issue has no upstreams" from "we never resolved this
-  # issue". Only the first is an empty list; the second is `nil`, which
-  # `StreamDeckGrid.dependency_ready?/2` treats as blocking. Defaulting the
-  # unknown case to `[]` would read as "no dependencies" and render the key
-  # `Unblocked` — the same fail-open this projection exists to remove.
+  # issue". Only the first is an empty list; the second is `nil`. Defaulting
+  # unknown dependencies to `[]` would claim the issue has no upstreams.
   @doc false
   @spec known_blocked_by(term()) :: list() | nil
   def known_blocked_by(%Issue{blocked_by: blockers}) when is_list(blockers), do: blockers

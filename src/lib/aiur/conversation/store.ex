@@ -7,7 +7,7 @@ defmodule Aiur.Conversation.Store do
   records may survive an unacknowledged batch. Only head.json is replaceable.
   """
 
-  alias Aiur.Conversation.{Ref, StoreFiles, StoreReplay}
+  alias Aiur.Conversation.{Ref, StoreFiles, StoreReplay, SubjectIndex}
   alias Aiur.{Fs, Journal}
 
   @segment_bytes 8_388_608
@@ -27,6 +27,7 @@ defmodule Aiur.Conversation.Store do
     with :ok <- StoreFiles.check(dir),
          :ok <- Journal.ensure_directory(dir),
          :ok <- StoreFiles.subject(dir, ref, opts) do
+      SubjectIndex.put(dir, ref)
       prepare(dir)
     end
   end
@@ -63,6 +64,19 @@ defmodule Aiur.Conversation.Store do
 
   @spec append_anchor_line(Path.t(), map()) :: :ok | {:error, term()}
   def append_anchor_line(dir, line), do: append_line(dir, "anchors.jsonl", line)
+
+  @doc "Syncs recovered anchor records before the writer acknowledges or broadcasts them."
+  @spec sync_anchors(Path.t()) :: :ok | {:error, term()}
+  def sync_anchors(dir) do
+    with :ok <- StoreFiles.check(dir),
+         {:ok, fd} <- :file.open(Path.join(dir, "anchors.jsonl"), [:read, :write, :binary, :raw]) do
+      try do
+        :file.sync(fd)
+      after
+        :file.close(fd)
+      end
+    end
+  end
 
   @spec read_head(Path.t()) :: {:ok, map()} | {:error, term()}
   def read_head(dir) do
@@ -158,6 +172,8 @@ defmodule Aiur.Conversation.Store do
     %{state | "last_pos" => segment["last_pos"], "segments" => segments}
   end
 
-  defp write_head(dir, head),
+  @doc false
+  @spec write_head(Path.t(), map()) :: :ok | {:error, term()}
+  def write_head(dir, head),
     do: Fs.atomic_write(Path.join(dir, "head.json"), Jason.encode!(head), fsync: true, mode: 0o600)
 end
