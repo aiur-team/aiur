@@ -46,8 +46,21 @@ defmodule Aiur.GitHub.CorrectiveProvenanceDispatchTest do
     assert DispatchProvenance.authorized?(ctx.issue)
     DispatchProvenance.register(fn _issue -> false end)
     assert DispatchProvenance.authorized?(ctx.issue)
-    owner = spawn(fn -> DispatchProvenance.register(:corrective_ticket, fn _issue -> true end) end)
+
+    owner =
+      start_supervised!(
+        {Task,
+         fn ->
+           DispatchProvenance.register(:corrective_ticket, fn _issue -> true end)
+
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
+
     ref = Process.monitor(owner)
+    send(owner, :stop)
     assert_receive {:DOWN, ^ref, :process, ^owner, _reason}, 1_000
     refute DispatchProvenance.authorized?(ctx.issue)
   end
