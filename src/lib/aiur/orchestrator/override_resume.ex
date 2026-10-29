@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
 
   require Logger
   alias Aiur.{Commands, Issue, Tracker}
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, Slots, State, TrackerTasks}
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, IssueSync, Slots, State, TrackerTasks}
   alias Aiur.Orchestrator.Dispatcher.{Capacity, HoldsAndAlerts}
   alias Aiur.Orchestrator.PauseResume.{QueuedDispatch, Resume}
 
@@ -115,7 +115,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
   defp admitted?(state, entry, opts) do
     fleet? = if entry, do: Slots.resume_fleet_slot_available?(state, entry), else: Slots.available_slots(state) > 0
     # Admission may reuse this worker's reserved pause slot; never reserve it twice.
-    admission_state = if entry, do: %{state | running: Map.delete(state.running, entry.issue.id)}, else: state
+    admission_state = if entry, do: elem(State.pop_running_entry(state, entry.issue.id), 1), else: state
     admission = Keyword.get(opts, :admission_fun, &Capacity.auto_resume_admission/1)
     fleet? and admission.(admission_state) == :dispatch
   end
@@ -141,8 +141,8 @@ defmodule Aiur.Orchestrator.OverrideResume do
 
   defp resume(state, _issue, entry), do: Resume.do_resume_running_issue(state, entry)
 
-  defp put_issue(state, issue, nil), do: put_in(state.last_polled_issues[issue.id], issue)
-  defp put_issue(state, issue, entry), do: put_in(state.running[issue.id], entry)
+  defp put_issue(state, issue, nil), do: IssueSync.remember_issue(state, issue)
+  defp put_issue(state, issue, entry), do: Resume.put_running_entry(state, issue.id, entry)
 
   defp persist_wait(decision, route, reason, store) do
     record = Commands.pending_override(decision)
