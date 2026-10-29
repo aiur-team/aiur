@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake.MergeAudit
+  alias Aiur.Orchestrator.CommentWake.ReferenceMergeBookkeeping
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.MembershipLifecycle
   alias Aiur.Orchestrator.MergeAttribution
@@ -22,7 +23,6 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Orchestrator.WorkspaceCleanup
   alias Aiur.RecentMerge
-  alias Aiur.RecentMergeStore
   alias Aiur.Signal
 
   @non_closing_merge_state "needs-triage"
@@ -391,7 +391,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
             end)
 
           result = write_comment.(identifier, comment)
-          if result == :ok, do: write_reference_merge_bookkeeping(identifier, opts, emit_alert_fun)
+          if result == :ok, do: ReferenceMergeBookkeeping.write(identifier, opts, emit_alert_fun)
           {target, result}
 
         target ->
@@ -407,61 +407,8 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
     {target, result}
   end
 
-  defp mark_reference_merge_seen(identifier, opts) do
-    mark_ticket_reconciled_fun =
-      Keyword.get(opts, :mark_ticket_reconciled_fun, fn merge_id, ticket_id ->
-        RecentMergeStore.mark_ticket_reconciled(merge_id, ticket_id)
-      end)
-
-    with number when is_integer(number) <- opts[:pr_number],
-         repo when is_binary(repo) <- merge_repository(opts),
-         :ok <- mark_ticket_reconciled_fun.("#{repo}##{number}", to_string(identifier)) do
-      :ok
-    else
-      {:error, :merge_not_found} -> :ok
-      {:error, _reason} = error -> error
-      _other -> :ok
-    end
-  end
-
   defp fallback_merge_target(identifier, opts) do
     if to_string(identifier) in merge_closing_identifiers(opts), do: "done", else: "unavailable"
-  end
-
-  defp write_reference_merge_bookkeeping(identifier, opts, emit_alert_fun) do
-    [
-      {:merge_queued_label_cleanup, fn -> MergeStateWriter.clear_nonterminal_merge_queued(identifier, opts) end},
-      {:reconciliation_marker, fn -> mark_reference_merge_seen(identifier, opts) end}
-    ]
-    |> Enum.each(fn {step, write} ->
-      case write.() do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("PR reference merge bookkeeping deferred: issue_identifier=#{identifier} step=#{step} reason=#{inspect(reason)}")
-          emit_reference_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason)
-
-        other ->
-          Logger.warning("PR reference merge bookkeeping deferred: issue_identifier=#{identifier} step=#{step} result=#{inspect(other)}")
-      end
-    end)
-
-    :ok
-  end
-
-  defp emit_reference_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason) do
-    reason_name = MergeTransition.reason_name(reason)
-
-    emit_alert_fun.(
-      "ticket.#{identifier}.agent.attention.merge_reference_bookkeeping_failed",
-      message: "Merged PR reference bookkeeping failed for ticket #{identifier} at step #{step} (#{reason_name}).",
-      issue: identifier,
-      reason: "The reference merge bookkeeping step #{step} failed (#{reason_name}).",
-      needs_attention: true,
-      severity: "warning",
-      central: true
-    )
   end
 
   defp apply_merged_issue_target(
