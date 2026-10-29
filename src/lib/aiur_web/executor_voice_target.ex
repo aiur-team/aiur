@@ -25,7 +25,12 @@ defmodule AiurWeb.ExecutorVoiceTarget do
     do: {:error, :target_not_writable}
 
   defp capability(%{state: state}) when state in [:available, :degraded, "available", "degraded"], do: :ok
-  defp capability(%{reason: reason}) when reason in [:executor_absent, "executor_absent"], do: {:error, :target_not_found}
-  defp capability(%{reason: reason}) when reason in [:executor_not_managed, "executor_not_managed"], do: {:error, :target_not_writable}
+
+  defp capability(%{state: state, reason: reason}) when state in [:unavailable, "unavailable"] and reason in [:executor_absent, "executor_absent"],
+    do: {:error, :target_not_found}
+
+  defp capability(%{state: state, reason: reason}) when state in [:unavailable, "unavailable"] and reason in [:executor_not_managed, "executor_not_managed"],
+    do: {:error, :target_not_writable}
+
   defp capability(_), do: {:error, :unknown}
 end

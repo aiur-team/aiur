@@ -17,7 +17,7 @@ defmodule AiurWeb.ExecutorVoiceTargetTest do
   end
 
   test "unknown and malformed capability entries preserve unknown cause" do
-    for entry <- [nil, %{}, %{state: :unknown}, %{state: :unavailable, reason: :timeout}, :bad] do
+    for entry <- [nil, %{}, %{state: :unknown}, %{state: :unknown, reason: :executor_absent}, %{state: :unavailable, reason: :timeout}, :bad] do
       assert {:error, %{reason_code: "unknown"}} = validate(entry)
     end
   end
