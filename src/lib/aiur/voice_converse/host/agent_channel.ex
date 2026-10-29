@@ -90,6 +90,6 @@ defmodule Aiur.VoiceConverse.Host.AgentChannel do
   end
 
   defp listener_available? do
-    CapabilityProvider.capabilities(%{})["listener_modes"].state == :available
+    CapabilityProvider.capabilities(%{run_shape: %{}, settings: :unavailable})["listener_modes"].state == :available
   end
 end
