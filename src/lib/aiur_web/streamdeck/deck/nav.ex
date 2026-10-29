@@ -15,18 +15,20 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
             stack: [],
             drill_pages: [],
             selected: nil,
+            chat: nil,
             scroll: 0
 
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
-          surface: :grid | :cmd | :logs | :settings | :commands,
+          surface: :grid | :chat | :cmd | :logs | :settings | :commands,
           pages: map(),
           stack: [{atom(), String.t()}],
           drill_pages: [non_neg_integer()],
           selected: String.t() | nil,
+          chat: map() | nil,
           scroll: non_neg_integer()
         }
-  @type effect :: :close_ticket | {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
+  @type effect :: {:chat_page, String.t()} | :close_ticket | {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
 
   @spec valid_input?(term()) :: boolean()
   def valid_input?(%{"kind" => "key_press", "index" => index}),
