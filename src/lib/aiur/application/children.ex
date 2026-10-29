@@ -375,7 +375,7 @@ defmodule Aiur.Application.Children do
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
   defp recording_children(true),
-    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
+    do: [Aiur.Executor.Claims, Aiur.Executor.Session, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
 
   defp recording_children(false), do: []
 
