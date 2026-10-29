@@ -103,6 +103,7 @@ defmodule Aiur.Executor.SessionTest do
   test "restart restores binding identity offset and private mode", %{clock: clock} do
     binding = bound()
     assert {:ok, saved} = Session.record_offset(binding.binding_id, 99)
+    assert saved.transcript_offset == 99
     path = SessionRecord.path("instance-one")
     assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
     restart(clock)
