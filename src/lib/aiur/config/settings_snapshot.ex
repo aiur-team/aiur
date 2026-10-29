@@ -13,7 +13,7 @@ defmodule Aiur.Config.SettingsSnapshot do
       Process.put(@key, Aiur.Config.settings())
 
       try do
-        fun.()
+        Aiur.PathSafety.with_cached_roots(fun)
       after
         Process.delete(@key)
       end
