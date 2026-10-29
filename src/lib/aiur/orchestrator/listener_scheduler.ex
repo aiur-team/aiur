@@ -65,7 +65,7 @@ defmodule Aiur.Listener.Scheduler do
   def silence_nudges(store, identifier, %{effective: :mute}) do
     store
     |> AgentQueueStore.list_pending(identifier)
-    |> Enum.filter(&(&1.event_type == :listener_ping))
+    |> Enum.filter(&(&1.event_type in [:listener_ping, :async_backlog_notice]))
     |> Enum.reduce(store, fn item, acc -> elem(AgentQueueStore.mark_superseded(acc, item.id), 0) end)
   end
 

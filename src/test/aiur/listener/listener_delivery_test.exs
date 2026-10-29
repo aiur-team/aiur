@@ -103,6 +103,23 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert Enum.map(AgentQueueStore.list_pending(muted.queue_store, id), & &1.id) == [request]
   end
 
+  test "mute cancels an unclaimed backlog notice after leaving async", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    assert {:reply, {:ok, request}, state} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "held", delivery_policy: :listener, origin: :http})
+    assert_received {:agent_queue_updated, ^id, _, true}
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :sync, expected_version: 1)
+    notice = Enum.find(AgentQueueStore.list_pending(state.queue_store, id), &(&1.event_type == :async_backlog_notice))
+    assert notice
+    notice_id = notice.id
+    assert_received {:agent_queue_updated, ^id, ^notice_id, true}
+    assert {:reply, {:ok, %{effective: :mute}}, muted} = ListenerModes.set_mode(state, id, :mute, expected_version: 2)
+    assert {:reply, :empty, ^muted} = OperatorMessages.claim_next_queue_item_call(muted, id)
+    assert Enum.map(AgentQueueStore.list_pending(muted.queue_store, id), & &1.id) == [request]
+    assert Unread.queue_summary(muted.queue_store, id).listener.unread_count == 1
+    refute_received {:agent_queue_updated, ^id, _, true}
+  end
+
   test "mute never restarts deactivated or completed agents", %{id: id, entry: entry, state: state} do
     assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :mute, expected_version: 0)
 
