@@ -68,7 +68,7 @@
     syncElements() {
       if (this.choice.root && this.state) {
         const accepted = this.choice.root.dataset.voiceDeliveryAccepted === "true";
-        this.choice.root.dataset.voiceState = accepted && ["idle", "unavailable"].includes(this.state) ? "sent" : this.state;
+        this.choice.root.dataset.voiceState = accepted && this.state === "idle" ? "sent" : this.state;
       }
       if (this.mic) {
         this.mic.disabled = Boolean(

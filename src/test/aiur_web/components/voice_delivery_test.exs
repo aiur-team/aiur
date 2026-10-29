@@ -5,10 +5,12 @@ defmodule AiurWeb.Components.VoiceDeliveryTest do
 
   test "canonical harness receipt is echoed beside voice status and confirms acceptance" do
     delivery = VoiceDelivery.receipt([%{receipt: :harness_queued, request_id: 7, message_id: "send-7", target_key: "42"}], "42", %{})
-    html = render_component(&VoiceInput.voice_input/1, id: "voice", delivery: delivery)
+    html = render_component(&VoiceInput.voice_input/1, id: "voice", delivery: delivery, capabilities: %{"voice.stt" => %{state: :available}})
     assert html =~ "Delivered to the agent"
     assert html |> Floki.parse_fragment!() |> Floki.find("[data-voice-root]") |> Floki.attribute("data-voice-state") == ["sent"]
     assert delivery.message_id == "send-7"
+    unavailable = render_component(&VoiceInput.voice_input/1, id: "voice", delivery: delivery)
+    assert unavailable |> Floki.parse_fragment!() |> Floki.find("[data-voice-root]") |> Floki.attribute("data-voice-state") == ["unavailable"]
     assert VoiceDelivery.receipt([%{receipt: :harness_queued, target_key: "other"}], "42", %{}) == nil
   end
 

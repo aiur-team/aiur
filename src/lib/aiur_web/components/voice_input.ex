@@ -42,7 +42,7 @@ defmodule AiurWeb.Components.VoiceInput do
 
     ~H"""
     <div id={@id} phx-hook={@hook} class="agent-voice-tools" data-voice-root data-voice-surface={@surface} data-voice-target={Jason.encode!(@target)}
-      data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]} data-voice-delivery-accepted={to_string(accepted?(@delivery))} data-voice-state={if accepted?(@delivery), do: "sent", else: if(@dictate.available, do: "idle", else: "unavailable")}>
+      data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]} data-voice-delivery-accepted={to_string(accepted?(@delivery))} data-voice-state={if !@dictate.available, do: "unavailable", else: if(accepted?(@delivery), do: "sent", else: "idle")}>
       {render_slot(@inner_block)}
       <div class="agent-voice-controls">
         <div class="agent-voice-choice">

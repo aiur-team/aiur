@@ -189,6 +189,7 @@ defmodule AiurWeb.DashboardLive.AgentLogTest do
       units_activity_fun: fn -> units_activity(identity) end,
       live_conversation_resolve_fun: fn _handle -> {:ok, conversation_snapshot(handle)} end,
       live_conversation_subscribe_fun: fn _handle -> :ok end,
+      capabilities_report_fun: fn -> %{capabilities: %{"voice.stt" => %{state: :available}}} end,
       agent_chat_send_fun: fn selected, text ->
         send(test_pid, {:drawer_agent_message, selected, text})
         {:ok, 9}
