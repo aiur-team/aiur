@@ -13,7 +13,9 @@ A daemon-filed `experiment-analysis` ticket can dispatch after normal label auth
 
 The creator must also match the current daemon identity. Every actor adding or removing an `agent:*` label must be the daemon or configured agent bot; third-party or missing actors deny this fallback. Missing, unreadable, closed, or unattached local requests confer no trust.
 
-A corrective Command ticket uses the same creator and label-actor checks. Its exact issue number, URL and override marker must match a corrective-ticket link in the daemon’s durable Command journal. A copied marker or a ticket created before its link is persisted confers no trust. Registered local checks retain their owning process; a stopped owner cannot authorize dispatch.
+A corrective Command ticket uses the same creator and label-actor checks. Its exact issue number, URL and override marker must match a corrective-ticket link in the daemon’s durable Command journal. A copied marker or a ticket created before its link is persisted confers no trust.
+
+Registered local checks retain their owning process; a stopped owner cannot authorize dispatch.
 
 The optional experiment store registers this check; without it, ordinary authorization applies.
 

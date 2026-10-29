@@ -226,7 +226,9 @@ The first accepted answer wins. If another responder answers first, the conflict
 shows the accepted answer and its delivery state instead of overwriting it.
 
 Use **Replace** before delivery, or **Send correction** after delivery. Both
-record an override of the original Command. Before delivery the new answer
+record an override of the original Command.
+
+Before delivery the new answer
 replaces the pending answer; after delivery it sends corrective direction to the
 active worker on unmerged work. If the PR has merged, it creates a corrective
 ticket for a new worker and PR. It cannot retract earlier effects.
@@ -259,7 +261,9 @@ or a later proven push. Queue acceptance alone does not mean implementation.
 When the PR has merged, the override creates one corrective ticket, with the
 question, old and new answers, original PR and merge SHA. Its `corrective_ticket`
 link survives restart, and comments link the original ticket and merged PR to it.
-Retries reconcile the override marker before creating a ticket. The corrective
+Retries reconcile the override marker before creating a ticket.
+
+The corrective
 ticket enters normal dispatch and capacity limits; merged history is preserved.
 A later override targets this corrective ticket while its PR remains unmerged.
 For this route, `implemented` requires the corrective PR to merge.
