@@ -3,8 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable.ListenerBadgeTest do
 
   import AiurWeb.OperatorControlCenter.UnitsTableFixtures
 
-  test "ordinary, unavailable and legacy rows contain no listener badge" do
-    for unit <- [row(), Map.put(row(), :listener, :unavailable), Map.put(row(), :listener, %{}), Map.put(row(), :listener, %{routing: :legacy, requested: :sync})] do
+  test "ordinary, unavailable and unavailable-routing rows contain no listener badge" do
+    for unit <- [row(), Map.put(row(), :listener, :unavailable), Map.put(row(), :listener, %{}), Map.put(row(), :listener, %{routing: :unavailable, requested: :sync})] do
       html = render(view([unit]))
       refute html =~ "data-listener-badge"
       refute html =~ "listener-mode"

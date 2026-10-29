@@ -34,9 +34,9 @@ defmodule AiurWeb.ListenerModeComponentTest do
     assert read_only =~ "disabled"
   end
 
-  test "legacy routing hides the selector" do
-    html = render_mode(view(%{routing: :legacy}))
-    assert html =~ "Legacy routing"
+  test "unavailable routing hides the selector" do
+    html = render_mode(view(%{routing: :unavailable}))
+    assert html =~ "Listener routing unavailable"
     refute html =~ "<select"
   end
 
@@ -54,7 +54,7 @@ defmodule AiurWeb.ListenerModeComponentTest do
   end
 
   test "row badges omit detail, live regions and unsupported routing" do
-    for listener <- [:unavailable, :loading, %{}, view(%{routing: :legacy})] do
+    for listener <- [:unavailable, :loading, %{}, view(%{routing: :unavailable})] do
       assert String.trim(render_badge(listener)) == ""
     end
 

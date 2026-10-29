@@ -32,15 +32,6 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     dir = Aiur.TestSupport.tmp_root!("listener-delivery")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(dir)
-    previous = Application.fetch_env(:aiur, :listener_send_routing)
-    Application.put_env(:aiur, :listener_send_routing, :listener)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, flag} -> Application.put_env(:aiur, :listener_send_routing, flag)
-        :error -> Application.delete_env(:aiur, :listener_send_routing)
-      end
-    end)
 
     id = "listener-#{System.unique_integer([:positive])}"
     entry = %{identifier: id, issue: %Issue{id: id, identifier: id}, pid: self(), session_execution: %{backend: "codex"}, control: %{status: :working, can_interrupt: true}}
@@ -82,7 +73,7 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert claimed.id == request
   end
 
-  test "REPL native steer wakes the active session; legacy routing stays immediate only", %{id: id, entry: entry, state: state} do
+  test "REPL native steer wakes the active session", %{id: id, entry: entry, state: state} do
     entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
     state = %{state | running: %{id => entry}}
     :ok = ActiveTurns.put(id, "active")
@@ -97,8 +88,6 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:reply, {:ok, claimed}, after_steer} = OperatorMessages.claim_next_steer_queue_item_call(queued, id)
     assert claimed.id == request
     assert AgentQueueStore.get(after_steer.queue_store, held.id).status == :pending
-    Application.put_env(:aiur, :listener_send_routing, :legacy)
-    assert Capabilities.issue_control_capabilities(state, id).accepted_delivery_policies == [:immediate]
   end
 
   test "native steer enqueue wakes active turn and stays sync-safe on unsupported harness", %{id: id, entry: entry, state: state} do
