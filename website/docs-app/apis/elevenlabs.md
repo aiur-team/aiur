@@ -69,11 +69,11 @@ Voice transcription is cloud processing: while you dictate, your audio and the r
 | --- | --- |
 | Dictation held open | Microphone audio goes to ElevenLabs; returned text stays in the composer, Command response, or deck buffer until you submit it. |
 | Stop dictation | Capture stops and final transcription settles before review; there is no always-on listener or wake word. |
-| Cancel or Escape during dictation | Capture stops and the pre-recording draft is restored. Audio already sent to ElevenLabs cannot be recalled. |
+| Browser Cancel or Escape during dictation | Capture stops and the pre-recording draft is restored. Audio already sent to ElevenLabs cannot be recalled. |
 | Submit reviewed text | Agent and Executor messages, Command answers and revisions use their normal delivery and retention paths. Transcription alone is not a delivery receipt. |
 | Legacy interactive agent chat | Finished utterances are sent automatically and enter the ticket transcript. |
 | Executor voice prototype | Conversation transcripts and summaries are retained and handed to the Executor; see [Executor voice](/guide/executor-voice). |
-| Key absent | No ElevenLabs connection opens and no audio leaves the machine. |
+| Dictation key absent | No ElevenLabs transcription connection opens and no dictation audio leaves the machine. |
 | Agent process | `ELEVENLABS_API_KEY` is scrubbed from coding-agent environments and never logged. |
 
 Aiur stores no microphone audio. This does not promise deletion or non-retention
