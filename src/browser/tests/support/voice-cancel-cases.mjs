@@ -96,6 +96,9 @@ for (const target of ['input', 'control']) {
     await listen(drawer)
     await page.evaluate(() => window.__emit('transcript', { kind: 'final', text: 'hello' }))
     await expect(input).toHaveValue('original draft hello')
+    // The transcript dispatches phx-change. Let that patch settle before
+    // focusing Cancel: its server-rendered hidden attribute can drop focus.
+    await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-voice-draft', 'original draft hello')
     const focus = target === 'input' ? input : drawer.getByRole('button', { name: 'Cancel', exact: true })
     await focus.press('Escape')
     await expect(drawer).toBeVisible()
