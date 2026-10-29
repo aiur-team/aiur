@@ -74,12 +74,17 @@ defmodule VoiceConverse.TranscriptIndex do
       {:ok,
        Enum.filter(
          conversations,
-         &((is_nil(target) or &1.target == target) and (is_nil(since) or after_or_equal?(&1.started_at, since)))
+         &((is_nil(target) or target_id(&1.target) == target_id(target)) and
+             (is_nil(since) or after_or_equal?(&1.started_at, since)))
        )}
     end
   end
 
   defp filter(_, _), do: {:error, :invalid_filter}
+
+  defp target_id(%{"id" => id}), do: id
+  defp target_id(%{id: id}), do: id
+  defp target_id(target), do: target
   defp page(conversations, nil, limit), do: make_page(conversations, limit)
 
   defp page(conversations, before, limit) when is_binary(before) do

@@ -91,3 +91,22 @@ Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `
 ## Offline experiment statistics
 
 [Read this section](./cli-operations#offline-experiment-statistics).
+
+## Voice transcripts
+
+| Command | Behavior | Example |
+| --- | --- | --- |
+| `aiur voice transcripts [<conversation_id>] [--target <ticket>\|executor] [--limit N] [--json]` | List voice sessions or show a complete transcript in file order. | `aiur voice transcripts --target executor --json` |
+
+Requires a running daemon, including headless runs without a dashboard. Listing defaults
+to 100 sessions (maximum 100); `--target` filters by ticket id or `executor`.
+Rows show id, target, local start time, duration, end reason, user turns and draft counts
+(sent/proposed/discarded/stale). Open sessions have unknown duration and end reason.
+An empty list prints “No voice conversations recorded.” and exits successfully.
+
+Pass a `vc_` conversation id to show all turns, context with observation age at recording,
+tool calls, drafts and delivery outcomes in stored order. `--target` and `--limit` apply
+only to listing. An unknown id exits 1 with “No such conversation”. A torn final record
+is omitted and reported as “(last record incomplete)”; invalid interior records are reported
+by line number. `--json` returns index records for a list and raw complete records for a
+single conversation, without human-readable warnings. No summaries are generated.

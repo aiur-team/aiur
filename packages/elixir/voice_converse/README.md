@@ -70,3 +70,13 @@ An explicit `llm` Realtime model is required; optional `voice_id` defaults to
 the GA websocket protocol, converts 16 kHz PCM input to 24 kHz and tags output as
 `:pcm_24000`. Barge-in removes the entire interrupted item from model context
 until clients supply playback offsets. Tests use transport doubles only.
+
+Read a host's stored conversations without booting it:
+
+```sh
+mix voice_converse.transcripts --root /path/to/transcripts --target executor --limit 10
+mix voice_converse.transcripts --root /path/to/transcripts vc_aaaaaaaaaaaaaaaaaaaaaa --json
+```
+
+The root is explicit; list limits are 1–100 (default 100). JSON preserves index fields
+or raw complete transcript records. Text output reports torn tails and skipped records.
