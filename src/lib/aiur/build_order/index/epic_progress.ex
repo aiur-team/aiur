@@ -43,7 +43,7 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
 
   defp unknown_reason(rows, history, sources) do
     case source_failures(sources) do
-      [] -> if(incomplete_labels?(rows, history), do: "labels_incomplete")
+      [] -> if(incomplete_labels?(rows, history), do: "Some ticket labels are incomplete")
       failures -> Enum.join(failures, ", ")
     end
   end
@@ -60,7 +60,10 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
   defp incomplete_labels?(rows, history) do
     Enum.any?(rows, fn {_id, row} ->
       case Map.get(history, row.num) do
-        %{labels_complete: true, labels: labels} when is_list(labels) -> false
+        # Rows written before labels_complete was introduced still carry the
+        # complete label snapshot that was used to classify them. New partial
+        # reads explicitly persist false (including catch-up pagination caps).
+        %{labels_complete: complete, labels: labels} when is_list(labels) and complete != false -> false
         _ -> true
       end
     end)

@@ -31,15 +31,23 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
     assert index.epic_progress_meta == %{unmatched: 1, observed_at: observed_at, reason: nil}
   end
 
-  test "epic progress leaves figures unknown when ticket labels are incomplete" do
+  test "legacy label snapshots preserve epic counts while explicitly incomplete labels stay unknown" do
     epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
-    p = parts([row(1, %{labels: ["area:ui"], labels_complete: false})])
+    p = parts([row(1, %{labels: ["area:ui"], labels_complete: :unknown})])
     settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic])
     p = Map.put(p, :settings, {:ok, settings})
 
     assert {:ok, index} = assemble(p)
-    assert index.epic_progress["ui"] == %{closed: nil, open: nil, total: nil, observed_at: now(), reason: "labels_incomplete"}
-    assert index.epic_progress_meta == %{unmatched: nil, observed_at: now(), reason: "labels_incomplete"}
+    assert index.epic_progress["ui"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert index.epic_progress_meta == %{unmatched: 0, observed_at: now(), reason: nil}
+
+    {:ok, history} = p.history
+    rows = Map.update!(history.rows, 1, &%{&1 | labels_complete: false})
+    incomplete = put_in(p, [:history], {:ok, %{history | rows: rows}})
+    assert {:ok, unknown} = assemble(incomplete)
+    assert unknown.epic_progress["ui"].reason == "Some ticket labels are incomplete"
+    assert unknown.epic_progress["ui"].total == nil
+    assert unknown.epic_progress_meta.reason == "Some ticket labels are incomplete"
   end
 
   test "epic progress excludes unpublished planned rows without label records" do
