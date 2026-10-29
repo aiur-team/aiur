@@ -48,7 +48,9 @@ def shipped(rows):
 
 def bottlenecks(rows):
     if rows is None:
-        return '<div class="bn">' + shown(None) + '</div>'
+        return '<div class="bottleneck-status"><span class="kick">Bottlenecks</span>' + shown(None) + '</div>'
+    if not rows:
+        return '<div class="bottleneck-status"><span class="kick">Bottlenecks</span><span>None reported</span></div>'
     result = []
     for r in rows[:3]:
         tone = r.get("tone") if r.get("tone") in ("attn", "block", "super", "good") else "attn"
@@ -59,6 +61,8 @@ def bottlenecks(rows):
 
 
 def automated_bottlenecks(report):
+    if report.get("meta_patterns", {}).get("status") == "unavailable":
+        return None
     rows = report.get("bottlenecks")
     if not isinstance(rows, list):
         return None

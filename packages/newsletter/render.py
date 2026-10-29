@@ -14,8 +14,9 @@ import tempfile
 from zoneinfo import ZoneInfo
 
 from assets import HERE, STYLE, data_url, icon, styles
+from lanes import rows as lane_rows
 from editorial import automated_bottlenecks, blockers, bottlenecks, read_notes, removable, shipped
-from presentation import focus, gauge, metric_row, numeric, progress_row, shown, state_bar, text, trend
+from presentation import focus, funnel, gauge, metric_row, numeric, progress_row, shown, state_bar, text, trend
 
 
 def page_count(pdf):
@@ -42,8 +43,6 @@ def html(report, timezone_name=None, notes=None):
     outcomes, program = report.get("outcomes", {}), report.get("program", {})
     share = outcomes.get("feature_share", {})
     editorial = {**report.get("editorial", {}), **(notes or {})}
-    lanes = program.get("lanes", {})
-    ordered = sorted(lanes.items(), key=lambda r: (-(numeric(r[1].get("done_in_window")) or 0), r[0])) if isinstance(lanes, dict) else []
     patterns = report.get("meta_patterns", {})
     themes = sorted(patterns.get("themes", {}).items(), key=lambda r: -(numeric(r[1]) or 0))
     pattern_html = ''.join(removable('<p>' + text(k) + ' · ' + shown(v) + '</p>', "patterns", 10) for k, v in themes[:3])
@@ -56,10 +55,7 @@ def html(report, timezone_name=None, notes=None):
                   blocker_count=str(len(editorial["blockers"])) if "blockers" in editorial else "?",
                   blockers=blockers(editorial.get("blockers")), program=progress_row("Whole program", program, True),
                   states=state_bar(program),
-                  lanes=''.join(removable(progress_row(k.removeprefix("feature:").removeprefix("build-lane:"), v), "lanes", 20)
-                                for k, v in ordered[:12]) if isinstance(lanes, dict) else shown(None),
-                  funnel=''.join(metric_row(label, outcomes.get(key), merged) for label, key in
-                                 (("Merged", "merged"), ("Live", "live"), ("Verified", "finished_verified"))),
+                  lanes=lane_rows(program), funnel=funnel(outcomes),
                   scope=''.join(metric_row(k.title(), program.get("scope", {}).get(k), program.get("total"))
                                 for k in ("added", "removed", "reopened", "paused", "shelved")),
                   shipped=shipped(editorial.get("shipped")),
@@ -68,9 +64,9 @@ def html(report, timezone_name=None, notes=None):
                            + (pattern_html or text(patterns.get("status", "unavailable"))) + '</section>',
                   notes='<section class="notes"><span class="kick">Executor notes</span>'
                         + (notes_html or shown(None)) + '</section>',
-                  sources="GitHub issues/PRs; daemon build/units; local telemetry and meta/actions (availability in report.json)", omitted='')
+                  sources="GitHub, daemon, telemetry/meta (report.json)", omitted='')
     document = Template((HERE / "template.html").read_text()).substitute(fields)
-    omitted = max(0, len(ordered) - 12) + max(0, len(themes) - 3) + max(0, len(editorial.get("shipped", [])) - 6)
+    omitted = max(0, len(themes) - 3) + max(0, len(editorial.get("shipped", [])) - 6)
     return document.replace('</body>', trim_script(omitted) + '</body>')
 
 
@@ -82,12 +78,28 @@ def trim_script(omitted):
       const candidates = [...document.querySelectorAll('[data-trim]')]
         .map((element, index) => ({element, index}))
         .sort((a, b) => Number(a.element.dataset.trim) - Number(b.element.dataset.trim) || b.index - a.index);
+      const columns = [...document.querySelectorAll('[data-column]')];
+      const boards = [...document.querySelectorAll('[data-lane-board]')];
+      const lanes = [...document.querySelectorAll('[data-lane]')];
+      const balance = () => {
+        if (!lanes.length) return;
+        let best = 0, height = Infinity;
+        for (let split = 0; split <= lanes.length; split++) {
+          boards[0].replaceChildren(...lanes.slice(0, split));
+          boards[1].replaceChildren(...lanes.slice(split));
+          const trial = Math.max(...columns.map(column => column.scrollHeight));
+          if (trial < height) { height = trial; best = split; }
+        }
+        boards[0].replaceChildren(...lanes.slice(0, best));
+        boards[1].replaceChildren(...lanes.slice(best));
+      };
+      balance();
       const notice = document.querySelector('.omitted');
       const update = () => { notice.textContent = removed ? `${removed} lower priority items omitted; full details in report.json.` : ''; };
       update();
       for (const {element} of candidates) {
         if (document.body.scrollHeight <= 1056 && document.body.scrollWidth <= 816) break;
-        element.remove(); removed++; update();
+        element.remove(); removed++; update(); balance();
       }
       document.body.dataset.pagesFit = String(document.body.scrollHeight <= 1056 && document.body.scrollWidth <= 816);
     });

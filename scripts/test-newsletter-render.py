@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,10 +55,78 @@ class RendererTest(unittest.TestCase):
         for heading in ("Allocation trend", "Scope changes", "Feature share of merges"):
             self.assertIn(heading, page)
         self.assertIn('class="unav">unavailable</span></p>', page.split('Allocation trend')[1])
-        self.assertIn('class="unav">unavailable</span>', page.split('class="facts"')[1].split('Feature focus')[0])
+        self.assertEqual(data['outcomes']['feature_share']['trend_pp']['value'], 'unavailable')
+        merge_trend = page.split('<div class="merge-trend">', 1)[1].split('</div>', 1)[0]
+        self.assertEqual(merge_trend, '<span class="unav">unavailable</span>')
         scope = page.split('Scope changes')[1].split('Shipped today')[0]
         self.assertEqual(scope.count('class="unav">unavailable'), 5)
         self.assertIn('stroke-dasharray="50.0 100"', page)
+
+    def test_whole_point_trend_and_compact_missing_allocation(self):
+        from presentation import focus, trend
+        self.assertIn('+6 pts', trend({'value': 5.88235294}))
+        self.assertIn('-6 pts', trend({'value': -5.88235294}))
+        empty = focus(compute(fixtures.snapshot())['allocation'])
+        self.assertEqual(empty.count('class="unav"'), 1)
+        self.assertIn('<div class="pbar">', empty)
+        self.assertNotIn('Held:', empty)
+        self.assertNotIn('Allocation trend', empty)
+        self.assertNotIn('Agent-hours', empty)
+        self.assertIn('class="allocation-unavailable"', empty)
+        partial = focus({'instant_context': {'agent_hours': {'feature': {'value': 2.5}}}})
+        self.assertIn('Agent-hours: feature 2.5', partial)
+        self.assertNotIn('allocation-unavailable', partial)
+
+    def test_bottleneck_empty_and_unavailable_sources_are_distinct(self):
+        from editorial import automated_bottlenecks, bottlenecks
+        absent = compute(fixtures.snapshot())
+        absent['meta_patterns']['status'] = 'unavailable'
+        absent['bottlenecks'] = []
+        self.assertIsNone(automated_bottlenecks(absent))
+        self.assertIn('class="unav">unavailable', bottlenecks(automated_bottlenecks(absent)))
+        empty = compute(fixtures.snapshot())
+        self.assertEqual(automated_bottlenecks(empty), [])
+        section = render.html(empty).split('aria-label="Bottlenecks">', 1)[1].split('</section>', 1)[0]
+        self.assertIn('None reported', section)
+        self.assertNotIn('unavailable', section)
+
+    def test_lane_names_completed_filter_and_paused_pill(self):
+        from lanes import rows
+        data = report()['program']
+        lane = copy.deepcopy(data['lanes']['feature:mail'])
+        lane['paused'] = {'value': True}
+        data['lanes'] = {'feature:streamdeck-redesign': lane, 'feature:all-done': copy.deepcopy(lane)}
+        data['lanes']['feature:all-done']['done'] = copy.deepcopy(lane['total'])
+        page = rows(data)
+        self.assertIn('Stream Deck redesign', page)
+        self.assertNotIn('all-done', page)
+        self.assertNotIn('All done', page)
+        self.assertIn('>paused</span>', page)
+        self.assertEqual(page.count('data-lane="true"'), 1)
+
+    @unittest.skipUnless(chromium_available(), 'Chromium is not installed; lane layout acceptance skipped')
+    def test_real_pdf_keeps_all_planned_lanes_in_both_columns(self):
+        data = report()
+        data['allocation'] = compute(fixtures.snapshot())['allocation']
+        lane = data['program']['lanes']['feature:mail']
+        data['program']['lanes'] = {f'feature:planned-lane-{i:02}': copy.deepcopy(lane) for i in range(24)}
+        data['program']['lanes']['feature:already-complete'] = copy.deepcopy(lane)
+        data['program']['lanes']['feature:already-complete']['done'] = copy.deepcopy(lane['total'])
+        data['program']['lanes']['feature:planned-lane-23']['paused'] = {'value': True}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render.compile_report(data, Path(temporary) / 'newsletter.pdf')
+            self.assertEqual(render.page_count(path), 1)
+            if shutil.which('pdftotext'):
+                printed = ' '.join(subprocess.check_output(['pdftotext', str(path), '-'], text=True).split())
+                for i in range(24):
+                    self.assertIn(f'Planned lane {i:02}', printed)
+                self.assertNotIn('Already complete', printed)
+                self.assertIn('paused', printed)
+                bbox = ET.fromstring(subprocess.check_output(['pdftotext', '-bbox', str(path), '-'], text=True))
+                positions = [float(word.attrib['xMin']) for word in bbox.iter()
+                             if word.tag.endswith('word') and word.text == 'Planned']
+                self.assertTrue(any(x < 100 for x in positions), 'feature rows must occupy the main column')
+                self.assertTrue(any(x > 380 for x in positions), 'feature rows must occupy the side column')
 
     def test_unknown_feature_share_does_not_draw_zero_gauge(self):
         data = compute(fixtures.snapshot())
@@ -219,13 +288,16 @@ class RendererTest(unittest.TestCase):
             if shutil.which('pdftotext'):
                 printed = subprocess.check_output(['pdftotext', str(directory / 'newsletter.pdf'), '-'], text=True)
                 self.assertIn('unavailable', printed)
-                self.assertIn('Allocation trend', printed)
+                self.assertIn('running agents', printed.lower())
 
     @unittest.skipUnless(chromium_available(), 'Chromium is not installed; real PDF acceptance skipped')
     def test_real_pdf_long_values_and_notes_fit_one_letter_page(self):
         data = report()
         lane = data['program']['lanes']['feature:mail']
         data['program']['lanes'] = {('Long lane title ' * 5) + str(i): copy.deepcopy(lane) for i in range(40)}
+        for i, row in enumerate(data['program']['lanes'].values()):
+            if i >= 12:
+                row['done'] = copy.deepcopy(row['total'])
         notes = {'notes': ['Operator observed the actual deployment.'],
                  'bottlenecks': [{'problem': 'Long bottleneck ' * 80, 'action': 'A full action sentence. ' * 30,
                                   'result': 'No impact measured. ' * 30}] * 3,
@@ -241,9 +313,12 @@ class RendererTest(unittest.TestCase):
                 self.assertRegex(info, r'Page size:\s+612 x 792 pts')
             if shutil.which('pdftotext'):
                 printed = subprocess.check_output(['pdftotext', str(path), '-'], text=True)
-                self.assertIn('Operator observed the actual deployment.', printed)
+                self.assertIn('Operator observed the actual deployment.', ' '.join(printed.split()))
                 self.assertIn('lower priority items omitted', printed)
                 self.assertNotIn('Long bottleneck', printed)
+                normalized = ' '.join(printed.split())
+                for i in range(12):
+                    self.assertIn(('Long lane title ' * 5) + str(i), normalized)
 
 
 if __name__ == '__main__':

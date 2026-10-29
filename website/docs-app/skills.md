@@ -234,8 +234,9 @@ prints an existing report, with the same notes/timezone options.
 
 Fonts, logo and
 dark tokens are embedded from `packages/aiur-style`; rendering needs no font
-network access. The page drops lower-priority list items to fit, preserving
-readable fonts and all data in the report.
+network access. The page balances all unfinished feature lanes across both columns, excludes
+completed lanes, and drops only optional editorial items to fit. Fonts stay
+readable and all data stays in the report.
 
 Overflow or missing Chromium fails
 with a clear error. See `packages/newsletter/README.md` for the notes schema and

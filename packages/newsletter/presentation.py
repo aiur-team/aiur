@@ -32,7 +32,7 @@ def trend(node):
     if number is None:
         return shown(UNAVAILABLE)
     tone = "good" if number >= 0 else "attn"
-    return f'<span class="chip {tone}">{number:+g} pts vs yesterday</span>'
+    return f'<span class="chip {tone}">{number:+.0f} pts vs yesterday</span>'
 
 
 def bar(parts, total, goal=False):
@@ -60,8 +60,10 @@ def progress_row(label, row, total=False):
     done, size, today = (numeric(row.get(k)) for k in ("done", "total", "done_in_window"))
     parts = [(max(0, done - today), "accent"), (today, "today")] if done is not None and today is not None else []
     progress = bar(parts, size) if parts else shown(UNAVAILABLE)
-    chip = f'<span class="chip good">+{today:g} today</span>' if today is not None else shown(UNAVAILABLE)
-    return (f'<div class="frow{" total" if total else ""}{" paused" if value(row.get("paused")) is True else ""}"><span class="fname">{text(label)}</span>{progress}'
+    chip = ('<span class="chip paused-pill">paused</span>' if value(row.get("paused")) is True else
+            f'<span class="chip good">+{today:g} today</span>' if today is not None and today > 0 else
+            '<span class="delta-zero">0 today</span>' if today == 0 else shown(UNAVAILABLE))
+    return (f'<div class="frow{" total" if total else ""}{" paused" if value(row.get("paused")) is True else ""}{" long-name" if len(label) > 24 else ""}"><span class="fname">{text(label)}</span>{progress}'
             f'<span class="fnum">{shown(done)}<i>/{shown(size)}</i></span>{chip}</div>')
 
 
@@ -71,8 +73,21 @@ def metric_row(label, node, total):
             + (bar([(n, "good")], total) if n is not None else '') + f'<b>{shown(node)}</b></div>')
 
 
+def observed(node):
+    if numeric(node) is not None:
+        return True
+    return isinstance(node, dict) and any(observed(v) for k, v in node.items() if k != 'sources')
+
+
 def focus(allocation):
     context = allocation.get("instant_context", {})
+    daily = [windows.get("window_24h", {}).get("feature_turn_hours_percent")
+             for windows in allocation.get("headline", {}).values()]
+    known = any(observed(context.get(k)) for k in ("running_agents", "held_slots", "agent_hours"))
+    if not known and not any(observed(metric) for metric in daily):
+        return ('<div class="focus unavailable-focus"><span class="kick">Running agents · 95% goal</span>'
+                '<div class="pbar"><i class="goal" title="95% goal"></i></div>'
+                '<p class="allocation-unavailable">' + shown(None) + '</p></div>')
     counts = context.get("running_by_class", {})
     counts = counts if isinstance(counts, dict) else {}
     classes = [(numeric(counts.get(k)), tone) for k, _, tone in CLASSES]
@@ -102,3 +117,10 @@ def state_bar(program):
     total = sum(numbers) if all(n is not None for n in numbers) else None
     return '<div class="focus">' + bar(list(zip(numbers, tones)), total) + ' '.join(
         f'<span class="lg">{text(k)} {shown(v)}</span>' for k, v in states.items()) + '</div>'
+
+
+def funnel(outcomes):
+    return '<div class="pipeline">' + ''.join(
+        '<div class="pipeline-stage"><span class="kick">' + label + '</span><span class="snum">'
+        + shown(outcomes.get(key)) + '</span></div>' for label, key in
+        (("Merged", "merged"), ("Live", "live"), ("Verified", "finished_verified"))) + '</div>'

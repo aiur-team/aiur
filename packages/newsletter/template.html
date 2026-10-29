@@ -4,19 +4,25 @@
 <header class="mast"><div class="name"><img src="$logo" alt="Aiur logo"><h1>The Aiur <span>Daily</span></h1></div></header>
 <div class="rules"></div>
 <div class="dateline"><b>$date</b><span>Window end $window_end</span><span>PC + NUC combined</span></div><div class="rule1"></div>
-<section class="cols lead"><div><span class="kick">Feature share of merges · goal 95%</span>
+<main class="newspaper">
+<div class="main-column" data-column="main"><section class="lead-story"><span class="kick">Feature share of merges · goal 95%</span>
 <h2>Building toward the goal</h2>
-<div class="hero">$gauge<div class="facts"><div class="fact"><b>$feature_count<i>/$merged</i></b><span>feature merges</span></div><div>$trend</div></div></div>
-$focus</div><div class="vrule"></div>
-<aside class="byou"><header>$hand<h3>Blocked by you</h3><span class="count">$blocker_count</span></header><ul>$blockers</ul></aside></section>
-<section class="cols body"><div><div class="sec-h"><h3>Feature progress</h3><span class="kick">Before · today · left</span></div>
-<div class="board">$program$lanes</div>
+<div class="hero">$gauge<div class="facts"><div class="fact"><b>$feature_count<i>/$merged</i></b><span>feature merges</span></div><div class="merge-trend">$trend</div></div></div>
+$focus</section>
+<section class="card outcomes">$funnel</section>
+<section class="program"><div class="board">$program</div>$states</section>
+<section class="features"><div class="sec-h"><h3>Feature progress</h3></div>
 <div class="legend2"><span class="lg"><i class="accent"></i>done before</span><span class="lg"><i class="today"></i>done in window</span></div>
-$states$patterns$notes</div><div class="vrule"></div><div class="rail">
-<div class="card"><span class="kick">Merged · live · verified</span>$funnel</div>
-<div class="card scope"><span class="kick">Scope changes</span>$scope</div>
-<div class="card"><span class="kick">Shipped today</span><ul class="ship">$shipped</ul></div></div></section>
-<section class="bns">$bottlenecks</section>
+<div class="board" data-lane-board="main">$lanes</div></section>
+</div>
+<aside class="right-column" data-column="side">
+<section class="byou"><header>$hand<h3>Blocked by you</h3><span class="count">$blocker_count</span></header><ul>$blockers</ul></section>
+<section class="card scope"><span class="kick">Scope changes</span>$scope</section>
+<section class="card"><span class="kick">Shipped today</span><ul class="ship">$shipped</ul></section>
+<section class="features"><div class="sec-h"><h3>Feature progress</h3><span class="kick">continued</span></div><div class="board" data-lane-board="side"></div></section>
+$patterns$notes
+</aside></main>
+<section class="bns" aria-label="Bottlenecks">$bottlenecks</section>
 <p class="omitted">$omitted</p>
-<footer class="foot">Sources: $sources. Feature share = feature PRs / merged PRs in this 24h window. Live = merge in running build; verified = completed feature with Executor evidence. Scope is separate from completion. Bars: before + today + left. Missing evidence = unavailable.</footer>
+<footer class="foot">Sources: $sources. Feature share = feature/merged PRs. Live = running build; verified = Executor-confirmed features. Bars: before/today/left. Scope: transitions. Missing: unavailable.</footer>
 </body></html>

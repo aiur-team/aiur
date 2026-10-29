@@ -36,8 +36,11 @@ empty population. Percentages use 0–100; trends use percentage points.
   including completions, added, removed, reopened, paused and shelved, plus lanes.
   Completions require open yesterday and completed today, never new membership.
   Removed includes disappeared tickets and newly not-planned tickets. Closed
-  not-planned tickets leave the total, including lane totals. Shelved
-  is the current paused mobile/watch population (unavailable without yesterday).
+  not-planned tickets leave the total, including lane totals. Shelved counts
+  newly shelved tickets against yesterday, including new program members;
+  unchanged shelved tickets contribute zero. Completed and not-planned tickets
+  are not shelved, matching `program.states`. The current shelved population
+  remains in `program.states.shelved`; the daily count is unavailable without yesterday.
   Lanes count completed tickets with `closed_at` in the window; `finished` needs
   a previously incomplete lane, now complete. Scope removal can finish a lane
   while its window completion count stays zero.
