@@ -21,7 +21,7 @@ defmodule Aiur.Listener.CapabilityProviderTest do
 
     expected =
       case Scheduler.spec_status() do
-        :ok -> %{state: :unavailable, reason: :disabled}
+        :ok -> %{state: :available, version: 1}
         {:error, :not_installed} -> %{state: :unavailable, reason: :not_installed}
         {:error, :spec_invalid} -> %{state: :unavailable, reason: :spec_invalid}
       end
@@ -40,9 +40,7 @@ defmodule Aiur.Listener.CapabilityProviderTest do
     assert entry(fn -> {:error, :spec_invalid} end) == %{"listener_modes" => %{state: :unavailable, reason: :spec_invalid}}
   end
 
-  test "unset, legacy and unknown flags report unavailable/disabled, never absent" do
-    assert entry(fn -> :ok end) == %{"listener_modes" => %{state: :unavailable, reason: :disabled}}
-
+  test "explicit legacy and unknown flags report unavailable/disabled, never absent" do
     for flag <- [:legacy, :misspelled] do
       Application.put_env(:aiur, :listener_send_routing, flag)
       assert entry(fn -> :ok end) == %{"listener_modes" => %{state: :unavailable, reason: :disabled}}

@@ -1,11 +1,20 @@
 defmodule Aiur.Listener do
   @moduledoc "Public C1 port for listener-mode control, conversation sends and delivery receipts."
 
-  alias Aiur.Listener.{Effective, ModeStore, Receipt}
+  alias Aiur.Listener.{Effective, ModeStore, Receipt, SpecStatus}
   alias Aiur.TrackerIdentity
 
   @type target :: String.t() | TrackerIdentity.t()
   @type result :: {:ok, Effective.view()} | {:error, term()}
+
+  @doc false
+  @spec routing() :: :listener | :legacy
+  @spec routing(keyword()) :: :listener | :legacy
+  def routing(opts \\ []) do
+    if Application.get_env(:aiur, :listener_send_routing, :listener) == :listener and Keyword.get_lazy(opts, :spec_status, &SpecStatus.read/0) == :ok,
+      do: :listener,
+      else: :legacy
+  end
 
   @doc """
   Enqueue conversation text through the C1 send port: `send(target, text, opts)`.

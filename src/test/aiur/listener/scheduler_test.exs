@@ -1,7 +1,6 @@
 defmodule Aiur.Listener.SchedulerTest do
   use ExUnit.Case, async: false
   alias Aiur.Listener.{Effective, Scheduler}
-  alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
   setup do
     warning_key = {Scheduler, :invalid_flag_warned}
@@ -23,15 +22,13 @@ defmodule Aiur.Listener.SchedulerTest do
     end)
   end
 
-  test "unset flag retains legacy policies even with a usable spec" do
-    assert Scheduler.routing(spec_status: :ok) == :legacy
+  test "unset flag uses sync for every conversation origin with a usable spec" do
+    assert Scheduler.routing(spec_status: :ok) == :listener
 
-    for interrupt <- [true, false], immediate <- [true, false], {origin, policy, fallback} <- [{:agent_chat, :interrupt, :queue_next}, {:http, :checkpoint, nil}, {:tui, :auto, nil}] do
+    for interrupt <- [true, false], immediate <- [true, false], origin <- [:agent_chat, :voice_assistant, :http, :tui, :internal] do
       caps = %{can_interrupt: interrupt, immediate_delivery: immediate}
-      assert Scheduler.resolve(origin, %{effective: :sync}, caps, nil, spec_status: :ok) == DeliveryPolicy.normalize_delivery_request(policy, fallback, caps)
+      assert Scheduler.resolve(origin, %{effective: :sync}, caps, nil, spec_status: :ok) == {:ok, delivery_policy: :checkpoint, listener_mode: :sync}
     end
-
-    assert Scheduler.resolve(:internal, nil, %{}, nil) == {:error, :invalid_message}
   end
 
   test "listener flag requires usable installed spec and rejects misspelled flags" do

@@ -112,7 +112,7 @@ defmodule Aiur.Listener.SendTest do
     refute item.delivery.interrupt_requested
   end
 
-  test "listener AgentChat input waits for turn end and unavailable mode returns an error" do
+  test "default dashboard send to a mid-turn codex agent waits for turn end and unavailable mode returns an error" do
     spec = Module.concat(["Aiur", "Listener", "Spec"])
 
     unless Code.ensure_loaded?(spec) do
@@ -131,7 +131,7 @@ defmodule Aiur.Listener.SendTest do
       end)
     end
 
-    Application.put_env(:aiur, :listener_send_routing, :listener)
+    Application.delete_env(:aiur, :listener_send_routing)
     pid = server()
     :ok = ActiveTurns.put("42", "active-send")
     on_exit(fn -> ActiveTurns.mark_closed("42", "active-send", :test_cleanup) end)

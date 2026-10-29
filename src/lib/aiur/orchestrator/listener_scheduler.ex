@@ -14,7 +14,7 @@ defmodule Aiur.Listener.Scheduler do
   @doc false
   @spec routing(keyword()) :: :legacy | :listener
   def routing(opts) do
-    flag = Application.get_env(:aiur, :listener_send_routing, :legacy)
+    flag = Application.get_env(:aiur, :listener_send_routing, :listener)
     warn_invalid_flag(flag)
     if flag == :listener and Keyword.get_lazy(opts, :spec_status, &spec_status/0) == :ok, do: :listener, else: :legacy
   end
