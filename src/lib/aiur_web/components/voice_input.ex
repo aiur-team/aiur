@@ -14,6 +14,8 @@ defmodule AiurWeb.Components.VoiceInput do
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.AgentLogModal
+
   @d16_layout :chooser
 
   @default_status_copy "Press the microphone to dictate. Review the text, then press Send."
@@ -128,7 +130,7 @@ defmodule AiurWeb.Components.VoiceInput do
   defp delivery_copy(%{state: :harness_queued}), do: "Delivered to the agent"
   defp delivery_copy(%{state: state}) when state in [:in_context, :read], do: "The agent has it"
   defp delivery_copy(%{state: :failed}), do: "Send failed. Check the log before you send again."
-  defp delivery_copy(%{state: :outcome_unknown}), do: AiurWeb.OperatorControlCenter.AgentLogModal.format_error({:outcome_unknown, %{}})
+  defp delivery_copy(%{state: :outcome_unknown}), do: AgentLogModal.format_error({:outcome_unknown, %{}})
   defp delivery_copy(_unknown), do: "Delivery outcome unknown. Check the log before you send again."
 
   defp mode({id, label, capability}, capabilities) do

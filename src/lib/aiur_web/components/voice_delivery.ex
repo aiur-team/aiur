@@ -1,5 +1,6 @@
 defmodule AiurWeb.Components.VoiceDelivery do
   @moduledoc "Adapters from the existing composer receipts and Command notices."
+  alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionReplacement}
 
   @spec receipt(list(), String.t(), map()) :: map() | nil
   def receipt(receipts, key, errors) do
@@ -16,8 +17,8 @@ defmodule AiurWeb.Components.VoiceDelivery do
 
   @spec command(map(), map()) :: map() | nil
   def command(decision, state) do
-    {notice, _actions} = AiurWeb.OperatorControlCenter.DecisionReplacement.notice(decision, state)
-    outcome = state[:outcome] || AiurWeb.OperatorControlCenter.DecisionOutcomes.canonical_notice(decision)
+    {notice, _actions} = DecisionReplacement.notice(decision, state)
+    outcome = state[:outcome] || DecisionOutcomes.canonical_notice(decision)
 
     case notice do
       nil ->

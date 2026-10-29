@@ -5,6 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   import AiurWeb.Components.VoiceInput
 
   alias Aiur.Commands.Answering
+  alias AiurWeb.Components.VoiceDelivery
   alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionQuestionsForm, DecisionReplacement}
 
   attr(:decision, :map, required: true)
@@ -16,7 +17,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
-    assigns = assign(assigns, :voice_delivery, AiurWeb.Components.VoiceDelivery.command(assigns.decision, assigns.state))
+    assigns = assign(assigns, :voice_delivery, VoiceDelivery.command(assigns.decision, assigns.state))
     form = Map.get(assigns.state, :form, %{})
     choice = Map.get(form, "choice") || default_choice(assigns.decision)
 
