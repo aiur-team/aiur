@@ -1,8 +1,8 @@
 defmodule Aiur.Commands.OverrideResumeTest do
   use ExUnit.Case, async: false
+  alias Aiur.AgentRunner.{QueueTurn, TurnPrompt}
   alias Aiur.{Commands, DecisionStore, Issue}
   alias Aiur.Commands.OverridePrompt
-  alias Aiur.AgentRunner.TurnPrompt
   alias Aiur.Orchestrator.{OverrideResume, Slots, State}
 
   defmodule QueueServer do
@@ -210,7 +210,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
     item = %{id: 1, category: :operator_message, body: %{text: "Queued superseded instructions"}}
 
     assert :ok =
-             Aiur.AgentRunner.QueueTurn.run_queue_item_turn(
+             QueueTurn.run_queue_item_turn(
                %{backend: "codex", thread_id: "queue-thread"},
                ctx.issue,
                item,

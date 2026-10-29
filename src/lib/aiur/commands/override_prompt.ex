@@ -34,17 +34,19 @@ defmodule Aiur.Commands.OverridePrompt do
   @spec received(map(), keyword()) :: :ok
   def received(message, opts) do
     if Map.get(message, :method, Map.get(message, "method")) in ["turn/started", :turn_started] do
-      for decision <- Keyword.get(opts, :pending_overrides, []) do
-        case Commands.record_command_fact(decision.decision_id, :override_prompt_delivered, %{action_id: decision.active_action_id, at: DateTime.utc_now()},
-               server: Keyword.get(opts, :decision_store, Commands.default_store())
-             ) do
-          {:ok, _} -> :ok
-          {:error, {:invalid_transition, :override_not_current}} -> :ok
-          {:error, reason} -> raise "Override prompt receipt could not persist: #{inspect(reason)}"
-        end
-      end
+      Enum.each(Keyword.get(opts, :pending_overrides, []), &persist_receipt(&1, opts))
     end
 
     :ok
+  end
+
+  defp persist_receipt(decision, opts) do
+    case Commands.record_command_fact(decision.decision_id, :override_prompt_delivered, %{action_id: decision.active_action_id, at: DateTime.utc_now()},
+           server: Keyword.get(opts, :decision_store, Commands.default_store())
+         ) do
+      {:ok, _} -> :ok
+      {:error, {:invalid_transition, :override_not_current}} -> :ok
+      {:error, reason} -> raise "Override prompt receipt could not persist: #{inspect(reason)}"
+    end
   end
 end

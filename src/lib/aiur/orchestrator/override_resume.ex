@@ -66,40 +66,52 @@ defmodule Aiur.Orchestrator.OverrideResume do
       entry = if entry, do: Map.put(entry, :issue, issue)
       current = put_issue(state, issue, entry)
 
-      cond do
-        Issue.parked?(issue) or Issue.paused?(issue) ->
-          persist_wait(decision, :resume_pending, :operator_pause, store)
-          Keyword.get(opts, :ask_fun, &ask_resume/2).(decision, store)
-          current
-
-        not eligible_issue?(issue) ->
-          current
-
-        current.globally_paused ->
-          current
-
-        active?(entry) ->
-          current
-
-        pending_resume?(current) ->
-          current
-
-        not admitted?(current, entry, opts) ->
-          persist_wait(decision, :capacity_wait, :capacity, store)
-          current
-
-        true ->
-          case persist_wait(decision, :resume_pending, :eligible, store) do
-            :ok ->
-              {_reply, next} = Keyword.get(opts, :resume_fun, &resume/3).(current, issue, entry)
-              next
-
-            {:error, _} ->
-              current
-          end
-      end
+      route(current, decision, issue, entry, opts)
     else
       _stale_or_unavailable -> state
+    end
+  end
+
+  defp route(current, decision, issue, entry, opts) do
+    store = Keyword.get(opts, :decision_store, Commands.default_store())
+
+    cond do
+      Issue.parked?(issue) or Issue.paused?(issue) ->
+        persist_wait(decision, :resume_pending, :operator_pause, store)
+        Keyword.get(opts, :ask_fun, &ask_resume/2).(decision, store)
+        current
+
+      not eligible_issue?(issue) ->
+        current
+
+      current.globally_paused ->
+        current
+
+      active?(entry) ->
+        current
+
+      pending_resume?(current) ->
+        current
+
+      not admitted?(current, entry, opts) ->
+        persist_wait(decision, :capacity_wait, :capacity, store)
+        current
+
+      true ->
+        resume_admitted(current, decision, issue, entry, opts)
+    end
+  end
+
+  defp resume_admitted(current, decision, issue, entry, opts) do
+    store = Keyword.get(opts, :decision_store, Commands.default_store())
+
+    case persist_wait(decision, :resume_pending, :eligible, store) do
+      :ok ->
+        {_reply, next} = Keyword.get(opts, :resume_fun, &resume/3).(current, issue, entry)
+        next
+
+      {:error, _} ->
+        current
     end
   end
 
@@ -132,9 +144,8 @@ defmodule Aiur.Orchestrator.OverrideResume do
   end
 
   defp resume(state, issue, nil) do
-    with :ok <- QueuedDispatch.queued_issue_resumability(state, issue) do
-      Dispatcher.dispatch_prevalidated_issue(state, issue)
-    else
+    case QueuedDispatch.queued_issue_resumability(state, issue) do
+      :ok -> Dispatcher.dispatch_prevalidated_issue(state, issue)
       error -> {error, state}
     end
   end

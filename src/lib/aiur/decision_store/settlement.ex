@@ -1,12 +1,14 @@
 defmodule Aiur.DecisionStore.Settlement do
   @moduledoc false
 
+  alias Aiur.Commands.Overrides
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionRevision
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Audit
+  alias Aiur.DecisionStore.CommandFacts
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Persistence
@@ -287,14 +289,14 @@ defmodule Aiur.DecisionStore.Settlement do
   end
 
   defp override_resume_error?(decision, reason) do
-    not is_nil(Aiur.Commands.Overrides.pending(decision)) and
+    not is_nil(Overrides.pending(decision)) and
       reason in [:no_running_agent, :max_concurrent_agents_reached, :load_governor_refused]
   end
 
   defp persist_override_resume(state, decision, action_id, reason) do
     capacity? = reason != :no_running_agent
     data = %{action_id: action_id, route: if(capacity?, do: :capacity_wait, else: :resume_pending), reason: if(capacity?, do: :capacity, else: :eligible)}
-    {:reply, _result, next} = Aiur.DecisionStore.CommandFacts.record(state, decision.decision_id, :override_resume_state, data, [])
+    {:reply, _result, next} = CommandFacts.record(state, decision.decision_id, :override_resume_state, data, [])
     next
   end
 

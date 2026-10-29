@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.MergedTicketReconciler
+  alias Aiur.Orchestrator.OverrideResume
   alias Aiur.Orchestrator.PausedCandidatePoll
   alias Aiur.Orchestrator.PollTiming
   alias Aiur.Orchestrator.PrAnchored
@@ -342,7 +343,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           state
           |> FeatureSupply.observe(issues)
-          |> Aiur.Orchestrator.OverrideResume.schedule(issues)
+          |> OverrideResume.schedule(issues)
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)
