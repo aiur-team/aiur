@@ -26,6 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
 
   attr(:id, :string, required: true)
   attr(:view, :map, default: nil)
+  attr(:full_conversation_href, :string, default: nil)
   attr(:close_event, :any, default: nil)
   attr(:fallback_focus_id, :string, default: nil)
   attr(:origin_id, :string, default: nil)
@@ -75,6 +76,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             </h2>
           </div>
           <div class="modal-actions">
+            <.link :if={@full_conversation_href} navigate={@full_conversation_href} class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn">Full conversation</.link>
             <button
               :if={@close_event}
               type="button"

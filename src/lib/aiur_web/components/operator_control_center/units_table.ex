@@ -8,7 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.CodingAgent
   alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{ConversationLink, UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -142,6 +142,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               </td>
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
+                  <.link
+                    :if={ConversationLink.href(row.identity)}
+                    navigate={ConversationLink.href(row.identity)}
+                    class="units-icon-action"
+                    aria-label={"Full conversation for #{identity_label(row.identity)}"}
+                    title="Full conversation"
+                  >{icon(:chat)}</.link>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
                   <button
                     id={"units-conversation-#{token}"}

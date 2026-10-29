@@ -245,6 +245,7 @@ defmodule AiurWeb.DashboardLive.Page do
         :if={@conversation_drawer}
         id="units-conversation-drawer"
         view={@conversation_drawer}
+        full_conversation_href={AiurWeb.OperatorControlCenter.ConversationLink.href(Map.get(@conversation_row || %{}, :identity))}
         composer={@agent_log_modal}
         writable={@writable}
         drafts={@drafts}
