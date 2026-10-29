@@ -29,7 +29,10 @@ defmodule Aiur.Commands.Topics do
           ExecutorEvents.publish(topic, scrubbed, source: :internal)
         end
       else
-        Events.publish_persisted(topic, payload, cursor_event_id, digest_source: :orchestrator)
+        Events.publish_persisted(topic, payload, cursor_event_id,
+          digest_source: :orchestrator,
+          identity: Map.get(decision.ticket, :tracker_identity)
+        )
       end
 
     case result do
