@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Index, Lifecycle}
+  alias Aiur.BuildOrder.Index.EpicProgress
   alias Aiur.Heroicons
 
   test "epic progress counts every matching label regardless of feature ownership" do
@@ -31,15 +32,69 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
     assert index.epic_progress_meta == %{unmatched: 1, observed_at: observed_at, reason: nil}
   end
 
-  test "epic progress leaves figures unknown when ticket labels are incomplete" do
+  test "legacy snapshots count and incomplete rows preserve only certain epic membership" do
     epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
-    p = parts([row(1, %{labels: ["area:ui"], labels_complete: false})])
+    p = parts([row(1, %{labels: ["area:ui"], labels_complete: :unknown})])
     settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic])
     p = Map.put(p, :settings, {:ok, settings})
 
     assert {:ok, index} = assemble(p)
-    assert index.epic_progress["ui"] == %{closed: nil, open: nil, total: nil, observed_at: now(), reason: "labels_incomplete"}
-    assert index.epic_progress_meta == %{unmatched: nil, observed_at: now(), reason: "labels_incomplete"}
+    assert index.epic_progress["ui"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert index.epic_progress_meta == %{unmatched: 0, observed_at: now(), reason: nil}
+
+    {:ok, history} = p.history
+    rows = Map.update!(history.rows, 1, &%{&1 | labels_complete: false})
+    incomplete = put_in(p, [:history], {:ok, %{history | rows: rows}})
+    assert {:ok, partial} = assemble(incomplete)
+    assert partial.epic_progress["ui"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert partial.epic_progress_meta.unmatched == nil
+    assert partial.epic_progress_meta.reason == "Some ticket labels are incomplete"
+  end
+
+  test "incomplete labels only hide epics the row could still join" do
+    epic_a = %Aiur.Config.Schema.GeneralEpic{key: "a", label: "A", labels: ["area:a"], hue: 120, icon: "pen"}
+    epic_b = %Aiur.Config.Schema.GeneralEpic{key: "b", label: "B", labels: ["area:b"], hue: 240, icon: "docs"}
+    p = parts([row(1, %{labels: ["area:a"], labels_complete: false}), row(2, %{labels: ["area:other"]})])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic_a, epic_b])
+    p = Map.put(p, :settings, {:ok, settings})
+
+    assert {:ok, index} = assemble(p)
+    assert index.epic_progress["a"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert index.epic_progress["b"] == %{closed: nil, open: nil, total: nil, observed_at: now(), reason: "Some ticket labels are incomplete"}
+    assert index.epic_progress_meta == %{unmatched: nil, observed_at: now(), reason: "Some ticket labels are incomplete"}
+
+    rows = [{"1", %{num: 1, sec: "hist"}}]
+    history = %{1 => %{labels: ["area:a"], labels_complete: false}}
+
+    sources = %{
+      history: %{state: "unavailable", reason: "history_corrupt"},
+      agents: %{state: "ok", observed_at: now()},
+      queue: %{state: "ok", observed_at: now()},
+      open_tickets: %{state: "ok", observed_at: now(), truncated: false}
+    }
+
+    failed = EpicProgress.compute([epic_a, epic_b], rows, history, sources)
+    assert failed.epics["a"].reason == "history:history_corrupt"
+    assert failed.epics["b"].reason == "history:history_corrupt"
+    assert failed.meta == %{unmatched: nil, observed_at: nil, reason: "history:history_corrupt"}
+  end
+
+  test "epic progress counts history maps without a label completeness marker" do
+    epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
+
+    sources = %{
+      history: %{state: "ok", observed_at: now()},
+      agents: %{state: "ok", observed_at: now()},
+      queue: %{state: "ok", observed_at: now()},
+      open_tickets: %{state: "ok", observed_at: now(), truncated: false}
+    }
+
+    rows = [{"1", %{num: 1, sec: "hist"}}]
+    history = %{1 => %{labels: ["area:ui"]}}
+    result = EpicProgress.compute([epic], rows, history, sources)
+
+    assert result.epics["ui"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert result.meta == %{unmatched: 0, observed_at: now(), reason: nil}
   end
 
   test "epic progress excludes unpublished planned rows without label records" do

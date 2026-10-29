@@ -38,6 +38,7 @@ defmodule Aiur.DecisionValidation do
   alias Aiur.Commands.Requester
   alias Aiur.{Config, Decision, DecisionArtifact, DecisionCommandType, DecisionProvenance, SecretRedactor}
   alias Aiur.DecisionValidation.Context
+  alias Aiur.DecisionValidation.TicketIdentity
 
   @question_max 2000
   @consequence_max 2000
@@ -436,7 +437,8 @@ defmodule Aiur.DecisionValidation do
     with {:ok, identifier} <- normalize_ticket_identifier(get(ticket, :identifier)),
          {:ok, title} <- fetch_optional_string(ticket, :title, @ticket_title_max, :ticket_title),
          {:ok, url} <- fetch_optional_string(ticket, :url, @ticket_url_max, :ticket_url) do
-      {:ok, %{identifier: identifier, title: title, url: url}}
+      normalized = %{identifier: identifier, title: title, url: url}
+      {:ok, TicketIdentity.put(normalized, get(ticket, :tracker_identity))}
     end
   end
 

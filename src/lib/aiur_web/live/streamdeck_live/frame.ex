@@ -11,7 +11,7 @@ defmodule AiurWeb.StreamdeckLive.Frame do
     renderer = endpoint_config(:streamdeck_render_fun) || (&Render.frame/1)
 
     {nav, model, frame} =
-      FrameUpdates.frame(assigns.deck_nav, assigns.grid, assigns.usage, renderer, %{
+      FrameUpdates.frame(assigns.deck_nav, Map.put(assigns.grid, :meter_usage, assigns.usage), assigns.usage, renderer, %{
         chat: if(assigns.sd_mode == :cmd, do: assigns[:deck_chat_view]),
         view_context: context(assigns)
       })

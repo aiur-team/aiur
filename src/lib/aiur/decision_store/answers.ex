@@ -119,6 +119,8 @@ defmodule Aiur.DecisionStore.Answers do
   end
 
   defp accept_answer(decision, payload, actor, opts, state) do
+    opts = Keyword.put(opts, :allow_reversible_human_required, delegated_human_required?(decision, state))
+
     case normalize_answer(payload, decision, decision.version, decision.options, actor, opts) do
       {:ok, answer} -> persist_answer(decision, answer, state)
       {:error, reason} -> {:reply, {:error, answer_error(reason)}, state}
@@ -128,6 +130,7 @@ defmodule Aiur.DecisionStore.Answers do
   defp replay_answer(decision, payload, actor, opts, state) do
     accepted = decision.answer
     addressed = request_version(state, decision.decision_id, accepted.decision_version) || decision
+    opts = Keyword.put(opts, :allow_reversible_human_required, delegated_human_required?(addressed, state))
 
     case normalize_answer(payload, addressed, accepted.decision_version, addressed.options, actor, opts) do
       {:ok, replayed} -> evaluate_answer_replay(decision, accepted, replayed, state)
@@ -149,7 +152,7 @@ defmodule Aiur.DecisionStore.Answers do
            ),
          :ok <- NativeAnswer.validate(request, answer),
          :ok <- validate_requester_actor(actor, request),
-         :ok <- validate_answer_policy_context(answer, request) do
+         :ok <- validate_answer_policy_context(answer, request, opts) do
       {:ok, answer}
     end
   end
@@ -159,7 +162,8 @@ defmodule Aiur.DecisionStore.Answers do
            actor: %{kind: :supervisor},
            supervisor_basis: %{policy_basis: policy_basis}
          },
-         %Decision{} = request
+         %Decision{} = request,
+         _opts
        ) do
     request_kind = request.kind && String.downcase(String.trim(request.kind))
 
@@ -171,14 +175,42 @@ defmodule Aiur.DecisionStore.Answers do
     end
   end
 
-  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}),
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}, _opts),
     do: {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}
 
-  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, request) do
-    if Policy.executor_may_answer?(request), do: :ok, else: executor_scope_error(request)
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, request, opts) do
+    if Policy.executor_may_answer?(request) or delegated_human_required?(request, opts), do: :ok, else: executor_scope_error(request)
   end
 
-  defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}), do: :ok
+  defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}, _opts), do: :ok
+
+  defp delegated_human_required?(%{authority: :human_required, reversibility: :reversible, context: context}, opts) when is_list(opts) do
+    Keyword.get(opts, :allow_reversible_human_required) == true and delegated_basis_allowed?(context)
+  end
+
+  defp delegated_human_required?(%{authority: :human_required, reversibility: :reversible, context: context}, %{allow_reversible_human_required: true}) do
+    delegated_basis_allowed?(context)
+  end
+
+  defp delegated_human_required?(%{authority: :human_required, reversibility: :reversible, context: context}, state) do
+    enabled = is_function(Map.get(state, :allow_reversible_human_required_answers)) and state.allow_reversible_human_required_answers.() == true
+    enabled and delegated_basis_allowed?(context)
+  end
+
+  defp delegated_human_required?(_decision, _state), do: false
+
+  defp delegated_basis_allowed?(context) do
+    Map.get(context || %{}, :authority_basis, Map.get(context || %{}, "authority_basis")) not in [
+      :product,
+      :spend,
+      :external_publication,
+      :security,
+      "product",
+      "spend",
+      "external_publication",
+      "security"
+    ]
+  end
 
   @doc false
   @spec validate_requester_actor(map(), Decision.t()) :: :ok | {:error, term()}

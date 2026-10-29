@@ -30,6 +30,7 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.ci_readiness.unavailable", "orchestration"},
     # aiur/workflow_store/reload.ex
     {"system.config.base_branch.changed", "config"},
+    {"system.config.executor.human_required_delegation.enabled", "config"},
     # aiur/workflow_store/reload.ex
     {"system.config.operator_relay.enabled", "config"},
     # aiur/workflow_store/reload_rejection.ex

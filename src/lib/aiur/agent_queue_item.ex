@@ -35,7 +35,8 @@ defmodule Aiur.AgentQueueItem do
           consumed_at: DateTime.t() | nil,
           failed_at: DateTime.t() | nil,
           superseded_at: DateTime.t() | nil,
-          failure_reason: term() | nil
+          failure_reason: term() | nil,
+          persist_across_restart?: boolean()
         }
 
   defstruct [
@@ -66,6 +67,7 @@ defmodule Aiur.AgentQueueItem do
     :read_at,
     :failed_at,
     :superseded_at,
-    :failure_reason
+    :failure_reason,
+    {:persist_across_restart?, false}
   ]
 end

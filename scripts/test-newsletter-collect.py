@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Focused contract tests for newsletter collection (standard library only)."""
+"""Focused contract tests for newsletter collection (standard library only).
+
+This remains one fixture-only collector suite because its source seams and
+snapshot contract are shared; CI runs this file as one bounded Python command.
+"""
 import json
 import os
 from pathlib import Path

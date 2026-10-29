@@ -15,6 +15,8 @@ defmodule Aiur.Commands.DeliveryTarget do
   @callback terminal_state_set() :: MapSet.t(String.t())
   @callback terminal_issue_state?(String.t() | term(), MapSet.t()) :: boolean()
   @callback active_identifiers() :: {:ok, [String.t()]} | {:error, term()}
+  @callback override_context(String.t() | nil) :: %{pr: map() | :unknown, worker: atom(), capacity: atom()}
+  @optional_callbacks override_context: 1
 
   @spec impl() :: module()
   def impl, do: Application.get_env(:aiur, :commands_delivery_target, Aiur.Commands.DeliveryTarget.Unbound)

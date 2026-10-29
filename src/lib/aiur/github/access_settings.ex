@@ -27,7 +27,11 @@ defmodule Aiur.GitHub.AccessSettings do
       state_root: &decision_root/0,
       budget_dir: &budget_dir/0,
       budget_enabled?: Application.get_env(:aiur, :github_budget_enabled?, true),
-      hosted_auth_required?: AuthPolicy.hosted_auth_required?(config, System.get_env()),
+      hosted_auth_required?:
+        AuthPolicy.hosted_auth_required?(config, %{
+          "AIUR_SECRETS_FROM_ENV" => System.get_env("AIUR_SECRETS_FROM_ENV"),
+          "AIUR_STATE_PERSISTENT" => System.get_env("AIUR_STATE_PERSISTENT")
+        }),
       pat_opted_in?: Aiur.Secrets.truthy?(System.get_env("AIUR_GITHUB_ALLOW_PAT")),
       budget: stable.budget,
       repo: repo,

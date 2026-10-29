@@ -62,8 +62,12 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
 
   @spec record_command_answer(String.t(), map()) :: {:ok, map()} | {:error, map()}
   def record_command_answer(decision_id, answer) do
-    decision_id
-    |> Answering.answer(answer, actor: StreamdeckCommands.actor(), actor_source: :streamdeck, client: %{surface: :streamdeck}, store: command_store())
+    {override?, answer} = Map.pop(answer, "override", false)
+    operation = if override?, do: :override, else: :answer
+    opts = [actor: StreamdeckCommands.actor(), actor_source: :streamdeck, client: %{surface: :streamdeck}, store: command_store()]
+
+    Answering
+    |> apply(operation, [decision_id, answer, opts])
     |> StreamdeckCommands.answer_reply()
   end
 
@@ -71,6 +75,20 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
   # `executor-answer --option|--custom-response` contract so the custom-response
   # path maps onto an already-supported operation.
   @spec build_answer_payload(map()) :: {:ok, map()} | {:error, atom()}
+  def build_answer_payload(%{"override" => true, "rationale" => rationale} = payload) when is_binary(rationale) do
+    reason = String.trim(rationale)
+
+    if String.length(reason) in 1..4_000 do
+      with {:ok, answer} <- build_answer_payload(Map.delete(payload, "override")) do
+        {:ok, Map.merge(answer, %{"override" => true, "rationale" => reason})}
+      end
+    else
+      {:error, :invalid_override_rationale}
+    end
+  end
+
+  def build_answer_payload(%{"override" => true}), do: {:error, :invalid_override_rationale}
+
   def build_answer_payload(%{"option_id" => option_id, "version" => version, "idempotency_key" => key})
       when is_binary(option_id) and option_id != "" do
     {:ok, %{"idempotency_key" => key, "expected_version" => version, "option_id" => option_id}}

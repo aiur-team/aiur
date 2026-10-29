@@ -138,6 +138,9 @@ defmodule AiurWeb.DashboardLiveSupport.StoreStubs do
     end
 
     @impl true
+    def handle_call({:get, decision_id}, _from, %{detail: %{decision_id: decision_id} = detail} = state), do: {:reply, {:ok, detail}, state}
+    def handle_call({:get, _decision_id}, _from, state), do: {:reply, {:error, :not_found}, state}
+
     def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.overview], state}
 
     def handle_call({:retained_lookup, decision_id}, _from, %{detail: %{decision_id: decision_id} = detail} = state) do
@@ -165,9 +168,9 @@ defmodule AiurWeb.DashboardLiveSupport.StoreStubs do
       {:reply, {:ok, %{status: :accepted}}, state}
     end
 
-    def handle_call({:revise, decision_id, payload, opts}, _from, state) do
+    def handle_call({:override, decision_id, payload, opts}, _from, state) do
       send(state.report, {:versioned_detail_revision, decision_id, payload, opts})
-      {:reply, {:ok, %{status: :accepted}}, state}
+      {:reply, {:ok, %{status: :accepted, decision: state.detail}}, state}
     end
   end
 
