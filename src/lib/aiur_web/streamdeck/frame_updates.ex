@@ -32,16 +32,20 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
   def transition(previous, raw, grid) do
     with {:ok, input} <- normalize(raw),
+         input = focused_key(previous, raw, input),
          true <- Nav.valid_input?(input),
          {%Nav{} = nav, effects} <-
            Input.reduce(previous, input, Deck.navigation(normalize_grid(grid))) do
-      effects = focus_effects(previous, input, effects)
+      effects = if previous.surface == :chat && previous.chat && input["index"] == 3 && input["kind"] == "dial_turn", do: effects, else: focus_effects(previous, input, effects)
       {:ok, nav, effects}
     else
       :noop -> :noop
       _invalid -> :error
     end
   end
+
+  defp focused_key(%{chat: chat, surface: :chat}, %{"kind" => "key", "index" => index}, input) when is_map(chat), do: Map.put(input, "index", index)
+  defp focused_key(_nav, _raw, input), do: input
 
   defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
     if nav.surface in [:logs, :settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
@@ -95,7 +99,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
       )
 
     images = renderer.(model)
-    images = if context[:chat] && not is_binary(context[:toast]), do: Map.put(images, :strip, ChatRender.strip(context.chat, System.system_time(:millisecond))), else: images
+    images = if context[:chat] && not is_binary(context[:toast]), do: Map.put(images, :strip, ChatRender.strip(context.chat, System.system_time(:millisecond), nav)), else: images
     {nav, model, images}
   end
 
@@ -105,6 +109,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     Enum.each(effects, fn
       {:open_ticket, id} -> send(self(), {:streamdeck_frame_focus, id})
       :close_ticket -> send(self(), :streamdeck_frame_unfocus)
+      {:chat_page, before} -> send(self(), {:streamdeck_chat_page, before})
       _ -> :ok
     end)
   end

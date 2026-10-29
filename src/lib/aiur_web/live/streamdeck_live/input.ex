@@ -7,6 +7,8 @@ defmodule AiurWeb.StreamdeckLive.Input do
   alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Surface}
 
   @spec handle(map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  def handle(raw, %{assigns: %{deck_nav: %{chat: chat, surface: :chat}}} = socket) when is_map(chat), do: StreamdeckLive.reduce_input(raw, socket)
+
   def handle(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
       when index in 0..3 and is_integer(delta) and delta in -32..32 do
     case {socket.assigns.sd_mode, index} do

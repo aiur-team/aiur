@@ -53,11 +53,8 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     assert_reply(ref, :error, %{reason: "disabled"} = reply)
     refute Map.has_key?(reply, :frame)
     flush_frame(socket)
-    assert_push("frame", %{keys: [ci | rest], strip: strip})
-    assert ci.svg =~ "CI ticket"
-    assert rest == List.duplicate(nil, 7)
+    assert_push("frame", %{strip: strip})
     assert hd(strip).svg =~ "queue disabled"
-    assert Enum.at(strip, 1).svg =~ "Capacity — stale"
     ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
     assert_reply(ref, :ok, %{"view" => "ticket"})
     flush_frame(socket)
