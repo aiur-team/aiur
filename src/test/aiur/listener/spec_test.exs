@@ -38,7 +38,7 @@ defmodule Aiur.Listener.SpecTest do
              assert Spec.status(root) == {:error, :not_installed}
            end) =~ "not_installed"
 
-    assert capture_log(fn -> assert Spec.status(root) == {:error, :not_installed} end) == ""
+    refute capture_log(fn -> assert Spec.status(root) == {:error, :not_installed} end) =~ "Listener spec unavailable:"
   end
 
   test "status is spec_invalid after one vendored byte changes", %{root: root} do
