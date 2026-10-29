@@ -1,7 +1,7 @@
 defmodule Aiur.Commands.CorrectiveTicket do
   @moduledoc false
 
-  alias Aiur.Commands.CorrectiveTicketBody
+  alias Aiur.Commands.{CorrectivePullRequest, CorrectiveTicketBody}
   alias Aiur.Tracker
 
   @spec reconcile(Aiur.Decision.t(), map(), keyword()) :: {:ok, list()} | {:error, term()}
@@ -14,13 +14,13 @@ defmodule Aiur.Commands.CorrectiveTicket do
 
   defp ensure(decision, record, opts) do
     with {:ok, %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) <-
-           call(opts, :pull_request, &Tracker.ticket_pull_request/1, [record.ticket.identifier]),
+           CorrectivePullRequest.read(record.ticket.identifier, opts),
          {:ok, ticket} <- find_or_create(decision, record, pr, opts),
          :ok <- link(decision.ticket.identifier, pr.number, record.action_id, ticket, opts) do
       {:ok, link_facts(record, ticket, pr)}
     else
       {:error, _reason} = error -> error
-      _unmerged_or_unknown -> {:error, :merged_pr_evidence_missing}
+      _unmerged_or_unknown -> if record.route == :corrective_ticket, do: {:error, :merged_pr_evidence_missing}, else: {:ok, []}
     end
   end
 
@@ -56,7 +56,13 @@ defmodule Aiur.Commands.CorrectiveTicket do
     end)
   end
 
-  defp find_candidate(%{route: :corrective_ticket} = candidate, current, lookup_opts, opts) do
+  defp find_candidate(candidate, current, lookup_opts, opts) do
+    if candidate.route == :corrective_ticket or Map.get(candidate, :pr_merged) == :unknown or is_map(Map.get(candidate, :corrective_ticket)),
+      do: lookup_candidate(candidate, current, lookup_opts, opts),
+      else: {:cont, {:ok, nil}}
+  end
+
+  defp lookup_candidate(candidate, current, lookup_opts, opts) do
     marker = CorrectiveTicketBody.marker(candidate.action_id)
 
     case call(opts, :find, &Tracker.find_issue/2, [marker, lookup_opts]) do
@@ -66,12 +72,10 @@ defmodule Aiur.Commands.CorrectiveTicket do
     end
   end
 
-  defp find_candidate(_candidate, _current, _lookup_opts, _opts), do: {:cont, {:ok, nil}}
-
   defp reuse_candidate(%{action_id: id}, %{action_id: id}, ticket, _opts), do: {:halt, {:ok, ticket}}
 
   defp reuse_candidate(_candidate, _current, ticket, opts) do
-    case call(opts, :pull_request, &Tracker.ticket_pull_request/1, [ticket.identifier]) do
+    case CorrectivePullRequest.read(ticket.identifier, opts) do
       {:ok, %{merged?: true}} -> {:cont, {:ok, nil}}
       {:ok, _unmerged} -> {:halt, {:ok, ticket}}
       {:error, _reason} = error -> {:halt, error}
@@ -110,7 +114,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp observe_merge(record, ticket, opts) do
-    case call(opts, :pull_request, &Tracker.ticket_pull_request/1, [ticket.identifier]) do
+    case CorrectivePullRequest.read(ticket.identifier, opts) do
       {:ok, %{merged?: true, number: number, merge_commit_sha: sha}} when is_integer(number) and is_binary(sha) ->
         {:ok, [{:override_corrective_implemented, %{action_id: record.action_id, pr_number: number, merge_commit_sha: sha}}]}
 

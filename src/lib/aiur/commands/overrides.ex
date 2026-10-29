@@ -45,7 +45,6 @@ defmodule Aiur.Commands.Overrides do
     prior = List.last(decision.overrides)
     ticket = if prior, do: Map.get(prior, :corrective_ticket) || prior.ticket, else: decision.ticket
     corrective = if prior && metadata.pr_merged != true, do: Map.get(prior, :corrective_ticket)
-    metadata = if corrective, do: Map.put(metadata, :route, :corrective_ticket), else: metadata
 
     record =
       Map.merge(metadata, %{
@@ -68,14 +67,14 @@ defmodule Aiur.Commands.Overrides do
 
   def observe(decision, %{type: :delivered, data: data, occurred_at: at}) do
     update(decision, data.action_id, fn
-      %{state: :queued} = record -> %{record | state: :delivered, delivered_at: at}
+      %{state: state} = record when state in [:queued, :failed] -> %{record | state: :delivered, delivered_at: at}
       record -> record
     end)
   end
 
   def observe(decision, %{type: type, data: data, occurred_at: at}) when type in [:acknowledged, :resolved] do
     update(decision, data.action_id, fn
-      %{state: state, route: :active_worker} = record when state in [:queued, :delivered] -> %{record | state: :implemented, implemented_at: at, evidence: :acknowledged}
+      %{state: state, route: :active_worker, corrective_ticket: nil} = record when state in [:queued, :delivered] -> %{record | state: :implemented, implemented_at: at, evidence: :acknowledged}
       record -> record
     end)
   end
@@ -93,7 +92,7 @@ defmodule Aiur.Commands.Overrides do
     end
   end
 
-  defp valid_push?(%{state: :delivered, route: :active_worker} = record, decision, data) do
+  defp valid_push?(%{state: :delivered, route: :active_worker, corrective_ticket: nil} = record, decision, data) do
     decision.active_action_id == data.action_id && (is_nil(record.pr_number) || record.pr_number == data.pr_number) &&
       is_integer(data.pr_number) && changed_head?(record, data) && after_delivery?(record, data)
   end

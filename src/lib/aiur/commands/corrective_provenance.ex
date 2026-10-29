@@ -4,9 +4,11 @@ defmodule Aiur.Commands.CorrectiveProvenance do
   alias Aiur.Commands.CorrectiveTicketBody
   alias Aiur.{DecisionStore, Issue}
 
+  @read_timeout 1_000
+
   @spec check(Issue.t(), GenServer.server()) :: boolean()
   def check(issue, store \\ DecisionStore) do
-    authorized?(issue, DecisionStore.list(store))
+    authorized?(issue, DecisionStore.list(store, @read_timeout))
   catch
     :exit, _unavailable -> false
   end

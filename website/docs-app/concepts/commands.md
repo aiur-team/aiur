@@ -263,10 +263,21 @@ question, old and new answers, original PR and merge SHA. Its `corrective_ticket
 link survives restart, and comments link the original ticket and merged PR to it.
 Retries reconcile the override marker before creating a ticket.
 
+If the local PR observation is missing or stale, reconciliation checks a closed
+ticket's merged PR through GitHub before filing the correction. This runs outside
+worker dispatch.
+
+Reconciliation errors appear in `aiur commands --json` as a `failure` record,
+including the redacted reason, attempt count and next retry time. Before
+delivery, the override state becomes `failed`; confirmed delivery remains
+visible. Retries back off from one minute to one hour. Permanent failures
+alert immediately; other failures alert after three attempts.
+
 The corrective
 ticket enters normal dispatch and capacity limits; merged history is preserved.
 A later override targets this corrective ticket while its PR remains unmerged.
-For this route, `implemented` requires the corrective PR to merge.
+It keeps the observed active-worker, resume or capacity-wait route.
+For corrective work, `implemented` requires the corrective PR to merge.
 
 Other routes (`resume_pending`, `capacity_wait`, `replacement`)
 retain the existing delivery path. An absent or paused worker receives the answer

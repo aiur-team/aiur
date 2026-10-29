@@ -92,7 +92,7 @@ defmodule Aiur.DecisionCorrectiveRoutingTest do
     on_exit(fn -> restore_target(previous_target) end)
     assert {:ok, %{decision: latest}} = DecisionStore.override(ctx.id, payload("second direction"), [actor: %{kind: :operator, id: "human"}], store)
     assert_receive {:observed_override_target, "7100"}, 1_000
-    assert [%{state: :superseded}, %{corrective_ticket: @corrective, route: :corrective_ticket, ticket: @corrective}] = latest.overrides
+    assert [%{state: :superseded}, %{corrective_ticket: @corrective, route: :active_worker, ticket: @corrective}] = latest.overrides
     assert latest.ticket == @ticket
     assert [%{action_id: action, answer: "second direction"}] = AnsweredDecisions.for_ticket("7100", store, 1_000)
     assert action == latest.active_action_id
@@ -159,7 +159,7 @@ defmodule Aiur.DecisionCorrectiveRoutingTest do
     assert_receive {:context_read, "6910"}, 1_000
     assert_receive {:context_read, "7100"}, 1_000
     assert latest.revision_sequence == first.revision_sequence + 1
-    assert %{route: :corrective_ticket, corrective_ticket: @corrective, ticket: @corrective} = List.last(latest.overrides)
+    assert %{route: :active_worker, corrective_ticket: @corrective, ticket: @corrective} = List.last(latest.overrides)
     assert Overrides.target_ticket(latest) == @corrective
   end
 
@@ -177,7 +177,7 @@ defmodule Aiur.DecisionCorrectiveRoutingTest do
     first = override!(ctx, "first direction", @merged)
     link!(ctx, first)
     latest = override!(ctx, "unknown observation", %{pr: :unknown, worker: :unknown, capacity: :unknown})
-    assert %{route: :corrective_ticket, corrective_ticket: @corrective, ticket: @corrective} = List.last(latest.overrides)
+    assert %{route: :resume_pending, corrective_ticket: @corrective, ticket: @corrective} = List.last(latest.overrides)
     assert Overrides.target_ticket(latest) == @corrective
     assert Retry.dispatchable?(latest, false)
   end

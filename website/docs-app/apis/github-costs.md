@@ -131,3 +131,9 @@ Attached-ticket failure detection uses the daemon's complete, fresh open-issue l
 Post-merge Command overrides create corrective issues through the governed transport as `command_override_create`. Their marker lookup uses `command_override_reconcile`, paging the repository issue listing rather than GitHub search so reconciliation does not depend on search indexing.
 
 The lookup shares the creation-time window and incomplete-read refusal described under [Experiment analyst tickets](#experiment-analyst-tickets). A read failure never proves absence or authorizes another create.
+
+When a closed ticket's PR observation is missing or stale, asynchronous
+reconciliation uses `command_override_merged_pr` for one governed GraphQL read
+of its closing PRs and merge SHA. The read is bounded to 100 references and
+rejects incomplete results. It runs outside dispatch; failed reconciliation
+uses durable exponential backoff capped at one hour.

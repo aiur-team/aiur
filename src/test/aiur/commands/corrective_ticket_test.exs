@@ -18,7 +18,10 @@ defmodule Aiur.Commands.CorrectiveTicketTest do
         "50" -> {:ok, %{merged?: true, number: 60, merge_commit_sha: "source-merge"}}
         "70" -> {:ok, nil}
       end,
-      issues: fn ["50"] -> {:ok, [%Issue{labels: ["feature:colour", "area:ui", "priority:2", "complexity:4", "agent:done"]}]} end,
+      issues: fn
+        ["50"] -> {:ok, [%Issue{labels: ["feature:colour", "area:ui", "priority:2", "complexity:4", "agent:done"]}]}
+        ["70"] -> {:ok, [%Issue{state: "todo"}]}
+      end,
       find: fn marker, _opts -> {:ok, Agent.get(storage, &Enum.find(&1.tickets, fn ticket -> String.contains?(ticket["body"], marker) end))} end,
       create: fn attrs, opts ->
         assert opts[:caller] == "command_override_create"

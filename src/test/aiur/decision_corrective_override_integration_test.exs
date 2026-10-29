@@ -113,7 +113,10 @@ defmodule Aiur.DecisionCorrectiveOverrideIntegrationTest do
         Agent.update(tracker, &%{&1 | ticket: ticket, creates: &1.creates + 1})
         {:ok, ticket}
       end,
-      issues: fn ["50"] -> {:ok, [%Issue{labels: ["feature:colour"]}]} end,
+      issues: fn
+        ["50"] -> {:ok, [%Issue{labels: ["feature:colour"]}]}
+        ["70"] -> {:ok, [%Issue{state: "todo"}]}
+      end,
       comments: fn target -> {:ok, Agent.get(tracker, &Map.get(&1.comments, target, []))} end,
       comment: fn target, body -> Agent.update(tracker, &put_in(&1, [:comments, target], [%{body: body}])) end
     ]

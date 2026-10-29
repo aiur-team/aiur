@@ -21,6 +21,8 @@ defmodule Aiur.Commands.RollbackTest do
       human_needed: %{cause: :executor_ack_timeout, at: at, short_label: "Choose", requester_kind: :worker, blocking: false, urgency: :normal},
       override_corrective_ticket: %{action_id: "action-1", ticket: %{identifier: "124", title: "Correction", url: "https://example.test/124"}, pr_number: 77, merge_commit_sha: "merged-1"},
       override_corrective_implemented: %{action_id: "action-1", pr_number: 78, merge_commit_sha: "merged-2"},
+      override_corrective_failed: %{action_id: "action-1", failure_class: "github", reason: "HTTP 422", attempts: 1, retry_at: at, alerted: true},
+      override_corrective_recovered: %{action_id: "action-1"},
       override_implemented: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
       requester_notified: %{action_id: "action-1", at: at, channel: :wake_inbox},
       executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}

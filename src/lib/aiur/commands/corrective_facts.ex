@@ -1,10 +1,11 @@
 defmodule Aiur.Commands.CorrectiveFacts do
   @moduledoc false
 
+  alias Aiur.Commands.CorrectiveFailures
   alias Aiur.DecisionEvent.Validation
 
   @spec types() :: [atom()]
-  def types, do: [:override_corrective_ticket, :override_corrective_implemented]
+  def types, do: [:override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered]
 
   @spec normalize(atom(), map()) :: {:ok, map()} | {:error, term()}
   def normalize(:override_corrective_ticket, raw) do
@@ -21,6 +22,7 @@ defmodule Aiur.Commands.CorrectiveFacts do
   end
 
   def normalize(:override_corrective_implemented, raw), do: common(raw)
+  def normalize(type, raw) when type in [:override_corrective_failed, :override_corrective_recovered], do: CorrectiveFailures.normalize(type, raw)
 
   defp common(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
@@ -36,8 +38,13 @@ defmodule Aiur.Commands.CorrectiveFacts do
   @spec apply(map(), map()) :: {:ok, map()} | {:error, term()}
   def apply(decision, %{type: type, data: data} = event) do
     case Enum.find(decision.overrides, &(&1.action_id == data.action_id)) do
-      %{route: :corrective_ticket} = record -> update(decision, record, type, data, event.occurred_at)
-      _missing -> {:error, :corrective_override_missing}
+      record when is_map(record) ->
+        if record.route == :corrective_ticket or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown,
+          do: update(decision, record, type, data, event.occurred_at),
+          else: {:error, :corrective_override_missing}
+
+      _missing ->
+        {:error, :corrective_override_missing}
     end
   end
 
@@ -45,7 +52,7 @@ defmodule Aiur.Commands.CorrectiveFacts do
     linked = Map.get(record, :corrective_ticket)
 
     if is_nil(linked) or linked == data.ticket do
-      updated = Map.put(record, :corrective_ticket, data.ticket)
+      updated = record |> Map.put(:corrective_ticket, data.ticket) |> Map.put(:route, if(is_nil(linked), do: :corrective_ticket, else: record.route))
       {:ok, replace(decision, updated)}
     else
       {:error, :corrective_ticket_mismatch}
@@ -56,6 +63,15 @@ defmodule Aiur.Commands.CorrectiveFacts do
        when is_map(ticket) and state != :superseded do
     updated = %{record | state: :implemented, implemented_at: at, evidence: %{kind: :merge, pr_number: data.pr_number, merge_commit_sha: data.merge_commit_sha}}
     {:ok, replace(decision, updated)}
+  end
+
+  defp update(decision, %{state: state} = record, :override_corrective_failed = type, data, _at)
+       when state not in [:superseded, :implemented] do
+    {:ok, replace(decision, CorrectiveFailures.apply(record, type, data))}
+  end
+
+  defp update(decision, record, :override_corrective_recovered = type, data, _at) do
+    {:ok, replace(decision, CorrectiveFailures.apply(record, type, data))}
   end
 
   defp update(_decision, _record, _type, _data, _at), do: {:error, :corrective_ticket_missing}
