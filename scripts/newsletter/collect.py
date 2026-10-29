@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from classification import classify
 from github import GitHub, ISSUE, PR, REQUEST_CEILING, closing_issue, command
 from local_sources import envelope_source, iso, parse_time, read_actions, read_meta, source
+from allocation_sources import collect_allocation_evidence, unavailable_evidence
 
 
 FAILURES = (RuntimeError, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError)
@@ -29,7 +30,7 @@ def ticket(node):
             "created_at": node["createdAt"], "closed_at": node.get("closedAt"), "lifecycle": None}
 
 
-def collect(repo, state_dir, now, github=None, run=command, instances=()):
+def collect(repo, state_dir, now, github=None, run=command, instances=(), telemetry_root=None):
     gh = github or GitHub(repo, run)
     start = now - timedelta(hours=24)
     captured = iso(now)
@@ -118,6 +119,9 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
             "unavailable", captured if data else None, "daemon build stamp absent or incomplete")
     for row in tickets or []:
         row["lifecycle"] = units.get(row["number"])
+    evidence = read("allocation_evidence", lambda: collect_allocation_evidence(
+        state_dir, now, nodes or {}, gh, instances, telemetry_root))
+    evidence = evidence or unavailable_evidence("allocation evidence collection failed")
     counts = None
     fresh = all(sources["units_" + ("local" if i == 0 else f"instance_{i}")]["state"] == "available"
                 for i in range(len(instances) + 1))
@@ -141,6 +145,7 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
                         "tickets": sorted(tickets, key=lambda r: r["number"]) if tickets is not None else None},
             "merges": merges, "running_build": builds,
             "allocation": {"units": counts, "agent_hours": None, "agent_hours_reason": sources["agent_hours"]["reason"]},
+            "allocation_evidence": evidence,
             "meta": meta, "executor_actions": actions,
             "github_cost": {"graphql_points": gh.cost if gh.cost_complete else None,
                             "reported_points": gh.cost, "requests": gh.calls,
@@ -185,7 +190,8 @@ def main():
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or any(part in (".", "..") for part in repo.split("/")):
         parser.error("repo must be owner/repo")
     state_dir = args.state_dir or Path.home() / ".aiur" / "repo" / repo
-    snapshot = collect(repo, state_dir, datetime.now(timezone.utc), instances=args.instance)
+    snapshot = collect(repo, state_dir, datetime.now(timezone.utc), instances=args.instance,
+                       telemetry_root=Path.home() / ".aiur" / "logs")
     print(write_snapshot(snapshot, args.out or state_dir / "newsletter" / "snapshots"))
 
 

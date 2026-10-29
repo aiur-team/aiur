@@ -272,7 +272,9 @@ polling. It searches open and closed issues separately for each discovered
 `phase:*` label, then deduplicates by issue number.
 
 Program and 48-hour merge searches use explicit cursors (100 results per page).
-Closing and allocation issues are hydrated in batches by number, without timelines.
+Closing, allocation, and observed telemetry ticket issues are hydrated in
+batches by number to attach labels and titles, without timelines. These reads
+share the same 40-query ceiling and are included in the snapshot cost.
 
 Individual phase or merge searches above GitHub's 1,000-result cap are reported unavailable,
 never presented as a complete program.

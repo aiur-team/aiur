@@ -102,8 +102,11 @@ Each section is an evidence block with these required fields:
 | `records` | Full observed records; absent records are unavailable |
 
 `turns.records` contains `attempt_id`, `number`, `phase`, `started_at`, `ended_at`,
-`labels` and `title`. Implement start-to-end intervals are clipped to each report
-window and summed as hours. Deduplicate by attempt ID **within each machine**;
+`labels` and `title`. Attempt IDs uniquely identify an interval across daemon boots.
+Implement intervals close at their end event, the next restart/run context, or the
+snapshot end; intervals that serialize to zero length are omitted. Remaining
+intervals are clipped to each report window and summed as hours. Deduplicate by
+attempt ID **within each machine**;
 conflicting duplicates fail loudly. Count distinct ticket numbers with at least
 one overlapping implement interval; a ticket is in the feature numerator when
 at least one such interval has feature labels. PC/NUC can work the same ticket:
