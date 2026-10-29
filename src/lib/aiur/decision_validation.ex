@@ -38,6 +38,7 @@ defmodule Aiur.DecisionValidation do
   alias Aiur.Commands.Requester
   alias Aiur.{Config, Decision, DecisionArtifact, DecisionCommandType, DecisionProvenance, SecretRedactor}
   alias Aiur.DecisionValidation.Context
+  alias Aiur.DecisionValidation.TicketIdentity
 
   @question_max 2000
   @consequence_max 2000
@@ -437,24 +438,11 @@ defmodule Aiur.DecisionValidation do
          {:ok, title} <- fetch_optional_string(ticket, :title, @ticket_title_max, :ticket_title),
          {:ok, url} <- fetch_optional_string(ticket, :url, @ticket_url_max, :ticket_url) do
       normalized = %{identifier: identifier, title: title, url: url}
-      {:ok, maybe_put_ticket_identity(normalized, get(ticket, :tracker_identity))}
+      {:ok, TicketIdentity.put(normalized, get(ticket, :tracker_identity))}
     end
   end
 
   defp normalize_ticket(_ticket), do: {:error, {:ticket, :invalid_type}}
-
-  defp maybe_put_ticket_identity(ticket, %Aiur.TrackerIdentity{} = identity) do
-    if Aiur.TrackerIdentity.joinable?(identity), do: Map.put(ticket, :tracker_identity, identity), else: ticket
-  end
-
-  defp maybe_put_ticket_identity(ticket, identity) when is_map(identity) do
-    fields = [:version, :status, :kind, :owner, :repository, :provider_id, :database_id, :identifier, :reason]
-    values = Map.new(fields, &{&1, get(identity, &1)})
-    ticket_identity = struct(Aiur.TrackerIdentity, values)
-    maybe_put_ticket_identity(ticket, ticket_identity)
-  end
-
-  defp maybe_put_ticket_identity(ticket, _identity), do: ticket
 
   defp normalize_ticket_identifier(nil), do: {:error, {:ticket_identifier, :missing}}
 
