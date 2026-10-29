@@ -94,14 +94,14 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     refute Commands.override_dispatchable?(revised)
 
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}
-    assert_receive {:override_prompt, ^worker, prompt}
+    receive_barrier({:first_session_input, ^worker, []})
+    receive_barrier({:override_prompt, ^worker, prompt})
     assert String.starts_with?(prompt, "Operator override — this replaces your earlier instruction for Command")
     assert prompt =~ "replacement"
     assert prompt =~ revised.active_action_id
     assert_prompt_delivered_once(store, revised)
     send(worker, :read_next)
-    assert_receive {:worker_queue_empty, ^worker}
+    receive_barrier({:worker_queue_empty, ^worker})
     refute_received {:worker_input, ^worker, _, _}
   end
 
@@ -114,28 +114,28 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     assert [%{state: :superseded}, %{state: :queued}] = latest.overrides
 
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}
-    assert_receive {:override_prompt, ^worker, prompt}
+    receive_barrier({:first_session_input, ^worker, []})
+    receive_barrier({:override_prompt, ^worker, prompt})
     assert prompt =~ "newest direction"
     assert prompt =~ latest.active_action_id
     refute prompt =~ "earlier direction"
     assert_prompt_delivered_once(store, latest)
     send(worker, :read_next)
-    assert_receive {:worker_queue_empty, ^worker}
+    receive_barrier({:worker_queue_empty, ^worker})
     refute_received {:worker_input, ^worker, _, _}
   end
 
   test "paused worker gets the override before an ordinary queued message", ctx do
     store = start_store!(ctx)
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}
+    receive_barrier({:first_session_input, ^worker, []})
     original = answer!(store)
     delivered = wait_for(store, original.decision_id, &(&1.delivery_status == :consumed))
-    assert_receive {:worker_input, ^worker, original_action, _}
+    receive_barrier({:worker_input, ^worker, original_action, _})
     assert original_action == delivered.active_action_id
 
     assert {:ok, _} = PauseResume.request_control(ctx.runtime, @identifier, :pause, 3032)
-    assert_receive {:worker_paused, ^worker}
+    receive_barrier({:worker_paused, ^worker})
     assert GenServer.call(ctx.runtime, :worker_status) == [:paused]
     revised = override!(store, delivered, "first resumed direction")
     refute Commands.override_dispatchable?(revised)
@@ -143,29 +143,29 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     refute_received {:worker_input, ^worker, _, _}
 
     assert {:ok, _} = PauseResume.request_control(ctx.runtime, @identifier, :resume, 3033)
-    assert_receive {:resume_waiting, ^worker}
+    receive_barrier({:resume_waiting, ^worker})
     send(worker, :allow_resume)
-    assert_receive {:worker_resumed, ^worker}
+    receive_barrier({:worker_resumed, ^worker})
     assert GenServer.call(ctx.runtime, :worker_status) == [:working]
     assert {:ok, _} = OperatorMessages.send_operator_message(ctx.runtime, @identifier, %{kind: :text, body: "later ordinary message"})
     send(worker, :allow_input)
-    assert_receive {:override_prompt, ^worker, prompt}
+    receive_barrier({:override_prompt, ^worker, prompt})
     assert String.starts_with?(prompt, "Operator override — this replaces your earlier instruction for Command")
     assert prompt =~ "Replacement response: first resumed direction"
     assert prompt =~ revised.active_action_id
-    assert_receive {:worker_input, ^worker, nil, "later ordinary message"}
+    receive_barrier({:worker_input, ^worker, nil, "later ordinary message"})
     assert_prompt_delivered_once(store, revised)
     send(worker, :read_next)
-    assert_receive {:worker_queue_empty, ^worker}
+    receive_barrier({:worker_queue_empty, ^worker})
   end
 
   test "merged PR override preserves terminal target follow-up instead of silently staying queued", ctx do
     store = start_store!(ctx, "done")
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}, 2_000
+    receive_barrier({:first_session_input, ^worker, []})
     original = answer!(store)
     delivered = wait_for(store, original.decision_id, &(&1.delivery_status == :consumed))
-    assert_receive {:worker_input, ^worker, _, _}, 2_000
+    receive_barrier({:worker_input, ^worker, _, _})
     context = %{@context | pr: %{@context.pr | merged?: true}}
     revised = override!(store, delivered, "correct merged work", context)
     terminal = wait_for(store, revised.decision_id, &(map_size(&1.revision_follow_ups) == 1))
@@ -173,10 +173,10 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     assert [%{route: :corrective_ticket, action_id: ^action}] = terminal.overrides
     assert terminal.revision_outcomes[action].reason_class == "target_terminal"
     assert terminal.revision_follow_ups[action].handled_at == nil
-    assert_receive {:follow_up, ^action}, 2_000
+    receive_barrier({:follow_up, ^action})
     assert {:ok, history} = DecisionStore.audit_history(revised.decision_id, store)
     assert Enum.count(history, &(&1.type == :follow_up_required and &1.data.action_id == action)) == 1
-    refute_receive {:worker_input, ^worker, ^action, _}, 0
+    refute_received {:worker_input, ^worker, ^action, _}
   end
 
   defp start_store!(ctx, target_state \\ "in-progress") do
@@ -248,7 +248,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "I_override_6908", "database_id" => 6908, "number" => 6908}, {"owner", "repo"}, {"owner", "repo"})
     issue = %Issue{id: @identifier, identifier: @identifier, tracker_identity: identity, title: "Override", state: "in-progress", selected_backend: "codex"}
     assert :ok = GenServer.call(runtime, {:launch, issue, store, runner})
-    assert_receive {:worker_started, worker}, 2_000
+    receive_barrier({:worker_started, worker})
     worker
   end
 
