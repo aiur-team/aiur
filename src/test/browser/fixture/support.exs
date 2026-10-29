@@ -66,7 +66,6 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def phoenix(conn, _params), do: serve_embedded(conn, "/vendor/phoenix/phoenix.js")
   def phoenix_live_view(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")
   def ticket_context_dialog_hook(conn, _params), do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
-  def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
   def time_brush_hook(conn, _params), do: serve_embedded(conn, "/time-brush-hook.js")
   def streamdeck_emulator(conn, %{"file" => file}), do: serve_embedded(conn, "/streamdeck-emulator-" <> file)
   def sortable_table_hook(conn, _params), do: serve_embedded(conn, "/sortable-table-hook.js")

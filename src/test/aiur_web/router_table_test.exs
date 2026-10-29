@@ -48,7 +48,6 @@ defmodule AiurWeb.RouterTableTest do
     {:*, "/api/v1/control", AiurWeb.ControlController, :method_not_allowed, [:control_token, :require_writable], :debug},
     {:get, "/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
-    {:get, "/build-order-grid-hook.js", AiurWeb.StaticAssetController, :build_order_grid_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/time-brush-hook.js", AiurWeb.StaticAssetController, :time_brush_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/decision-questions-validation.js", AiurWeb.StaticAssetController, :decision_questions_validation, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/sortable-table-hook.js", AiurWeb.StaticAssetController, :sortable_table_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
