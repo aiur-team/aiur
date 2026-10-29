@@ -40,8 +40,8 @@ defmodule Aiur.Executor.SessionRecord do
 
   @spec load(Path.t()) :: map() | nil
   def load(path) do
-    case JsonStore.read(path) do
-      {:ok, nil} -> nil
+    case JsonStore.read(path, :missing) do
+      {:ok, :missing} -> nil
       {:ok, data} -> decode_or_quarantine(path, data)
       {:error, %Jason.DecodeError{}} -> quarantine(path)
       {:error, reason} -> raise File.Error, reason: reason, action: "read Executor binding", path: path

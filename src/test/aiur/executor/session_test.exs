@@ -205,7 +205,7 @@ defmodule Aiur.Executor.SessionTest do
     binding = bound()
     path = SessionRecord.path("instance-one")
 
-    for contents <- ["broken", "{\"v\":999}"] do
+    for contents <- ["broken", "null", "{\"v\":999}"] do
       stop_supervised!(Session)
       File.write!(path, contents)
       start_supervised!({Session, instance_key: "instance-one", clock: clock})
