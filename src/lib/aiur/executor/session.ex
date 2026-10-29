@@ -72,55 +72,41 @@ defmodule Aiur.Executor.Session do
     with :ok <- attached(state.binding, id),
          :ok <- valid_hook(hook),
          :ok <- accept_session(state.binding, hook, rebind?, state.clock.()) do
-      binding = state.binding
-      changed? = binding.provider_session_id != hook.session_id
-      stale? = not live?(binding, state.clock.())
-      reason = if rebind?, do: hook.source, else: "start"
-      if changed? or stale?, do: end_binding(binding, if(stale?, do: "detached", else: reason))
-
-      updated =
-        Map.merge(binding, %{
-          state: "attached",
-          provider_session_id: hook.session_id,
-          transcript_path: Map.get(hook, :transcript_path),
-          locator_hash: locator_hash(Map.get(hook, :transcript_path)),
-          cwd: Map.get(hook, :cwd),
-          pid: if(changed?, do: Map.get(hook, :pid), else: binding.pid || Map.get(hook, :pid)),
-          last_hook_at: DateTime.to_iso8601(state.clock.()),
-          takeover_armed: false,
-          start_reason: if(changed? or stale?, do: reason, else: binding.start_reason),
-          transcript_offset: if(changed? or stale?, do: 0, else: binding.transcript_offset)
-        })
-
-      if Map.drop(updated, [:last_hook_at]) == Map.drop(binding, [:last_hook_at]), do: reply_touched(%{state | binding: updated}), else: reply_saved(%{state | binding: updated})
+      bind(state, hook, rebind?)
     else
       {:error, reason} -> reject(state, reason)
     end
   end
 
   def handle_call({:touch, id, %DateTime{} = at}, _from, state) do
-    with :ok <- attached(state.binding, id) do
-      reply_touched(%{state | binding: Map.put(state.binding, :last_hook_at, DateTime.to_iso8601(at))})
-    else
-      {:error, reason} -> reject(state, reason)
+    case attached(state.binding, id) do
+      :ok ->
+        reply_touched(%{state | binding: Map.put(state.binding, :last_hook_at, DateTime.to_iso8601(at))})
+
+      {:error, reason} ->
+        reject(state, reason)
     end
   end
 
   def handle_call({:detach, id, reason}, _from, state) when is_atom(reason) or is_binary(reason) do
-    with :ok <- attached(state.binding, id) do
-      end_binding(state.binding, reason)
-      binding = Map.merge(state.binding, %{state: "detached", end_reason: to_string(reason), detached_at: DateTime.to_iso8601(state.clock.()), takeover_armed: false})
-      reply_saved(%{state | binding: binding})
-    else
-      {:error, reason} -> reject(state, reason)
+    case attached(state.binding, id) do
+      :ok ->
+        end_binding(state.binding, reason)
+        binding = Map.merge(state.binding, %{state: "detached", end_reason: to_string(reason), detached_at: DateTime.to_iso8601(state.clock.()), takeover_armed: false})
+        reply_saved(%{state | binding: binding})
+
+      {:error, reason} ->
+        reject(state, reason)
     end
   end
 
   def handle_call({:offset, id, offset}, _from, state) when is_integer(offset) and offset >= 0 do
-    with :ok <- attached(state.binding, id) do
-      reply_saved(%{state | binding: Map.put(state.binding, :transcript_offset, offset)})
-    else
-      {:error, reason} -> reject(state, reason)
+    case attached(state.binding, id) do
+      :ok ->
+        reply_saved(%{state | binding: Map.put(state.binding, :transcript_offset, offset)})
+
+      {:error, reason} ->
+        reject(state, reason)
     end
   end
 
@@ -129,6 +115,32 @@ defmodule Aiur.Executor.Session do
   @impl true
   def handle_info({:persist_touch, token}, %{timer: {_timer, token}} = state), do: {:noreply, save(%{state | timer: nil})}
   def handle_info({:persist_touch, _token}, state), do: {:noreply, state}
+
+  defp bind(state, hook, rebind?) do
+    binding = state.binding
+    changed? = binding.provider_session_id != hook.session_id
+    stale? = not live?(binding, state.clock.())
+    reason = if rebind?, do: hook.source, else: "start"
+    if changed? or stale?, do: end_binding(binding, if(stale?, do: "detached", else: reason))
+
+    updated = provider_fields(binding, hook, state.clock.())
+    updated = if changed? or stale?, do: Map.merge(updated, %{start_reason: reason, transcript_offset: 0}), else: updated
+
+    if Map.drop(updated, [:last_hook_at]) == Map.drop(binding, [:last_hook_at]), do: reply_touched(%{state | binding: updated}), else: reply_saved(%{state | binding: updated})
+  end
+
+  defp provider_fields(binding, hook, now) do
+    Map.merge(binding, %{
+      state: "attached",
+      provider_session_id: hook.session_id,
+      transcript_path: Map.get(hook, :transcript_path),
+      locator_hash: locator_hash(Map.get(hook, :transcript_path)),
+      cwd: Map.get(hook, :cwd),
+      pid: if(binding.provider_session_id != hook.session_id, do: Map.get(hook, :pid), else: binding.pid || Map.get(hook, :pid)),
+      last_hook_at: DateTime.to_iso8601(now),
+      takeover_armed: false
+    })
+  end
 
   defp valid_consumer?(opts), do: is_nil(Map.get(opts, :consumer_id)) or is_binary(Map.get(opts, :consumer_id))
 

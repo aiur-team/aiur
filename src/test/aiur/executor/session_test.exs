@@ -2,12 +2,12 @@ Code.require_file("../conversation/journal_support.exs", __DIR__)
 
 defmodule Aiur.Executor.SessionTest do
   use ExUnit.Case, async: false
-  alias Aiur.Conversation.Ingest
+  alias Aiur.Conversation.{Ingest, TestSupport}
   alias Aiur.Executor.{Session, SessionRecord}
   import Aiur.Conversation.TestSupport
 
   setup context do
-    context = Aiur.Conversation.TestSupport.setup(context)
+    context = TestSupport.setup(context)
     previous = Application.fetch_env(:aiur, :executor_state_dir)
     Application.put_env(:aiur, :executor_state_dir, Path.join(context.root, "executor"))
 

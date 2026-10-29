@@ -53,14 +53,23 @@ defmodule Aiur.Executor.SessionRecord do
   end
 
   defp valid?(%{"v" => 1, "binding_id" => id, "generation" => generation, "harness" => harness, "state" => state} = data) do
-    is_binary(id) and String.starts_with?(id, "exb_") and is_integer(generation) and generation > 0 and
-      harness in ["claude", "codex"] and state in ["awaiting_first_hook", "attached", "detached"] and
-      valid_time?(data["attached_at"]) and (is_nil(data["last_hook_at"]) or valid_time?(data["last_hook_at"])) and
-      is_integer(data["transcript_offset"]) and data["transcript_offset"] >= 0 and is_boolean(data["takeover_armed"]) and
-      Enum.all?(~w(provider_session_id transcript_path locator_hash cwd consumer_id pid start_reason detached_at end_reason), &(is_nil(data[&1]) or is_binary(data[&1])))
+    valid_identity?(id, generation, harness, state) and valid_times?(data) and valid_fields?(data)
   end
 
   defp valid?(_data), do: false
+
+  defp valid_identity?(id, generation, harness, state) do
+    is_binary(id) and String.starts_with?(id, "exb_") and is_integer(generation) and generation > 0 and
+      harness in ["claude", "codex"] and state in ["awaiting_first_hook", "attached", "detached"]
+  end
+
+  defp valid_times?(data), do: valid_time?(data["attached_at"]) and (is_nil(data["last_hook_at"]) or valid_time?(data["last_hook_at"]))
+
+  defp valid_fields?(data) do
+    is_integer(data["transcript_offset"]) and data["transcript_offset"] >= 0 and is_boolean(data["takeover_armed"]) and
+      Enum.all?(~w(provider_session_id transcript_path locator_hash cwd consumer_id pid start_reason detached_at end_reason), &(is_nil(data[&1]) or is_binary(data[&1])))
+  end
+
   defp valid_time?(value) when is_binary(value), do: match?({:ok, _, _}, DateTime.from_iso8601(value))
   defp valid_time?(_value), do: false
 
