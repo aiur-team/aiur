@@ -47,7 +47,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
       assert prompt =~ "decision.acknowledged"
     end
 
-    assert :ok = OverridePrompt.received(%{method: "turn/started"}, opts)
+    assert :ok = OverridePrompt.received(%{event: :notification, payload: %{"method" => "turn/started"}}, opts)
     {:ok, delivered} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
     assert [%{state: :delivered, delivered_at: %DateTime{}}] = delivered.overrides
     assert OverridePrompt.prepare(ctx.issue.identifier, decision_store: ctx.store)[:pending_overrides] != []
@@ -219,7 +219,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
                nil,
                decision_store: ctx.store,
                pending_overrides: [],
-               run_turn: fn _session, text, _issue, _opts ->
+               run_turn: fn _session, text, _issue, turn_opts ->
                  assert String.starts_with?(text, "Operator override — this replaces your earlier instruction for Command")
                  assert text =~ "Use the new direction"
                  assert String.ends_with?(text, "Queued superseded instructions")
@@ -228,7 +228,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
              )
 
     {:ok, pending} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
-    assert [%{state: :queued, delivered_at: nil}] = pending.overrides
+    assert [%{state: :delivered, delivered_at: %DateTime{}}] = pending.overrides
   end
 
   test "waiting requests are admitted oldest first with one resume per ticket", ctx do

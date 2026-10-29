@@ -33,7 +33,10 @@ defmodule Aiur.Commands.OverridePrompt do
   @doc "Only a confirmed provider turn start records prompt delivery."
   @spec received(map(), keyword()) :: :ok
   def received(message, opts) do
-    if Map.get(message, :method, Map.get(message, "method")) in ["turn/started", :turn_started] do
+    payload = Map.get(message, :payload, Map.get(message, "payload", message))
+    method = Map.get(payload, :method, Map.get(payload, "method"))
+
+    if method in ["turn/started", :turn_started] or Map.get(message, :event) == :turn_started do
       Enum.each(Keyword.get(opts, :pending_overrides, []), &persist_receipt(&1, opts))
     end
 
