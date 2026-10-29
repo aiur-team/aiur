@@ -99,7 +99,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
       assert MapSet.member?(result.claimed, issue.id)
     end
 
-    test "a refs-only merge logs a marker failure without a terminal alert and clears merge-queued" do
+    test "a refs-only merge logs store unavailability without an attention alert and clears merge-queued" do
       issue = %Issue{
         id: "issue-refs-only",
         identifier: "176",
@@ -159,7 +159,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
       refute log =~ "merge_terminal_write_failed"
       assert_received :reconciliation_marker_attempted
       assert_received {:label_removed, "176", "agent:merge-queued"}
-      assert_received {:alert, "ticket.176.agent.attention.merge_reference_bookkeeping_failed"}
+      refute_received {:alert, "ticket.176.agent.attention.merge_reference_bookkeeping_failed"}
       assert_receive {:triage_comment, "176", body}, 1000
       assert body =~ "PR 901 referencing this ticket merged"
       refute_received {:alert, "ticket.176.agent.attention.merge_terminal_write_failed"}

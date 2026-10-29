@@ -21,7 +21,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReferenceMergeBookkeeping do
 
         {:error, reason} ->
           Logger.warning("PR reference merge bookkeeping deferred: issue_identifier=#{identifier} step=#{step} reason=#{inspect(reason)}")
-          emit_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason)
+          maybe_emit_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason)
 
         other ->
           Logger.warning("PR reference merge bookkeeping deferred: issue_identifier=#{identifier} step=#{step} result=#{inspect(other)}")
@@ -54,7 +54,10 @@ defmodule Aiur.Orchestrator.CommentWake.ReferenceMergeBookkeeping do
     _error -> nil
   end
 
-  defp emit_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason) do
+  defp maybe_emit_bookkeeping_failed_alert(_emit_alert_fun, _identifier, :reconciliation_marker, {:store_unavailable, _health}),
+    do: :ok
+
+  defp maybe_emit_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason) do
     reason_name = MergeTransition.reason_name(reason)
 
     emit_alert_fun.(
