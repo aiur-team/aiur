@@ -4,11 +4,11 @@ defmodule AiurWeb.Build.Payload do
   All fields defined by PayloadSchema are required unless explicitly optional.
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
-  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), optional
-  icons catalog, epics, features, order, counts (whole-index totals or nil), feature_progress
-  (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation
-  time; plan version and extras), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/packs/estimates),
+  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
+  epic_progress (general-epic closed/open/total counts and observation time; incomplete figures are nil with a reason),
+  epic_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
+  features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
@@ -44,7 +44,7 @@ defmodule AiurWeb.Build.Payload do
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
   | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
-  | pr | nil or positive integer num and open/merged/closed state |
+  | pr | nil or positive integer num, open/merged/closed state and optional nullable ci stage |
 
   Epics require key/label strings, numeric hue and an icon name; optional svg,
   general/temp/unsorted are booleans, optional feature is a string. Features require key/label,
@@ -64,7 +64,7 @@ defmodule AiurWeb.Build.Payload do
   Authorized usage requires observed_at (ms or nil), apis and providers. Each
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
-  and boolean none. Windows require nullable 0..100 `acc` values representing
+  and boolean none. Windows optionally include `resets` aligned with account names and `acc`. Windows require nullable 0..100 `acc` values representing
   percent remaining, nullable `reset_at`
   milliseconds and nullable string win. Optional row fields carry lines (tagged
   windows with tip pairs and nullable hold_until), icon, stale, observed_at,
@@ -134,6 +134,10 @@ defmodule AiurWeb.Build.Payload do
   def validate(_message), do: {:error, [{"", :type}]}
 
   @spec scrub(term()) :: term()
+  # Shared presentation metadata stays internal to the index, outside schema v1.
+  def scrub(%{num: _} = row),
+    do: row |> Map.drop([:general_epics, :priority, :lane, :progress_freshness, :dependency_ready]) |> Map.new(fn {key, child} -> {scrub_key(key), scrub(child)} end)
+
   def scrub(value) when is_binary(value), do: String.replace_invalid(value)
   def scrub(value) when is_list(value), do: Enum.map(value, &scrub/1)
   def scrub(value) when is_map(value), do: Map.new(value, fn {key, child} -> {scrub_key(key), scrub(child)} end)

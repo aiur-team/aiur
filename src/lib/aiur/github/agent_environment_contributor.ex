@@ -26,6 +26,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
       {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
       {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
+      {~c"AIUR_GITHUB_FIXER_LABEL", String.to_charlist(Aiur.MergePolicy.current().main_watch.fixer_label)},
       # Single-account mode only: the marker the `gh` guard appends to comment
       # bodies the agent writes, so the daemon can later tell those comments
       # from ones the operator typed under the same login. `false` (unset) on
@@ -66,6 +67,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
 
     "AIUR_REAL_GH=\nexport AIUR_REAL_GH\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
+      "export AIUR_GITHUB_FIXER_LABEL=#{Aiur.Shell.escape(Aiur.MergePolicy.current().main_watch.fixer_label)}\n" <>
       remote_repo_slug_export() <>
       agent_comment_marker_export() <>
       budget_socket_export(opts) <>

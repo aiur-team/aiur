@@ -47,7 +47,7 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur resume --all` | Resumes every individually paused ticket. | `aiur resume --all` |
 | `aiur reset-budget 142` | Clears a named ticket's dispatch-budget latch. It does not accept `--all`; `resume` cannot clear this latch. | `aiur reset-budget 142` |
 | `aiur listen-mode <ticket> [mode] [--actor human]` | Reads or sets a ticket's listener mode (`steer`, `sync`, `async`, `mute`). Async is pings only; mute is silent. Writes use compare-and-set; `--expected-version N` pins the version (otherwise the command reads it first). Conflicts print the current record and exit 3. `--actor human\|executor` records the caller (default human). `--json` includes requested/effective mode, reason, version, actor, `observed_at`, `age_ms`, and freshness. | `aiur listen-mode 142 async --expected-version 0 --json` |
-| `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. Text must be nonblank and at most 8,000 characters. The command reports what it observed: `delivered message to #142` once the agent has claimed it, otherwise `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0 — a queued message is normally claimed at the agent's next checkpoint. Use `aiur message --status REQUEST_ID` to check later delivery. | `aiur message 142 "Check the latest review"` |
+| `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. If no worker is running for the ticket, it reports `queued for next worker on #142 (request N)`. That queue survives daemon restarts; the message is delivered when the ticket's next worker starts and claims its queue. At most 256 undelivered next-worker messages (pending or claimed but not yet acknowledged by the provider) are persisted; when full, the send fails instead of reporting that it was queued. Text must be nonblank and at most 8,000 characters. Otherwise, the command reports `delivered message to #142` once a running agent has claimed it, or `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0. Use `aiur message --status REQUEST_ID` to check the queued message: it remains queued until claimed, then reports delivered (or consumed if the worker has already acted on it). | `aiur message 142 "Check the latest review"` |
 | `aiur message 142 --message-id ID "Check review"` | Names this send. A repeat with the same id, ticket and text returns the first copy and queues nothing new. The same id with other text is refused. Use it only to retry a send whose outcome was unknown. | `aiur message 142 --message-id cli-1a2b "Check the latest review"` |
 | `aiur stop` | Gracefully stops the BEAM and its tmux lifetime session, reaping agent process trees and workspace-rooted descendants before a final launcher backstop removes stragglers. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
 | `aiur restart` | Stops the running session, refreshes the release, and starts it again detached. See [Restart semantics](#restart-semantics). | `aiur restart` |
@@ -61,6 +61,14 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur cleanup-stale` | Lists and reaps stale manual-smoke processes and sockets. | `aiur cleanup-stale` |
 | `aiur cleanup-stale --dry-run` | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
 | `aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]` | Requires an allowlisted human identity and ten-minute gates for head, draft, approval, changes, CI, conflicts, attribution and merge result. Agents, Apps and self-review refuse. Queues report `ENQUEUED`; rerun after merge. Exit 0: merged/enqueued/observed/dry run; 2: refusal; 1: tool error. Records: `~/.aiur/logs/pr-merge/`; observed merges notify `system.pr.merged`. | `aiur pr merge 42 --reviewed-sha <40-character-sha> --dry-run` |
+
+### Units
+
+`aiur units --json` includes `auxiliary.running_build` with the running daemon's
+release-stamp `sha` and `built_at` (UTC). Missing stamp fields are `null`; the
+collector never substitutes the current checkout's commit or file time.
+
+### Fleet status and messages
 
 Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason, owner and elapsed age, for example `· backing_off · RetryEngine · 45s`. `aiur agents` summarizes ordinary idle tickets in one count; use `aiur agents --all` to print every idle row.
 
@@ -83,6 +91,10 @@ If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-bu
 Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. The current legacy routing ignores the stored mode; `listen-mode` says so explicitly.
 
 When a send receipt carries a listener mode, `aiur message` also prints `accepted under <mode> listener mode`; legacy sends retain their existing output.
+
+With listener routing enabled and async support usable, leaving `async` queues one notice with the unread count. Earlier bodies stay pull-only through `aiur_read_messages`.
+
+If the pull tool becomes unavailable, held bodies follow the effective mode instead; no new pull notice is queued. An empty backlog adds no notice. Returning to `async` supersedes an undelivered backlog notice.
 
 Use `--idempotency-key KEY` on `listen-mode` to retry an uncertain write with the same mode and `--expected-version`. A write timeout reports `outcome unknown` and the key; it does not prove failure. `--actor executor` is permitted for a worker's mode.
 

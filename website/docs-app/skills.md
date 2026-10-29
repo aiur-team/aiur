@@ -144,3 +144,66 @@ Choose the release ref whose `.claude-plugin/plugin.json` reports `X.Y.Z`; the r
 Review the upstream release notes and the resulting skill diff, then run the AgentSkills tests before committing. The script replaces only previously managed CE skill paths, refreshes the license, version, and manifest files, and recreates the Claude-to-Codex links.
 
 The complexity routing rules that pick which CE skill to run live in [complexity-routing.md](../../.claude/skills/aiur-agent/complexity-routing.md).
+
+## Daily newsletter snapshots
+
+Run `python3 scripts/newsletter/collect.py` from the repository to capture a
+rolling 24-hour window (merges retain 48 hours) beneath the per-repository Aiur
+state directory at `newsletter/snapshots/YYYY-MM-DD.json`. Repeating a UTC date
+atomically replaces that file.
+
+`--repo owner/repo` selects a repository;
+`--state-dir <dir>` selects its local evidence directory and `--out <dir>`
+selects the snapshot output directory.
+
+Repeat `--instance <name>` for each
+additional configured daemon to query through `aiur --instance <name>`. This
+selects daemon queries; it does not expose that machine's local telemetry or
+analytics files to the collector, so its allocation sections remain unavailable
+unless those files are reachable in the collector's local state directory.
+
+The collector uses the daemon's labels-only feature rule: `feature:*`,
+`build-lane:*`, or exact `build-order`. Titles can only select non-feature classes.
+
+GitHub reads use cursor pages and batched issue numbers, with a 40-request
+ceiling below 50 GraphQL points; the snapshot records reported cost and marks
+incomplete reads unavailable. See [GitHub budgets](/apis/github-budgets).
+
+Meta summaries read timestamped `meta/*.md` files and Executor action records
+read `executor/*/history.ndjson`.
+
+Snapshots also include `allocation_evidence` blocks for `pc` and `nuc`, with
+turn, intake, and feature-supply sections. Sections include records only when
+the source can prove complete window coverage; missing intake history and
+unreachable machine telemetry remain unavailable rather than zero.
+
+Missing sources remain `null` with reasons;
+stale daemon observations cannot produce current allocation counts. Units are
+deduplicated by repository and issue number across daemons.
+
+Per-class agent
+hours remain unavailable until per-ticket active intervals cover the window.
+
+Running build identity comes from each daemon's release stamp, separately
+from merged changes; a merge alone does not establish deployment or verification.
+
+Newsletter metrics use `scripts/newsletter/metrics.py`'s pure
+`compute(today, yesterday_or_none)` function. The report separates merge outcomes,
+seven-day allocation per PC/NUC machine, program scope changes, lanes, and
+meta/action evidence.
+
+Each metric includes source-field paths. Missing daily baselines keep every delta
+and trend `unavailable`; merge timestamps alone never prove a change is live.
+
+Ancestry and Executor verification require explicit snapshot evidence, so their
+counts remain unavailable when the collector cannot supply it. The input and
+report contract is in `scripts/newsletter/metrics-contract.md` in the repository.
+
+The allocation headline compares feature turn-hours and distinct tickets worked
+with the 95% target over seven days, separately for PC and NUC. Instant agent
+counts are context. Separate lines show main-fix hours, unlabelled product,
+non-feature intake by source, and observed feature-starved slot-minutes.
+
+Each machine needs complete evidence for its window; absent or partial capture
+shows `unavailable` for that machine. A 24-hour capture cannot substitute for
+seven days, and current todo labels cannot establish first-dispatch intake.

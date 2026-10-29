@@ -67,6 +67,20 @@ defmodule VoiceConverse.ToolsTest do
     assert_receive {:fake_provider, :tool_result, "call-1", %{text: "Unknown tool.", is_error: true}}
   end
 
+  test "host allowlist refuses instruction tools before creating a draft", %{root: root, name: name} do
+    id = start!(root, name, %{id: "target"}, allowed_tools: ["get_status", "end_conversation"])
+    provider = provider(name, id)
+    :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "Send this now"}))
+
+    assert_receive {:fake_provider, :tool_result, "call-1",
+                    %{is_error: true, text: "Tool is unavailable in this conversation."}}
+
+    {:ok, session} = SessionRegistry.lookup(name, id)
+    assert :sys.get_state(session).drafts == Drafts.new()
+    assert {:ok, records, _meta} = TranscriptStore.read(root, id)
+    refute Enum.any?(records, &(&1["type"] == "draft"))
+  end
+
   test "propose_instruction creates a proposed draft and sends nothing", %{root: root, name: name} do
     id = start!(root, name, %{id: "target"}, redactor: fn _ -> "[redacted]" end)
     provider = provider(name, id)
@@ -201,6 +215,7 @@ defmodule VoiceConverse.ToolsTest do
         briefing_source: ToolBriefingSource,
         command_source: Keyword.get(opts, :command_source),
         provider: {FakeProvider, []},
+        allowed_tools: Keyword.get(opts, :allowed_tools),
         llm: "test-model",
         cloud_disclosure_accepted: true,
         redactor: Keyword.get(opts, :redactor, &VoiceConverse.Redact.redact/1)

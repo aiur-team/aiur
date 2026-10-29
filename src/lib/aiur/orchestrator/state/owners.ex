@@ -53,6 +53,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     dispatch_hold: :dispatch,
     dispatch_capacity_constraints: :dispatch,
     dispatch_declines: :dispatch,
+    feature_supply: :dispatch,
     dispatch_capacity_sample: :dispatch,
     capacity_starvation: :dispatch,
     fleet_capacity_starvation: :dispatch,
@@ -141,7 +142,8 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.LoadEnvelope,
       Aiur.Orchestrator.EnvelopeResume,
       Aiur.Orchestrator.CapacityBinding,
-      Aiur.Orchestrator.Slots
+      Aiur.Orchestrator.Slots,
+      Aiur.Orchestrator.FeatureSupply
     ],
     lifecycle: [
       Aiur.Handoff.Adopter,

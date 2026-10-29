@@ -8,9 +8,13 @@
     "src/lib/aiur/listener/capability_provider.ex",
     "src/lib/aiur/listener/delivery_target.ex",
     "src/lib/aiur/listener/effective.ex",
+    "src/lib/aiur/listener/hook_envelope.ex",
+    "src/lib/aiur/listener/hook_frame.ex",
     "src/lib/aiur/listener/mode_copy.ex",
     "src/lib/aiur/listener/mode_store.ex",
     "src/lib/aiur/listener/receipt.ex",
+    "src/lib/aiur/listener/spec.ex",
+    "src/lib/aiur/listener/spec/**",
     "src/lib/aiur/listener/spec_status.ex"
   ],
   "facades": [

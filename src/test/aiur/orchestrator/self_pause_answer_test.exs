@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     assert text =~ "Continue with the accepted contract"
     assert_working(ctx.orchestrator, issue)
     old_id = old_decision.decision_id
-    receive_barrier({:answer_queued, ^old_id, {:error, :no_running_agent}})
+    receive_barrier({:answer_queued, ^old_id, {:ok, _item_id}})
   end
 
   # A pause request that expires unacknowledged leaves a working worker. A

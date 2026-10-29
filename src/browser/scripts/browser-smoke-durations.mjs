@@ -12,6 +12,10 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-executor-voice-comparison': 30,
+  // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
+  'test:conversation-view': 36,
   // Governed functional run (2026-10-23), including startup: 57.170 seconds.
   'test:build-home-unfiled': 58,
   'test:parity': 16,
@@ -84,10 +88,7 @@ export const recordedSeconds = {
   'test:command-history': 15,
   'test:build-order': 6,
   'test:experiments': 15,
-  'test:interaction': 26,
   'test:time-brush': 8,
-  'test:performance': 18,
-  'test:responsive': 16,
   'test:layout': 24,
   'test:ticket-context': 17,
   'test:units': 38,

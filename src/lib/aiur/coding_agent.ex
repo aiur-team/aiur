@@ -36,6 +36,18 @@ defmodule Aiur.CodingAgent do
           :noop
           | {:deliver_text, String.t(), (map() -> any()), (term() -> any())}
 
+  @doc false
+  @spec with_snapshot((-> result)) :: result when result: var
+  defdelegate with_snapshot(fun), to: ProvidersView
+
+  @doc false
+  @spec snapshot_classifications([Aiur.Issue.t()]) :: map()
+  defdelegate snapshot_classifications(issues), to: Aiur.CodingAgent.LabelClassification, as: :prepare
+
+  @doc false
+  @spec with_classification_cache(map(), (-> result)) :: result when result: var
+  defdelegate with_classification_cache(cache, fun), to: Aiur.CodingAgent.LabelClassification, as: :with_cache
+
   # Registry views and provider descriptors.
   defdelegate backends(), to: ProvidersView
   defdelegate child_specs(), to: ProvidersView
@@ -109,6 +121,17 @@ defmodule Aiur.CodingAgent do
   @doc "Transcript module for a resolved backend. Raises on an unknown backend."
   @spec transcript_module(backend()) :: module()
   def transcript_module(backend), do: fetch_backend!(backend).transcript
+
+  @doc "Reads bounded native transcript context through the backend's declared reader."
+  @spec read_native_transcript(map(), pos_integer()) :: {:ok, map()} | {:error, :unavailable}
+  def read_native_transcript(%{"state" => "live", "harness" => backend} = session, n) do
+    case get_in(backends(), [backend, :native_transcript]) do
+      nil -> {:error, :unavailable}
+      reader -> reader.read(session, n)
+    end
+  end
+
+  def read_native_transcript(_session, _n), do: {:error, :unavailable}
 
   @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()

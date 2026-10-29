@@ -140,9 +140,18 @@ export function applyQueueAdd(msg) {
   repaint();
 }
 export function syncDoc(msg) {
-  for (const row of msg.upsert || []) if (row.sec !== 'nq') adds.delete(row.id);
-  for (const id of msg.remove || []) adds.delete(id);
-  repaint();
+  let ticketQueueChanged = false;
+  for (const row of msg.upsert || []) {
+    if (row.sec !== 'nq' && adds.delete(row.id) && row.id === view?.id) ticketQueueChanged = true;
+  }
+  for (const id of msg.remove || []) {
+    if (adds.delete(id) && id === view?.id) ticketQueueChanged = true;
+  }
+  const related = new Set(Array.from($('#tk-body')?.querySelectorAll('[data-goto]') || [], element => element.dataset.goto));
+  const relatedChanged = msg.upsert?.some(row => related.has(row.id) || row.deps?.includes(view?.id)) ||
+    msg.remove?.some(id => related.has(id));
+  const ticketChanged = msg.upsert?.some(row => row.id === view?.id) || msg.remove?.includes(view?.id);
+  if (ticketQueueChanged || ticketChanged || relatedChanged || Object.keys(msg.set || {}).length) repaint();
 }
 export function reconnectDoc() {
   for (const [id, state] of adds) if (state.pending) adds.set(id, { ok: false, reason: 'outcome_unknown' });

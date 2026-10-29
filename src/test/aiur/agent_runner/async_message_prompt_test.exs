@@ -20,7 +20,9 @@ defmodule Aiur.AgentRunner.AsyncMessagePromptTest do
     for {turn, opts} <- [{1, []}, {1, [resumed: true]}, {1, [prior_work: true]}, {2, []}] do
       prompt = prompt({:ok, %{effective: :async, unread_count: 3}}, turn, opts)
       assert prompt =~ "Messages from the operator are held rather than shown automatically."
-      assert prompt =~ "Call `aiur_read_messages` at natural pauses and before finishing. 3 unread"
+      assert prompt =~ "Call `aiur_read_messages` at natural pauses and before finishing."
+      assert prompt =~ "3 unread"
+      assert prompt =~ "Before concluding that no further work remains or handing back, read and act on every pending operator message."
     end
   end
 

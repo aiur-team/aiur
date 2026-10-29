@@ -1,7 +1,7 @@
 /**
  * Encoded-panel cache with per-panel dirty tracking.
  *
- * Each strip panel (see `stripLayout.ts`) owns an independent `0x0C`
+ * Each server-rendered strip panel owns an independent `0x0C`
  * partial-region write. This cache holds the last JPEG encoded for each panel
  * and only emits reports for panels whose encoded bytes actually changed. That
  * is the mechanism behind two touch-strip guarantees:

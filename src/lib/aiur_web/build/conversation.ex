@@ -9,7 +9,7 @@ defmodule AiurWeb.Build.Conversation do
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def init(socket) do
     assign(socket,
-      conversation_source: ConversationSource.source(),
+      conversation_source: conversation_source(socket),
       conversation_ref: nil,
       conversation_handle: nil,
       conversation_last: nil,
@@ -21,6 +21,20 @@ defmodule AiurWeb.Build.Conversation do
     )
     |> ConversationEventFeed.init()
   end
+
+  defp conversation_source(%{assigns: %{build_fixture_dataset: dataset}})
+       when is_binary(dataset) do
+    if Application.get_env(:aiur, :build_fixture_query, false) do
+      case ConversationSource.source() do
+        {module, opts} -> {module, Keyword.put(opts, :dataset, dataset)}
+        module -> {module, [dataset: dataset]}
+      end
+    else
+      ConversationSource.source()
+    end
+  end
+
+  defp conversation_source(_socket), do: ConversationSource.source()
 
   @spec page(Phoenix.LiveView.Socket.t(), map()) :: {:reply, map(), Phoenix.LiveView.Socket.t()}
   def page(socket, %{"id" => id} = params) when is_binary(id) do
@@ -76,7 +90,7 @@ defmodule AiurWeb.Build.Conversation do
     if socket.assigns.conversation_poll_token == token do
       signature = signature(socket.assigns.conversation_ref)
       socket = assign(socket, conversation_timer: nil)
-      socket = if socket.assigns.conversation_drain or signature != socket.assigns.conversation_stat, do: update(socket, false), else: socket
+      socket = if socket.assigns.conversation_ref[:journal_id] != nil or socket.assigns.conversation_drain or signature != socket.assigns.conversation_stat, do: update(socket, false), else: socket
       schedule(socket)
     else
       socket
@@ -209,7 +223,7 @@ defmodule AiurWeb.Build.Conversation do
   end
 
   defp changed_ref?(old, ref) do
-    fields = [:handle, :running_unknown?, :reason, :remote?, :workspace]
+    fields = [:journal_id, :handle, :running_unknown?, :reason, :remote?, :workspace]
     Map.take(old, fields) != Map.take(ref, fields) or old[:running] == nil != (ref[:running] == nil)
   end
 
@@ -259,6 +273,8 @@ defmodule AiurWeb.Build.Conversation do
       socket
     end
   end
+
+  defp local?(%{journal_id: id}) when is_binary(id), do: true
 
   defp local?(ref), do: is_binary(ref[:path]) and not is_binary((ref[:running] || %{})[:worker_host])
 

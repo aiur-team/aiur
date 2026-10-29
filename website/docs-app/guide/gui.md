@@ -65,6 +65,12 @@ Listener-routed Units rows show a compact mode and unread count; unknown values
 show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
 the selector, effective-mode reason, oldest unread age and observation age.
 
+New worker journals recover conversation from the workspace transcript
+when it can be replayed, otherwise from this launch's IssueLog. Recovered
+records belong to an `import` session after a `pre_journal` gap: earlier history
+may still be missing. IssueLog bodies at its 1,000-character cut are marked
+truncated. Existing journals are not imported again.
+
 The conversation header selector offers **Steer · interrupts**,
 **Sync · next turn**, **Async · pings only**, or **Mute · silent**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the
@@ -173,12 +179,52 @@ build gate limits verification; they do not automatically change the agent cap.
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
 
+## Conversations
+
+See [Conversations](/concepts/conversations) for journal storage, retention,
+secret handling, earlier history and jump-point precision.
+
+### Answer a Command
+
+Open Commands from this agent appear beside their anchored conversation entry,
+with a top link that jumps to the card. A Command with no known position is
+pinned above the history and marked **Position unknown**.
+
+The cards use the same
+answer controls as the Commands inbox, including multi-question answers and
+conflict outcomes. Answers recorded elsewhere update the card live; they never
+edit the transcript. Read-only dashboards show cards without answer controls.
+
+### Send a message
+
+On a worker's full conversation page, writable dashboards offer a **Message to
+agent** composer. Its read-only mode indicator shows the effective listener
+mode, or **mode unknown** when it cannot be observed. Legacy routing retains
+the existing send behavior.
+
+**Accepted** means the message was accepted for processing. **Queued** means
+the harness queued it (Sync: next boundary), not that the agent read it.
+**Saved** in Async means the agent reads it when it chooses. The local delivery
+item disappears when the matching operator message enters the journal.
+
+**Failed** shows the reason and restores the message when the draft is empty;
+an existing draft is preserved. **Outcome unknown** means delivery cannot be
+confirmed: check the agent before retrying. A send with an unknown outcome keeps
+the draft; sending the same text again reuses its request ID.
+
+Lost receipts or ten minutes without a journal entry also become unknown; held Async messages
+have no ten-minute expiry.
+
+Delivery observations belong to the browser tab and disappear on reconnect.
+The journal is the durable record. Read-only dashboards show a notice in place
+of the composer.
+
 ## Writable controls
 
 | Writable control | Where | Action |
 | --- | --- | --- |
 | Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
-| Unit | `/units` | Pause or resume one agent, or send it a message. |
+| Unit | `/units` | Pause or resume one agent, or send it a message. The mic opens an explicit Dictate / Converse choice; Dictate fills editable text for review and Send. Unavailable choices show their reason. Microphone selection is in the adjacent settings popover. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
@@ -215,6 +261,8 @@ The home ticket modal hides Add to queue when `dashboard_writable` is `false`.
 In read-only mode, the `/units` Tickets panel shows the Add an agent action as unavailable before any routing choices are requested. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
+
+See [Executor voice](/guide/executor-voice) for composer voice and the conversation drawer prototype.
 
 ## Authentication and network exposure
 
@@ -312,3 +360,83 @@ empty samples show zero.
 Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
+
+## Open a full conversation
+
+From **Units**, select the document icon for **Full conversation**, or open the
+chat drawer with the speech bubble and select **Full conversation** in its
+header. The drawer remains the quick view.
+
+Units without a joinable repository identity have no full-view link;
+a conversation without recorded messages shows **No messages yet**. Until its
+journal exists, it also says **Conversation not found**; storage failures show
+**Conversation unavailable** instead. The first recorded message appears without
+reloading the page.
+
+The event navigation lists progress, pushes, PRs and Commands. Select an event
+to jump to and highlight its transcript position. Filter chips include CI and
+reviews when needed. **Approximate position** means the event was observed near
+that entry; it does not claim an exact causal match.
+
+On phones the event list
+sits above the transcript and scrolls independently.
+
+`/conversations/:conversation_id` opens the durable conversation page. Read-only
+dashboards keep the transcript and event navigation available; sending requires
+writable access and an available listener.
+
+It starts with the latest 50 entries. **Load older**, **Jump to start**,
+and **Load newer** browse earlier history; **Latest entries** returns to the
+live tail.
+
+Agent prose uses Markdown. Reasoning and command or tool output start collapsed;
+select a summary to expand it. File edits show diffs. Operator bubbles, session
+dividers and gap rows keep the source and continuity visible. See
+[Reading entries](/concepts/conversations#reading-entries) for masking and
+truncation details.
+
+The page keeps up to 500 entries on screen. When you scroll up,
+new entries show a counter that returns you to the latest page.
+
+The status distinguishes live, idle, ended, continuity unknown and unavailable
+history. Journal failures keep the last readable content with a stale marker
+and observation age. Imported history shows **Earlier history is not available**.
+
+## Read a conversation over HTTP
+
+These read-only routes use dashboard authentication or a read client token,
+including when
+`dashboard_writable` is false. Responses set `Cache-Control: no-store`:
+
+- `GET /api/v1/conversations/resolve?subject=executor`
+- `GET /api/v1/conversations/resolve?subject=worker&owner=OWNER&repository=REPO&identifier=NUMBER`
+- `GET /api/v1/conversations/ID/entries`
+- `GET /api/v1/conversations/ID/sessions`
+- `GET /api/v1/conversations/ID/anchors`
+
+Resolve returns `conversation_id` and `subject`. Worker lookup uses the full
+repository and stored provider identity; multiple conversations matching a
+transferred issue return `409 ambiguous_subject` with `conversation_ids`.
+No matching subject returns `404 subject_not_found`.
+
+Entries default to the last 50 positions in ascending order. Choose one of
+`tail=true`, `from_start=true`, `before=POS`, `after=POS`, or `around=POS`,
+with `limit=1..200` and optional comma-separated `kinds`. Follow `prev_cursor`
+with `before` or `next_cursor` with `after`; null means that direction is
+complete.
+
+Pages include sessions, `head_pos`, `complete_from_start`, and
+`observed_at`. An existing empty conversation returns an empty page with
+`head_pos: 0`; an unknown ID returns `404 conversation_not_found`. Unreadable
+storage returns `503 conversation_unavailable`; invalid cursors or limits
+return 422.
+
+Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive).
+Sessions contain no local source paths.
+
+Conversation text can contain secrets. Body and output are masked by default;
+`reveal=true` is honored only for an authenticated operator connecting from
+loopback. Device principals and client tokens always remain masked. Basic Auth is refused
+on public binds. Treat revealed content as sensitive.
+
+Write verbs return 405; sends continue through the listener path.

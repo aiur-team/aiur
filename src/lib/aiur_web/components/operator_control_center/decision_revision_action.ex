@@ -3,12 +3,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
 
   use Phoenix.Component
 
+  import AiurWeb.Components.VoiceInput, only: [voice_input: 1]
+
   alias Aiur.Commands.Answering
   alias AiurWeb.OperatorControlCenter.DecisionQuestionsForm
 
   attr(:decision, :map, required: true)
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:voice_capabilities, :map, default: %{})
+  attr(:live_connected, :boolean, default: true)
 
   @spec decision_revision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_revision_action(assigns) do
@@ -84,6 +88,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
         :if={@writable}
         id={"decision-revision-form-#{@decision.decision_id}"}
         class="decision-answer-form"
+        phx-hook="VoiceInput"
+        data-voice-select-custom="revision[choice]"
+        data-voice-ready-copy="Dictation ready. Review the text, then send your correction."
         phx-change="decision-revision-change"
         phx-submit="revise-decision"
       >
@@ -120,8 +127,18 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
 
         <label :if={@choice == "custom"} class="decision-action-field">
           <span>Revised response</span>
-          <textarea name="revision[custom_response]" rows="4" maxlength="4000" required>{Map.get(@form, "custom_response", "")}</textarea>
+          <textarea name="revision[custom_response]" data-voice-input rows="4" maxlength="4000" required>{Map.get(@form, "custom_response", "")}</textarea>
         </label>
+
+        <.voice_input
+          :if={@live_connected}
+          id={"decision-revision-voice-#{@decision.decision_id}"}
+          capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_revision})}
+          legacy_conversation={false} converse={false}
+          surface="command_revision"
+          target={%{kind: "command", decision_id: @decision.decision_id, expected_version: @decision.version}}
+          status_copy="Choose Dictate to speak a revised response. Review the text, then send your correction."
+        />
 
         <label class="decision-action-field">
           <span>Reason for revision</span>
@@ -140,7 +157,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
 
         <footer class="decision-action-footer">
           <span>Targets action {@decision.active_action_id} · sequence {@decision.revision_sequence}</span>
-          <button class="aiur-button aiur-button--dashboard btn" type="submit" phx-disable-with="Recording…">Send correction</button>
+          <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send={@live_connected} phx-disable-with="Recording…">Send correction</button>
         </footer>
       </form>
 

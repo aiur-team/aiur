@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   # Builds the dashboard/CLI snapshot payload from one state copy.
 
   import Aiur.Orchestrator.StatusReport.AgentStatuses,
-    only: [idle_evidence: 5, idle_evidence_waiting_reason: 2]
+    only: [idle_evidence: 6, idle_evidence_waiting_reason: 2]
 
   import Aiur.Orchestrator.StatusReport.Progress,
     only: [activity_by_identity: 0, activity_stage: 2, progress_facts: 2]
@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   import Aiur.Orchestrator.StatusReport.RowFacts
 
   alias Aiur.CodingAgent
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.CapacityBinding
@@ -28,6 +29,10 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   @doc false
   @spec snapshot_payload(State.t()) :: map()
   def snapshot_payload(%State{} = state) do
+    CodingAgent.with_snapshot(fn -> SettingsSnapshot.run(fn -> do_snapshot_payload(state) end) end)
+  end
+
+  defp do_snapshot_payload(state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
@@ -288,6 +293,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   end
 
   defp idle_snapshot(%State{} = state, now_ms, activity_by_identity, decision_counts) do
+    terminal_states = DispatchPolicy.terminal_state_set()
     running_issue_ids = MapSet.new(Map.keys(state.running))
 
     # Also exclude issues already shown in the retry-backoff bucket — they're
@@ -296,7 +302,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     retrying_issue_ids = MapSet.new(Map.keys(state.retry_attempts))
 
     excluded_issue_ids = MapSet.union(running_issue_ids, retrying_issue_ids)
-    terminal_states = DispatchPolicy.terminal_state_set()
 
     idle_issues =
       visible_polled_issues(state)
@@ -310,11 +315,11 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       idle_issue_snapshot(
         state,
         issue,
-        terminal_states,
         now_ms,
         latch_statuses,
         activity_by_identity,
-        decision_counts
+        decision_counts,
+        terminal_states
       )
     end)
   end
@@ -322,11 +327,11 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   defp idle_issue_snapshot(
          %State{} = state,
          %Issue{} = issue,
-         _terminal_states,
          now_ms,
          latch_statuses,
          activity_by_identity,
-         decision_counts
+         decision_counts,
+         terminal_states
        ) do
     identifier = issue.identifier || issue.id
 
@@ -335,7 +340,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
     latch = Map.get(latch_statuses, issue.id, :none)
     release = Map.get(state.released_claims, issue.id)
-    idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms)
+    idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms, terminal_states)
 
     %{
       issue_id: issue.id,

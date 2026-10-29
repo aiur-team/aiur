@@ -22,12 +22,12 @@ defmodule AiurWeb.Components.VoiceInputTest do
   defp attr(node, name), do: node |> Floki.attribute(name) |> List.first()
 
   test "renders every data-voice control the controller binds" do
-    document = render()
+    document = render(%{capabilities: %{"voice.stt" => %{state: :available}}})
 
     mic = one(document, "button[data-voice-mic]")
     assert attr(mic, "aria-label") == "Dictate message"
     assert attr(mic, "aria-pressed") == "false"
-    assert attr(mic, "data-conversation-focus") == "dictation"
+    assert attr(mic, "data-conversation-focus") == "dictate"
 
     conversation = one(document, "button[data-voice-conversation]")
     assert attr(conversation, "aria-label") == "Start interactive voice chat"
@@ -61,8 +61,62 @@ defmodule AiurWeb.Components.VoiceInputTest do
   end
 
   test "renders caller-supplied status copy" do
-    status = one(render(%{status_copy: "Hold to talk."}), "[data-voice-status]")
+    status = one(render(%{status_copy: "Hold to talk.", capabilities: %{"voice.stt" => %{state: :available}}}), "[data-voice-status]")
 
     assert String.trim(Floki.text(status)) == "Hold to talk."
+  end
+
+  test "legacy button disappears when voice.conversation is available" do
+    for state <- [:available, :degraded, "available", "degraded"], layout <- [:buttons, :chooser] do
+      document = render(%{layout: layout, capabilities: %{"voice.conversation" => %{state: state}}})
+
+      assert Floki.find(document, "[data-voice-conversation]") == []
+      assert attr(one(document, "[data-voice-mode=converse]"), "aria-disabled") == "false"
+      assert [_mic] = Floki.find(document, "[data-voice-mic]")
+    end
+  end
+
+  # Future regression guard: unavailable states already retained the legacy label before this change.
+  test "legacy button keeps its current label while the assistant is unavailable" do
+    for state <- [nil, :unavailable, :unknown, "unavailable", "unknown"], layout <- [:buttons, :chooser] do
+      document = render(%{layout: layout, capabilities: %{"voice.conversation" => %{state: state}}})
+
+      assert attr(one(document, "[data-voice-conversation]"), "aria-label") == "Start interactive voice chat"
+      assert attr(one(document, "[data-voice-mode=converse]"), "aria-disabled") == "true"
+    end
+  end
+
+  test "both modes remain visible with a reason when unavailable" do
+    for reason <- [:not_installed, :not_configured] do
+      document = render(%{capabilities: %{"voice.stt" => %{state: :unavailable, reason: reason}, "voice.conversation" => %{state: :unavailable, reason: reason}}})
+
+      if reason == :not_configured do
+        assert attr(one(document, "a"), "href") == "https://aiur.team/docs/apis/elevenlabs#configure-the-key"
+      end
+
+      for id <- ["dictate", "converse"] do
+        button = one(document, "[data-voice-mode=#{id}]")
+        assert attr(button, "aria-disabled") == "true"
+        assert attr(button, "aria-describedby") == "drawer-voice-#{id}-reason"
+        expected = if reason == :not_installed, do: "Voice input isn't installed in this Aiur. Typed messages work as usual.", else: "Voice input is not configured."
+        assert Floki.text(button) =~ expected
+      end
+    end
+  end
+
+  test "available and degraded modes are enabled in the buttons layout" do
+    document = render(%{layout: :buttons, capabilities: %{"voice.stt" => %{state: :available}, "voice.conversation" => %{state: :degraded}}})
+    assert Floki.find(document, "[data-voice-chooser]") == []
+
+    for id <- ["dictate", "converse"] do
+      assert attr(one(document, "[data-voice-mode=#{id}]"), "aria-disabled") == "false"
+    end
+  end
+
+  test "missing capability reports unknown and settings contain the device picker" do
+    document = render()
+    assert attr(one(document, "[data-voice-mode=dictate]"), "aria-disabled") == "true"
+    assert Floki.text(one(document, "#drawer-voice-dictate-reason")) == "Voice input availability is unknown."
+    assert [_] = Floki.find(document, "details select[data-voice-device]")
   end
 end

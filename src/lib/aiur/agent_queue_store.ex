@@ -46,7 +46,8 @@ defmodule Aiur.AgentQueueStore do
           optional(:dedupe_key) => String.t(),
           optional(:causal_refs) => [String.t()],
           optional(:turn_id) => String.t(),
-          optional(:subscription) => map()
+          optional(:subscription) => map(),
+          optional(:persist_across_restart?) => boolean()
         }
 
   @spec new() :: t()
@@ -78,7 +79,8 @@ defmodule Aiur.AgentQueueStore do
       subscription: Map.get(attrs, :subscription),
       status: :pending,
       delivery_attempts: 0,
-      inserted_at: now
+      inserted_at: now,
+      persist_across_restart?: Map.get(attrs, :persist_across_restart?, false)
     }
 
     store =
@@ -219,6 +221,18 @@ defmodule Aiur.AgentQueueStore do
     end
   end
 
+  @doc false
+  @spec restore_persisted_items(t(), [AgentQueueItem.t()]) :: t()
+  def restore_persisted_items(%__MODULE__{} = store, items) when is_list(items) do
+    Enum.reduce(items, store, fn %AgentQueueItem{} = item, acc ->
+      acc = acc |> Items.put_item(item) |> TargetIndex.add_item(item)
+      acc = if item.status == :pending, do: Items.append_pending_id(acc, item.target_issue_identifier, item.id), else: acc
+      acc = if is_binary(item.action_id), do: %{acc | item_id_by_action: Map.put(acc.item_id_by_action, item.action_id, item.id)}, else: acc
+      acc = if is_binary(item.message_id), do: %{acc | item_id_by_message_id: Map.put(acc.item_id_by_message_id, item.message_id, item.id)}, else: acc
+      %{acc | next_id: max(acc.next_id, item.id + 1), next_sequence: max(acc.next_sequence, item.sequence + 1)}
+    end)
+  end
+
   @spec mark_failed(t(), integer(), term()) :: {t(), AgentQueueItem.t() | nil}
   def mark_failed(%__MODULE__{} = store, item_id, reason) when is_integer(item_id) do
     Items.update_item(store, item_id, fn item ->
@@ -323,7 +337,8 @@ defmodule Aiur.AgentQueueStore do
     store
     |> TargetIndex.items_for(target)
     |> Enum.reduce(store, fn
-      %AgentQueueItem{status: :pending, category: :operator_message, delivery: %{listener_mode_at_claim: _}} = item, acc ->
+      %AgentQueueItem{status: :pending, category: category, delivery: %{listener_mode_at_claim: _}} = item, acc
+      when category == :operator_message or (category == :system_notice and item.event_type == :async_backlog_notice) ->
         Items.put_item(acc, %{item | delivery: fun.(item.delivery)})
 
       _item, acc ->

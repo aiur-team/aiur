@@ -9,47 +9,62 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
 
   # Without a focused agent there is no real pause or priority state to render.
   # Blank every slot rather than showing a control whose label would be a guess.
-  @spec command_keys(map() | nil, boolean()) :: [map()]
+  @spec command_keys(nil, boolean()) :: [map()]
   def command_keys(nil, _mic_held?), do: List.duplicate(empty_command_key(), 8)
 
-  # The command keys are derived from the agent the orchestrator currently
-  # reports, never from an optimistic local toggle, so a control call that the
-  # orchestrator rejects leaves the key showing the state that actually holds.
-  def command_keys(agent, mic_held?) do
-    writable? = dashboard_writable?()
+  @spec ticket_keys(map(), boolean()) :: [map()]
+  def ticket_keys(ticket, mic_held?) do
+    actions = ticket["actions"]
+    resume = get_in(ticket, ["control", "action"]) == "resume"
 
     [
-      pause_command_key(Map.get(agent, :bucket) == :paused, writable?),
-      # Logs is navigation rather than fleet control, so read-only leaves it
-      # enabled: it changes what the operator sees, never what the fleet does.
-      command_key("logs", "Logs", "SCROLL", icon: "logs", state: "ready"),
-      # Mic is the only press-and-hold command: it carries no click handler, so
-      # the hook drives it from pointer events.
-      mic_command_key(mic_held?, writable?),
-      # Settings is navigation too, and sits beside Mic because it is where the
-      # deck reports what voice input is doing.
-      command_key("settings", "Settings", "OPEN", icon: "settings", state: "ready"),
-      # Commands is navigation to the focused agent's Command history, so
-      # read-only leaves it enabled: it changes what the operator reads, never
-      # what the fleet does.
-      command_key("commands", "Commands", "OPEN", icon: "commands", state: "ready"),
-      empty_command_key(),
-      empty_command_key(),
-      empty_command_key()
+      pause_command_key(resume, actions["pause"] == "enabled"),
+      command_key("priority_up", "Priority up", "QUEUE", icon: "up", disabled?: actions["priority_up"] != "enabled"),
+      command_key("priority_down", "Priority down", "QUEUE", icon: "down", disabled?: actions["priority_down"] != "enabled"),
+      command_key("commands", "Commands", "OPEN", icon: "commands"),
+      link_key("pr", "Open PR", ticket["links"]["pr"]),
+      link_key("modal", "Dashboard", ticket["links"]["modal"]),
+      mic_command_key(mic_held?, dashboard_writable?()),
+      command_key("settings", "Settings", "OPEN", icon: "settings")
     ]
   end
 
+  defp link_key(command, label, url),
+    do: command_key(command, label, "OPEN", icon: "logs", disabled?: is_nil(url)) |> Map.put(:url, url)
+
   defp pause_command_key(true, writable?),
-    do: command_key("pause", "Play", "RESUME", icon: "play", state: "paused", disabled?: not writable?)
+    do:
+      command_key("pause", "Play", "RESUME",
+        icon: "play",
+        state: "paused",
+        disabled?: not writable?
+      )
 
   defp pause_command_key(false, writable?),
-    do: command_key("pause", "Pause", "HOLD", icon: "pause", state: "running", disabled?: not writable?)
+    do:
+      command_key("pause", "Pause", "HOLD",
+        icon: "pause",
+        state: "running",
+        disabled?: not writable?
+      )
 
   defp mic_command_key(true, writable?),
-    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "live", disabled?: not writable?)
+    do:
+      command_key("mic", "Mic", "HOLD",
+        icon: "mic",
+        mic?: true,
+        state: "live",
+        disabled?: not writable?
+      )
 
   defp mic_command_key(false, writable?),
-    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "idle", disabled?: not writable?)
+    do:
+      command_key("mic", "Mic", "HOLD",
+        icon: "mic",
+        mic?: true,
+        state: "idle",
+        disabled?: not writable?
+      )
 
   defp command_key(command, label, sub, opts) do
     %{
@@ -108,10 +123,14 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
     |> pad_slots(4, %{empty?: true})
   end
 
-  defp pad_slots(list, count, filler), do: list ++ List.duplicate(filler, max(0, count - length(list)))
+  defp pad_slots(list, count, filler),
+    do: list ++ List.duplicate(filler, max(0, count - length(list)))
 
   defp command_status_badge(status) when status in ["open", "deferred"], do: "OPEN"
-  defp command_status_badge(status) when status in ["decided", "acknowledged", "resolved"], do: "ANSWERED"
+
+  defp command_status_badge(status) when status in ["decided", "acknowledged", "resolved"],
+    do: "ANSWERED"
+
   defp command_status_badge(status) when status in ["dismissed", "expired"], do: "CLOSED"
   defp command_status_badge(_status), do: "UNKNOWN"
 
@@ -152,9 +171,14 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
 
   defp option_reading(command, option_index) when is_integer(option_index) do
     case Enum.at(command["options"] || [], option_index) do
-      %{"description" => description} when is_binary(description) and description != "" -> description
-      %{"label" => label} when is_binary(label) -> label
-      _ -> "No description"
+      %{"description" => description} when is_binary(description) and description != "" ->
+        description
+
+      %{"label" => label} when is_binary(label) ->
+        label
+
+      _ ->
+        "No description"
     end
   end
 

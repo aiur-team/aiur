@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`. Queue restore failures recover to an empty queue so they cannot prevent daemon boot."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.ControlLifecycle
 
@@ -111,6 +111,7 @@ defmodule Aiur.Orchestrator.State do
           dispatch_capacity_constraints: [map()],
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
+          feature_supply: map(),
           dispatch_capacity_sample: %{
             optional(
               :cpu_pressure
@@ -271,6 +272,7 @@ defmodule Aiur.Orchestrator.State do
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
+    # Lifecycle.init/2 rehydrates durable next-worker messages before dispatch.
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     terminal_verification_attempts: %{},
@@ -302,6 +304,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_constraints: [],
     dispatch_selection_hold: nil,
     dispatch_declines: %{},
+    feature_supply: %{},
     dispatch_capacity_sample: %{
       load: :unavailable,
       load_threshold: nil,

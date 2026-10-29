@@ -8,7 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.CodingAgent
   alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{ConversationLink, UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -142,6 +142,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               </td>
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
+                  <.link
+                    :if={ConversationLink.href(row.identity)}
+                    navigate={ConversationLink.href(row.identity)}
+                    class="units-icon-action"
+                    aria-label={"Full conversation for #{identity_label(row.identity)}"}
+                    title="Full conversation"
+                  >{icon(:transcript)}</.link>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
                   <button
                     id={"units-conversation-#{token}"}
@@ -275,6 +282,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp icon(:chat),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.4 9 9 0 0 1-3.9-.9L3 20.5l1.5-4.4a8.4 8.4 0 0 1-1-4.1A8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg>))
+
+  defp icon(:transcript),
+    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8"/></svg>))
 
   defp icon(:remote), do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M7 17 17 7M8 7h9v9"/></svg>))
 

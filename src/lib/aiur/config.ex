@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, TestRunOverrides}
+  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, SettingsSnapshot, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -30,6 +30,15 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "Whether the Executor may answer reversible human-required engineering decisions."
+  @spec allow_reversible_human_required_answers?() :: boolean()
+  def allow_reversible_human_required_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.allow_reversible_human_required_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   The parsed config.
 
@@ -45,7 +54,9 @@ defmodule Aiur.Config do
       same map.
   """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings do
+  def settings, do: SettingsSnapshot.read(&live_settings/0)
+
+  defp live_settings do
     case Workflow.current_with_cache_identity() do
       {:ok, workflow, generation, publication} when is_integer(generation) and is_reference(publication) ->
         cached_settings(workflow, {generation, publication})

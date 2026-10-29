@@ -15,6 +15,8 @@
       this.bindScrollElements();
       this.voice = new window.AiurConversationVoiceController(this);
       this.voice.mount();
+      this.executorVoice = new window.AiurExecutorVoiceController(this.el);
+      this.executorVoice.bindElements();
       this.focusHeading();
 
       requestAnimationFrame(() => {
@@ -31,6 +33,7 @@
       this.readDataset();
       this.bindScrollElements();
       this.voice.bindElements();
+      this.executorVoice.bindElements();
 
       if (this.wasAtBottom) this.scrollToBottom();
       this.updateJump();
@@ -40,6 +43,7 @@
       this.el.removeEventListener("keydown", this.onKeydown);
       this.unbindScrollElements();
       this.voice.destroy();
+      this.executorVoice.destroy();
 
       requestAnimationFrame(() => {
         const explicitOrigin = this.originId ? document.getElementById(this.originId) : null;
@@ -104,8 +108,8 @@
     },
     focusable() {
       return Array.from(this.el.querySelectorAll(
-        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
-      )).filter((element) => !element.hidden && !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true");
+        "summary, a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+      )).filter((element) => !element.closest("[hidden]") && element.getClientRects().length > 0 && element.getAttribute("aria-hidden") !== "true");
     },
     focusHeading() {
       requestAnimationFrame(() => {

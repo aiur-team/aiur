@@ -83,13 +83,14 @@ Classify every discovered finding before creating work:
 
 ## Continuous-build intake
 
-Every authorized new feature, epic, bug batch, or experiment joins the repository's
+Every authorized new feature, epic, feature-scoped bug batch, or experiment joins the repository's
 single continuous build by default. Follow [the intake procedure](continuous-build-intake.md)
 for feature collection and `feature:<slug>` labels,
 native `blocked_by` links where real, queue membership, and placement read-back.
 New features never create standalone Build Order roots; existing roots remain history.
-Only an explicit operator exclusion leaves filed work outside the build: park it
-with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
+Non-feature findings start with `needs-triage` and the instance's parked label;
+follow the intake rule's main-fix or named-PR promotion exception. Explicit
+operator exclusions also stay parked with their reason. Unfiled deferred findings remain
 in the ledger under the convergence policy above.
 
 “Prioritize” means place the work ahead of the previous next-up using priority labels and queue ordering, then report what it displaced. A label alone is not placement. Verify the collection, projected labels, prerequisites, membership, and effective start order before reporting intake complete.
@@ -216,6 +217,15 @@ every dispatch tick silently (issue #1404); and allow for the post-restart
 dispatch ramp.
 
 Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
+
+An `agent.handoff.human_review` wake is a historical observation, not proof of
+the ticket's current state. Before delivery, Aiur checks its latest GitHub issue
+projection and discards the wake when the ticket is closed or
+`agent:human-review` is no longer its sole agent state. If the projection is
+unavailable, Aiur delivers the wake so a real handback is not lost; re-fetch
+the issue labels before acting and skip any relabel if the ticket has moved on.
+Wake records may include `observed_state` and `observed_updated_at` as emission
+context; they do not replace the current-state check.
 
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`

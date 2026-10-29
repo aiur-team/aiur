@@ -9,6 +9,10 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
 
   @endpoint AiurWeb.Endpoint
 
+  defmodule InstalledPanel do
+    @moduledoc false
+  end
+
   # Voice availability comes from the same registry `/api/v1/capabilities`
   # serves, and a key added mid-session is picked up on the 60 s voice tick
   # rather than only after a failed microphone join.
@@ -22,17 +26,17 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
 
     report_fun = fn ->
       stt = Agent.get(reports, & &1)
-      %{capabilities: %{"voice.stt" => stt, "voice.tts" => stt, "streamdeck" => %{state: :available}}}
+      %{capabilities: %{"voice.stt" => stt, "voice.tts" => stt, "voice.conversation" => stt, "streamdeck" => %{state: :available}}}
     end
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, capabilities_report_fun: report_fun)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, capabilities_report_fun: report_fun, voice_conversation_panel_module: InstalledPanel)
     {:ok, view, _html} = live(build_conn(), "/units")
-    assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured}
+    assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured, "voice.conversation" => unconfigured}
 
     Agent.update(reports, fn _ -> %{state: :available} end)
     send(view.pid, :elevenlabs_quota_tick)
     _rendered = render(view)
-    assert voice_capabilities(view) == %{"voice.stt" => %{state: :available}, "voice.tts" => %{state: :available}}
+    assert voice_capabilities(view) == %{"voice.stt" => %{state: :available}, "voice.tts" => %{state: :available}, "voice.conversation" => %{state: :available}}
   end
 
   test "an unreadable registry leaves voice capabilities empty rather than guessing" do

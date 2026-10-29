@@ -1,3 +1,5 @@
+import './support/voice-modules-cases.mjs'
+import './support/voice-choice-cases.mjs'
 import { expect, test } from '@playwright/test'
 import { openUnits, openWritableUnits } from './support/units-helpers.mjs'
 
@@ -18,7 +20,8 @@ test('Units dictation explains microphone permission denial in the standard comp
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
 
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
-  const mic = drawer.getByRole('button', { name: 'Dictate message' })
+  const mic = drawer.getByRole('menuitem', { name: 'Dictate message' })
+  await drawer.getByRole('button', { name: 'Choose voice input' }).click()
   await expect(mic).toBeEnabled()
   await mic.click()
 
@@ -26,7 +29,7 @@ test('Units dictation explains microphone permission denial in the standard comp
     'Microphone permission was denied for this origin. Allow it in site settings, then try again.'
   )
   await expect(drawer.getByLabel('Message agent')).toHaveValue('')
-  await expect(mic).toHaveAttribute('aria-pressed', 'false')
+  await expect(drawer.locator('[data-voice-mic]')).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('Units dictation releases a microphone that arrives after the modal closes', async ({ page }) => {
@@ -44,7 +47,8 @@ test('Units dictation releases a microphone that arrives after the modal closes'
   await openUnits(page)
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
-  await drawer.getByRole('button', { name: 'Dictate message' }).click()
+  await drawer.getByRole('button', { name: 'Choose voice input' }).click()
+  await drawer.getByRole('menuitem', { name: 'Dictate message' }).click()
   await drawer.getByRole('button', { name: 'Close' }).click()
   await expect(drawer).toHaveCount(0)
 
@@ -102,7 +106,8 @@ test('Units dictation streams a waveform into the composer and waits for Send', 
       constructor(_path, options) { window.__voiceSocketOptions = options }
       connect() {}
       disconnect() {}
-      channel() {
+      channel(topic, payload) {
+        window.__voiceJoin = { topic, payload }
         window.__voiceChannel = new FakeChannel()
         return window.__voiceChannel
       }
@@ -131,15 +136,20 @@ test('Units dictation streams a waveform into the composer and waits for Send', 
 
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
-  const mic = drawer.getByRole('button', { name: 'Dictate message' })
+  const mic = drawer.getByRole('menuitem', { name: 'Dictate message' })
   const waveform = drawer.getByLabel('Microphone waveform')
   const before = await waveform.evaluate((canvas) => canvas.toDataURL())
 
+  await drawer.getByRole('button', { name: 'Choose voice input' }).click()
   await mic.click()
   await expect(drawer.getByRole('button', { name: 'Stop dictation' })).toHaveAttribute('aria-pressed', 'true')
   await expect(drawer.getByLabel('Message agent')).toHaveAttribute('readonly', '')
   await expect(drawer.getByRole('button', { name: 'Send' })).toBeDisabled()
   await expect.poll(() => page.evaluate(() => window.__voiceSocketOptions?.params?._csrf_token)).not.toBeFalsy()
+  const join = await page.evaluate(() => window.__voiceJoin)
+  expect(join.topic).toBe('voice:dictate')
+  expect(join.payload).toMatchObject({ v: 1, mode: 'dictate', surface: 'agent_composer', target: { kind: 'worker', ticket: '1110' } })
+  expect(join.payload.client_session_id).toMatch(/^[a-f0-9-]{36}$/)
 
   await page.evaluate(() => {
     const samples = new Float32Array(800)
@@ -159,13 +169,14 @@ test('Units dictation streams a waveform into the composer and waits for Send', 
   await drawer.getByRole('button', { name: 'Send' }).click()
   await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-sent-message', 'hello browser')
 
-  await drawer.getByRole('button', { name: 'Dictate message' }).click()
+  await drawer.getByRole('button', { name: 'Choose voice input' }).click()
+  await drawer.getByRole('menuitem', { name: 'Dictate message' }).click()
   await expect(drawer.getByRole('button', { name: 'Stop dictation' })).toHaveAttribute('aria-pressed', 'true')
   await page.evaluate(() => window.__voiceChannel.closeHandler())
   await expect(drawer.locator('[data-voice-status]')).toContainText(
-    'Speech-to-text connection closed. Try dictation again.'
+    'Speech-to-text connection was lost. Try dictation again.'
   )
-  await expect(drawer.getByRole('button', { name: 'Dictate message' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(drawer.locator('[data-voice-mic]')).toHaveAttribute('aria-pressed', 'false')
   await expect.poll(() => page.evaluate(() => window.__voiceTrackStops)).toBe(2)
 })
 
@@ -205,7 +216,8 @@ test('Units dictation crosses the authenticated Phoenix voice socket', async ({ 
 
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
-  await drawer.getByRole('button', { name: 'Dictate message' }).click()
+  await drawer.getByRole('button', { name: 'Choose voice input' }).click()
+  await drawer.getByRole('menuitem', { name: 'Dictate message' }).click()
   await expect(drawer.getByRole('button', { name: 'Stop dictation' })).toHaveAttribute('aria-pressed', 'true')
 
   await page.evaluate(() => {
@@ -286,7 +298,7 @@ test('Units interactive voice chat sends speech and plays the next agent reply',
   await drawer.getByRole('button', { name: 'Stop interactive voice chat' }).click()
 
   await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-sent-message', 'hello browser')
-  await expect(drawer.getByRole('button', { name: 'Dictate message' })).toBeDisabled()
+  await expect(drawer.locator('[data-voice-mic]')).toBeDisabled()
   await expect(drawer.getByRole('button', { name: 'Cancel waiting for voice reply' })).toBeEnabled()
   await expect(drawer.locator('.conversation-message-agent[data-message-complete="false"]')).toContainText('Voice reply')
   await expect.poll(() => page.evaluate(() => window.__voicePlaybackStarts)).toBe(0)
@@ -298,128 +310,6 @@ test('Units interactive voice chat sends speech and plays the next agent reply',
   )
 })
 
-test('Units interactive voice chat can cancel an indefinitely queued reply', async ({ page }) => {
-  await openUnits(page)
-
-  const state = await page.evaluate(() => {
-    const root = document.createElement('div')
-    root.innerHTML = `
-      <form><textarea data-voice-input>queued turn</textarea><button data-voice-send type="submit">Send</button></form>
-      <button data-voice-mic></button><button data-voice-conversation></button>
-      <p data-voice-status></p><canvas data-voice-waveform></canvas>
-    `
-    document.body.append(root)
-
-    const controller = new window.AiurConversationVoiceController({ el: root })
-    controller.bindElements()
-    controller.awaitingReply = true
-    controller.conversationActive = true
-    controller.channel = { leave() { window.__cancelChannelLeft = true } }
-    controller.socket = { disconnect() { window.__cancelSocketDisconnected = true } }
-    controller.syncElements()
-    root.querySelector('[data-voice-conversation]').click()
-
-    return {
-      status: root.querySelector('[data-voice-status]').textContent,
-      inputReadOnly: root.querySelector('[data-voice-input]').readOnly,
-      conversationLabel: root.querySelector('[data-voice-conversation]').getAttribute('aria-label'),
-      channelLeft: window.__cancelChannelLeft,
-      socketDisconnected: window.__cancelSocketDisconnected
-    }
-  })
-
-  expect(state.status).toContain('Voice reply cancelled')
-  expect(state.inputReadOnly).toBe(false)
-  expect(state.conversationLabel).toBe('Start interactive voice chat')
-  expect(state.channelLeft).toBe(true)
-  expect(state.socketDisconnected).toBe(true)
-})
-
-test('Units interactive voice chat recovers after a silent turn', async ({ page }) => {
-  await openUnits(page)
-
-  const state = await page.evaluate(() => {
-    const root = document.createElement('div')
-    root.innerHTML = `
-      <form><textarea data-voice-input></textarea><button data-voice-send type="submit">Send</button></form>
-      <button data-voice-mic></button><button data-voice-conversation></button>
-      <p data-voice-status></p><canvas data-voice-waveform></canvas>
-    `
-    document.body.append(root)
-
-    const controller = new window.AiurConversationVoiceController({ el: root })
-    controller.bindElements()
-    controller.conversationActive = true
-    controller.channel = { leave() { window.__silentChannelLeft = true } }
-    controller.socket = { disconnect() { window.__silentSocketDisconnected = true } }
-    controller.submitConversationTurn()
-
-    return {
-      status: root.querySelector('[data-voice-status]').textContent,
-      conversationActive: controller.conversationActive,
-      channelLeft: window.__silentChannelLeft,
-      socketDisconnected: window.__silentSocketDisconnected
-    }
-  })
-
-  expect(state.status).toContain('I did not hear a message')
-  expect(state.conversationActive).toBe(false)
-  expect(state.channelLeft).toBe(true)
-  expect(state.socketDisconnected).toBe(true)
-})
-
-
-// The voice socket decodes PCM16 little-endian: a byte-order slip would turn
-// every dictation into noise without any error on either side.
-test('voice capture module encodes 16 kHz PCM16 little-endian base64', async ({ page }) => {
-  await openUnits(page)
-
-  const encoded = await page.evaluate(() => {
-    const capture = window.AiurVoiceCapture
-    return capture.encodePcm16Base64(capture.downsample(new Float32Array([0, 1, -1]), 16000, 16000))
-  })
-
-  // 0 -> 00 00, 1 -> ff 7f, -1 -> 00 80
-  expect(encoded).toBe('AAD/fwCA')
-})
-
-// Dictation and conversation are distinct server channels; joining the wrong
-// topic (or without the CSRF token) would silently route speech to the wrong mode.
-test('voice transport joins the requested topic with the CSRF param', async ({ page }) => {
-  await openUnits(page)
-
-  const joined = await page.evaluate(async () => {
-    const record = {}
-    window.AiurVoiceSocket = class {
-      constructor(path, options) { Object.assign(record, { path, options }) }
-      connect() {}
-      channel(topic, payload) {
-        Object.assign(record, { topic, payload })
-        return {
-          on() {},
-          onError() {},
-          onClose() {},
-          join() {
-            const push = { receive(status, callback) { if (status === 'ok') queueMicrotask(() => callback({})); return push } }
-            return push
-          }
-        }
-      }
-    }
-
-    await window.AiurVoiceTransport.open({ topic: 'voice:conversation' }).joined
-    return { ...record, csrf: document.querySelector("meta[name='csrf-token']")?.getAttribute('content') }
-  })
-
-  expect(joined.path).toBe('/voice')
-  expect(joined.topic).toBe('voice:conversation')
-  expect(joined.csrf).toBeTruthy()
-  expect(joined.options.params._csrf_token).toBe(joined.csrf)
-})
-
-// A connection lost while the AudioWorklet loads must end the attempt: the
-// drawer may not claim it is listening with no capture behind it, and the
-// microphone must stay usable for a retry.
 test('Units dictation recovers when the voice connection closes while capture starts', async ({ page }) => {
   await page.addInitScript(() => {
     window.__voiceTrackStops = 0
@@ -481,18 +371,18 @@ test('Units dictation recovers when the voice connection closes while capture st
 
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
   const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
-  await drawer.getByRole('button', { name: 'Dictate message' }).click()
+  await drawer.getByRole('button', { name: 'Choose voice input' }).click()
+  await drawer.getByRole('menuitem', { name: 'Dictate message' }).click()
   await expect.poll(() => page.evaluate(() => typeof window.__finishWorkletLoad)).toBe('function')
 
   await page.evaluate(() => window.__voiceChannel.closeHandler())
   await page.evaluate(() => window.__finishWorkletLoad())
 
   await expect(drawer.locator('[data-voice-status]')).toContainText(
-    'Speech-to-text connection closed. Try dictation again.'
+    'Speech-to-text connection was lost. Try dictation again.'
   )
-  const mic = drawer.getByRole('button', { name: 'Dictate message' })
-  await expect(mic).toHaveAttribute('aria-pressed', 'false')
-  await expect(mic).toBeEnabled()
+  await expect(drawer.locator('[data-voice-mic]')).toHaveAttribute('aria-pressed', 'false')
+  await expect(drawer.locator('[data-voice-mic]')).toBeEnabled()
   await expect(drawer.getByLabel('Message agent')).not.toHaveAttribute('readonly', '')
   expect(await page.evaluate(() => window.__voiceTrackStops)).toBe(1)
   expect(await page.evaluate(() => window.__openAudioContexts)).toBe(0)

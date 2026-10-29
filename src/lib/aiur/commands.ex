@@ -10,6 +10,14 @@ defmodule Aiur.Commands do
   @spec requester_notified(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate requester_notified(decision_id, action_id, opts \\ []), to: Aiur.Commands.ExecutorDelivery, as: :on_enqueued
 
+  @doc "Accepts an override and resolves routing before entering the serialized store."
+  @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  defdelegate override(id, payload, opts \\ [], server \\ Aiur.DecisionStore), to: Aiur.DecisionStore
+
+  @doc "Whether the active override may use the existing delivery path."
+  @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
+  defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
+
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
 

@@ -61,6 +61,8 @@ jobs:
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/workflow-security
       - run: bash scripts/test-workflow-security.sh && bash scripts/test-retry-mix-deps-get.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && bash scripts/test-pre-handoff-ci-routing.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh scripts/retry-mix-deps-get.sh
+      - name: Test newsletter snapshots
+        run: python3 scripts/test-newsletter-collect.py && python3 scripts/test-newsletter-metrics.py && python3 scripts/test-newsletter-allocation.py && python3 scripts/test-newsletter-collector-allocation.py && bash .claude/skills/aiur-meta/scripts/feature-share.sh --self-test
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs && node --test packages/nightly-release/test/lib.test.mjs
       - name: Test merge ruleset and standalone GitHub wrapper
@@ -95,7 +97,7 @@ jobs:
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
-        run: bash scripts/test-check-test-shard-parity.sh
+        run: bash scripts/test-check-test-shard-parity.sh && bash scripts/test-check-listener-spec.sh
       - name: Test bare assert_receive and on_exit rm_rf guards
         run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh && test "${{ needs['pre-handoff'].result }}" = success
       - name: Test hourly retrospective visual check

@@ -57,6 +57,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | --- | --- | --- | --- |
 | `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
 | `executor.relay_operator_answers` | boolean | false | Opt-in quoted operator answers via `operator-relay-answer`, including human-only Commands. Enabling and recording raise info alerts; disable to revoke. See [relay attribution and corrections](/concepts/commands#operator-answers-relayed-in-conversation). |
+| `executor.allow_reversible_human_required_answers` | boolean | false | Explicitly delegates reversible `human_required` engineering Commands to the Executor. The answer remains attributed to the Executor with its rationale in history. Spend, external publication, product direction, and security basis remain human-only. Enabling raises an info alert. |
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
@@ -305,8 +306,8 @@ An exported value wins, followed by the global file and then the repository file
 | `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
 | `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |
 | `decisions.escalation.urgent_factor` | float | 0.5 | Multiplies both deadlines for urgent Commands; greater than 0 and at most 1. |
-| `decisions.native_capture.claude` | boolean | false | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.3.0. Older or unversioned siblings remain non-interactive. |
-| `decisions.native_capture.codex` | boolean | false | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Experimental; leave disabled until the native reply and release decision in #6424 is resolved (see also #4450). |
+| `decisions.native_capture.claude` | boolean | true | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.3.0. Older or unversioned siblings remain non-interactive. |
+| `decisions.native_capture.codex` | boolean | true | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Set false to opt out. |
 | `decisions.require_suggested_responses` | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
 | `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |

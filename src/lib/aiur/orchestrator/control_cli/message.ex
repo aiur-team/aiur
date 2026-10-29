@@ -65,8 +65,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
   defp message_status(issue, text, message_id, statuses) when is_list(statuses) do
     case Enum.find(statuses, &target_matches?(&1, issue)) do
       nil ->
-        print_failure(:message, %{identifier: issue, issue_id: issue}, :no_running_agent)
-        1
+        deliver_message(%{identifier: issue, issue_id: issue, next_worker: true}, issue, text, message_id)
 
       status ->
         deliver_message(status, issue, text, message_id)
@@ -160,6 +159,10 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
 
   defp report_message_outcome(status, request_id, :delivered) do
     IO.puts("aiur: delivered message to #{display_identifier(status)} (request #{request_id})")
+  end
+
+  defp report_message_outcome(%{next_worker: true} = status, request_id, _queued) do
+    IO.puts("aiur: queued for next worker on #{display_identifier(status)} (request #{request_id})")
   end
 
   defp report_message_outcome(status, request_id, {:undelivered, queue_status}) do

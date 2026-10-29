@@ -5,7 +5,7 @@ defmodule Aiur.OperatorRelayCLI do
 
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ []) do
-    with {:ok, payload, actor} <- normalize(params),
+    with {:ok, payload, actor} <- normalize(params, deps),
          {:ok, result} <- record(params, payload, actor, deps) do
       IO.puts("aiur: answered by operator, relayed by #{actor.id}: Command #{params[:decision_id]} (#{result.status})")
       0
@@ -15,13 +15,14 @@ defmodule Aiur.OperatorRelayCLI do
     end
   end
 
-  defp normalize(params) do
+  defp normalize(params, deps) do
     with :ok <- required_fields(params),
-         true <- (is_integer(params[:expected_version]) and params[:expected_version] > 0) or {:usage, "--expected-version must be a positive integer"} do
+         {:ok, expected_version} <- expected_version(params, deps),
+         idempotency_key <- idempotency_key(params) do
       {:ok,
        %{
-         expected_version: params[:expected_version],
-         idempotency_key: params[:idempotency_key],
+         expected_version: expected_version,
+         idempotency_key: idempotency_key,
          option_id: params[:option_id],
          custom_response: params[:custom_response],
          operator_quote: params[:quote],
@@ -31,8 +32,38 @@ defmodule Aiur.OperatorRelayCLI do
     end
   end
 
+  defp expected_version(params, deps) do
+    if Keyword.get(params, :auto_current) == true do
+      fetch_current_version(Keyword.fetch!(params, :decision_id), Keyword.get(deps, :decision_store, Commands.default_store()))
+    else
+      case Keyword.get(params, :expected_version) do
+        version when is_integer(version) and version > 0 -> {:ok, version}
+        _invalid -> {:usage, "--expected-version must be a positive integer"}
+      end
+    end
+  end
+
+  defp fetch_current_version(decision_id, store) do
+    case Commands.get(decision_id, store: store) do
+      {:ok, %{decision: %{version: version}}} when is_integer(version) and version > 0 -> {:ok, version}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :invalid_decision_version}
+    end
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
+  defp idempotency_key(params) do
+    case {Keyword.get(params, :auto_current), Keyword.get(params, :idempotency_key)} do
+      {true, nil} -> "cli_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+      {_auto, key} -> key
+    end
+  end
+
   defp required_fields(params) do
-    case Enum.find([:decision_id, :quote, :relayed_by, :idempotency_key], fn key ->
+    required = [:decision_id, :quote, :relayed_by] ++ if(Keyword.get(params, :auto_current) == true, do: [], else: [:idempotency_key])
+
+    case Enum.find(required, fn key ->
            value = params[key]
            not is_binary(value) or String.trim(value) == ""
          end) do
@@ -42,7 +73,7 @@ defmodule Aiur.OperatorRelayCLI do
   end
 
   defp record(params, payload, actor, deps) do
-    operation = if params[:supersede] == true, do: :supersede, else: :answer
+    operation = if params[:supersede] == true, do: :override, else: :answer
     args = [params[:decision_id], payload, [actor: actor]]
     args = if Keyword.has_key?(deps, :decision_store), do: args ++ [deps[:decision_store]], else: args
     apply(Commands, operation, args)
