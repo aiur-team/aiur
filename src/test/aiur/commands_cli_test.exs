@@ -186,6 +186,27 @@ defmodule Aiur.CommandsCLITest do
     assert Jason.decode!(output)["data"]["selected"]["decision_id"] == decision.decision_id
   end
 
+  test "human detail displays status, delivery, recommendation, and full context", %{store: store} do
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{
+          question: "Choose a deployment window?",
+          blocking: true,
+          context: %{short_summary: "Release coordination", long_context_markdown: "Release is reversible and rollback is available."},
+          recommendation: %{option_id: "morning", reason: "More staff are available."},
+          options: [%{id: "morning", label: "Morning"}]
+        },
+        [ticket: @ticket, source: @source],
+        store
+      )
+
+    output = capture_io(fn -> assert CommandsCLI.run(decision_id: decision.decision_id, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end) == 0 end)
+
+    assert output =~ "status open · delivery not_dispatched"
+    assert output =~ "Recommendation: morning: More staff are available."
+    assert output =~ "Release is reversible and rollback is available."
+  end
+
   test "rejects page-incompatible query combinations", %{store: store} do
     assert {:error, message} = CommandsCLI.build(filter: :open, ticket: "1592", decision_store: store)
     assert message =~ "only supports --ticket"

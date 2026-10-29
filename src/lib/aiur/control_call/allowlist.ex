@@ -110,6 +110,7 @@ defmodule Aiur.ControlCall.Allowlist do
        quote: :non_empty_string,
        relayed_by: :non_empty_string,
        idempotency_key: :non_empty_string,
+       auto_current: :boolean,
        supersede: :boolean
      }},
     {:command_request, 1, :write, [:keyword],

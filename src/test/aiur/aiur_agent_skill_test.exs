@@ -339,6 +339,8 @@ defmodule Aiur.AiurAgentSkillTest do
     assert emit_doc =~ "required single-attempt, fire-and-forget emissions"
     assert shared_prompt =~ "Resume on explicit unblocked; inspect branch pushes"
     assert shared_prompt =~ "Never infer readiness from `branch.push` alone"
+    assert shared_prompt =~ "human_required` only for decisions that belong to the operator"
+    assert shared_prompt =~ "Routine engineering choices"
     assert repo_prompt =~ "explicit signal as readiness to consume"
     assert repo_prompt =~ "Never infer readiness from `branch.push` alone"
     assert repo_prompt =~ "remove temporary stubs"
@@ -361,6 +363,13 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "Stage every temporary file in a workspace-local path"
     assert repo_prompt =~ "Never write a GitHub comment or PR body to a bare `/tmp/<generic-name>`"
     assert repo_prompt =~ "For a comment body this means diffing, not checking the status code"
+  end
+
+  test "shared prompt reads pending operator work before a handoff" do
+    shared_prompt = one_line(File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")))
+    assert shared_prompt =~ "Operator messages before handoff"
+    assert shared_prompt =~ "read every operator message delivered into the current turn"
+    assert shared_prompt =~ "A queued or unconfirmed message is not evidence that the"
   end
 
   defp one_line(text), do: String.replace(text, ~r/\s+/, " ")

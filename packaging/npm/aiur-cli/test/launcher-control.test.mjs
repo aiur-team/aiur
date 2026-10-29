@@ -72,6 +72,36 @@ test("message status accepts a positive request id", () => {
   expect(runControl(launcher, releaseDir, env, ["message", "--status", "0"]).status).toBe(64);
 });
 
+test("singular command lists, shows details, and routes relayed answers through the guarded API", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1", AIUR_EXECUTOR_ID: "attended-executor" };
+
+  expect(runControl(launcher, releaseDir, env, ["command"]).status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("Aiur.AgentControlCLI.commands([filter: :open])");
+
+  rmSync(captureFile, { force: true });
+  expect(runControl(launcher, releaseDir, env, ["command", "dec_0123456789abcdef"]).status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("filter: :all");
+  expect(readFileSync(captureFile, "utf8")).toContain('decision_id: Base.decode64!("ZGVjXzAxMjM0NTY3ODlhYmNkZWY=")');
+
+  rmSync(captureFile, { force: true });
+  expect(runControl(launcher, releaseDir, env, ["command", "dec_0123456789abcdef", "--option", "keep", "--relayed", "--quote", "keep them"]).status).toBe(0);
+  const expression = readFileSync(captureFile, "utf8");
+  expect(expression).toContain("Aiur.AgentControlCLI.operator_relay_answer(");
+  expect(expression).toContain("auto_current: true");
+  expect(expression).toContain('relayed_by: Base.decode64!("YXR0ZW5kZWQtZXhlY3V0b3I=")');
+  expect(expression).toContain('quote: Base.decode64!("a2VlcCB0aGVt")');
+});
+
+test("singular command direct answers require an interactive human operator", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" }, ["command", "dec_0123456789abcdef", "--option", "keep"]);
+
+  expect(result.status).toBe(64);
+  expect(result.stderr).toMatch(/human operator|interactive terminal/);
+  expect(existsSync(captureFile)).toBe(false);
+});
+
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(launcher, releaseDir, {

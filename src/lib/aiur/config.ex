@@ -30,6 +30,15 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "Whether the Executor may answer reversible human-required engineering decisions."
+  @spec allow_reversible_human_required_answers?() :: boolean()
+  def allow_reversible_human_required_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.allow_reversible_human_required_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   The parsed config.
 
