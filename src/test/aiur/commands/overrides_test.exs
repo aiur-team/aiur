@@ -45,8 +45,9 @@ defmodule Aiur.Commands.OverridesTest do
     assert late == second
   end
 
-  test "third override preserves the first supersession time and parked routes stay queued" do
+  test "third override preserves the first supersession time and pending session" do
     second = record("action-2", record("action-1"))
+    second = %{second | pending_for_session?: true}
 
     third =
       Overrides.observe(second, %{
@@ -59,6 +60,7 @@ defmodule Aiur.Commands.OverridesTest do
     assert first.superseded_at == @at
     assert middle.superseded_at == DateTime.add(@at, 20)
     assert newest.state == :queued
+    assert third.pending_for_session?
     assert Overrides.observe(third, %{type: :acknowledged, data: %{action_id: "action-3"}, occurred_at: DateTime.add(@at, 21)}) == third
   end
 

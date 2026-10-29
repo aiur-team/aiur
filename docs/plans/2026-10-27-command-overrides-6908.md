@@ -4,7 +4,8 @@
 
 Accept one override API before or after answer delivery, preserving actor precedence,
 version checks and the original Command's audit history. Deliver only the newest
-override to an active worker. Other routes remain durably queued for T2–T5.
+override to an active worker. Other route observations preserve existing
+next-session delivery and terminal follow-up until T2–T5 add their routing.
 No new UI controls belong here; expose records through the existing presenter.
 
 ## Implementation units
@@ -16,7 +17,8 @@ No new UI controls belong here; expose records through the existing presenter.
 2. Serialize override arbitration in `DecisionStore`, reusing supersede when
    replaceable and correlated revisions otherwise. Route through the existing
    delivery target port; never spawn a worker or consume capacity in this ticket.
-   Gate scheduling and delivery validation for routes not implemented here.
+   Preserve existing scheduling and next-session delivery for every route; keep
+   the stale/superseded action fence.
 3. Add `Answering.override/3` and connect human answer replacement/correction
    surfaces without changing their presentation. Preserve legacy supersede callers.
 4. Project delivery and worker acknowledgement as implementation evidence; observe
@@ -31,6 +33,9 @@ No new UI controls belong here; expose records through the existing presenter.
   journal replay, supersession, delivery and acknowledgement/push evidence.
 - New facade tests cover stale version and precedence as well as acceptance.
 - Existing revision, delivery and affected surface tests remain green.
+- Missing event Exchange does not prevent store startup or periodic reconciliation.
+- Absent and paused workers receive the newest override once on session start;
+  merged/terminal work retains its Executor follow-up.
 - Mutation checks run from a separate worktree with only intended production
   reversions. Run compile, format, affected tests, lint and structural/pre-PR gates.
 - Post-deploy CLI/TUI smoke requires an Executor checkout and will be recorded

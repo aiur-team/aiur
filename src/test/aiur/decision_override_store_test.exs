@@ -113,22 +113,17 @@ defmodule Aiur.DecisionOverrideStoreTest do
     refute_receive {:worker_message, _item}, 0
   end
 
-  test "unimplemented routes stay queued through retry, startup prompt and delivery gate", ctx do
+  test "observational routes retain legacy retry, startup prompt and delivery", ctx do
     context = %{@context | pr: %{@context.pr | merged?: true}, worker: :active}
     override = override!(ctx, "merged", context)
     assert [%{route: :corrective_ticket, state: :queued}] = override.overrides
-    refute Aiur.Commands.override_dispatchable?(override)
-    refute Retry.dispatchable?(override, true)
-    assert AnsweredDecisions.for_ticket("6908", ctx.store, 1_000) == []
-
-    item = %{
-      id: 3,
-      target_issue_identifier: "6908",
-      action_id: override.active_action_id,
-      correlation: %{decision_id: override.decision_id, decision_version: 1, action_id: override.active_action_id, attempt_id: "queued"}
-    }
-
-    assert {:error, {:answer_withdrawn, :override_queued}} = DecisionStore.validate_delivery(item, ctx.store)
+    assert Aiur.Commands.override_dispatchable?(override)
+    assert Retry.dispatchable?(override, true)
+    assert [%{action_id: action_id, answer: "merged"}] = AnsweredDecisions.for_ticket("6908", ctx.store, 1_000)
+    assert action_id == override.active_action_id
+    item = dispatch!(ctx, override)
+    assert item.action_id == override.active_action_id
+    assert {:ok, :accepted} = DecisionStore.validate_delivery(item, ctx.store)
   end
 
   test "verified branch push after delivery implements the override on its ticket PR", ctx do

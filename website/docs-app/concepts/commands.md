@@ -250,9 +250,12 @@ delivery; unknown or same-second chronology stays unproven until acknowledgement
 or a later proven push. Queue acceptance alone does not mean implementation.
 
 Other routes (`resume_pending`, `capacity_wait`, `corrective_ticket`, `replacement`)
-remain queued for subsequent routing support. No worker is spawned by override
-acceptance, and merged work is never rewritten. Legacy direct supersede calls and
-operator-relay supersede retain their pre-delivery guard.
+retain the existing delivery path. An absent or paused worker receives the answer
+at its next session start; a terminal ticket raises an Executor follow-up.
+
+Automatic resumption and corrective-ticket creation are subsequent routing work.
+Override acceptance never spawns a worker or rewrites merged work. Direct legacy
+supersede calls retain their pre-delivery guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.

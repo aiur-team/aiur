@@ -21,9 +21,8 @@ defmodule Aiur.DecisionStore.Overrides do
   @spec dispatchable?(Decision.t()) :: boolean()
   def dispatchable?(decision) do
     case Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id)) do
-      nil -> true
-      %{route: :active_worker, state: state} -> state != :superseded
-      _queued_route -> false
+      %{state: :superseded} -> false
+      _observed_route -> true
     end
   end
 end

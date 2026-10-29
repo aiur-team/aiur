@@ -14,7 +14,7 @@ defmodule Aiur.Commands do
   @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   defdelegate override(id, payload, opts \\ [], server \\ Aiur.DecisionStore), to: Aiur.DecisionStore
 
-  @doc "Whether the active override can use the implemented worker delivery route."
+  @doc "Whether the active override may use the existing delivery path."
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
 

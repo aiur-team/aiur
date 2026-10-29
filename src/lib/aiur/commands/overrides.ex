@@ -45,7 +45,7 @@ defmodule Aiur.Commands.Overrides do
         evidence: nil
       })
 
-    %{decision | overrides: previous ++ [record], pending_for_session?: false}
+    %{decision | overrides: previous ++ [record]}
   end
 
   def observe(decision, %{type: :delivered, data: data, occurred_at: at}) do

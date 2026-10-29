@@ -123,7 +123,7 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
     assert Enum.count(audit, &match?(%DecisionEvent{type: :revision_recorded}, &1)) == 1
   end
 
-  test "override for an unavailable worker remains queued without a terminal follow-up" do
+  test "override retains the terminal follow-up on an observational nonactive route" do
     orchestrator_name = Module.concat(__MODULE__, :RevisionFollowUpOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RevisionFollowUpDecisionStore)
 
@@ -167,11 +167,12 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
         }
       })
 
+    assert eventually(fn -> render(view) =~ "Executor follow-up required" end, 100)
     {:ok, pending} = DecisionStore.get(decision.decision_id, store)
     assert [%{state: :queued, route: :resume_pending, action_id: action_id}] = pending.overrides
     assert action_id == pending.active_action_id
-    assert pending.revision_follow_ups == %{}
-    refute render(view) =~ "Executor follow-up required"
+    assert pending.revision_result == :no_longer_applicable
+    assert %{^action_id => %{handled_at: nil}} = pending.revision_follow_ups
   end
 
   test "stale revision rejection preserves the corrective draft" do

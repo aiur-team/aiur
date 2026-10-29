@@ -477,5 +477,6 @@ including after delivery. Ordinary answer submissions retain first-answer-wins
 semantics. 
 
 The override record and routing state are visible in
-`aiur commands --json`; only active-worker delivery currently runs automatically.
+`aiur commands --json`. Absent or paused workers receive the override at their next
+session; terminal tickets raise an Executor follow-up.
 Physical override controls are separate from this transport operation.
