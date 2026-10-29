@@ -1,5 +1,6 @@
 defmodule Aiur.TestSupport.StreamdeckBuildFixture do
   @moduledoc false
+  alias Aiur.BuildOrder.Metadata
 
   # Existing surface scenarios vary their retained fleet fixture. Mirror those
   # facts into a Build window so they exercise the authoritative Ticket path.
@@ -26,11 +27,16 @@ defmodule Aiur.TestSupport.StreamdeckBuildFixture do
       sec: if(state == "queued", do: "plan", else: "now"),
       qpos: position,
       pct: agent[:progress_percent],
+      priority: agent[:priority],
+      lane: Metadata.parse(agent[:labels] || []).lane,
+      progress_freshness: agent[:progress_freshness],
+      dependency_ready: if(agent[:waiting_reason] == :waiting_for_dependency, do: false, else: agent[:blocked_by] == []),
       agent: %{state: state, model: agent[:backend], name: nil}
     }
   end
 
   defp state(%{open_decision_count: count}, _source) when count > 0, do: "command"
+  defp state(%{tracker_paused: true}, _source), do: "paused"
   defp state(%{work_state: :paused}, _source), do: "paused"
   defp state(%{work_state: :error}, _source), do: "error"
   defp state(%{waiting_reason: :waiting_for_dependency}, _source), do: "queued"

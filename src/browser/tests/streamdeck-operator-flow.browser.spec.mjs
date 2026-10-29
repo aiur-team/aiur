@@ -3,12 +3,12 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 
 // SP-401: the per-mode Stream Deck specs each verify their own slice. This file
 // verifies that the slices compose into a surface an operator can drive end to
-// end — page the grid, take a real agent control, read its logs, and back out
+// end — page the grid, take a real agent control, read its conversation, and back out
 // to where they started. It fails when any single step of that flow regresses,
 // not merely when the page fails to render.
 
 const CONTROLLED = '1352'
-// The design's cmd slots are Pause / Logs / Mic / Settings. Pause is the only
+// The legacy command slots include Pause, Mic and Settings. Pause is the only
 // one that relabels from the agent's real state, so asserting both variants is
 // what proves the labels track the fleet rather than being a fixed list.
 const CMD_COMMANDS_RUNNING = ['Pause', 'Priority up', 'Priority down', 'Commands', 'Open PR', 'Dashboard', 'Mic', 'Settings']
@@ -25,6 +25,7 @@ async function openStreamdeck(page) {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 function dial(page, index) {
@@ -120,7 +121,7 @@ async function cycleToOpeningWindow(page, keys, openingPage) {
   expect(await visibleIdentifiers(page)).toEqual(openingPage)
 }
 
-test('operator drives grid → paged grid → cmd with a real pause/resume → logs → back to the grid it started on', async ({ page }) => {
+test('operator drives grid → paged grid → cmd with a real pause/resume → back to the grid it started on', async ({ page }) => {
   await openStreamdeck(page)
 
   const device = page.locator('.sd-device')
@@ -206,81 +207,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // Pause — the label is reading real state, not a fixed list.
   await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)
 
-  // ---------------------------------------------------------------- step 5 --
-  // Descend from cmd into the focused agent's logs.
-  await dialD.click()
-  await expect(device).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('#sd-logs-view')).toHaveAttribute('data-focused-identifier', CONTROLLED)
-
-  // Both surfaces open at the *live* end — the right-hand end of a chat — not
-  // at the ticket's first line. The event window is the eight keys; the
-  // transcript is the touch strip itself.
-  const events = page.locator('#sd-log-keys')
-  const transcript = page.locator('#sd-screen')
-  const eventsMax = Number.parseInt(await events.getAttribute('data-max-offset'), 10)
-  const transcriptMax = Number.parseInt(
-    await transcript.getAttribute('data-transcript-max-offset'),
-    10
-  )
-  expect(eventsMax).toBeGreaterThan(0)
-  expect(transcriptMax).toBeGreaterThan(0)
-  await expect(events).toHaveAttribute('data-offset', String(eventsMax))
-  await expect(transcript).toHaveAttribute('data-transcript-offset', String(transcriptMax))
-  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
-  // LIVE is the last key, and it is the active one on arrival.
-  await expect(events.locator('.sd-live-key')).toHaveAttribute('aria-label', 'LIVE')
-  await expect(events.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
-
-  // Selecting a log event: pressing an event key makes it active, moves the
-  // strip to that event's own header, and deactivates LIVE. The selection is
-  // read from the server-rendered `aria-current`, not a client-local attribute.
-  const pressed = events.locator('.sd-log-key:not(.sd-live-key)').last()
-  await pressed.click()
-  await expect(pressed).toHaveAttribute('aria-current', 'true')
-  await expect(events.locator('.sd-live-key')).toHaveAttribute('aria-current', 'false')
-  await expect(transcript).not.toHaveAttribute('data-transcript-offset', String(transcriptMax))
-  await expect(page.locator('[data-log-kind="evhdr"]').first()).toBeVisible()
-
-  // Returning to LIVE reverses it: back to the newest end, LIVE active again.
-  await events.locator('.sd-live-key').click()
-  await expect(transcript).toHaveAttribute('data-transcript-offset', String(transcriptMax))
-  await expect(events.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
-
-  // Dial D scrolls the event window; dial A scrolls the transcript. Both open
-  // at their far end, so a notch backwards is the move that has anywhere to go.
-  await dialD.hover()
-  await page.mouse.wheel(0, 100)
-  await expect(events).toHaveAttribute('data-offset', String(eventsMax - 1))
-  await expect(transcript).toHaveAttribute('data-transcript-offset', String(transcriptMax))
-
-  // Each wheel notch is one discrete step, so overshoot deliberately: the
-  // offset clamps at the real bound rather than running past the origin.
-  for (let step = 0; step < eventsMax + 3; step += 1) {
-    await page.mouse.wheel(0, 100)
-  }
-  await expect(events).toHaveAttribute('data-offset', '0')
-  // Paged fully left, the origin anchor is the first key — and LIVE stays
-  // pinned to the last (bottom-right) key rather than scrolling away.
-  await expect(events.locator('[data-log-event-index="0"]')).toHaveCount(1)
-  await expect(events.locator('.sd-live-key')).toHaveCount(1)
-  await expect(events.locator('.sd-key').last()).toHaveClass(/sd-live-key/)
-
-  await dialA.hover()
-  await page.mouse.wheel(0, 100)
-  await expect(transcript).toHaveAttribute('data-transcript-offset', String(transcriptMax - 1))
-  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'false')
-
-  // The transcript clamps at its own, different bound.
-  for (let step = 0; step < transcriptMax + 3; step += 1) {
-    await page.mouse.wheel(0, 100)
-  }
-  await expect(transcript).toHaveAttribute('data-transcript-offset', '0')
-  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
-
-  // ---------------------------------------------------------------- step 6 --
-  // Dial A backs out to cmd, then to the grid the operator started on.
-  await dialA.click()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
+  // Return from the focused conversation to the opening grid page.
   await dialA.click()
   await expect(device).toHaveAttribute('data-mode', 'grid')
 

@@ -3,12 +3,13 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
   alias Aiur.Accounts
   alias AiurWeb.Build.Usage
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.Streamdeck.Deck.{MeterDetail, MeterSource}
+  alias AiurWeb.OperatorControlCenter.RedactedMeterSource
+  alias AiurWeb.Streamdeck.Deck.MeterDetail
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
-    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, MeterSource))
+    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
     block = Usage.block({:ok, :streamdeck}, inputs, Keyword.get(opts, :now, DateTime.utc_now()))
 
     inputs.families
@@ -24,7 +25,7 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
   @spec detail(String.t(), keyword()) :: map()
   def detail(provider, opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
-    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, MeterSource))
+    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
     MeterDetail.from_inputs(provider, detail_accounts(provider, inputs, opts), Keyword.get(opts, :now, DateTime.utc_now()))
   end
 

@@ -76,31 +76,6 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     end)
   end
 
-  defp keys("logs", context) do
-    context
-    |> field(:logs, %{})
-    |> field(:event_keys_visible, [])
-    |> Enum.map(fn
-      %{kind: :empty} ->
-        nil
-
-      %{kind: :live} = key ->
-        card("LIVE", "LIVE", "",
-          event_index: key.index,
-          live: true,
-          selected: key.index == field(field(context, :logs), :selected_event_index)
-        )
-
-      key ->
-        card(key.text, "#{key.badge}: #{key.text}, #{key.time}", key.time,
-          badge: key.badge,
-          event_index: key.index,
-          glyph: key.badge,
-          selected: key.index == field(field(context, :logs), :selected_event_index)
-        )
-    end)
-  end
-
   defp keys("settings", _context),
     do: [
       card("Microphone", @microphone, "SIDECAR", disabled: true),

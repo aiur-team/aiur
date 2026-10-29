@@ -176,19 +176,14 @@ defmodule AiurWeb.Streamdeck.RenderTest do
   end
 
   defp model do
-    # The real SD-101 adapter output is merged into StreamdeckFleet.grid/1.
-    grid =
-      AiurWeb.StreamDeckGrid.project(%{
-        running: [
-          %{
-            identifier: "#5181",
-            title: "Fix strip squeeze",
-            backend: :claude,
-            progress_percent: 40
-          }
-        ],
-        idle: [%{identifier: "#5182", title: "Next ticket"}]
-      })
+    grid = %{
+      agents: [face(%{}), face(%{identifier: "#5182", title: "Next ticket", bucket: :queued})],
+      total: 2,
+      windows: 1,
+      rows_per_column: 2,
+      agents_per_page: 8,
+      max_column_offset: 0
+    }
 
     grid =
       Map.merge(grid, %{

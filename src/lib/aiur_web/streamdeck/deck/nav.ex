@@ -22,7 +22,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
 
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
-          surface: :grid | :chat | :cmd | :logs | :settings | :commands,
+          surface: :grid | :chat | :cmd | :settings | :commands,
           pages: map(),
           stack: [{atom(), String.t()}],
           drill_pages: [non_neg_integer()],
