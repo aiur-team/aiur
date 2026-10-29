@@ -75,7 +75,7 @@ async function submit() {
   const ref = st, ta = $('#cv-in textarea');
   if (!ref || !ta || ref.pending || ref.ended || !live()) return;
   const raw = ta.value; if (!raw.trim()) return;
-  ref.pending = true; $('#cv-in').setAttribute('aria-busy', 'true'); refresh();
+  ref.pending = true; ref.last = null; $('#cv-in').dataset.voiceState = 'idle'; $('#cv-in').setAttribute('aria-busy', 'true'); refresh();
   let reply;
   try { reply = await Promise.race([ctx.push('send', { id: ref.id, text: raw }), timeout(15000)]); } catch { reply = null; }
   ref.pending = false;
@@ -111,6 +111,7 @@ export function sendStatus(msg) {
   if (!st || msg?.v !== 1 || msg.id !== st.id || msg.request_id !== st.last) return;
   const words = Object.hasOwn(STATUS, msg.status) ? STATUS[msg.status] : ['Delivery outcome unknown. Check the log before you send again.', ''];
   setLine(words?.[0], words?.[1]);
+  const form = $('#cv-in'); if (form) form.dataset.voiceState = ['queued', 'delivered'].includes(msg.status) ? 'sent' : 'idle';
   const ta = $('#cv-in textarea');
   if (msg.status === 'failed' && ta && !ta.value) { ta.value = st.sent; drafts.set(st.id, st.sent); grow(ta); }
 }
