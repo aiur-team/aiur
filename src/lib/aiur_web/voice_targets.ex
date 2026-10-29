@@ -28,7 +28,6 @@ defmodule AiurWeb.VoiceTargets do
     result =
       cond do
         surface not in Map.get(@surfaces, kind, []) -> {:error, :invalid_payload}
-        kind == :executor -> AiurWeb.ExecutorVoiceTarget.validate(target)
         not same_instance?(target) -> {:error, :target_not_found}
         true -> check(target, surface)
       end
@@ -43,6 +42,7 @@ defmodule AiurWeb.VoiceTargets do
     end
   end
 
+  defp check(%{kind: :executor} = target, _surface), do: AiurWeb.ExecutorVoiceTarget.validate(target)
   defp check(%{kind: :worker, ticket: ticket}, _surface), do: resolve(fn resolver -> resolver.worker(ticket) end)
 
   defp check(%{kind: :command, decision_id: decision_id, expected_version: version}, "command_revision"),
@@ -79,6 +79,8 @@ defmodule AiurWeb.VoiceTargets do
 
   # Until every daemon carries an instance id, a target naming one is checked
   # only where this daemon knows its own.
+  # Executor identity is checked strictly against the same report as its capability.
+  defp same_instance?(%{kind: :executor}), do: true
   defp same_instance?(%{instance_id: nil}), do: true
 
   defp same_instance?(%{instance_id: instance_id}) do
