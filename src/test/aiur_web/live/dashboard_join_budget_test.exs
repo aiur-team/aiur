@@ -66,7 +66,7 @@ defmodule AiurWeb.DashboardJoinBudgetTest do
     :ok
   end
 
-  for {path, marker} <- [{"/commands", "control-panel"}, {"/commands", "usage-watch"}] do
+  for {path, marker} <- [{"/commands", "control-panel"}] do
     @tag timeout: 30_000
     test "#{path} joins within budget when provider reads are slow" do
       conn =

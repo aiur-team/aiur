@@ -2,8 +2,6 @@ defmodule AiurWeb.OperatorControlCenter.ModelProvidersTest do
   # The keyed rule reads credential env vars, which are process-global.
   use ExUnit.Case, async: false
 
-  import Phoenix.LiveViewTest, only: [render_component: 2]
-
   alias AiurWeb.OperatorControlCenter.ModelProviders
 
   @none MapSet.new()
