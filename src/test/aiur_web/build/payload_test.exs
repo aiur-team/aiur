@@ -5,7 +5,7 @@ defmodule AiurWeb.Build.PayloadTest do
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   test "shared index presentation metadata stays outside the strict browser row schema" do
-    row = fixture()["sections"]["now"] |> hd() |> Map.new(fn {key, value} -> {String.to_existing_atom(key), value} end)
+    row = fixture()["sections"]["now"] |> hd() |> Map.new(fn {key, value} -> {String.to_atom(key), value} end)
     metadata = %{general_epics: ["runtime"], priority: 1, lane: "runtime", progress_freshness: "stale", dependency_ready: false}
     data = put_in(fixture(), ["sections", "now"], [Map.merge(row, metadata)])
     snapshot = Payload.snapshot(data, "epoch", 1)
