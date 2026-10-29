@@ -233,12 +233,13 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
     Signal.agent_alert(name, message, Keyword.put(alert_opts, :event_source, :system))
   end
 
-  defp emit_merge_terminal_write_failed_alert(identifier, reason) do
+  defp emit_merge_terminal_write_failed_alert(identifier, target, reason) do
+    target = if is_binary(target), do: target, else: "unavailable"
     reason = MergeTransition.reason_name(reason)
 
     Signal.agent_alert(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
-      "Merged PR could not transition ticket #{identifier} to done (#{reason}).",
+      "Merged PR could not transition ticket #{identifier} to #{target} (#{reason}).",
       issue: identifier,
       reason: "The merge transition failed (#{reason}); check the ticket's current state and labels.",
       needs_attention: true,
@@ -377,21 +378,26 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
       )
 
     {target, result} =
-      if target == @non_closing_merge_state do
-        comment = "PR #{Keyword.get(opts, :pr_number, "?")} referencing this ticket merged (#{Keyword.get(opts, :pr_url, "unknown PR")})."
+      case target do
+        {:error, _reason} = error ->
+          {fallback_merge_target(identifier, opts), error}
 
-        write_comment =
-          Keyword.get(opts, :create_comment_fun, fn id, body ->
-            TicketTransition.write_comment(id, body, writer: :merged_ticket_reconciler, tracker: Keyword.get(opts, :tracker, Aiur.Tracker))
-          end)
+        @non_closing_merge_state ->
+          comment = "PR #{Keyword.get(opts, :pr_number, "?")} referencing this ticket merged (#{Keyword.get(opts, :pr_url, "unknown PR")})."
 
-        result = write_comment.(identifier, comment)
-        result = if result == :ok, do: mark_reference_merge_seen(identifier, opts), else: result
-        {target, result}
-      else
-        target
-        |> then(&MergeTransition.write_terminal_target(&1, identifier, update_issue_state_fun, opts))
-        |> then(&MergeTransition.normalize({target, &1}))
+          write_comment =
+            Keyword.get(opts, :create_comment_fun, fn id, body ->
+              TicketTransition.write_comment(id, body, writer: :merged_ticket_reconciler, tracker: Keyword.get(opts, :tracker, Aiur.Tracker))
+            end)
+
+          result = write_comment.(identifier, comment)
+          if result == :ok, do: write_reference_merge_bookkeeping(identifier, opts, emit_alert_fun)
+          {target, result}
+
+        target ->
+          target
+          |> then(&MergeTransition.write_terminal_target(&1, identifier, update_issue_state_fun, opts))
+          |> then(&MergeTransition.normalize({target, &1}))
       end
 
     result = if target == "done", do: Alerts.StaleNotClosed.resolve_on_ok(result, identifier), else: result
@@ -402,15 +408,60 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   end
 
   defp mark_reference_merge_seen(identifier, opts) do
+    mark_ticket_reconciled_fun =
+      Keyword.get(opts, :mark_ticket_reconciled_fun, fn merge_id, ticket_id ->
+        RecentMergeStore.mark_ticket_reconciled(merge_id, ticket_id)
+      end)
+
     with number when is_integer(number) <- opts[:pr_number],
          repo when is_binary(repo) <- merge_repository(opts),
-         :ok <- RecentMergeStore.mark_ticket_reconciled("#{repo}##{number}", to_string(identifier)) do
+         :ok <- mark_ticket_reconciled_fun.("#{repo}##{number}", to_string(identifier)) do
       :ok
     else
       {:error, :merge_not_found} -> :ok
       {:error, _reason} = error -> error
       _other -> :ok
     end
+  end
+
+  defp fallback_merge_target(identifier, opts) do
+    if to_string(identifier) in merge_closing_identifiers(opts), do: "done", else: "unavailable"
+  end
+
+  defp write_reference_merge_bookkeeping(identifier, opts, emit_alert_fun) do
+    [
+      {:merge_queued_label_cleanup, fn -> MergeStateWriter.clear_nonterminal_merge_queued(identifier, opts) end},
+      {:reconciliation_marker, fn -> mark_reference_merge_seen(identifier, opts) end}
+    ]
+    |> Enum.each(fn {step, write} ->
+      case write.() do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("PR reference merge bookkeeping deferred: issue_identifier=#{identifier} step=#{step} reason=#{inspect(reason)}")
+          emit_reference_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason)
+
+        other ->
+          Logger.warning("PR reference merge bookkeeping deferred: issue_identifier=#{identifier} step=#{step} result=#{inspect(other)}")
+      end
+    end)
+
+    :ok
+  end
+
+  defp emit_reference_bookkeeping_failed_alert(emit_alert_fun, identifier, step, reason) do
+    reason_name = MergeTransition.reason_name(reason)
+
+    emit_alert_fun.(
+      "ticket.#{identifier}.agent.attention.merge_reference_bookkeeping_failed",
+      message: "Merged PR reference bookkeeping failed for ticket #{identifier} at step #{step} (#{reason_name}).",
+      issue: identifier,
+      reason: "The reference merge bookkeeping step #{step} failed (#{reason_name}).",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
   end
 
   defp apply_merged_issue_target(
@@ -444,14 +495,18 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
       {"done", :skipped} ->
         current
 
-      {_, {:error, reason}} ->
+      {@non_closing_merge_state, {:error, reason}} ->
+        Logger.warning("PR reference merge write deferred: issue_identifier=#{identifier} reason=#{MergeTransition.reason_name(reason)}")
+        current
+
+      {target, {:error, reason}} ->
         Logger.warning("PR merge transition deferred: issue_identifier=#{identifier} reason=#{MergeTransition.reason_name(reason)}")
 
-        emit_merge_terminal_write_failed_alert(identifier, reason)
+        emit_merge_terminal_write_failed_alert(identifier, target, reason)
         current
 
       {:error, reason} ->
-        emit_merge_terminal_write_failed_alert(identifier, reason)
+        emit_merge_terminal_write_failed_alert(identifier, "unavailable", reason)
         current
     end
   end

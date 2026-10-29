@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.AgentTeardownTest do
     assert AgentTeardown.terminate_task(nil) == :ok
   end
 
-  test "terminal teardown clears transient reason labels and preserves blocked" do
+  test "terminal teardown clears transient reason labels and preserves blocked and body-fix" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
     labels = Labels.reason_modifier_labels("agent")
     Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", identifier: "7", state: "done", labels: labels}])
@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.AgentTeardownTest do
 
     assert %State{} = AgentTeardown.terminate_running_issue(state, "7", false)
     assert {:ok, [%Issue{labels: labels}]} = Tracker.fetch_issue_states_by_ids(["7"])
-    assert Enum.sort(labels) == ["agent:blocked"]
+    assert Enum.sort(labels) == ["agent:blocked", "agent:body-fix"]
   end
 
   test "teardown with no transient reason labels performs no label writes" do

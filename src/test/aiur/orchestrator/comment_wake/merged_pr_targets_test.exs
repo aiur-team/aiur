@@ -1,9 +1,10 @@
 defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
   # Log capture is global; preserve the original module's serial execution.
   use ExUnit.Case, async: false
+  import ExUnit.CaptureLog
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, State}
 
   defp base_state do
     %State{
@@ -98,11 +99,12 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
       assert MapSet.member?(result.claimed, issue.id)
     end
 
-    test "a merged PR whose body only refs the ticket comments without changing state" do
+    test "a refs-only merge logs a marker failure without a terminal alert and clears merge-queued" do
       issue = %Issue{
         id: "issue-refs-only",
         identifier: "176",
         state: "human-review",
+        labels: ["agent:human-review", "agent:merge-queued"],
         tracker_identity: tracker_identity("176")
       }
 
@@ -116,53 +118,74 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
 
       parent = self()
 
-      result =
-        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
-          pr_body: "Refs #176 (six operator gates remain)",
-          pr_number: 901,
-          pr_url: "https://github.com/owner/repo/pull/901",
-          repository: "owner/repo",
-          merged_by_login: "its-everdred",
-          update_issue_state_fun: fn identifier, state_name ->
-            send(parent, {:transition, identifier, state_name})
-            :ok
-          end,
-          add_label_fun: fn identifier, label ->
-            send(parent, {:label, identifier, label})
-            :ok
-          end,
-          create_comment_fun: fn identifier, body ->
-            send(parent, {:triage_comment, identifier, body})
-            :ok
-          end,
-          clear_session_handle_fun: fn _identifier ->
-            send(parent, :session_cleared)
-            :ok
-          end,
-          observe_membership_fun: fn _identity, _lifecycle ->
-            send(parent, :membership_recorded)
-            :ok
-          end,
-          resume_blockees_fun: fn current_state, _identifier ->
-            send(parent, :blockees_resumed)
-            current_state
-          end,
-          merger_allowed_fun: fn _login -> true end,
-          open_pull_requests_fun: fn _identifier ->
-            flunk("a non-closing merge must not even enumerate the ticket's open PRs")
-          end
-        )
+      log =
+        capture_log(fn ->
+          result =
+            CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+              pr_body: "Refs #176 (six operator gates remain)",
+              pr_number: 901,
+              pr_url: "https://github.com/owner/repo/pull/901",
+              repository: "owner/repo",
+              repo_fun: fn -> "owner/repo" end,
+              merged_by_login: "its-everdred",
+              fetch_issue_states_fun: fn ["176"] -> {:ok, [issue]} end,
+              mark_ticket_reconciled_fun: fn "owner/repo#901", "176" ->
+                send(parent, :reconciliation_marker_attempted)
+                {:error, {:store_unavailable, :test}}
+              end,
+              remove_merge_queued_label_fun: fn identifier, label ->
+                send(parent, {:label_removed, identifier, label})
+                :ok
+              end,
+              update_issue_state_fun: fn _identifier, _state_name ->
+                flunk("a Refs merge must not write a ticket state")
+              end,
+              create_comment_fun: fn identifier, body ->
+                send(parent, {:triage_comment, identifier, body})
+                :ok
+              end,
+              emit_alert_fun: fn name, _opts -> send(parent, {:alert, name}) end,
+              merger_allowed_fun: fn _login -> true end,
+              open_pull_requests_fun: fn _identifier ->
+                flunk("a non-closing merge must not even enumerate the ticket's open PRs")
+              end
+            )
 
-      refute_receive {:label, "176", _label}, 100
-      refute_receive {:transition, "176", _state}, 100
+          assert result == state
+        end)
+
+      assert log =~ "step=reconciliation_marker"
+      assert log =~ "store_unavailable"
+      refute log =~ "merge_terminal_write_failed"
+      assert_received :reconciliation_marker_attempted
+      assert_received {:label_removed, "176", "agent:merge-queued"}
+      assert_received {:alert, "ticket.176.agent.attention.merge_reference_bookkeeping_failed"}
       assert_receive {:triage_comment, "176", body}, 1000
       assert body =~ "PR 901 referencing this ticket merged"
-      refute_receive {:transition, "176", "done"}, 100
+      refute_received {:alert, "ticket.176.agent.attention.merge_terminal_write_failed"}
+      refute_received {:transition, "176", _state}
       refute_receive :membership_recorded, 100
       refute_receive :session_cleared, 100
       refute_receive :blockees_resumed, 100
-      assert Map.has_key?(result.running, issue.id)
-      assert MapSet.member?(result.claimed, issue.id)
+      assert Map.has_key?(state.running, issue.id)
+      assert MapSet.member?(state.claimed, issue.id)
+    end
+
+    test "a refs-only merge keeps merge-queued if removing it would leave no agent state label" do
+      parent = self()
+      issue = %Issue{id: "176", identifier: "176", labels: ["agent:merge-queued"]}
+
+      assert :ok =
+               MergeStateWriter.clear_nonterminal_merge_queued("176",
+                 label_prefix: "agent",
+                 fetch_issue_states_fun: fn ["176"] -> {:ok, [issue]} end,
+                 remove_merge_queued_label_fun: fn identifier, label ->
+                   send(parent, {:label_removed, identifier, label})
+                   :ok
+                 end
+               )
+
+      refute_received {:label_removed, "176", "agent:merge-queued"}
     end
 
     # #2609 fail-safe direction: no body is no closing evidence. The poll-cycle
