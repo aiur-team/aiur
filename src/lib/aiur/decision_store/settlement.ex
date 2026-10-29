@@ -290,7 +290,7 @@ defmodule Aiur.DecisionStore.Settlement do
 
   defp override_resume_error?(decision, reason) do
     not is_nil(Overrides.pending(decision)) and
-      reason in [:no_running_agent, :max_concurrent_agents_reached, :load_governor_refused]
+      reason in [:no_running_agent, :max_concurrent_agents_reached]
   end
 
   defp persist_override_resume(state, decision, action_id, reason) do

@@ -344,6 +344,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           state
           |> FeatureSupply.observe(issues)
           |> OverrideResume.schedule(issues)
+          |> HoldsAndAlerts.dispatch_or_hold(issues)
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)

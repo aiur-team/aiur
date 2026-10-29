@@ -1,22 +1,21 @@
 defmodule Aiur.Orchestrator.OverrideResume do
-  @moduledoc "Admits journal-backed override resumes before ordinary candidate dispatch."
+  @moduledoc "Admits journal-backed override resumes independently of ordinary candidate dispatch."
 
   require Logger
   alias Aiur.{Commands, Issue, Tracker}
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, IssueSync, Slots, State, TrackerTasks}
-  alias Aiur.Orchestrator.Dispatcher.{Capacity, HoldsAndAlerts}
+  alias Aiur.Orchestrator.Dispatcher.Capacity
   alias Aiur.Orchestrator.PauseResume.{QueuedDispatch, Resume}
 
   @spec schedule(State.t(), [Issue.t()]) :: State.t()
-  def schedule(state, issues) do
-    TrackerTasks.run(state, :override_resumes, &load/0, fn current, result ->
-      current |> apply_loaded(result) |> HoldsAndAlerts.dispatch_or_hold(issues)
-    end)
+  def schedule(state, _issues) do
+    case waiting(Commands.list_decisions(Commands.default_store())) do
+      [] -> state
+      requests -> TrackerTasks.run(state, :override_resumes, fn -> load(requests) end, &apply_loaded/2)
+    end
   end
 
-  defp load do
-    requests = waiting(Commands.list_decisions(Commands.default_store()))
-
+  defp load(requests) do
     Enum.map(requests, fn decision ->
       identifier = decision.ticket.identifier
       {decision, Tracker.fetch_issue_states_by_ids([identifier]), Tracker.ticket_pull_request(identifier)}
@@ -76,7 +75,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
     store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     cond do
-      Issue.parked?(issue) or Issue.paused?(issue) ->
+      Issue.parked?(issue) or Issue.paused?(issue) or operator_paused?(current, entry) ->
         persist_wait(decision, :resume_pending, :operator_pause, store)
         Keyword.get(opts, :ask_fun, &ask_resume/2).(decision, store)
         current
@@ -130,6 +129,13 @@ defmodule Aiur.Orchestrator.OverrideResume do
     admission_state = if entry, do: elem(State.pop_running_entry(state, entry.issue.id), 1), else: state
     admission = Keyword.get(opts, :admission_fun, &Capacity.auto_resume_admission/1)
     fleet? and admission.(admission_state) == :dispatch
+  end
+
+  defp operator_paused?(_state, nil), do: false
+
+  defp operator_paused?(state, entry) do
+    Map.get(entry, :paused_reason) == :operator_pause or
+      match?(%{action: :pause, requester: :operator}, ControlLifecycle.current_pending(state.control_lifecycle, entry.issue.id))
   end
 
   defp active?(nil), do: false
@@ -186,7 +192,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
         source_id: source_id,
         context: %{
           long_context_markdown:
-            "Command #{decision.decision_id} has a pending override. The ticket has an explicit parked or paused label. To apply it, resume this same ticket through the normal operator resume control. Without a resume it stays parked; no replacement ticket is created."
+            "Command #{decision.decision_id} has a pending override. The ticket or worker was explicitly parked or paused by the operator. To apply it, resume this same ticket through the normal operator resume control. Without a resume it stays parked; no replacement ticket is created."
         }
       },
       [

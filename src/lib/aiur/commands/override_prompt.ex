@@ -1,6 +1,8 @@
 defmodule Aiur.Commands.OverridePrompt do
   @moduledoc "Refreshes unacknowledged overrides before every worker turn."
 
+  require Logger
+
   alias Aiur.Commands
   alias Aiur.Commands.Overrides
   alias Aiur.DecisionRevisionDispatch
@@ -49,7 +51,12 @@ defmodule Aiur.Commands.OverridePrompt do
          ) do
       {:ok, _} -> :ok
       {:error, {:invalid_transition, :override_not_current}} -> :ok
-      {:error, reason} -> raise "Override prompt receipt could not persist: #{inspect(reason)}"
+      {:error, reason} -> receipt_failed(decision, reason)
     end
+  catch
+    :exit, reason -> receipt_failed(decision, reason)
   end
+
+  defp receipt_failed(decision, reason),
+    do: Logger.warning("Override prompt receipt could not persist: command=#{decision.decision_id} reason=#{inspect(reason)}; retrying at the next turn start")
 end

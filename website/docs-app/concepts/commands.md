@@ -266,7 +266,9 @@ Each resumed or continuation turn starts with “Operator override — this repl
 your earlier instruction for Command …” until acknowledgement. A confirmed
 provider turn start marks prompt delivery; starting a worker alone does not.
 
-Explicit parked or paused labels stay in place. Aiur raises an Executor Command,
+Explicit parked or paused labels stay in place, and a worker paused with
+`aiur pause N` stays paused, including while its pause request is pending.
+Aiur raises an Executor Command,
 “Resume #N to apply the override?”; the operator uses the normal resume control
 to authorize resumption. Capacity-only waits need no approval.
 

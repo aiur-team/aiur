@@ -121,21 +121,40 @@ defmodule Aiur.Commands.OverrideResumeTest do
     refute_received {:resumed, _}
   end
 
-  test "explicit park and pause preserve labels and ask the operator", ctx do
-    for issue <- [%{ctx.issue | parked: true}, %{ctx.issue | paused: true}] do
-      state =
-        apply_request(%State{max_concurrent_agents: 1}, %{ctx | issue: issue},
-          ask_fun: fn decision, store ->
-            send(self(), {:asked, decision.decision_id, store})
-            :ok
-          end
-        )
+  test "label park stays parked and raises a Resume Command", ctx do
+    assert_operator_hold(%State{max_concurrent_agents: 1}, %{ctx | issue: %{ctx.issue | parked: true}})
+  end
 
-      assert state.last_polled_issues[issue.id] == issue
-      assert_received {:asked, _, _}
-      refute_received {:resumed, _}
-      {:ok, waiting} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
-      assert [%{route: :resume_pending, resume_reason: :operator_pause}] = waiting.overrides
+  test "label pause stays paused and raises a Resume Command", ctx do
+    assert_operator_hold(%State{max_concurrent_agents: 1}, %{ctx | issue: %{ctx.issue | paused: true}})
+  end
+
+  test "operator CLI pause without a label stays paused and raises a Resume Command", ctx do
+    alias Aiur.Orchestrator.PauseResume.PauseRequest
+    worker = Map.merge(entry(ctx.issue), %{pid: self(), started_at: DateTime.utc_now(), control: %{status: :working, can_interrupt: true}})
+    state = %State{max_concurrent_agents: 1, running: %{ctx.issue.id => worker}}
+    assert {{:ok, request_id}, paused} = PauseRequest.pause_agent_reply(state, ctx.issue.identifier)
+    assert_received {:pause_agent, ^request_id}
+    assert paused.running[ctx.issue.id].paused_reason == :operator_pause
+    next = assert_operator_hold(paused, ctx)
+    assert next.running[ctx.issue.id] == paused.running[ctx.issue.id]
+    refute_received {:resume_agent, _}
+  end
+
+  test "requested and accepted operator pauses stay pending and raise a Resume Command", ctx do
+    alias Aiur.Orchestrator.ControlLifecycle
+    identity = %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "aiur-team", repository: "aiur", provider_id: "I_kwDOissue1", identifier: "6909", reason: nil}
+    attrs = %{request_id: "pause", issue_id: ctx.issue.id, tracker_identity: identity, action: :pause, generation: "worker", expected_status: :working, expected_version: 1, requester: :operator}
+    {:ok, _, requested} = ControlLifecycle.request(ControlLifecycle.new(), attrs)
+    {:ok, _, accepted} = ControlLifecycle.accept(requested, "pause", "worker")
+
+    for lifecycle <- [requested, accepted] do
+      worker = Map.put(entry(ctx.issue), :pending_pause_reason, %{request_id: "pause", reason: :operator_pause})
+      state = %State{max_concurrent_agents: 1, running: %{ctx.issue.id => worker}, control_lifecycle: lifecycle}
+      next = assert_operator_hold(state, ctx)
+      assert next.running == state.running
+      assert next.control_lifecycle == lifecycle
+      refute_received {:resume_agent, _}
     end
   end
 
@@ -150,19 +169,21 @@ defmodule Aiur.Commands.OverrideResumeTest do
     refute_received {:resumed, _}
   end
 
-  test "an input-paused runner receives the normal resume control on the same entry", ctx do
-    entry = %{issue: ctx.issue, identifier: ctx.issue.identifier, pid: self(), started_at: DateTime.utc_now(), paused_reason: :input_required, control: %{status: :paused, can_interrupt: true}}
-    state = %State{max_concurrent_agents: 1, running: %{ctx.issue.id => entry}}
+  for reason <- [:agent_pause_request, :input_required, :capacity] do
+    @pause_reason reason
+    test "#{reason} pause resumes the same runner through normal control", ctx do
+      worker = %{issue: ctx.issue, identifier: ctx.issue.identifier, pid: self(), started_at: DateTime.utc_now(), paused_reason: @pause_reason, control: %{status: :paused, can_interrupt: true}}
+      state = %State{max_concurrent_agents: 1, running: %{ctx.issue.id => worker}}
+      next = OverrideResume.apply_loaded(state, [{ctx.decision, {:ok, [ctx.issue]}, {:ok, nil}}], decision_store: ctx.store, admission_fun: fn _ -> :dispatch end)
 
-    next =
-      OverrideResume.apply_loaded(state, [{ctx.decision, {:ok, [ctx.issue]}, {:ok, nil}}], decision_store: ctx.store, admission_fun: fn _ -> :dispatch end)
-
-    assert_received {:resume_agent, request_id}
-    assert is_integer(request_id)
-    assert next.running[ctx.issue.id].pid == self()
-    assert next.running[ctx.issue.id].control.status == :working
-    assert Slots.active_slots(next) == 1
-    assert Map.keys(next.running) == [ctx.issue.id]
+      assert_received {:resume_agent, request_id}
+      assert is_integer(request_id)
+      assert next.running[ctx.issue.id].pid == self()
+      assert next.running[ctx.issue.id].control.status == :working
+      assert Slots.active_slots(next) == 1
+      assert Map.keys(next.running) == [ctx.issue.id]
+      refute Enum.any?(Commands.list_decisions(ctx.store), &(&1.question == "Resume #6909 to apply the override?"))
+    end
   end
 
   test "fresh terminal issue prevents resuming an existing paused runner", ctx do
@@ -262,6 +283,16 @@ defmodule Aiur.Commands.OverrideResumeTest do
     assert Slots.active_slots(final) == 1
     assert_received {:resumed, "6909"}
     refute_received {:resumed, "other"}
+  end
+
+  defp assert_operator_hold(state, ctx) do
+    next = OverrideResume.apply_loaded(state, [{ctx.decision, {:ok, [ctx.issue]}, {:ok, nil}}], decision_store: ctx.store, admission_fun: fn _ -> :dispatch end)
+    remembered = Map.get(next.running, ctx.issue.id)
+    assert if(remembered, do: remembered.issue, else: next.last_polled_issues[ctx.issue.id]) == ctx.issue
+    assert [%{requester: %{kind: :executor}}] = Enum.filter(Commands.list_decisions(ctx.store), &(&1.question == "Resume #6909 to apply the override?"))
+    {:ok, waiting} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
+    assert [%{route: :resume_pending, resume_reason: :operator_pause}] = waiting.overrides
+    next
   end
 
   defp apply_request(state, ctx, opts \\ []) do
