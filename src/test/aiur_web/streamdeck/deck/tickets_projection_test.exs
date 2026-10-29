@@ -35,12 +35,14 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     refute html =~ ~s(data-part="progress-fill")
 
     socket = joined_socket()
-    assert_reply(push(socket, "input", %{"kind" => "key_press", "index" => 0}), :ok)
-    assert :sys.get_state(socket.channel_pid).assigns.deck_effects == [{:open_ticket, "77"}]
+    ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
+    state = :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0, "chip_offset" => 0})
+    assert state.assigns.deck_effects == [{:open_ticket, "77"}]
     updated = put_in(window, [:sections, :now], [%{row | agent: %{state: "command"}, pct: 40}])
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, updated} end)
     Index.broadcast(%{})
-    assert_push("fleet", %{"grid" => %{agents: [%{label: "Awaiting command", progress_percent: 40}]}}, 1_000)
+    receive_barrier(%Phoenix.Socket.Message{event: "fleet", payload: %{"grid" => %{agents: [%{label: "Awaiting command", progress_percent: 40}]}}})
   end
 
   test "Build facts win while control metadata and stale progress survive merging" do
@@ -82,9 +84,13 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
       assert status.label =~ "Unavailable"
       refute status.svg =~ "progress-track"
       assert Enum.all?(rest, &is_nil/1)
-      assert hd(frame.strip).label =~ "Tickets unavailable"
-      refute hd(frame.strip).label =~ "0 live"
-      assert List.last(frame.strip).label == "Tickets unavailable"
+      assert grid.counts.status == "unavailable"
+      assert grid.counts.queued == nil
+      assert grid.counts.not_queued == nil
+      assert hd(frame.strip).label == "Build unavailable"
+      assert Enum.at(frame.strip, 1).label == "Counts unavailable"
+      assert List.last(frame.strip).label == "Queued unknown; Not queued unknown"
+      refute List.last(frame.strip).svg =~ "Queued 0"
     end
   end
 end

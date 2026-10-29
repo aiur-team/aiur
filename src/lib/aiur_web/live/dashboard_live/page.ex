@@ -228,6 +228,7 @@ defmodule AiurWeb.DashboardLive.Page do
       <AgentLogModal.agent_log_modal
         :if={is_nil(@conversation_drawer)}
         modal={@agent_log_modal}
+        receipts={@listener_receipts}
         writable={@writable}
         drafts={@drafts}
         errors={@chat_errors}

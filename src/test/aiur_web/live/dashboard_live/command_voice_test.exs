@@ -70,6 +70,7 @@ defmodule AiurWeb.DashboardLive.CommandVoiceTest do
     render_change(view, "decision-action-change", params)
     html = render_submit(view, "answer-decision", params)
     assert html =~ "This Command changed. Refresh to see the latest."
+    assert has_element?(view, "[data-voice-delivery][data-delivery-state=failed]", "This Command changed. Refresh to see the latest.")
     assert has_element?(view, "textarea[data-voice-input]", "Keep this dictated draft")
     assert_receive {:dashboard_answer_attempt, id, payload, opts}, 1_000
     assert id == decision.decision_id

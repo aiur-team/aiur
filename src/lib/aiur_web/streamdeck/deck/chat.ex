@@ -3,7 +3,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   import AiurWeb.Streamdeck.Deck.ChatOwner, only: [assign: 2]
   alias Aiur.Conversation.History
   alias AiurWeb.Build.{ConversationPayload, ConversationSource, Payload}
-  alias AiurWeb.Streamdeck.Deck.ChatOwner
+  alias AiurWeb.Streamdeck.Deck.{ChatOwner, ChatPage}
 
   @spec init(ChatOwner.socket()) :: ChatOwner.socket()
   def init(socket), do: assign(socket, deck_chat: nil, deck_chat_view: nil)
@@ -12,7 +12,8 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   def open(socket, id) do
     socket = clear(socket)
     state = %{source: ConversationSource.source(), ref: %{id: id}, last: nil, latest: nil, entries: [], timer: nil, token: make_ref(), dirty: false, polls: 0, subscribed: false}
-    socket |> assign(deck_chat: state) |> refresh(true) |> schedule()
+    nav = %{socket.assigns.deck_nav | chat: nil, selected: id, scroll: 0}
+    socket |> assign(deck_chat: state, deck_nav: nav) |> refresh(true) |> schedule()
   end
 
   @spec clear(ChatOwner.socket()) :: ChatOwner.socket()
@@ -22,7 +23,8 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
       if state.timer, do: Process.cancel_timer(state.timer)
     end
 
-    init(socket)
+    nav = socket.assigns.deck_nav
+    socket |> init() |> assign(deck_nav: %{nav | chat: nil, surface: if(nav.surface == :chat, do: :grid, else: nav.surface)})
   end
 
   @spec info(ChatOwner.socket(), term()) :: ChatOwner.socket()
@@ -51,6 +53,13 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
     assign(socket, deck_chat: %{state | dirty: true, polls: 3})
   end
 
+  @spec reload(ChatOwner.socket()) :: ChatOwner.socket()
+  def reload(socket) do
+    state = socket.assigns.deck_chat
+    nav = socket.assigns.deck_nav
+    socket |> assign(deck_chat: %{state | last: nil, latest: nil, entries: []}, deck_nav: %{nav | chat: nil, scroll: 0}) |> refresh(true)
+  end
+
   defp refresh(socket, prepare?) do
     state = socket.assigns.deck_chat
 
@@ -69,18 +78,18 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
     with {:ok, view, reset?} <- tail(state),
          :ok <- Payload.validate(%{v: 1, kind: "conversation-append", id: state.ref.id, entries: view.entries, gap: false}) do
       incoming = Enum.map(view.entries, &mask_entry/1)
-      entries = if reset?, do: [], else: state.entries
-      entries = (entries ++ incoming) |> Enum.reverse() |> Enum.uniq_by(& &1.id) |> Enum.take(100) |> Enum.reverse()
-      ChatOwner.logs(socket, state.ref.id, entries)
+      socket = ChatPage.retain(socket, view, if(reset?, do: :reset, else: :tail))
+      state = socket.assigns.deck_chat
       latest = List.last(incoming) || if(reset?, do: nil, else: state.latest)
       last = view[:last] || if(reset?, do: nil, else: state.last)
-      socket |> assign(deck_chat: %{state | last: last, latest: latest, entries: entries}) |> push_view(view, latest)
+      socket |> assign(deck_chat: %{state | last: last, latest: latest}) |> push_view(view, latest)
     else
       _ -> unavailable(socket)
     end
   end
 
-  defp mask_entry(entry) do
+  @spec mask_entry(map()) :: map()
+  def mask_entry(entry) do
     Enum.reduce([:text, :arg, :res], entry, fn field, masked ->
       case Map.get(masked, field) do
         text when is_binary(text) -> Map.put(masked, field, History.mask_for(%{body: text}, {:device, "streamdeck"}).body)
@@ -107,7 +116,6 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
 
   defp unavailable(socket) do
     state = socket.assigns.deck_chat
-    ChatOwner.logs(socket, state.ref.id, state.entries)
     push_view(socket, %{state: :unavailable, observed_at: nil}, state.latest)
   end
 

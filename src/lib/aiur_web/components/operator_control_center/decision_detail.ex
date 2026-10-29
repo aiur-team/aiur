@@ -46,7 +46,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
         live_connected={@live_connected}
         voice_capabilities={@voice_capabilities}
       />
-      <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} />
+      <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} voice_capabilities={@voice_capabilities} live_connected={@live_connected} />
 
       <div class="decision-detail-grid single-column">
         <div>
