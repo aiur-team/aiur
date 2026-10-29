@@ -250,6 +250,9 @@ modes and Executor voice APIs remain available; their configuration is documente
 in [voice configuration](/reference/configuration-voice). Build retains message
 sending and dictation; full conversation pages retain their own composer.
 
+See [Executor voice](/guide/executor-voice) for shared Executor composer support.
+
+
 ## Authentication and network exposure
 
 Browser access supports Google sign-in and passkeys. On loopback, Basic Auth remains available as a browser fallback. Machine clients can use individually revocable bearer tokens created with `aiur token create`:

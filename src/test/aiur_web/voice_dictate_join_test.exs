@@ -64,9 +64,12 @@ defmodule AiurWeb.VoiceDictateJoinTest do
              subscribe_and_join(voice_socket(), "voice:dictation", worker_payload("ENG-7"))
   end
 
-  test "an executor target is unsupported in this build" do
-    payload = %{worker_payload("ENG-7") | "surface" => "executor_composer", "target" => %{"kind" => "executor"}}
-    assert {:error, %{reason_code: "unsupported_target"}} = subscribe_and_join(voice_socket(), "voice:dictate", payload)
+  test "an available Executor joins through the same validated dictate channel" do
+    EndpointStubs.put(capabilities_report_fun: fn -> %{instance: %{instance_id: "machine/run"}, capabilities: %{"executor.conversation" => %{state: :available}}} end)
+    payload = %{worker_payload("ENG-7") | "surface" => "executor_composer", "target" => %{"kind" => "executor", "instance_id" => "machine/run"}}
+    assert {:ok, _reply, joined} = subscribe_and_join(voice_socket(), "voice:dictate", payload)
+    assert joined.assigns.voice_target == %{kind: :executor, instance_id: "machine/run"}
+    assert joined.assigns.voice_surface == "executor_composer"
   end
 
   test "a socket without dashboard authority is refused as auth_changed" do
