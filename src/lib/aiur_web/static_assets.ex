@@ -36,7 +36,9 @@ defmodule AiurWeb.StaticAssets do
     voice-capture-worklet.js
     voice-input-hook.js
     voice-mode-choice.js
+    voice-playback.js
     voice-transport.js
+    voice-waveform.js
   )
   @long_lived_static_paths ~w(aiur-logo.png)
   # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.
