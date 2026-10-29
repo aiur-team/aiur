@@ -2,6 +2,8 @@
 
 Open `/streamdeck` in the [GUI](/guide/gui) for the emulator, or install the physical Stream Deck + sidecar. Both show the same daemon-rendered images. Ticket frames and the desktop modal read masked journal entries that survive restarts and workspace removal, falling back to workspace logs only without a journal. The browser retains Settings and Commands.
 
+Conversation dictation follows the ticket’s listener mode: default Sync waits for turn end; Steer delivers mid-turn when supported; Async holds messages for agent pull. If a turn is stuck, use the existing operator interrupt control.
+
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
 The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.

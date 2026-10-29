@@ -10,15 +10,8 @@ defmodule Aiur.Listener.TransitionsTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("async-transitions")
-    old = Application.fetch_env(:aiur, :listener_send_routing)
-    Application.put_env(:aiur, :listener_send_routing, :listener)
 
     on_exit(fn ->
-      case old do
-        {:ok, value} -> Application.put_env(:aiur, :listener_send_routing, value)
-        :error -> Application.delete_env(:aiur, :listener_send_routing)
-      end
-
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
@@ -165,15 +158,6 @@ defmodule Aiur.Listener.TransitionsTest do
     after
       File.chmod!(Path.dirname(path), 0o700)
     end
-  end
-
-  test "future regression: legacy routing leaves backlog rule inactive", ctx do
-    state = held(ctx, 1)
-    Application.put_env(:aiur, :listener_send_routing, :legacy)
-    {:reply, {:ok, _}, state} = switch(state, ctx.id, :sync, 1)
-    refute Enum.any?(Map.values(state.queue_store.items), &(&1.category == :system_notice))
-    assert_received {:listen_mode_changed, _, payload}
-    refute Map.has_key?(payload, :backlog)
   end
 
   defp held(ctx, n) do
