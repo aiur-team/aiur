@@ -165,6 +165,9 @@ defmodule Aiur.Orchestrator.ListenerModes do
       else: {:error, :issue_not_found}
   end
 
+  # Callers that skip Listener.get_mode validation (an issue without an identifier) must not crash the shared Orchestrator (#7151).
+  defp resolve(_state, _target), do: {:error, :invalid_target}
+
   defp stopped_identity(state, id) do
     if State.find_running_by_identifier(state.running, id), do: {:error, :ambiguous_identifier}, else: resolve(state, id)
   end
