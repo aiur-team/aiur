@@ -24,26 +24,20 @@ defmodule Aiur.Listener.ConformanceTest do
   test "every shared row is classified and modeled boundaries agree with delivers" do
     rows = scheduler_rows!()
 
-    for row <- rows do
-      case boundary(row) do
-        {:not_applicable, reason} ->
-          assert Map.fetch!(@not_applicable, reason) != ""
+    mismatches =
+      Enum.flat_map(rows, fn row ->
+        case boundary(row) do
+          {:not_applicable, reason} ->
+            assert Map.fetch!(@not_applicable, reason) != ""
+            []
 
-        event ->
-          {state, item, id} = queued(row)
-          result = claim(state, id, event)
+          event ->
+            scheduler_mismatches(row, event)
+        end
+      end)
 
-          if row["delivers"] do
-            assert {:reply, {:ok, claimed}, next} = result, inspect(row)
-            assert claimed.id == item.id
-            assert claimed.body.text == "shared spec row"
-            assert AgentQueueStore.get(next.queue_store, item.id).status == :delivered
-          else
-            assert {:reply, :empty, ^state} = result, inspect(row)
-            assert AgentQueueStore.get(state.queue_store, item.id).status == :pending
-          end
-      end
-    end
+    assert mismatches == [],
+           "aiur disagrees with scheduler.v1.json:\n" <> Enum.map_join(mismatches, "\n", &inspect(&1, limit: :infinity, printable_limit: :infinity))
   end
 
   test "async rows never claim at either boundary or wake an idle runner" do
@@ -52,9 +46,9 @@ defmodule Aiur.Listener.ConformanceTest do
 
     for row <- async_rows do
       {state, item, id} = queued(row)
-      assert {:reply, :empty, ^state} = claim(state, id, :tool), inspect(row)
-      assert {:reply, :empty, ^state} = claim(state, id, :stop), inspect(row)
-      assert {:reply, :empty, ^state} = OperatorMessages.claim_next_queue_item_call(state, id), inspect(row)
+      assert_async_empty(claim(state, id, :tool), state, row, :tool)
+      assert_async_empty(claim(state, id, :stop), state, row, :stop)
+      assert_async_empty(OperatorMessages.claim_next_queue_item_call(state, id), state, row, :queue_drain)
       entry = %{pid: self(), control: %{status: :sleeping}}
       assert :ok = DeliveryPolicy.notify_running_queue_update(state, entry, item)
       item_id = item.id
@@ -63,6 +57,7 @@ defmodule Aiur.Listener.ConformanceTest do
   end
 
   test "shared modes match persisted Aiur modes plus Khala-only mute, defaulting to sync", %{dir: dir} do
+    assert Spec.status() == :ok, "spec unavailable"
     assert Enum.sort(Spec.modes()) == Enum.sort(Enum.map(@modes, &Atom.to_string/1) ++ ["mute"])
     opts = [dir: dir, repo_name: "conformance"]
     assert ModeStore.get("default", opts).requested == :sync
@@ -104,6 +99,40 @@ defmodule Aiur.Listener.ConformanceTest do
     entries = List.flatten(observed)
     assert entries |> Enum.map(&Atom.to_string(&1.status)) |> Enum.uniq() |> Enum.sort() == Enum.sort(statuses -- ["blocked_without_wrapper"])
     assert entries |> Enum.reject(&is_nil(&1.carrier)) |> Enum.map(&Atom.to_string(&1.carrier)) |> Enum.uniq() |> Enum.sort() == Enum.sort(carriers)
+  end
+
+  defp assert_async_empty(result, state, row, boundary) do
+    unless match?({:reply, :empty, ^state}, result) do
+      flunk("async item claimed at #{boundary}: #{inspect(row, limit: :infinity, printable_limit: :infinity)}")
+    end
+  end
+
+  defp scheduler_mismatches(row, event) do
+    {state, item, id} = queued(row)
+    result = claim(state, id, event)
+    context = inspect(row, limit: :infinity, printable_limit: :infinity)
+
+    case {row["delivers"], result} do
+      {true, {:reply, {:ok, claimed}, next}} ->
+        assert claimed.id == item.id, context
+        assert claimed.body.text == "shared spec row", context
+        assert AgentQueueStore.get(next.queue_store, item.id).status == :delivered, context
+        []
+
+      {false, {:reply, :empty, ^state}} ->
+        assert AgentQueueStore.get(state.queue_store, item.id).status == :pending, context
+        []
+
+      {expected, _} ->
+        actual =
+          case result do
+            {:reply, {:ok, _}, _} -> true
+            {:reply, :empty, ^state} -> false
+            _ -> :unexpected_reply
+          end
+
+        [%{row: row, boundary: event, expected: expected, actual: actual}]
+    end
   end
 
   defp scheduler_rows! do
