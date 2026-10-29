@@ -280,9 +280,22 @@ defmodule Aiur.DecisionStore.Settlement do
   defp settle_dispatch_error(state, decision, action_id, attempt_id, reason) do
     cond do
       dispatch_outcome_unknown?(reason) -> settle_dispatch_outcome_unknown(state, decision, action_id, attempt_id, reason)
+      override_resume_error?(decision, reason) -> persist_override_resume(state, decision, action_id, reason)
       reason == :no_running_agent -> persist_pending_for_session(state, decision, action_id)
       true -> settle_dispatch_failure(state, decision, action_id, attempt_id, reason)
     end
+  end
+
+  defp override_resume_error?(decision, reason) do
+    not is_nil(Aiur.Commands.Overrides.pending(decision)) and
+      reason in [:no_running_agent, :max_concurrent_agents_reached, :load_governor_refused]
+  end
+
+  defp persist_override_resume(state, decision, action_id, reason) do
+    capacity? = reason != :no_running_agent
+    data = %{action_id: action_id, route: if(capacity?, do: :capacity_wait, else: :resume_pending), reason: if(capacity?, do: :capacity, else: :eligible)}
+    {:reply, _result, next} = Aiur.DecisionStore.CommandFacts.record(state, decision.decision_id, :override_resume_state, data, [])
+    next
   end
 
   defp persist_pending_for_session(state, decision, action_id) do

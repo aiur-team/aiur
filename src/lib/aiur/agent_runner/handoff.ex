@@ -127,8 +127,9 @@ defmodule Aiur.AgentRunner.Handoff do
       WipPreservation.with_pending_notices(
         context.workspace,
         context.issue.identifier,
-        TurnLoop.build_turn_prompt(context.issue, context.workspace, context.opts, context.turn_number, context.max_turns)
+        TurnLoop.build_turn_prompt(context.issue, context.workspace, Keyword.delete(context.opts, :pending_overrides), context.turn_number, context.max_turns)
       )
+      |> then(fn {prompt, notices} -> {Aiur.Commands.OverridePrompt.render(context.opts) <> prompt, notices} end)
     end
   end
 

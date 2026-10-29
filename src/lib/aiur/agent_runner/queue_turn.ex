@@ -124,7 +124,8 @@ defmodule Aiur.AgentRunner.QueueTurn do
          codex_update_recipient,
          opts
        ) do
-    text = queue_item_text(item)
+    opts = Aiur.Commands.OverridePrompt.prepare(issue.identifier, opts)
+    text = Aiur.Commands.OverridePrompt.render(opts) <> queue_item_text(item)
     turn_id = queue_item_turn_id(item)
     workspace = SessionLifecycle.session_workspace(app_session)
     worker_host = SessionLifecycle.session_worker_host(app_session)

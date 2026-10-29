@@ -255,13 +255,24 @@ Push evidence needs a verified PR head-update timestamp later than
 delivery; unknown or same-second chronology stays unproven until acknowledgement
 or a later proven push. Queue acceptance alone does not mean implementation.
 
-Other routes (`resume_pending`, `capacity_wait`, `corrective_ticket`, `replacement`)
-retain the existing delivery path. An absent or paused worker receives the answer
-at its next session start; a terminal ticket raises an Executor follow-up.
+For an unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
+journal-backed resume queue. Resumable workers continue on the same ticket,
+branch and PR, oldest request first, within the fleet and pressure limits.
+Capacity waits remain visible with `resume_reason: capacity` and survive restart.
+A newer override supersedes the earlier pending actions; only its text is used.
 
-Automatic resumption and corrective-ticket creation are subsequent routing work.
-Override acceptance never spawns a worker or rewrites merged work. Direct legacy
-supersede calls retain their pre-delivery guard.
+Each resumed or continuation turn starts with “Operator override — this replaces
+your earlier instruction for Command …” until acknowledgement. A confirmed
+provider turn start marks prompt delivery; starting a worker alone does not.
+
+Explicit parked or paused labels stay in place. Aiur raises an Executor Command,
+“Resume #N to apply the override?”; the operator uses the normal resume control
+to authorize resumption. Capacity-only waits need no approval.
+
+Merged and unknown PR observations are held by this resume scheduler.
+Corrective-ticket creation and unrecoverable worker replacement are separate
+routing work. Overrides never rewrite merged work. Direct legacy supersede
+calls retain their pre-delivery guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.

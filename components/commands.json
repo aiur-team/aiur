@@ -32,6 +32,7 @@
     "Aiur.Commands.NativeCapture",
     "Aiur.Commands.NativeCapture.Claude",
     "Aiur.Commands.NativeCapture.Codex",
+    "Aiur.Commands.OverridePrompt",
     "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",

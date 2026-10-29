@@ -21,7 +21,8 @@ defmodule Aiur.AgentRunner.TurnPrompt do
         :cold -> PromptBuilder.build_prompt(issue, prompt_opts)
       end
 
-    prompt <>
+    Aiur.Commands.OverridePrompt.render(opts) <>
+      prompt <>
       PromptBuilder.answered_decisions_prompt(Keyword.get(prompt_opts, :answered_decisions, [])) <>
       conflict_guidance(workspace) <> stopped_session_guidance(issue, prompt_opts, workspace) <> AsyncMessagePrompt.build(issue.identifier, opts)
   end
@@ -43,7 +44,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     #{PromptBuilder.rename_test_audit_restatement()}
     """
 
-    prompt <> OptimisticPrompt.render(issue.optimistic_start) <> AsyncMessagePrompt.build(issue.identifier, opts)
+    Aiur.Commands.OverridePrompt.render(opts) <> prompt <> OptimisticPrompt.render(issue.optimistic_start) <> AsyncMessagePrompt.build(issue.identifier, opts)
   end
 
   defp conflict_guidance(workspace) when is_binary(workspace) do

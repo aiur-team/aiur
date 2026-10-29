@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{CodingAgent, Config, Issue}
-  alias Aiur.Orchestrator.{ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -293,7 +293,7 @@ defmodule Aiur.Orchestrator.Slots do
   def used_slots(%State{} = state), do: used_slots(state, state.running)
 
   defp used_slots(state, running) do
-    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running)
+    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running) + pending_resume_slots(state, running, :unreserved)
   end
 
   # Active agents plus rework claims whose tracker write is still in flight.
@@ -301,7 +301,17 @@ defmodule Aiur.Orchestrator.Slots do
   # check, so it must hold its slot from the moment it is claimed (#4683).
   @spec active_slots(State.t()) :: non_neg_integer()
   def active_slots(%State{} = state) do
-    State.active_running_count(state.running) + pending_rework_claims(state)
+    State.active_running_count(state.running) + pending_rework_claims(state) + pending_resume_slots(state, state.running, :all)
+  end
+
+  # Correlated resumes can be accepted before the worker confirms :working.
+  # Reserve that slot now, without double-counting a pause that retained one.
+  defp pending_resume_slots(state, running, mode) do
+    Enum.count(running, fn {id, entry} ->
+      State.paused_running_entry?(entry) and
+        match?(%{action: :resume}, ControlLifecycle.current_pending(state.control_lifecycle, id)) and
+        (mode == :all or State.reserved_paused_running_count(%{id => entry}) == 0)
+    end)
   end
 
   defp pending_rework_claims(%State{tracker_tasks: tasks}) when is_map(tasks),

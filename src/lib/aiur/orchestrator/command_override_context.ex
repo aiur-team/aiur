@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.CommandOverrideContext do
   defp worker_state(%{control: %{status: :unrecoverable}}), do: :unrecoverable
 
   defp worker_state(entry) do
-    if State.active_running_entry?(entry) and not State.sleeping_running_entry?(entry),
+    if State.active_running_entry?(entry),
       do: :active,
       else: :resumable
   end

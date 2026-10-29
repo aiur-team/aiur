@@ -342,7 +342,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           state
           |> FeatureSupply.observe(issues)
-          |> HoldsAndAlerts.dispatch_or_hold(issues)
+          |> Aiur.Orchestrator.OverrideResume.schedule(issues)
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)
