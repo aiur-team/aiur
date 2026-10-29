@@ -157,7 +157,10 @@ atomically replaces that file.
 selects the snapshot output directory.
 
 Repeat `--instance <name>` for each
-additional configured daemon to query through `aiur --instance <name>`.
+additional configured daemon to query through `aiur --instance <name>`. This
+selects daemon queries; it does not expose that machine's local telemetry or
+analytics files to the collector, so its allocation sections remain unavailable
+unless those files are reachable in the collector's local state directory.
 
 The collector shares classification with the meta check's `feature-share.sh`.
 
