@@ -75,7 +75,7 @@ def html(report, timezone_name=None, notes=None):
 
 def trim_script(omitted):
     # Trim whole lowest-priority items after embedded fonts load. Never clip or scale.
-    script = (HERE / "layout.js").read_text().replace("INITIAL_OMITTED", str(omitted))
+    script = (HERE / "layout.js.template").read_text().replace("INITIAL_OMITTED", str(omitted))
     return "<script>" + script + "</script>"
 
 
