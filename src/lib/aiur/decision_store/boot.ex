@@ -61,7 +61,7 @@ defmodule Aiur.DecisionStore.Boot do
 
   @spec configure_dispatch(term(), term()) :: term()
   def configure_dispatch(state, opts) do
-    :ok = OverridePushes.subscribe()
+    :ok = OverridePushes.subscribe(Keyword.get(opts, :override_push_exchange, Aiur.Events.Exchange))
 
     revision_projector =
       Keyword.get(opts, :revision_follow_up_projector, &DecisionRevisionDispatch.project_follow_up/2)

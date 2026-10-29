@@ -6,8 +6,15 @@ defmodule Aiur.DecisionStore.OverridePushes do
   alias Aiur.Commands.OverrideContext
   alias Aiur.DecisionStore.CommandFacts
 
-  @spec subscribe() :: :ok
-  def subscribe, do: Aiur.Events.subscribe("ticket.*.branch.push")
+  @spec subscribe(GenServer.server()) :: :ok
+  def subscribe(server \\ Aiur.Events.Exchange) do
+    Aiur.Events.Exchange.subscribe("ticket.*.branch.push", server)
+  catch
+    :exit, reason ->
+      detail = Aiur.SecretRedactor.redact(inspect(reason))
+      Logger.warning("aiur_decision_store phase=override_push_subscription_failed reason=#{detail}")
+      :ok
+  end
 
   @spec observe(map(), map()) :: :ok
   def observe(state, %{topic: topic, source: :system}) do
