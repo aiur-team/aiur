@@ -16,6 +16,7 @@ defmodule Aiur.VoiceConverse.Host.ConfigTest do
     assert {:ok, config} = Config.build(%Settings{})
     assert config.transcript_root == Path.join(root, "voice")
     assert config.briefing_source == Aiur.VoiceConverse.Host.BriefingSource
+    assert config.agent_channel == Aiur.VoiceConverse.Host.AgentChannel
     assert config.credentials == Aiur.VoiceConverse.Host.Credentials
   end
 end

@@ -13,7 +13,7 @@ export const PAUSED = 'Message the agent — it resumes when you send';
 export const AMBIGUOUS = 'Agent actions are unavailable because this display identifier is not a unique writable target.';
 const NO_ANSWER = 'No answer from the dashboard, so the message may still be queued. Check the log before you send again.';
 const STATUS = {
-  queued: ['Queued · waiting for the agent', ''], delivered: null, unconfirmed: ['Queued · delivery unconfirmed', ''],
+  queued: ['Queued · waiting for the agent', ''], delivered: ['Delivered to the agent', ''], unconfirmed: ['Queued · delivery unconfirmed', ''],
   failed: ['Not delivered (failed)', 'bad'], superseded: ['Not delivered (superseded)', 'bad'],
 };
 let drafts = new Map(), st = null, offs = [], localOps = [], appending = false, mic = null;
@@ -75,7 +75,7 @@ async function submit() {
   const ref = st, ta = $('#cv-in textarea');
   if (!ref || !ta || ref.pending || ref.ended || !live()) return;
   const raw = ta.value; if (!raw.trim()) return;
-  ref.pending = true; $('#cv-in').setAttribute('aria-busy', 'true'); refresh();
+  ref.pending = true; ref.last = null; $('#cv-in').dataset.voiceState = 'idle'; $('#cv-in').setAttribute('aria-busy', 'true'); refresh();
   let reply;
   try { reply = await Promise.race([ctx.push('send', { id: ref.id, text: raw }), timeout(15000)]); } catch { reply = null; }
   ref.pending = false;
@@ -90,7 +90,7 @@ async function submit() {
 function accepted(ref, raw, reply) {
   const ta = $('#cv-in textarea');
   if (ta && ta.value === raw) { ta.value = ''; ta.style.height = 'auto'; drafts.delete(ref.id); }
-  ref.last = reply.request_id; ref.sent = reply.text; setLine(null);
+  ref.last = reply.request_id; ref.sent = reply.text; $('#cv-in').dataset.voiceState = 'sent'; setLine('Sent — waiting for the agent');
   const log = $('#cv-log'); if (log) log.scrollTop = log.scrollHeight;
   // The composer's own row must not claim an earlier local row with the same text.
   appending = true;
@@ -108,9 +108,10 @@ export function claimLocalOp(entry) {
   return localOps.splice(i, 1)[0].el;
 }
 export function sendStatus(msg) {
-  if (!st || msg?.v !== 1 || msg.id !== st.id || msg.request_id !== st.last || !Object.hasOwn(STATUS, msg.status)) return;
-  const words = STATUS[msg.status];
+  if (!st || msg?.v !== 1 || msg.id !== st.id || msg.request_id !== st.last) return;
+  const words = Object.hasOwn(STATUS, msg.status) ? STATUS[msg.status] : ['Delivery outcome unknown. Check the log before you send again.', ''];
   setLine(words?.[0], words?.[1]);
+  const form = $('#cv-in'); if (form) form.dataset.voiceState = ['queued', 'delivered'].includes(msg.status) ? 'sent' : 'idle';
   const ta = $('#cv-in textarea');
   if (msg.status === 'failed' && ta && !ta.value) { ta.value = st.sent; drafts.set(st.id, st.sent); grow(ta); }
 }
