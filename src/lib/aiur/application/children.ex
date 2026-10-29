@@ -331,7 +331,8 @@ defmodule Aiur.Application.Children do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
       List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       BuildOrders.child_specs(:estimates, opts) ++
-      List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
+      List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor)) ++
+      List.wrap(if(recording?, do: Aiur.Executor.Session))
   end
 
   defp dashboard_cache_children(dashboard?) do
@@ -375,7 +376,7 @@ defmodule Aiur.Application.Children do
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
   defp recording_children(true),
-    do: [Aiur.Executor.Claims, Aiur.Executor.Session, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
+    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
 
   defp recording_children(false), do: []
 
