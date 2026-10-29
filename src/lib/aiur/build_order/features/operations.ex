@@ -80,13 +80,7 @@ defmodule Aiur.BuildOrder.Features.Operations do
       nonmembers = Enum.reject(numbers, &match?(%{feature: slug} when slug == feature.slug, projection.owners[&1]))
 
       with :ok <- check(nonmembers == [], {:not_member, nonmembers}) do
-        events =
-          for number <- numbers,
-              owner = projection.owners[number],
-              not owner.confirmed,
-              do: member_event("member.added", feature.slug, number, meta.at, %{epic: owner.epic, confirmed: true, at_basis: owner.at_basis})
-
-        {:ok, events}
+        {:ok, confirmation_events(numbers, feature.slug, meta, projection.owners)}
       end
     end
   end
@@ -127,6 +121,13 @@ defmodule Aiur.BuildOrder.Features.Operations do
   end
 
   defp change(_, _, _, _, _, _), do: {:error, :invalid_operation}
+
+  defp confirmation_events(numbers, slug, meta, owners) do
+    for number <- numbers,
+        owner = owners[number],
+        not owner.confirmed,
+        do: member_event("member.added", slug, number, meta.at, %{epic: owner.epic, confirmed: true, at_basis: owner.at_basis})
+  end
 
   defp create_events(feature, general, projection) do
     case projection.features[feature.slug] do

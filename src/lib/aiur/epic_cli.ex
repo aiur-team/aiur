@@ -1,8 +1,8 @@
 defmodule Aiur.EpicCLI do
   @moduledoc "Formats local epic registry commands dispatched by the shared launcher."
   alias Aiur.BuildOrder.EpicOverrides
-  alias Aiur.JSONSafe
   alias Aiur.EpicConfirmationCLI, as: Confirmation
+  alias Aiur.JSONSafe
 
   @spec run(keyword()) :: non_neg_integer()
   def run(opts) do

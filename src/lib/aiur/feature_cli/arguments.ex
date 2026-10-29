@@ -36,11 +36,16 @@ defmodule Aiur.FeatureCLI.Arguments do
     cond do
       Map.has_key?(args, :hue) and not FeatureData.hue?(args.hue) -> usage("hue must be 0 to 359")
       Map.has_key?(args, :label) and not FeatureData.text?(args.label, 80) -> usage("invalid label")
-      args[:unconfirmed] == true and args[:op] != :show -> usage("--unconfirmed requires show")
-      args[:op] == :confirm and Enum.any?([:epic, :move, :remove, :replace, :source], &Map.has_key?(args, &1)) -> usage("invalid confirm option")
+      invalid_confirm?(args) -> usage("invalid confirm option")
       not flags?(args) -> usage("invalid boolean option")
       true -> :ok
     end
+  end
+
+  defp invalid_confirm?(args) do
+    filtered_write? = args[:unconfirmed] == true and args[:op] != :show
+    forbidden = [:epic, :move, :remove, :replace, :source]
+    filtered_write? or (args[:op] == :confirm and Enum.any?(forbidden, &Map.has_key?(args, &1)))
   end
 
   defp provenance(op, args) do

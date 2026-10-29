@@ -1,5 +1,6 @@
 defmodule Aiur.BuildOrder.EpicOverridesConfirmTest do
   use ExUnit.Case, async: false
+  alias Aiur.BuildOrder.Epic
   alias Aiur.BuildOrder.EpicOverrides, as: Store
   alias Aiur.BuildOrder.EpicOverrides.Override
   @guess %{actor: "agent:2790", source: "backfill-agent"}
@@ -81,10 +82,10 @@ defmodule Aiur.BuildOrder.EpicOverridesConfirmTest do
   test "confirmation makes a stored override outrank the ticket type label", c do
     context = %{general: [%{key: "bugs", labels: ["bug"]}, %{key: "infra", labels: ["infra"]}], features: %{}}
     {:ok, before, _} = Store.get_many([12], c.write)
-    assert %{key: "bugs"} = Aiur.BuildOrder.Epic.resolve(%{labels: ["bug", "refactor"], override: before[12]}, context)
+    assert %{key: "bugs"} = Epic.resolve(%{labels: ["bug", "refactor"], override: before[12]}, context)
     assert {:ok, _} = Store.confirm([12], @cli, c.write)
     {:ok, after_confirm, _} = Store.get_many([12], c.write)
-    assert %{key: "infra", source: "override:cli:kevin"} = Aiur.BuildOrder.Epic.resolve(%{labels: ["bug", "refactor"], override: after_confirm[12]}, context)
+    assert %{key: "infra", source: "override:cli:kevin"} = Epic.resolve(%{labels: ["bug", "refactor"], override: after_confirm[12]}, context)
   end
 
   test "acceptance protects the value against later backfill", c do
