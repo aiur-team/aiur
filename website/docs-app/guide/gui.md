@@ -383,11 +383,11 @@ Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
 
-## Conversations
+## Open a full conversation
 
-From **Units**, choose the **Full conversation** row action, or open the chat
-drawer and select **Full conversation** in its header. The drawer remains the
-quick view.
+From **Units**, select the document icon for **Full conversation**, or open the
+chat drawer with the speech bubble and select **Full conversation** in its
+header. The drawer remains the quick view.
 
 Units without a joinable repository identity have no full-view link;
 a conversation without recorded messages shows **No messages yet**. Until its
