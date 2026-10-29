@@ -80,6 +80,9 @@ class CollectorTest(unittest.TestCase):
             log_dir.mkdir()
             rows = [
                 {"kind": "run_context", "timestamp": iso(NOW - timedelta(days=7, minutes=1)), "attributes": {}},
+                {"kind": "lifecycle", "timestamp": iso(NOW - timedelta(days=7, minutes=1)),
+                 "attributes": {"ticket": "41", "attempt_id": "prior", "operation_id": "turn:prior",
+                                "event": "dispatch", "boundary": "point"}},
                 {"kind": "lifecycle", "timestamp": iso(NOW - timedelta(minutes=2)),
                  "attributes": {"ticket": "42", "attempt_id": "attempt", "operation_id": "turn:1",
                                 "event": "implement", "boundary": "start"}},
@@ -91,6 +94,12 @@ class CollectorTest(unittest.TestCase):
                                 "interval_start_ms": int((NOW - timedelta(days=1)).timestamp() * 1000),
                                 "interval_end_ms": int(NOW.timestamp() * 1000),
                                 "feature_starved_slot_minutes": 1440.0,
+                                "non_feature_during_starvation_minutes": 0.0, "observed_minutes": 1440.0}},
+                {"kind": "feature_supply", "timestamp": iso(NOW - timedelta(days=2)),
+                 "attributes": {"event": "interval", "event_key": "supply:old",
+                                "interval_start_ms": int((NOW - timedelta(days=3)).timestamp() * 1000),
+                                "interval_end_ms": int((NOW - timedelta(days=2)).timestamp() * 1000),
+                                "feature_starved_slot_minutes": 0.0,
                                 "non_feature_during_starvation_minutes": 0.0, "observed_minutes": 1440.0}},
             ]
             (log_dir / "telemetry.ndjson").write_text("".join(json.dumps(row) + "\n" for row in rows))
@@ -104,6 +113,76 @@ class CollectorTest(unittest.TestCase):
         supply = result["pc"]["feature_supply"]
         self.assertEqual((supply["state"], supply["complete"]), ("available", True))
         self.assertEqual(set(supply["records"][0]), {"event_id", "kind", "attributes"})
+
+    def test_collector_hydrates_telemetry_tickets_and_serializes_snapshot_evidence(self):
+        class TrackingGitHub(FakeGitHub):
+            fetched = None
+
+            def issues(self, numbers):
+                self.fetched = set(numbers)
+                return super().issues(numbers)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            telemetry = root / "telemetry"
+            telemetry.mkdir()
+            start7 = NOW - timedelta(days=7)
+            rows = [
+                {"kind": "run_context", "timestamp": iso(start7 - timedelta(minutes=1)), "attributes": {}},
+                {"kind": "lifecycle", "timestamp": iso(start7 - timedelta(minutes=1)),
+                 "attributes": {"ticket": "1", "attempt_id": "anchor", "event": "dispatch",
+                                "boundary": "point"}},
+                {"kind": "lifecycle", "timestamp": iso(start7 - timedelta(days=1)),
+                 "attributes": {"ticket": "888", "attempt_id": "old", "operation_id": "turn:old",
+                                "event": "implement", "boundary": "start"}},
+                {"kind": "lifecycle", "timestamp": iso(NOW - timedelta(minutes=2)),
+                 "attributes": {"ticket": "99", "attempt_id": "current", "operation_id": "turn:1",
+                                "event": "implement", "boundary": "start"}},
+                {"kind": "lifecycle", "timestamp": iso(NOW - timedelta(minutes=1)),
+                 "attributes": {"ticket": "99", "attempt_id": "current", "operation_id": "turn:1",
+                                "event": "implement", "boundary": "end"}},
+            ]
+            (telemetry / "telemetry.ndjson").write_text(
+                "".join(json.dumps(row) + "\n" for row in rows))
+            github = TrackingGitHub()
+            snapshot = collect.collect("owner/repo", root, NOW, github, daemon,
+                                      telemetry_root=telemetry)
+            output = collect.write_snapshot(snapshot, root / "snapshots")
+            persisted = json.loads(output.read_text())
+
+        self.assertIn(99, github.fetched)
+        self.assertEqual(persisted["allocation_evidence"]["pc"]["turns"]["state"], "available")
+        self.assertEqual(persisted["allocation_evidence"]["pc"]["turns"]["records"][0]["number"], 99)
+        self.assertEqual(persisted["allocation_evidence"]["nuc"]["turns"]["state"], "unavailable")
+
+    def test_sparse_resource_rows_cannot_prove_seven_day_turn_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            telemetry = root / "telemetry"
+            telemetry.mkdir()
+            rows = [
+                {"kind": "resource", "timestamp": iso(NOW - timedelta(days=8)), "attributes": {}},
+                {"kind": "resource", "timestamp": iso(NOW), "attributes": {}},
+            ]
+            (telemetry / "telemetry.ndjson").write_text(
+                "".join(json.dumps(row) + "\n" for row in rows))
+            evidence = allocation_evidence(root, NOW, {}, telemetry_root=telemetry)
+        self.assertEqual(evidence["pc"]["turns"]["state"], "unavailable")
+        self.assertIsNone(evidence["pc"]["turns"]["records"])
+
+    def test_malformed_telemetry_marks_allocation_source_unavailable_with_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            telemetry = root / "telemetry"
+            telemetry.mkdir()
+            (telemetry / "telemetry.ndjson").write_text("{not-json}\n")
+            with self.assertRaises(json.JSONDecodeError):
+                allocation_evidence(root, NOW, {}, telemetry_root=telemetry)
+            snapshot = collect.collect("owner/repo", root, NOW, FakeGitHub(), daemon,
+                                      telemetry_root=telemetry)
+        self.assertEqual(snapshot["sources"]["allocation_evidence"]["state"], "unavailable")
+        self.assertIn("property name", snapshot["sources"]["allocation_evidence"]["reason"])
+        self.assertEqual(snapshot["allocation_evidence"]["pc"]["turns"]["state"], "unavailable")
 
     def test_schema_real_sources_and_cross_machine_deduplication(self):
         with tempfile.TemporaryDirectory() as tmp:

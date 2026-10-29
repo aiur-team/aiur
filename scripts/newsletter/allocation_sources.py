@@ -73,7 +73,7 @@ def collect_allocation_evidence(state_dir, now, current_issues, github, instance
 
 
 def _events(paths):
-    events, supplies, earliest, latest = [], [], None, None
+    events, supplies, earliest, latest, first_lifecycle, last_lifecycle = [], [], None, None, None, None
     for path in paths:
         for row in _read_ndjson(path):
             attrs = row.get("attributes", {})
@@ -85,35 +85,41 @@ def _events(paths):
             latest = at if latest is None else max(latest, at)
             if row.get("kind") == "lifecycle" and attrs.get("event") == "implement":
                 events.append((attrs, at))
+            if row.get("kind") == "lifecycle":
+                first_lifecycle = at if first_lifecycle is None else min(first_lifecycle, at)
+                last_lifecycle = at if last_lifecycle is None else max(last_lifecycle, at)
             if row.get("kind") == "feature_supply":
                 supplies.append((attrs, at))
-    return events, supplies, earliest, latest
+    return events, supplies, earliest, latest, first_lifecycle, last_lifecycle
 
 
-def _turn_records(events, issues):
+def _turn_records(events, issues, window_start):
     starts, records, complete = {}, [], True
     for attrs, at in events:
+        in_window = at >= window_start
         key = (attrs.get("attempt_id"), attrs.get("operation_id"))
         if not key[0] or not attrs.get("ticket"):
-            complete = False
+            complete = complete and not in_window
             continue
         if attrs.get("boundary") == "start":
-            complete = complete and key not in starts
+            complete = complete and (key not in starts or not in_window)
             starts[key] = (attrs, at)
         elif attrs.get("boundary") == "end" and key in starts:
             began, start = starts.pop(key)
             number = int(attrs.get("ticket"))
-            complete = complete and str(number) == str(began.get("ticket"))
+            complete = complete and (str(number) == str(began.get("ticket")) or not in_window)
+            if at < window_start:
+                continue
             issue = issues.get(number)
             if issue is None:
-                complete = False
+                complete = complete and not in_window
                 continue
             records.append({"attempt_id": key[0] + ":" + str(key[1]), "number": number,
                             "phase": "implement", "started_at": iso(start), "ended_at": iso(at),
                             "labels": issue["labels"], "title": issue["title"]})
         elif attrs.get("boundary") == "end":
-            complete = False
-    return records, complete and not starts
+            complete = complete and not in_window
+    return records, complete and not any(start >= window_start for _, start in starts.values())
 
 
 def _supply_records(rows):
@@ -132,7 +138,9 @@ def _supply_covers(records, start, end):
                     min(upper, row["attributes"]["interval_end_ms"])) for row in records)
     cursor = lower
     for left, right in spans:
-        if right <= left or left > cursor:
+        if right <= left:
+            continue
+        if left > cursor:
             return False
         cursor = max(cursor, right)
     return cursor >= upper
@@ -145,18 +153,22 @@ def allocation_evidence(state_dir, now, issues, instances=(), telemetry_root=Non
           "feature_supply": _unavailable("complete feature-supply interval coverage unavailable")}
     try:
         paths = _telemetry(state_dir, telemetry_root or state_dir / "logs")
-        events, supply_rows, earliest, latest = _events(paths)
-        start7, start1 = now - timedelta(days=7), now - timedelta(days=1)
-        relevant = {int(attrs["ticket"]) for attrs, at in events if attrs.get("ticket") and at > start7}
-        turns, paired = _turn_records(events, issues)
-        complete_turns = earliest is not None and earliest <= start7 and latest is not None and latest >= now - timedelta(minutes=5)
-        if complete_turns and paired and relevant <= set(issues):
-            pc["turns"] = _evidence_block(turns, start7, now, True)
-        supply = _supply_records(supply_rows)
-        if earliest is not None and earliest <= start1 and latest is not None and latest >= now - timedelta(minutes=5) and _supply_covers(supply, start1, now):
-            pc["feature_supply"] = _evidence_block(supply, start1, now, True)
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
+    except OSError as error:
+        unavailable = _unavailable(str(error))
+        return {"pc": {name: unavailable.copy() for name in pc},
+                "nuc": {name: unavailable.copy() for name in pc}}
+    events, supply_rows, earliest, latest, first_lifecycle, last_lifecycle = _events(paths)
+    start7, start1 = now - timedelta(days=7), now - timedelta(days=1)
+    relevant = {int(attrs["ticket"]) for attrs, at in events if attrs.get("ticket") and at > start7}
+    turns, paired = _turn_records(events, issues, start7)
+    complete_turns = (first_lifecycle is not None and first_lifecycle <= start7
+                      and last_lifecycle is not None and last_lifecycle >= now - timedelta(minutes=5)
+                      and bool(turns))
+    if complete_turns and paired and relevant <= set(issues):
+        pc["turns"] = _evidence_block(turns, start7, now, True)
+    supply = _supply_records(supply_rows)
+    if earliest is not None and earliest <= start1 and latest is not None and latest >= now - timedelta(minutes=5) and _supply_covers(supply, start1, now):
+        pc["feature_supply"] = _evidence_block(supply, start1, now, True)
     unavailable = {name: _unavailable("machine telemetry not reachable")
                    for name in ("turns", "intake", "feature_supply")}
     return {"pc": pc, "nuc": unavailable}
