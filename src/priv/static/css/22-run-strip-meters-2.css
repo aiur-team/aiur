@@ -117,7 +117,7 @@
 
 .rs-ln.has-tag { grid-template-columns: var(--rs-tag-width, 3.4em) 8ch minmax(0, 1fr) 12.5ch; }
 
-.rs-ln > span { min-width: 0; overflow: hidden; white-space: nowrap; }
+.rs-ln > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .rs-tg { font-weight: 500; color: var(--muted); text-overflow: ellipsis; }
 
@@ -153,7 +153,7 @@
   color: var(--muted);
 }
 
-.rs-rs > span { overflow: hidden; text-overflow: clip; }
+.rs-rs > span { overflow: hidden; text-overflow: ellipsis; }
 
 .rs-rs svg { width: 9px; height: 9px; flex: none; color: var(--faint); }
 
@@ -215,10 +215,6 @@
 
   .rs-provider-row .rs-limit {
     gap: 0.15rem;
-  }
-
-  .rs-api .rs-limit {
-    grid-template-columns: minmax(0, 1fr) 6.5rem;
   }
 
   .rs-provider-row .rs-limit-label,

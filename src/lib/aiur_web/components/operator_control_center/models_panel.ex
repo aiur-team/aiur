@@ -77,7 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
               <path d="M20 11a8 8 0 0 0-14.8-3.5M4 13a8 8 0 0 0 14.8 3.5" /><path d="M4 3.5V8h4.5M20 20.5V16h-4.5" />
             </svg>
             <b :if={line.amount} class="rs-usd">{line.amount}</b>
-            <span :if={line.note} class="rs-no">{line.note}</span>
+            <span :if={line.note} class="rs-no" title={line.note}>{line.note}</span>
           </span>
           <span
             class={classes(["rs-meter", is_nil(line.percent) && "is-unknown"])}
@@ -161,7 +161,7 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       percent: remaining,
       note: "#{remaining}% left · #{age} old",
       aria_label: "Codex headroom",
-      title: "Codex headroom · #{remaining}% remaining · observed #{age} ago"
+      title: "Codex headroom · #{remaining}% left · #{age} old"
     })
   end
 

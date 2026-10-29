@@ -13,6 +13,43 @@ defmodule Aiur.BrowserHarness.ModelsPanelLive do
   @impl true
   def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
 
+  def units_provider_fixture do
+    codex_headroom = %{status: :observed, remaining_percent: 32, age_seconds: 1}
+    fixture_meters = meters()
+    cards = Enum.map(fixture_meters.cards, &if(&1.provider == :codex, do: Map.put(&1, :headroom, codex_headroom), else: &1))
+    fixture_meters = Map.put(fixture_meters, :cards, cards)
+    quota = github_quota()
+
+    windows = %{
+      "core" => Map.merge(quota.windows["core"], %{remaining: 4_906, limit: 5_000, used_percent: 1.88}),
+      "graphql" => Map.merge(quota.windows["graphql"], %{remaining: 4_794, limit: 5_000, used_percent: 4.12})
+    }
+
+    %{
+      run: %{state: :loading},
+      usage: %{state: :ready, providers: %{}},
+      meters: fixture_meters,
+      github_quota: quota |> Map.put(:auth_mode, :env) |> Map.put(:windows, windows),
+      elevenlabs_quota: %{
+        state: :observed,
+        failure: nil,
+        observed_at: @now,
+        window: %{
+          limit: 100_000,
+          used: 25_000,
+          remaining: 75_000,
+          used_percent: 25.0,
+          next_invoice: %{amount_due_cents: 500, currency: "USD"},
+          tier: "creator",
+          reset_at: after_now(3 * 86_400),
+          observed_at: @now
+        }
+      },
+      configured_providers: MapSet.new([:claude, :codex]),
+      now: @now
+    }
+  end
+
   @impl true
   def render(assigns) do
     ~H"""

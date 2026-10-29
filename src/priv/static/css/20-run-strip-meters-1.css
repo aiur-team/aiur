@@ -172,9 +172,11 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .rs-api .rs-limit {
   grid-template:
-    "label meta" minmax(0, 1fr)
-    "meter meter" var(--rs-meter-height, var(--progress-bar-height)) /
-    minmax(0, 1fr) 9rem;
+    "label" auto
+    "meta" auto
+    "meter" var(--rs-meter-height, var(--progress-bar-height)) /
+    minmax(0, 1fr);
+  height: auto;
 }
 
 .rs-provider-row .rs-meter {

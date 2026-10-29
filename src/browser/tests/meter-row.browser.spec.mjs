@@ -19,13 +19,12 @@ async function expectVisibleMetadata(row, variant, expected) {
   await expect(hidden).toBeHidden()
 }
 
-// A provider limit is one fixed logo-height line: the label and its meta sit on
-// the line directly above the standard thin bar, close enough that adding them
-// does not grow the row. Every limit — model or API — shares this geometry.
+// A model limit is one fixed logo-height line: its label and meta sit directly
+// above the standard thin bar without growing the row.
 // The extraction lives inline in each evaluateAll below because Playwright runs
 // it in the browser, outside this module's scope.
 function expectStandardLimit(row, identityHeight, width) {
-  // The row keeps the fixed logo-height line the aligned design established.
+  // The model row keeps the fixed logo-height line the aligned design established.
   expect(closeEnough(row.rowHeight, identityHeight), `limit row must keep its logo-height identity at ${width}px`).toBe(true)
   // The bar is the standard thin progress bar, not the tall fill that replaced it.
   expect(row.barHeight, `bar must render at ${width}px`).toBeGreaterThan(0)
@@ -89,11 +88,8 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       await expect(elevenlabs.locator('.rs-head-stats, .rs-stat')).toHaveCount(0)
 
       const elevenlabsLine = await elevenlabs.locator('.rs-limit').evaluate((line) => ({
-        height: line.getBoundingClientRect().height,
         overflow: line.scrollWidth - line.clientWidth
       }))
-      const elevenlabsIdentityHeight = await elevenlabs.locator('.rs-head').evaluate((identity) => identity.getBoundingClientRect().height)
-      expect(closeEnough(elevenlabsLine.height, elevenlabsIdentityHeight), `ElevenLabs row height changed at ${width}px`).toBe(true)
       expect(elevenlabsLine.overflow, `ElevenLabs metadata overflowed at ${width}px`).toBeLessThanOrEqual(0)
 
       // All four model providers render inside the one combined pane.
@@ -120,10 +116,8 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
         expect(line.height, `model line must fit its label and full-width bar at ${width}px`).toBeCloseTo(17, 0)
         expect(line.barHeight, `model bar must be the design's 5px bar at ${width}px`).toBeCloseTo(5, 0)
       }
-      const identityHeight = await page.locator('.rs-api .rs-head').first().evaluate((identity) => identity.getBoundingClientRect().height)
-
-      // API limits use the same standard bar + label-above geometry and keep
-      // the same row height; the bars are present again in the API pane.
+      // API labels, remaining values, and bars use separate tracks so their
+      // boxes remain independent even when the card is narrow.
       const apiGeometry = await page.locator('.rs-api .rs-limit').evaluateAll((limits) => limits.map((limit) => {
         const box = limit.getBoundingClientRect()
         const track = limit.querySelector('.rs-meter').getBoundingClientRect()
@@ -140,13 +134,19 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
           labelTop: label.top,
           labelBottom: label.bottom,
           labelHeight: label.height,
+          metaTop: meta?.getBoundingClientRect().top ?? 0,
+          metaBottom: meta?.getBoundingClientRect().bottom ?? 0,
           metaHeight: meta?.getBoundingClientRect().height ?? 0
         }
       }))
-      expect(apiGeometry.every(({ rowHeight }) => closeEnough(rowHeight, identityHeight)), `API row height changed at ${width}px`).toBe(true)
       expect(apiGeometry.every(({ barHeight }) => barHeight > 0)).toBe(true)
       for (const limit of apiGeometry) {
-        expectStandardLimit(limit, identityHeight, width)
+        expect(limit.metaHeight, `API metadata must render at ${width}px`).toBeGreaterThan(0)
+        expect(limit.labelTop, `API label must precede metadata at ${width}px`).toBeLessThan(limit.metaTop)
+        expect(limit.labelBottom, `API label must not overlap metadata at ${width}px`).toBeLessThanOrEqual(limit.metaTop)
+        expect(limit.metaBottom, `API metadata must not overlap the bar at ${width}px`).toBeLessThanOrEqual(limit.barTop)
+        expect(limit.barHeight, `API bar must stay compact at ${width}px`).toBeLessThan(10)
+        expect(limit.barBottom, `API bar must stay inside its row at ${width}px`).toBeLessThanOrEqual(limit.rowBottom + 0.5)
       }
 
       const githubBackoff = page.locator('.github-quota-backoff')

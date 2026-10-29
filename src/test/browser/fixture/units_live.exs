@@ -4,11 +4,13 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   import Aiur.BrowserHarness.UnitsLive.Data
 
   alias Aiur.BrowserHarness.FixtureServer
+  alias Aiur.BrowserHarness.ModelsPanelLive, as: ModelsPanelFixture
   alias Aiur.TrackerIdentity
 
   alias AiurWeb.OperatorControlCenter.{
     AddAgentModal,
     ConversationDrawer,
+    RunSummaryStrip,
     TicketContext,
     TicketDetailModal,
     TicketsPanel,
@@ -53,7 +55,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:tickets_panel_view, TicketsPresenter.search(tickets_view(), ""))
      |> assign(:ticket_detail, nil)
      |> assign(:add_agent_modal, nil)
-     |> assign(:generation, 1)}
+     |> assign(:generation, 1)
+     |> assign(:provider_fixture, if(params["provider_layout"] == "1", do: ModelsPanelFixture.units_provider_fixture(), else: nil))}
   end
 
   @impl true
@@ -228,6 +231,16 @@ defmodule Aiur.BrowserHarness.UnitsLive do
 
     ~H"""
     <main class="app-shell" data-units-fixture="true" data-voice-handoff={Jason.encode!(@voice_handoff)} data-voice-draft={@drafts["1110"] || ""} data-sent-message={@sent_message || ""}>
+      <RunSummaryStrip.run_summary_strip
+        :if={@provider_fixture}
+        run={@provider_fixture.run}
+        usage={@provider_fixture.usage}
+        meters={@provider_fixture.meters}
+        github_quota={@provider_fixture.github_quota}
+        elevenlabs_quota={@provider_fixture.elevenlabs_quota}
+        configured_providers={@provider_fixture.configured_providers}
+        now={@provider_fixture.now}
+      />
       <section class="section-card units-card" aria-labelledby="units-title">
         <header class="section-header units-header">
           <div>
