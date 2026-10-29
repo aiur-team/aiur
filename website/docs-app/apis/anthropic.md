@@ -17,7 +17,9 @@ The browser receives no API key. Do not store credentials under
 
 Aiur retains conversation transcripts according to its transcript settings; cloud
 disclosure acceptance is required before a session. Local transcript deletion does
-not delete provider-held data. A loopback or private-network dashboard still sends
+not delete provider-held data.
+
+A loopback or private-network dashboard still sends
 conversation data to the selected cloud provider. No paid request is made by a
 credential probe or capability resolution.
 
