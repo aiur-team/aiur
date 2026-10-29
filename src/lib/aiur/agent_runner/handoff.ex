@@ -267,6 +267,7 @@ defmodule Aiur.AgentRunner.Handoff do
 
     with {:ok, lease} <- Adoption.adopt(issue.identifier, workspace, ownership_opts),
          {:ok, session} <- attach(record, generation) do
+      :ok = Aiur.AgentRunner.maybe_attach_issue_log(issue)
       session = AppHandoff.restore_session(session, issue)
       opts = Keyword.merge(Enum.reject(context.opts || [], fn {_key, value} -> is_nil(value) end), opts)
       opts = Keyword.put(opts, :workspace_ownership, lease)
