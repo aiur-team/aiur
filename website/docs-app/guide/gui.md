@@ -387,7 +387,9 @@ summaries. Rolling medians appear only when supplied in the stored analysis.
 
 From **Units**, choose the **Full conversation** row action, or open the chat
 drawer and select **Full conversation** in its header. The drawer remains the
-quick view. Units without a joinable repository identity have no full-view link;
+quick view.
+
+Units without a joinable repository identity have no full-view link;
 a conversation without recorded messages shows **No messages yet**. Until its
 journal exists, it also says **Conversation not found**; storage failures show
 **Conversation unavailable** instead. The first recorded message appears without
@@ -396,12 +398,16 @@ reloading the page.
 The event navigation lists progress, pushes, PRs and Commands. Select an event
 to jump to and highlight its transcript position. Filter chips include CI and
 reviews when needed. **Approximate position** means the event was observed near
-that entry; it does not claim an exact causal match. On phones the event list
+that entry; it does not claim an exact causal match.
+
+On phones the event list
 sits above the transcript and scrolls independently.
 
 `/conversations/:conversation_id` opens the durable conversation page. Read-only
 dashboards keep the transcript and event navigation available; sending requires
-writable access and an available listener. It starts with the latest 50 entries. **Load older**, **Jump to start**,
+writable access and an available listener.
+
+It starts with the latest 50 entries. **Load older**, **Jump to start**,
 and **Load newer** browse earlier history; **Latest entries** returns to the
 live tail.
 
