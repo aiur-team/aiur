@@ -40,12 +40,15 @@ defmodule Aiur.PathSafety do
       :error ->
         # Failed or not-yet-created roots must be retried rather than retained.
         with {:ok, canonical} = result <- canonicalize(path) do
-          if match?({:ok, %File.Stat{type: :directory}}, File.stat(canonical, [:raw])),
-            do: Process.put(@roots_key, Map.put(roots, path, canonical))
-
+          remember_root(path, canonical, roots)
           result
         end
     end
+  end
+
+  defp remember_root(path, canonical, roots) do
+    if match?({:ok, %File.Stat{type: :directory}}, File.stat(canonical, [:raw])),
+      do: Process.put(@roots_key, Map.put(roots, path, canonical))
   end
 
   @spec canonicalize(Path.t()) :: {:ok, Path.t()} | {:error, term()}
