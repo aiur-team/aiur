@@ -6,6 +6,13 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
   alias AiurWeb.EndpointConfig
   alias AiurWeb.StreamdeckChannel.CommandAnswers
 
+  require Aiur.TestSupport
+
+  defp answer_command_reply(socket, payload) do
+    ref = Phoenix.ChannelTest.push(socket, "answer_command", payload)
+    Aiur.TestSupport.receive_barrier(%Phoenix.Socket.Reply{ref: ^ref})
+  end
+
   # The legacy double exposes retained reads only; the answer facade also reads
   # the current decision. Delegate all other requests to that same store.
   defmodule AnsweringStore do
@@ -130,16 +137,13 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
       receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-1",
-          "option_id" => "ship"
-        }),
-        :ok,
-        %{"status" => "accepted"}
-      )
+      assert %{status: :ok, payload: %{"status" => "accepted"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-1",
+                 "option_id" => "ship"
+               })
 
       # The durable record's actor is the operator on the deck, never the
       # Executor — the load-bearing attribution decision of this feature.
@@ -157,16 +161,13 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
       receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-2",
-          "custom_response" => "Hold everything — verify first."
-        }),
-        :ok,
-        %{"status" => "accepted"}
-      )
+      assert %{status: :ok, payload: %{"status" => "accepted"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-2",
+                 "custom_response" => "Hold everything — verify first."
+               })
 
       assert_receive {:fake_decision_answer, _decision_id, payload, _opts}, 1000
       assert payload["custom_response"] == "Hold everything — verify first."
@@ -190,16 +191,13 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
       receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => decision.decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-3",
-          "option_id" => "ship"
-        }),
-        :error,
-        %{reason: "command_not_focused"}
-      )
+      assert %{status: :error, payload: %{reason: "command_not_focused"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => decision.decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-3",
+                 "option_id" => "ship"
+               })
     end
 
     test "answer_command rejects a malformed payload outright" do
@@ -208,27 +206,21 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       receive_barrier(%Message{event: "commands"})
 
       # Neither an option nor a custom response.
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-4"
-        }),
-        :error,
-        %{reason: "invalid_answer"}
-      )
+      assert %{status: :error, payload: %{reason: "invalid_answer"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-4"
+               })
 
       # A blank custom response is not an answer.
-      assert_reply(
-        push(socket, "answer_command", %{
-          "decision_id" => command_decision("AIUR-1").decision_id,
-          "version" => 1,
-          "idempotency_key" => "sd-key-5",
-          "custom_response" => "   "
-        }),
-        :error,
-        %{reason: "empty_custom_response"}
-      )
+      assert %{status: :error, payload: %{reason: "empty_custom_response"}} =
+               answer_command_reply(socket, %{
+                 "decision_id" => command_decision("AIUR-1").decision_id,
+                 "version" => 1,
+                 "idempotency_key" => "sd-key-5",
+                 "custom_response" => "   "
+               })
     end
 
     test "answer_command guard refuses a blank idempotency key and a non-positive version" do
@@ -247,7 +239,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
             %{"decision_id" => decision_id, "version" => 0, "idempotency_key" => "sd-key-zero", "option_id" => "ship"},
             %{"decision_id" => decision_id, "version" => -1, "idempotency_key" => "sd-key-neg", "option_id" => "ship"}
           ] do
-        assert_reply(push(socket, "answer_command", bad), :error, %{reason: "invalid_answer"})
+        assert %{status: :error, payload: %{reason: "invalid_answer"}} = answer_command_reply(socket, bad)
       end
     end
 
@@ -268,18 +260,16 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
       receive_barrier(%Message{event: "commands"})
 
-      assert_reply(
-        push(socket, "answer_command", %{
+      reply =
+        answer_command_reply(socket, %{
           "decision_id" => dismissed.decision_id,
           "version" => 1,
           "idempotency_key" => "sd-key-dismissed",
           "option_id" => "ship"
-        }),
-        :error,
-        %{reason: reason}
-      )
+        })
 
-      assert reason == "withdrawn"
+      assert reply.status == :error
+      assert %{reason: "withdrawn"} = reply.payload
     end
 
     test "answer_command accepts an expired unanswered blocking Command", %{decision: decision} do
@@ -412,15 +402,14 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       # The device answers the version it read; a different version is stale.
       stale_version = decision.version + 1
 
-      ref =
-        push(socket, "answer_command", %{
+      reply =
+        answer_command_reply(socket, %{
           "decision_id" => decision.decision_id,
           "version" => stale_version,
           "idempotency_key" => "sd-stale-1",
           "custom_response" => "Hold everything — this is stale."
         })
 
-      reply = receive_barrier(%Phoenix.Socket.Reply{ref: ^ref})
       assert reply.status == :error
       assert reply.payload == %{reason: "stale"}
 
