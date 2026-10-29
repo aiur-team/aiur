@@ -146,8 +146,12 @@ class RendererTest(unittest.TestCase):
             data['editorial'] = {'blockers': [{'label': 'Publish', 'action': 'Configure'}]}
             source.write_text(json.dumps(data))
             notes.write_text('An observation retained even when omitted from the PDF.')
+            def fake_render(report, output, zone):
+                output.write_bytes(b'PDF')
+                output.with_suffix('.html').write_text('HTML')
+                return output
             with patch.object(sys, 'argv', ['newsletter.py', 'compile', str(source), '--notes', str(notes)]), \
-                    patch.object(newsletter, 'compile_report') as compile_report:
+                    patch.object(newsletter, 'compile_report', side_effect=fake_render) as compile_report:
                 newsletter.main()
             stored = json.loads(source.read_text())
             self.assertEqual(stored['editorial']['notes'], [notes.read_text()])
@@ -166,6 +170,30 @@ class RendererTest(unittest.TestCase):
         self.assertIn('Queue cleared', card)
         self.assertNotIn('action_id', card)
         self.assertNotIn('unavailable', card)
+
+    def test_failed_rebuild_preserves_previous_report_html_and_pdf(self):
+        for command in ('build', 'compile'):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                directory = root / 'newsletter' / datetime.now(timezone.utc).date().isoformat()
+                directory.mkdir(parents=True)
+                source = directory / 'report.json'
+                source.write_text(json.dumps(report()))
+                (directory / 'newsletter.html').write_text('Previous HTML')
+                (directory / 'newsletter.pdf').write_bytes(b'Previous PDF')
+                before = {p.name: p.read_bytes() for p in directory.iterdir()}
+                notes = root / 'notes.md'
+                notes.write_text('New notes which must not replace published content on failure.')
+                args = (['newsletter.py', 'build', '--repo', 'owner/repo', '--state-dir', str(root)]
+                        if command == 'build' else ['newsletter.py', 'compile', str(source)])
+                args += ['--notes', str(notes)]
+                with patch.object(sys, 'argv', args), \
+                        patch.object(newsletter, 'collect', return_value=fixtures.snapshot()), \
+                        patch.object(newsletter, 'compile_report', side_effect=RuntimeError('render failed')):
+                    with self.assertRaises(SystemExit) as exit:
+                        newsletter.main()
+                self.assertEqual(exit.exception.code, 1)
+                self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir()}, before)
 
     def test_program_states_and_daily_work_are_disjoint(self):
         today = fixtures.snapshot()
