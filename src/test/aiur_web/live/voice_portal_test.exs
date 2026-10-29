@@ -7,6 +7,8 @@ defmodule AiurWeb.VoicePortalTest do
   import AiurWeb.DashboardLiveSupport.Processes
   import AiurWeb.DashboardLiveSupport.UnitFixtures
 
+  alias Aiur.TestSupport.EndpointStubs
+
   @endpoint AiurWeb.Endpoint
 
   defmodule InstalledPanel do
@@ -53,7 +55,7 @@ defmodule AiurWeb.VoicePortalTest do
       usage_snapshot_fun: fn _identifier, _opts -> {:error, :no_usage_data} end
     )
 
-    Aiur.TestSupport.EndpointStubs.put(orchestrator: orchestrator_name, voice_conversation_panel_module: InstalledPanel)
+    EndpointStubs.put(orchestrator: orchestrator_name, voice_conversation_panel_module: InstalledPanel)
 
     %{handle: handle}
   end

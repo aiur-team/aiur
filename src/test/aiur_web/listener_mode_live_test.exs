@@ -5,6 +5,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
   import AiurWeb.DashboardLiveSupport
   import AiurWeb.DashboardLiveSupport.Processes
   import AiurWeb.DashboardLiveSupport.UnitFixtures
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.DashboardLiveSupport.OrchestratorStubs.CountingOrchestrator
   @endpoint AiurWeb.Endpoint
 
@@ -40,7 +41,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
       live_conversation_unsubscribe_fun: fn _ -> :ok end
     )
 
-    Aiur.TestSupport.EndpointStubs.put(orchestrator: name)
+    EndpointStubs.put(orchestrator: name)
 
     {:ok, view, html} = live(build_conn(), "/voice")
     refute html =~ ~s(data-requested-mode="async")
@@ -87,7 +88,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
       live_conversation_unsubscribe_fun: fn _ -> :ok end
     )
 
-    Aiur.TestSupport.EndpointStubs.put(orchestrator: name)
+    EndpointStubs.put(orchestrator: name)
 
     {:ok, view, _html} = live(build_conn(), "/voice")
     html = view |> element(~s(button[phx-click="read-conversation"])) |> render_click()

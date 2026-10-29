@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.Orchestrator
+  alias Aiur.TestSupport.EndpointStubs
 
   @endpoint AiurWeb.Endpoint
 
@@ -31,7 +32,7 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
 
     # Named providers need an explicit private override; atoms otherwise enter shared config.
     start_test_endpoint(snapshot_timeout_ms: 5, capabilities_report_fun: report_fun)
-    Aiur.TestSupport.EndpointStubs.put(orchestrator: orchestrator_name, voice_conversation_panel_module: InstalledPanel)
+    EndpointStubs.put(orchestrator: orchestrator_name, voice_conversation_panel_module: InstalledPanel)
     {:ok, view, _html} = live(build_conn(), "/commands")
     assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured, "voice.conversation" => unconfigured}
 
@@ -47,7 +48,7 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
 
     start_test_endpoint(snapshot_timeout_ms: 5, capabilities_report_fun: fn -> raise "registry unavailable" end)
-    Aiur.TestSupport.EndpointStubs.put(orchestrator: orchestrator_name)
+    EndpointStubs.put(orchestrator: orchestrator_name)
     {:ok, view, _html} = live(build_conn(), "/commands")
     assert voice_capabilities(view) == %{}
   end
