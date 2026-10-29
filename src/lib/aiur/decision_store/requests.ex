@@ -378,5 +378,6 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:consumed), do: "consumed"
   def lifecycle_slug(:failed), do: "failed"
   def lifecycle_slug(:acknowledged), do: "acknowledged"
+  def lifecycle_slug(:override_implemented), do: "override-implemented"
   def lifecycle_slug(:resolved), do: "resolved"
 end

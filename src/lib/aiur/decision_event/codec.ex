@@ -229,6 +229,7 @@ defmodule Aiur.DecisionEvent.Codec do
         active_action_id: nil,
         revision_sequence: 0,
         revisions: [],
+        overrides: [],
         revision_result: nil,
         revision_outcomes: %{},
         revision_follow_ups: %{},

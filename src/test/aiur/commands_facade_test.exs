@@ -4,6 +4,7 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    override_dispatchable?: {Aiur.DecisionStore.Overrides, :dispatchable?},
     requester_notified: {Aiur.Commands.ExecutorDelivery, :on_enqueued},
     public_v2: {Aiur.Commands.Projection, :public_v2},
     needs_you?: {Aiur.Commands.Routing.Policy, :needs_you?},

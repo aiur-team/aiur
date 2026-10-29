@@ -1,5 +1,61 @@
 defmodule AiurWeb.StreamdeckLiveNavTest do
   use AiurWeb.StreamdeckLiveCase
+  alias Aiur.TestSupport.BuildHome.UsageInputs
+  alias Aiur.TestSupport.EndpointStubs
+
+  test "emulator dial reaches provider meter keys and refresh keeps the meter page", %{meter_agent: meter_agent} do
+    now = DateTime.utc_now()
+
+    meters =
+      Map.new(Agent.get(meter_agent, & &1), fn {provider, meter} ->
+        windows =
+          Map.new(meter["windows"], fn {name, window} ->
+            {name,
+             UsageInputs.window(window["used_percent"], if(name == "session", do: 300, else: 10_080), %{
+               resets_at: DateTime.add(now, 3600),
+               coverage: :supported
+             })}
+          end)
+
+        family = String.to_existing_atom(provider)
+
+        {family,
+         UsageInputs.snapshot(family, windows, %{
+           observed_at: now,
+           provider_account_generation: "live-test-generation",
+           identity_scope: :account,
+           summary_label: "test meter"
+         })}
+      end)
+
+    EndpointStubs.put(
+      streamdeck_usage_load_fun: fn _, _ ->
+        UsageInputs.inputs(%{families: Map.keys(meters), meters: meters})
+      end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    for expected <- [:feature, :epic, :fleet] do
+      render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "press"})
+      assert nav(view).view == expected
+    end
+
+    render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "turn", "delta" => 1})
+
+    assert nav(view).pages.fleet == 1
+    assert render(view) =~ "data-streamdeck-key=\"0\""
+    assert render(view) =~ "usage"
+    assert render(view) =~ "Fleet · 2"
+
+    send(view.pid, :streamdeck_fixture_fleet_changed)
+    render(view)
+
+    assert nav(view).pages.fleet == 1
+    assert render(view) =~ "data-streamdeck-key=\"0\""
+    assert render(view) =~ "usage"
+    assert render(view) =~ "Fleet · 2"
+  end
 
   test "existing emulator events update its own reducer state" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")

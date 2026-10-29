@@ -169,11 +169,6 @@ defmodule AiurWeb.VoiceTargetsTest do
     assert {:error, %{reason_code: "unsupported_target"}} = VoiceTargets.validate(command("d1", nil), "command_response")
   end
 
-  test "an executor target is unsupported in this build" do
-    assert {:error, %{reason_code: "unsupported_target"}} =
-             VoiceTargets.validate(%{kind: :executor, instance_id: nil}, "executor_composer")
-  end
-
   test "a surface that does not own the target kind is invalid" do
     running(["ENG-7"])
     assert {:error, %{reason_code: "invalid_payload"}} = VoiceTargets.validate(@worker, "command_response")

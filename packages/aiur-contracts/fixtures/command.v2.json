@@ -56,5 +56,6 @@
   "routed_at": null,
   "human_visible_at": null,
   "executor_acknowledged_at": null,
-  "escalations": []
+  "escalations": [],
+  "overrides": []
 }
