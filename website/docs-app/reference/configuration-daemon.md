@@ -57,6 +57,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | --- | --- | --- | --- |
 | `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
 | `executor.relay_operator_answers` | boolean | false | Opt-in quoted operator answers via `operator-relay-answer`, including human-only Commands. Enabling and recording raise info alerts; disable to revoke. See [relay attribution and corrections](/concepts/commands#operator-answers-relayed-in-conversation). |
+| `executor.allow_reversible_human_required_answers` | boolean | false | Explicitly delegates reversible `human_required` engineering Commands to the Executor. The answer remains attributed to the Executor with its rationale in history. Spend, external publication, product direction, and security basis remain human-only. Enabling raises an info alert. |
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 

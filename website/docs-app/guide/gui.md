@@ -199,8 +199,8 @@ edit the transcript. Read-only dashboards show cards without answer controls.
 
 On a worker's full conversation page, writable dashboards offer a **Message to
 agent** composer. Its read-only mode indicator shows the effective listener
-mode, or **mode unknown** when it cannot be observed. Legacy routing retains
-the existing send behavior.
+mode, or **mode unknown** when it cannot be observed. **Listener unavailable**
+means the specification cannot be used and conversation sends are refused.
 
 **Accepted** means the message was accepted for processing. **Queued** means
 the harness queued it (Sync: next boundary), not that the agent read it.

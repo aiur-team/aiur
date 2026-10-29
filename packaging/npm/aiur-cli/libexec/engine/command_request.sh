@@ -1,8 +1,77 @@
 # Executor-originated Command requests. Context files are read on the caller's machine.
 cmd_command() {
-  [ "${1:-}" = request ] || { echo "aiur: command expects the request subcommand" >&2; exit 64; }
-  shift
-  cmd_command_request "$@"
+  if [ "${1:-}" = request ]; then
+    shift
+    cmd_command_request "$@"
+    return
+  fi
+
+  case "${1:-}" in
+    --filter|--filter=*|--blocking|--ticket|--ticket=*|--search|--search=*|--cursor|--cursor=*|--limit|--limit=*|--json)
+      cmd_commands "$@"
+      return
+      ;;
+  esac
+
+  local decision_id="" option_id="" custom_response="" quote="" idempotency_key="" relayed=0 arg
+  if [ "$#" -gt 0 ] && [[ "$1" != -* ]]; then
+    decision_id="$1"
+    shift
+  fi
+
+  if [ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = "--json" ]; }; then
+    if [ -n "$decision_id" ]; then
+      cmd_commands --filter all "$decision_id" "$@"
+    else
+      cmd_commands --filter open "$@"
+    fi
+    return
+  fi
+
+  [ -n "$decision_id" ] || { echo "aiur: command answers require a decision ID" >&2; exit 64; }
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --option) [ "$#" -gt 1 ] || { echo "aiur: command --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: command --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --relayed) relayed=1 ;;
+      --quote) [ "$#" -gt 1 ] || { echo "aiur: command --quote requires a value" >&2; exit 64; }; shift; quote="$1" ;;
+      --quote=*) quote="${arg#--quote=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: command --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      *) echo "aiur: command received an unexpected argument: $arg" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  if [ "$relayed" -eq 1 ]; then
+    [ -n "$quote" ] || { echo "aiur: command --relayed requires --quote" >&2; exit 64; }
+    local relayed_by="${AIUR_EXECUTOR_ID:-${USER:-executor}}"
+    local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), quote: Base.decode64!(\"$(encode_control_value "$quote")\"), relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\"), auto_current: true"
+    [ -z "$idempotency_key" ] || opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
+    if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
+      opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+    elif [ -z "$option_id" ] && [ -n "$custom_response" ]; then
+      opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+    else
+      echo "aiur: command requires exactly one of --option or --custom-response" >&2
+      exit 64
+    fi
+    run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts])"
+  else
+    [ -z "$idempotency_key" ] || { echo "aiur: command --idempotency-key requires --relayed" >&2; exit 64; }
+    [ -z "$quote" ] || { echo "aiur: command --quote requires --relayed" >&2; exit 64; }
+    if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
+      cmd_operator_answer "$decision_id" --option "$option_id" --operator
+    elif [ -z "$option_id" ] && [ -n "$custom_response" ]; then
+      cmd_operator_answer "$decision_id" --custom-response "$custom_response" --operator
+    else
+      echo "aiur: command requires exactly one of --option or --custom-response" >&2
+      exit 64
+    fi
+  fi
 }
 
 cmd_command_request() {

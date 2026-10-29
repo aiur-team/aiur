@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   @moduledoc """
-  Validates, dedupes, and queues Executor messages and event digests for a running agent.
+  Validates, dedupes, and queues Executor messages and event digests for running or next workers.
   Public API stays on `Aiur.Orchestrator.OperatorMessages`.
   """
 
@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseResume, State, TicketTransition}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
 
   @doc false
   @spec payload_key(map(), term()) :: String.t() | nil
@@ -128,12 +128,16 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
       :continue ->
         case State.find_running_by_identifier(state.running, issue_identifier) do
           nil ->
-            {{:error, :no_running_agent}, state}
+            enqueue_for_next_worker(state, issue_identifier, text, request)
 
           running_entry ->
             enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
         end
     end
+  end
+
+  defp enqueue_for_next_worker(state, issue_identifier, text, request) do
+    EnqueueNextWorker.enqueue(state, issue_identifier, text, request, &enqueue_plain/3, &record_operator_queued_evidence/1)
   end
 
   defp replay_existing_correlated_message(
