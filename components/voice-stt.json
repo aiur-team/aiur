@@ -8,8 +8,8 @@
     "src/lib/aiur/eleven_labs/**",
     "src/lib/aiur/voice.ex",
     "src/lib/aiur/voice/**",
-    "src/lib/aiur_web/voice*.ex",
-    "src/lib/aiur_web/executor_voice_target.ex"
+    "src/lib/aiur_web/executor_voice_target.ex",
+    "src/lib/aiur_web/voice*.ex"
   ],
   "facades": [
     "*"
