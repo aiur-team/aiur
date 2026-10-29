@@ -139,6 +139,8 @@ defmodule Aiur.Conversation.Journal do
 
   # Store preparation closes linked command ports; trapping shutdown also delivers their normal exits.
   def handle_info({:EXIT, port, :normal}, state) when is_port(port), do: {:noreply, state}
+  # A crash would drop the buffer and pending gaps, and the transient restart would lose them silently.
+  def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
   def terminate(reason, state) do
