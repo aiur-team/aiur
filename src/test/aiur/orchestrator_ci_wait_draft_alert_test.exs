@@ -2,7 +2,7 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
   use Aiur.TestSupport
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{CiLifecycle, State}
+  alias Aiur.Orchestrator.{CiLifecycle, CiWaitDraftStall, State}
 
   setup do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github")
@@ -96,7 +96,7 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
     assert_received {:alert, ^ref, _, _}
   end
 
-  test "retries a failed attention publish before moving the ticket to rework" do
+  test "moves to rework despite an attention failure and retries the alert after departure" do
     identifier = "ci-wait-draft-alert-retry-#{System.unique_integer([:positive])}"
     issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait"}
     result = %{decision: :pending, pending_reason: :draft_pull_request, pr_number: 954, draft?: true}
@@ -120,14 +120,18 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
     state = poll_ci(state, issue, result, emitter, 1_000 + 60 * 60_000, comment, transition)
 
     assert_received {:alert_attempt, ^ref, _, _, {:error, :temporarily_unavailable}}
-    refute_received {:transition, ^ref}
-    refute MapSet.member?(Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new()), identifier)
-
-    state = poll_ci(state, issue, result, emitter, 1_001 + 60 * 60_000, comment, transition)
-
-    assert_received {:alert_attempt, ^ref, _, _, :ok}
     assert_received {:transition, ^ref}
     assert MapSet.member?(state.ci_lifecycle.ci_wait_draft_recovered, identifier)
+
+    state =
+      CiWaitDraftStall.resolve_departed(state, [],
+        ci_wait_draft_alert_loader: fn -> MapSet.new() end,
+        alert_emitter: emitter
+      )
+
+    assert_received {:alert_attempt, ^ref, _, _, :ok}
+    refute Map.has_key?(state.ci_lifecycle.ci_wait_draft_pending_alerts, identifier)
+    assert MapSet.member?(state.ci_lifecycle.ci_wait_draft_alerts, identifier)
   end
 
   test "leaves an overdue draft ticket alone while a worker is live" do

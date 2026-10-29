@@ -27,7 +27,8 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
     state = ensure_seeded(state, opts)
     tracked = Map.keys(since_map(state)) ++ MapSet.to_list(alerts(state)) ++ MapSet.to_list(recovered(state))
 
-    Enum.reduce(tracked -- targets, state, fn target, acc -> clear(acc, target, opts) end)
+    state = Enum.reduce(tracked -- targets, state, fn target, acc -> clear(acc, target, opts) end)
+    retry_pending_alerts(state, opts)
   end
 
   defp observe(state, issue, result, target, opts) do
@@ -74,17 +75,13 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
 
   defp continue_recovery(state, issue, result, target, opts, transition) do
     state = if MapSet.member?(alerts(state), target), do: state, else: emit(state, issue, result, target, opts)
-
-    if MapSet.member?(alerts(state), target) do
-      finish_recovery(transition.(state, issue), state, issue, result, target, opts)
-    else
-      state
-    end
+    state = if MapSet.member?(alerts(state), target), do: put_pending_alert(state, target, nil), else: put_pending_alert(state, target, %{issue: issue, result: result})
+    finish_recovery(transition.(state, issue), state, issue, result, target, opts)
   end
 
-  defp finish_recovery({:ok, state}, _previous_state, issue, result, target, opts) do
+  defp finish_recovery({:ok, state}, _previous_state, issue, result, target, _opts) do
     state = put_recovered(state, MapSet.put(recovered(state), target))
-    if MapSet.member?(alerts(state), target), do: state, else: emit(state, issue, result, target, opts)
+    if MapSet.member?(alerts(state), target), do: state, else: put_pending_alert(state, target, %{issue: issue, result: result})
   end
 
   defp finish_recovery({:error, reason, state}, _previous_state, _issue, _result, target, _opts) do
@@ -158,6 +155,13 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
     end
   end
 
+  defp retry_pending_alerts(state, opts) do
+    Enum.reduce(pending_alerts(state), state, fn {target, %{issue: issue, result: result}}, acc ->
+      acc = if MapSet.member?(alerts(acc), target), do: acc, else: emit(acc, issue, result, target, opts)
+      if MapSet.member?(alerts(acc), target), do: put_pending_alert(acc, target, nil), else: acc
+    end)
+  end
+
   defp load_alerts(opts) do
     case Keyword.fetch(opts, :ci_wait_draft_alert_loader) do
       {:ok, loader} -> loader.()
@@ -182,6 +186,9 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
   defp put_alerts(state, items), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_alerts, items)}
   defp recovered(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_recovered, MapSet.new())
   defp put_recovered(state, targets), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_recovered, targets)}
+  defp pending_alerts(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_pending_alerts, %{})
+  defp put_pending_alert(state, target, nil), do: %{state | ci_lifecycle: Map.update(state.ci_lifecycle, :ci_wait_draft_pending_alerts, %{}, &Map.delete(&1, target))}
+  defp put_pending_alert(state, target, pending), do: %{state | ci_lifecycle: Map.update(state.ci_lifecycle, :ci_wait_draft_pending_alerts, %{target => pending}, &Map.put(&1, target, pending))}
   defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
   defp log_failure(topic, reason, state) do
