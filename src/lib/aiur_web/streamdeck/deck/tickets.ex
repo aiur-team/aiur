@@ -85,12 +85,23 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   defp model(agent), do: field(agent, :name) || @models[field(agent, :model)]
 
   defp render_fields(key, row, queued) do
+    family = row |> field(:agent) |> field(:model) |> Aiur.CodingAgent.family_for()
+    provider = Aiur.CodingAgent.provider_descriptor(family) || %{}
+    freshness = if is_nil(key.pct), do: "unknown", else: to_string(field(row, :progress_freshness) || "fresh")
+    pct = if freshness != "unknown", do: key.pct
+    priority = field(row, :priority)
+
     Map.merge(key, %{
       identifier: key.id,
-      vendor: row |> field(:agent) |> field(:model),
+      vendor: Map.get(provider, :provider, family),
+      vendor_logo: Map.get(provider, :logo),
+      icon: field(row, :lane),
+      priority: is_integer(priority) and priority > 0 and priority < 5,
+      dependency_ready: field(row, :dependency_ready),
       bucket: bucket(key.state, queued),
-      progress_percent: key.pct,
-      progress_freshness: if(is_nil(key.pct), do: "unknown", else: "fresh")
+      pct: pct,
+      progress_percent: pct,
+      progress_freshness: freshness
     })
   end
 
@@ -102,7 +113,8 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   # Bucket remains a compatibility token for existing control/footer consumers.
   defp bucket(_face, true), do: :queued
   defp bucket("active", false), do: :running
-  defp bucket("paused", false), do: :paused
+  defp bucket("command", false), do: :alert
+  defp bucket(state, false) when state in ~w(paused parked usage_limited ci_wait), do: :paused
   defp bucket(_state, false), do: :stuck
   defp source_freshness(%{progress_freshness: "fresh"} = key, status) when status != "ok", do: %{key | progress_freshness: "stale"}
   defp source_freshness(key, _status), do: key

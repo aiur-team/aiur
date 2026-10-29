@@ -27,8 +27,6 @@ defmodule AiurWeb.StreamdeckLive.Frame do
   defp context(assigns) do
     %{
       active: assigns.sd_active,
-      logs: assigns.logs,
-      strip_entries: AiurWeb.StreamdeckStrip.entries(assigns.logs.transcript_visible),
       command_keys: command_keys(assigns),
       commands_view: assigns.commands_view,
       commands_option: assigns.commands_option,

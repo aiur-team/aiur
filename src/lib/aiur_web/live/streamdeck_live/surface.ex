@@ -3,8 +3,6 @@ defmodule AiurWeb.StreamdeckLive.Surface do
   Dial math and HTML knob readouts for the Stream Deck emulator.
   """
 
-  alias AiurWeb.StreamdeckStrip
-
   @spec clamp_page(term(), integer()) :: integer()
   def clamp_page(page, windows) when is_integer(page), do: clamp(page, 0, max(windows - 1, 0))
   def clamp_page(_page, windows), do: clamp_page(0, windows)
@@ -38,39 +36,9 @@ defmodule AiurWeb.StreamdeckLive.Surface do
   @spec clamp(number(), number(), number()) :: number()
   def clamp(value, min, max), do: value |> max(min) |> min(max)
 
-  @spec knob_descriptors(number(), integer(), atom(), map()) :: [map()]
-  def knob_descriptors(dial_value \\ 0, windows \\ 0, mode \\ :grid, logs \\ %{}) do
-    back_hint =
-      case mode do
-        :cmd ->
-          StreamdeckStrip.hint(0, 0, "BACK")
-
-        :settings ->
-          StreamdeckStrip.hint(0, 0, "BACK")
-
-        :commands ->
-          StreamdeckStrip.hint(0, 0, "BACK")
-
-        :logs ->
-          StreamdeckStrip.hint(
-            Map.get(logs, :transcript_offset, 0),
-            Map.get(logs, :transcript_max_offset, 0),
-            "BACK"
-          )
-
-        _ ->
-          nil
-      end
-
-    events_hint =
-      if mode == :logs,
-        do:
-          StreamdeckStrip.hint(
-            Map.get(logs, :events_offset, 0),
-            Map.get(logs, :events_max_offset, 0),
-            "EVENTS"
-          ),
-        else: nil
+  @spec knob_descriptors(number(), integer(), atom()) :: [map()]
+  def knob_descriptors(dial_value \\ 0, windows \\ 0, mode \\ :grid) do
+    back_hint = if mode in [:cmd, :settings, :commands], do: %{label: "BACK", older?: false, newer?: false}
 
     [
       %{label: "Focus", value: "62", angle: 138, hint: back_hint},
@@ -80,7 +48,7 @@ defmodule AiurWeb.StreamdeckLive.Surface do
         label: "Page",
         value: String.pad_leading(to_string(dial_value), 2, "0"),
         angle: if(windows > 0, do: dial_value / 100 * 270 - 135, else: -135),
-        hint: events_hint
+        hint: nil
       }
     ]
   end

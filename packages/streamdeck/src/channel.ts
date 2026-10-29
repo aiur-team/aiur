@@ -36,7 +36,6 @@ import { randomUUID } from "node:crypto";
 import { normalizeAiurDictation } from "./aiur-speech.js";
 
 import type {
-  ChatKind,
   StreamDeckChat,
   FetchLike,
   StreamDeckAgentState,
@@ -46,7 +45,6 @@ import type {
   StreamDeckCommandAnswerError,
   StreamDeckCommandsPage,
   StreamDeckGrid,
-  StreamDeckLogs,
   StreamDeckSnapshot,
   StreamDeckTicket,
   WebSocketFactory,
@@ -54,21 +52,6 @@ import type {
 } from "./channel-types.js";
 
 export type * from "./channel-types.js";
-
-/** Derives the row class from a role, for a row that did not carry one. */
-export const rowKindOfRole = (role: string): ChatKind => {
-  if (role === "assistant" || role === "agent") return "agent";
-  if (role === "command" || role === "tool") return "command";
-  if (role === "user") return "user";
-  // system, reasoning, alert, ci and anything unknown are the "logs" class —
-  // the same mapping as the server's `StreamdeckLogs.row_kind/1`.
-  return "logs";
-};
-
-export const chatKind = (value: unknown): ChatKind => {
-  if (value === "command" || value === "agent" || value === "logs" || value === "user") return value;
-  return "logs";
-};
 
 const tokenPath = "/api/v1/streamdeck/token";
 
@@ -244,7 +227,6 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
         tool: null,
       });
     }
-    else if (event === "logs") options.events.logs(payload as StreamDeckLogs);
     else if (event === "control") options.events.control(payload as Readonly<Record<string, unknown>>);
     else if (event === "voice") {
       const frame = payload as { session?: unknown; kind?: unknown; text?: unknown };

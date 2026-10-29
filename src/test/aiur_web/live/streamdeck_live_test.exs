@@ -224,18 +224,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
-  test "the shared renderer paints state, progress and log direction inks" do
-    {:ok, view, html} = live(build_conn(), "/streamdeck")
+  test "the shared renderer paints progress with the shared ink" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
     assert html =~ ~s(fill="#3fb950")
-    logs = enter_logs(view)
-    document = Floki.parse_fragment!(logs)
-
-    assert Floki.attribute(document, "#sd-log-keys [data-dir='AGENT']", "fill") |> Enum.uniq() ==
-             ["#9fd0ff"]
-
-    header = render_hook(view, "log-key-select", %{"index" => "5"})
-    assert has_element?(view, "#sd-screen [data-log-kind='evhdr'][fill='#9fd0ff']", "AGENT")
-    assert strip(header) =~ "event-5"
   end
 
   test "renders the live grid projection instead of preview descriptors" do
@@ -247,31 +238,18 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "Build emulator"
   end
 
-  test "models grid, command, and logs modes with the focused agent" do
+  test "models grid and command modes with the focused agent" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"} = active} = streamdeck_assigns(view)
+    assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"}} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="cmd")
     assert html =~ ~s(id="sd-keys")
     refute html =~ "data-grid-total"
     refute html =~ ~s(id="sd-logs-view")
-
-    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
-
-    assert %{sd_mode: :logs, sd_active: %{identifier: identifier}} = streamdeck_assigns(view)
-    assert identifier == active.identifier
-    assert html =~ ~s(data-mode="logs")
-    assert html =~ ~s(id="sd-logs-view")
-    refute html =~ "data-streamdeck-command"
-
-    html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
-
-    assert %{sd_mode: :cmd, sd_active: ^active} = streamdeck_assigns(view)
-    assert html =~ ~s(data-mode="cmd")
 
     html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
 
@@ -316,61 +294,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert streamdeck_assigns(view).sd_active.state == "command"
   end
 
-  test "renders bounded BACK and EVENTS hint arrows in logs mode" do
-    {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    html = enter_logs(view)
-
-    assert has_element?(view, "#sd-screen[data-mode-view='logs-strip']")
-
-    # Both surfaces open at the live end, so at entry only the older-ward arrow
-    # is available on either dial, and the window shows the newest event's
-    # header with the newest transcript line under it.
-    assert strip(html) =~ "event-10"
-    assert strip(html) =~ "line-10"
-    assert html =~ ~s(data-log-kind="evhdr")
-    assert html =~ ~s(data-log-kind="message")
-
-    assert html =~
-             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
-
-    assert html =~
-             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>EVENTS<span style="visibility: hidden">›<\/span>/
-
-    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "-99"})
-
-    assert html =~
-             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>EVENTS<span style="visibility: visible">›<\/span>/
-
-    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "-99"})
-
-    # Offset 0 is the origin header — the surface's defined left edge — so BACK
-    # can only travel newer-ward from here.
-    assert strip(html) =~ "Ticket opened"
-    refute strip(html) =~ "line-10"
-
-    assert html =~
-             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: visible">›<\/span>/
-  end
-
-  test "cycle-window enters logs only from command mode" do
-    {:ok, view, _html} = live(build_conn(), "/streamdeck")
-
-    render_hook(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
-    assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
-
-    render_hook(view, "key-press", %{"identifier" => "1345"})
-    %{sd_active: active} = streamdeck_assigns(view)
-
-    html = render_hook(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
-
-    assert %{sd_mode: :logs, sd_active: %{identifier: identifier}} = streamdeck_assigns(view)
-    assert identifier == active.identifier
-    assert html =~ ~s(data-mode="logs")
-  end
-
   test "retains active mode focus across a fleet refresh", %{snapshot_agent: snapshot_agent} do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    enter_logs(view, "1352")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
 
     Agent.update(snapshot_agent, fn _ ->
       %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]}
@@ -379,7 +305,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     send(view.pid, {:running_changed, []})
     html = render(view)
 
-    assert %{sd_mode: :logs, selected_identifier: "1352", sd_active: %{identifier: "1352"}} =
+    assert %{sd_mode: :cmd, selected_identifier: "1352", sd_active: %{identifier: "1352"}} =
              streamdeck_assigns(view)
 
     assert html =~ ~s(data-focused-identifier="1352")
