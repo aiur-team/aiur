@@ -157,7 +157,7 @@ test('home.css does not change other pages', async ({ page }) => {
       snapshots.push(JSON.parse(await page.evaluate(snapshot)))
     }
     expect(snapshots[1], `stylesheet affected ${route}`).toEqual(snapshots[0])
-    buttons += await page.locator('.btn').count()
+    buttons += await page.getByRole('button').count()
     anchors += await page.locator('a').count()
   }
   expect(buttons, 'no button target').toBeGreaterThan(0)
