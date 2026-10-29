@@ -6,6 +6,8 @@ defmodule AiurWeb.Build.PayloadSchema do
   def row do
     %{
       "id" => :id,
+      "src" => nullable(object(%{"kind" => {:literal, "pack"}, "path" => :display_path, "wave" => nullable(:nonnegative)})),
+      "was" => nullable(:pack_id),
       "num" => nullable(:positive),
       "title" => :string,
       "type" => enum(~w(bug feature chore docs)),
@@ -49,7 +51,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "wave" => nullable(:integer),
       "qpos" => nullable(:nonnegative),
       "cue" => nullable(object(cue(), ["unknown"])),
-      "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed))}))
+      "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed)), "ci" => nullable(:string)}, ["ci"]))
     }
   end
 
@@ -64,6 +66,16 @@ defmodule AiurWeb.Build.PayloadSchema do
       "repo" => nullable(object(%{"url" => :string})),
       "icons" => {:dictionary, :string},
       "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted svg summary wave))},
+      "epic_progress" =>
+        {:dictionary,
+         object(%{
+           "closed" => nullable(:nonnegative),
+           "open" => nullable(:nonnegative),
+           "total" => nullable(:nonnegative),
+           "observed_at" => nullable(:integer),
+           "reason" => nullable(:string)
+         })},
+      "epic_progress_meta" => object(%{"unmatched" => nullable(:nonnegative), "observed_at" => nullable(:integer), "reason" => nullable(:string)}),
       "features" =>
         {:dictionary,
          object(
@@ -227,7 +239,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source(), ["stale_after_ms"])})
+    standard = Map.new(~w(history features queue agents index packs estimates), &{&1, object(source(), ["stale_after_ms"])})
     Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean), ["stale_after_ms"]))
   end
 

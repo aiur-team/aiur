@@ -30,7 +30,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | --- | --- | --- |
 | **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
 | **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
-| **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
+| **Commands** | `/commands` is the durable decision inbox and each decision's detail. **From Executor** filters inbox rows (`?requester=executor`); Executor requests carry a badge. | `aiur commands` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
@@ -45,6 +45,45 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
 
 The operator-facing UI and CLI call these records **Commands**.
+
+The Commands inbox keeps all open Commands visible. Routing chips read **With Executor**,
+**Needs you**, **Needs you and Executor**, or **From Executor**. Older Commands without
+routing facts show **Routing…**. Cards show when they were asked and, after human
+routing, how long they have needed you.
+
+Use **Needs you**, **With Executor**, **From Executor**, or **Resolved** to filter;
+links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and All
+include unrouted Commands. Resolved Commands appear in the history table.
+
+Only Commands routed to you (including those shared with the Executor) count in the
+banner, navigation badge, and Units **Commands** column. Unknown counts display an
+unavailable notice or `—`; partial retained data is labelled partial.
+
+The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
+
+Listener-routed Units rows show a compact mode and unread count; unknown values
+show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
+the selector, effective-mode reason, oldest unread age and observation age.
+
+New worker journals recover conversation from the workspace transcript
+when it can be replayed, otherwise from this launch's IssueLog. Recovered
+records belong to an `import` session after a `pre_journal` gap: earlier history
+may still be missing. IssueLog bodies at its 1,000-character cut are marked
+truncated. Existing journals are not imported again.
+
+The conversation header selector offers **Steer · interrupts**,
+**Sync · next turn**, or **Async · on demand**. A different effective mode is
+shown with its reason. Unread counts include the oldest message's age; the
+observation age shows how recently the mode was read.
+
+The selector is hidden under legacy delivery routing and disabled on read-only
+dashboards. Changes wait for confirmation; a concurrent change shows the winning
+mode and preserves your choice. Leaving Async shows a notice: unread bodies
+remain pull-only.
+
+The drawer shows receipts for messages sent during this visit;
+“Accepted” and “Handed to the agent” do not mean the message was read. An unknown
+outcome is shown explicitly.
 
 Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.
 
@@ -119,6 +158,8 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
+In the Units table, a unit holding a native question shows “Waiting for your answer” in the blocked tone, elapsed minutes, and a link to its Command.
+
 ### Read fleet and build pressure
 
 Analytics records fleet and build-gate whole-host sources alongside daemon process
@@ -138,16 +179,67 @@ build gate limits verification; they do not automatically change the agent cap.
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
 
+## Conversations
+
+See [Conversations](/concepts/conversations) for journal storage, retention,
+secret handling, earlier history and jump-point precision.
+
+### Answer a Command
+
+Open Commands from this agent appear beside their anchored conversation entry,
+with a top link that jumps to the card. A Command with no known position is
+pinned above the history and marked **Position unknown**.
+
+The cards use the same
+answer controls as the Commands inbox, including multi-question answers and
+conflict outcomes. Answers recorded elsewhere update the card live; they never
+edit the transcript. Read-only dashboards show cards without answer controls.
+
+### Send a message
+
+On a worker's full conversation page, writable dashboards offer a **Message to
+agent** composer. Its read-only mode indicator shows the effective listener
+mode, or **mode unknown** when it cannot be observed. Legacy routing retains
+the existing send behavior.
+
+**Accepted** means the message was accepted for processing. **Queued** means
+the harness queued it (Sync: next boundary), not that the agent read it.
+**Saved** in Async means the agent reads it when it chooses. The local delivery
+item disappears when the matching operator message enters the journal.
+
+**Failed** shows the reason and restores the message when the draft is empty;
+an existing draft is preserved. **Outcome unknown** means delivery cannot be
+confirmed: check the agent before retrying. A send with an unknown outcome keeps
+the draft; sending the same text again reuses its request ID.
+
+Lost receipts or ten minutes without a journal entry also become unknown; held Async messages
+have no ten-minute expiry.
+
+Delivery observations belong to the browser tab and disappear on reconnect.
+The journal is the durable record. Read-only dashboards show a notice in place
+of the composer.
+
 ## Writable controls
 
 | Writable control | Where | Action |
 | --- | --- | --- |
 | Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
-| Unit | `/units` | Pause or resume one agent, or send it a message. |
+| Unit | `/units` | Pause or resume one agent, or send it a message. The mic opens an explicit Dictate / Converse choice; Dictate fills editable text for review and Send. Unavailable choices show their reason. Microphone selection is in the adjacent settings popover. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
 | Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
+
+Command details include an escalation timeline from recorded facts, with the
+cause, absolute time, and relative age. An unavailable timeline is labeled
+explicitly.
+
+Native requests show every question together: choose one answer
+(or several when offered), select Other to write a response where allowed,
+and submit all answers at once.
+
+Suggested responses for single-question
+Commands place the recommended option first and mark it Recommended.
 
 On Command detail, **Replace** asks for confirmation before opening an empty answer form. It is available for an Executor answer until delivery starts. A competing answer shows who answered, when, and their answer.
 
@@ -169,6 +261,59 @@ The home ticket modal hides Add to queue when `dashboard_writable` is `false`.
 In read-only mode, the `/units` Tickets panel shows the Add an agent action as unavailable before any routing choices are requested. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
+
+### Executor voice prototype
+
+Open a conversation drawer, choose **ElevenLabs** or **OpenAI**, enter its model,
+and press **Talk to Executor** to start a continuous spoken session. Change the
+provider between sessions without editing config or restarting.
+
+Both credentials and the ElevenLabs Agent id must be configured for a two-provider comparison. The voice control
+always targets the Executor, regardless of the worker shown in the drawer.
+
+The drawer shows each provider's cumulative used or reserved minutes. Comparison
+limits are 45 minutes each for OpenAI and ElevenLabs on this runtime, separate
+from the existing shared daily cap. Starts at the comparison cap are refused;
+remaining minutes also shorten the session's automatic stop.
+
+A reservation is
+written before connecting. Failed starts and interrupted sessions without a saved
+end line charge the whole reservation, including after a daemon restart.
+
+Expand **Compare providers and record Kevin’s rating** for side-by-side session
+lines: model, first audio, duration, budget cost estimate, rating (1–5) and note.
+
+First audio measures server session startup to first received agent audio, before
+browser playback; sessions with no audio show unavailable.
+
+Ratings and redacted notes survive reloads. The private `comparison.json` sits beside the transcripts;
+no audio is stored. Stop the current session before choosing another provider.
+
+The estimates allocate USD 8 / 45 OpenAI minutes and USD 8 / 45 ElevenLabs
+minutes; these are evaluation budget rates, not vendor tariffs or invoice limits.
+The ledger starts at deployment and excludes earlier provider/account usage.
+
+Before each attended comparison, reconcile actual prior spend and account usage
+against the USD 25 approval on #4084; record each delta there. End both sessions
+after evaluation and disable the demo. Kevin's choice (or “not yet”) belongs on
+#4083 before Stream Deck voice work is filed.
+
+The control shows not configured, connecting, live, ended or failed. Press
+**End Executor conversation** to send the transcript and categorized summary.
+Each item keeps its sent event id and timestamp after the session ends.
+
+Receipts say **sent, not received** until the Executor acknowledges the
+matching wake. **Received** confirms acknowledgment, not approval or execution.
+A missing acknowledgment stays visible; re-rendering the drawer or starting
+another session preserves earlier receipts. A failed handoff shows an error.
+
+The summary separates decisions, open questions and ideas. If the assistant did
+not record one before ending, the drawer says **unstructured**; the transcript
+is still sent without inventing decisions.
+
+Use HTTPS or localhost for microphone access. See
+[Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
+for provider configuration, credentials and ElevenLabs client-tool setup.
 
 ## Authentication and network exposure
 
@@ -266,3 +411,62 @@ empty samples show zero.
 Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
+
+## Full conversation
+
+`/conversations/:conversation_id` opens the durable conversation as a read-only
+page. It starts with the latest 50 entries. **Load older**, **Jump to start**,
+and **Load newer** browse earlier history; **Latest entries** returns to the
+live tail.
+
+Agent prose uses Markdown. Reasoning and command or tool output start collapsed;
+select a summary to expand it. File edits show diffs. Operator bubbles, session
+dividers and gap rows keep the source and continuity visible. See
+[Reading entries](/concepts/conversations#reading-entries) for masking and
+truncation details.
+
+The page keeps up to 500 entries on screen. When you scroll up,
+new entries show a counter that returns you to the latest page.
+
+The status distinguishes live, idle, ended, continuity unknown and unavailable
+history. Journal failures keep the last readable content with a stale marker
+and observation age. Imported history shows **Earlier history is not available**.
+
+## Read a conversation over HTTP
+
+These read-only routes use dashboard authentication or a read client token,
+including when
+`dashboard_writable` is false. Responses set `Cache-Control: no-store`:
+
+- `GET /api/v1/conversations/resolve?subject=executor`
+- `GET /api/v1/conversations/resolve?subject=worker&owner=OWNER&repository=REPO&identifier=NUMBER`
+- `GET /api/v1/conversations/ID/entries`
+- `GET /api/v1/conversations/ID/sessions`
+- `GET /api/v1/conversations/ID/anchors`
+
+Resolve returns `conversation_id` and `subject`. Worker lookup uses the full
+repository and stored provider identity; multiple conversations matching a
+transferred issue return `409 ambiguous_subject` with `conversation_ids`.
+No matching subject returns `404 subject_not_found`.
+
+Entries default to the last 50 positions in ascending order. Choose one of
+`tail=true`, `from_start=true`, `before=POS`, `after=POS`, or `around=POS`,
+with `limit=1..200` and optional comma-separated `kinds`. Follow `prev_cursor`
+with `before` or `next_cursor` with `after`; null means that direction is
+complete.
+
+Pages include sessions, `head_pos`, `complete_from_start`, and
+`observed_at`. An existing empty conversation returns an empty page with
+`head_pos: 0`; an unknown ID returns `404 conversation_not_found`. Unreadable
+storage returns `503 conversation_unavailable`; invalid cursors or limits
+return 422.
+
+Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive).
+Sessions contain no local source paths.
+
+Conversation text can contain secrets. Body and output are masked by default;
+`reveal=true` is honored only for an authenticated operator connecting from
+loopback. Device principals and client tokens always remain masked. Basic Auth is refused
+on public binds. Treat revealed content as sensitive.
+
+Write verbs return 405; sends continue through the listener path.

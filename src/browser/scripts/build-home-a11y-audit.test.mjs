@@ -163,3 +163,15 @@ test('card SVG over a lane requires both lane and card provenance', () => {
   check.relatedNodes = [{ target: ['div[data-id="1286"] > .bd-in'] }]
   assert.throws(() => expectAuditClean(boardAudit(input)))
 })
+
+// Exercise the production presenter; spoken identity follows the shared pack contract.
+test('card spoken references preserve filed and unknown labels and recognize pack source', async () => {
+  const { cardLabel } = await import('../../priv/static/build-home/a11y.js')
+  const row = { id: '7', num: 7, title: 'Example', sec: 'plan', deps: [] }
+  assert.match(cardLabel(row, {}), /^#7 Example\./)
+  for (const num of [null, NaN, 0, 1.5]) {
+    assert.match(cardLabel({ ...row, num }, {}), /^ticket reference unknown Example\./)
+  }
+  assert.match(cardLabel({ ...row, id: 'pack:demo/A', num: null, src: { kind: 'pack' } }, {}), /^Not filed yet\. Example\./)
+  assert.match(cardLabel({ ...row, id: 'pack:demo/A', num: null }, {}), /^Not filed yet\. Example\./)
+})

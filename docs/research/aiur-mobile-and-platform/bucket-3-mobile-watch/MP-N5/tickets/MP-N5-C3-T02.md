@@ -29,10 +29,15 @@ C3-T01. DESIGN-N5 no-UI release.
 
 ## Verified starting point
 
-Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
+Path refresh at `3b00b8f2cd0bfc9acdffe3b07ee5f1c6ca2ab56a` (2026-10-27).
+See [plan §10](../plan.md#10-notification-policy-starting-point) for the complete
+mapping, topic catalog and integration gates. Historical `base_sha` is retained.
+All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
+`push-relay`; this refresh does not assert they shipped.
 
-N5 plan §5.5; the relay's own per-handle limit (60/h, burst 10; MP-N4-C2-T04) is a
-backstop, not the policy.
+The 6/hour policy contract is unchanged. All policy/cap paths remain PROPOSED
+under push-relay. The MP-N4 relay 60/hour limit is a planned independent backstop,
+not a landed policy implementation.
 
 ## Chosen design
 

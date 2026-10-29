@@ -8,6 +8,10 @@ defmodule VoiceConverse.Session.Confirmation do
       {:ok, draft, state} -> {:reply, {:ok, draft}, state}
       {:error, reason, state} -> {:reply, {:error, reason}, state}
     end
+  rescue
+    _error -> {:reply, {:error, :unknown}, state, {:continue, :consult_failed}}
+  catch
+    _kind, _reason -> {:reply, {:error, :unknown}, state, {:continue, :consult_failed}}
   end
 
   def call(_action, state, _draft_id, opts) when not is_list(opts), do: {:error, :not_client, state}
@@ -42,7 +46,7 @@ defmodule VoiceConverse.Session.Confirmation do
   defp discard(state, draft_id) do
     with {:ok, draft, drafts} <- Drafts.transition(state.drafts, draft_id, :discarded, at: now(state)),
          {:ok, state} <- persist_draft(state, draft) do
-      {:ok, draft, %{state | drafts: drafts}}
+      {:ok, draft, VoiceConverse.Session.Consult.discarded(%{state | drafts: drafts}, draft_id)}
     else
       {:error, reason} -> {:error, reason, state}
       _ -> {:error, :unknown, state}
@@ -50,22 +54,29 @@ defmodule VoiceConverse.Session.Confirmation do
   end
 
   defp confirmable?(%{config: %{agent_channel: nil}}, _draft), do: {:error, :capability_unavailable}
-  defp confirmable?(_state, %{status: :confirmed}), do: :confirmed
-  defp confirmable?(_state, %{status: :failed}), do: :ok
-  defp confirmable?(_state, %{status: :stale}), do: :stale
 
-  defp confirmable?(state, %{status: :proposed}) do
+  defp confirmable?(%{consult: %{id: id}} = state, %{kind: :consult, draft_id: id} = draft),
+    do: confirmable_status?(state, draft)
+
+  defp confirmable?(_state, %{kind: :consult}), do: {:error, :invalid_transition}
+  defp confirmable?(state, draft), do: confirmable_status?(state, draft)
+
+  defp confirmable_status?(_state, %{status: :confirmed}), do: :confirmed
+  defp confirmable_status?(_state, %{status: :failed}), do: :ok
+  defp confirmable_status?(_state, %{status: :stale}), do: :stale
+
+  defp confirmable_status?(state, %{status: :proposed}) do
     if state.config.briefing_source.alive?(state.target) == false, do: :stale, else: :ok
   rescue
     _error -> :ok
   end
 
-  defp confirmable?(_state, _draft), do: {:error, :invalid_transition}
+  defp confirmable_status?(_state, _draft), do: {:error, :invalid_transition}
 
   defp stale(state, draft_id) do
     with {:ok, draft, drafts} <- Drafts.transition(state.drafts, draft_id, :stale, at: now(state)),
          {:ok, state} <- persist_draft(state, draft) do
-      {:error, :target_stale, %{state | drafts: drafts}}
+      {:error, :target_stale, VoiceConverse.Session.Consult.discarded(%{state | drafts: drafts}, draft_id)}
     else
       _ -> {:error, :unknown, state}
     end
@@ -86,7 +97,9 @@ defmodule VoiceConverse.Session.Confirmation do
                redactor: state.config.redactor
              ),
            {:ok, state} <- persist_draft(state, edited) do
-        {:ok, %{state | drafts: drafts}}
+        state = %{state | drafts: drafts}
+        state = if draft.kind == :consult, do: put_in(state.consult.route, :fresh), else: state
+        {:ok, state}
       end
     else
       {:ok, state}
@@ -103,6 +116,14 @@ defmodule VoiceConverse.Session.Confirmation do
 
       {:error, _reason} ->
         {:error, state}
+    end
+  end
+
+  defp deliver(state, %{kind: :consult} = draft) do
+    case VoiceConverse.Session.Consult.deliver(state, draft) do
+      {:ok, draft, state} -> {:ok, draft, state}
+      {:error, :outcome_unknown, state} -> {:error, :outcome_unknown, state}
+      {:error, reason, state} -> VoiceConverse.Session.Consult.delivery_failed(state, draft, reason)
     end
   end
 

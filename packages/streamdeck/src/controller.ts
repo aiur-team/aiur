@@ -1,3 +1,5 @@
+import { openTicketLink, ticketAction } from "./controller/ticket-actions.js";
+import type { StreamDeckTicket } from "./channel.js";
 import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import {
@@ -29,6 +31,7 @@ import {
   type ControllerCore,
 } from "./controller/state.js";
 
+import { createTicketChat } from "./controller/ticket-chat.js";
 import { createCommands } from "./controller/commands.js";
 import { createGridLogs } from "./controller/grid-logs.js";
 import { createVoiceSettings } from "./controller/voice-settings.js";
@@ -46,6 +49,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   let state = initialState;
   let pressed = new Set<string>();
   let chordActive = false;
+  let instancePress = false;
 
   const publish = (next: ControllerState): void => {
     if (JSON.stringify(next) === JSON.stringify(state)) return;
@@ -66,6 +70,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   };
   const voicePart = createVoiceSettings(core);
   const { stopVoice, leaveVoice, enterSettings, transcriptPresent, commandDictationPresent, sendTranscript, cancelTranscript, pressSettingsKey, holdMic, releaseMic } = voicePart;
+  const chat = createTicketChat(core);
   const logs = createGridLogs(core, voicePart);
   const { forgetLogs, setGridOffset, setLogsOffsets, enterLogs } = logs;
   const commands = createCommands(core, voicePart);
@@ -119,7 +124,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         // until the next flush.
         if (state.focusedIdentifier !== null && identifier !== state.focusedIdentifier) forgetLogs();
         options.channel()?.focus(identifier);
-        publish({ ...state, mode: "cmd", focusedIdentifier: identifier });
+        publish({ ...state, mode: "cmd", focusedIdentifier: identifier, ticket: null, chat: null });
       }
       return;
     }
@@ -132,6 +137,26 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       return;
     }
     if (state.mode === "cmd") {
+      const ticket = state.ticket;
+      if (ticket?.actions && ticket.id === state.focusedIdentifier) {
+        const action = ticketAction(index, state.hasTranscript);
+        if (action === "priority_up" || action === "priority_down") {
+          if (ticket.actions[action] === "enabled") options.channel()?.priority?.(ticket.id, action === "priority_up" ? "up" : "down");
+        } else if (action === "pr" || action === "modal") {
+          openTicketLink(ticket.links?.[action], options.spawn, options.openError);
+        } else if (action === "pause") {
+          if (agentLess(focusedAgent()) && ticket.agent === null && ticket.title !== null && ticket.actions.mic !== "disabled") {
+            options.channel()?.control(ticket.id, "implement");
+            publish({ ...state, implementQueued: true });
+          }
+          if (ticket.actions.pause === "enabled" && (ticket.control?.action === "pause" || ticket.control?.action === "resume")) options.channel()?.control(ticket.id, ticket.control.action);
+        } else if (action === "commands") enterCommands();
+        else if (action === "mic" && ticket.actions.mic !== "disabled") holdMic();
+        else if (action === "settings") enterSettings();
+        else if (action === "send") sendTranscript(ticket.id);
+        else if (action === "cancel") cancelTranscript();
+        return;
+      }
       const agent = focusedAgent();
       const identifier = state.focusedIdentifier;
       if (identifier === null || agent === undefined) return;
@@ -148,9 +173,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         enterSettings();
       } else if (index === CMD_COMMANDS) {
         enterCommands();
-      } else if (index === CMD_SEND) {
+      } else if (index === CMD_SEND && state.hasTranscript) {
         sendTranscript(identifier);
-      } else if (index === CMD_CANCEL) {
+      } else if (index === CMD_CANCEL && state.hasTranscript) {
         cancelTranscript();
       } else if (index === CMD_IMPLEMENT && agentLess(agent)) {
         // The deck asks; the daemon dispatches. `implement` applies the
@@ -180,7 +205,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (steps === 0) return;
     const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value));
 
-    if (input.index === 0 && state.mode === "logs") {
+    if (input.index === 2) {
+      options.turnInstance?.(steps);
+    } else if (input.index === 0 && state.mode === "logs") {
       const next = clamp(state.chatOffset + steps, logs.chatMaxOffset());
       setLogsOffsets(state.eventOffset, next);
     } else if (input.index === 3 && state.mode === "logs") {
@@ -273,7 +300,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     // surfaces, so each mode listens to exactly one index.
     for (const input of decoded) {
       if (input.type !== "key" || input.pressed) continue;
-      if (state.mode === "cmd" && input.index === CMD_MIC) releaseMic();
+      if (state.mode === "cmd" && input.index === (state.ticket?.actions ? 6 : CMD_MIC)) releaseMic();
       else if (state.mode === "settings" && input.index === SETTINGS_TEST_MIC) releaseMic();
       else if (state.mode === "commands" && input.index === COMMANDS_MIC) releaseMic();
     }
@@ -289,6 +316,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         decoded.some((input) => input.type === "encoder-button" && input.index === index && input.pressed),
       );
     if (chordHeld) {
+      instancePress = false;
       // Latch, or holding the pair would toggle once per poll.
       if (!chordActive) {
         chordActive = true;
@@ -302,7 +330,14 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       }
       return;
     }
-    chordActive = false;
+    const instanceHeld = decoded.some((input) => input.type === "encoder-button" && input.index === 2 && input.pressed);
+    const instanceReleased = decoded.some((input) => input.type === "encoder-button" && input.index === 2 && !input.pressed);
+    if (instancePress && instanceReleased) {
+      instancePress = false;
+      options.switchInstance?.();
+    }
+    if (!chordActive && edges.events.some((input) => input.type === "encoder-button" && input.index === 2) && instanceHeld) instancePress = true;
+    if (!instanceHeld && !decoded.some((input) => input.type === "encoder-button" && input.index === 1 && input.pressed)) chordActive = false;
 
     for (const input of edges.events) {
       if (input.type === "key") pressKey(input.index);
@@ -312,9 +347,18 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
 
   return {
     state: (): ControllerState => state,
+    resetInstance: (): void => {
+      leaveVoice();
+      forgetLogs();
+      publish({ ...initialState });
+    },
     handleReport,
+    setTicket: (ticket: StreamDeckTicket): void => {
+      if (ticket.id === state.focusedIdentifier) publish({ ...state, ticket });
+    },
+    setChat: chat.setChat,
     setLogs: logs.setLogs,
-    tickTyping: logs.tickTyping,
+    tickTyping: (): boolean => chat.tickTyping() || logs.tickTyping(),
     /**
      * Re-reads whether the voice buffer holds text.
      *
@@ -329,6 +373,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     },
     cancel: (): void => {
       pressed = new Set();
+      instancePress = false;
       // The device went away mid-hold. Stop capture, or `parec` keeps recording
       // against a deck that is no longer there.
       stopVoice();

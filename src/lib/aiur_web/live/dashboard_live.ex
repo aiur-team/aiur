@@ -163,9 +163,17 @@ defmodule AiurWeb.DashboardLive do
   # A unit's agent topic carries transcript, alert, turn, and aiur-turn traffic
   # this view subscribes to but does not consume. Ignore it rather than crashing
   # on any message this view does not own.
+  def handle_info({:listen_mode_changed, _, _} = message, socket), do: AiurWeb.ListenerModeEvents.info(message, socket)
+  def handle_info({:listener_timeout, _, _} = message, socket), do: AiurWeb.ListenerModeEvents.info(message, socket)
+  def handle_info({:listener_refresh, _, _} = message, socket), do: AiurWeb.ListenerModeEvents.info(message, socket)
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("refresh_listen_mode", _params, socket), do: AiurWeb.ListenerModeEvents.retry(socket)
+
+  def handle_event("set_listen_mode", params, socket), do: AiurWeb.ListenerModeEvents.change(params, socket)
+
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
   @impl true
@@ -175,7 +183,7 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_event("filter-decisions", %{"filter" => filter}, socket) do
     filter = Commands.normalize_filter(filter)
-    {:noreply, push_patch(socket, to: Commands.decision_path(socket.assigns.selected_decision_id, filter, %{}))}
+    {:noreply, push_patch(socket, to: Commands.decision_path(socket.assigns.selected_decision_id, filter, Map.take(socket.assigns.decision_query, [:requester])))}
   end
 
   def handle_event("filter-decisions", _params, socket), do: {:noreply, socket}
@@ -341,7 +349,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-agent-log", _params, socket) do
-    {:noreply, assign(socket, :agent_log_modal, nil)}
+    {:noreply, socket |> AiurWeb.ListenerModeEvents.close() |> assign(:agent_log_modal, nil)}
   end
 
   def handle_event(
@@ -411,6 +419,8 @@ defmodule AiurWeb.DashboardLive do
   end
 
   @impl true
+  def handle_async({:listener_receipts, _, _} = key, result, socket), do: AiurWeb.ListenerModeEvents.finish(key, result, socket)
+
   def handle_async(:add_agent_submission, {:ok, result}, socket),
     do: UnitsPanel.finish_add_agent(socket, result)
 

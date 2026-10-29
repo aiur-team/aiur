@@ -23,6 +23,8 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"reset budget", "cmd_reset_budget 123 456", :write, []},
     {"todo", "run_todo --todo 123 456", :write, []},
     {"workspace recover", "cmd_workspace_recover ENG-123 7", :write, []},
+    {"listen mode read", "cmd_listen_mode 123 --json", :read, []},
+    {"listen mode write", "cmd_listen_mode 123 async --expected-version 0", :write, []},
     {"message", "cmd_message 123 hello from operator", :write, []},
     {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
     {"message status", "cmd_message --status 7", :read, []},

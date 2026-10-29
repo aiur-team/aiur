@@ -23,7 +23,7 @@ defmodule Aiur.ListenerTest do
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(dir)
     entry = %{identifier: "42", session_execution: %{backend: "codex"}}
-    state = %State{running: %{"id" => entry}, queue_store: AgentQueueStore.new()}
+    state = %State{last_polled_issues: %{"stopped" => %{identifier: "stopped"}}, running: %{"id" => entry}, queue_store: AgentQueueStore.new()}
     pid = start_supervised!({Server, state})
     %{pid: pid, state: state, dir: dir}
   end
@@ -43,7 +43,9 @@ defmodule Aiur.ListenerTest do
 
     assert log =~ "listener_mode_set issue=42 requested=async effective=:sync version=1 actor=executor"
     assert %{requested: :async, version: 1, actor: :executor} = ModeStore.get("42")
-    assert :sys.get_state(pid) == state
+    updated = :sys.get_state(pid)
+    assert updated.queue_store == state.queue_store
+    assert updated.running["id"].listener_effective.requested == :async
     assert {:ok, %{requested: :async, version: 1}} = Listener.get_mode("42")
   end
 
@@ -130,7 +132,7 @@ defmodule Aiur.ListenerTest do
     assert {:reply, {:error, :ambiguous_identifier}, ^unique} = ListenerModes.get_mode(unique, other)
     assert {:reply, {:error, :ambiguous_identifier}, ^unique} = ListenerModes.set_mode(unique, other, :async, expected_version: 0)
     assert ModeStore.get("42").version == 0
-    stopped = %{state | running: %{}}
+    stopped = %{state | running: %{}, last_polled_issues: %{identity.identifier => %{identifier: identity.identifier}}}
     assert {:reply, {:ok, %{effective: nil, effective_reason: :not_running, requested: :async}}, ^stopped} = ListenerModes.set_mode(stopped, identity, :async, expected_version: 0)
   end
 
@@ -146,8 +148,21 @@ defmodule Aiur.ListenerTest do
     end
   end
 
-  test "regression guard: control capabilities retain exact key set", %{state: state} do
+  test "control capabilities include the unread listener projection", %{state: state} do
     keys = Capabilities.issue_control_capabilities(state, "42") |> Map.keys() |> Enum.sort()
-    assert keys == Enum.sort([:accepts_operator_messages, :accepted_delivery_policies, :can_interrupt, :immediate_delivery, :safe_checkpoints, :status, :unit_control, :pending_control, :queue_depth])
+
+    assert keys ==
+             Enum.sort([
+               :accepts_operator_messages,
+               :accepted_delivery_policies,
+               :can_interrupt,
+               :immediate_delivery,
+               :safe_checkpoints,
+               :status,
+               :unit_control,
+               :pending_control,
+               :queue_depth,
+               :listener
+             ])
   end
 end

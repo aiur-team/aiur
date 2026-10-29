@@ -5,7 +5,6 @@ import { pagerModel } from "../../src/touchStrip/pagerSegment.js";
 import { providerSegmentModel } from "../../src/touchStrip/providerSegment.js";
 import { summaryModel } from "../../src/touchStrip/summarySegment.js";
 import { composeStrip, type SettingsData, type StripPanel } from "../../src/touchStrip/stripLayout.js";
-import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
 import type { ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
 import type { TranscriptRow } from "../../src/channel.js";
 import { voicePanel, type VoicePanelData } from "../../src/voicePanel.js";
@@ -47,7 +46,7 @@ describe("composeStrip", () => {
     expect(tilesTheStrip(grid([provider("claude"), provider("codex")]))).toBe(true);
     expect(tilesTheStrip(grid([provider("claude"), provider("codex"), provider("kimi")]))).toBe(true);
     expect(tilesTheStrip(grid([]))).toBe(true);
-    expect(tilesTheStrip(composeStrip({ mode: "cmd", data: { detail: agentDetailModel({ identifier: "1356" }) } }))).toBe(true);
+    expect(tilesTheStrip(composeStrip({ mode: "cmd", data: {  } }))).toBe(true);
     expect(tilesTheStrip(composeStrip({ mode: "logs", data: { rows: [message("a")] } }))).toBe(true);
     expect(tilesTheStrip(settings())).toBe(true);
     expect(tilesTheStrip(settings({ voice: voice({ holding: true }) }))).toBe(true);
@@ -55,7 +54,7 @@ describe("composeStrip", () => {
       tilesTheStrip(
         composeStrip({
           mode: "cmd",
-          data: { detail: agentDetailModel({ identifier: "1356" }), voice: voice({ holding: true }) },
+          data: {  voice: voice({ holding: true }) },
         }),
       ),
     ).toBe(true);
@@ -101,25 +100,17 @@ describe("composeStrip", () => {
     expect(grid([])[1].content).toEqual({ kind: "blank" });
   });
 
-  it("cmd mode is one full-width panel carrying the whole agent readout", () => {
+  it("cmd mode is one full-width panel carrying the whole chat readout", () => {
     const panels = composeStrip({
       mode: "cmd",
       data: {
-        detail: agentDetailModel({
-          identifier: "1356",
-          title: "Restore retry statistics",
-          bucket: "running",
-          progress_percent: 40,
-          activity: "review",
-          runtime_seconds: 3_600,
-        }),
+
       },
     });
     expect(panels).toHaveLength(1);
     expect(panels[0].region).toMatchObject({ x: 0, y: 0, width: 800, height: 100 });
     expect(panels[0].content).toMatchObject({
-      kind: "agentDetail",
-      model: { ticketId: "1356", title: "Restore retry statistics", percent: 40, elapsedLabel: "1h 00m" },
+      kind: "chatLog", fullWidth: true,
     });
   });
 
@@ -140,10 +131,10 @@ describe("composeStrip", () => {
 
   describe("cmd mode and the voice readout", () => {
     const cmd = (voiceData?: VoicePanelData) =>
-      composeStrip({ mode: "cmd", data: { detail: agentDetailModel({ identifier: "1356" }), voice: voiceData } })[0];
+      composeStrip({ mode: "cmd", data: {  voice: voiceData } })[0];
 
-    it("keeps the agent readout when the host has no voice session", () => {
-      expect(cmd().content.kind).toBe("agentDetail");
+    it("keeps the chat readout when the host has no voice session", () => {
+      expect(cmd().content.kind).toBe("chatLog");
     });
 
     it("shows the voice readout while the mic is held", () => {
@@ -159,8 +150,8 @@ describe("composeStrip", () => {
       });
     });
 
-    it("returns to the agent readout once the buffer is empty and the key is up", () => {
-      expect(cmd(voice({ holding: false, text: "" })).content.kind).toBe("agentDetail");
+    it("returns to the chat readout once the buffer is empty and the key is up", () => {
+      expect(cmd(voice({ holding: false, text: "" })).content.kind).toBe("chatLog");
     });
 
     it("is still one full-width panel either way", () => {

@@ -8,6 +8,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   # Flat producer census; kept together to audit system alert classification.
 
   @alerts [
+    {"system.feature_supply_low", "orchestration"},
+    {"system.feature_supply_low.resolved", "orchestration"},
     # aiur/agent_resource_guard.ex
     {"system.agent.synthetic_load_cap", "agent-sandbox"},
     # aiur/build_gate_hold_monitor.ex
@@ -32,6 +34,11 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.config.operator_relay.enabled", "config"},
     # aiur/workflow_store/reload_rejection.ex
     {"system.config.reload_rejected", "config"},
+    {"system.conversation.subject_index.unreadable", "conversations"},
+    # aiur/conversation/journal.ex
+    {"system.conversation.journal.degraded", "conversations"},
+    # aiur/conversation/journal.ex
+    {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
     # aiur/commands/request_attributes.ex
@@ -104,6 +111,14 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.netlify.credits_low", "executor-attention"},
     # aiur/usage/alerts.ex
     {"system.netlify.credits_low.resolved", "executor-attention"},
+    # aiur/events/outbound/webhook.ex
+    {"system.outbound_events.delivery.permanent_failure", "event-bus"},
+    # aiur/events/outbound/export_journal.ex
+    {"system.outbound_events.queue.capacity", "event-bus"},
+    # aiur/events/outbound/export_journal.ex
+    {"system.outbound_events.queue.capacity.resolved", "event-bus"},
+    # aiur/events/outbound/export_journal.ex
+    {"system.outbound_events.queue.storage", "event-bus"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
     # aiur/landing_watch/pr_rerun.ex
@@ -118,6 +133,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr.landing.merge_group_repeat_failure", "orchestration"},
     # aiur/landing_watch/merge_group_failure_processor.ex
     {"system.pr.landing.merge_group_unclassified", "orchestration"},
+    # aiur/landing_watch/merge_group_failure_processor.ex
+    {"system.pr.landing.runner_degraded", "orchestration"},
     # aiur/landing_watch/merge_queue_watchdog.ex
     {"system.pr.landing.merge_queue_recovered", "orchestration"},
     # aiur/landing_watch/merge_queue_watchdog_recovery.ex

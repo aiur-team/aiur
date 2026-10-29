@@ -11,10 +11,11 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   import Aiur.Orchestrator.StatusReport.RowFacts
 
   alias Aiur.CodingAgent
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
+  alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.Dispatcher
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
@@ -27,6 +28,10 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   @doc false
   @spec snapshot_payload(State.t()) :: map()
   def snapshot_payload(%State{} = state) do
+    CodingAgent.with_snapshot(fn -> SettingsSnapshot.run(fn -> do_snapshot_payload(state) end) end)
+  end
+
+  defp do_snapshot_payload(state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
@@ -213,6 +218,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       last_codex_timestamp: Map.get(metadata, :last_codex_timestamp),
       last_codex_message: Map.get(metadata, :last_codex_message),
       last_codex_event: Map.get(metadata, :last_codex_event),
+      native_hold: Map.get(metadata, :native_hold),
       work_state: work_state,
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
@@ -220,6 +226,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       queue_depth: capabilities.queue_depth,
       pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
+      listener: listener_view(metadata, capabilities, now),
       runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
@@ -233,6 +240,13 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     |> Map.merge(progress_facts(Issue.tracker_identity(metadata.issue), activity_by_identity))
     |> Map.merge(running_execution_facts(metadata))
     |> WaitingReason.attach(state, metadata)
+  end
+
+  defp listener_view(metadata, capabilities, now) do
+    case Map.get(metadata, :listener_effective) do
+      %{} = view -> Map.merge(view, Map.merge(capabilities.listener, %{routing: Scheduler.routing(), observed_at: now, status: capabilities.status}))
+      _missing -> :unavailable
+    end
   end
 
   defp retry_snapshot(
@@ -286,7 +300,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     retrying_issue_ids = MapSet.new(Map.keys(state.retry_attempts))
 
     excluded_issue_ids = MapSet.union(running_issue_ids, retrying_issue_ids)
-    terminal_states = DispatchPolicy.terminal_state_set()
 
     idle_issues =
       visible_polled_issues(state)
@@ -300,7 +313,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       idle_issue_snapshot(
         state,
         issue,
-        terminal_states,
         now_ms,
         latch_statuses,
         activity_by_identity,
@@ -312,7 +324,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   defp idle_issue_snapshot(
          %State{} = state,
          %Issue{} = issue,
-         _terminal_states,
          now_ms,
          latch_statuses,
          activity_by_identity,

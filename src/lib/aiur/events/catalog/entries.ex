@@ -6,7 +6,7 @@ defmodule Aiur.Events.Catalog.Entries do
   alias Aiur.Events.Catalog.{AttentionEntries, Entry, GithubSystemEntries, LegacyEntries, PlannedEntries, SystemEntries, TicketEntries}
 
   # aiur/decision_store/{requests,persistence,audit}.ex
-  @decision_slugs ~w(requested request-attributed routed escalated human-needed executor-acknowledged answered pending-for-session session-started answer-comment-published expired mooted dismissed
+  @decision_slugs ~w(requested request-attributed native-released routed escalated human-needed executor-acknowledged requester-notified answered pending-for-session session-started answer-comment-published expired mooted dismissed
     deferred executor-escalated authority-reclassified enriched revision-recorded queued dispatch-outcome-unknown revision-dispatched
     revision-no-longer-applicable revision-follow-up-required revision-follow-up-handled handed-off delivered restored consumed failed acknowledged resolved)
   # aiur/executor_wake_projection.ex
@@ -24,6 +24,8 @@ defmodule Aiur.Events.Catalog.Entries do
     %Entry{pattern: "ticket.*.agent.decision.#", class: :journaled, export?: true, refs: [:ticket, :decision_id, :decision_version], attrs: [slug: {:enum, @decision_slugs}], owner: "commands"},
     # aiur/executor_events.ex — private to the Executor principal.
     %Entry{pattern: "executor.#", class: :journaled, owner: "executor-attention"},
+    # aiur/voice_conversation/handoff.ex — transcript and summary remain private.
+    %Entry{pattern: "executor.voice.session_ended", class: :journaled, owner: "voice-conversation"},
     # aiur/alerts.ex; aiur/agent_runner/tool_executor.ex
     Entry.alert("ticket.*.agent.attention.#", "harness-adapters", export?: true),
     Entry.alert("system.#", "signal", export?: true)
@@ -45,8 +47,15 @@ defmodule Aiur.Events.Catalog.Entries do
              end)
 
   # aiur/agent_tools/emit_event.ex; aiur/agent_runner/tool_executor.ex
-  @progress (for suffix <- ~w(progress progress.checkin) do
-               %Entry{pattern: "ticket.*.agent.#{suffix}", class: :logged, export?: true, attrs: [percent: :integer], owner: "harness-adapters"}
+  @progress (for suffix <- ~w(progress progress.checkin progress.phase) do
+               %Entry{
+                 pattern: "ticket.*.agent.#{suffix}",
+                 class: :logged,
+                 export?: true,
+                 refs: [:ticket, :job_id],
+                 attrs: [percent: :integer, progress_source: {:enum, ~w(progress progress.checkin progress.phase)}],
+                 owner: "harness-adapters"
+               }
              end)
 
   @entries @core ++

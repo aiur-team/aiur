@@ -22,6 +22,9 @@ defmodule Aiur.AgentControlCLI do
   defdelegate alerts(opts \\ []), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_sweep(opts), to: Aiur.ExecutorSweep.CLI, as: :rpc
   defdelegate commands(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  @spec command_request(keyword()) :: :ok
+  defdelegate command_request(opts), to: Aiur.ControlCLI.EntryPoints
+
   defdelegate operator_relay_answer(opts), to: Aiur.ControlCLI.EntryPoints
   @spec executor_ack(keyword()) :: :ok
   defdelegate executor_ack(opts), to: Aiur.ControlCLI.EntryPoints
@@ -38,6 +41,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate queue(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate analytics(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  @spec history_label_writes(keyword()) :: :ok
+  defdelegate history_label_writes(opts), to: Aiur.HistoryLabelWritesCLI, as: :rpc
   defdelegate github_cost(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate experiments(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate capabilities(opts \\ []), to: Aiur.ControlCLI.EntryPoints

@@ -27,8 +27,13 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   # `?catalog=empty` mounts the same page with no units at all, so the browser
   # suite can look at the zero-unit catalog without first deleting every row.
   def mount(params, _session, socket) do
+    Phoenix.Config.put(AiurWeb.Endpoint, :voice_target_payload_fun, fn -> %{fleet: %{running: [%{issue_identifier: "1110"}]}} end)
+
     {:ok,
      socket
+     |> assign(:voice_handoff, nil)
+     |> assign(:voice_conversation_state, if(params["converse"] == "available", do: :available, else: :unavailable))
+     |> assign(:listener_test, params["listener"] == "1")
      |> assign(:writable, AiurWeb.Endpoint.config(:dashboard_writable) == true)
      |> assign(:catalog, mount_catalog(params))
      |> assign(:selection, UnitsURL.default_selection())
@@ -142,6 +147,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
 
   def handle_event("close-conversation", _params, socket), do: {:noreply, assign(socket, :conversation_drawer, nil)}
 
+  def handle_event("open-voice-conversation", params, socket), do: {:noreply, assign(socket, :voice_handoff, params)}
+
   def handle_event("composer-change", %{"message" => message}, socket) do
     {:noreply, assign(socket, :drafts, %{"1110" => message})}
   end
@@ -220,7 +227,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       |> assign(:announcement, UnitsPresenter.announcement(view))
 
     ~H"""
-    <main class="app-shell" data-units-fixture="true" data-sent-message={@sent_message || ""}>
+    <main class="app-shell" data-units-fixture="true" data-voice-handoff={Jason.encode!(@voice_handoff)} data-voice-draft={@drafts["1110"] || ""} data-sent-message={@sent_message || ""}>
       <section class="section-card units-card" aria-labelledby="units-title">
         <header class="section-header units-header">
           <div>
@@ -265,8 +272,11 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         :if={@conversation_drawer}
         id="units-fixture-conversation-drawer"
         view={@conversation_drawer.view}
+        voice_capabilities={%{"voice.stt" => %{state: :available}, "voice.conversation" => %{state: @voice_conversation_state, reason: :not_installed}}}
         composer={%{target_key: "1110", writable_target?: true, messages: []}}
-        writable={true}
+        writable={if(@listener_test, do: @writable, else: true)}
+        listener={if(@listener_test, do: %{requested: :async, effective: :async, version: 2, routing: :listener, unread_count: 2, oldest_unread_at: DateTime.add(@now, -120), observed_at: @now}, else: :unavailable)}
+        now={@now}
         drafts={@drafts}
         close_event="close-conversation"
         fallback_focus_id="units-title"

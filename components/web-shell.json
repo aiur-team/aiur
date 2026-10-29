@@ -15,6 +15,7 @@
     "src/lib/aiur_web/controllers/control_controller.ex",
     "src/lib/aiur_web/controllers/events_controller.ex",
     "src/lib/aiur_web/controllers/events_session_controller.ex",
+    "src/lib/aiur_web/controllers/listen_mode_controller.ex",
     "src/lib/aiur_web/controllers/observability*.ex",
     "src/lib/aiur_web/endpoint.ex",
     "src/lib/aiur_web/endpoint_config.ex",
@@ -28,7 +29,9 @@
     "src/lib/aiur_web/routes/control.ex",
     "src/lib/aiur_web/routes/events.ex",
     "src/lib/aiur_web/sockets/events.ex",
-    "src/lib/aiur_web/supervisor_auth.ex"
+    "src/lib/aiur_web/sockets/voice.ex",
+    "src/lib/aiur_web/supervisor_auth.ex",
+    "src/lib/aiur_web/voice_socket.ex"
   ],
   "facades": [
     "*"
@@ -38,6 +41,7 @@
     "config",
     "event-bus",
     "identity",
+    "listener-modes",
     "projections",
     "signal",
     "web-kit"
@@ -48,10 +52,12 @@
     "commands",
     "conversations",
     "dashboard-ui",
+    "executor-attention",
     "experiments-page",
     "github-listeners",
     "pairing-discovery",
     "streamdeck-server",
+    "voice-conversation",
     "voice-stt"
   ],
   "owns": {

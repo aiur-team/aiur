@@ -179,7 +179,7 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert Plug.Conn.get_resp_header(loader_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
     logo = get(build_conn(), "/aiur-logo.png")
-    assert response(logo, 200) == File.read!(Path.expand("../../../../website/public/assets/aiur-logo.png", __DIR__))
+    assert response(logo, 200) == File.read!(Path.expand("../../../../packages/aiur-style/assets/aiur-logo.png", __DIR__))
     assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png"]
 
     github_mark = get(build_conn(), "/images/github-mark.svg")

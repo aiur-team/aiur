@@ -123,7 +123,7 @@ defmodule Aiur.Commands.RequestContent do
   end
 
   @spec suggested_response_check(map(), atom()) :: :ok | {:warn, atom()}
-  def suggested_response_check(decision, :emit_event) do
+  def suggested_response_check(decision, origin) when origin in [:emit_event, :executor_cli] do
     options = get(decision, :options) || []
     recommendation = get(decision, :recommendation)
 

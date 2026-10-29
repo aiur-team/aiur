@@ -10,12 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
 
   @spec decision_replacement(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_replacement(assigns) do
-    canonical = DecisionOutcomes.canonical_notice(assigns.decision)
-    explicit = assigns.state[:outcome] || if(assigns.state[:replacing?], do: late_outcome(assigns.decision))
-    outcome = current_outcome(explicit, canonical, assigns.decision)
-    outcome_notice = if outcome, do: DecisionOutcomes.outcome_notice(outcome)
-    notice = if explicit, do: outcome_notice, else: form_notice(assigns.state) || outcome_notice
-    actions = if outcome_notice, do: elem(outcome_notice, 2), else: []
+    {notice, actions} = notice(assigns.decision, assigns.state)
 
     assigns = assign(assigns, notice: notice, actions: actions, replaceable?: DecisionOutcomes.replaceable?(assigns.decision), follow_up: follow_up(assigns.decision))
 
@@ -35,6 +30,17 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
       <a :if={:refresh in @actions} href={"/commands/#{URI.encode(@decision.decision_id, &URI.char_unreserved?/1)}"}>Refresh Command</a>
     </div>
     """
+  end
+
+  @doc "The same notice used by the Command and its voice status echo."
+  @spec notice(map(), map()) :: {tuple() | nil, list()}
+  def notice(decision, state) do
+    canonical = DecisionOutcomes.canonical_notice(decision)
+    explicit = state[:outcome] || if(state[:replacing?], do: late_outcome(decision))
+    outcome = current_outcome(explicit, canonical, decision)
+    outcome_notice = if outcome, do: DecisionOutcomes.outcome_notice(outcome)
+    notice = if explicit, do: outcome_notice, else: form_notice(state) || outcome_notice
+    {notice, if(outcome_notice, do: elem(outcome_notice, 2), else: [])}
   end
 
   defp current_outcome(%{status: status} = outcome, %{delivery: :delivered}, decision) when status in [:accepted, :duplicate],

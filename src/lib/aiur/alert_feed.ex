@@ -98,14 +98,23 @@ defmodule Aiur.AlertFeed do
 
   def condition_states(topics, opts) when is_list(topics) and is_list(opts) do
     topics = topics |> Enum.filter(&is_binary/1) |> Enum.uniq()
-    topic_set = MapSet.new(topics)
+
+    transitions =
+      topics
+      |> Map.new(&{&1 <> @resolution_suffix, {&1, :resolved}})
+      |> Map.merge(Map.new(topics, &{&1, {&1, :firing}}))
+
     initial = Map.new(topics, &{&1, :unknown})
 
     opts
     |> AlertLedger.paths()
     |> Enum.flat_map(&read_alerts(&1, opts))
+    |> Enum.filter(&Map.has_key?(transitions, &1["topic"]))
     |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
-    |> Enum.reduce(initial, &update_condition_state(&1, &2, topic_set))
+    |> Enum.reduce(initial, fn alert, states ->
+      {topic, state} = Map.fetch!(transitions, alert["topic"])
+      Map.put(states, topic, state)
+    end)
   end
 
   @doc """
@@ -160,17 +169,6 @@ defmodule Aiur.AlertFeed do
       ^topic -> nil
       "" -> nil
       condition -> condition
-    end
-  end
-
-  defp update_condition_state(alert, states, topics) do
-    topic = Map.get(alert, "topic") || ""
-    condition = condition_topic(topic)
-
-    cond do
-      MapSet.member?(topics, topic) -> Map.put(states, topic, :firing)
-      is_binary(condition) and MapSet.member?(topics, condition) -> Map.put(states, condition, :resolved)
-      true -> states
     end
   end
 

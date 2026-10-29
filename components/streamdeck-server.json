@@ -1,7 +1,7 @@
 {
   "id": "streamdeck-server",
   "name": "Stream Deck connection",
-  "layer": 3,
+  "layer": 4,
   "kind": "in-app",
   "paths": [
     "src/lib/aiur_web/controllers/streamdeck*.ex",
@@ -9,6 +9,7 @@
     "src/lib/aiur_web/sockets/streamdeck.ex",
     "src/lib/aiur_web/stream_deck_grid.ex",
     "src/lib/aiur_web/streamdeck*.ex",
+    "src/lib/aiur_web/streamdeck/**/*.ex",
     "src/lib/aiur_web/streamdeck_channel/*.ex",
     "src/lib/aiur_web/streamdeck_logs/*.ex",
     "src/lib/aiur_web/streamdeck_projection/*.ex"
@@ -26,6 +27,8 @@
   ],
   "optional": [
     "build-orders",
+    "build-queue",
+    "dashboard-ui",
     "voice-stt"
   ],
   "owns": {
@@ -40,7 +43,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Serves agent status, Commands and conversations to connected Stream Deck clients.",
+  "summary": "Renders shared Stream Deck frames with Build ticket states, PR checks, Commands, paged conversation turns, queue controls and links.",
   "status": "optional",
   "install": {
     "type": "included"

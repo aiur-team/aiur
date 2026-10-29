@@ -16,7 +16,7 @@ defmodule Aiur.DecisionDispatch do
   copy of a mooted or replaced answer just before it reaches the agent.
   """
 
-  alias Aiur.Commands.DeliveryTarget
+  alias Aiur.Commands.{DeliveryTarget, NativeAnswer}
   alias Aiur.{Decision, DecisionAnswer, DecisionRevisionDispatch}
 
   @max_message_chars 7_800
@@ -58,7 +58,7 @@ defmodule Aiur.DecisionDispatch do
       delivery_policy: :interrupt,
       fallback: :queue_next,
       action_id: answer.action_id,
-      correlation: correlation,
+      correlation: NativeAnswer.correlate(decision, answer, correlation),
       retry_failed: retry_failed
     }
 
@@ -73,7 +73,7 @@ defmodule Aiur.DecisionDispatch do
   @doc "Render a concise, product-focused answer envelope for the agent."
   @spec render(Decision.t()) :: String.t()
   def render(%Decision{answer: %DecisionAnswer{} = answer} = decision) do
-    response = response_text(decision, answer)
+    response = NativeAnswer.render(decision, answer) || response_text(decision, answer)
     rationale = if answer.rationale, do: "Rationale: #{answer.rationale}", else: nil
 
     lifecycle =

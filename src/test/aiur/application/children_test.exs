@@ -167,6 +167,62 @@ defmodule Aiur.Application.ChildrenTest do
       assert length(headless) < length(interactive)
     end
 
+    test "export enabled without a webhook starts only the Exporter and isolates Delivery from the Orchestrator" do
+      previous = Application.get_env(:aiur, :workflow_file_path)
+      dir = Aiur.TestSupport.tmp_root!("journal-only-children")
+      File.mkdir_p!(dir)
+      path = Path.join(dir, "config")
+
+      File.write!(path, """
+      tracker:
+        kind: memory
+      events:
+        export:
+          enabled: true
+      """)
+
+      Aiur.Workflow.set_workflow_file_path(path)
+
+      on_exit(fn ->
+        if is_nil(previous), do: Aiur.Workflow.clear_workflow_file_path(), else: Aiur.Workflow.set_workflow_file_path(previous)
+        Aiur.TestCleanup.rm_rf!(dir)
+      end)
+
+      opts = [interactive_cli?: false, headless?: true, dashboard?: false]
+      journal_only = modules(AiurApp.child_specs(opts))
+
+      assert Aiur.Events.Export.Exporter in journal_only
+      refute Aiur.Events.Outbound.Delivery in journal_only
+
+      File.write!(path, """
+      tracker:
+        kind: memory
+      events:
+        export:
+          enabled: true
+          webhook_url: https://consumer.example.com/webhooks/aiur
+      """)
+
+      assert :ok = Aiur.WorkflowStore.force_reload()
+
+      enabled_specs = AiurApp.child_specs(opts)
+      enabled = modules(enabled_specs)
+
+      assert Aiur.Events.Export.Exporter in enabled
+      assert Aiur.Events.Outbound.Delivery in enabled
+
+      {Aiur.Events.Outbound.Delivery, delivery_opts} =
+        Enum.find(enabled_specs, &match?({Aiur.Events.Outbound.Delivery, _opts}, &1))
+
+      assert Keyword.fetch!(delivery_opts, :alert_fun) == (&Aiur.Alerts.emit_system/2)
+
+      assert Enum.find_index(enabled, &(&1 == Aiur.Orchestrator)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Export.Exporter))
+
+      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Export.Exporter)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.Delivery))
+    end
+
     test "Tailscale Funnel reconciliation is opt-in and starts after the dashboard" do
       default = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
       refute Aiur.TailscaleFunnel in modules(default)

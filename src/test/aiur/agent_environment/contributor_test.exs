@@ -101,6 +101,15 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     end
   end
 
+  test "configured fixer label reaches local and remote guards", context do
+    write_workflow_file!(context.workflow_file, tracker_kind: "github", tracker_repo: "owner/name")
+    write_workflow_file_atomic!(context.workflow_file, File.read!(context.workflow_file) <> "\nmerge_policy:\n  main_watch:\n    fixer_label: repair-main\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+
+    assert snapshot(AgentEnvironment, :port, context)["AIUR_GITHUB_FIXER_LABEL"] == "repair-main"
+    assert shell_env(AgentEnvironment, context)["AIUR_GITHUB_FIXER_LABEL"] == "repair-main"
+  end
+
   test "contributors cannot reintroduce scrubbed credentials on either launch path", context do
     Application.put_env(:aiur, :agent_environment_contributors, [UnsafeContributor])
     port = AgentEnvironment.workspace_env(context.workspace) |> Map.new()

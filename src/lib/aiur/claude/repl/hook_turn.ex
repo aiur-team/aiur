@@ -46,7 +46,12 @@ defmodule Aiur.Claude.Repl.HookTurn do
     # a terminal hook, pane death, or a generous no-event backstop ends the wait —
     # so a turn that works silently for minutes is never failed.
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
-    on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
+
+    on_operator = %{
+      true => Keyword.get(opts, :on_operator_message, fn -> :noop end),
+      :steer => Keyword.get(opts, :on_steer_claim, fn -> :noop end)
+    }
+
     on_provider_delivery = Keyword.get(opts, :on_provider_delivery, fn _metadata -> :ok end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
@@ -100,7 +105,10 @@ defmodule Aiur.Claude.Repl.HookTurn do
       session: session,
       identifier: session.identifier,
       on_message: on_message,
-      on_operator: Keyword.get(opts, :on_operator_message, fn -> :noop end),
+      on_operator: %{
+        true => Keyword.get(opts, :on_operator_message, fn -> :noop end),
+        :steer => Keyword.get(opts, :on_steer_claim, fn -> :noop end)
+      },
       on_provider_delivery: Keyword.get(opts, :on_provider_delivery, fn _ -> :ok end),
       poll_ms: Keyword.get(opts, :poll_interval_ms, @turn_poll_ms),
       pause_confirm_ms: Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms),
@@ -189,9 +197,9 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
           # An Executor message landed mid-turn. The REPL accepts input while the
           # agent works; type it straight in so claude's native queue folds it.
-          {:agent_queue_updated, _identifier, _item_id, true} ->
+          {:agent_queue_updated, _identifier, _item_id, deliver_now} when deliver_now in [true, :steer] ->
             Logger.info("repl_hook_turn operator_immediate identifier=#{loop.identifier}")
-            OperatorInject.deliver_immediate_operator_message(loop.session, loop.on_operator)
+            OperatorInject.deliver_immediate_operator_message(loop.session, Map.fetch!(loop.on_operator, deliver_now))
             await_hook_turn(loop, deadline, acc)
 
           {:agent_queue_updated, _identifier, _item_id, _deliver_now} ->

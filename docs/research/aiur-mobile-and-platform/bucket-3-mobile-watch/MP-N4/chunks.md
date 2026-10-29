@@ -7,7 +7,7 @@ date: 2026-10-06
 # MP-N4 chunks
 
 > Bus citations refreshed 2026-10-25 from 45a290e3 to `761756f394e6783794c777668fc1a26a540e4059`. Other feature research remains pinned to its original base.
-> DurableConsumer and Source now exist (src/lib/aiur/events/durable_consumer/source.ex:1-20). R2-C6-T04 must supply ExportSource before push can consume a retained feed. Cursors use dense seq; event id remains a dedupe identity.
+> DurableConsumer, Source and ExportSource now exist at the C3-T00 refresh SHA; see [plan §12](plan.md#12-daemon-push-relay-starting-point). Retained-feed availability still depends on exporter configuration. Cursors use dense seq; event id remains a dedupe identity.
 
 **Phase C (2026-10-06):** full ticket docs are in [tickets/](https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-3-mobile-watch/MP-N4/tickets/README.md). Changes
 from the Phase B lists below: C2 splits packaging (T05, ready) from the default deployment
@@ -93,7 +93,7 @@ Tickets:
   `website/docs-app/reference/configuration.md` (checked by the MP-N2-C3-T05 extension of
   `scripts/check-config-docs.py`).
 - MP-N4-C3-T02 Outbox: append-only ndjson + projection under `runtime_state_dir`
-  (`src/lib/aiur/config/paths.ex:243`), persist-before-send, idempotent on
+  (`src/lib/aiur/config/paths.ex:329 (old :243)`), persist-before-send, idempotent on
   `(intent_id, device_id)`, restart resumes unsent entries subject to N5 staleness rules.
 - MP-N4-C3-T03 Fan-out: read MP-N2 device registry, filter by N5 audience, seal (C1),
   send with backoff; 404/410 → mark device `push_state: gone` and surface it.

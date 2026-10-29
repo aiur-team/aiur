@@ -27,8 +27,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/voice-capture.js"></script>
-        <script defer src="/voice-transport.js"></script>
+        <script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script>
         <script defer src="/conversation-voice-controller.js"></script>
+        <script defer src="/executor-voice-controller.js"></script>
+        <script defer src="/voice-input-hook.js"></script>
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
@@ -36,6 +38,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/streamdeck-emulator-knob.js"></script>
         <script defer src="/assets/streamdeck-emulator-hook.js"></script>
         <script defer src="/assets/sortable-table-hook.js"></script>
+        <script defer src="/decision-questions-validation.js"></script>
         <script defer src="/build-home/loader.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/aiur-style/tokens.css" />
@@ -234,6 +237,8 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
 
+            if (window.AiurVoiceInputHook) window.BrowserHarnessHooks.VoiceInput = window.AiurVoiceInputHook;
+
             if (window.AiurConversationDrawerHook) {
               window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
             }
@@ -256,6 +261,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: window.BrowserHarnessHooks,
+              dom: { onBeforeElUpdated: window.AiurVoiceInputBeforeUpdate },
               params: {_csrf_token: csrfToken}
             });
             window.liveSocket.connect();
@@ -288,7 +294,7 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
         _ -> nil
       end
 
-    counts = if is_integer(awaiting), do: %{awaiting: awaiting, awaiting_blocking: 0}, else: %{}
+    counts = if is_integer(awaiting), do: %{needs_you: awaiting, needs_you_blocking: 0}, else: %{}
 
     {:ok,
      socket
@@ -317,7 +323,7 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
     <main class="app-shell">
       <DashboardShell.dashboard_shell route={RouteRegistry.current_route(:index)} routes={RouteRegistry.routes(%{})}
         tracker_kind="fixture" agent_kind="fixture" nav_collapsed={@nav_collapsed}
-        globally_paused={@paused} writable={@writable} nav_counts={%{commands: @counts[:awaiting]}}>
+        globally_paused={@paused} writable={@writable} nav_counts={%{commands: @counts[:needs_you]}}>
         <:banner><Overview.decisions_banner retained_counts={@counts} /></:banner>
         <button id="probe-patch" phx-click="patch-shell" data-patch={@patch}>Patch shell</button>
         <button id="probe-palette-button" type="button" aria-pressed="true" phx-hook="PaletteToggle" data-probe-patch={to_string(@nav_collapsed)}>Gruvbox palette button</button>

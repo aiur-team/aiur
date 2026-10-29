@@ -1,0 +1,108 @@
+{
+  "agent": {
+    "active": {
+      "label": "Running",
+      "cls": "active"
+    },
+    "error": {
+      "label": "Error",
+      "cls": "stuck"
+    },
+    "retries": {
+      "label": "Retries exhausted",
+      "cls": "stuck"
+    },
+    "retrying": {
+      "label": "Retrying",
+      "cls": "queued"
+    },
+    "command": {
+      "label": "Awaiting command",
+      "cls": "stuck"
+    },
+    "paused": {
+      "label": "Paused",
+      "cls": "idle"
+    },
+    "parked": {
+      "label": "Parked",
+      "cls": "idle"
+    },
+    "merge-queued": {
+      "label": "agent:merge-queued",
+      "cls": "queued"
+    },
+    "ci-red": {
+      "label": "agent:ci-red",
+      "cls": "stuck"
+    },
+    "body-fix": {
+      "label": "agent:body-fix",
+      "cls": "stuck"
+    },
+    "paused-usage-limit": {
+      "label": "agent:paused-usage-limit",
+      "cls": "idle"
+    },
+    "paused-decision": {
+      "label": "agent:paused-decision",
+      "cls": "idle"
+    },
+    "paused-agent": {
+      "label": "agent:paused-agent",
+      "cls": "idle"
+    },
+    "blocked": {
+      "label": "agent:blocked",
+      "cls": "queued"
+    },
+    "handed-off": {
+      "label": "agent:handed-off",
+      "cls": "idle"
+    },
+    "usage_limited": {
+      "label": "Paused · usage limit",
+      "cls": "idle"
+    },
+    "ci_wait": {
+      "label": "Waiting for CI",
+      "cls": "idle"
+    }
+  },
+  "unknown": {
+    "label": "State unknown",
+    "cls": null
+  },
+  "history": {
+    "done": {
+      "label": "Merged",
+      "tone": "done"
+    },
+    "failed": {
+      "label": "Failed",
+      "tone": "stuck"
+    },
+    "not_planned": {
+      "label": "Not planned",
+      "tone": "idle"
+    },
+    "closed": {
+      "label": "Closed",
+      "tone": "idle"
+    }
+  },
+  "sections": {
+    "unfiled": {
+      "label": "Planned · not filed",
+      "tone": "idle"
+    },
+    "plan": {
+      "label": "Queued · ",
+      "tone": "idle"
+    },
+    "nq": {
+      "label": "Not queued",
+      "tone": "idle"
+    }
+  }
+}

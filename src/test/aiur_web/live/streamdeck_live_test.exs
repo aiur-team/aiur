@@ -1,9 +1,14 @@
 defmodule AiurWeb.StreamdeckLiveTest do
   use AiurWeb.StreamdeckLiveCase
 
+  setup do
+    previous = Application.get_env(:aiur, :build_conversation_source)
+    Application.put_env(:aiur, :build_conversation_source, :unavailable)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
+  end
+
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
-    segment_count = length(configured_providers()) + 2
 
     assert html =~ ~s(<b id="route-title" role="heading" aria-level="1">Streamdeck+</b>)
     assert html =~ ~s(<span class="snav-label aiur-shell__label">Streamdeck</span>)
@@ -12,13 +17,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # The grid container is a bare <div>, so it needs an explicit role for its
     # aria-label to be exposed to assistive technology.
     assert html =~ ~s(class="sd-keys" role="group")
-    assert html =~ ~s(style="--sd-screen-segments: #{segment_count}")
+    assert html =~ ~s(width: 800px; height: 100px;)
     assert html =~ ~s(id="sd-knobs")
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
-    assert html =~ "SUMMARY"
-    assert html =~ "Claude"
-    assert html =~ "Codex"
-    assert html =~ "MORE AGENTS"
+    assert html =~ "AIUR"
+    assert html =~ ~s(data-streamdeck-region="200")
+    assert html =~ "Queued"
     # A registered-but-undispatchable provider renders no segment.
     refute html =~ ~s(data-provider="deepseek")
   end
@@ -69,7 +73,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "the download control opens the setup modal even when no package is published" do
     endpoint_config = Application.get_env(:aiur, Endpoint)
-    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :streamdeck_package, %{})}, [])
+
+    Endpoint.config_change(
+      %{Endpoint => Keyword.put(endpoint_config, :streamdeck_package, %{})},
+      []
+    )
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
@@ -91,34 +99,37 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
-  test "renders the complete agent key face" do
+  test "renders the complete agent key face as one accessible SVG" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
+    document = Floki.parse_fragment!(html)
 
-    assert html =~ "sd-ag-ic"
-    assert html =~ ~s(class="sd-ag-vendor" src="/provider-assets/codex-color.svg")
-    assert html =~ ~s(class="sd-ag-vendor" src="/provider-assets/claude-symbol.svg")
-    assert html =~ ~s(class="sd-ag-prio")
-    assert html =~ ~s(class="sd-ag-id">1352</span>)
-    assert html =~ ~s(class="sd-ag-title">Live running</span>)
+    [label] =
+      Floki.attribute(document, "#sd-keys [data-streamdeck-identifier='1352']", "aria-label")
 
-    # Slot 5 is queued and blocked by a dependency, so its footer is stacked.
+    assert label == "1352 Running 50% — Live running"
+    assert length(Floki.find(document, "#sd-keys [data-streamdeck-identifier='1352'] svg")) == 1
+    assert Floki.find(document, "#sd-keys .sd-agent-top, #sd-keys .sd-ag-title") == []
     assert html =~ "Blocked"
-    assert html =~ ~s(class="sd-ag-foot col")
-    assert html =~ ~s(class="sd-ag-tag blocked")
-    # Every non-queued, non-empty key renders the status dot + progress footer.
-    assert html =~ ~s(class="sd-ag-dot")
-    assert html =~ ~s(class="sr-only">Running</span>)
-    assert html =~ ~s(class="sd-ag-bar")
+    assert html =~ "★"
+    assert html =~ ~s(data-part="progress-fill")
   end
 
-  test "uses one green, a brighter completion shade, and structural unknown/stale states", %{snapshot_agent: snapshot_agent} do
+  test "uses one green, a brighter completion shade, and structural unknown/stale states", %{
+    snapshot_agent: snapshot_agent
+  } do
     Agent.update(snapshot_agent, fn _ ->
       %{
         running: [
           fixture_agent("zero", "Zero progress", "codex", progress_percent: 0),
           fixture_agent("full", "Full progress", "nonesuch", progress_percent: 100),
-          fixture_agent("unknown", "Unknown progress", "codex", progress_percent: nil, progress_freshness: :unknown),
-          fixture_agent("stale", "Stale progress", "codex", progress_percent: 40, progress_freshness: :stale)
+          fixture_agent("unknown", "Unknown progress", "codex",
+            progress_percent: nil,
+            progress_freshness: :unknown
+          ),
+          fixture_agent("stale", "Stale progress", "codex",
+            progress_percent: 40,
+            progress_freshness: :stale
+          )
         ],
         retrying: [],
         # No upstreams at all, so this queued key is the ready side of the badge.
@@ -130,31 +141,51 @@ defmodule AiurWeb.StreamdeckLiveTest do
     send(view.pid, {:running_changed, []})
     html = render(view)
 
-    # The bar fill is the contract's progress colour, carried per key rather
-    # than restated in the template. Unknown uses shape, stale uses alpha.
-    assert html =~ ~s|--sd-progress-fill: #3fb950|
-    assert html =~ ~s|--sd-progress-fill: #74d47f|
-    assert html =~ ~s|<i style="width: 0%">|
-    assert html =~ ~s|<i style="width: 100%">|
-    assert html =~ ~s(class="sd-ag-foot is-progress-unknown")
-    refute html =~ "is-progress-stale"
-    assert html =~ ~s(class="sd-ag-vendor-fallback")
-    # Unblocked is drawn as the open-padlock glyph in the key's bottom-right
-    # corner, matching the sidecar; only the held side keeps a text pill.
-    assert html =~ ~s(class="sd-ag-unblocked" role="img" aria-label="Unblocked")
-    refute html =~ ~s(class="sd-ag-tag ready")
+    document = Floki.parse_fragment!(html)
+
+    assert Floki.attribute(
+             document,
+             "[data-streamdeck-identifier='zero'] [data-part='progress-fill']",
+             "fill"
+           ) == ["#3fb950"]
+
+    assert Floki.attribute(
+             document,
+             "[data-streamdeck-identifier='full'] [data-part='progress-fill']",
+             "fill"
+           ) == ["#74d47f"]
+
+    assert Floki.find(
+             document,
+             "[data-streamdeck-identifier='unknown'] [data-part='progress-fill']"
+           ) == []
+
+    assert Floki.attribute(document, "[data-streamdeck-identifier='unknown']", "aria-label") == [
+             "unknown Running progress unknown — Unknown progress"
+           ]
+
+    assert Floki.find(
+             document,
+             "[data-streamdeck-identifier='stale'] [data-freshness='stale'][opacity='0.45']"
+           ) != []
+
+    assert html =~ "Unblocked"
 
     stale = render_hook(view, "key-press", %{"identifier" => "stale"})
     refute stale =~ "is-progress-stale"
-    assert stale =~ ~s(aria-valuenow="40")
+    assert strip(stale) =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).sd_active.progress_freshness == "stale"
 
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
     unknown = render_hook(view, "key-press", %{"identifier" => "unknown"})
-    assert unknown =~ ~r/class="sd-strip-cmd st-running is-progress-unknown(?:\s*)"/
-    refute strip(unknown) =~ "aria-valuenow"
+    assert strip(unknown) =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).sd_active.progress_percent == nil
+    refute strip(unknown) =~ ~s(data-part="progress-fill")
   end
 
-  test "renders every registry provider logo from its descriptor", %{snapshot_agent: snapshot_agent} do
+  test "renders every registry provider logo from its descriptor", %{
+    snapshot_agent: snapshot_agent
+  } do
     providers = Aiur.CodingAgent.provider_descriptors()
 
     Agent.update(snapshot_agent, fn _ ->
@@ -170,33 +201,41 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end)
 
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
+    document = Floki.parse_fragment!(html)
 
     for provider <- providers do
-      assert html =~ ~s(src="#{provider.logo}")
+      logo =
+        File.read!(Path.expand("../../../priv/static/#{Path.basename(provider.logo)}", __DIR__))
+        |> Floki.parse_fragment!()
+
+      assert Floki.find(logo, "path, image") != []
+
+      for {tag, attribute} <- [{"path", "d"}, {"image", "href"}],
+          value <- Floki.attribute(logo, tag, attribute) do
+        rendered_values =
+          Floki.attribute(
+            document,
+            "#sd-keys [data-streamdeck-identifier='#{provider.provider}'] svg #{tag}",
+            attribute
+          )
+
+        assert value in rendered_values
+      end
     end
   end
 
-  test "renders contract-derived state, progress, and log badge styles" do
+  test "the shared renderer paints state, progress and log direction inks" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
-
-    # State colours reach the page as a contract-derived stylesheet keyed by the
-    # same st-<bucket> class the packaged deck keys its bitmaps by.
-    assert html =~ ".sd-key.st-running{--sd-accent:#9fd0ff;"
-    assert html =~ "--sd-face:linear-gradient(180deg,#18212d,#0f151d);}"
-    assert html =~ ".sd-agent-key.st-alert .sd-ag-dot,.sd-agent-key.st-alert .sd-ag-stat::before{animation:sd-pulse 1.6s ease-in-out infinite;}"
-    refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
-    # Per-key values that depend on live fleet state stay inline.
-    assert html =~ "--sd-progress-fill: #3fb950"
-    # The log key list replaced the badge paragraph this originally asserted, so
-    # the same contract ink is now checked where it renders: the event key badge
-    # and the logs strip's own event header.
+    assert html =~ ~s(fill="#3fb950")
     logs = enter_logs(view)
-    assert logs =~ ~s(<span class="sd-log-dir sd-log-badge" data-dir="AGENT" style="--sd-log-badge: #9fd0ff">AGENT</span>)
+    document = Floki.parse_fragment!(logs)
 
-    # A key press jumps the strip to that event's own header, which is where the
-    # same contract ink paints the transcript surface.
+    assert Floki.attribute(document, "#sd-log-keys [data-dir='AGENT']", "fill") |> Enum.uniq() ==
+             ["#9fd0ff"]
+
     header = render_hook(view, "log-key-select", %{"index" => "5"})
-    assert header =~ ~s(<span class="sd-log-evhdr-direction" style="color: #9fd0ff">AGENT</span>)
+    assert has_element?(view, "#sd-screen [data-log-kind='evhdr'][fill='#9fd0ff']", "AGENT")
+    assert strip(header) =~ "event-5"
   end
 
   test "renders the live grid projection instead of preview descriptors" do
@@ -221,9 +260,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "data-grid-total"
     refute html =~ ~s(id="sd-logs-view")
 
-    html = render_click(view, "command-press", %{"command" => "logs"})
+    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
 
-    assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
+    assert %{sd_mode: :logs, sd_active: %{identifier: identifier}} = streamdeck_assigns(view)
+    assert identifier == active.identifier
     assert html =~ ~s(data-mode="logs")
     assert html =~ ~s(id="sd-logs-view")
     refute html =~ "data-streamdeck-command"
@@ -238,55 +278,49 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="grid")
     assert html =~ ~s(id="sd-keys")
-    assert html =~ ~s(data-segment="pager")
+    assert html =~ ~s(data-streamdeck-region="600")
     refute html =~ ~s(class="sd-strip-cmd")
   end
 
-  test "renders the focused command strip and its fixed-width BACK hint" do
+  test "renders full-width conversation and the fixed-width BACK hint" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert html =~ ~s(class="sd-screen sd-screen-cmd")
-    assert html =~ ~r/class="sd-strip-cmd st-running(?:\s*)"/
-    # The info segments step aside for the full-width panel; the dial-D pager
-    # segment stays, relabelled with the agent being controlled (#1607).
-    refute html =~ ~s(data-segment="summary")
-    assert html =~ ~s(data-pager-focus="#1352")
-    assert html =~ "CONTROLLING #1352"
-    assert html =~ ~s(class="sd-strip-cmd-agent-icon")
-    assert html =~ ~s(src="/provider-assets/codex-color.svg")
-    assert html =~ ~s(aria-valuenow="50")
-    # Panel accent, status wording and bar fill all come from the shared
-    # key-face contract, not from a second copy of the tokens.
-    assert html =~ ~s(style="--sd-accent: #9fd0ff")
-    assert html =~ ~s(<span class="sd-strip-cmd-status">Running</span>)
-    assert html =~ "background: #3fb950"
+    assert has_element?(view, "#sd-screen[data-mode-view='cmd-strip']")
+    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation unavailable")
+    refute has_element?(view, "[data-streamdeck-region='600']")
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
+    assert streamdeck_assigns(view).sd_active.progress_percent == 50
 
     assert html =~
              ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
   end
 
-  test "the command panel takes the focused agent's own state accent", %{snapshot_agent: snapshot_agent} do
+  test "the command panel takes the focused agent's own state accent", %{
+    snapshot_agent: snapshot_agent
+  } do
     Agent.update(snapshot_agent, fn _ ->
-      %{running: [], retrying: [], idle: [fixture_agent("1400", "Needs a decision", "codex", open_decision_count: 2)]}
+      %{
+        running: [],
+        retrying: [],
+        idle: [fixture_agent("1400", "Needs a decision", "codex", open_decision_count: 2)]
+      }
     end)
 
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = render_hook(view, "key-press", %{"identifier" => "1400"})
 
-    assert html =~ ~s(class="sd-strip-cmd st-alert")
-    assert html =~ ~s(style="--sd-accent: #ffcf87")
-    assert html =~ ~s(<span class="sd-strip-cmd-status">Needs input</span>)
-    refute html =~ ~s(style="--sd-accent: #9fd0ff")
+    assert streamdeck_assigns(view).sd_active.bucket == :alert
+    assert strip(html) =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).sd_active.state == "command"
   end
 
   test "renders bounded BACK and EVENTS hint arrows in logs mode" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = enter_logs(view)
 
-    assert html =~ ~s(class="sd-screen sd-screen-logs")
-    assert html =~ ~s(class="sd-strip-logs")
+    assert has_element?(view, "#sd-screen[data-mode-view='logs-strip']")
 
     # Both surfaces open at the live end, so at entry only the older-ward arrow
     # is available on either dial, and the window shows the newest event's
@@ -329,7 +363,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     html = render_hook(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
 
-    assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
+    assert %{sd_mode: :logs, sd_active: %{identifier: identifier}} = streamdeck_assigns(view)
+    assert identifier == active.identifier
     assert html =~ ~s(data-mode="logs")
   end
 
@@ -352,11 +387,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
     html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
 
-    assert %{sd_mode: :grid, selected_identifier: "1400", sd_active: nil} = streamdeck_assigns(view)
+    assert %{sd_mode: :grid, selected_identifier: "1400", sd_active: nil} =
+             streamdeck_assigns(view)
+
     assert html =~ ~s(data-grid-selected-identifier="1400")
   end
 
-  test "renders grid keys in authoritative column-major order at zero and nonzero offsets" do
+  test "renders grid keys in authoritative column-major order on each shared server page" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     assert slot_identifiers(html) |> Enum.take(8) ==
@@ -364,37 +401,42 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     html = render_hook(view, "grid-page", %{"value" => "50"})
 
-    assert html =~ ~s(data-grid-column-offset="3")
+    assert html =~ ~s(data-grid-column-offset="4")
 
     assert slot_identifiers(html) |> Enum.take(8) ==
-             ["1363", "1367", "1371", "1373", "1366", "1370", "1372", "1374"]
+             ["1367", "1371", "1373", "1375", "1370", "1372", "1374", "1376"]
   end
 
-  test "preserves raw dial value while deriving offset across fleet shrink and grow", %{snapshot_agent: snapshot_agent} do
+  test "retains the shared server page across fleet shrink and grow", %{
+    snapshot_agent: snapshot_agent
+  } do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "grid-page", %{"value" => "50"})
     assert html =~ ~s(data-grid-dial-value="50")
-    assert html =~ ~s(data-grid-column-offset="3")
+    assert html =~ ~s(data-grid-column-offset="4")
 
     Agent.update(snapshot_agent, fn _ -> fleet_snapshot(9) end)
     send(view.pid, {:running_changed, []})
     html = render(view)
     assert html =~ ~s(data-grid-dial-value="50")
-    assert html =~ ~s(data-grid-column-offset="1")
+    assert html =~ ~s(data-grid-column-offset="4")
 
     Agent.update(snapshot_agent, fn _ -> fleet_snapshot(25) end)
     send(view.pid, {:running_changed, []})
     html = render(view)
     assert html =~ ~s(data-grid-dial-value="50")
-    assert html =~ ~s(data-grid-column-offset="5")
+    assert html =~ ~s(data-grid-column-offset="4")
   end
 
   test "refreshes the grid when the fleet topic changes", %{snapshot_agent: snapshot_agent} do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
     assert html =~ "Live running"
 
-    Agent.update(snapshot_agent, fn _ -> %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]} end)
+    Agent.update(snapshot_agent, fn _ ->
+      %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]}
+    end)
+
     send(view.pid, {:running_changed, []})
 
     html = render(view)
@@ -402,11 +444,16 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "Live running"
   end
 
-  test "keeps same-rank key order stable when snapshot order changes", %{snapshot_agent: snapshot_agent} do
+  test "keeps same-rank key order stable when snapshot order changes", %{
+    snapshot_agent: snapshot_agent
+  } do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     snapshot = %{
-      running: [fixture_agent("10", "First raw", "codex"), fixture_agent("2", "Second raw", "codex")],
+      running: [
+        fixture_agent("10", "First raw", "codex"),
+        fixture_agent("2", "Second raw", "codex")
+      ],
       retrying: [],
       idle: []
     }
@@ -416,6 +463,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     first_refresh = render(view) |> slot_identifiers()
 
     Agent.update(snapshot_agent, fn _ -> %{snapshot | running: Enum.reverse(snapshot.running)} end)
+
     send(view.pid, {:running_changed, []})
     second_refresh = render(view) |> slot_identifiers()
 

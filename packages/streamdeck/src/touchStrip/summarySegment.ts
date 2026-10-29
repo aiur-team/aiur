@@ -16,7 +16,9 @@
 
 /** Build-order progress as projected: tickets done, total, and an ETA. */
 export interface BuildProgressInput {
-  readonly completed?: number;
+  readonly completed?: number | null;
+  readonly percent?: number | null;
+  readonly eta_seconds?: number | null;
   readonly total?: number;
   /** Estimated seconds until the build order completes, when known. */
   readonly etaSeconds?: number | null;
@@ -24,25 +26,27 @@ export interface BuildProgressInput {
 
 /** Render-ready build mini-bar: a 0..1 fraction and a short ETA label. */
 export interface BuildProgress {
-  readonly completed: number;
+  readonly completed: number | null;
   readonly total: number;
-  /** Completed / total, clamped to 0..1. */
-  readonly fraction: number;
+  /** Producer percent, or legacy completed / total; null when unknown. */
+  readonly fraction: number | null;
   /** Compact ETA like "2m" or "1h 5m"; null when no ETA was projected. */
   readonly etaLabel: string | null;
 }
 
 /** Render-ready model for the summary segment. */
 export interface SummaryModel {
+  readonly build_status?: "ok" | "none" | "unavailable";
   /** Number of live (running) agents; clamped to >= 0. */
-  readonly live: number;
+  readonly live: number | null;
   /** Number of agents/tickets still queued; clamped to >= 0. */
-  readonly remaining: number;
+  readonly remaining: number | null;
+  readonly counts_status?: "ok" | "stale" | "unavailable";
   /** Build mini-bar, or null when no build order is in progress. */
   readonly build: BuildProgress | null;
 }
 
-function toCount(value: number | undefined): number {
+function toCount(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   const floored = Math.floor(value);
   return floored < 0 ? 0 : floored;
@@ -70,12 +74,16 @@ function toBuildProgress(build: BuildProgressInput | null | undefined): BuildPro
   const total = toCount(build.total);
   // With no total there is no meaningful bar to draw.
   if (total <= 0) return null;
-  const completed = Math.min(total, toCount(build.completed));
+  const completed = build.completed === null ? null : Math.min(total, toCount(build.completed));
+  const fraction = build.percent === null ? null
+    : typeof build.percent === "number" && Number.isFinite(build.percent)
+      ? Math.max(0, Math.min(1, build.percent / 100))
+      : completed === null ? null : completed / total;
   return {
     completed,
     total,
-    fraction: completed / total,
-    etaLabel: formatEta(build.etaSeconds ?? null),
+    fraction,
+    etaLabel: formatEta(build.eta_seconds ?? build.etaSeconds ?? null),
   };
 }
 
@@ -85,13 +93,17 @@ function toBuildProgress(build: BuildProgressInput | null | undefined): BuildPro
  * fabricated bar.
  */
 export function summaryModel(
-  live: number,
-  remaining: number,
+  live: number | null,
+  remaining: number | null,
   build?: BuildProgressInput | null,
+  build_status?: SummaryModel["build_status"],
+  counts_status?: SummaryModel["counts_status"],
 ): SummaryModel {
   return {
-    live: toCount(live),
-    remaining: toCount(remaining),
+    build_status,
+    counts_status,
+    live: live === null ? null : toCount(live),
+    remaining: remaining === null ? null : toCount(remaining),
     build: toBuildProgress(build),
   };
 }

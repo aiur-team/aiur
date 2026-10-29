@@ -6,6 +6,22 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
   alias Aiur.Orchestrator.OperatorMessages
 
   @impl true
+  def enqueue(target, text, opts) do
+    payload = %{
+      kind: :text,
+      body: text,
+      delivery_policy: Keyword.fetch!(opts, :delivery_policy),
+      origin: Keyword.fetch!(opts, :origin),
+      fallback: Keyword.get(opts, :fallback, :queue_next),
+      turn_id: Keyword.get(opts, :turn_id),
+      message_id: Keyword.get(opts, :client_request_id, opts[:message_id])
+    }
+
+    payload = Map.merge(payload, Map.new(Keyword.take(opts, [:actor, :correlation])))
+    Orchestrator.send_operator_message(target, payload)
+  end
+
+  @impl true
   def get_mode(target), do: call({:listener_get_mode, target}, 5_000, {:error, :timeout})
 
   @impl true

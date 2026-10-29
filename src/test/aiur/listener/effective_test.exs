@@ -28,7 +28,7 @@ defmodule Aiur.Listener.EffectiveTest do
     test "#{backend} requested #{requested}, interrupt acceptance #{accepted}, pull installed #{installed}" do
       result = Effective.compute(record(@requested), harness(@backend), emulated_interrupt_accepted?: @accepted, pull_tool_installed?: @installed)
 
-      {steer, async_support} = expected_support(@interrupt, @accepted, @pull, @installed)
+      {steer, async_support} = expected_support(@backend, @interrupt, @accepted, @pull, @installed)
       {effective, reason} = expected_effective(@requested, steer, async_support)
 
       assert result == %{
@@ -45,7 +45,7 @@ defmodule Aiur.Listener.EffectiveTest do
 
   test "default options do not authorize interrupt or install the pull tool" do
     for {requested, reason} <- [steer: :steer_not_wired, async: :pull_tool_unavailable] do
-      assert %{effective: :sync, effective_reason: ^reason} = Effective.compute(record(requested), harness("codex"))
+      assert %{effective: :sync, effective_reason: ^reason} = Effective.compute(record(requested), harness("claude"))
     end
   end
 
@@ -83,7 +83,7 @@ defmodule Aiur.Listener.EffectiveTest do
   end
 
   test "dispatch source names pending start only when there is no fallback reason" do
-    harness = %{harness("codex") | source: :dispatch}
+    harness = %{harness("claude") | source: :dispatch}
     assert %{effective: :sync, effective_reason: :pending_session_start, harness_source: :dispatch} = Effective.compute(record(:sync), harness)
     assert %{effective: :sync, effective_reason: :steer_not_wired} = Effective.compute(record(:steer), harness)
     assert %{effective_reason: nil} = Effective.compute(record(:sync), harness("codex"))
@@ -101,12 +101,13 @@ defmodule Aiur.Listener.EffectiveTest do
     end
   end
 
-  defp expected_support(interrupt, accepted, pull, installed) do
+  defp expected_support(backend, interrupt, accepted, pull, installed) do
     steer =
-      case {interrupt, accepted} do
-        {:none, _} -> %{status: :unsupported, carrier: nil, reason: :no_interrupt}
-        {_, false} -> %{status: :unsupported, carrier: nil, reason: :steer_not_wired}
-        {_, true} -> %{status: :experimental, carrier: :emulated_interrupt, reason: nil}
+      case {backend, interrupt, accepted} do
+        {native, _, _} when native in ["claude-repl", "codex", "muse"] -> %{status: :experimental, carrier: :native, reason: nil}
+        {_, :none, _} -> %{status: :unsupported, carrier: nil, reason: :no_interrupt}
+        {_, _, false} -> %{status: :unsupported, carrier: nil, reason: :steer_not_wired}
+        {_, _, true} -> %{status: :experimental, carrier: :emulated_interrupt, reason: nil}
       end
 
     async_support =

@@ -14,6 +14,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   # `2022-11-28` since the issue/comment surfaces they hit are stable.
 
   @dependencies_api_version "2026-03-10"
+  @max_dependency_pages 10
 
   @doc """
   Fetches the issues `issue_number` is currently blocked by, using the
@@ -39,8 +40,9 @@ defmodule Aiur.GitHub.DependenciesApi do
   (note: the API takes the blocker's *internal numeric id*, not its
   issue number — fetch it via `fetch_issue/2` first if needed).
 
-  422 errors typically mean a cycle was detected by GitHub; the caller
-  is responsible for pre-checking via BFS through `fetch_blocked_by/2`.
+  GitHub documents 422 as a validation failure or spam response, not a
+  cycle-specific status. Callers should pre-check with BFS through
+  `fetch_blocking/2` and preserve other upstream 422 causes.
   """
   @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -66,23 +68,9 @@ defmodule Aiur.GitHub.DependenciesApi do
       request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       url =
-        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}"
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}?per_page=100"
 
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             api_version: @dependencies_api_version
-           }) do
-        {:ok, %{status: 200, body: body}} when is_list(body) ->
-          {:ok, body}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Access.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Access.classify_error({:error, reason})}
-      end
+      fetch_dependency_pages(request_fun, token, url, [], 0)
     end
   end
 
@@ -102,7 +90,7 @@ defmodule Aiur.GitHub.DependenciesApi do
          {:ok, token} <- Access.require_token() do
       key = Access.key(:issue_blocked_by, owner, repo, issue_number)
       request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
-      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/blocked_by"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/blocked_by?per_page=100"
       blocked_by_serve(key, request_fun, token, url, opts)
     end
   end
@@ -154,15 +142,60 @@ defmodule Aiur.GitHub.DependenciesApi do
 
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        retained = Access.header(Map.get(response, :headers, []), "etag") || etag
-
-        if not is_nil(key),
-          do: Access.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
-
-        {:ok, body}
+        blocked_by_success(key, request_fun, token, etag, body, response)
 
       {:ok, %{status: 304}} ->
         blocked_by_not_modified(key, request_fun, token, url, etag)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Access.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Access.classify_error({:error, reason})}
+    end
+  end
+
+  defp blocked_by_success(key, request_fun, token, etag, body, response) do
+    next = Access.parse_next_page_url(Map.get(response, :headers, []))
+
+    # A prior build may have cached only page one. Remove that body and validator
+    # before following pagination so failures cannot leave a truncated list to
+    # be served by a later reader.
+    if next do
+      Access.drop_data(key)
+      Access.drop_etag(key)
+    end
+
+    with {:ok, complete_body} <- fetch_dependency_pages(request_fun, token, next, body, 1) do
+      cache_blocked_by(key, next, complete_body, response, etag)
+      {:ok, complete_body}
+    end
+  end
+
+  defp cache_blocked_by(key, nil, body, response, etag) when not is_nil(key) do
+    retained = Access.header(Map.get(response, :headers, []), "etag") || etag
+    Access.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
+  end
+
+  defp cache_blocked_by(key, next, body, _response, _etag) when not is_nil(key) and is_binary(next) do
+    Access.deposit_unless_older(key, body, source: :fetch, etag: nil, version: blocked_by_version(body))
+  end
+
+  defp cache_blocked_by(_key, _next, _body, _response, _etag), do: :ok
+
+  defp fetch_dependency_pages(_request_fun, _token, nil, acc, _pages_fetched), do: {:ok, acc}
+
+  defp fetch_dependency_pages(_request_fun, _token, _url, _acc, pages_fetched)
+       when pages_fetched >= @max_dependency_pages,
+       do: {:error, :dependency_page_limit_exceeded}
+
+  defp fetch_dependency_pages(request_fun, token, url, acc, pages_fetched) do
+    request = %{method: :get, url: url, token: token, api_version: @dependencies_api_version}
+
+    case request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        next = Access.parse_next_page_url(Map.get(response, :headers, []))
+        fetch_dependency_pages(request_fun, token, next, acc ++ body, pages_fetched + 1)
 
       {:ok, %{status: _status} = response} ->
         {:error, Access.github_status_error(response)}

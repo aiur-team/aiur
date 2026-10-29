@@ -5,9 +5,11 @@ defmodule VoiceConverse.Session.Start do
   alias VoiceConverse.Session.Runtime
 
   def state(config, target, id, opts) do
+    config = session_config(config, opts)
     clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
 
-    with :ok <- Config.check_session_start(config),
+    with {:ok, config} <- Config.validate(config),
+         :ok <- Config.check_session_start(config),
          :ok <- target_alive?(config, target),
          {:ok, descriptor} <- describe_target(config, target),
          {:ok, provider, provider_opts} <- provider(config, opts),
@@ -23,6 +25,10 @@ defmodule VoiceConverse.Session.Start do
          target: target,
          draft_target: descriptor,
          drafts: Drafts.new(),
+         consult: nil,
+         consult_confirmed?: false,
+         last_user_at: started_at,
+         pending_consult_context: [],
          provider: provider,
          provider_opts: provider_opts,
          context: context.text,
@@ -56,6 +62,16 @@ defmodule VoiceConverse.Session.Start do
       {:error, code} when is_atom(code) -> {:error, code}
       _ -> {:error, :unknown}
     end
+  end
+
+  defp session_config(config, opts) do
+    seconds = Keyword.get(opts, :max_session_seconds, config.limits.max_session_seconds)
+
+    %{
+      config
+      | llm: Keyword.get(opts, :llm, config.llm),
+        limits: %{config.limits | max_session_seconds: min(seconds, config.limits.max_session_seconds)}
+    }
   end
 
   defp target_alive?(%Config{briefing_source: source}, target) do

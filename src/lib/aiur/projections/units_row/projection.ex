@@ -80,6 +80,7 @@ defmodule Aiur.Projections.UnitsRow.Projection do
       progress: Fields.activity_value(activity_row, :progress),
       latest_evidence: Fields.activity_value(activity_row, :latest_evidence),
       live_conversation: live_conversation(status_row),
+      listener: listener(status_row, sources),
       provider_health: Sources.health(sources),
       field_sources:
         field_sources(
@@ -120,6 +121,13 @@ defmodule Aiur.Projections.UnitsRow.Projection do
     do: attempt_id
 
   defp running_attempt_id(_status_row), do: nil
+
+  defp listener(status_row, sources) do
+    case Map.get(status_row || %{}, :listener, :unavailable) do
+      %{} = view -> Map.put(view, :freshness, Value.get(Value.get(sources.status, :freshness), :status, :unknown))
+      _unavailable -> :unavailable
+    end
+  end
 
   defp live_conversation(%{} = status_row) do
     case Map.get(status_row, :live_conversation) do

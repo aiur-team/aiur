@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "instance": "host/default",
+  "seq": 4,
+  "id": 104,
+  "topic": "ticket.5693.usage.spend_cap_reached",
+  "class": "ledgered",
+  "occurred_at": "2026-10-24T20:01:00Z",
+  "observed_at": "2026-10-24T20:01:00Z",
+  "source": "legacy",
+  "refs": {
+    "ticket": "5693",
+    "job_id": "5693"
+  },
+  "attrs": {
+    "spend_cap_state": "budget_exhausted",
+    "currency": "USD"
+  },
+  "payload_version": 1,
+  "anchor": null
+}

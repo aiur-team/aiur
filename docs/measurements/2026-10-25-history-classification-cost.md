@@ -151,11 +151,14 @@ window.
 - The usage ledger must record again (#6106) before C13-T04 can compare its
   first run through `read_sample/2`; until then, read the transcript totals.
 
-### Still open
+### Regression evidence
 
 The counts-only fixture `src/test/fixtures/history/classification_cost_sample.json`
-and test V-12 (projection equals this record) are worker work on #3180.
-No titles, bodies, proposal reasons or money figures belong in that fixture.
+records the measured inputs above. Proposal counts were checked against the
+pilot's `proposals.json` and `sample.json`; token totals were checked against
+the final `thread/tokenUsage/updated` event. Test V-12 in
+`classification_cost_measurement_test.exs` asserts the exact projection above.
+The fixture contains no titles, bodies, proposal reasons or money figures.
 
 ## Reader reliability observation (not the pilot)
 

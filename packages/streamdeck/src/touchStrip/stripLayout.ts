@@ -1,3 +1,4 @@
+import type { StreamDeckChat } from "../channel.js";
 /**
  * Touch-strip mode layouts — what the strip shows in each mode, and over which
  * rectangle.
@@ -46,6 +47,7 @@ export type StripMode = "grid" | "cmd" | "logs" | "settings";
 
 /** Structured content for one panel; the encoder renders it to a JPEG. */
 export type SegmentContent =
+  | { readonly kind: "instance"; readonly label: string; readonly content: SegmentContent }
   | { readonly kind: "summary"; readonly model: SummaryModel }
   | { readonly kind: "provider"; readonly row: ProviderPanelRow }
   /**
@@ -56,10 +58,12 @@ export type SegmentContent =
    * instead of the painter assuming where the layout put it.
    */
   | { readonly kind: "providers"; readonly model: ProviderPanelModel; readonly originX: number }
-  | { readonly kind: "pager"; readonly title: string; readonly label: string; readonly model: PagerModel }
+  | { readonly kind: "pager"; readonly title: string; readonly label: string; readonly stale?: boolean; readonly model: PagerModel }
   | { readonly kind: "agentDetail"; readonly model: AgentDetailModel }
   | {
       readonly kind: "chatLog";
+      readonly chat?: StreamDeckChat | null;
+      readonly fullWidth?: boolean;
       readonly rows: readonly TranscriptRow[];
       readonly chatHasPrevious: boolean;
       readonly chatHasNext: boolean;
@@ -109,9 +113,9 @@ export interface GridData {
   readonly providerOffset: number;
 }
 
-/** Data the `cmd` mode needs: the focused agent's whole readout. */
+/** Ticket-page chat and the temporary voice readout. */
 export interface CmdData {
-  readonly detail: AgentDetailModel;
+  readonly chat?: StreamDeckChat | null;
   /**
    * The voice readout, when the host has a voice session. Whether it is
    * actually *shown* is decided below rather than by the host — see
@@ -213,11 +217,11 @@ export function composeStrip(input: StripData): readonly StripPanel[] {
       return [
         { region: segmentRegion(SegmentIndex.First), content: { kind: "summary", model: summary } },
         ...providerPanels(providers, providerOffset),
-        { region: segmentRegion(SegmentIndex.Fourth), content: { kind: "pager", title: "MORE AGENTS", label: pagerLabel, model: pager } },
+        { region: segmentRegion(SegmentIndex.Fourth), content: { kind: "pager", title: "MORE AGENTS", label: pagerLabel, stale: summary.counts_status === "stale", model: pager } },
       ];
     }
     case "cmd": {
-      const { detail, voice } = input.data;
+      const { voice, chat } = input.data;
       // The voice readout stays up after the release, while the buffer still
       // holds text: the operator has to be able to read what was heard before
       // deciding between Send and Cancel, and snapping back to the agent
@@ -225,7 +229,7 @@ export function composeStrip(input: StripData): readonly StripPanel[] {
       return [
         {
           region: STRIP_REGION,
-          content: showsVoice(voice) ? { kind: "voice", data: voice } : { kind: "agentDetail", model: detail },
+          content: showsVoice(voice) ? { kind: "voice", data: voice } : { kind: "chatLog", chat, fullWidth: true, rows: [], chatHasPrevious: false, chatHasNext: false, eventHasPrevious: false, eventHasNext: false },
         },
       ];
     }

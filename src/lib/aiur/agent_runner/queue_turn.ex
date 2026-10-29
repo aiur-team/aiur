@@ -17,7 +17,7 @@ defmodule Aiur.AgentRunner.QueueTurn do
 
   @doc false
   @spec queue_item_text(map()) :: String.t()
-  def queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
+  def queue_item_text(%{category: category, body: %{text: text}}) when category in [:operator_message, :system_notice], do: text
 
   def queue_item_text(
         %{
@@ -157,6 +157,8 @@ defmodule Aiur.AgentRunner.QueueTurn do
         issue,
         on_message: message_handler,
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
+        on_native_reply: callbacks.on_native_reply,
+        on_steer_claim: callbacks.on_steer_claim,
         on_operator_message: callbacks.on_operator_message,
         on_operator_response: callbacks.on_operator_response,
         on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),

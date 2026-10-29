@@ -1,4 +1,6 @@
 defmodule AiurWeb.DashboardCssThemeTest do
+  alias AiurWeb.Streamdeck.Render.Style
+
   use ExUnit.Case, async: true
 
   test "home sheet literal inks are frozen" do
@@ -106,7 +108,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @streamdeck_chassis_pins ~w(--fg --muted)
 
   test "the light-mode Stream Deck chassis pins every token it paints ink with" do
-    pinned = declarations(css_rule(~s(html[data-theme="light"] .sd-device)))
+    pinned = css_rule(~s(html[data-theme="light"] .sd-device)) |> declarations() |> resolve_all("light")
     dark_root = css_rule(":root") |> declarations() |> resolve_all("dark")
 
     for token <- @streamdeck_chassis_pins ++ @streamdeck_dark_root_pins do
@@ -172,14 +174,9 @@ defmodule AiurWeb.DashboardCssThemeTest do
   end
 
   test "dashboard progress bars match the Stream Deck progress contract" do
-    contract =
-      Path.expand("../../priv/streamdeck/key-face-contract.json", __DIR__)
-      |> File.read!()
-      |> Jason.decode!()
-
     root = declarations(css_rule(":root"))
-    assert root["--progress-fill"] == contract["progress"]["fill"]
-    assert root["--progress-complete-fill"] == contract["progress"]["complete_fill"]
+    assert root["--progress-fill"] == Style.progress_color(0)
+    assert root["--progress-complete-fill"] == Style.progress_color(100)
 
     assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
     assert css_rule(".ut-pbar > i") =~ "min-width: var(--progress-bar-height)"
@@ -190,13 +187,8 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert css_rule(".run-summary-progress-fill") =~ "var(--progress-fill)"
     assert css_rule(".run-summary-progress-fill.is-complete") =~ "var(--progress-complete-fill)"
     refute css() |> String.contains?(".run-summary-progress-fill.is-stale")
-    assert css_rule(".sd-strip-cmd-progress > i") =~ "min-width: var(--progress-bar-height)"
-    refute css() |> String.contains?(".sd-strip-cmd.is-progress-stale")
-    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before") =~ "background: rgba(255, 255, 255, 0.32)"
     assert css_rule(".ut-pbar.is-unknown") =~ "background: var(--line-strong)"
     assert css_rule(".rs-meter.is-unknown") =~ "background: var(--line-strong)"
-    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress") =~ "background: rgba(255, 255, 255, 0.22)"
-    refute css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress") =~ "dashed"
   end
 
   test "dashboard styling does not reintroduce dashes or hatching" do
@@ -352,6 +344,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   # and contrast maths keep working on aliased dashboard variables.
   defp resolve(value, theme) do
     Regex.replace(~r/var\(--aiur-([a-z0-9-]+)\)/, value, fn _full, name ->
+      {name, theme} = if String.ends_with?(name, "-dark"), do: {String.trim_trailing(name, "-dark"), "dark"}, else: {name, theme}
       {_key, token} = Enum.find(@aiur_tokens, fn {key, _} -> String.replace(key, ".", "-") == name end)
       Map.fetch!(token, theme)
     end)

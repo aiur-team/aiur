@@ -37,6 +37,8 @@ defmodule Aiur.AgentQueueStore do
           required(:category) => AgentQueueItem.category(),
           required(:event_type) => atom(),
           required(:body) => map(),
+          optional(:origin) => atom(),
+          optional(:actor) => String.t(),
           optional(:delivery) => map(),
           optional(:action_id) => String.t(),
           optional(:correlation) => map(),
@@ -61,6 +63,8 @@ defmodule Aiur.AgentQueueStore do
       sequence: store.next_sequence,
       target_issue_identifier: target_issue_identifier,
       source: Map.fetch!(attrs, :source),
+      origin: Map.get(attrs, :origin),
+      actor: Map.get(attrs, :actor),
       category: Map.fetch!(attrs, :category),
       event_type: Map.fetch!(attrs, :event_type),
       body: Map.fetch!(attrs, :body),
@@ -319,7 +323,8 @@ defmodule Aiur.AgentQueueStore do
     store
     |> TargetIndex.items_for(target)
     |> Enum.reduce(store, fn
-      %AgentQueueItem{status: :pending, category: :operator_message, delivery: %{listener_mode_at_claim: _}} = item, acc ->
+      %AgentQueueItem{status: :pending, category: category, delivery: %{listener_mode_at_claim: _}} = item, acc
+      when category == :operator_message or (category == :system_notice and item.event_type == :async_backlog_notice) ->
         Items.put_item(acc, %{item | delivery: fun.(item.delivery)})
 
       _item, acc ->

@@ -27,6 +27,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # do the same with a Units row's progress reading, and feature statistics
   # with each running member's reading. The ticket progress API does the same
   # with a ticket's TicketActivity or retained reading.
+  # The deck adapter copies BuildQueue read-model progress fields unchanged to the wire; it formats nothing.
   @contract_boundary_files [
     "aiur/build_queue_cli.ex",
     "aiur/build_queue/read_model.ex",
@@ -40,7 +41,8 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/api/usage_progress.ex",
     "aiur_web/build_order/planning_source.ex",
     "aiur_web/build/now_rows.ex",
-    "aiur_web/components/operator_control_center/build_order_grid_model.ex"
+    "aiur_web/components/operator_control_center/build_order_grid_model.ex",
+    "aiur_web/streamdeck/deck/build_order.ex"
   ]
 
   @renderer_calls %{
@@ -72,6 +74,9 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # `progress_retention.ex` store, serialize, and reload the raw progress
   # reading that the already-exempt `ticket_activity/projection.ex` holds in
   # memory. They persist the reading; they never present it.
+  # Outbound events likewise serialize an agent's execution-progress sample;
+  # that fact is not Build Order completion and must not create an event-bus
+  # dependency on the higher-level Build Orders renderer.
   @raw_progress_exempt_files [
     "aiur/agent_list/activation.ex",
     "aiur/agent_list/activity_intake.ex",
@@ -84,6 +89,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/current_run_summary/progress.ex",
     "aiur/current_run_summary/projection.ex",
     "aiur/current_run_summary/status.ex",
+    "aiur/events/outbound/event.ex",
     "aiur/orchestrator/status_report/progress.ex",
     "aiur/progress_retention.ex",
     "aiur/progress_retention/checkpoint.ex",

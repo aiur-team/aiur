@@ -15,16 +15,16 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur ticket estimate <id> [<hours> or --clear] [--reason <text>] [--by <who>] [--json]` | Show, set or clear durable estimate overrides; writes require a reason. See the validation and recovery details above. | `aiur ticket estimate 2412 7 --reason "Three design rounds"` |
-| `aiur ask "Title"` | Creates a durable operator request for the current repository. Add `--body` or `--body-file`, `--urgency low\|normal\|high`, and `--blocking` as needed. | `aiur ask "Approve production cutover" --blocking --urgency high` |
-| `aiur ask "Title" --body "Context"` | Stores short supporting Markdown in the ask. | `aiur ask "Approve production cutover" --body "Production freeze ends today."` |
+| `aiur ask "Title"` | Deprecated alias for `aiur command request`: raises a human-directed Executor Command (daemon required). Add `--body` or `--body-file`, `--urgency low\|normal\|high`, and `--blocking` as needed. | `aiur ask "Approve production cutover" --blocking --urgency high` |
+| `aiur ask "Title" --body "Context"` | Stores supporting Markdown as the Command’s long context. | `aiur ask "Approve production cutover" --body "Production freeze ends today."` |
 | `aiur ask "Title" --body-file request.md` | Reads the supporting body from a UTF-8 file. | `aiur ask "Approve production cutover" --body-file request.md` |
 | `aiur ask "Title" --urgency high` | Classifies the request as `low`, `normal`, or `high`. | `aiur ask "Approve production cutover" --urgency high` |
-| `aiur ask --done ASK-ID` | Resolves one open ask; `--note` records the resolution context. | `aiur ask --done ask_123 --note "Approved by release manager"` |
-| `aiur ask --done ASK-ID --note "Approved"` | Saves the optional resolution context with a completed ask. | `aiur ask --done ask_123 --note "Approved by release manager"` |
-| `aiur asks` | Lists open asks by default. Use `--all` to include resolved records and `--json` for the durable rows. | `aiur asks --all --json` |
+| `aiur ask --done ASK-ID` | Withdraws a Command with reason `executor_withdrew`; legacy `ask_` IDs resolve locally. | `aiur ask --done ask_123 --note "Approved by release manager"` |
+| `aiur ask --done ASK-ID --note "Approved"` | Records withdrawal detail for Commands or resolution context for legacy asks. | `aiur ask --done ask_123 --note "Approved by release manager"` |
+| `aiur asks` | Lists legacy open asks and points to `aiur commands`. Use `--all` to include resolved records and `--json` for the durable rows. | `aiur asks --all --json` |
 | `aiur asks --open` | Makes the open-asks default explicit. | `aiur asks --open --json` |
 | `aiur commands` | Lists durable Executor decisions. An optional decision ID selects one record. | `aiur commands` |
-| `aiur commands --filter open` | Accepts `all`, `open`, `blocking`, or `resolved`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter open` |
+| `aiur commands --filter open` | Accepts `all`, `open`, `blocking`, `resolved`, `needs-you`, `with-executor`, or `from-executor`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter open` |
 | `aiur commands --blocking` | Limits the decision list to blocking records. | `aiur commands --blocking` |
 | `aiur commands --ticket 142` | Narrows an `all` decision query to a ticket. | `aiur commands --filter all --ticket 142` |
 | `aiur commands --search timeout` | Searches an `all` decision query. | `aiur commands --filter all --search timeout` |
@@ -52,7 +52,37 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur executor-moot DECISION-ID --reason "Text"` | Optional free-text detail explaining why the Command was retired. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --reason "Folded into #2073"` |
 | `aiur executor-moot DECISION-ID --executor-id exec-1` | Optional attribution for the Executor retiring the Command. It must not be empty when present. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --executor-id exec-1` |
 
+`aiur ask` creates `dec_`-prefixed Command IDs instead of `ask_` IDs.
+It keeps the old non-blocking default; add `--blocking` to hold dispatch.
+New requests never fall back to the legacy file store when the daemon is down.
+
+`aiur ask --list` is an alias for `aiur asks`; JSON output contains only legacy
+rows, while plain output points to `aiur commands`. Legacy `ask_` history remains
+readable and is not migrated. Prefer `aiur command request` for new scripts;
+its default is blocking.
+
 Successful Executor answers, escalations, moots, and supersedes also record an acknowledgement. A failed acknowledgement write is logged without changing the action’s result. Reading a Command or receiving an Executor wake does not acknowledge it. Acknowledging after escalation remains audit evidence and does not change routing.
+
+Human rows show `ID`, `ROUTE`, `AGE`, `WHY` (latest escalation cause), `ASKS`
+(short label), and `TICKET|EXECUTOR`. Simultaneous routing reads `Needs you and Executor`;
+unknown routes show `?`. `WHY` shows `-` for an empty escalation history and `?` for
+missing or malformed escalation data.
+
+Open Commands routed to the human or both
+also show how long they have needed you; answered Commands omit that line. Partial retained data is
+labelled below the rows; an unavailable store exits with status 1.
+
+`--filter needs-you` selects open Commands routed to the human or both;
+`with-executor` selects open Commands routed to the Executor, and `from-executor`
+selects open Commands requested by the Executor. These use the dashboard's query path.
+
+The requester filter applies within each retained page; follow `pagination.next_cursor`
+to continue. `requester_page` carries its page count; `pagination.total` stays null.
+
+JSON rows and selected detail add `observed_at`, `age_ms` (since creation),
+`needs_you_ms` (since human visibility while the Command needs you, otherwise null), and `freshness`
+(`fresh`, `partial`, or `unavailable`). Ages use the snapshot clock; human output
+renders both ages and observation freshness.
 
 `aiur commands --json` rows and `GET /api/v1/decisions[/:id]` expose `requester`,
 `origin`, `native`, `questions`, and `short_label`. Legacy Commands default to a
@@ -103,7 +133,16 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --scope repo` | Filters to `aiur` or `repo` scope. | `aiur findings --scope repo` |
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
+
 ### `executor-wait` outcomes
+
+Executor-originated Command answers produce `executor.decision.answered` wakes
+with `topic_class: "executor.decision"`, `action: "answered"`, `decision_id`,
+and `ticket: null`. These records contain identifiers rather than answer text.
+
+Read the answer with `aiur commands <decision_id> --json`. Journal replay delivers
+answers published while the listener was stopped.
+
 A quiet timeout is a **successful empty result**, not a failure: nothing was pending, so nothing was consumed and nothing was lost. Plain mode prints `NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json` returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
 
 Under `--json` every outcome carries a `status`: `woken` for a returned batch, `timeout` for a quiet wait, `superseded` when a newer deferred wait replaces this consumer's blocked wait, or `error` for a failure. Deferred batches also include `ack: "deferred"` and `max_wake_id`. Branch on `status` rather than on the presence of `records`.

@@ -1,11 +1,11 @@
 :root {
   color-scheme: dark;
-  --bg: #16171a;
-  --bg-2: #1a1b1e;
+  --bg: var(--aiur-color-bg-app);
+  --bg-2: var(--aiur-color-bg);
   --surface: #1e2025;
   --surface-2: #23262c;
   --surface-3: #292d34;
-  --fg: #edeef0;
+  --fg: var(--aiur-color-fg);
   --muted: #969aa4;
   /* AA hold: design #676b74, pending Kevin (S-19) */
   --faint: #8b8f99;
@@ -13,12 +13,12 @@
   --line-strong: rgba(221, 226, 235, 0.20);
   --hairline: rgba(221, 226, 235, 0.08);
   --pill-bg: rgba(221, 226, 235, 0.04);
-  --accent: #2f86ff;
+  --accent: var(--aiur-color-accent);
   --accent-ink: #8fbcff;
   /* The fill under text that sits *on* the accent, as opposed to --accent-ink,
      which is accent-coloured text on a surface. --accent itself is tuned bright
      so it reads against the dark surfaces, and at that brightness it cannot
-     carry white text: #fff on #2f86ff is 3.51:1. This deeper blue takes #fff to
+     carry white text: white on the bright accent is 3.51:1. This deeper blue takes #fff to
      4.59:1 while its own edge still clears the 3:1 non-text minimum against
      --surface (3.55:1) and --surface-3 (3.01:1). --accent stays as it was for
      the progress fills, rings and borders, which carry no text. */
@@ -41,7 +41,7 @@
   --blocking-line: rgba(255, 123, 114, 0.34);
   --good: #3fb950;
   --good-ink: #74d47f;
-  /* Shared with key-face-contract.json. Progress stays green at every measured
+  /* Shared progress colours. Progress stays green at every measured
      value; only exact completion steps up to the brighter shade. */
   --progress-fill: #3fb950;
   --progress-complete-fill: #74d47f;
@@ -94,7 +94,7 @@ html[data-theme="light"] {
   --accent: #2563d9;
   --accent-ink: #1d4fb3;
   /* Preserve the product's text-bearing button fill in both palettes. */
-  --accent-strong: #1f57c4;
+  --accent-strong: var(--aiur-color-fill);
   --accent-soft: rgba(37, 99, 217, 0.09);
   --accent-line: rgba(37, 99, 217, 0.28);
   --attention: #e3a321;

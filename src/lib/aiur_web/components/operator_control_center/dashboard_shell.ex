@@ -39,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <div class="ax-frame aiur-shell aiur-shell--dashboard" id="ax-frame">
       <header class="ax-top aiur-shell__topbar">
         <div class="ax-brand aiur-shell__brand">
-          <img class="brand-logo aiur-shell__logo" src="/aiur-logo.png" alt="Aiur" />
+          <img class="brand-logo aiur-shell__logo" src="/aiur-style/assets/aiur-logo.png" alt="Aiur" />
           <span class="wm aiur-shell__wordmark">aiur</span>
           <div class="ax-set aiur-shell__settings" id="ax-set" phx-hook="AxMenu"
             phx-mounted={JS.ignore_attributes(["class"]) |> JS.ignore_attributes(["aria-expanded"], to: "#ax-cog") |> JS.ignore_attributes(["inert"], to: "#ax-menu")}>

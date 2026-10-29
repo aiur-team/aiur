@@ -71,11 +71,15 @@ Recovery requires evidence that the failure is infrastructure, inherited, or kno
 
 The recovery attention names failing tests and counts completed group rebuild runs for PRs that were behind the stuck head during the observed window.
 
+New flake-recorder issues carry `needs-triage` and the instance's parked label
+(`agent:parked` by default); fix work waits for triage. Automatic quarantine
+continues independently.
+
 The landing watcher quarantines a flaky test within 24 hours (caller `landing_watch_flake_gate` for the age check):
 
 - **Qualifies:** a failure in two merge groups whose PRs did not touch the test, or one base-branch failure when that commit did not touch the test or its mirrored `src/lib` file.
 - **Never counts:** a failure where the failing commit or the group's PRs changed the test file or the `src/lib` file it mirrors; a merge-group failure while the newest base-branch run fails that test (a regression for the main-watch fixer).
-- **Actions:** each ExUnit row in `src/test/quarantine.txt` has four tab-separated fields: module, full test name, owner fix-ticket number, and ISO expiry date. The ticket owns that test's quarantine and carries its run links. A generated row defaults to a 90-day expiry. An auto-merging `aiur/quarantine/` PR adds the row; browser quarantine entries remain whole Playwright spec files in `src/browser/quarantine.txt`, as the shared `aiur-test-failure` reporter names them. Approved PRs whose merge group was dropped are requeued. No ticket is filed when every failing run is over 12 hours old or a newer base-branch commit changed the test file.
+- **Actions:** each ExUnit row in `src/test/quarantine.txt` has four tab-separated fields: module, full test name, owner fix-ticket number, and ISO expiry date. The ticket owns that test's quarantine and carries its run links. New rows are clamped to a maximum 14-day expiry; existing longer rows are grandfathered. An auto-merging `aiur/quarantine/` PR adds the row; browser quarantine entries remain whole Playwright spec files in `src/browser/quarantine.txt`, as the shared `aiur-test-failure` reporter names them. Approved PRs whose merge group was dropped are requeued. Degraded runner runs with multiple ExUnit timeouts, a partition-bound kill, or a compile step far above its recent same-job median do not file flake tickets. No ticket is filed when every failing run is over 12 hours old or a newer base-branch commit changed the test file.
 - **OrchestratorGuard:** the guard names the last test to finish, not the cause, so its failures only add run evidence to one `OrchestratorGuard` flake ticket and skip no test. The intentional-failure browser probes are never annotated.
 - **Retries:** decisions come from the landing journal, so a GitHub error retries without new CI reads. Each step (quarantine PR, requeue, scan of a red base-branch commit) backs off from 1 to 32 minutes and stops after 7 failures in 24 hours with `system.pr.landing.quarantine_gave_up`. A retry reuses a quarantine branch that already holds the entry.
 - **CI and expiry:** blocking CI skips listed tests. On main pushes the non-blocking `quarantined tests` job and a step of browser smoke shard 4 run them. Merging a fix PR or closing its owner ticket lifts the entry. Expiry decisions use per-test failure annotations from scheduled runs: three green runs lift an expired ExUnit row, while a failing run escalates only that test's owner ticket to `priority:1`. Unexpired rows are left alone. The hourly sweep reads up to 20 scheduled main CI runs and their job details. A local run of a quarantined test or spec skips it (browser runs print `Skipped by quarantine`) unless `AIUR_RUN_QUARANTINED=1` is set.
@@ -260,3 +264,21 @@ The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the mo
 | `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. `aiur --todo` also records the queued identifiers as known demand: the woken poll and one follow-up stay at the base interval even if GitHub has not yet indexed the label, and the command warns on stderr when the daemon did not accept the refresh. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
+
+## Newsletter snapshots
+
+`scripts/newsletter/collect.py` is an on-demand reader, separate from daemon
+polling. It searches open and closed issues separately for each discovered
+`phase:*` label, then deduplicates by issue number.
+
+Program and 48-hour merge searches use explicit cursors (100 results per page).
+Closing and allocation issues are hydrated in batches by number, without timelines.
+
+Individual phase or merge searches above GitHub's 1,000-result cap are reported unavailable,
+never presented as a complete program.
+
+A run admits at most 40 small GraphQL queries. It reserves two points per
+request until its reported cost is known, stopping before the next reservation
+reaches 50 points. Source failure still produces a snapshot with reported cost.
+See
+[Daily newsletter snapshots](/skills#daily-newsletter-snapshots).

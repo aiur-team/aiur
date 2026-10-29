@@ -28,7 +28,9 @@
     "Aiur.BuildOrder.GraphProjection.Snapshot",
     "Aiur.BuildOrder.History",
     "Aiur.BuildOrder.History.Export",
+    "Aiur.BuildOrder.History.LabelBackfill",
     "Aiur.BuildOrder.History.Timing",
+    "Aiur.BuildOrder.HistoryBackfill",
     "Aiur.BuildOrder.Index",
     "Aiur.BuildOrder.Metadata",
     "Aiur.BuildOrder.ProgressRenderer",
@@ -36,6 +38,7 @@
     "Aiur.BuildOrder.Readiness",
     "Aiur.BuildOrder.RootSummary",
     "Aiur.BuildOrder.SourceFreshness",
+    "Aiur.BuildOrder.TicketStatus",
     "Aiur.BuildOrdersCLI",
     "Aiur.EpicCLI",
     "Aiur.FeatureCLI",
@@ -79,7 +82,8 @@
       "build_estimates_state_dir",
       "build_features_state_dir",
       "build_history_state_dir",
-      "epic_overrides_state_dir"
+      "epic_overrides_state_dir",
+      "history_backfill_state_dir"
     ],
     "capabilities": [
       "build_orders",

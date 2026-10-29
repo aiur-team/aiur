@@ -62,7 +62,7 @@ test('doc cues preserve order, hostile text, unknown facts, dependencies and not
   await pushDoc(page, t.id, { state: 'available', body_html: '<p>Summary</p><h4>Scope</h4><ul><li>Real scope</li></ul>' })
   expect(await page.locator('.bm-body .bm-cue').allTextContents()).toEqual([held, 'Prerequisite #7 failed — this and 2 more are blocked', 'Prerequisite state unknown', 'operator <decision>'])
   expect(await page.locator('.bm-body > p').first().evaluate(el => el.nextElementSibling.textContent)).toBe(held)
-  await expect(page.locator('.bm-facts')).toContainText('Queue—')
+  await expect(page.locator('.bm-facts')).toContainText('QueueQ?')
   await expect(page.locator('.bm-facts')).toContainText('Complexity—')
   await expect(page.locator('.bm-facts')).toContainText('Estimate—')
   await expect(page.locator('.bm-dep')).toHaveText(['#999not loaded', '#998not loaded'])
@@ -119,6 +119,19 @@ for (const [state, writable, expected] of [['ok', false, 'hidden'], ['disabled',
   })
 }
 
+test('queue source set diffs hide the modal add control', async ({ page }) => {
+  await display(page, { sec: 'nq' })
+  const button = page.getByRole('button', { name: 'Add to queue' })
+  await expect(button).toBeEnabled()
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    ;(await import('/build-home/hook.js')).receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch,
+      generation: ctx.proto.generation + 1, now: ctx.snap.now, upsert: [], remove: [],
+      set: { sources: { ...ctx.snap.sources, queue: { state: 'disabled' } } } })
+  })
+  await expect(button).toHaveCount(0)
+})
+
 test('queue add pending, refusal, unknown outcome and success settle through registered events', async ({ page }) => {
   const t = await display(page, { sec: 'nq' })
   const button = page.getByRole('button', { name: 'Add to queue' })
@@ -162,7 +175,7 @@ test('conversation opens skip body reads; doc close unsubscribes and pack ids ne
   await page.evaluate(async () => {
     window.docCalls = []
     const { ctx } = await import('/build-home/state.js')
-    ;(await import('/build-home/modal/frame.js')).openModal({ ...ctx.D.plan[0], id: 'pack:future/item', num: null, agent: null })
+    ;(await import('/build-home/modal/frame.js')).openModal({ ...ctx.D.plan[0], id: 'pack:future/item', num: null, agent: null, src: {kind:'pack',path:'docs/plan.md',wave:1} })
   })
   await expect(page.locator('.bm-doc')).toBeVisible()
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc'))).toEqual([])
@@ -208,13 +221,28 @@ for (const settleBeforeDiff of [true, false]) {
   })
 }
 
+test('opening the modal does not steal dependency focus set before its animation frame', async ({ page }) => {
+  const focused = await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    const ticket = { ...ctx.D.plan[0], deps: ['999'] }
+    ;(await import('/build-home/modal/frame.js')).openModal(ticket)
+    const dependency = document.querySelector('.bm-dep[data-goto="999"]')
+    dependency.focus()
+    await new Promise(requestAnimationFrame)
+    return document.activeElement.matches('.bm-dep[data-goto="999"]')
+  })
+  expect(focused).toBe(true)
+})
+
 test('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
   const t = await display(page, { sec: 'nq', deps: ['999'] })
   const dep = page.locator('.bm-dep[data-goto="999"]')
   const button = page.getByRole('button', { name: 'Add to queue' })
   await dep.focus()
+  await dep.evaluate(element => { window.focusedDependency = element })
   const unrelated = await page.evaluate(async () => (await import('/build-home/state.js')).ctx.D.plan[0])
   await upsert(page, [{ ...unrelated, title: unrelated.title + ' unrelated update' }])
+  expect(await page.evaluate(() => document.querySelector('.bm-dep[data-goto="999"]') === window.focusedDependency)).toBe(true)
   await expect(dep).toBeFocused()
   await upsert(page, [{ ...t, title: t.title + ' updated' }])
   await expect(dep).toBeFocused()
@@ -229,6 +257,38 @@ test('board diffs preserve dependency and queue focus without taking focus from 
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'queue-add').length)).toBe(1)
 })
 
+test('clearing another ticket queue state does not repaint the open modal', async ({ page }) => {
+  const queued = await display(page, { sec: 'nq' })
+  const add = page.getByRole('button', { name: 'Add to queue' })
+  await add.click()
+  await result(page, queued.id, { ok: false, reason: 'closed' })
+  await page.keyboard.press('Escape')
+
+  await display(page, { deps: ['999'] })
+  await expect(page.locator('#bm-title')).toBeFocused()
+  const dep = page.locator('.bm-dep[data-goto="999"]')
+  await dep.focus()
+  await dep.evaluate(element => { window.focusedDependency = element })
+  await upsert(page, [{ ...queued, sec: 'plan', qpos: 1, wave: 1 }])
+
+  expect(await page.evaluate(() => document.querySelector('.bm-dep[data-goto="999"]') === window.focusedDependency)).toBe(true)
+  await expect(dep).toBeFocused()
+})
+
+test('doc removes a dependent after its relation is cleared', async ({ page }) => {
+  const t = await display(page)
+  const dependent = await page.evaluate(async id => {
+    const { ctx } = await import('/build-home/state.js')
+    return structuredClone(ctx.D.plan.find(row => row.id !== id && !row.deps?.includes(id)))
+  }, t.id)
+  if (!dependent) throw new Error('fixture must contain an unrelated planned row')
+  await upsert(page, [{ ...dependent, deps: [...dependent.deps, t.id] }])
+  const dependentButton = page.locator('.bm-dep[data-goto="' + dependent.id + '"]')
+  await expect(dependentButton).toBeVisible()
+  await upsert(page, [dependent])
+  await expect(dependentButton).toHaveCount(0)
+})
+
 // Unknown observations must never acquire a plausible freshness age.
 test('stale body with no observation renders unknown age and retains content', async ({ page }) => {
   const t = await display(page)
@@ -240,7 +300,7 @@ test('stale body with no observation renders unknown age and retains content', a
 test('board updates preserve focused body links', async ({ page }) => {
   const t = await display(page)
   await pushDoc(page, t.id, { state: 'available', body_html: '<p><a href="https://example.com">Body link</a></p>' })
-  await page.locator('.bm-body a').focus()
-  await page.evaluate(async () => (await import('/build-home/state.js')).fx.modalSync({ upsert: [], remove: [], set: {} }))
-  await expect(page.locator('.bm-body a')).toBeFocused()
+  const link = page.locator('.bm-body a'); await link.focus(); await link.evaluate(element => { window.focusedBodyLink = element })
+  await upsert(page, [{ ...t, title: t.title + ' updated' }]); expect(await page.evaluate(() => document.querySelector('.bm-body a') === window.focusedBodyLink)).toBe(false)
+  await expect(link).toBeFocused()
 })

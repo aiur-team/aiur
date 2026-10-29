@@ -4,6 +4,9 @@ defmodule Aiur.DecisionStore.Answers do
   require Logger
 
   alias Aiur.Commands.ActorSource
+  alias Aiur.Commands.NativeAnswer
+  alias Aiur.Commands.Requester
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -144,6 +147,8 @@ defmodule Aiur.DecisionStore.Answers do
              ticket_comment_pending?: true,
              now: Keyword.get(opts, :now, DateTime.utc_now())
            ),
+         :ok <- NativeAnswer.validate(request, answer),
+         :ok <- validate_requester_actor(actor, request),
          :ok <- validate_answer_policy_context(answer, request) do
       {:ok, answer}
     end
@@ -169,29 +174,29 @@ defmodule Aiur.DecisionStore.Answers do
   defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}),
     do: {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}
 
-  # The Executor may answer a Command directly, but "obvious" needs a floor the
-  # code enforces rather than one the Executor's prompt is trusted to observe.
-  # The Command's own author declares how consequential it is, so that
-  # declaration is the gate: only an already-delegable authority and a fully
-  # reversible outcome may be auto-answered. Everything else — human_required,
-  # irreversible or partially reversible work, and any unrecognized or missing
-  # value — is refused here so the Executor must escalate it to the operator
-  # instead. This mirrors the supervisor basis check directly above: both bind
-  # a non-operator answer to the Decision's own declared policy fields.
-  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, %Decision{} = request) do
-    cond do
-      not DecisionAuthority.executor_authority_answerable?(request) ->
-        {:error, {:answer_invalid, {:executor_scope, {:authority, request.authority}}}}
-
-      not DecisionAuthority.executor_reversibility_answerable?(request) ->
-        {:error, {:answer_invalid, {:executor_scope, {:reversibility, request.reversibility}}}}
-
-      true ->
-        :ok
-    end
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, request) do
+    if Policy.executor_may_answer?(request), do: :ok, else: executor_scope_error(request)
   end
 
   defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}), do: :ok
+
+  @doc false
+  @spec validate_requester_actor(map(), Decision.t()) :: :ok | {:error, term()}
+  def validate_requester_actor(%{kind: :executor}, request) do
+    if Requester.executor?(request), do: {:error, {:answer_invalid, {:executor_scope, :executor_originated}}}, else: :ok
+  end
+
+  def validate_requester_actor(%{kind: :operator_relayed}, request) do
+    if Requester.executor?(request), do: {:error, {:answer_invalid, :relay_on_executor_command}}, else: :ok
+  end
+
+  def validate_requester_actor(_actor, _request), do: :ok
+
+  defp executor_scope_error(request) do
+    if DecisionAuthority.executor_authority_answerable?(request),
+      do: {:error, {:answer_invalid, {:executor_scope, {:reversibility, request.reversibility}}}},
+      else: {:error, {:answer_invalid, {:executor_scope, {:authority, request.authority}}}}
+  end
 
   defp answer_error({:answer_invalid, {:stale_version, expected, current}}),
     do: {:conflict, {:stale_version, expected, current}}
@@ -203,7 +208,15 @@ defmodule Aiur.DecisionStore.Answers do
     state.history
     |> Map.get(decision_id, [])
     |> Enum.find(&(&1.version == version))
+    |> restore_request_attributes(Map.get(state.current, decision_id))
   end
+
+  # Attribution is an append-only fact at the same request version, outside v1 history.
+  defp restore_request_attributes(nil, _current), do: nil
+  defp restore_request_attributes(request, nil), do: request
+
+  defp restore_request_attributes(request, current),
+    do: Map.merge(request, Map.take(current, [:native, :questions, :requester, :origin, :short_label]))
 
   defp evaluate_answer_replay(decision, accepted, replayed, state) do
     cond do
@@ -254,7 +267,9 @@ defmodule Aiur.DecisionStore.Answers do
   end
 
   @doc false
-  @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term())) :: :ok
+  @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term()) | nil) :: :ok
+  def schedule_ticket_comment(_decision, nil), do: :ok
+
   def schedule_ticket_comment(decision, publisher) do
     start_ticket_comment_task(decision, publisher, self())
     :ok

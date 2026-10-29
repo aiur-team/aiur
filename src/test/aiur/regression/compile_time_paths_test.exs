@@ -42,6 +42,11 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@queue_guard_path Path.expand(\"../../../priv/github_merge_queue_push_guard.sh\", __DIR__)",
       "@external_resource @queue_guard_path"
     ],
+    # Ticket status JSON is embedded during compilation; runtime reads the compiled map.
+    "aiur/build_order/ticket_status.ex" => [
+      "@taxonomy_path Path.expand(\"../../../priv/static/build-home/ticket-status.json\", __DIR__)",
+      "@external_resource @taxonomy_path"
+    ],
     "aiur/github/access/wrapper.ex" => [
       "@broker_root Path.expand(\"../../../../priv/github_budget\", __DIR__)",
       "for path <- @broker_paths, do: @external_resource(path)",
@@ -103,20 +108,15 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"
     ],
-    "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
-      "@external_resource path"
+    # Provider mark bytes are embedded in the module; rendering never reads the paths.
+    "aiur_web/streamdeck/render/marks.ex" => [
+      ~S|path = Path.expand("../../../../priv/static/#{file}", __DIR__)|,
+      "@external_resource Path.relative_to(path, File.cwd!(), force: true)"
     ],
     # Heroicon SVG bodies are embedded during compilation; runtime rendering
     # reads the compiled map and never dereferences these source paths.
     "aiur/heroicons.ex" => [
       "@external_resource path"
-    ],
-    # The Stream Deck key-face contract is authored once in daemon priv and
-    # mirrored by the sidecar, and embedded into the web emulator at
-    # compile time via File.read!/1. Nothing reads @contract_path at runtime.
-    "aiur_web/streamdeck_key_face_contract.ex" => [
-      "@contract_path Path.expand(\"../../priv/streamdeck/key-face-contract.json\", __DIR__)",
-      "@external_resource Path.relative_to(@contract_path, File.cwd!(), force: true)"
     ],
     # These schema files use compile-time resources only to invalidate structs
     # whose nested embed defaults are copied into their parents.
@@ -131,7 +131,8 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource Path.relative_to(Path.join(__DIR__, \"general_epic.ex\"), File.cwd!(), force: true)"
     ],
     "aiur/config/schema/decisions.ex" => [
-      "@external_resource Path.relative_to(Path.join(__DIR__, \"decisions_escalation.ex\"), File.cwd!(), force: true)"
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"decisions_escalation.ex\"), File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"decisions_native_capture.ex\"), File.cwd!(), force: true)"
     ],
     "aiur/config/schema/events.ex" => [
       "@external_resource Path.relative_to(Path.join(__DIR__, \"events_export.ex\"), File.cwd!(), force: true)"

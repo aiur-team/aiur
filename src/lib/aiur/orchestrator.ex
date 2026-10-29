@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator do
   use GenServer
 
   alias Aiur.Orchestrator.ListenerModes
+  alias Aiur.Orchestrator.OperatorMessages.HeldReads
   require Logger
 
   alias Aiur.{Issue, Signal}
@@ -29,6 +30,11 @@ defmodule Aiur.Orchestrator do
     TrackerTasks,
     WorkspaceCleanup
   }
+
+  @doc "Consume this ticket's held async operator messages in queue order."
+  @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def read_held_messages(identifier, max \\ 50),
+    do: HeldReads.read(__MODULE__, identifier, max)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -62,6 +68,13 @@ defmodule Aiur.Orchestrator do
       do: Lifecycle.handle_tick(state)
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
+
+  def handle_info({:listen_mode_changed, id, _view}, state) do
+    case ListenerModes.get_mode(state, id) do
+      {:reply, {:ok, view}, _state} -> {:noreply, ListenerModes.mode_view_changed(state, id, view)}
+      {:reply, {:error, _reason}, _state} -> {:noreply, state}
+    end
+  end
 
   def handle_info(:tick, state),
     do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))

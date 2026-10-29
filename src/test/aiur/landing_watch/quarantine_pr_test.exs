@@ -68,6 +68,22 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
              )
   end
 
+  test "browser quarantine entry names one title and source line" do
+    identity = "BrowserSpec :: src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs :: an active dial drag commits its final value after a LiveView patch :: 187"
+    assert {:ok, contents} = QuarantinePR.entry(identity, 7020, "# Browser quarantine\n", nil)
+    assert contents =~ "BrowserSpec\tsrc/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs\tan active dial drag commits its final value after a LiveView patch\t187\t#7020"
+    refute contents =~ "\t#7020\nBrowserSpec\tsrc/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs\t#7020"
+  end
+
+  test "same per-test row is already listed and legacy whole-spec row covers it" do
+    identity = "BrowserSpec :: src/browser/tests/example.browser.spec.mjs :: skips one test :: 187"
+    per_test = "BrowserSpec\tsrc/browser/tests/example.browser.spec.mjs\tskips one test\t187\t#7020\n"
+    whole_spec = "BrowserSpec\tsrc/browser/tests/example.browser.spec.mjs\t#7027\n"
+
+    assert {:error, :already_quarantined} = QuarantinePR.entry(identity, 7020, per_test, nil)
+    assert {:error, :already_quarantined} = QuarantinePR.entry(identity, 7020, whole_spec, nil)
+  end
+
   test "a retry after a partial attempt moves the existing branch and reuses the open PR" do
     parent = self()
 
@@ -218,7 +234,7 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
              QuarantinePR.open(
                %{identity: "Aiur.ExampleTest :: fails repeatedly", observations: []},
                900,
-               opts(parent, listed, nil)
+               Keyword.put(opts(parent, listed, nil), :quarantine_expires_on, Date.add(Date.utc_today(), 90))
              )
 
     assert_received {:request, :post, @api <> "/git/blobs", %{"content" => updated}}
@@ -226,7 +242,7 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     assert updated ==
              String.trim_trailing(contents) <>
                "\nAiur.ExampleTest\tfails repeatedly\t#900\t" <>
-               Date.to_iso8601(Date.add(Date.utc_today(), 90)) <> "\n"
+               Date.to_iso8601(Date.add(Date.utc_today(), 14)) <> "\n"
   end
 
   defp opts(parent, responder, list_fun) do

@@ -4,9 +4,8 @@ defmodule Aiur.Init.AgentCliTest do
   alias Aiur.Init.{AgentCli, ClaudeAdapter}
 
   describe "install_hint/2" do
-    test "claude hint mentions npm install -g aiur-claude" do
-      hint = AgentCli.install_hint("claude", "anything")
-      assert hint =~ "npm install -g aiur-claude"
+    test "claude hint installs the published default without pinning an optional feature version" do
+      assert AgentCli.install_hint("claude", "anything") == "install it with: npm install -g aiur-claude"
     end
 
     test "codex hint mentions the exe and PATH" do

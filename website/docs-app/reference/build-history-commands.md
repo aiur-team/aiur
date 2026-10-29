@@ -9,7 +9,7 @@ Label projection runs separately; `show` reports its state, including `unknown` 
 | Syntax | Behavior | Runnable example |
 | --- | --- | --- |
 | `aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]… [--as <who>] [--json]` | Creates a collection; matching requests are unchanged. Default epic: `f-<slug>`. | `aiur feature create intake --label "Intake" --hue 145 --json` |
-| `aiur feature add <slug> <ids…> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. | `aiur feature add intake 412 413 --move --json` |
+| `aiur feature add <slug> <ids…> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. Backfill skips IDs owned by another feature (`kept`, `kept_existing`) and refuses `--move`. | `aiur feature add intake 412 413 --move --json` |
 | `aiur feature remove <slug> <ids…> [--as <who>] [--json]` | Removes owning memberships; absent memberships are unchanged. | `aiur feature remove intake 412 --json` |
 | `aiur feature also <slug> <ids…> [--remove] [--as <who>] [--json]` | Adds or removes also-affects links. Owners cannot also affect the same feature. | `aiur feature also intake 420 --json` |
 | `aiur feature baseline <slug> [--replace] [--as <who>] [--json]` | Records original scope. Existing baselines require `--replace`; replacement reports the previous time and count. | `aiur feature baseline intake --json` |
@@ -41,6 +41,8 @@ Overrides are local: these commands never write GitHub labels or report effectiv
 
 Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same epic, source and confirmation is unchanged; changed results and the journal retain the prior assignment.
 
+Backfill writes preserve overrides from other sources with `status: kept_existing` and no journal entry.
+
 Recovery: unsafe journals remain unavailable. Move corrupt `epic-overrides.json` aside in the instance’s `epic-overrides` directory, then restart; GitHub cannot rebuild overrides.
 
 After a first-write sync failure after rename, reads and writes remain unavailable until restart. Exit codes are 0 success, 1 refusal/unavailability, 64 usage, and 124 RPC timeout with unknown outcome. Retrying the same set is safe.
@@ -62,3 +64,25 @@ PR file lists are held nowhere, as `auxiliary.not_held` says. `title`, `labels` 
 The command refuses with exit 1 when History, epic overrides or features are unavailable, or before the one-time History backfill finishes. It never prints a partial list.
 
 Exit 64 is a usage error and 124 an RPC timeout. The export only reads, so retrying is safe. Use a smaller `--limit` when many bodies are held on a busy host. It needs the daemon, so it does not work from inside an agent workspace.
+
+## Optional history label writes
+
+Confirmed historical classifications stay local until an Executor opts into paced GitHub writes.
+
+Imported features remain exempt; only held-backfill feature joins and closed tickets qualify, while open, unconfirmed or unknown facts never cause a write.
+
+| Syntax | Behavior | Runnable example |
+| --- | --- | --- |
+| `aiur history label-writes plan [--epic-labels] [--json]` | Counts feature and epic writes separately, label-creation calls, skipped and deferred reasons, and hours at 60 requests/h. An unreadable source makes the total `unknown`. | `aiur history label-writes plan --json` |
+| `aiur history label-writes start --expect <n> [--per-hour <n>] [--epic-labels] [--json]` | Refuses unknown totals or totals above `--expect`. Default ceiling 60/h; maximum half the effective agent Core limit (125 when disabled). Epic writes use the first general epic matcher. | `aiur history label-writes start --expect 2 --per-hour 1` |
+| `aiur history label-writes pause [--json]` | Saves a pause; any in-flight request finishes and is recorded. | `aiur history label-writes pause` |
+| `aiur history label-writes resume [--json]` | Resumes paused or stopped work, preserving the request window and budget hold. | `aiur history label-writes resume` |
+| `aiur history label-writes status [--json]` | Shows state, counts, requests in the rolling hour, hold remaining time, and last-write and History ages. Unknown ages remain `unknown`. | `aiur history label-writes status --json` |
+
+Read `plan` first and pass its total request count as `--expect`. For example, one absent feature label plans `2 requests (feature 1, epic 0, ensure 1)`. Existing labels are skipped case-insensitively and handed to normal feature projection without rewriting them.
+
+Every attempt, including label creation and failures, consumes a persisted request token before calling GitHub. The same window enforces `build_queue.max_writes_per_minute` (default 20/min) as well as the selected hourly ceiling; both limits survive restarts.
+
+Holds survive restarts; a missing reset waits 15 minutes. Authentication and permission failures stop until explicit resume. A corrupt or mismatched checkpoint is unavailable, never a fresh idle run.
+
+Start and resume are refused inside agent workspaces. Exit codes: 0 success, 1 refusal/unavailable, 64 invalid usage, 124 RPC timeout (outcome unknown). No labels are removed by this job; epic labels remain after later override changes. See [GitHub budgets](/apis/github-budgets#history-label-writes) for spending details.

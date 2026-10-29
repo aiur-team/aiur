@@ -5,7 +5,7 @@
  * {@link KeyFace} / {@link SegmentContent} descriptions into the JPEGs the HID
  * writers upload. The parity target is `docs/design/streamdeck/` — the verbatim
  * Stream Deck slice of the Claude Design mock — and the bucket colours come
- * from the shared `key-face-contract.json` that the browser emulator also
+ * from the shared `legacy-style.json` that the browser emulator also
  * reads, so the two surfaces cannot drift apart on state colour.
  *
  * Three things here are load-bearing and easy to regress:

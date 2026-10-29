@@ -39,6 +39,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
 
   def latest(_row, now), do: latest(%{}, now)
 
+  @spec native_hold_age(map(), DateTime.t()) :: String.t()
+  def native_hold_age(%{since: %DateTime{} = since}, %DateTime{} = now),
+    do: "for #{div(max(DateTime.diff(now, since, :second), 0), 60)} min"
+
+  def native_hold_age(%{since: since}, now) when is_binary(since) do
+    case DateTime.from_iso8601(since) do
+      {:ok, datetime, _offset} -> native_hold_age(%{since: datetime}, now)
+      _invalid -> "duration unavailable"
+    end
+  end
+
+  def native_hold_age(_hold, _now), do: "duration unavailable"
+
   @doc "Returns the persisted workflow label for a Units row."
   @spec workflow_state_label(map()) :: String.t() | nil
   def workflow_state_label(row) when is_map(row) do

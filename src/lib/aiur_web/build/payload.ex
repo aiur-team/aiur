@@ -4,24 +4,25 @@ defmodule AiurWeb.Build.Payload do
   All fields defined by PayloadSchema are required unless explicitly optional.
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
-  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), optional
-  icons catalog, epics, features, order, counts (whole-index totals or nil), feature_progress
-  (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation
-  time; plan version and extras), sections (hist/now/plan/nq),
+  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
+  epic_progress (general-epic closed/open/total counts and observation time; incomplete figures are nil with a reason),
+  epic_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
+  features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
   Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
-  created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr.
-  Id is a decimal ticket identifier or pack:<key>. Hist requires integer end;
+  created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr, src, was.
+  Id is a decimal ticket identifier or pack:<key>/<item>. Hist requires integer end;
   plan requires cue, others require cue=nil. Percentages are 0..100, cx is 1..5,
   wave is positive or nil. Agent model is a safe slug or nil; name is a string up to 64 characters or nil.
   Titles, labels and reasons remain unescaped; the client escapes on rendering.
 
   | Row field | Type |
   | --- | --- |
-  | id / num | positive decimal identifier / positive integer; pack:<key> / nil |
+  | id / num | positive decimal identifier / positive integer; pack:<key>/<item> / nil |
+  | src / was | pack source (kind, relative path, nonnegative wave or nil) / previous pack id or nil |
   | title | raw UTF-8 string |
   | type | bug, feature, chore, docs |
   | epic / feature / also | epic key or nil / feature key or nil / feature keys |
@@ -43,7 +44,7 @@ defmodule AiurWeb.Build.Payload do
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
   | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
-  | pr | nil or positive integer num and open/merged/closed state |
+  | pr | nil or positive integer num, open/merged/closed state and optional nullable ci stage |
 
   Epics require key/label strings, numeric hue and an icon name; optional svg,
   general/temp/unsorted are booleans, optional feature is a string. Features require key/label,
@@ -133,6 +134,9 @@ defmodule AiurWeb.Build.Payload do
   def validate(_message), do: {:error, [{"", :type}]}
 
   @spec scrub(term()) :: term()
+  # Label memberships are Deck-only index metadata, not part of the browser wire schema.
+  def scrub(%{general_epics: _, num: _} = row), do: row |> Map.delete(:general_epics) |> scrub()
+
   def scrub(value) when is_binary(value), do: String.replace_invalid(value)
   def scrub(value) when is_list(value), do: Enum.map(value, &scrub/1)
   def scrub(value) when is_map(value), do: Map.new(value, fn {key, child} -> {scrub_key(key), scrub(child)} end)

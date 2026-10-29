@@ -269,6 +269,12 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       defp event_frame(%Events.Interruption{turn_id: turn_id}),
         do: %{"v" => 1, "type" => "interrupted", "turn_id" => to_string(turn_id)}
 
+      defp event_frame({:draft, %{status: status} = record}) when status in ["proposed", "unknown"],
+        do: Map.put(record, :v, 1)
+
+      defp event_frame({:draft, %{draft_id: id, status: status}}),
+        do: %{v: 1, type: "delivery", draft_id: id, status: status}
+
       defp event_frame({:error, code, message}),
         do: %{"v" => 1, "type" => "error", "code" => to_string(code), "message" => message}
 
@@ -299,6 +305,9 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
 
       defp operation_error(state, :capability_unavailable),
         do: error(state, "capability_unavailable", "Capability is unavailable.")
+
+      defp operation_error(state, :outcome_unknown),
+        do: error(state, "outcome_unknown", "Delivery is uncertain; the agent may still receive the question.")
 
       defp operation_error(state, _reason), do: error(state, "internal", "Internal transport error.")
     end

@@ -8,14 +8,16 @@ defmodule AiurWeb.StreamdeckLive.Modes do
 
   import Phoenix.Component, only: [assign: 3]
   import AiurWeb.StreamdeckLive.Env, only: [endpoint_config: 1, safe_call: 2]
-  import AiurWeb.StreamdeckLive.Grid, only: [assign_grid: 5, focus_logs: 3, refresh_knobs: 1, refresh_pager: 1]
+  import AiurWeb.StreamdeckLive.Grid, only: [assign_grid: 5, focus_logs: 3, refresh_knobs: 1]
 
   alias Aiur.AgentChat
+  alias AiurWeb.Streamdeck.Deck.TicketPage
   alias AiurWeb.StreamdeckCommands
   alias Phoenix.LiveView.Socket
 
   @spec select_agent_from_params(Socket.t(), map()) :: Socket.t()
-  def select_agent_from_params(socket, %{"identifier" => identifier}) when is_binary(identifier) do
+  def select_agent_from_params(socket, %{"identifier" => identifier})
+      when is_binary(identifier) do
     case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
       nil ->
         socket
@@ -33,36 +35,39 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   def select_agent_from_params(socket, _params), do: socket
 
   defp maybe_assign_active(%{assigns: %{sd_mode: :grid}} = socket, _agent), do: socket
-  defp maybe_assign_active(socket, agent), do: socket |> assign(:sd_active, agent) |> refresh_pager()
+  defp maybe_assign_active(socket, agent), do: socket |> assign(:sd_active, agent) |> assign(:sd_ticket, TicketPage.read(to_string(agent.identifier)))
 
   @spec enter_cmd(Socket.t(), map()) :: Socket.t()
   def enter_cmd(socket, %{"identifier" => identifier}) when socket.assigns.sd_mode == :grid do
     case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
       nil -> socket
-      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent) |> refresh_pager() |> refresh_knobs()
+      agent -> socket |> assign_mode(:cmd) |> assign(:sd_active, agent) |> assign(:sd_ticket, TicketPage.read(identifier)) |> refresh_knobs()
     end
   end
 
   def enter_cmd(socket, _params), do: socket
 
   @spec enter_logs(Socket.t()) :: Socket.t()
-  def enter_logs(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active),
-    do: socket |> assign(:sd_mode, :logs) |> refresh_knobs()
+  def enter_logs(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket)
+      when not is_nil(active),
+      do: socket |> assign_mode(:logs) |> refresh_knobs()
 
   def enter_logs(socket), do: socket
 
   @spec enter_settings(Socket.t()) :: Socket.t()
-  def enter_settings(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active),
-    do: socket |> assign(:sd_mode, :settings) |> refresh_knobs()
+  def enter_settings(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket)
+      when not is_nil(active),
+      do: socket |> assign_mode(:settings) |> refresh_knobs()
 
   def enter_settings(socket), do: socket
 
   @spec enter_commands(Socket.t()) :: Socket.t()
-  def enter_commands(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active) do
+  def enter_commands(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket)
+      when not is_nil(active) do
     identifier = to_string(active.identifier)
 
     socket
-    |> assign(:sd_mode, :commands)
+    |> assign_mode(:commands)
     |> assign(:commands, load_commands(identifier))
     |> assign(:commands_view, :history)
     |> assign(:commands_selection, nil)
@@ -98,7 +103,8 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   end
 
   def select_command(
-        %{assigns: %{sd_mode: :commands, commands_view: :detail, commands_selection: command}} = socket,
+        %{assigns: %{sd_mode: :commands, commands_view: :detail, commands_selection: command}} =
+          socket,
         index
       )
       when is_map(command) do
@@ -114,7 +120,10 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   # Dial D pages the Commands page: the option window on the detail view
   # (wrapping), or the history window forward through the opaque server cursor.
   @spec page_commands(Socket.t()) :: Socket.t()
-  def page_commands(%{assigns: %{sd_mode: :commands, commands_view: :detail, commands_selection: command}} = socket)
+  def page_commands(
+        %{assigns: %{sd_mode: :commands, commands_view: :detail, commands_selection: command}} =
+          socket
+      )
       when is_map(command) do
     count = length(command["options"] || [])
     offset = socket.assigns.commands_offset || 0
@@ -150,15 +159,20 @@ defmodule AiurWeb.StreamdeckLive.Modes do
 
   @spec back(Socket.t()) :: Socket.t()
   def back(%{assigns: %{sd_mode: mode}} = socket) when mode in [:logs, :settings, :commands],
-    do: socket |> assign(:sd_mode, :cmd) |> refresh_knobs()
+    do: socket |> assign_mode(:cmd) |> refresh_knobs()
 
   def back(%{assigns: %{sd_mode: :cmd}} = socket) do
     previous_identifier = socket.assigns.selected_identifier
 
     socket
-    |> assign(:sd_mode, :grid)
+    |> assign_mode(:grid)
     |> assign(:sd_active, nil)
-    |> assign_grid(socket.assigns.grid, socket.assigns.grid_column_offset, nil, socket.assigns.grid_dial_value)
+    |> assign_grid(
+      socket.assigns.grid,
+      socket.assigns.grid_column_offset,
+      nil,
+      socket.assigns.grid_dial_value
+    )
     |> focus_logs(previous_identifier, socket.assigns.selected_identifier)
   end
 
@@ -177,9 +191,17 @@ defmodule AiurWeb.StreamdeckLive.Modes do
 
   defp commands_page(identifier, cursor) do
     case endpoint_config(:streamdeck_commands_fun) do
-      fun when is_function(fun, 2) -> safe_call(fn -> fun.(identifier, cursor) end, {:error, :unavailable})
-      fun when is_function(fun, 1) -> safe_call(fn -> {:ok, fun.(identifier)} end, {:error, :unavailable})
-      _ -> safe_call(fn -> StreamdeckCommands.history(identifier, cursor) end, {:error, :unavailable})
+      fun when is_function(fun, 2) ->
+        safe_call(fn -> fun.(identifier, cursor) end, {:error, :unavailable})
+
+      fun when is_function(fun, 1) ->
+        safe_call(fn -> {:ok, fun.(identifier)} end, {:error, :unavailable})
+
+      _ ->
+        safe_call(
+          fn -> StreamdeckCommands.history(identifier, cursor) end,
+          {:error, :unavailable}
+        )
     end
   end
 
@@ -258,5 +280,11 @@ defmodule AiurWeb.StreamdeckLive.Modes do
     error -> {:error, error}
   catch
     :exit, reason -> {:error, reason}
+  end
+
+  defp assign_mode(socket, mode) do
+    socket
+    |> assign(:sd_mode, mode)
+    |> assign(:deck_nav, %{socket.assigns.deck_nav | surface: mode})
   end
 end

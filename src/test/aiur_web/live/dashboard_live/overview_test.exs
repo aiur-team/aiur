@@ -241,7 +241,7 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
         selected_decision_id: decision.decision_id
       )
 
-    assert inbox_html =~ ~s(src="/aiur-logo.png")
+    assert inbox_html =~ ~s(src="/aiur-style/assets/aiur-logo.png")
     assert inbox_html =~ ~s(href="/commands/dec-safe-link")
     assert inbox_html =~ "Commands inbox"
     refute inbox_html =~ ~s(id="recent-title")
@@ -278,8 +278,8 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
       |> Map.put(:retained_counts, %{
         open: 73,
         blocking: 4,
-        awaiting: 73,
-        awaiting_blocking: 4,
+        needs_you: 73,
+        needs_you_blocking: 4,
         scope: %{kind: :retained, label: "All retained decisions"},
         health: %{status: :partial, partial?: true, label: "Partial retained Decision data"}
       })
@@ -292,7 +292,7 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
         selected_decision_health: %{status: :partial, partial?: true}
       )
 
-    assert html =~ "73 units awaiting commands"
+    assert html =~ "73 Commands need you"
     assert html =~ "Issue commands"
     assert html =~ "Partial Command counts"
     assert html =~ "Partial Command data"
@@ -312,8 +312,8 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
       |> Map.put(:retained_counts, %{
         open: 3,
         blocking: 0,
-        awaiting: 3,
-        awaiting_blocking: 0,
+        needs_you: 3,
+        needs_you_blocking: 0,
         scope: %{kind: :retained, label: "All retained decisions"},
         health: %{status: :healthy, partial?: false, label: "Retained Decision data"}
       })
@@ -330,7 +330,7 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
 
     html = render_payload(fleet_payload, payload: payload)
 
-    assert html =~ "3 units awaiting commands"
+    assert html =~ "3 Commands need you"
     assert html =~ ~s(id="units-rows")
     assert html =~ "Responsive Units interface"
     refute html =~ "No units in this run yet in this run"

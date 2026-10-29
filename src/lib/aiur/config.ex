@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, TestRunOverrides}
+  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, SettingsSnapshot, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -45,7 +45,9 @@ defmodule Aiur.Config do
       same map.
   """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings do
+  def settings, do: SettingsSnapshot.read(&live_settings/0)
+
+  defp live_settings do
     case Workflow.current_with_cache_identity() do
       {:ok, workflow, generation, publication} when is_integer(generation) and is_reference(publication) ->
         cached_settings(workflow, {generation, publication})
@@ -208,7 +210,9 @@ defmodule Aiur.Config do
   defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export(), to: Aiur.Config.TrackerSettings
   defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_webhook_enabled?(), to: Aiur.Config.TrackerSettings
   defdelegate events_export_retention_days(), to: Aiur.Config.TrackerSettings
   defdelegate events_export_retention_max_events(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
@@ -233,6 +237,9 @@ defmodule Aiur.Config do
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  @spec decisions_native_capture?(:codex | :claude) :: boolean()
+  def decisions_native_capture?(harness) when harness in [:codex, :claude], do: Map.get(settings!().decisions.native_capture, harness, false)
+
   @spec decisions_require_suggested_responses?() :: boolean()
   def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
 

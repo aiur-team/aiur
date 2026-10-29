@@ -1,16 +1,22 @@
 Code.require_file("../support/browser_harness/fixture_endpoint_start.ex", __DIR__)
-for file <- ~w(earlier_control scale fixture_source fixture_conversation_source control_fixture ticket_docs index_parts index_seed), do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
+for file <- ~w(earlier_control scale unfiled_fixture fixture_source fixture_conversation_source control_fixture ticket_docs index_parts index_seed),
+    do: Code.require_file("../support/build_home/#{file}.ex", __DIR__)
+
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
+Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
+Code.require_file("../support/streamdeck_build_fixture.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
+Code.require_file("../support/browser_harness/streamdeck_transcript.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live graph_live ticket_context_live units_live_data units_live
-      support voice_provider build_order_source meters_live experiments index_live
+      route_shell_live graph_live ticket_context_live units_live_data units_live voice_input_live
+      support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -37,6 +43,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
   end
 
   scope "/" do
+    post("/conversation-fixture/reset", Aiur.BrowserHarness.ConversationFixture, :reset)
+    get("/conversation-fixture/append", Aiur.BrowserHarness.ConversationFixture, :append)
     get("/health", Aiur.BrowserHarness.FixtureAssets, :health)
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
@@ -58,6 +66,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
+    get("/streamdeck-transcript/:action", Aiur.BrowserHarness.StreamdeckTranscript, :configure)
     get("/command-answer-control/answerable", Aiur.BrowserHarness.CommandAnswerFixture, :configure)
     get("/command-answer-state", Aiur.BrowserHarness.CommandAnswerFixture, :status)
     get("/command-answer-join-state", Aiur.BrowserHarness.CommandAnswerFixture, :join_status)
@@ -71,6 +80,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through([:browser, :fixture_access])
 
     live_session :production_root, root_layout: {AiurWeb.Layouts, :root} do
+      live("/voice-input-fixture", Aiur.BrowserHarness.VoiceInputLive, :index)
       live("/palette-probe", Aiur.BrowserHarness.PaletteProbeLive, :index)
     end
 
@@ -153,11 +163,11 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
-  alias Aiur.BrowserHarness.FixtureEndpointStart
+  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
+  alias Aiur.TestSupport.StreamdeckBuildFixture
 
   # Standalone HTTP fixtures have no test caller; keep global fixture stubs outside shared test support.
   defp configure_ticket_docs(:ok) do
@@ -177,11 +187,12 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   def run do
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
-
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
+    Application.put_env(:aiur, :build_fixture_query, true)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     endpoint_overrides = AiurWeb.EndpointConfig.overrides_table()
@@ -201,6 +212,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
             {Aiur.CurrentRunProjections, idle_without_subscribers?: true},
             id: Aiur.CurrentRunProjections
           ),
+          Aiur.Conversation.HeadTable,
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
           {Task.Supervisor, name: Aiur.TaskSupervisor},
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
           {AiurWeb.Endpoint, []},
@@ -210,6 +224,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         strategy: :one_for_one
       )
 
+    conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}")
+    Application.put_env(:aiur, :conversation_state_dir, conversation_root)
+    Fixtures.conversation(conversation_root)
     port = System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
     {:ok, _pid} =
@@ -266,9 +283,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   def streamdeck_resume(identifier), do: {:ok, set_streamdeck_paused(identifier, false)}
 
-  @doc "Drops every recorded operator pause so a spec starts from the seeded fleet."
+  @doc "Restores the seeded fleet and clears recorded operator pauses."
   def reset_streamdeck_pauses do
     ControlFixture.reset()
+    :persistent_term.erase({__MODULE__, :streamdeck_snapshot_identities})
     :persistent_term.put({__MODULE__, :streamdeck_paused}, MapSet.new())
     Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
     :ok
@@ -295,9 +313,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot(identifiers)
 
       _ ->
-        # The canonical bucket order puts the alert agent first, so the LiveView
-        # initially focuses 1331; seed its durable feed so the production
-        # AgentEventFeed path has real content to project in logs mode.
+        # Ticket attention order puts the error first; seed its durable feed
+        # so the production AgentEventFeed path has real content in logs mode.
+        write_feed_if_missing("1338")
         write_feed_if_missing("1331")
         # The operator flow drives one agent through cmd and logs, so the
         # running agent it controls needs a durable feed of its own.
@@ -340,23 +358,20 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     %{running: Enum.take(agents, 1), retrying: [], idle: Enum.drop(agents, 1)}
   end
 
-  def streamdeck_provider_meters do
-    %{
-      "claude" => %{
-        "state" => "observed",
-        "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
-        }
-      },
-      "codex" => %{
-        "state" => "observed",
-        "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
-        }
-      }
-    }
+  def streamdeck_usage_inputs(_context, _opts) do
+    now = DateTime.utc_now()
+
+    meters =
+      Map.new([{:claude, 30, 47}, {:codex, 50, 75}], fn {family, session, weekly} ->
+        windows =
+          Map.new([{"session", session, 300}, {"weekly", weekly, 10_080}], fn {slot, used, duration} ->
+            {slot, %{kind: :rate_limit, coverage: :supported, used_percent: used, duration_minutes: duration, resets_at: DateTime.add(now, 3600)}}
+          end)
+
+        {family, %Aiur.ProviderMeterSnapshot{provider: family, observed_at: now, health: %{state: :healthy, failure: nil}, windows: windows}}
+      end)
+
+    %{families: [:claude, :codex], meters: meters, accounts: %{}, durable: %{}, github: {:error, :unavailable}, elevenlabs: %{state: :unconfigured}}
   end
 
   # Seeded once per harness boot, not once per disk lifetime. `File.exists?/1`
@@ -443,8 +458,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
+        streamdeck_build_source: Aiur.BrowserHarness.StreamdeckTicket,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
-        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
+        streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(streamdeck_snapshot()) end,
+        streamdeck_usage_load_fun: &__MODULE__.streamdeck_usage_inputs/2,
         agent_chat_capabilities_fun: &__MODULE__.build_capabilities/1,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
         agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1

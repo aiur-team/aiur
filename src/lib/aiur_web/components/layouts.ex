@@ -4,7 +4,6 @@ defmodule AiurWeb.Layouts do
   """
 
   use Phoenix.Component
-
   @spec root(map()) :: Phoenix.LiveView.Rendered.t()
   def root(assigns) do
     assigns =
@@ -19,8 +18,8 @@ defmodule AiurWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <link rel="icon" type="image/png" href="/aiur-logo.png" />
-        <link rel="apple-touch-icon" href="/aiur-logo.png" />
+        <link rel="icon" type="image/png" href="/aiur-style/assets/aiur-logo.png" />
+        <link rel="apple-touch-icon" href="/aiur-style/assets/aiur-logo.png" />
         <title>{@page_title}</title>
         <script>
           (function () {
@@ -38,13 +37,14 @@ defmodule AiurWeb.Layouts do
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/ticket-context-dialog-hook.js"></script>
-        <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/conversation-voice-controller.js"></script>
-        <script defer src="/conversation-drawer-hook.js"></script>
-        <script defer src="/build-order-grid-hook.js"></script>
+        <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script><script defer src="/conversation-voice-controller.js"></script>
+        <script defer src="/executor-voice-controller.js"></script><script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/build-order-grid-hook.js"></script><script defer src="/conversation-scroll-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>
         <script defer src="/streamdeck-emulator-knob.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
         <script defer src="/sortable-table-hook.js"></script>
+        <script defer src="/decision-questions-validation.js"></script>
         <script defer src="/build-home/loader.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
@@ -54,7 +54,7 @@ defmodule AiurWeb.Layouts do
 
             if (!window.Phoenix || !window.LiveView) return;
 
-            var Hooks = {};
+            var Hooks = {ConversationScroll: window.AiurConversationScrollHook};
 
             Hooks.AgentLogPanel = {
               mounted: function () {
@@ -377,10 +377,10 @@ defmodule AiurWeb.Layouts do
               Hooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
 
+            if (window.AiurVoiceInputHook) Hooks.VoiceInput = window.AiurVoiceInputHook;
             if (window.AiurConversationDrawerHook) {
               Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
             }
-
             if (window.AiurDomSvgLayout) {
               Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
             }
@@ -422,6 +422,7 @@ defmodule AiurWeb.Layouts do
             }
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
+              dom: { onBeforeElUpdated: window.AiurVoiceInputBeforeUpdate },
               localStorage: availableStorage("localStorage"),
               sessionStorage: availableStorage("sessionStorage"),
               params: {

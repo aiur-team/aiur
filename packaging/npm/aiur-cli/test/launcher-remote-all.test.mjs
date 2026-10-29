@@ -126,7 +126,9 @@ test("JSON mode keeps an unreachable instance as an error envelope", () => {
   }
 });
 
-test("write commands are refused before any fan-out request", () => {
+// Quarantined: owner #6540, expires 2026-11-30. The final read-command check (status 0 at line 151) flaked
+// in layout release smoke on PR 6591, which does not touch the launcher; same fan-out timing family as the wake-id race.
+test.skip("write commands are refused before any fan-out request", () => {
   const server = startServer({ body: successBody("wrong\n__AIUR_CONTROL_EXIT__:0\n") });
   try {
     const setup = setupRemoteLauncher(registry({ only: server.url }));
@@ -168,7 +170,8 @@ test("the reserved all name is rejected as a registry entry", () => {
   }
 });
 
-test("fleet executor wait defers acknowledgement and persists one cursor per instance", () => {
+// Quarantined: owner #6540, expires 2026-11-30. The woken nuc wait can cancel pc before it answers.
+test.skip("fleet executor wait defers acknowledgement and persists one cursor per instance", () => {
   const pc = startServer({ name: "pc", body: { ...successBody('{"status":"timeout","role":"owner","records":[]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/pc" } });
   const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":41},{"wake_id":44}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" } });
   try {

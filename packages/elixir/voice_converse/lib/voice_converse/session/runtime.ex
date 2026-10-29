@@ -18,6 +18,31 @@ defmodule VoiceConverse.Session.Runtime do
 
   def close_current(provider, ref), do: safely(fn -> provider.close(ref) end)
 
+  def consult_context(%{provider_ref: nil} = state, text),
+    do: update_in(state.pending_consult_context, &(&1 ++ [text]))
+
+  def consult_context(%{state: status} = state, text) when status in [:connecting, :reconnecting],
+    do: update_in(state.pending_consult_context, &(&1 ++ [text]))
+
+  def consult_context(state, text) do
+    case safely(fn -> state.provider.send_context(state.provider_ref, text) end) do
+      :ok -> state
+      _ -> update_in(state.pending_consult_context, &(&1 ++ [text]))
+    end
+  end
+
+  def flush_consult_context(%{provider_ref: nil} = state), do: state
+  def flush_consult_context(state), do: flush_context(state, state.pending_consult_context)
+
+  defp flush_context(state, []), do: %{state | pending_consult_context: []}
+
+  defp flush_context(state, [text | rest] = pending) do
+    case safely(fn -> state.provider.send_context(state.provider_ref, text) end) do
+      :ok -> flush_context(state, rest)
+      _ -> %{state | pending_consult_context: pending}
+    end
+  end
+
   def enqueue_audio(_session, %{provider_ref: nil} = state, _audio_b64, _max), do: state
 
   def enqueue_audio(session, state, audio_b64, max) do

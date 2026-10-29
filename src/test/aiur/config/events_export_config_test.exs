@@ -30,6 +30,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
     end
 
     assert Config.events_export_enabled?() == false
+    assert Config.events_export_webhook_enabled?() == false
     assert Config.events_export_retention_days() == 7
     assert Config.events_export_retention_max_events() == 50_000
   end
@@ -41,14 +42,33 @@ defmodule Aiur.Config.EventsExportConfigTest do
     events:
       export:
         enabled: true
+        webhook_url: https://consumer.example.com/webhooks/aiur
         retention_days: 30
         retention_max_events: 12000
     """)
 
     assert :ok = Aiur.WorkflowStore.force_reload()
     assert Config.events_export_enabled?() == true
+    assert Config.events_export_webhook_enabled?() == true
     assert Config.events_export_retention_days() == 30
     assert Config.events_export_retention_max_events() == 12_000
+  end
+
+  test "journal-only export does not require a webhook destination", %{path: path} do
+    assert {:ok, settings} = Schema.parse(%{"events" => %{"export" => %{"enabled" => true}}})
+    assert settings.events.export.enabled
+    assert settings.events.export.webhook_url == nil
+
+    File.write!(path, """
+    tracker:
+      kind: memory
+    events:
+      export:
+        enabled: true
+    """)
+
+    assert :ok = Aiur.WorkflowStore.force_reload()
+    assert Config.events_export_webhook_enabled?() == false
   end
 
   test "both retention bounds reject out-of-range values and accept endpoints" do
@@ -66,9 +86,31 @@ defmodule Aiur.Config.EventsExportConfigTest do
   end
 
   test "invalid types name the export key" do
-    for key <- ["enabled", "retention_days", "retention_max_events"] do
+    for key <- ["enabled", "allow_private_destinations", "retention_days", "retention_max_events"] do
       assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"events" => %{"export" => %{key => "invalid"}}})
       assert message =~ "events.export.#{key}"
+    end
+  end
+
+  test "webhook URL validation is enforced by the config parser" do
+    for webhook_url <- [
+          "http://consumer.example.com/events",
+          "https://user:password@consumer.example.com/events",
+          "https://consumer.example.com/events#fragment",
+          "https://127.0.0.1/events",
+          "https://[::1]/events"
+        ] do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 "events" => %{
+                   "export" => %{
+                     "enabled" => true,
+                     "webhook_url" => webhook_url
+                   }
+                 }
+               })
+
+      assert message =~ "events.export.webhook_url"
     end
   end
 
@@ -76,7 +118,18 @@ defmodule Aiur.Config.EventsExportConfigTest do
     template = File.read!(Path.expand("../../../../.aiur/examples/config.example", __DIR__))
     [block] = Regex.run(~r/^# events:\n(?:#   .*\n)+/m, template)
     assert {:ok, events} = YamlElixir.read_from_string(String.replace(block, ~r/^# /m, ""))
-    assert events["events"]["export"] == %{"enabled" => false, "retention_days" => 7, "retention_max_events" => 50_000}
+
+    assert events["events"]["export"] == %{
+             "allow_private_destinations" => false,
+             "enabled" => false,
+             "request_timeout_ms" => 15_000,
+             "retention_days" => 7,
+             "retention_max_events" => 50_000,
+             "retry_ms" => 5_000,
+             "subject_id" => "5695",
+             "webhook_url" => "https://consumer.example.com/webhooks/aiur"
+           }
+
     assert {:ok, settings} = Schema.parse(events)
     assert settings.events.export.enabled == false
     assert settings.events.export.retention_days == 7

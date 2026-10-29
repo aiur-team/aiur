@@ -2,16 +2,22 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   @moduledoc false
 
   use Phoenix.Component
-  alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionReplacement}
+  import AiurWeb.Components.VoiceInput
+
+  alias Aiur.Commands.Answering
+  alias AiurWeb.Components.VoiceDelivery
+  alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionQuestionsForm, DecisionReplacement}
 
   attr(:decision, :map, required: true)
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
   attr(:compact, :boolean, default: false)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
+    assigns = assign(assigns, :voice_delivery, VoiceDelivery.command(assigns.decision, assigns.state))
     form = Map.get(assigns.state, :form, %{})
     choice = Map.get(form, "choice") || default_choice(assigns.decision)
 
@@ -42,6 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     assigns =
       assign(assigns,
         form: form,
+        questions: DecisionQuestionsForm.questions(decision),
         replacing?: replacing?,
         disabled?: disabled?,
         choice: choice,
@@ -60,19 +67,26 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
       <DecisionReplacement.decision_replacement decision={@decision} state={@state} writable={@writable} live_connected={@live_connected} />
 
+      <.delivery_status :if={!@answerable?} delivery={@voice_delivery} />
+
       <form
         :if={@writable and @answerable?}
         id={"decision-answer-form-#{@decision.decision_id}"}
         class="decision-answer-form"
+        phx-hook="VoiceInput"
+        data-voice-select-custom={if @questions == [], do: "answer[choice]"}
+        data-voice-ready-copy="Dictation ready. Review the text, then record your answer."
         phx-change="decision-action-change"
         phx-submit={if @replacing?, do: "replace-decision", else: "answer-decision"}
       >
         <input type="hidden" name="decision_id" value={@decision.decision_id} />
 
-        <fieldset :if={@decision.options != []} class="decision-choice-list" disabled={@disabled? or not @live_connected}>
+        <DecisionQuestionsForm.decision_questions_form questions={@questions} form={@form} disabled={@disabled? or not @live_connected} />
+
+        <fieldset :if={@questions == [] and @decision.options != []} class="decision-choice-list" disabled={@disabled? or not @live_connected}>
           <legend class="sr-only">Choose an answer</legend>
           <label
-            :for={option <- @decision.options}
+            :for={option <- ordered_options(@decision)}
             class={[
               "decision-choice",
               @choice == "option:#{option.id}" && "selected",
@@ -101,19 +115,30 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           </label>
         </fieldset>
 
-        <input :if={@decision.options == []} type="hidden" name="answer[choice]" value="custom" />
+        <input :if={@questions == [] and @decision.options == []} type="hidden" name="answer[choice]" value="custom" />
 
-        <label :if={@choice == "custom"} class="decision-action-field">
+        <label :if={@questions == [] and @choice == "custom"} class="decision-action-field">
           <span>Response</span>
           <textarea
             disabled={@disabled? or not @live_connected}
             name="answer[custom_response]"
+            data-voice-input
             rows="4"
             maxlength="4000"
             required
             placeholder="State the Command response clearly…"
           >{Map.get(@form, "custom_response", "")}</textarea>
         </label>
+
+        <.voice_input delivery={@voice_delivery}
+          :if={@questions == [] and answerable?(@decision) and not @disabled? and @live_connected}
+          id={"decision-answer-voice-#{@decision.decision_id}"}
+          capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_response})}
+          legacy_conversation={false}
+          surface="command_response"
+          target={%{kind: "command", decision_id: @decision.decision_id, expected_version: @decision.version}}
+          status_copy="Choose Dictate to speak a custom response. Review the text, then record your answer."
+        />
 
         <footer class="decision-action-footer">
           <div class="decision-action-buttons">
@@ -146,9 +171,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-disable-with="Acknowledging…"
               disabled={!@live_connected or @disabled?}
             >Acknowledge</button>
-            <button class="aiur-button aiur-button--dashboard btn" type="submit" disabled={!@live_connected or @disabled?} phx-disable-with="Recording…">{cond do
+            <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send={if @live_connected and not @disabled?, do: true} disabled={!@live_connected or @disabled?} phx-disable-with="Recording…">{cond do
               @replacing? -> "Replace answer"
               @decision.decision_status in [:dismissed, :deferred] -> "Change choice"
+              @questions != [] -> "Submit answers"
               true -> "Decision"
             end}</button>
           </div>
@@ -186,6 +212,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     """
   end
 
+  @spec ordered_options(map()) :: list()
+  def ordered_options(decision), do: Enum.sort_by(decision.options, &(not recommended?(decision, &1)))
+
   defp default_choice(%{options: []}), do: "custom"
 
   defp default_choice(decision) do
@@ -193,16 +222,29 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     "option:#{option_id}"
   end
 
-  defp answer_label(%{answer: %{selected_option_id: option_id}} = decision) when is_binary(option_id) do
+  defp answer_label(decision) do
+    case DecisionQuestionsForm.questions(decision) do
+      [] -> legacy_answer_label(decision)
+      questions -> native_answer_label(questions, decision.answer)
+    end
+  end
+
+  defp native_answer_label(questions, answer) do
+    case Answering.decode_question_answers(questions, answer) do
+      {:ok, answers} -> Answering.render_question_answers(questions, answers)
+      {:error, _reason} -> "Answer unavailable"
+    end
+  end
+
+  defp legacy_answer_label(%{answer: %{selected_option_id: option_id}} = decision) when is_binary(option_id) do
     case Enum.find(decision.options, &(&1.id == option_id)) do
       nil -> "Option #{option_id}"
       option -> option.label
     end
   end
 
-  defp answer_label(%{answer: %{custom_response: response}}), do: response
-
-  defp answer_label(_decision), do: "Unavailable"
+  defp legacy_answer_label(%{answer: %{custom_response: response}}), do: response
+  defp legacy_answer_label(_decision), do: "Unavailable"
 
   defp recommended?(%{recommendation: nil}, _option), do: false
   defp recommended?(decision, option), do: decision.recommendation.option_id == option.id

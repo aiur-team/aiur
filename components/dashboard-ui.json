@@ -20,6 +20,7 @@
     "event-bus",
     "identity",
     "kernel",
+    "listener-modes",
     "orchestration",
     "projections",
     "signal",
@@ -38,6 +39,7 @@
     "streamdeck-server",
     "telemetry",
     "ticket-context",
+    "voice-conversation",
     "voice-stt"
   ],
   "owns": {
@@ -50,7 +52,7 @@
     "WEB"
   ],
   "dependency_kind": "optional",
-  "summary": "Shows run status, agent conversations, Commands and usage in a browser.",
+  "summary": "Shows run status, durable conversation entries and diffs, Commands and usage in a browser.",
   "status": "optional",
   "install": {
     "type": "included"

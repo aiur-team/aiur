@@ -18,6 +18,7 @@ defmodule Aiur.AgentQueue do
       causal_refs: Keyword.get(opts, :causal_refs, []),
       turn_id: Keyword.get(opts, :turn_id)
     }
+    |> Map.merge(Map.new(Keyword.take(opts, [:origin, :actor])))
   end
 
   defp operator_delivery(opts) do
@@ -37,11 +38,11 @@ defmodule Aiur.AgentQueue do
   end
 
   defp listener_delivery(:steer, opts) do
-    if Keyword.get(opts, :steer_carrier) != :emulated_interrupt do
-      raise ArgumentError, "steer listener mode requires steer_carrier: :emulated_interrupt"
+    case Keyword.get(opts, :steer_carrier) do
+      :native -> legacy_delivery(Keyword.put(opts, :delivery_policy, :checkpoint)) |> Map.put(:steer_requested, true)
+      :emulated_interrupt -> legacy_delivery(Keyword.put(opts, :delivery_policy, :interrupt))
+      _ -> raise ArgumentError, "steer listener mode requires an explicit steer_carrier"
     end
-
-    legacy_delivery(Keyword.put(opts, :delivery_policy, :interrupt))
   end
 
   defp listener_delivery(mode, _opts), do: raise(ArgumentError, "unsupported listener mode: #{inspect(mode)}")

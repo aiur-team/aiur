@@ -14,10 +14,12 @@ defmodule Aiur.Commands.RollbackTest do
     actor = %{kind: :system, id: "routing"}
 
     fixtures = %{
+      native_released: %{native_ref: "codex:thread:turn:7", reason: :pause, at: at},
       request_attributed: %{requester: %{kind: :executor}, origin: :executor_cli},
       routed: %{policy: :executor_first, state: :with_executor, cause: nil, at: at, actor: actor},
       escalated: %{cause: :executor_ack_timeout, at: at, detail: "Timeout", actor: actor},
       human_needed: %{cause: :executor_ack_timeout, at: at, short_label: "Choose", requester_kind: :worker, blocking: false, urgency: :normal},
+      requester_notified: %{action_id: "action-1", at: at, channel: :wake_inbox},
       executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}
     }
 

@@ -1,12 +1,14 @@
 Code.require_file("streamdeck_fleet_fixture.ex", __DIR__)
+Code.require_file("streamdeck_build_fixture.ex", __DIR__)
 
 defmodule AiurWeb.StreamdeckChannelCase do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   @moduledoc false
   use ExUnit.CaseTemplate
   import Phoenix.ChannelTest
 
   alias Aiur.{AgentEvents, DecisionValidation, IssueLog, StreamdeckFleetFixture}
-  alias Aiur.TestSupport.{EndpointStubs, RuntimeChildren}
+  alias Aiur.TestSupport.{EndpointStubs, RuntimeChildren, StreamdeckBuildFixture}
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
 
   @endpoint Endpoint
@@ -125,8 +127,9 @@ defmodule AiurWeb.StreamdeckChannelCase do
         secret_key_base: String.duplicate("s", 64),
         dashboard_auth_required: false,
         streamdeck_snapshot_fun: fn -> snapshot() end,
+        streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(snapshot()) end,
         streamdeck_fleet_subscribe_fun: StreamdeckFleetFixture.subscription(),
-        streamdeck_provider_meters_fun: fn -> %{codex: %{state: :observed}, claude: %{state: :unknown}} end,
+        streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_decisions_fun: fn -> %{count: 2} end,
         streamdeck_transcript_flush_ms: 20
       )

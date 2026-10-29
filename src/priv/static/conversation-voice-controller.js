@@ -4,16 +4,18 @@
       this.hook = hook;
       this.generation = 0;
       this.waveform = window.AiurVoiceCapture && new window.AiurVoiceCapture.WaveformBuffer();
-      this.onMicClick = () => this.toggle("dictation");
+      this.choice = new window.AiurVoiceModeChoice(this);
       this.onConversationClick = () => this.toggle("conversation");
       this.onDeviceChange = () => this.rememberDevice();
     }
-
+    get starting() { return this.state === "requesting_permission"; }
+    get recording() { return this.state === "listening"; }
+    get finishing() { return this.state === "finishing"; }
+    transition(next, detail) { window.AiurVoiceInputState.transition(this, next, detail); }
     mount() {
       this.bindElements();
       this.seenReplies = new Set(this.replyElements().map((element) => element.id));
       this.drawWaveform();
-
       if (!window.isSecureContext) {
         this.disable("Microphone access requires HTTPS or localhost. This dashboard origin is not secure.");
       } else if (
@@ -25,17 +27,12 @@
         this.refreshDevices();
       }
     }
-
     bindElements() {
       const mic = this.hook.el.querySelector("[data-voice-mic]");
       const conversation = this.hook.el.querySelector("[data-voice-conversation]");
       const device = this.hook.el.querySelector("[data-voice-device]");
-
-      if (mic !== this.mic) {
-        this.mic?.removeEventListener("click", this.onMicClick);
-        this.mic = mic;
-        this.mic?.addEventListener("click", this.onMicClick);
-      }
+      this.mic = mic;
+      this.choice.bind();
       if (conversation !== this.conversation) {
         this.conversation?.removeEventListener("click", this.onConversationClick);
         this.conversation = conversation;
@@ -46,12 +43,12 @@
         this.device = device;
         this.device?.addEventListener("change", this.onDeviceChange);
       }
-
       this.input = this.hook.el.querySelector("[data-voice-input]");
       this.send = this.hook.el.querySelector("[data-voice-send]");
       this.canvas = this.hook.el.querySelector("[data-voice-waveform]");
       this.status = this.hook.el.querySelector("[data-voice-status]");
       this.form = this.input?.closest("form");
+      window.AiurVoiceInputState.availability(this);
       this.syncElements();
       this.scanReplies();
     }
@@ -61,12 +58,15 @@
     }
 
     disable(reason) {
-      this.unavailableReason = reason;
-      this.setStatus(reason, true);
-      this.syncElements();
+      this.browserUnavailable = reason;
+      window.AiurVoiceInputState.availability(this);
     }
 
     syncElements() {
+      if (this.choice.root && this.state) {
+        const accepted = this.choice.root.dataset.voiceDeliveryAccepted === "true";
+        this.choice.root.dataset.voiceState = accepted && this.state === "idle" ? "sent" : this.state;
+      }
       if (this.mic) {
         this.mic.disabled = Boolean(
           this.unavailableReason || this.starting || this.finishing || this.awaitingReply || this.speaking ||
@@ -75,7 +75,7 @@
         this.mic.setAttribute("aria-pressed", this.recording ? "true" : "false");
         this.mic.setAttribute("aria-label", this.recording ? "Stop dictation" : "Dictate message");
         this.mic.classList.toggle("rec", this.recording && this.captureMode === "dictation");
-        if (this.unavailableReason) this.mic.title = this.unavailableReason;
+        this.mic.title = this.unavailableReason || "";
       }
       if (this.conversation) {
         this.conversation.disabled = Boolean(
@@ -95,6 +95,8 @@
       }
       const composerLocked = Boolean(this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking);
       if (this.input) {
+        if (this.recording) this.input.dataset.voiceRecording = "true";
+        else delete this.input.dataset.voiceRecording;
         this.input.readOnly = composerLocked;
         this.input.setAttribute("aria-readonly", composerLocked ? "true" : "false");
       }
@@ -104,14 +106,15 @@
         this.status.hidden = false;
         this.status.classList.toggle("bad", this.statusFailed === true);
       }
+      const cancel = this.choice.root?.querySelector("[data-voice-cancel]");
+      if (cancel) cancel.hidden = !(this.recording || this.finishing);
+      this.choice.sync();
       this.drawWaveform();
     }
 
     async refreshDevices() {
       if (!this.device || !navigator.mediaDevices?.enumerateDevices) return;
-
       const selected = window.AiurVoiceCapture.recalledDevice();
-
       try {
         const microphones = await window.AiurVoiceCapture.listMicrophones();
         const options = [{ deviceId: "", label: "Default microphone" }, ...microphones];
@@ -135,16 +138,23 @@
     }
 
     async start(mode = "dictation") {
-      if (this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic) return;
+      window.AiurVoiceInputState.availability(this);
+      if (this.unavailableReason || this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic || (!this.input && !this.hook.prepareVoiceInput)) return;
       const generation = this.generation + 1;
       this.generation = generation;
-      this.starting = true;
       this.captureMode = mode;
       if (mode === "conversation") this.conversationActive = true;
       this.mic.disabled = true;
-      this.setStatus("Requesting microphone permission…");
+      this.transition("requesting_permission");
 
+      let preparingField = true;
       try {
+        await this.hook.prepareVoiceInput?.();
+        if (!this.current(generation)) return;
+        if (!this.input || this.input.disabled) throw new Error("The response field did not open.");
+        this.restoreText = this.input.value;
+        preparingField = false;
+        this.limitReached = false;
         if (mode === "conversation") {
           // Browsers generally require audio playback to be unlocked by a user
           // gesture. Create and resume the reply context while this click is
@@ -166,14 +176,13 @@
         await capture.start(live);
         if (!live()) return;
 
-        this.recording = true;
         this.baseText = mode === "conversation" ? "" : (this.input?.value || "").trim();
         if (mode === "conversation" && this.input) {
           this.input.value = "";
           this.input.dispatchEvent(new Event("input", { bubbles: true }));
         }
         this.resetWaveform();
-        this.setStatus(mode === "conversation" ? "Listening… press the conversation button when you are finished." : "Listening… press the microphone again when you are finished.");
+        this.transition("listening", mode === "conversation" ? { message: "Listening… press the conversation button when you are finished." } : {});
         this.syncElements();
         await this.refreshDevices();
       } catch (error) {
@@ -181,12 +190,7 @@
           this.disposeCapture();
           this.closeChannel();
           this.resetConversationState({ resetContext: mode === "conversation" });
-          this.explainFailure(error);
-        }
-      } finally {
-        if (this.generation === generation) {
-          this.starting = false;
-          this.syncElements();
+          window.AiurVoiceInputState.failure(this, error, preparingField);
         }
       }
     }
@@ -198,20 +202,22 @@
     openChannel(generation, mode) {
       let transport;
       const current = () => this.current(generation) && this.channel === transport.channel;
-      const fail = (message) => this.handleTransportFailure(message, generation, transport.channel);
+      const fail = (payload) => this.handleTransportFailure({ reason_code: payload?.reason_code }, generation, transport.channel);
       transport = window.AiurVoiceTransport.open({
-        topic: mode === "conversation" ? "voice:conversation" : "voice:dictation",
+        topic: mode === "conversation" ? "voice:conversation" : "voice:dictate",
+        joinPayload: mode === "conversation" ? {} : this.choice.joinPayload(),
         handlers: {
           transcript: (payload) => current() && this.applyTranscript(payload),
-          error: (payload) => current() && fail(payload?.reason || "Speech-to-text failed."),
+          error: (payload) => current() && fail(payload),
           stopped: () => {
             if (!current()) return;
             this.clearFinishTimer();
-            this.finishing = false;
+            this.transition("ready", { message: this.readyCopy() });
+            this.disposeCapture();
             if (this.captureMode === "conversation") {
               this.submitConversationTurn();
             } else {
-              this.setStatus("Dictation ready. Review the text, then press Send.");
+
               this.closeChannel();
             }
             this.syncElements();
@@ -229,8 +235,8 @@
             this.syncElements();
           }
         },
-        onError: () => fail("Speech-to-text connection was lost. Try dictation again."),
-        onClose: () => fail("Speech-to-text connection closed. Try dictation again.")
+        onError: () => fail({ reason_code: "transport_lost" }),
+        onClose: () => fail({ reason_code: "transport_lost" })
       });
       this.socket = transport.socket;
       this.channel = transport.channel;
@@ -239,16 +245,28 @@
 
     stop() {
       if (!this.recording) return;
-      this.finishing = true;
-      this.recording = false;
-      this.setStatus("Finishing transcription…");
+      this.transition("finishing");
       this.disposeCapture();
       this.channel?.push("stop", {});
       this.clearFinishTimer();
       this.finishTimer = window.setTimeout(() => {
         const channel = this.channel;
-        if (channel) this.handleTransportFailure("Speech-to-text final transcript timed out. Try dictation again.", this.generation, channel);
+        if (channel) this.handleTransportFailure({ reason_code: "transport_lost" }, this.generation, channel);
       }, 5000);
+    }
+
+    cancel() {
+      if (!this.recording && !this.finishing) return;
+      this.generation += 1;
+      this.clearFinishTimer();
+      this.channel?.push("cancel", {});
+      this.disposeCapture();
+      this.closeChannel();
+      this.resetConversationState();
+      this.input.value = this.restoreText;
+      this.input.dispatchEvent(new Event("input", { bubbles: true }));
+      this.transition("cancelled");
+      this.transition("idle");
     }
 
     handleSamples(samples) {
@@ -297,7 +315,15 @@
       if (payload.kind === "final") this.baseText = this.joinText(this.baseText, text);
       this.input.value = this.joinText(this.baseText, payload.kind === "final" ? "" : text);
       this.input.dispatchEvent(new Event("input", { bubbles: true }));
-      if (payload.kind === "final" && this.captureMode !== "conversation") this.setStatus("Dictation ready. Review the text, then press Send.");
+      if (this.input.maxLength > 0 && this.input.value.length >= this.input.maxLength && this.recording) {
+        this.limitReached = true;
+        this.stop();
+      }
+    }
+
+    readyCopy() {
+      return this.limitReached ? "Response limit reached. Edit the text before recording your answer." :
+        (this.hook.el.dataset.voiceReadyCopy || "Dictation ready. Review the text, then press Send.");
     }
 
     submitConversationTurn() {
@@ -392,22 +418,11 @@
       return [left, right].filter((part) => part && part.trim()).join(" ");
     }
 
-    explainFailure(error) {
-      if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
-        this.setStatus("Microphone permission was denied for this origin. Allow it in site settings, then try again.", true);
-      } else if (error?.name === "NotFoundError") {
-        this.setStatus("No microphone is available. Connect one or choose a different browser microphone.", true);
-      } else {
-        this.setStatus(error?.message || "Microphone dictation could not start.", true);
-      }
-    }
-
-    handleTransportFailure(message, generation, channel) {
+    handleTransportFailure(detail, generation, channel) {
       if (!this.current(generation) || this.channel !== channel) return;
       this.clearFinishTimer();
-      this.finishing = false;
       this.resetConversationState();
-      this.setStatus(message, true);
+      this.transition("error", detail);
       this.disposeCapture();
       this.closeChannel();
       this.syncElements();
@@ -460,7 +475,6 @@
     disposeCapture() {
       this.capture?.stop();
       this.capture = null;
-      this.recording = false;
       this.syncElements();
     }
 
@@ -476,7 +490,7 @@
       this.generation += 1;
       this.clearFinishTimer();
       this.resetConversationState();
-      this.mic?.removeEventListener("click", this.onMicClick);
+      this.choice.destroy();
       this.conversation?.removeEventListener("click", this.onConversationClick);
       this.device?.removeEventListener("change", this.onDeviceChange);
       this.disposeCapture();

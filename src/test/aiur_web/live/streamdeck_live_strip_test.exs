@@ -1,7 +1,49 @@
 defmodule AiurWeb.StreamdeckLiveStripTest do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   use AiurWeb.StreamdeckLiveCase
 
+  setup do
+    previous = Application.get_env(:aiur, :build_conversation_source)
+    Application.put_env(:aiur, :build_conversation_source, :unavailable)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
+  end
+
   alias Aiur.TestSupport.EndpointStubs
+
+  setup %{meter_agent: meter_agent} do
+    EndpointStubs.put(
+      streamdeck_usage_load_fun: fn _, _ ->
+        meters =
+          Map.new(Agent.get(meter_agent, & &1), fn {family, meter} ->
+            windows =
+              Map.new(meter["windows"], fn {slot, window} ->
+                {slot,
+                 %{
+                   kind: :rate_limit,
+                   used_percent: window["used_percent"],
+                   duration_minutes: if(slot == "session", do: 300, else: 10_080),
+                   resets_at: DateTime.add(DateTime.utc_now(), 3600)
+                 }}
+              end)
+
+            snapshot =
+              UsageInputs.snapshot(String.to_existing_atom(family), windows, %{
+                observed_at: meter["observed_at"] || DateTime.utc_now(),
+                health: %{
+                  state: if(meter["observed_at"], do: :stale, else: :healthy),
+                  failure: nil
+                }
+              })
+
+            {String.to_existing_atom(family), snapshot}
+          end)
+
+        UsageInputs.inputs(%{families: Aiur.CodingAgent.provider_families(), meters: meters})
+      end
+    )
+
+    :ok
+  end
 
   test "pages the complete fleet and clamps the page at both ends" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
@@ -12,7 +54,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     html = render_hook(view, "grid-page", %{"page" => "1"})
     assert html =~ ~s(data-grid-page="1")
-    assert html =~ ~s(data-pager-page="1" aria-current="page")
+    assert strip(html) =~ "2 / 3"
     assert html =~ ~s(data-streamdeck-identifier="1367")
 
     html = render_hook(view, "grid-page", %{"page" => "99"})
@@ -20,25 +62,29 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert html =~ ~s(data-streamdeck-identifier="1377")
   end
 
-  test "renders distinct session and weekly provider meters and refreshes them from the live meter event", %{meter_agent: meter_agent} do
+  test "refreshes shared usage without putting provider meters into the count strip", %{
+    meter_agent: meter_agent
+  } do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "Session"
-    assert html =~ "Weekly"
-    assert html =~ "70% left · 22m"
-    assert html =~ "53% left · Thu 6PM"
-    assert html =~ "50% left · 1h"
-    assert html =~ "25% left · Fri 8PM"
+    initial_strip = strip(html)
+    assert initial_strip =~ "Queued"
+    refute initial_strip =~ "70% left"
+    refute initial_strip =~ "50% left"
 
     Agent.update(meter_agent, fn meters ->
       put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "40% left · 22m"
+    assert strip(render(view)) == initial_strip
+    assert :sys.get_state(view.pid).socket.assigns.usage["claude"]["windows"]["session"]["used_percent"] == 60
   end
 
-  test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{snapshot_agent: snapshot_agent, meter_agent: meter_agent} do
+  test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{
+    snapshot_agent: snapshot_agent,
+    meter_agent: meter_agent
+  } do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
     counting_snapshot_fun = fn ->
@@ -60,7 +106,8 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
       send(view.pid, {:provider_meter_changed, %{}})
       html = render(view)
 
-      assert html =~ "40% left · 22m"
+      assert :sys.get_state(view.pid).socket.assigns.usage["claude"]["windows"]["session"]["used_percent"] == 60
+      refute strip(html) =~ "40% left"
       # Meter observations must not re-project the fleet: the grid snapshot was
       # read once at mount and not again for the meter refresh.
       assert Agent.get(counter, & &1) == reads_before
@@ -69,131 +116,89 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     end
   end
 
-  test "renders an unobserved provider without treating it as zero percent", %{meter_agent: meter_agent} do
+  test "unobserved providers do not replace category bands", %{meter_agent: meter_agent} do
     Agent.update(meter_agent, &Map.delete(&1, "claude"))
-
-    {:ok, _view, html} = live(build_conn(), "/streamdeck")
-
-    assert html =~ ~s(data-provider="claude")
-    assert html =~ ~s(data-observed="false")
-    refute html =~ "Claude 0%"
-    refute html =~ ~s(data-provider="claude" data-meter="session" data-percent="0")
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+    refute has_element?(view, "#sd-screen [data-provider]")
+    assert strip(html) =~ "Queued"
+    assert has_element?(view, "[data-streamdeck-region='200'] [data-state]")
   end
 
-  test "renders a segment for a configured provider that was never observed at all" do
-    # The meter fixture only carries claude and codex, so this configured
-    # provider has no reading of any kind. It must still get its own segment,
-    # and both of its meters must say so rather than showing an invented value.
-    {:ok, _view, html} = live(build_conn(), "/streamdeck")
-
-    assert html =~ ~s(data-provider="kimi" data-meter="session" data-observed="false" data-freshness="unknown")
-    assert html =~ ~s(data-provider="kimi" data-meter="weekly" data-observed="false" data-freshness="unknown")
-    refute html =~ ~s(data-provider="kimi" data-meter="session" data-percent=)
-  end
-
-  test "renders retained readings without staleness text", %{meter_agent: meter_agent} do
-    Agent.update(meter_agent, fn meters ->
-      stale_at = DateTime.add(DateTime.utc_now(), -601, :second)
-
-      meters
-      |> put_in(["claude", "observed_at"], stale_at)
-      |> put_in(["claude", "windows", "weekly", "observed_at"], stale_at)
-    end)
-
-    {:ok, _view, html} = live(build_conn(), "/streamdeck")
-
-    assert html =~ ~s(data-meter="weekly" data-percent="53" data-observed="true" data-freshness="stale")
-    refute html =~ "stale ·"
-    refute html =~ "10m ago"
-  end
-
-  test "renders summary build space and pager dots inside touch-strip segments" do
-    {:ok, _view, html} = live(build_conn(), "/streamdeck")
-
-    assert html =~ ~s(src="/aiur-logo.png")
-    assert html =~ ~r/<b>1<\/b> live · <b>16<\/b> left/
-    assert html =~ "Build"
-    assert html =~ "MORE AGENTS"
-    assert length(Regex.scan(~r/data-pager-page=/, html)) == 3
-    assert html =~ ~s(data-pager-page="0" aria-current="page")
-  end
-
-  test "the pager renders as the design's dial segment rather than a logo-headed info segment" do
-    {:ok, view, _html} = live(build_conn(), "/streamdeck")
-
-    assert has_element?(view, ~s([data-segment="pager"].sd-seg-d .sd-seg-dlabel), "MORE AGENTS")
-    refute has_element?(view, ~s([data-segment="pager"].sd-seg-info))
-    refute has_element?(view, ~s([data-segment="pager"] .sd-info-hd))
-    refute has_element?(view, ~s([data-segment="pager"] .sd-hd-logo))
-
-    # The information segments keep their logo headers.
-    assert has_element?(view, ~s([data-segment="summary"].sd-seg-info .sd-info-hd .sd-hd-logo))
-    assert has_element?(view, ~s([data-segment="provider"].sd-seg-info .sd-info-hd .sd-hd-logo))
-
-    # Focusing a command hands the strip to the cmd page. The information
-    # segments step aside for it, but the dial-D pager segment stays and takes
-    # the focused agent as its label (#1607), so the operator can read which
-    # agent they are controlling from either surface.
-    render_hook(view, "key-press", %{"identifier" => "1352"})
-
-    refute has_element?(view, ~s([data-segment="summary"]))
-    refute has_element?(view, ~s([data-segment="provider"]))
-    assert has_element?(view, ~s([data-segment="pager"] .sd-pager-label), "#1352")
-    assert has_element?(view, ".sd-strip-cmd-pager", "CONTROLLING #1352")
-  end
-
-  test "the CONTROLLING relabel replaces MORE AGENTS while a command is focused" do
+  test "renders unavailable summary and no ticket pages when the Build window is unavailable" do
+    EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:error, :offline} end)
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "MORE AGENTS"
+    assert strip(html) =~ "AIUR"
+    assert strip(html) =~ "Counts unavailable"
+    assert strip(html) =~ "Queued unknown"
+    assert strip(html) =~ "Build"
+    refute strip(html) =~ "Queued 0"
+    refute html =~ ~s(data-grid-total="0")
+    assert html =~ ~s(data-tickets-status="unavailable")
+    assert has_element?(view, "#sd-keys button[disabled][aria-label*='Tickets unavailable']")
+  end
+
+  test "the backlog and pager band yields to full-width chat when focused" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    assert has_element?(view, "[data-streamdeck-region='600']", "Queued")
+    assert has_element?(view, "[data-streamdeck-region='0']", "AIUR")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation unavailable")
+    refute has_element?(view, "[data-streamdeck-region='600']")
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
+    assert length(Floki.find(Floki.parse_fragment!(render(view)), "#sd-screen svg")) == 1
+  end
+
+  test "full-width chat replaces the backlog band while a ticket is focused" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "Queued"
     refute html =~ "CONTROLLING"
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert html =~ "CONTROLLING #1352"
+    assert html =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
     refute html =~ "MORE AGENTS"
     refute html =~ "data-pager-page="
 
     # Descending into logs swaps the strip to this ticket's three-shape
     # transcript window, but #1662/#1707 keep the pager segment so dial D stays
     # labelled with the agent being read. Both hold at once.
-    html = render_click(view, "command-press", %{"command" => "logs"})
-    assert html =~ ~s(class="sd-strip-logs")
+    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
+    assert has_element?(view, "#sd-screen[data-mode-view='logs-strip']")
     refute html =~ "MORE AGENTS"
-    assert html =~ ~s(data-pager-focus="#1352")
-    assert html =~ ~s(data-segment="pager")
+    assert strip(html) =~ "#1352"
+    assert html =~ ~s(data-streamdeck-region="600")
 
-    # Backing out of logs restores the cmd page and its CONTROLLING relabel.
+    # Backing out of logs restores the shared conversation strip.
     html = render_click(view, "dial-press", %{"action" => "back"})
-    assert html =~ "CONTROLLING"
+    assert html =~ "Conversation unavailable"
 
     # Backing all the way out restores the segment row and its pager dots.
     html = render_click(view, "dial-press", %{"action" => "back"})
 
-    assert html =~ "MORE AGENTS"
+    assert html =~ "Queued"
     refute html =~ "CONTROLLING"
-    assert html =~ ~s(data-pager-page="0" aria-current="page")
+    assert strip(html) =~ "1 / 3"
   end
 
-  test "the CONTROLLING label follows a focus change without leaving the previous agent behind" do
+  test "the shared conversation follows a focus change" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
-    assert html =~ "CONTROLLING #1345"
-    refute html =~ "CONTROLLING #1352"
+    assert html =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1345"
   end
 
-  test "renders the priority icon, the mic indicator, and the live segment" do
+  test "renders priority and shared strip images" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    # Slots 1 and 4 carry priority?: true.
-    assert html =~ ~s(class="sd-ag-prio")
-    # The Claude segment always shows the mic dot.
-    assert html =~ ~s(class="sd-mic")
-    # The Codex segment is live?: true.
-    assert html =~ "is-live"
+    assert html =~ "★"
+    assert Floki.find(Floki.parse_fragment!(html), "#sd-screen svg") != []
   end
 
   # The design's six-key glyph (a bezel around two rows of three keys) is what
@@ -205,8 +210,11 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
       Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="4" width="20" height="16".*?</svg>}s, html) ||
         flunk("the Stream Deck nav icon svg was not rendered")
 
-    assert length(Regex.scan(~r/<rect /, svg)) == 1, "the Stream Deck nav icon must keep one bezel"
-    assert length(Regex.scan(~r/<circle /, svg)) == 6, "the Stream Deck nav icon must show six keys"
+    assert length(Regex.scan(~r/<rect /, svg)) == 1,
+           "the Stream Deck nav icon must keep one bezel"
+
+    assert length(Regex.scan(~r/<circle /, svg)) == 6,
+           "the Stream Deck nav icon must show six keys"
   end
 
   test "mounts even when Aiur.Config raises, exercising the kind/2 rescue" do
@@ -221,31 +229,54 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     assert render_click(view, "toggle-nav", %{}) =~ ~s(data-nav-collapsed="true")
-    assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~ ~s(data-nav-collapsed="false")
+
+    assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~
+             ~s(data-nav-collapsed="false")
   end
 
-  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  @tag awaiting_commands: %{
+         total: 3,
+         open: 2,
+         blocking: 1,
+         deferred: 0,
+         needs_you: 2,
+         needs_you_blocking: 1
+       }
   test "carries the awaiting-Commands banner into Stream Deck" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "2 units awaiting commands"
-    assert html =~ ~s(href="/commands")
+    assert html =~ "2 Commands need you"
+    assert html =~ ~s(href="/commands?route=needs_you")
   end
 
-  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+  @tag awaiting_commands: %{
+         total: 4,
+         open: 0,
+         blocking: 0,
+         deferred: 0,
+         needs_you: 0,
+         needs_you_blocking: 0
+       }
   test "omits the awaiting-Commands banner from Stream Deck when nothing is waiting" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    refute html =~ "units awaiting commands"
+    refute html =~ "Commands need you"
   end
 
-  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  @tag awaiting_commands: %{
+         total: 3,
+         open: 2,
+         blocking: 1,
+         deferred: 0,
+         needs_you: 2,
+         needs_you_blocking: 1
+       }
   test "survives every message the Command topic carries" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
-    assert html =~ "2 units awaiting commands"
+    assert html =~ "2 Commands need you"
 
     # Stream Deck is a control surface the operator runs the fleet from. An
     # unrelated Command action anywhere must not take it down.
-    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 Commands need you"
   end
 end

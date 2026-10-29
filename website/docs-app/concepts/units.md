@@ -64,16 +64,36 @@ An ElevenLabs account with a zero character limit renders an empty track, becaus
 
 Selecting an agent opens its live conversation without leaving Units.
 
+See [Conversations](/concepts/conversations) for transcript storage, retention
+and jump-point precision.
+
 | Control | Behavior |
 | --- | --- |
 | Composer | A writable dashboard sends typed text to the selected agent. |
-| Microphone | Transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
+| Microphone | Opens a Dictate / Converse chooser without requesting microphone access. Dictate transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
 | Waveform | Confirms the browser is receiving audio. |
-| Spoken conversation | A separate half-duplex control: press, speak, press again; settled text is sent through the ordinary composer and enters the ticket transcript. |
+| Spoken conversation | Legacy **Start interactive voice chat** control: press, speak, press again; settled text is sent automatically through the composer and enters the ticket transcript. Hidden when the assistant conversation capability is available or degraded; the assistant replaces this mode. |
 | Spoken reply | Aiur streams ElevenLabs text-to-speech audio back to the browser when the agent replies. |
-| Device selection | Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
+| Converse | Shown disabled with its reason until the assistant conversation capability is available. It is separate from legacy spoken conversation. |
+| Device selection | In the settings popover next to the mic. Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
 
 Dictation never sends a message automatically, and the browser never receives the API key.
+
+The writable agent log modal composer has the same Dictate / Converse chooser,
+microphone settings, waveform and status line. Dictate fills its message box
+and waits for **Send**. Closing the modal stops microphone capture. Read-only
+or ambiguous agent targets have no voice controls; the modal has no legacy
+interactive voice chat button.
+
+While listening or finishing transcription, **Cancel** discards the dictation and restores the exact text from before recording. **Escape** does the same when focus is in the voice controls or message field; it keeps the conversation drawer open. Outside recording, Escape keeps its usual drawer-close behavior.
+
+The voice status line follows idle → requesting microphone permission → listening → finishing transcription → ready to review. Permission denial explains how to allow the microphone; no-device errors explain how to connect one. Both allow another attempt. Channel failures keep the text captured so far; unknown failures show a neutral message.
+
+Dictated messages use the same delivery receipts and Command answer notices as typed text; voice never infers delivery from transcription or pressing Send.
+
+When speech-to-text is not configured, Dictate stays disabled with a reason and a [setup link](/apis/elevenlabs#configure-the-key). When voice is not installed, it stays disabled with “Voice input isn't installed in this Aiur. Typed messages work as usual.” Typing and Send remain available.
+
+Insecure origins and browsers without Web Audio also explain why dictation is unavailable. Capability changes during recording take effect on the next activation; the current session continues.
 
 The Build ticket modal uses the same press-to-start, press-to-stop dictation control. It remains disabled while availability is checked and, when voice is unavailable, its tooltip explains why; recording is visibly marked and failures appear in the composer status line.
 

@@ -4,12 +4,12 @@ import type { SKRSContext2D } from "@napi-rs/canvas";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import {
   bucketContract,
-  KEY_FACE_CONTRACT,
+  LEGACY_STYLE,
   progressBarColor,
   UNKNOWN_PROGRESS_COLOR,
-  type BucketContract,
+  type LegacyBucketStyle,
   type BucketId,
-} from "../key-face-contract.js";
+} from "../legacy-style.js";
 import { VOICE_HOLD_PROMPT, VOICE_LISTENING } from "../voicePanel.js";
 import type { CommandsPanelModel } from "../commands.js";
 import { fit, rightText } from "./segmentText.js";
@@ -40,13 +40,12 @@ import { CHAT_BODY_FONT, drawHint, OPENCODE } from "./chat-readout.js";
  * cmd panel's status is a free string off the wire — a repaint must not die
  * because a new bucket appeared server-side first.
  */
-const knownBucket = (status: string): BucketContract | null =>
-  Object.hasOwn(KEY_FACE_CONTRACT.states, status) ? bucketContract(status as BucketId) : null;
+const knownBucket = (status: string): LegacyBucketStyle | null =>
+  Object.hasOwn(LEGACY_STYLE.states, status) ? bucketContract(status as BucketId) : null;
 
 export const drawAgentDetail = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "agentDetail" }, now: number): void => {
-  void now;
   const { model } = content;
-  const bucket = knownBucket(model.status);
+  const bucket = model.buildStatus === true ? null : knownBucket(model.status);
   const accent = bucket?.accent ?? LABEL;
   const summaryWidth = width / 4;
 
@@ -65,6 +64,9 @@ export const drawAgentDetail = (context: SKRSContext2D, width: number, content: 
   context.fillStyle = TEXT;
   context.fillText(fit(context, model.ticketId, summaryWidth - PAD * 2), PAD, 66);
   drawHint(context, "BACK", PAD, HEIGHT - 6, true, false);
+  if (model.observedAt != null && now - model.observedAt >= 60_000) {
+    caption(context, `${Math.floor((now - model.observedAt) / 60_000)}m old`, PAD + 58, HEIGHT - 6);
+  }
 
   const left = summaryWidth + 8;
   const right = width - PAD;
@@ -104,6 +106,11 @@ export const drawAgentDetail = (context: SKRSContext2D, width: number, content: 
     caption(context, "elapsed", right - context.measureText(model.elapsedLabel).width - 8 - captionWidth, 59);
   }
 
+  if (model.prLabel != null) {
+    context.font = "700 10px monospace";
+    context.fillStyle = MUTED;
+    context.fillText(fit(context, model.prLabel, right - left), left, HEIGHT - 6);
+  }
   if (model.percent === null) {
     // The same uninterrupted neutral fill the key face uses for a reading
     // nobody took.
