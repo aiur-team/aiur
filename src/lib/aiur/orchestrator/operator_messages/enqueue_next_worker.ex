@@ -8,6 +8,14 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
   @spec enqueue(map(), String.t(), String.t(), map(), function(), function()) ::
           {{:ok, integer()} | {:error, term()}, map()}
   def enqueue(state, identifier, text, request, enqueue_plain, record_evidence) do
+    if PendingStore.active_count(state.queue_store) >= PendingStore.capacity() do
+      {{:error, {:queue_full, PendingStore.capacity()}}, state}
+    else
+      enqueue_with_capacity(state, identifier, text, request, enqueue_plain, record_evidence)
+    end
+  end
+
+  defp enqueue_with_capacity(state, identifier, text, request, enqueue_plain, record_evidence) do
     attrs =
       AgentQueue.operator_message(identifier, text,
         delivery_policy: :checkpoint,
@@ -21,13 +29,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
 
     case enqueue_plain.(state.queue_store, attrs, request) do
       {:ok, queue_store, item, _status} ->
-        try do
-          :ok = PendingStore.save!(queue_store)
-        rescue
-          error ->
-            {{:error, {:persistence_failed, Exception.message(error)}}, state}
-        else
-          :ok -> enqueue_succeeded(state, identifier, queue_store, item, record_evidence)
+        case PendingStore.save(queue_store) do
+          :ok ->
+            enqueue_succeeded(state, identifier, queue_store, item, record_evidence)
+
+          {:error, reason} ->
+            {{:error, {:persistence_failed, reason}}, state}
         end
 
       {:error, _reason} = error ->

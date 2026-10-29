@@ -158,7 +158,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
       control_lifecycle: control_lifecycle,
-      queue_store: PendingStore.load!()
+      queue_store: PendingStore.load()
     }
 
     :ok =

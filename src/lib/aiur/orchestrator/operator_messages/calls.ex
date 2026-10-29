@@ -289,13 +289,21 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
         provider_metadata
       )
 
-    next_state = %{state | queue_store: queue_store}
+    persist? = match?(%{persist_across_restart?: true}, previous_item)
 
-    if newly_provider_delivered?(previous_item, item) do
-      record_provider_delivery_evidence(item)
-      {:reply, :ok, LifecycleFence.acknowledge_provider_delivery(next_state, item)}
-    else
-      {:reply, :ok, next_state}
+    case if(persist?, do: persist_queue(state, queue_store), else: :ok) do
+      :ok ->
+        next_state = %{state | queue_store: queue_store}
+
+        if newly_provider_delivered?(previous_item, item) do
+          record_provider_delivery_evidence(item)
+          {:reply, :ok, LifecycleFence.acknowledge_provider_delivery(next_state, item)}
+        else
+          {:reply, :ok, next_state}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, {:persistence_failed, reason}}, state}
     end
   end
 
@@ -374,9 +382,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   end
 
   defp persist_queue(_state, queue_store) do
-    PendingStore.save!(queue_store)
-  rescue
-    error -> {:error, Exception.message(error)}
+    PendingStore.save(queue_store)
   end
 
   defp newly_provider_delivered?(

@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`. Queue restore failures recover to an empty queue so they cannot prevent daemon boot."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.ControlLifecycle
 
