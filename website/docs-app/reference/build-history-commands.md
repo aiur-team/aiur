@@ -58,11 +58,15 @@ After a first-write sync failure after rename, reads and writes remain unavailab
 3. Reject: `aiur epic clear 13` or `aiur feature remove intake 13`.
 4. Repeat the filtered listing to review the remaining guesses.
 
-Both confirms accept 1–200 IDs and record actor/source `cli:<who>` with the acceptance time in the journal. Already confirmed rows are unchanged. Confirmation never changes stored epics, owning feature, join time or baseline scope; a later backfill cannot replace the accepted value. There is no confirm-all, source override, or confirmation of also-affects links.
+Both confirms accept 1–200 IDs and record actor/source `cli:<who>` with the acceptance time in the journal. Already confirmed rows are unchanged. Confirmation never changes stored epics, owning feature, join time or baseline scope; a later backfill cannot replace the accepted value.
+
+There is no confirm-all, source override, or confirmation of also-affects links.
 
 A confirmed epic override outranks type labels: accepting an Infra guess on a ticket with a `bug` label can move its card from Bugs to Infra. Feature ownership takes precedence, so feature-owned tickets do not move. Clearing/removing a classification returns placement to the remaining classification, type label or Unsorted.
 
-Filtered listings end with `N unconfirmed`; feature listings without a slug show members across all features. JSON adds `unconfirmed_count`. An unavailable store fails without any count. Confirm JSON names the command and each ID’s `confirmed` or `unchanged` outcome, epic and previous provenance; refusals report `ok: false` and refused IDs. These commands perform no GitHub reads or writes; paced label projection is separate.
+Filtered listings end with `N unconfirmed`; feature listings without a slug show members across all features. JSON adds `unconfirmed_count`. An unavailable store fails without any count.
+
+Confirm JSON names the command and each ID’s `confirmed` or `unchanged` outcome, epic and previous provenance; refusals report `ok: false` and refused IDs. These commands perform no GitHub reads or writes; paced label projection is separate.
 
 ## History export
 

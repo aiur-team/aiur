@@ -340,6 +340,8 @@ Between issue creation and rewriting the pack, both rows may briefly appear.
 
 ## Unconfirmed classifications
 
-A classification with `confirmed: false` is an unaccepted backfill-agent guess. The board and ticket modal do not mark these guesses. Other sources are confirmed when written, which does not imply human review. Use the [CLI review procedure](../reference/build-history-commands#review-unconfirmed-classifications) to find guesses, confirm selected IDs, or reject them with epic clear/feature remove.
+A classification with `confirmed: false` is an unaccepted backfill-agent guess. The board and ticket modal do not mark these guesses. Other sources are confirmed when written, which does not imply human review.
+
+Use the [CLI review procedure](../reference/build-history-commands#review-unconfirmed-classifications) to find guesses, confirm selected IDs, or reject them with epic clear/feature remove.
 
 Confirmation preserves the stored epic, feature, feature epic and join time, while recording who accepted the guess. A confirmed override outranks type labels and can move a labelled ticket to that epic’s column; feature ownership still takes precedence. Later backfill writes cannot replace an accepted classification.
