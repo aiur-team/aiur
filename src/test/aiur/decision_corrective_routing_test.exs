@@ -5,6 +5,7 @@ defmodule Aiur.DecisionCorrectiveRoutingTest do
   alias Aiur.Commands.{CorrectiveProvenance, CorrectiveTicketBody, Overrides}
   alias Aiur.{DecisionPubSub, DecisionRevisionDispatch, DecisionStore, Issue}
   alias Aiur.DecisionStore.{Dispatch, Retry}
+  alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
 
   @ticket %{identifier: "6910", title: "Original work", url: nil}
   @corrective %{identifier: "7100", title: "Override for #6910: Direction", url: "https://example.test/issues/7100"}
@@ -93,6 +94,9 @@ defmodule Aiur.DecisionCorrectiveRoutingTest do
     assert_receive {:observed_override_target, "7100"}, 1_000
     assert [%{state: :superseded}, %{corrective_ticket: @corrective, route: :corrective_ticket, ticket: @corrective}] = latest.overrides
     assert latest.ticket == @ticket
+    assert [%{action_id: action, answer: "second direction"}] = AnsweredDecisions.for_ticket("7100", store, 1_000)
+    assert action == latest.active_action_id
+    assert [] == AnsweredDecisions.for_ticket("6910", store, 1_000)
     assert Retry.dispatchable?(latest, false)
     send(store, {:dispatch_action, Dispatch.dispatch_fence(latest), false})
     assert_receive {:corrective_worker_message, delivered}, 2_000
