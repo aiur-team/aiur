@@ -16,9 +16,9 @@ defmodule Aiur.FeatureCLI.Arguments do
 
   defp operation(op, args) do
     cond do
-      op not in [:create, :add, :remove, :also, :baseline, :edit, :show] -> usage("unknown operation")
+      op not in [:create, :add, :confirm, :remove, :also, :baseline, :edit, :show] -> usage("unknown operation")
       not valid_slug?(op, args[:slug]) -> usage("invalid feature slug")
-      op in [:add, :remove, :also] and not ids?(args[:ids]) -> usage("requires 1 to 200 issue numbers below 2^31")
+      op in [:add, :confirm, :remove, :also] and not ids?(args[:ids]) -> usage("requires 1 to 200 issue numbers below 2^31")
       op == :create and not Map.has_key?(args, :label) -> usage("create requires --label")
       op == :edit -> edit(args)
       true -> :ok
@@ -36,6 +36,8 @@ defmodule Aiur.FeatureCLI.Arguments do
     cond do
       Map.has_key?(args, :hue) and not FeatureData.hue?(args.hue) -> usage("hue must be 0 to 359")
       Map.has_key?(args, :label) and not FeatureData.text?(args.label, 80) -> usage("invalid label")
+      args[:unconfirmed] == true and args[:op] != :show -> usage("--unconfirmed requires show")
+      args[:op] == :confirm and Enum.any?([:epic, :move, :remove, :replace, :source], &Map.has_key?(args, &1)) -> usage("invalid confirm option")
       not flags?(args) -> usage("invalid boolean option")
       true -> :ok
     end
@@ -73,6 +75,6 @@ defmodule Aiur.FeatureCLI.Arguments do
   defp ids?(ids), do: is_list(ids) and length(ids) in 1..200 and Enum.all?(ids, &(is_integer(&1) and &1 in 1..2_147_483_647))
   defp epics?(nil), do: true
   defp epics?(epics), do: is_list(epics) and epics != [] and Enum.all?(epics, &FeatureData.epic?/1) and length(Enum.uniq_by(epics, & &1.key)) == length(epics)
-  defp flags?(args), do: Enum.all?([:move, :remove, :replace, :backfill], &(not Map.has_key?(args, &1) or is_boolean(args[&1])))
+  defp flags?(args), do: Enum.all?([:move, :remove, :replace, :backfill, :unconfirmed], &(not Map.has_key?(args, &1) or is_boolean(args[&1])))
   defp usage(message), do: {:usage, message}
 end

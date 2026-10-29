@@ -68,9 +68,26 @@ defmodule Aiur.BuildOrder.Features.Operations do
          {:ok, numbers} <- numbers(input),
          :ok <- check(Enum.any?(feature.epics, &(&1.key == epic)), {:unknown_epic, epic}),
          :ok <- ownership(numbers, feature.slug, meta, projection.owners) do
-      kept = if meta.source == "backfill-agent", do: Enum.filter(numbers, &owned_elsewhere?(&1, feature.slug, projection.owners)), else: []
+      kept = if meta.source == "backfill-agent", do: Enum.filter(numbers, &backfill_kept?(&1, feature.slug, projection.owners)), else: []
       events = Enum.flat_map(numbers -- kept, &add_events(&1, feature.slug, epic, meta, projection))
       {:ok, events, kept}
+    end
+  end
+
+  defp change(:confirm, feature, input, meta, projection, _context) do
+    with :ok <- check(meta.source != "backfill-agent" and meta.confirmed, :invalid_confirmation),
+         {:ok, numbers} <- numbers(input) do
+      nonmembers = Enum.reject(numbers, &match?(%{feature: slug} when slug == feature.slug, projection.owners[&1]))
+
+      with :ok <- check(nonmembers == [], {:not_member, nonmembers}) do
+        events =
+          for number <- numbers,
+              owner = projection.owners[number],
+              not owner.confirmed,
+              do: member_event("member.added", feature.slug, number, meta.at, %{epic: owner.epic, confirmed: true, at_basis: owner.at_basis})
+
+        {:ok, events}
+      end
     end
   end
 
@@ -163,7 +180,12 @@ defmodule Aiur.BuildOrder.Features.Operations do
     leave ++ unlink ++ join
   end
 
-  defp owned_elsewhere?(number, slug, owners), do: match?(%{feature: other} when other != slug, owners[number])
+  defp backfill_kept?(number, slug, owners) do
+    case owners[number] do
+      nil -> false
+      owner -> owner.feature != slug or owner.source != "backfill-agent"
+    end
+  end
 
   defp ownership(_numbers, _slug, %{source: "backfill-agent"}, _owners), do: :ok
 
