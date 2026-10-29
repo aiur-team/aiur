@@ -5,6 +5,9 @@ configuration. Claude and Codex support isolated profile directories. Kimi,
 DeepSeek, and OpenRouter support named API keys. Muse uses its native single
 login and does not support isolated accounts.
 
+The Stream Deck server detail model shows each Claude account’s 5h and weekly
+windows; see [Read provider accounts](/guide/stream-deck#read-provider-accounts) for the Fleet entry and rollout status.
+
 ## Add an account
 
 Create a Claude or Codex profile and sign in interactively:

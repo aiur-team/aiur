@@ -1,16 +1,10 @@
 defmodule Aiur.AgentRunner.TurnAlertsTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.AgentRunner.TurnAlerts
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.ModelAvailability
-
-  setup do
-    path = ModelAvailability.path()
-    File.rm(path)
-    on_exit(fn -> File.rm(path) end)
-  end
 
   describe "maybe_emit_usage_limit_alert/4" do
     test "returns :ok for a usage_limit_exhausted payload" do
@@ -59,10 +53,12 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
     test "marks the backend from the pause payload as limited" do
       issue = %Issue{id: "gid-ta-06", identifier: "TA-06"}
       payload = %{kind: :usage_limit_exhausted, backend: "claude"}
+      path = Path.join(Aiur.TestSupport.tmp_root!("turn-alert-model-availability"), "model-usage.json")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
 
-      assert :ok = TurnAlerts.maybe_emit_usage_limit_alert(issue, nil, nil, payload)
-      refute ModelAvailability.available?("claude")
-      assert ModelAvailability.available?("codex")
+      assert :ok = TurnAlerts.maybe_emit_usage_limit_alert(issue, nil, nil, payload, path: path)
+      refute ModelAvailability.available?("claude", path: path)
+      assert ModelAvailability.available?("codex", path: path)
     end
   end
 

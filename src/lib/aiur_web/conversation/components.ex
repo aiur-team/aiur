@@ -57,6 +57,7 @@ defmodule AiurWeb.Conversation.Components do
     ~H"""
     <header aria-live="polite" data-state={@state}>
       <h1>Conversation</h1>
+      <p :if={@state == :not_found}>No messages yet</p>
       <p>{Presenter.label(@state)} <span :if={@reason}>· {@reason}</span></p>
       <p :if={@state not in [:loading, :not_found]} data-freshness={@age.freshness}>
         Observed <time :if={@age.observed_at} datetime={DateTime.to_iso8601(@age.observed_at)}>{DateTime.to_iso8601(@age.observed_at)}</time>

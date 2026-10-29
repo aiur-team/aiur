@@ -1,0 +1,8 @@
+{
+  "frame": "<frame/>",
+  "harness": "codex",
+  "parsed": null,
+  "stdin": "{\"hook_event_name\":\"PostToolUse\"}",
+  "stdout": "",
+  "stop_context": false
+}

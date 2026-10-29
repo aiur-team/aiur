@@ -4,7 +4,7 @@ Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or inst
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
-The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
+The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
 The server also maintains independent Ticket, Feature, Epic and Fleet navigation
 for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
@@ -12,19 +12,49 @@ hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
 Dial 3 is reserved for the sidecar's instance switch.
 
 The browser retains the focused controls below. Its grid dial D turns pages
-and presses to cycle Ticket, Feature, Epic and Fleet; dial A scrolls the shared provider panel.
+and presses to cycle Ticket, Feature, Epic and Fleet; dial B scrolls the category chips.
 The current physical client uses the navigation controls described above.
+
+## Read provider accounts
+
+On the physical deck, turn dial 4 past the eight Fleet categories
+to reach the provider meter keys. Press a meter to open one key per
+account, sorted by name, with 5h and weekly remaining percentages and reset
+countdowns. Missing windows show “—” with a hatched bar. Stale values stay
+visible, dimmed and labelled “stale”.
+
+The touch strip names the provider and
+its summary account; hold dial 4 to return. Account keys are read-only.
 
 ## Drive the deck
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: scroll browser provider panel. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold to go back. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold to go back. |
 | **Ticket conversation** | Press a ticket key | Seven conversation turns plus LIVE | Selected turn, or the latest entry at LIVE | A: scroll text; press for Grid. B: priority. C: physical instance switcher. D: turn for older/newer turns; press to leave the ticket. |
 | **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
+
+The server-rendered Ticket strip uses three bands: build progress at the left
+(200 px), category chips across the middle (400 px), and `Queued M` / `Not queued K`
+with pager dots at the right (200 px).
+
+Chips show a state glyph and count, ordered
+error, command, retrying, active, waiting for CI, usage limited, parked, paused,
+then other Build states alphabetically and unknown last.
+
+Zero counts are hidden;
+missing counts read `Counts unavailable`, never zero. A dimmed band marked `stale`
+retains the last counts.
+
+More than eight categories show seven chips and `+N more`;
+dial B (zero-based dial 1) moves that window one category per detent. On a selected
+ticket, dial B retains the priority action.
+
+Physical display and raw dial routing
+require the server-image sidecar update (SD-103).
 
 Physical and emulator ticket frames show the same masked turn keys and full-width conversation strip.
 
@@ -45,9 +75,9 @@ The strip names closed/total, unpublished count and
 observation age in minutes for the first visible feature (the selected feature while drilled in).
 
 The browser emulator and physical deck use the same SVG frames, pushed through the
-shared frame updates. Input acknowledgements carry navigation; images arrive in frame events.
+shared frame updates.
 
-The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
+Input acknowledgements carry navigation; images arrive in frame events.
 
 The legacy browser modes retain their own controls.
 

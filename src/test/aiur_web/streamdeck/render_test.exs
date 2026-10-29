@@ -88,28 +88,11 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     assert Enum.at(frame.keys, 0).label == "#5181 Running 40% — Fix strip squeeze"
     assert Enum.at(frame.keys, 4).label =~ "#5182 Unstarted"
     assert Enum.map([1, 2, 3, 5, 6, 7], &Enum.at(frame.keys, &1)) == List.duplicate(nil, 6)
-
-    assert Enum.map(frame.strip, &{&1.x, &1.width}) == [
-             {0, 200},
-             {200, 200},
-             {400, 200},
-             {600, 200}
-           ]
-
-    assert hd(frame.strip).label == "1 live / 1 left; Build 41%"
-
-    assert xpath(parse(hd(frame.strip).svg), "//rect[@data-part=\"progress-fill\"]/@width") == [
-             "73.8"
-           ]
-
-    assert Enum.at(frame.strip, 1).svg =~ "Session 75% left"
-    assert Enum.at(frame.strip, 1).svg =~ "35s old stale"
-    refute Enum.at(frame.strip, 1).svg =~ "Weekly"
-
-    assert xpath(
-             parse(Enum.at(frame.strip, 1).svg),
-             ~s|//rect[@data-part="progress-fill"]/@width|
-           ) == ["135.0"]
+    assert Enum.map(frame.strip, &{&1.x, &1.width}) == [{0, 200}, {200, 400}, {600, 200}]
+    assert hd(frame.strip).label == "Build 41%"
+    assert xpath(parse(hd(frame.strip).svg), "//rect[@data-part=\"progress-fill\"]/@width") == ["73.8"]
+    assert Enum.at(frame.strip, 1).svg =~ "Counts unavailable"
+    assert List.last(frame.strip).svg =~ "Queued unknown"
 
     for image <- Enum.reject(frame.keys, &is_nil/1) do
       xml = parse(image.svg)
@@ -143,7 +126,7 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     refute Render.key(face(%{title: "Changed"})).hash == hd(frame.keys).hash
   end
 
-  test "preserves unavailable build, unknown percent, and provider states without fabricating zero" do
+  test "preserves unavailable build, unknown percent, without fabricating zero" do
     for {status, build, expected} <- [
           {"unavailable", nil, "Build unavailable"},
           {"none", nil, "No build order"},
@@ -155,15 +138,9 @@ defmodule AiurWeb.Streamdeck.RenderTest do
       assert region.svg =~ expected
       assert xpath(parse(region.svg), "//rect[@data-part=\"progress-fill\"]") == []
     end
-
-    meter = %{state: :unknown, freshness: :fresh, windows: %{session: %{used_percent: 75}}}
-    strip = Render.frame(%{grid: %{agents: []}, usage: %{broken: meter}}).strip
-    provider = Enum.at(strip, 1)
-    assert provider.svg =~ "Session Unknown"
-    assert xpath(parse(provider.svg), "//rect[@data-part=\"progress-fill\"]") == []
   end
 
-  test "pages agents by columns and providers alphabetically with the same primitives" do
+  test "pages agents by columns with backlog pager dots" do
     agents = for id <- 1..12, do: face(%{identifier: "##{id}"})
 
     model = %{
@@ -178,39 +155,9 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     assert List.last(frame.keys).label =~ "#12 Running"
     assert Enum.map(frame.keys, &hd(String.split(&1.label))) == ~w(#5 #7 #9 #11 #6 #8 #10 #12)
     assert Enum.map(frame.strip, &{&1.x, &1.width}) == [{0, 200}, {200, 400}, {600, 200}]
-    xml = parse(Enum.at(frame.strip, 1).svg)
-
-    assert xpath(xml, "//text/text()") == [
-             "Providers 2–4 / 4",
-             "b Unknown",
-             "c Unknown",
-             "d Unknown"
-           ]
-
-    assert List.last(frame.strip).label == "5–12 / 12"
-
-    assert xpath(parse(List.last(frame.strip).svg), "//text/text()") == [
-             "MORE AGENTS",
-             "5–12 / 12",
-             "‹",
-             "·"
-           ]
-
+    assert Enum.at(frame.strip, 1).label == "Counts unavailable"
+    assert List.last(frame.strip).svg =~ "2 / 2"
     assert Render.frame(%{grid: %{agents: []}}).keys == List.duplicate(nil, 8)
-
-    meter = %{
-      state: :observed,
-      freshness: :fresh,
-      age_seconds: 35,
-      windows: %{session: %{used_percent: 25}}
-    }
-
-    observed = Render.frame(%{usage: %{a: meter, b: meter, c: meter}}).strip |> Enum.at(1)
-    observed_xml = parse(observed.svg)
-    assert xpath(observed_xml, ~s|//text[@text-anchor="end"]/@y|) == ["16", "42", "68"]
-
-    assert xpath(observed_xml, ~s|//text[@text-anchor="end"]/text()|) ==
-             List.duplicate("35s old", 3)
   end
 
   defp face(extra) do

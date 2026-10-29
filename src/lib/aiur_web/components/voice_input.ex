@@ -27,6 +27,9 @@ defmodule AiurWeb.Components.VoiceInput do
   attr(:status_copy, :string, default: @default_status_copy)
   attr(:capabilities, :map, default: %{}, doc: "`voice.*` capability report entries; controls availability of Dictate and Converse")
 
+  attr(:conversation_error, :map, default: nil, doc: "server refusal from the Converse handoff")
+  attr(:converse, :boolean, default: true, doc: "offer the assistant handoff on this surface")
+
   attr(:layout, :atom, values: [:buttons, :chooser], default: @d16_layout)
   attr(:surface, :string, default: "agent_composer")
   attr(:target, :map, default: %{})
@@ -58,7 +61,7 @@ defmodule AiurWeb.Components.VoiceInput do
           </button>
           <div id={"#{@id}-menu"} role={if @layout == :chooser, do: "menu"} aria-label="Voice input"
             data-voice-menu hidden={@layout == :chooser}>
-            <button :for={mode <- @modes} type="button" class="aiur-button aiur-button--dashboard btn agent-voice-mode"
+            <button :for={mode <- @modes} :if={@converse or mode.id != "converse"} type="button" class="aiur-button aiur-button--dashboard btn agent-voice-mode"
               role={if @layout == :chooser, do: "menuitem"} data-voice-mode={mode.id}
               data-voice-mic={if mode.id == "dictate", do: ""} data-conversation-focus={mode.id}
               aria-label={if mode.id == "dictate", do: "Dictate message", else: "Converse"}
@@ -107,6 +110,9 @@ defmodule AiurWeb.Components.VoiceInput do
       ></canvas>
       <p class="agent-voice-status" role="status" aria-live="polite" data-voice-status>
         {if @dictate.available, do: @status_copy, else: @dictate.reason}
+      </p>
+      <p :if={@conversation_error} role="alert" data-voice-conversation-error={@conversation_error.reason_code}>
+        {@conversation_error.reason}
       </p>
       <.delivery_status delivery={@delivery} />
     </div>
