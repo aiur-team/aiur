@@ -71,6 +71,13 @@ defmodule Aiur.Config.Schema.GeneralEpic do
     end
   end
 
+  @doc "Whether ticket labels match any configured label of a general epic."
+  @spec matches?(map(), list() | nil) :: boolean()
+  def matches?(%{labels: matchers}, labels) do
+    labels = normalize_labels(labels)
+    Enum.any?(normalize_labels(matchers), &(&1 in labels))
+  end
+
   @spec normalize_labels([String.t() | nil]) :: [String.t()]
   def normalize_labels(labels) when is_list(labels) do
     labels
