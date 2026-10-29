@@ -27,6 +27,13 @@ Label read/create failures stop startup before agents start and explain the requ
 | Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. Merged PR bodies also supply `Post-deploy check:` lines for the Executor checklist. `GithubFirehose.enrich_merged_event/2` and `GithubWebhook.Triples.maybe_enrich_commit_messages/4` share commit-message reads through caller `pull_request_commits`, cached by repository, PR number and immutable head SHA for four hours. `Refs #N`, `issue N`, and similar references remain nonclosing links. |
 | Analytics facts | Terminal and on-demand backfill PR facts; boot/hourly base history and tags | Body-free `pr_facts` and `analytics/repo-timeline.ndjson`; callers `analytics_facts` and `analytics_repo_timeline`. |
 
+Waiting Command overrides are read from the local Decision journal during candidate
+polls. For each waiting ticket, the resume scheduler refreshes its tracker state
+and PR observation through the existing governed Tracker reads, off the
+orchestrator mailbox. Missing or unavailable observations keep the request
+waiting. There is no separate polling timer or new issue/PR creation; no quota
+saving is claimed.
+
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 
 Rows and the resume checkpoint share the history file; a restart resumes unfinished work and skips a completed walk. This is a one-time read, not a poll or a page-view request.

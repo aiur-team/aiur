@@ -29,7 +29,7 @@ capacity permits. No new work ticket or PR is created.
    each turn; prepend the newest unacknowledged override, including correlation
    for acknowledgement. Do not replay stale startup options. Prevent the normal
    transport from also queuing overrides owned by resume routing. Mark prompt
-   delivery only when the worker confirms session start. Preserve ordinary
+   delivery only when the provider confirms each turn start. Preserve ordinary
    answer injection. Update `website/docs-app/concepts/commands.md` and the
    existing Stream Deck transport description.
 
@@ -37,8 +37,8 @@ capacity permits. No new work ticket or PR is created.
 
 New tests in `src/test/aiur/commands/override_resume_test.exs` cover durable fact
 round trips, supersession and restart, prompt ordering on cold/resumed/later
-turns, cessation after acknowledgement and stale startup data. New orchestrator
-tests in `src/test/aiur/orchestrator/override_resume_test.exs` exercise full fleet,
+turns, cessation after acknowledgement and stale startup data. The same file includes orchestrator
+tests that exercise full fleet,
 slot release, pressure hold, FIFO/deduplication, explicit labels and same-ticket
 resume through a fake runner. Assert active slots never exceed the cap.
 Mutation checks remove production changes in an isolated worktree, including
