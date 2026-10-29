@@ -267,6 +267,7 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 The shared Executor composer supports **Dictate** and **Converse**, like worker
 composers, when Executor messaging is enabled. Voice controls are hidden when
 the composer is read-only or its effective listener mode is unavailable.
+
 This integration awaits the Executor view and send adapter; the existing
 **Talk to Executor** prototype below remains separately available.
 
