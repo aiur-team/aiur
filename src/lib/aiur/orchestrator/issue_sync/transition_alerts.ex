@@ -131,6 +131,8 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
       bypass_contamination: true,
       exchange_payload: %{
         "action" => "human_review",
+        "observed_state" => DispatchPolicy.state_slug(issue.state),
+        "observed_updated_at" => issue.updated_at && DateTime.to_iso8601(issue.updated_at),
         "pr_number" => pr_number,
         "head_sha" => head_sha,
         "last_review_sha" => last_review_sha

@@ -8,12 +8,10 @@
       this.onConversationClick = () => this.toggle("conversation");
       this.onDeviceChange = () => this.rememberDevice();
     }
-
     get starting() { return this.state === "requesting_permission"; }
     get recording() { return this.state === "listening"; }
     get finishing() { return this.state === "finishing"; }
     transition(next, detail) { window.AiurVoiceInputState.transition(this, next, detail); }
-
     mount() {
       this.bindElements();
       this.seenReplies = new Set(this.replyElements().map((element) => element.id));
@@ -29,7 +27,6 @@
         this.refreshDevices();
       }
     }
-
     bindElements() {
       const mic = this.hook.el.querySelector("[data-voice-mic]");
       const conversation = this.hook.el.querySelector("[data-voice-conversation]");
@@ -66,7 +63,10 @@
     }
 
     syncElements() {
-      if (this.choice.root && this.state) this.choice.root.dataset.voiceState = this.state;
+      if (this.choice.root && this.state) {
+        const accepted = this.choice.root.dataset.voiceDeliveryAccepted === "true";
+        this.choice.root.dataset.voiceState = accepted && this.state === "idle" ? "sent" : this.state;
+      }
       if (this.mic) {
         this.mic.disabled = Boolean(
           this.unavailableReason || this.starting || this.finishing || this.awaitingReply || this.speaking ||
@@ -106,6 +106,8 @@
         this.status.hidden = false;
         this.status.classList.toggle("bad", this.statusFailed === true);
       }
+      const cancel = this.choice.root?.querySelector("[data-voice-cancel]");
+      if (cancel) cancel.hidden = !(this.recording || this.finishing);
       this.choice.sync();
       this.drawWaveform();
     }
@@ -150,6 +152,7 @@
         await this.hook.prepareVoiceInput?.();
         if (!this.current(generation)) return;
         if (!this.input || this.input.disabled) throw new Error("The response field did not open.");
+        this.restoreText = this.input.value;
         preparingField = false;
         this.limitReached = false;
         if (mode === "conversation") {
@@ -252,45 +255,31 @@
       }, 5000);
     }
 
+    cancel() {
+      if (!this.recording && !this.finishing) return;
+      this.generation += 1;
+      this.clearFinishTimer();
+      this.channel?.push("cancel", {});
+      this.disposeCapture();
+      this.closeChannel();
+      this.resetConversationState();
+      this.input.value = this.restoreText;
+      this.input.dispatchEvent(new Event("input", { bubbles: true }));
+      this.transition("cancelled");
+      this.transition("idle");
+    }
+
     handleSamples(samples) {
       if (!this.recording) return;
       this.pushWaveform(samples);
       this.channel?.push("audio", { data: window.AiurVoiceCapture.encodePcm16Base64(samples) });
     }
 
-    pushWaveform(samples) {
-      this.waveform.push(samples);
-      this.drawWaveform();
-    }
+    pushWaveform(samples) { window.AiurVoiceWaveform.pushWaveform.call(this, samples); }
 
-    resetWaveform() {
-      this.waveform.reset();
-      this.drawWaveform();
-    }
+    resetWaveform() { window.AiurVoiceWaveform.resetWaveform.call(this); }
 
-    drawWaveform() {
-      const context = this.canvas?.getContext("2d");
-      const columns = this.waveform?.columns;
-      if (!this.canvas || !context || !columns) return;
-      const style = window.getComputedStyle(this.hook.el);
-      const middle = this.canvas.height / 2;
-      context.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      context.strokeStyle = style.getPropertyValue("--line").trim() || "#4b5563";
-      context.beginPath();
-      context.moveTo(0, middle + 0.5);
-      context.lineTo(this.canvas.width, middle + 0.5);
-      context.stroke();
-      context.strokeStyle = style.getPropertyValue("--accent").trim() || "#3ba55d";
-      context.lineWidth = Math.max(1, this.canvas.width / columns.length * 0.7);
-      const scale = this.canvas.height * 0.43;
-      columns.forEach((column, index) => {
-        const x = (index + 0.5) * this.canvas.width / columns.length;
-        context.beginPath();
-        context.moveTo(x, middle - column.max * scale);
-        context.lineTo(x, middle - column.min * scale);
-        context.stroke();
-      });
-    }
+    drawWaveform() { window.AiurVoiceWaveform.drawWaveform.call(this); }
 
     applyTranscript(payload) {
       if (!this.input || typeof payload?.text !== "string") return;
@@ -353,49 +342,9 @@
       this.channel.push("speak", { text });
     }
 
-    playAudio(payload) {
-      if (typeof payload?.data !== "string") return;
-      const decoded = window.atob(payload.data);
-      const bytes = new Uint8Array(decoded.length + (this.audioCarry?.length || 0));
-      if (this.audioCarry?.length) bytes.set(this.audioCarry, 0);
-      for (let index = 0; index < decoded.length; index += 1) bytes[index + (this.audioCarry?.length || 0)] = decoded.charCodeAt(index);
-      const evenLength = bytes.length - (bytes.length % 2);
-      this.audioCarry = bytes.slice(evenLength);
-      if (!evenLength) return;
+    playAudio(payload) { window.AiurVoicePlayback.playAudio.call(this, payload); }
 
-      this.playbackContext ||= new window.AudioContext();
-      const samples = evenLength / 2;
-      const buffer = this.playbackContext.createBuffer(1, samples, 44100);
-      const output = buffer.getChannelData(0);
-      const view = new DataView(bytes.buffer, bytes.byteOffset, evenLength);
-      for (let index = 0; index < samples; index += 1) output[index] = view.getInt16(index * 2, true) / 32768;
-      const source = this.playbackContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(this.playbackContext.destination);
-      this.playbackSources ||= new Set();
-      this.playbackSources.add(source);
-      source.onended = () => this.playbackSources?.delete(source);
-      const startAt = Math.max(this.playbackContext.currentTime, this.nextPlaybackAt || 0);
-      source.start(startAt);
-      this.nextPlaybackAt = startAt + buffer.duration;
-    }
-
-    finishPlaybackWhenAudible() {
-      this.clearPlaybackTimer();
-      const remaining = Math.max(0, (this.nextPlaybackAt || 0) - (this.playbackContext?.currentTime || 0));
-      this.playbackTimer = window.setTimeout(() => {
-        this.playbackTimer = null;
-        this.speaking = false;
-        this.awaitingReply = false;
-        this.conversationActive = false;
-        this.audioCarry = null;
-        this.nextPlaybackAt = null;
-        this.clearPlaybackSources(false);
-        this.closeChannel();
-        this.setStatus("Reply finished. Press the conversation button to speak again.");
-        this.syncElements();
-      }, Math.ceil(remaining * 1000));
-    }
+    finishPlaybackWhenAudible() { window.AiurVoicePlayback.finishPlaybackWhenAudible.call(this); }
 
     joinText(left, right) {
       return [left, right].filter((part) => part && part.trim()).join(" ");
@@ -416,20 +365,9 @@
       this.finishTimer = null;
     }
 
-    clearPlaybackTimer() {
-      if (this.playbackTimer) window.clearTimeout(this.playbackTimer);
-      this.playbackTimer = null;
-    }
+    clearPlaybackTimer() { window.AiurVoicePlayback.clearPlaybackTimer.call(this); }
 
-    clearPlaybackSources(stop = true) {
-      for (const source of this.playbackSources || []) {
-        if (stop) {
-          try { source.stop(); } catch (_error) {}
-        }
-        source.disconnect?.();
-      }
-      this.playbackSources?.clear();
-    }
+    clearPlaybackSources(stop = true) { window.AiurVoicePlayback.clearPlaybackSources.call(this, stop); }
 
     resetConversationState({ resetContext = false } = {}) {
       this.clearPlaybackTimer();

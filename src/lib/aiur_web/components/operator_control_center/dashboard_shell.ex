@@ -10,8 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
   attr(:title, :string, default: nil)
-  attr(:back_path, :string, default: nil)
-  attr(:back_label, :string, default: "Back")
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -53,9 +51,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           </div>
         </div>
         <div class="ax-title aiur-page__header" id="ax-title">
-          <.link :if={@back_path} patch={@back_path} class="ax-back aiur-page__back" aria-label={@back_label}>
-            <span aria-hidden="true">{nav_icon(@route.id)}</span>
-          </.link>
           <b id="route-title" role="heading" aria-level="1">{@title || @route.label}</b>
           <span class="status-badge status-badge-offline brand-live"><span class="status-badge-dot"></span>Offline</span>
         </div>

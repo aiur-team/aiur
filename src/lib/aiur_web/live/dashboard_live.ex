@@ -172,6 +172,10 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_event("refresh_listen_mode", _params, socket), do: AiurWeb.ListenerModeEvents.retry(socket)
 
+  def handle_event("open-voice-conversation", params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.open(socket, params)}
+
+  def handle_event("close-voice-conversation", _params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.close(socket)}
+
   def handle_event("set_listen_mode", params, socket), do: AiurWeb.ListenerModeEvents.change(params, socket)
 
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
@@ -349,7 +353,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-agent-log", _params, socket) do
-    {:noreply, assign(socket, :agent_log_modal, nil)}
+    {:noreply, socket |> AiurWeb.ListenerModeEvents.close() |> assign(:agent_log_modal, nil)}
   end
 
   def handle_event(

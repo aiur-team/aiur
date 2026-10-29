@@ -50,6 +50,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.landing_withdrawal_failed", "orchestration"},
     # aiur/orchestrator/dispatcher/budget_trip.ex
     {"ticket.*.agent.attention.lifetime_latch_write_failed", "orchestration"},
+    # aiur/orchestrator/comment_wake/reference_merge_bookkeeping.ex
+    {"ticket.*.agent.attention.merge_reference_bookkeeping_failed", "orchestration"},
     # aiur/orchestrator/comment_wake/merged_pr.ex
     {"ticket.*.agent.attention.merge_terminal_write_failed", "orchestration"},
     # aiur/orchestrator/merged_ticket_reconciler.ex

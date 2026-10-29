@@ -16,7 +16,9 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
             drill_pages: [],
             selected: nil,
             chat: nil,
-            scroll: 0
+            scroll: 0,
+            chip_offset: 0,
+            meter_count: 0
 
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
@@ -26,7 +28,9 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
           drill_pages: [non_neg_integer()],
           selected: String.t() | nil,
           chat: map() | nil,
-          scroll: non_neg_integer()
+          scroll: non_neg_integer(),
+          chip_offset: non_neg_integer(),
+          meter_count: non_neg_integer()
         }
   @type effect :: {:chat_page, String.t()} | :close_ticket | {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
 
@@ -67,7 +71,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
         [] -> []
       end
 
-    %{nav | pages: pages, drill_pages: drill_pages}
+    %{nav | pages: pages, drill_pages: drill_pages, chip_offset: min(nav.chip_offset, Map.get(sizes, :chip_max_offset, 0))}
   end
 
   defp valid_ticks?("dial_turn", %{"ticks" => ticks}), do: is_integer(ticks) and ticks in -32..32
@@ -76,7 +80,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
 
   defp transition(nav, %{"kind" => "dial_press", "index" => 3}) do
     next = rem(Enum.find_index(@views, &(&1 == nav.view)) + 1, length(@views))
-    {%{nav | view: Enum.at(@views, next), stack: [], drill_pages: [], scroll: 0}, []}
+    {%{nav | view: Enum.at(@views, next), stack: [], drill_pages: [], scroll: 0, selected: nil}, []}
   end
 
   defp transition(%{stack: [_entry | rest], drill_pages: [_page | pages]} = nav, %{
@@ -91,16 +95,20 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   defp transition(nav, %{"kind" => "dial_turn", "index" => 0, "ticks" => ticks}),
     do: {%{nav | scroll: max(nav.scroll + ticks, 0)}, []}
 
+  defp transition(%{stack: [{:meter_detail, _provider} | _]} = nav, %{"kind" => "dial_turn", "index" => 1}), do: {nav, []}
+
   defp transition(%{selected: id} = nav, %{"kind" => "dial_turn", "index" => 1, "ticks" => ticks})
        when is_binary(id) and ticks != 0,
        do: {nav, [{:priority, id, if(ticks < 0, do: :up, else: :down), abs(ticks)}]}
 
+  defp transition(%{selected: nil} = nav, %{"kind" => "dial_turn", "index" => 1, "ticks" => ticks}),
+    do: {%{nav | chip_offset: max(nav.chip_offset + ticks, 0)}, []}
+
   defp transition(nav, %{"kind" => "key_press", target: {:ticket, id}}) when is_binary(id),
     do: {%{nav | selected: id}, [{:open_ticket, id}]}
 
-  defp transition(nav, %{"kind" => "key_press", target: {kind, id}})
-       when kind in [:feature, :epic, :fleet] and is_binary(id),
-       do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
+  defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :epic, :fleet, :meter_detail] and is_binary(id),
+    do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
 
   defp transition(nav, _input), do: {nav, []}
 

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render}
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput}
+  alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput}
   alias AiurWeb.Streamdeck.Render.Chat, as: ChatRender
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
@@ -14,11 +14,12 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
         socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
         {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
-        PriorityInput.reply(
-          socket,
-          %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)},
-          effects
-        )
+        navigation = %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "chip_offset" => nav.chip_offset}
+
+        case PriorityInput.reply(socket, navigation, effects) do
+          {:reply, {:ok, _result}, socket} -> {:reply, {:ok, navigation}, socket}
+          error -> error
+        end
 
       :noop ->
         {:reply, {:ok, %{}}, socket}
@@ -35,7 +36,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
          input = focused_key(previous, raw, input),
          true <- Nav.valid_input?(input),
          {%Nav{} = nav, effects} <-
-           Input.reduce(previous, input, Deck.navigation(normalize_grid(grid))) do
+           Input.reduce(previous, input, MeterPage.sections(normalize_grid(grid), previous)) do
       effects = if previous.surface == :chat && previous.chat && input["index"] == 3 && input["kind"] == "dial_turn", do: effects, else: focus_effects(previous, input, effects)
       {:ok, nav, effects}
     else
@@ -80,7 +81,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @doc "Compose the same frame model for a channel socket or the browser emulator."
   @spec frame(Nav.t(), map(), map(), (map() -> map()), map()) :: {Nav.t(), map(), map()}
   def frame(nav, grid, usage, renderer \\ &Render.frame/1, context \\ %{}) do
-    grid = normalize_grid(grid)
+    {nav, grid} = MeterPage.prepare(normalize_grid(grid), nav, usage)
     sections = Deck.navigation(grid)
     nav = Nav.clamp(nav, Input.sizes(nav, sections))
     agents = visible_items(nav, sections, grid.agents)
@@ -93,6 +94,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
           usage: usage,
           page: Nav.page(nav),
           provider_offset: nav.scroll,
+          chip_offset: nav.chip_offset,
           surface: nav.surface
         },
         context
@@ -114,7 +116,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     end)
   end
 
-  defp grid(socket), do: normalize_grid(socket.assigns[:deck_grid] || StreamdeckProjection.grid())
+  defp grid(socket), do: Map.put(socket.assigns[:deck_grid] || StreamdeckProjection.grid(), :meter_usage, socket.assigns[:deck_usage] || %{})
 
   defp normalize_grid(grid) do
     agents = Map.get(grid, :agents, Map.get(grid, "agents", []))

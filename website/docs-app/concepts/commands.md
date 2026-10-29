@@ -37,6 +37,11 @@ Capture stops at the 4,000-character limit and keeps the full transcript for edi
 unavailable, you can still type. Structured multi-question forms use their own
 answer fields and do not offer this custom-response microphone.
 
+On an answered Command, **Send correction** offers the same dictation flow for
+the revised response. Dictation selects **Custom response** and appends to your draft.
+Review the text, type a reason for revision, then press **Send correction**.
+A rejected correction keeps your draft and shows the existing revision error.
+
 ## Authority and attention signals
 
 A structured agent question with `blocking: false` remains visible for an answer

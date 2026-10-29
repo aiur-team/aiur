@@ -27,6 +27,7 @@ defmodule AiurWeb.Streamdeck.Deck do
     fleet = Map.get(grid, :fleet, Map.get(grid, "fleet", %{keys: []}))
 
     %{
+      counts: Map.get(grid, :counts, Map.get(grid, "counts")),
       ticket: tickets,
       feature: Map.get(grid, :features, []),
       epic: Map.get(grid, :epics, []),

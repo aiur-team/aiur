@@ -271,26 +271,20 @@ defmodule AiurWeb.DashboardLive.Conversation do
 
   defp send_operator_message(socket, _modal, ""), do: socket
 
-  # OperatorSend owns the #2717 rule; the drawer keeps the draft only when the
-  # outcome is unknown, so a retry with the same text reuses the message id.
+  # OperatorSend owns the #2717 rule; the drawer keeps the draft when the send
+  # fails or its outcome is unknown, so a retry with the same text reuses the message id.
   defp send_operator_message(socket, modal, text) do
     key = agent_log_key(modal)
 
     case OperatorSend.send(modal, text, socket.assigns.pending_message_ids) do
-      {:ok, request_id, _message_id, pending} ->
-        socket |> AiurWeb.ListenerModeEvents.sent({:ok, request_id}) |> assign(:pending_message_ids, pending) |> clear_chat_state(key)
+      {:ok, request_id, message_id, pending} ->
+        socket |> AiurWeb.ListenerModeEvents.sent({:ok, request_id}, message_id, text) |> assign(:pending_message_ids, pending) |> clear_chat_state(key)
 
-      {:error, {:outcome_unknown, _info} = reason, _message_id, pending} ->
+      {:error, reason, message_id, pending} ->
         socket
-        |> AiurWeb.ListenerModeEvents.sent({:error, reason})
+        |> AiurWeb.ListenerModeEvents.sent({:error, reason}, message_id, text)
         |> assign(:pending_message_ids, pending)
         |> assign(:drafts, Map.put(socket.assigns.drafts, key, text))
-        |> put_chat_error(key, reason)
-
-      {:error, reason, _message_id, pending} ->
-        socket
-        |> AiurWeb.ListenerModeEvents.sent({:error, reason})
-        |> assign(:pending_message_ids, pending)
         |> put_chat_error(key, reason)
     end
   end

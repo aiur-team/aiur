@@ -74,7 +74,7 @@ and jump-point precision.
 | Waveform | Confirms the browser is receiving audio. |
 | Spoken conversation | Legacy **Start interactive voice chat** control: press, speak, press again; settled text is sent automatically through the composer and enters the ticket transcript. Hidden when the assistant conversation capability is available or degraded; the assistant replaces this mode. |
 | Spoken reply | Aiur streams ElevenLabs text-to-speech audio back to the browser when the agent replies. |
-| Converse | Shown disabled with its reason until the assistant conversation capability is available. It is separate from legacy spoken conversation. |
+| Converse | Hands the current target to the assistant panel without recording or asking the agent to build context. Capture begins with the panel’s **Start** consent step. Disabled with its reason until the assistant conversation capability is available. |
 | Device selection | In the settings popover next to the mic. Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
 
 Dictation never sends a message automatically, and the browser never receives the API key.
@@ -85,7 +85,11 @@ and waits for **Send**. Closing the modal stops microphone capture. Read-only
 or ambiguous agent targets have no voice controls; the modal has no legacy
 interactive voice chat button.
 
+While listening or finishing transcription, **Cancel** discards the dictation and restores the exact text from before recording. **Escape** does the same when focus is in the voice controls or message field; it keeps the conversation drawer open. Outside recording, Escape keeps its usual drawer-close behavior.
+
 The voice status line follows idle → requesting microphone permission → listening → finishing transcription → ready to review. Permission denial explains how to allow the microphone; no-device errors explain how to connect one. Both allow another attempt. Channel failures keep the text captured so far; unknown failures show a neutral message.
+
+Dictated messages use the same delivery receipts and Command answer notices as typed text; voice never infers delivery from transcription or pressing Send.
 
 When speech-to-text is not configured, Dictate stays disabled with a reason and a [setup link](/apis/elevenlabs#configure-the-key). When voice is not installed, it stays disabled with “Voice input isn't installed in this Aiur. Typed messages work as usual.” Typing and Send remain available.
 
