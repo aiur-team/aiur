@@ -31,6 +31,7 @@ section) before attaching it to the root.
       `build-order-performance`, `dom-svg-layout-adapter`, `layout-worker`,
       `parity-composition`, `ticket-context`, and the failure/timeout evidence
       specs.
+      The BuildOrderGraph interaction, responsive, and performance specs were retired in #6527.
 - [ ] Acceptance matrix has no missing BOREQ and no unresolved blocker
       ([`bo-015-acceptance-matrix.md`](bo-015-acceptance-matrix.md)).
 
