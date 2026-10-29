@@ -69,9 +69,8 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
     assert published_identity == ctx.identity
     assert_receive {:event, %{topic: "ticket.6628.branch.push", sha: "abcdef1234567890", ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
     assert identity == ctx.identity
-    # The production exchange serves the global worker; the local exchange is the
-    # isolated resolver harness used by this test's conversation journal.
-    publish(ctx, "branch.push", %{sha: "abcdef1234567890", ref: "refs/heads/aiur/6628"})
+    :sys.get_state(global_resolver)
+    flush(ctx.worker)
     assert Enum.any?(anchors(ctx.worker), &(&1["kind"] == "push" and &1["precision"] == "causal" and &1["pos"] == 1))
     Agent.stop(refs)
   end
