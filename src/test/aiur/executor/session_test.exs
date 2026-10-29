@@ -23,6 +23,22 @@ defmodule Aiur.Executor.SessionTest do
     Map.put(context, :clock, clock)
   end
 
+  test "recording supervises the binding after the journal infrastructure" do
+    specs = Aiur.Application.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, recording?: true)
+
+    modules =
+      Enum.map(specs, fn
+        module when is_atom(module) -> module
+        {module, _opts} -> module
+        %{id: id} -> id
+      end)
+
+    index = fn module -> Enum.find_index(modules, &(&1 == module)) end
+    assert Session in modules
+    assert index.(Aiur.Conversation.JournalSupervisor) < index.(Session)
+    assert index.(Aiur.Events.Exchange) < index.(Session)
+  end
+
   test "opt-in reserves pending and live bindings and names the owner" do
     assert Session.current() == :none
     assert {:ok, pending} = Session.attach(%{harness: "claude", consumer_id: "owner"})
