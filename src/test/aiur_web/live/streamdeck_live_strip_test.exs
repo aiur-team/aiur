@@ -8,7 +8,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
   end
 
-  alias Aiur.TestSupport.EndpointStubs
+  alias Aiur.TestSupport.{EndpointStubs, StreamdeckBuildFixture}
 
   setup %{meter_agent: meter_agent} do
     EndpointStubs.put(
@@ -89,7 +89,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     counting_window_fun = fn _, _, _ ->
       Agent.update(counter, &(&1 + 1))
-      snapshot_agent |> Agent.get(& &1) |> Aiur.TestSupport.StreamdeckBuildFixture.window()
+      snapshot_agent |> Agent.get(& &1) |> StreamdeckBuildFixture.window()
     end
 
     EndpointStubs.put(streamdeck_build_window_fun: counting_window_fun)

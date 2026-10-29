@@ -4,6 +4,7 @@ defmodule Aiur.BuildOrder.Index.Rows do
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
   alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
   alias Aiur.Config.Schema.GeneralEpic
+  alias Aiur.GitHub.Issues
   alias Aiur.StartTrigger.ProgressStore
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
@@ -154,7 +155,7 @@ defmodule Aiur.BuildOrder.Index.Rows do
   defp nullable_lane(lane), do: lane
 
   defp priority(labels) when is_list(labels) do
-    case Aiur.GitHub.Issues.extract_priority(labels) do
+    case Issues.extract_priority(labels) do
       priority when is_integer(priority) and priority > 0 -> priority
       _unknown -> nil
     end

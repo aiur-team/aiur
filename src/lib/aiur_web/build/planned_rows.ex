@@ -17,7 +17,18 @@ defmodule AiurWeb.Build.PlannedRows do
           blockedChain: boolean(),
           unknown: boolean()
         }
-  @type row :: %{id: String.t(), num: pos_integer(), sec: String.t(), status: String.t(), ord: non_neg_integer(), qpos: pos_integer() | nil, wave: pos_integer(), deps: [String.t()], cue: cue()}
+  @type row :: %{
+          id: String.t(),
+          num: pos_integer(),
+          sec: String.t(),
+          status: String.t(),
+          ord: non_neg_integer(),
+          qpos: pos_integer() | nil,
+          wave: pos_integer(),
+          deps: [String.t()],
+          cue: cue(),
+          dependency_ready: boolean() | nil
+        }
   @type source :: %{state: String.t(), observed_at: integer() | nil, reason: String.t() | nil}
   @type result :: %{rows: [row()], source: source()}
 

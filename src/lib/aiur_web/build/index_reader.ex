@@ -1,6 +1,6 @@
 defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
-  alias Aiur.BuildOrder.Index
+  alias Aiur.BuildOrder.{Index, Metadata}
   alias AiurWeb.Build.{Freshness, NowRows, PackRead, PlannedRows}
   alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   alias AiurWeb.OperatorControlCenter.PayloadLoader
@@ -139,7 +139,7 @@ defmodule AiurWeb.Build.IndexReader do
       timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),
       priority: Map.get(summary, :priority),
-      build_lane: Aiur.BuildOrder.Metadata.parse(Map.get(summary, :labels, [])).lane,
+      build_lane: Metadata.parse(Map.get(summary, :labels, [])).lane,
       open_command_count: Map.get(summary, :open_decision_count, 0),
       agent_family: Map.get(summary, :agent_family),
       backend: Map.get(summary, :backend),

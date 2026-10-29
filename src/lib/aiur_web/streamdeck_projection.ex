@@ -4,6 +4,7 @@ defmodule AiurWeb.StreamdeckProjection do
   import AiurWeb.Streamdeck.Render.Svg, only: [field: 2]
 
   alias AiurWeb.{Endpoint, EndpointConfig, StreamdeckFleet}
+  alias AiurWeb.Streamdeck.Deck.Meters
 
   @voice_not_installed_reason "Voice isn't installed in this Aiur"
   @version 1
@@ -78,7 +79,7 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec provider_meters() :: map()
   def provider_meters do
-    AiurWeb.Streamdeck.Deck.Meters.read()
+    Meters.read()
   end
 
   @spec decisions() :: map()

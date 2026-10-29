@@ -38,6 +38,9 @@ defmodule AiurWeb.Build.NowRows do
           start: integer() | nil,
           start_src: String.t(),
           pct: 0..100 | nil,
+          progress_freshness: String.t(),
+          priority: pos_integer() | nil,
+          lane: String.t() | nil,
           agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, pause: String.t() | nil, resume_at: integer() | nil, effort: String.t() | nil}
         }
   @type source_block :: %{
