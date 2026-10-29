@@ -29,6 +29,7 @@ defmodule Aiur.Executor.SessionTest do
     modules =
       Enum.map(specs, fn
         module when is_atom(module) -> module
+        {DynamicSupervisor, opts} -> Keyword.fetch!(opts, :name)
         {module, _opts} -> module
         %{id: id} -> id
       end)
