@@ -8,7 +8,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
   alias AiurWeb.DashboardLiveSupport.OrchestratorStubs.CountingOrchestrator
   @endpoint AiurWeb.Endpoint
 
-  test "Units and drawer consume the projected listener facts and hide legacy selector" do
+  test "Units and drawer consume the projected listener facts and hide unavailable selector" do
     identity = units_identity()
     handle = conversation_handle_value("l")
     name = Module.concat(__MODULE__, :SnapshotServer)
@@ -20,7 +20,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
       effective: :sync,
       effective_reason: :pull_tool_unavailable,
       version: 3,
-      routing: :legacy,
+      routing: :unavailable,
       observed_at: now,
       unread_count: 2,
       oldest_unread_at: DateTime.add(now, -120)

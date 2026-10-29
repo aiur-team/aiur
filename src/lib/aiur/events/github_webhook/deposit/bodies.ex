@@ -9,6 +9,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.Bodies do
   """
 
   alias Aiur.Events.GithubWebhook.{Deposit, Triples}
+  alias Aiur.GitHub.PullRequestHeadUpdate
   alias Aiur.TicketBranch
 
   @doc """
@@ -109,7 +110,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.Bodies do
     end
   end
 
-  def bodies("pull_request", payload, _opts), do: pull_request_deposits(Map.get(payload, "pull_request"))
+  def bodies("pull_request", payload, _opts), do: pull_request_deposits(Map.get(payload, "pull_request"), Map.get(payload, "action"))
 
   def bodies("issues", payload, _opts), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
@@ -312,12 +313,15 @@ defmodule Aiur.Events.GithubWebhook.Deposit.Bodies do
   # A head branch that is not an Aiur ticket branch (`main`, a watched PR's own
   # branch) derives no ticket id, so it is deposited only under its PR number —
   # there is no ticket key for the gate to have read.
-  defp pull_request_deposits(pr) when is_map(pr) do
+  defp pull_request_deposits(pr, action \\ nil)
+
+  defp pull_request_deposits(pr, action) when is_map(pr) do
+    pr = PullRequestHeadUpdate.capture(pr, action)
     version = version(pr)
     [{:pull_request, Map.get(pr, "number"), pr, version}] ++ branch_pull_request_deposits(pr, version)
   end
 
-  defp pull_request_deposits(_pr), do: []
+  defp pull_request_deposits(_pr, _action), do: []
 
   defp branch_pull_request_deposits(pr, version) do
     case TicketBranch.ticket_id(get_in(pr, ["head", "ref"])) do

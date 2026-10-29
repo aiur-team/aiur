@@ -128,7 +128,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
 
   defp operator_message_status(_item), do: :queued
 
-  # Listener sync waits for Stop; legacy REPL routing retains immediate-only delivery.
+  # Listener sync waits for Stop; unavailable routing permits immediate-only delivery.
   defp accepted_delivery_policies(_can_interrupt, true) do
     if Scheduler.routing() == :listener, do: [:immediate, :checkpoint], else: [:immediate]
   end

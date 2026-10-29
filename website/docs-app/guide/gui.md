@@ -76,8 +76,8 @@ The conversation header selector offers **Steer · interrupts**,
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
-The selector is hidden under legacy delivery routing and disabled on read-only
-dashboards. Changes wait for confirmation; a concurrent change shows the winning
+The selector is disabled on read-only dashboards. Conversation input defaults to
+Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
 remain pull-only.
 
@@ -199,8 +199,8 @@ edit the transcript. Read-only dashboards show cards without answer controls.
 
 On a worker's full conversation page, writable dashboards offer a **Message to
 agent** composer. Its read-only mode indicator shows the effective listener
-mode, or **mode unknown** when it cannot be observed. Legacy routing retains
-the existing send behavior.
+mode, or **mode unknown** when it cannot be observed. **Listener unavailable**
+means the specification cannot be used and conversation sends are refused.
 
 **Accepted** means the message was accepted for processing. **Queued** means
 the harness queued it (Sync: next boundary), not that the agent read it.
@@ -229,6 +229,11 @@ of the composer.
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
 | Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
+
+**Dictate** on a Command selects Custom response and appends speech without
+recording an answer. Review it, then use the answer button. Revision dictation
+also waits for a reviewed correction and its reason. If another tab answers
+first, the conflict notice keeps your text for review.
 
 Command details include an escalation timeline from recorded facts, with the
 cause, absolute time, and relative age. An unavailable timeline is labeled

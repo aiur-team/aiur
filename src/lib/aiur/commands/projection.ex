@@ -2,6 +2,7 @@ defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
   alias Aiur.Commands.ExecutorDelivery
+  alias Aiur.Commands.Overrides
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Facts
 
@@ -16,6 +17,7 @@ defmodule Aiur.Commands.Projection do
   def public_v2(%Decision{} = decision) do
     %{
       requester: public_requester(decision),
+      overrides: Overrides.public(decision),
       origin: JSONSafe.normalize(Requester.origin(decision)),
       native: public_native(decision.native),
       questions: JSONSafe.normalize(decision.questions),
@@ -59,7 +61,7 @@ defmodule Aiur.Commands.Projection do
   @spec inherit_attributes(Decision.t(), Decision.t()) :: Decision.t()
   def inherit_attributes(current, candidate) do
     # Enrichment snapshots omit delivery facts; retain them from the journal projection.
-    fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label, :requester_notified_at])
+    fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label, :requester_notified_at, :overrides])
     Facts.inherit(current, struct!(candidate, fields))
   end
 
@@ -84,6 +86,11 @@ defmodule Aiur.Commands.Projection do
         _other -> {:error, :native_ref_mismatch}
       end
     end
+  end
+
+  def apply(decision, %{type: :override_implemented} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         do: Overrides.implemented(decision, event)
   end
 
   def apply(decision, %{type: :requester_notified} = event), do: ExecutorDelivery.apply_fact(decision, event)

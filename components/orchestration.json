@@ -54,6 +54,7 @@
     "build-queue",
     "executor-attention",
     "github",
+    "github-access",
     "github-listeners"
   ],
   "owns": {

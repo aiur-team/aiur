@@ -32,6 +32,7 @@ defmodule Aiur.CurrentRunProjections.State do
       checkpoint_generation: 0,
       checkpoint_write: nil,
       checkpoint_hash: nil,
+      checkpoint_content: nil,
       checkpoint_completed_at: nil,
       checkpoint_interval_ms: positive_integer(opts, :checkpoint_interval_ms, 1_000),
       subscribe_funs: Keyword.get(opts, :subscribe_funs, default_subscribe_funs()),

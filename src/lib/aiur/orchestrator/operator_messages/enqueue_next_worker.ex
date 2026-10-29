@@ -28,10 +28,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
       )
 
     case enqueue_plain.(state.queue_store, attrs, request) do
-      {:ok, queue_store, item, _status} ->
+      {:ok, queue_store, item, status} ->
         case PendingStore.save(queue_store) do
           :ok ->
-            enqueue_succeeded(state, identifier, queue_store, item, record_evidence)
+            enqueue_succeeded(state, identifier, queue_store, item, request, status, record_evidence)
 
           {:error, reason} ->
             {{:error, {:persistence_failed, reason}}, state}
@@ -42,10 +42,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
     end
   end
 
-  defp enqueue_succeeded(state, identifier, queue_store, item, record_evidence) do
+  defp enqueue_succeeded(state, identifier, queue_store, item, request, status, record_evidence) do
     Unread.broadcast_change(state.queue_store, queue_store, identifier)
     record_evidence.(item)
     next_state = %{state | queue_store: queue_store} |> LifecycleFence.protect_queued_item(identifier, item)
-    {{:ok, item.id}, next_state}
+    result = if request.mode == :correlated, do: %{status: status, item: item}, else: item.id
+    {{:ok, result}, next_state}
   end
 end
