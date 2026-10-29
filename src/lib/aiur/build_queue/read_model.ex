@@ -210,7 +210,8 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     case cached_blocker_fetch(issue, tracker) do
       {:ok, hydrated} -> {:ok, Enum.map(hydrated.blocked_by, &cached_blocker(&1, observations, terminal_states))}
-      {:error, reason} when reason in [:cache_miss, :unsupported] -> :skip
+      {:error, :cache_miss} -> {:unknown, :blockers_not_observed}
+      {:error, :unsupported} -> :skip
       {:error, reason} -> {:unknown, reason}
       :skip -> :skip
     end

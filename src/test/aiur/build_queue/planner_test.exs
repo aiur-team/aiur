@@ -123,6 +123,13 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :held}], []} = Planner.plan(%{input | opts: Keyword.put(input.opts, :label_prefix, "worker")})
   end
 
+  test "a stale manual promotion override is ignored for parked labels" do
+    for labels <- [~w(agent:queued agent:parked), ~w(agent:queued agent:paused)] do
+      input = F.input() |> F.update_item(override: :manual_promotion) |> F.update_observation(labels: labels)
+      assert {[%{state: :held, reason: :parked_marker}], []} = Planner.plan(input)
+    end
+  end
+
   test "unauthorized promotion opens attention once and resolves when cause clears" do
     input = F.input() |> F.promoted()
     input = %{input | claims: %{"1" => {:declined, :unauthorized}}}

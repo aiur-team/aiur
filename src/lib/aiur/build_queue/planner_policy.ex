@@ -71,6 +71,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp managed(f) do
     cond do
+      f.item.override != nil and parked?(f) -> result(:held, :parked_marker)
       f.item.override != nil -> result(:overridden, f.item.override)
       f.todo and not own_promotion?(f) -> manual_promotion(f)
       awaiting_promotion?(f) -> result(:unknown, :awaiting_promotion_observation)
