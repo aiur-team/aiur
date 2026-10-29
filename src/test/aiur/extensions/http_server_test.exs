@@ -143,7 +143,6 @@ defmodule Aiur.Extensions.HttpServerTest do
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
 
-
     conversation_voice = Req.get!("http://127.0.0.1:#{port}/conversation-voice-controller.js", headers: [authorization])
     assert conversation_voice.status == 200
     assert conversation_voice.body =~ "AiurConversationVoiceController"

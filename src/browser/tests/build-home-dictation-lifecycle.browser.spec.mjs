@@ -57,11 +57,12 @@ test('closing the Build modal releases a microphone granted after dismissal', as
   await expect.poll(() => page.evaluate(() => window.lateMicStops)).toBe(1)
 })
 
-test('Build modal dictation sends the typed target and keeps transcription editable until Send', async ({ page }) => {
+async function mockVoice(page) {
   await page.evaluate(() => {
+    window.voiceTrackStops = 0; window.voiceLeaves = 0
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {
       enumerateDevices: async () => [],
-      getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] })
+      getUserMedia: async () => ({ getTracks: () => [{ stop() { window.voiceTrackStops += 1 } }] })
     } })
     window.AudioContext = class {
       constructor() { this.destination = {}; this.audioWorklet = { addModule: async () => {} } }
@@ -83,13 +84,13 @@ test('Build modal dictation sends the typed target and keeps transcription edita
         const handlers = {}
         const ok = { receive(status, fn) { if (status === 'ok') queueMicrotask(() => fn({})); return this } }
         return {
-          on(event, fn) { handlers[event] = fn }, onError() {}, onClose() {}, leave() {},
+          on(event, fn) { handlers[event] = fn }, onError() {}, onClose() {}, leave() { window.voiceLeaves += 1 },
           join() { return ok },
           push(event) {
             if (event === 'audio') queueMicrotask(() => handlers.transcript({ kind: 'partial', text: 'hello' }))
             if (event === 'stop') queueMicrotask(() => {
               handlers.transcript({ kind: 'final', text: 'hello modal' })
-              handlers.stopped({})
+              window.finishVoice = () => handlers.stopped({})
             })
             return ok
           }
@@ -97,6 +98,10 @@ test('Build modal dictation sends the typed target and keeps transcription edita
       }
     }
   })
+}
+
+test('Build modal dictation sends the typed target and keeps transcription editable until Send', async ({ page }) => {
+  await mockVoice(page)
   await open(page, { voice: { state: 'available' } })
   const mic = page.locator('#cv-mic')
   await mic.click()
@@ -112,11 +117,33 @@ test('Build modal dictation sends the typed target and keeps transcription edita
   }))
   const input = page.locator('#cv-in textarea')
   await expect(input).toHaveValue('hello')
+  await page.waitForTimeout(1100) // Cross the composer's one-second refresh.
+  await expect(page.locator('#cv-in button[type=submit]')).toBeDisabled()
+  await input.press('Enter')
+  expect(await page.evaluate(() => window.calls.filter(call => call.event === 'send'))).toEqual([])
   await mic.click()
   await expect(input).toHaveValue('hello modal')
+  await page.waitForTimeout(1100)
+  await expect(page.locator('#cv-in button[type=submit]')).toBeDisabled()
+  await input.press('Enter')
+  expect(await page.evaluate(() => window.calls.filter(call => call.event === 'send'))).toEqual([])
+  await page.evaluate(() => window.finishVoice())
   await expect(input).toBeEditable()
   expect(await page.evaluate(() => window.calls.filter(call => call.event === 'send'))).toEqual([])
   await input.fill('reviewed message')
   await page.locator('#cv-in').getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(() => page.evaluate(() => window.calls.filter(call => call.event === 'send').map(call => call.payload.text))).toEqual(['reviewed message'])
+})
+
+test('replacing the Build conversation releases recording without closing the modal', async ({ page }) => {
+  await mockVoice(page)
+  await open(page, { voice: { state: 'available' } })
+  await page.locator('#cv-mic').click()
+  await expect(page.locator('#cv-mic')).toHaveAttribute('aria-pressed', 'true')
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('phx:build-conversation', {
+    detail: { v: 1, kind: 'conversation-state', id: window.ticketId, state: 'not_retained', live: false, observed_at: null }
+  })))
+  await expect(page.locator('#tk-modal')).toBeVisible()
+  await expect(page.locator('#cv-in')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => [window.voiceTrackStops, window.voiceLeaves])).toEqual([1, 1])
 })

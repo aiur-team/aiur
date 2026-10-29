@@ -20,8 +20,9 @@ let drafts = new Map(), st = null, offs = [], localOps = [], appending = false, 
 const fresh = t => ({ id: t.id, pending: false, last: null, sent: '', line: null, ended: false });
 function unbind() { offs.forEach(off => off()); offs = []; }
 function destroyMic() { mic?.destroy(); mic = null; }
-onReset(() => { unbind(); destroyMic(); drafts = new Map(); st = null; localOps = []; });
-onModalClose(() => { unbind(); destroyMic(); st = null; localOps = []; });
+export function teardownComposer() { unbind(); destroyMic(); }
+onReset(() => { teardownComposer(); drafts = new Map(); st = null; localOps = []; });
+onModalClose(() => { teardownComposer(); st = null; localOps = []; });
 
 export function placeholder(t) {
   if (t.agent?.state === 'paused') return PAUSED;
@@ -36,14 +37,14 @@ function setLine(text, tone = '') {
 }
 function refresh() {
   const button = $('#cv-in .cv-send'); if (!st || !button) return;
-  button.disabled = st.pending || st.ended || !live();
+  button.disabled = st.pending || st.ended || $('#cv-in textarea')?.readOnly || !live();
   if (st.ended) setLine(st.ended, 'bad');
   else if (!live() && !st.pending) setLine('Offline · reconnect to send');
   else if (st.line?.[0] === 'Offline · reconnect to send') setLine(null);
 }
 function grow(ta) { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; }
 export function renderComposer(t, msg) {
-  unbind(); destroyMic(); $('#cv-in')?.remove(); $('#cv-in-st')?.remove(); $('#cv-in-off')?.remove();
+  teardownComposer(); $('#cv-in')?.remove(); $('#cv-in-st')?.remove(); $('#cv-in-off')?.remove();
   const slot = $('#cv-footer');
   if (!slot || t.sec === 'hist' || ctx.snap?.writable !== true || !msg.composer) return;
   if (st?.id !== t.id) st = fresh(t);
@@ -76,7 +77,7 @@ export function renderComposer(t, msg) {
 const timeout = ms => new Promise(resolve => setTimeout(() => resolve(null), ms));
 async function submit() {
   const ref = st, ta = $('#cv-in textarea');
-  if (!ref || !ta || ref.pending || ref.ended || !live()) return;
+  if (!ref || !ta || ta.readOnly || ref.pending || ref.ended || !live()) return;
   const raw = ta.value; if (!raw.trim()) return;
   ref.pending = true; ref.last = null; $('#cv-in').dataset.voiceState = 'idle'; $('#cv-in').setAttribute('aria-busy', 'true'); refresh();
   let reply;

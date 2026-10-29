@@ -22,7 +22,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     assert UnitsPolicy.condition?(:waiting_on_you, row)
     assert UnitsPolicy.condition?(:alert, row)
     refute UnitsPolicy.condition?(:active, row)
-
   end
 
   test "resolved hold removes waiting state, link and attention" do
@@ -68,5 +67,4 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
 
     UnitsPresenter.load(payload, membership_fun: fn -> membership([]) end, activity_fun: fn -> %{entries: []} end)
   end
-
 end

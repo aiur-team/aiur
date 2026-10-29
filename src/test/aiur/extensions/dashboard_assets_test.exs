@@ -132,7 +132,6 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-
     conversation_voice_conn = get(build_conn(), "/conversation-voice-controller.js")
     assert response(conversation_voice_conn, 200) =~ "AiurConversationVoiceController"
     assert Plug.Conn.get_resp_header(conversation_voice_conn, "content-type") == ["text/javascript"]
@@ -225,7 +224,6 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
       assert response(get(build_conn(), private_asset_url), 404) == "Not Found"
     end
 
-    assert html =~ "AgentLogPanel"
     assert html =~ "AiurTicketContextDialogHook"
     assert html =~ "hooks: Hooks"
   end

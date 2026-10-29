@@ -113,7 +113,7 @@ by masking show **masked**. **Show raw** re-reads one entry and is available onl
 for loopback dashboard sessions with dashboard writing enabled. Device principals
 always receive redacted bodies.
 
-The quick drawer remains a separate view. Display masking does not remove
+The legacy Units quick drawer has been retired. Display masking does not remove
 secrets from disk and cannot guarantee that all secrets are detected.
 
 ## Jump points and precision

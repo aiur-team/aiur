@@ -5,28 +5,12 @@
   gap: 0.9rem;
 }
 
-.rs-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  min-width: 0;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-
 /* The compact run summary lives inside the Units pane (section-card), so it
    embeds in that pane instead of drawing its own bordered box. */
 
 /* The models pane spans two of the strip's three columns and holds every model
    provider's progress bars in one place. GitHub keeps its own one-column card,
    so the pair fills the row without a fourth pane wrapping below it. */
-.rs-models {
-  grid-column: span 2;
-  align-self: start;
-}
 
 /* The APIS pane holds one row per non-model API (GitHub, and ElevenLabs when an
    account is configured), stacked with the same rhythm the models pane uses so
@@ -39,30 +23,9 @@
 /* Top-aligned, not centred: the stat block on a provider card is taller than
    the name, and centring pushed the logo and name down so they no longer lined
    up with Summary's. */
-.rs-head {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.rs-logo {
-  width: 1.2rem;
-  height: 1.2rem;
-  flex: none;
-  object-fit: contain;
-}
 
 /* The GitHub mark ships as a black glyph; the dashboard's default theme is
    dark, so invert it to a light glyph. The light theme shows the native mark. */
-
-.rs-name {
-  font-weight: 700;
-  font-size: 0.92rem;
-  line-height: 1.2rem;
-  white-space: nowrap;
-}
 
 /* A provider meter is a standard progress bar with its label and meta on the
    line directly above the bar. The label line and the thin bar share the same
@@ -72,30 +35,6 @@
 /* This row is intentionally compressed to the same one-line density as Core
    and GraphQL; the invoice amount lives in the provider head above it. */
 
-.rs-meter {
-  height: var(--progress-bar-height);
-  border-radius: 999px;
-  background: var(--surface-3);
-  overflow: hidden;
-}
-
-.rs-meter > i {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-}
-
 /* Low remaining headroom is critical: the fill turns red near an empty window. */
-.rs-meter > i.is-critical {
-  background: var(--blocking);
-}
-
-.rs-meter > i.is-warning {
-  background: var(--warning, #d08a2a);
-}
 
 /* Warning stages are selected by the remaining share at the presentation boundary. */
-.rs-meter > i.is-caution {
-  background: var(--caution, #d0a92a);
-}

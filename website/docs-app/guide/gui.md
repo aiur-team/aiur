@@ -2,7 +2,7 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the build history, the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
-High-rate snapshot notifications on Home, Units, Commands, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+High-rate snapshot notifications on Home, Commands, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
 
 ## Open the GUI
 
@@ -56,14 +56,10 @@ links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and 
 include unrouted Commands. Resolved Commands appear in the history table.
 
 Only Commands routed to you (including those shared with the Executor) count in the
-banner, navigation badge, and Units **Commands** column. Unknown counts display an
+banner and navigation badge. Unknown counts display an
 unavailable notice or `—`; partial retained data is labelled partial.
 
 The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
-
-Listener-routed Units rows show a compact mode and unread count; unknown values
-show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
-the selector, effective-mode reason, oldest unread age and observation age.
 
 New worker journals recover conversation from the workspace transcript
 when it can be replayed, otherwise from this launch's IssueLog. Recovered
@@ -71,21 +67,7 @@ records belong to an `import` session after a `pre_journal` gap: earlier history
 may still be missing. IssueLog bodies at its 1,000-character cut are marked
 truncated. Existing journals are not imported again.
 
-The conversation header selector offers **Steer · interrupts**,
-**Sync · next turn**, or **Async · on demand**. A different effective mode is
-shown with its reason. Unread counts include the oldest message's age; the
-observation age shows how recently the mode was read.
-
-The selector is hidden under legacy delivery routing and disabled on read-only
-dashboards. Changes wait for confirmation; a concurrent change shows the winning
-mode and preserves your choice. Leaving Async shows a notice: unread bodies
-remain pull-only.
-
-The drawer shows receipts for messages sent during this visit;
-“Accepted” and “Handed to the agent” do not mean the message was read. An unknown
-outcome is shown explicitly.
-
-Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.
+Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its Build ticket modal for containment.
 
 Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “New starts paused” chip appears only when pause is confirmed.
 
@@ -93,13 +75,9 @@ The theme starts dark until you toggle it. Both choices stay in this browser; an
 
 Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
 
-The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts), with a remaining-percentage bar and reset time. Full means 100% left; empty means unusable until reset. Warning colours appear near empty. The tooltip shows freshness, age and last probe error; stale lines are dimmed. Missing readings show `unknown`, not zero.
-
-The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
+Provider usage remains in the [Build usage strip](/concepts/build-history#usage-strip); the legacy Models pane has been retired.
 
 GUI data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
-
-Fleet and capacity facts show their observation age, including fresh data. Tracker rows and retry failures retain their source ages; unknown observations say `age unavailable`. Retry rows identify `since daemon start <UTC time>` because retry state resets on restart. These observations come from the same status read model as `aiur status` and `aiur agents`.
 
 A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age unknown` when unavailable); see [GitHub trust](/apis/github-auth#who-aiur-trusts).
 
@@ -158,7 +136,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
-In the Units table, a unit holding a native question shows “Waiting for your answer” in the blocked tone, elapsed minutes, and a link to its Command.
+A worker holding a native question raises a Command; open Commands to answer it.
 
 ### Read fleet and build pressure
 
@@ -223,7 +201,7 @@ of the composer.
 
 | Writable control | Where | Action |
 | --- | --- | --- |
-| Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
+| Fleet | Settings cog on Build, Commands, Analytics and Streamdeck | Pause or resume new agent starts. |
 | Unit | Build ticket modal | Read the conversation, message or pause the agent. |
 | Fleet capacity | CLI | Run `aiur set max-agents <n>`. |
 | Ticket | CLI | Queue with `aiur --todo <ticket-id>`. |
@@ -247,7 +225,7 @@ Delivered and in-flight answers show their status and recorded answer. If an ans
 
 **Send correction** records new direction; it does not undo work already done. Stale Commands offer a refresh, and withdrawn Commands explain why the answer is no longer needed.
 
-Build ticket modal mutations require writable dashboard access. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
+Build ticket modal mutations require writable dashboard access. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision remains GUI-only today; the retired ticket-routing preview has no GUI entry.
 
 Disable mutations for an observation-only surface:
 
@@ -262,58 +240,13 @@ The legacy Units board, Tickets panel and routing preview have been retired. Run
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
 
-### Executor voice prototype
+### Retired drawer controls
 
-Open a conversation drawer, choose **ElevenLabs** or **OpenAI**, enter its model,
-and press **Talk to Executor** to start a continuous spoken session. Change the
-provider between sessions without editing config or restarting.
-
-Both credentials and the ElevenLabs Agent id must be configured for a two-provider comparison. The voice control
-always targets the Executor, regardless of the worker shown in the drawer.
-
-The drawer shows each provider's cumulative used or reserved minutes. Comparison
-limits are 45 minutes each for OpenAI and ElevenLabs on this runtime, separate
-from the existing shared daily cap. Starts at the comparison cap are refused;
-remaining minutes also shorten the session's automatic stop.
-
-A reservation is
-written before connecting. Failed starts and interrupted sessions without a saved
-end line charge the whole reservation, including after a daemon restart.
-
-Expand **Compare providers and record Kevin’s rating** for side-by-side session
-lines: model, first audio, duration, budget cost estimate, rating (1–5) and note.
-
-First audio measures server session startup to first received agent audio, before
-browser playback; sessions with no audio show unavailable.
-
-Ratings and redacted notes survive reloads. The private `comparison.json` sits beside the transcripts;
-no audio is stored. Stop the current session before choosing another provider.
-
-The estimates allocate USD 8 / 45 OpenAI minutes and USD 8 / 45 ElevenLabs
-minutes; these are evaluation budget rates, not vendor tariffs or invoice limits.
-The ledger starts at deployment and excludes earlier provider/account usage.
-
-Before each attended comparison, reconcile actual prior spend and account usage
-against the USD 25 approval on #4084; record each delta there. End both sessions
-after evaluation and disable the demo. Kevin's choice (or “not yet”) belongs on
-#4083 before Stream Deck voice work is filed.
-
-The control shows not configured, connecting, live, ended or failed. Press
-**End Executor conversation** to send the transcript and categorized summary.
-Each item keeps its sent event id and timestamp after the session ends.
-
-Receipts say **sent, not received** until the Executor acknowledges the
-matching wake. **Received** confirms acknowledgment, not approval or execution.
-A missing acknowledgment stays visible; re-rendering the drawer or starting
-another session preserves earlier receipts. A failed handoff shows an error.
-
-The summary separates decisions, open questions and ideas. If the assistant did
-not record one before ending, the drawer says **unstructured**; the transcript
-is still sent without inventing decisions.
-
-Use HTTPS or localhost for microphone access. See
-[Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
-for provider configuration, credentials and ElevenLabs client-tool setup.
+The Units conversation drawer and its listener selector, interactive worker voice
+chat and Executor voice prototype controls have been retired. Backend listener
+modes and Executor voice APIs remain available; their configuration is documented
+in [voice configuration](/reference/configuration-voice). Build retains message
+sending and dictation; full conversation pages retain their own composer.
 
 ## Authentication and network exposure
 

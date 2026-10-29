@@ -3,78 +3,15 @@
    have no fixed width, so (with table-layout: fixed) they split the remaining
    space and get the most room. */
 
-.u-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.12rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  background: var(--pill-bg);
-  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 0.66rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--fg);
-}
-
 /* The legacy medium-priority ink needs a small lift on Gruvbox surfaces to clear AA. */
-
-.ut-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  align-items: stretch;
-}
 
 /* Medium widths: keep ID / Unit / Command as inline columns, but merge Ticket
    and Latest into one column — title on top, progress/latest at the bottom — so
    neither gets crushed into a narrow strip. */
-@media (min-width: 481px) and (max-width: 760px) {
-
-}
 
 /* Compact table stacks simply on narrow screens (overrides the old grid map). */
 /* Keep the compact single-row table down to true phone widths; only reflow the
    cells into stacked sub-rows on the smallest screens. Even then, keep it short:
    ID + Unit pills + Command share the top line, then Ticket, then Latest. */
-@media (max-width: 480px) {
-
-  /* Line 1: ID · Unit pills · Command (icons pushed to the right). */
-
-  /* Ticket and Latest each take their own full-width line below. */
-
-}
 
 /* Units page heading (icon tile + title), matching the design's page-head. */
-.units-page-head {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  padding: 0.15rem 0.15rem 0;
-}
-
-.units-page-ic {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  color: var(--accent);
-}
-
-.units-page-ic svg {
-  width: 22px;
-  height: 22px;
-}
-
-.units-page-head h2 {
-  margin: 0;
-  font-size: 1.55rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}

@@ -1,9 +1,7 @@
 /* ---- Agents panel header ----
    The same title/count pair the APIs and Models panels use, so the three panel
    headers read as one system. It sits above the filter row, not inside it. */
-.units-group-head {
-  margin-bottom: 0.85rem;
-}
+
 
 /* ---- Tickets panel ----
    Every open ticket on the repository, including the ones no agent has been
