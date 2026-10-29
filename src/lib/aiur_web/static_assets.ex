@@ -20,7 +20,6 @@ defmodule AiurWeb.StaticAssets do
     aiur-dom-svg-layout-adapter.js
     aiur-dom-svg-layout-loader.js
     build-home
-    build-order-grid-hook.js
     conversation-scroll-hook.js
     conversation-drawer-hook.js
     conversation-voice-controller.js
@@ -62,7 +61,6 @@ defmodule AiurWeb.StaticAssets do
   @runtime_static_assets %{
     "/decision-questions-validation.js" => {"application/javascript", "priv/static/decision-questions-validation.js"},
     "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
-    "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},

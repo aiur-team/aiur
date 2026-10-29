@@ -34,7 +34,6 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
-        <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/streamdeck-emulator-knob.js"></script>
         <script defer src="/assets/streamdeck-emulator-hook.js"></script>
         <script defer src="/assets/sortable-table-hook.js"></script>
@@ -241,10 +240,6 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurConversationDrawerHook) {
               window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
-            }
-
-            if (window.AiurBuildOrderGridHook) {
-              window.BrowserHarnessHooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
             }
 
             if (window.AiurStreamdeckEmulatorHook) {
