@@ -31,8 +31,9 @@ defmodule Aiur.GitHub.IssueState.LabelCleanup do
     |> Enum.reject(fn label ->
       (Keyword.get(opts, :clear_terminal_state_overrides, false) and
          StatePolicy.terminal_state_label?(label, prefix)) or
-        (preserved?(label, prefix) and not clear_override?(opts, label, prefix)) or
-        String.downcase(label) in excluded
+        String.downcase(label) in excluded or
+        (preserved?(label, prefix) and not clear_override?(opts, label, prefix) and
+           String.downcase(label) not in (Keyword.get(opts, :force_remove, []) |> Enum.map(&String.downcase/1)))
     end)
     |> remove_labels(request_fun, token, owner, repo, issue_number, opts)
   end
@@ -58,11 +59,15 @@ defmodule Aiur.GitHub.IssueState.LabelCleanup do
         prefix,
         opts \\ []
       ) do
+    excluded = Keyword.get(opts, :exclude, []) |> Enum.map(&String.downcase/1)
+
     issue_body
     |> labels(prefix)
     |> Enum.reject(fn label ->
       StatePolicy.terminal_state_label?(label, prefix) or
-        (preserved?(label, prefix) and not clear_override?(opts, label, prefix))
+        String.downcase(label) in excluded or
+        (preserved?(label, prefix) and not clear_override?(opts, label, prefix) and
+           String.downcase(label) not in (Keyword.get(opts, :force_remove, []) |> Enum.map(&String.downcase/1)))
     end)
     |> remove_labels(request_fun, token, owner, repo, issue_number, opts)
   end
