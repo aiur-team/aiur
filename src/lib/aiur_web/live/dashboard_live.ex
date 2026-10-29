@@ -7,6 +7,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.DashboardLive.Controls
+  alias AiurWeb.DashboardLive.Conversation
   alias AiurWeb.DashboardLive.Page
   alias AiurWeb.DashboardLive.RepositoryLeaderBanner
   alias AiurWeb.DashboardLive.Session
@@ -78,16 +79,52 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_info(:reload_payload, socket) do
     mode = Map.get(socket.assigns, :payload_reload_mode, :cached)
-    {:noreply, socket |> Commands.reload_payload(mode) |> PayloadLoader.mark_loaded()}
+    {:noreply, socket |> Commands.reload_payload(mode) |> Conversation.refresh_conversation_row() |> PayloadLoader.mark_loaded()}
   end
 
+  def handle_info({:live_conversation_changed, snapshot}, socket),
+    do: {:noreply, Conversation.maybe_update_conversation(socket, snapshot)}
+
+  def handle_info({:live_conversation_restarted, _epoch, _now}, socket),
+    do: {:noreply, Conversation.supersede_conversation(socket)}
+
+  def handle_info({:listen_mode_changed, _, _} = message, socket), do: AiurWeb.ListenerModeEvents.info(message, socket)
+  def handle_info({:listener_timeout, _, _} = message, socket), do: AiurWeb.ListenerModeEvents.info(message, socket)
+  def handle_info({:listener_refresh, _, _} = message, socket), do: AiurWeb.ListenerModeEvents.info(message, socket)
+
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async({:listener_receipts, _, _} = key, result, socket), do: AiurWeb.ListenerModeEvents.finish(key, result, socket)
 
   @impl true
 
   def handle_event("open-voice-conversation", params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.open(socket, params)}
 
   def handle_event("close-voice-conversation", _params, socket), do: {:noreply, AiurWeb.VoiceConversationEvents.close(socket)}
+
+  def handle_event("read-conversation", %{"unit" => token}, socket) when is_binary(token),
+    do: Conversation.on_read_conversation(token, socket)
+
+  def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
+  def handle_event("close-conversation", _params, socket), do: Conversation.on_close_conversation(socket)
+  def handle_event("refresh_listen_mode", _params, socket), do: AiurWeb.ListenerModeEvents.retry(socket)
+  def handle_event("set_listen_mode", params, socket), do: AiurWeb.ListenerModeEvents.change(params, socket)
+
+  def handle_event("composer-change", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
+      when is_map(modal), do: handle_writable_event(socket, fn -> Conversation.on_composer_change(message, modal, socket) end)
+
+  def handle_event("composer-change", _params, socket), do: {:noreply, socket}
+
+  def handle_event("send-operator-message", %{"message" => message}, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
+      when is_map(modal), do: handle_writable_event(socket, fn -> Conversation.on_send_operator_message(message, modal, socket) end)
+
+  def handle_event("send-operator-message", _params, socket), do: {:noreply, socket}
+
+  def handle_event("pause-agent", _params, %{assigns: %{writable: true, agent_log_modal: modal}} = socket)
+      when is_map(modal), do: handle_writable_event(socket, fn -> Conversation.pause_agent_action(socket, modal) end)
+
+  def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 

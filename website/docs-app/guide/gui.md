@@ -30,6 +30,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | --- | --- | --- |
 | **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
 | **Units** | CLI fleet inspection; legacy /units URLs redirect to Build. | `aiur units` |
+| **Talk to Executor** | `/voice`, from Home’s Settings menu; provider comparison, delivery receipts and worker conversation voice. | none |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. **From Executor** filters inbox rows (`?requester=executor`); Executor requests carry a badge. | `aiur commands` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
@@ -240,18 +241,7 @@ The legacy Units board, Tickets panel and routing preview have been retired. Run
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
 
-### Retired drawer controls
-
-The Units conversation drawer and its listener selector, interactive worker voice
-chat and Executor voice prototype controls have been retired.
-
-Backend listener
-modes and Executor voice APIs remain available; their configuration is documented
-in [voice configuration](/reference/configuration-voice). Build retains message
-sending and dictation; full conversation pages retain their own composer.
-
-See [Executor voice](/guide/executor-voice) for shared Executor composer support.
-
+See [Executor voice](/guide/executor-voice) for the **Talk to Executor** entry in Home’s settings menu, provider comparison, receipts, and worker conversation voice controls.
 
 ## Authentication and network exposure
 
@@ -353,8 +343,7 @@ summaries. Rolling medians appear only when supplied in the stored analysis.
 ## Open a full conversation
 
 Select **Open in conversation** from a Command with a known conversation position,
-or navigate to `/conversations/:conversation_id`. The legacy Units and drawer
-links have retired with the board.
+or navigate to `/conversations/:conversation_id`. The worker conversation drawer remains available from `/voice`; the legacy Units board has retired.
 
 A conversation without recorded messages shows **No messages yet**. Until its
 journal exists, it also says **Conversation not found**; storage failures show

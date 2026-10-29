@@ -11,8 +11,10 @@ slots; a provider usage-limit pause releases its slot while it waits.
 
 Use `aiur set max-agents <n>` to adjust fleet capacity and
 `aiur --todo <ticket-id>` to queue a ticket. The retired board's routing preview,
-interactive drawer voice chat, Add an agent panel and run-summary strip are no
-longer dashboard controls. Open a ticket on Build to read its conversation or
+Add an agent panel and run-summary strip are no longer dashboard controls.
+
+Worker conversation voice controls and the Executor prototype remain available
+from **Settings → Talk to Executor** (`/voice`). Open a ticket on Build to read its conversation or
 send a message.
 
 The CLI supports `--scope live|unfinished|all|none` and repeated `--condition`

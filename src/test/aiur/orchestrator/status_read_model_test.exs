@@ -2,11 +2,9 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
   use Aiur.TestSupport
 
   import ExUnit.CaptureIO
-  import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Aiur.{AgentControlCLI, Boot, Issue}
   alias Aiur.Orchestrator.{Dispatcher, IssueSync, SnapshotStore, State, StatusObservation, StatusReport}
-  alias AiurWeb.OperatorControlCenter.CapacityPresenter
   alias AiurWeb.Presenter
 
   test "snapshot projection preserves all six renderer inputs and their behavior" do

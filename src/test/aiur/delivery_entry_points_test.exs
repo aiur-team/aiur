@@ -8,7 +8,7 @@ defmodule Aiur.DeliveryEntryPointsTest do
   alias Aiur.Opencode.ChatCompletions.OperatorDispatch
   alias Aiur.Orchestrator.{OperatorMessages, State}
   alias Aiur.TestSupport.EndpointStubs
-  alias AiurWeb.{Endpoint, StreamdeckChannel}
+  alias AiurWeb.{DashboardLive, Endpoint, StreamdeckChannel}
 
   @endpoint Endpoint
   @moduletag :r7_characterization
@@ -55,6 +55,18 @@ defmodule Aiur.DeliveryEntryPointsTest do
     assert {:ok, 1} = OperatorDispatch.send_operator(@identifier, "x", "turn-r7")
     assert_received {:wire, @identifier, payload}
     assert payload == %{kind: :text, body: "x", delivery_policy: :listener, origin: :tui, fallback: :queue_next, turn_id: "turn-r7", message_id: nil}
+  end
+
+  test "dashboard drawer passes only message_id so AgentChat governs policy" do
+    record_chat_opts()
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{__changed__: %{}, writable: true, agent_log_modal: %{issue_identifier: @identifier, writable_target?: true}, drafts: %{}, pending_message_ids: %{}, chat_errors: %{}}
+    }
+
+    assert {:noreply, _} = DashboardLive.handle_event("send-operator-message", %{"message" => "x"}, socket)
+    assert_received {:chat, @identifier, "x", [message_id: "dashboard-" <> suffix]}
+    assert byte_size(suffix) == 16
   end
 
   test "Stream Deck passes only message_id so AgentChat governs policy" do

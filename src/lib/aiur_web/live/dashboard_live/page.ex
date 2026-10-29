@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive.Page do
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.DashboardLive.Controls
+  alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.OperatorControlCenter.DashboardShell
   alias AiurWeb.OperatorControlCenter.DecisionInbox
   alias AiurWeb.OperatorControlCenter.History
@@ -55,6 +56,8 @@ defmodule AiurWeb.DashboardLive.Page do
       </:banner>
 
       <Overview.error error={@payload.fleet[:error]} />
+
+      <VoicePanel.panel :if={@live_action == :voice} {assigns} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
         <div :if={not is_nil(@selected_decision) and Commands.partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">

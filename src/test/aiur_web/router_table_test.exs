@@ -73,6 +73,7 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/conversations/:conversation_id", Phoenix.LiveView.Plug, :show, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/commands", Phoenix.LiveView.Plug, :decisions, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/commands/:decision_id", Phoenix.LiveView.Plug, :decision, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/voice", Phoenix.LiveView.Plug, :voice, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/build", Phoenix.LiveView.Plug, :build, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/analytics", Phoenix.LiveView.Plug, :analytics, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/instances", Phoenix.LiveView.Plug, :instances, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},

@@ -6,9 +6,11 @@ defmodule AiurWeb.DashboardLive.Session do
 
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.Commands
+  alias AiurWeb.DashboardLive.Conversation
   alias AiurWeb.DashboardLive.RepositoryLeaderBanner
   alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.DashboardLive.Voice
+  alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.NavState
   alias AiurWeb.OperatorControlCenter.PayloadLoader
@@ -40,6 +42,7 @@ defmodule AiurWeb.DashboardLive.Session do
       |> assign(:time_zone, browser_time_zone(socket))
       |> Voice.assign_voice()
       |> AiurWeb.VoiceConversationEvents.close()
+      |> VoicePanel.init()
       |> assign(:decision_actions, %{})
       |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
@@ -68,11 +71,16 @@ defmodule AiurWeb.DashboardLive.Session do
 
   @doc false
   @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  def handle_params(_params, _uri, %{assigns: %{live_action: :voice}} = socket) do
+    {:noreply, socket |> assign(:table_sort, nil) |> assign(:current_route, RouteRegistry.current_route(:voice))}
+  end
+
   def handle_params(params, _uri, socket) do
     filter = Commands.normalize_filter(params["route"] || params["filter"])
 
     {:noreply,
      socket
+     |> leave_voice()
      |> assign(:decision_filter, filter)
      |> assign(:table_sort, UnitsPanel.normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
@@ -80,6 +88,13 @@ defmodule AiurWeb.DashboardLive.Session do
      |> CommandHistory.load_history(:first_page)
      |> Commands.assign_selected_decision(params["decision_id"])}
   end
+
+  defp leave_voice(%{assigns: %{current_route: %{id: :voice}}} = socket) do
+    {:noreply, socket} = Conversation.on_close_conversation(socket)
+    AiurWeb.VoiceConversationEvents.close(socket)
+  end
+
+  defp leave_voice(socket), do: socket
 
   @doc false
   @spec dashboard_writable?() :: boolean()

@@ -91,7 +91,10 @@ export const recordedSeconds = {
   'test:time-brush': 8,
   'test:layout': 24,
   'test:ticket-context': 17,
+  'test:browser-suite -- build-home-executor-voice-comparison': 30,
   'test:voice-input': 38,
+  // Local governed run (2026-10-29): 39s whole command; 14 Node + 13 browser cases (19.5s).
+  'test:voice-drawer': 40,
   'test:provider-meters': 14,
   'test:streamdeck': 59,
   'test:streamdeck-flow': 13,

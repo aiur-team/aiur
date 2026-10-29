@@ -18,8 +18,10 @@ defmodule AiurWeb.VoiceConversationEventsTest do
 
   setup do
     identity = units_identity()
+    handle = conversation_handle_value("v")
+    now = DateTime.utc_now()
     orchestrator = start_counting_orchestrator(__MODULE__.Orchestrator)
-    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+    replace_counting_snapshot(orchestrator, freshen(units_conversation_snapshot(identity, handle), now))
     {:ok, capability} = Agent.start_link(fn -> %{state: :available} end)
     {:ok, workers} = Agent.start_link(fn -> ["1110"] end)
 
@@ -32,17 +34,22 @@ defmodule AiurWeb.VoiceConversationEventsTest do
       dashboard_writable: true,
       voice_conversation_panel_module: InstalledPanel,
       capabilities_report_fun: fn -> %{capabilities: %{"voice.conversation" => Agent.get(capability, & &1)}} end,
-      units_membership_fun: fn -> units_membership(identity) end,
-      units_activity_fun: fn -> units_activity(identity) end
+      units_membership_fun: fn -> freshen(units_membership(identity), now) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      live_conversation_resolve_fun: fn ^handle -> {:ok, freshen(conversation_snapshot(handle), now)} end,
+      live_conversation_subscribe_fun: fn ^handle -> :ok end,
+      live_conversation_unsubscribe_fun: fn ^handle -> :ok end,
+      usage_snapshot_fun: fn _identifier, _opts -> {:error, :no_usage_data} end
     )
 
-    # The drawer renderer is retired; retain the shared handoff policy contract.
-    {:ok, view, _html} = live(build_conn(), "/commands")
-    target = Jason.encode!(%{kind: "worker", ticket: "1110"})
+    {:ok, view, _html} = live(build_conn(), "/voice")
+    view |> element(~s(#voice-workers button[aria-label="Open conversation for 1110"])) |> render_click()
+    target = view |> element("[data-voice-root]") |> render() |> Floki.parse_fragment!() |> Floki.attribute("data-voice-target") |> hd()
     %{view: view, capability: capability, workers: workers, params: %{"surface" => "agent_composer", "target" => target}}
   end
 
-  test "shared Converse handoff opens the worker panel request and close clears it", %{view: view, params: params} do
+  test "Converse opens the panel request for the drawer's worker and close clears it", %{view: view, params: params} do
+    assert has_element?(view, "[data-voice-mode=converse][aria-disabled=false]")
     assert Jason.decode!(params["target"]) == %{"kind" => "worker", "ticket" => "1110"}
     render_hook(view, "open-voice-conversation", params)
     assert assigns(view).voice_conversation_panel == %{target: %{kind: :worker, ticket: "1110", instance_id: nil}, surface: "agent_composer"}
@@ -51,18 +58,18 @@ defmodule AiurWeb.VoiceConversationEventsTest do
     assert assigns(view).voice_conversation_panel == nil
   end
 
-  test "a stopped agent is refused with a reason and no panel", %{view: view, params: params, workers: workers} do
+  test "a stopped agent is refused with an inline reason and no panel", %{view: view, params: params, workers: workers} do
     Agent.update(workers, fn _ -> [] end)
     render_hook(view, "open-voice-conversation", params)
     assert assigns(view).voice_conversation_panel == nil
-    assert assigns(view).voice_conversation_error == %{reason_code: "target_not_found", reason: "Agent is no longer running."}
+    assert has_element?(view, "[role=dialog] [data-voice-conversation-error=target_not_found]", "Agent is no longer running.")
   end
 
   test "forged and malformed targets are refused without opening a panel", %{view: view, params: params} do
     for target <- [~s({"kind":"root"}), ~s({"kind":"worker","ticket":"1110","admin":true}), "{", "null", String.duplicate("x", 2049)] do
       render_hook(view, "open-voice-conversation", %{params | "target" => target})
       assert assigns(view).voice_conversation_panel == nil
-      assert assigns(view).voice_conversation_error == %{reason_code: "invalid_payload", reason: "Voice request is invalid."}
+      assert has_element?(view, "[data-voice-conversation-error=invalid_payload]", "Voice request is invalid.")
     end
   end
 
@@ -70,7 +77,7 @@ defmodule AiurWeb.VoiceConversationEventsTest do
     Agent.update(capability, fn _ -> %{state: :unavailable, reason: :disabled} end)
     render_hook(view, "open-voice-conversation", params)
     assert assigns(view).voice_conversation_panel == nil
-    assert assigns(view).voice_conversation_error == %{reason_code: "disabled", reason: "Converse is disabled."}
+    assert has_element?(view, "[data-voice-conversation-error=disabled]", "Converse is disabled.")
   end
 
   test "unavailable and unreadable capabilities never become an available panel", %{view: view, params: params, capability: capability} do
@@ -83,8 +90,7 @@ defmodule AiurWeb.VoiceConversationEventsTest do
       Agent.update(capability, fn _ -> entry end)
       render_hook(view, "open-voice-conversation", params)
       assert assigns(view).voice_conversation_panel == nil
-      assert assigns(view).voice_conversation_error.reason_code == code
-      assert assigns(view).voice_conversation_error.reason =~ copy
+      assert has_element?(view, "[data-voice-conversation-error=#{code}]", copy)
       assert Map.get(assigns(view).voice_conversation_error, :reasons, []) == reasons
     end
   end
@@ -105,18 +111,24 @@ defmodule AiurWeb.VoiceConversationEventsTest do
     Agent.update(capability, fn _ -> %{state: :degraded} end)
     render_hook(view, "open-voice-conversation", params)
     assert assigns(view).voice_conversation_panel.target.ticket == "1110"
-    assert assigns(view).voice_conversation_error == nil
+    refute has_element?(view, "[data-voice-conversation-error]")
   end
 
   test "an installed host without the downstream panel refuses the handoff", %{view: view, params: params} do
     EndpointStubs.put(voice_conversation_panel_module: __MODULE__.MissingPanel)
     send(view.pid, :elevenlabs_quota_tick)
     render(view)
-    assert assigns(view).voice_capabilities["voice.conversation"] == %{state: :unavailable, reason: :not_installed}
+    assert has_element?(view, "[data-voice-mode=converse][aria-disabled=true]")
     render_hook(view, "open-voice-conversation", params)
     assert assigns(view).voice_conversation_panel == nil
     assert assigns(view).voice_conversation_error.reason_code == "not_installed"
   end
 
   defp assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp freshen(%DateTime{}, now), do: now
+  defp freshen(%_{} = value, _now), do: value
+  defp freshen(value, now) when is_map(value), do: Map.new(value, fn {key, item} -> {key, freshen(item, now)} end)
+  defp freshen(value, now) when is_list(value), do: Enum.map(value, &freshen(&1, now))
+  defp freshen(value, _now), do: value
 end

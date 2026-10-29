@@ -45,6 +45,7 @@ defmodule AiurWeb.Routes.DashboardPages do
           live("/conversations/:conversation_id", AiurWeb.ConversationLive, :show)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
+          live("/voice", AiurWeb.DashboardLive, :voice)
           live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
           live("/instances", AiurWeb.InstanceRosterLive, :instances)

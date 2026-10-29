@@ -119,11 +119,9 @@ defmodule Aiur.MixProject do
           Mix.Tasks.Aiur.AffectedTests,
           Aiur.TestReset,
           # Presentational OperatorControlCenter components no route currently
-          # renders (the compact Units redesign dropped the recent-/current-run
-          # outcomes and capacity panels). Pure HEEx with no executable branches
-          # to unit-test until they are re-wired or removed.
+          # renders. Pure HEEx with no executable branches to unit-test until
+          # they are re-wired or removed.
           AiurWeb.OperatorControlCenter.RecentOutcomes,
-          AiurWeb.OperatorControlCenter.CapacityControl,
           AiurWeb.OperatorControlCenter.BuildOrderStatus,
           AiurWeb.OperatorControlCenter.BuildOrderUsage,
           AiurWeb.Units.DemoSource

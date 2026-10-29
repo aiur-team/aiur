@@ -201,6 +201,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
              "/conversations/:conversation_id",
              "/commands",
              "/commands/:decision_id",
+             "/voice",
              "/build",
              "/analytics",
              "/instances",

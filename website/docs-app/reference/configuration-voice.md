@@ -30,7 +30,7 @@ from Aiur's `voice.conversation` configuration.
 ## Executor voice prototype setup
 
 The Executor conversation prototype supports **ElevenLabs Agents** (default)
-and **OpenAI Realtime**. Its Units-drawer GUI has been retired; these settings configure the retained backend APIs. For ElevenLabs,
+and **OpenAI Realtime**. From Home, open **Settings → Talk to Executor** (`/voice`) to compare providers and record ratings; see [Executor voice](/guide/executor-voice). These settings configure the same retained backend APIs. For ElevenLabs,
 create the Agent and set:
 
 ```yaml

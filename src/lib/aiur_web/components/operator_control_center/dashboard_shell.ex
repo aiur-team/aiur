@@ -47,6 +47,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               <.pause_item globally_paused={@pause_state.globally_paused} writable={@pause_state.writable} />
               <.theme_item />
               <.palette_button />
+              <a href="/voice" class="ax-mi aiur-shell__menu-item" role="menuitem">Talk to Executor</a>
             </div>
           </div>
         </div>

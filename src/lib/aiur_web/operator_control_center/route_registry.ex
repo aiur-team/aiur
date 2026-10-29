@@ -25,6 +25,18 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:decisions, :decision]
     },
     %{
+      id: :voice,
+      label: "Voice",
+      icon: "",
+      description: "Executor conversation and worker voice controls.",
+      path: "/voice",
+      type: :live,
+      owner: :dashboard,
+      availability: :available,
+      nav?: false,
+      active_actions: [:voice]
+    },
+    %{
       id: :analytics,
       label: "Analytics",
       icon: "↗",

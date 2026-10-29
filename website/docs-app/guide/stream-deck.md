@@ -329,7 +329,7 @@ The waveform and level bar are computed on the sidecar, so they keep moving with
 
 The deck transcribes and does not speak, so it needs only the `Speech to Text` and `User` permissions.
 
-Interactive voice chat in the legacy Units drawer has been retired. The Build ticket modal retains dictation.
+The Build ticket modal retains dictation. Worker conversation voice and the Executor prototype remain available from Home’s **Settings → Talk to Executor** (`/voice`).
 
 ### Configure it
 

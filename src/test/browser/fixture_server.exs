@@ -14,7 +14,7 @@ Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live fixture_live ticket_context_live voice_input_live
+      route_shell_live fixture_live ticket_context_live voice_input_live voice_fixture_data voice_fixture_live executor_voice_control
       support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
@@ -60,6 +60,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/executor-voice-control/:mode", Aiur.BrowserHarness.ExecutorVoiceControl, :configure)
     get("/build-fixture/index-live", Aiur.BrowserHarness.IndexLiveFixture, :configure)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
@@ -82,6 +83,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
       live("/palette-probe", Aiur.BrowserHarness.PaletteProbeLive, :index)
     end
 
+    live("/voice-fixture", Aiur.BrowserHarness.VoiceFixtureLive, :index)
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)

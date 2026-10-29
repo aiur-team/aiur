@@ -19,9 +19,12 @@ defmodule AiurWeb.DeadCodeTest do
   test "retired Units board components are absent while shared modal contracts remain" do
     refute Code.ensure_loaded?(AiurWeb.OperatorControlCenter.UnitsTable)
     refute Code.ensure_loaded?(AiurWeb.OperatorControlCenter.UnitsFilters)
-    refute Code.ensure_loaded?(AiurWeb.OperatorControlCenter.ConversationDrawer)
 
     for module <- [
+          AiurWeb.OperatorControlCenter.ConversationDrawer,
+          AiurWeb.OperatorControlCenter.ExecutorVoice,
+          AiurWeb.DashboardLive.Conversation,
+          AiurWeb.ExecutorVoiceTarget,
           AiurWeb.OperatorControlCenter.UnitsPresenter,
           Aiur.Projections.UnitsPolicy,
           Aiur.Projections.UnitsRow,
