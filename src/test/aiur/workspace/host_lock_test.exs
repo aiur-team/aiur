@@ -75,36 +75,52 @@ defmodule Aiur.Workspace.HostLockTest do
         acquired_at: DateTime.utc_now() |> DateTime.to_iso8601()
       }
 
-      assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease")
+      stale_lock = %{path: Path.join(workspace_path("host-lock-missing-proof"), ".lock")}
+
+      assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), stale_lock)
 
       workspace = workspace_path("host-lock-live-owner-proof")
       assert {:ok, lock} = HostLock.acquire(workspace, "24")
       assert is_binary(lock.holder.owner_started_at)
-      assert nil == HostLock.dead_owner_proof(lock.holder, to_string(Node.self()), "live-lease")
+      assert {:keep, :owner_matches_daemon} = HostLock.dead_owner_proof(lock.holder, to_string(Node.self()), lock)
       assert :ok = HostLock.release(lock)
 
-      assert nil == HostLock.dead_owner_proof(%{holder | os_pid: nil}, to_string(Node.self()), "live-lease")
-      assert nil == HostLock.dead_owner_proof(%{holder | owner_id: "live-lease"}, to_string(Node.self()), "live-lease")
+      assert {:keep, :pid_missing} = HostLock.dead_owner_proof(%{holder | os_pid: nil}, to_string(Node.self()), stale_lock)
+      assert {:keep, :owner_identity_unavailable} = HostLock.dead_owner_proof(%{holder | owner_id: nil}, to_string(Node.self()), stale_lock)
     end
 
-    @tag :real_proc
     test "a pid reused after the recorded owner start is treated as dead" do
+      proc_root = proc_root("host-lock-reused-pid", 4242, 300)
+      owner_started_at = DateTime.from_unix!(1_700_000_000_000, :millisecond) |> DateTime.to_iso8601()
+
       holder = %{
         node: to_string(Node.self()),
-        os_pid: System.pid() |> String.to_integer(),
+        os_pid: 4242,
         owner_id: "old-lock",
-        acquired_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-        owner_started_at: DateTime.add(DateTime.utc_now(), -36_500, :day) |> DateTime.to_iso8601()
+        acquired_at: DateTime.add(DateTime.from_unix!(1_700_000_000_000, :millisecond), -1, :day) |> DateTime.to_iso8601(),
+        owner_started_at: owner_started_at
       }
 
-      assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease")
+      proof_opts = [proc_root: proc_root, clock_ticks: 100, current_os_pid: 1]
+      assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), %{path: Path.join(proc_root, "missing.lock")}, proof_opts)
+    end
+
+    test "a process start within two seconds of recorded owner start remains live" do
+      proc_root = proc_root("host-lock-start-time-tolerance", 4243, 100)
+      owner_started_at = DateTime.from_unix!(1_700_000_000_000, :millisecond) |> DateTime.to_iso8601()
+      holder = %{node: to_string(Node.self()), os_pid: 4243, owner_id: "old-lock", acquired_at: "2020-01-01T00:00:00Z", owner_started_at: owner_started_at}
+      proof_opts = [proc_root: proc_root, clock_ticks: 100, current_os_pid: 1]
+
+      assert {:keep, :start_time_within_tolerance} =
+               HostLock.dead_owner_proof(holder, to_string(Node.self()), %{path: Path.join(proc_root, "missing.lock")}, proof_opts)
     end
 
     test "an unavailable proc root does not prove owner exit" do
       holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, owner_id: "old-lock", acquired_at: DateTime.utc_now() |> DateTime.to_iso8601()}
       proc_root = Path.join(Aiur.TestSupport.tmp_root!("host-lock-unavailable-proc"), "missing-proc")
 
-      assert nil == HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease", proc_root: proc_root)
+      assert {:keep, :proc_unreadable} ==
+               HostLock.dead_owner_proof(holder, to_string(Node.self()), %{path: Path.join(proc_root, "missing.lock")}, proc_root: proc_root)
     end
 
     test "a lock whose owning pid is dead is reclaimed" do
@@ -243,6 +259,21 @@ defmodule Aiur.Workspace.HostLockTest do
 
   defp workspace_path(name) do
     Path.join(Aiur.TestSupport.tmp_root!(name), "24")
+  end
+
+  defp proc_root(name, pid, start_ticks) do
+    root = Path.join(Aiur.TestSupport.tmp_root!(name), "proc")
+    File.mkdir_p!(Path.join(root, "self"))
+    File.mkdir_p!(Path.join(root, Integer.to_string(pid)))
+    File.write!(Path.join(root, "self/stat"), proc_stat(1, 10))
+    File.write!(Path.join([root, Integer.to_string(pid), "stat"]), proc_stat(pid, start_ticks))
+    File.write!(Path.join(root, "stat"), "btime 1700000000\n")
+    root
+  end
+
+  defp proc_stat(pid, start_ticks) do
+    fields = ["S" | List.duplicate("0", 18) ++ [Integer.to_string(start_ticks)]]
+    "#{pid} (fixture) #{Enum.join(fields, " ")}\n"
   end
 
   # A pid that has exited: spawn a trivial command, wait for it, then reuse its

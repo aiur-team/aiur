@@ -254,7 +254,11 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
 
       state.provider_scope == :local ->
         holder = get_in(state.host_lock || %{}, [:holder])
-        HostLock.dead_owner_proof(holder, to_string(Node.self()), state.lease.owner_id)
+
+        case HostLock.dead_owner_proof(holder, to_string(Node.self()), state.host_lock) do
+          :owner_pid_dead -> :owner_pid_dead
+          {:keep, _reason} -> nil
+        end
 
       true ->
         nil

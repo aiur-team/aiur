@@ -45,6 +45,8 @@ defmodule Aiur.Workspace.HostLock do
           acquired_at: String.t()
         }
 
+  @type dead_owner_check :: :owner_pid_dead | {:keep, atom()}
+
   @type t :: %{path: Path.t(), workspace: Path.t(), holder: holder()}
 
   @typedoc """
@@ -156,42 +158,91 @@ defmodule Aiur.Workspace.HostLock do
   def describe(_holder), do: "an unidentified holder"
 
   @doc false
-  @spec dead_owner_proof(map() | nil, String.t(), String.t()) :: :owner_pid_dead | nil
-  def dead_owner_proof(holder, current_node, lease_owner),
-    do: dead_owner_proof(holder, current_node, lease_owner, [])
+  @spec dead_owner_proof(map() | nil, String.t(), map() | nil) :: dead_owner_check()
+  def dead_owner_proof(holder, current_node, host_lock),
+    do: dead_owner_proof(holder, current_node, host_lock, [])
 
   @doc false
-  @spec dead_owner_proof(map() | nil, String.t(), String.t(), keyword()) :: :owner_pid_dead | nil
+  @spec dead_owner_proof(map() | nil, String.t(), map() | nil, keyword()) :: dead_owner_check()
   def dead_owner_proof(
         %{node: node, os_pid: pid, owner_id: owner_id, acquired_at: acquired_at} = holder,
         current_node,
-        lease_owner,
+        host_lock,
         opts
       )
       when is_integer(pid) and pid > 0 and is_binary(owner_id) and is_binary(acquired_at) do
     proc_root = Keyword.get(opts, :proc_root, "/proc")
+    current_os_pid = Keyword.get(opts, :current_os_pid, os_pid())
 
-    with true <- stale_owner?(node, owner_id, current_node, lease_owner),
-         {:dead, _reason} <- pid_status(pid, holder, proc_root) do
+    with :ok <- stale_owner_status(holder, node, current_node, host_lock, current_os_pid),
+         {:dead, _reason} <- pid_status(pid, holder, proc_root, opts) do
       :owner_pid_dead
     else
-      _ -> nil
+      {:keep, reason} -> {:keep, reason}
+      {:live, reason} -> {:keep, reason}
+      :unknown -> {:keep, :proc_unreadable}
+      _ -> {:keep, :pid_alive}
     end
   end
 
-  def dead_owner_proof(_holder, _current_node, _lease_owner, _opts), do: nil
+  def dead_owner_proof(%{os_pid: nil}, _current_node, _host_lock, _opts),
+    do: {:keep, :pid_missing}
 
-  defp stale_owner?(node, _owner_id, current_node, _lease_owner) when node != current_node,
-    do: true
+  def dead_owner_proof(_holder, _current_node, _host_lock, _opts),
+    do: {:keep, :owner_identity_unavailable}
 
-  defp stale_owner?(_node, owner_id, _current_node, lease_owner), do: owner_id != lease_owner
+  defp stale_owner_status(%{os_pid: pid}, _node, _current_node, _host_lock, pid),
+    do: {:keep, :owner_matches_daemon}
 
-  defp pid_status(pid, holder, proc_root) do
+  defp stale_owner_status(holder, _node, _current_node, %{path: path}, _current_os_pid)
+       when is_binary(path) do
+    case lock_owner_state(path, holder) do
+      :absent -> :ok
+      :same_holder -> :ok
+      :different_holder -> {:keep, :owner_not_stale}
+      :unreadable -> {:keep, :lock_unreadable}
+    end
+  end
+
+  defp stale_owner_status(_holder, _node, _current_node, _host_lock, _current_os_pid),
+    do: {:keep, :lock_identity_unavailable}
+
+  defp lock_owner_state(path, expected_holder) do
+    case File.read(path) do
+      {:error, :enoent} ->
+        :absent
+
+      {:ok, contents} ->
+        decode_lock_owner(contents, expected_holder)
+
+      {:error, _reason} ->
+        :unreadable
+    end
+  rescue
+    _ -> :unreadable
+  end
+
+  defp decode_lock_owner(contents, expected_holder) do
+    case Jason.decode(contents) do
+      {:ok, decoded} when is_map(decoded) ->
+        if same_lock_owner?(decode_holder(decoded), expected_holder),
+          do: :same_holder,
+          else: :different_holder
+
+      _ ->
+        :unreadable
+    end
+  end
+
+  defp same_lock_owner?(%{owner_id: owner_id, node: node, os_pid: pid}, expected),
+    do: owner_id == expected.owner_id and node == expected.node and pid == expected.os_pid
+
+  defp pid_status(pid, holder, proc_root, opts) do
     case File.read(Path.join([proc_root, "self", "stat"])) do
       {:ok, _self_stat} ->
         case File.read(Path.join([proc_root, Integer.to_string(pid), "stat"])) do
           {:error, :enoent} -> {:dead, :absent}
-          {:ok, stat} -> process_start_status(stat, holder, proc_root)
+          {:ok, stat} -> process_start_status(stat, holder, proc_root, opts)
           {:error, _} -> :unknown
         end
 
@@ -202,21 +253,32 @@ defmodule Aiur.Workspace.HostLock do
     _ -> :unknown
   end
 
-  defp process_start_status(stat, holder, proc_root) do
+  defp process_start_status(stat, holder, proc_root, opts) do
     with {close, _} <- List.last(:binary.matches(stat, ")")),
          fields <- binary_part(stat, close + 1, byte_size(stat) - close - 1) |> String.split(),
          {ticks, ""} <- Integer.parse(Enum.at(fields, 19)),
          {:ok, acquired, _} <-
            DateTime.from_iso8601(Map.get(holder, :owner_started_at) || holder.acquired_at),
          {:ok, boot_time} <- proc_boot_time(proc_root),
-         {:ok, clock_ticks} <- clock_ticks() do
+         {:ok, clock_ticks} <- clock_ticks(opts) do
       started_at_ms = trunc((boot_time + ticks / clock_ticks) * 1_000)
+      acquired_at_ms = DateTime.to_unix(acquired, :millisecond)
 
-      if started_at_ms > DateTime.to_unix(acquired, :millisecond),
-        do: {:dead, :pid_reused},
-        else: :live
+      cond do
+        started_at_ms > acquired_at_ms + 2_000 -> {:dead, :pid_reused}
+        started_at_ms > acquired_at_ms -> {:live, :start_time_within_tolerance}
+        true -> {:live, :pid_alive}
+      end
     else
       _ -> :unknown
+    end
+  end
+
+  defp clock_ticks(opts) do
+    case Keyword.fetch(opts, :clock_ticks) do
+      {:ok, value} when is_integer(value) and value > 0 -> {:ok, value}
+      {:ok, _value} -> :error
+      :error -> clock_ticks()
     end
   end
 
