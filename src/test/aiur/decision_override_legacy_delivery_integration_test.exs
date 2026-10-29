@@ -2,7 +2,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
   use Aiur.TestSupport
 
   alias Aiur.{DecisionDispatch, DecisionPubSub, DecisionStore, Issue, Orchestrator}
-  alias Aiur.Orchestrator.{OperatorMessages, PauseResume}
+  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, PauseResume}
 
   @identifier "6908"
   @actor %{kind: :operator, id: "human"}
@@ -184,7 +184,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
             send_fun: &OperatorMessages.send_correlated_operator_message/3,
             issue_fetcher: fn _ -> {:ok, [%Issue{id: @identifier, identifier: @identifier, title: "Override", state: target_state}]} end,
             terminal_states: MapSet.new(["done"]),
-            revalidate_fun: &Aiur.Orchestrator.Dispatcher.revalidate_issue_for_dispatch/3
+            revalidate_fun: &Dispatcher.revalidate_issue_for_dispatch/3
           ]
       )
     end

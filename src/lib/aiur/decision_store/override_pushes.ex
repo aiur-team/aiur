@@ -7,8 +7,8 @@ defmodule Aiur.DecisionStore.OverridePushes do
   alias Aiur.DecisionStore.CommandFacts
 
   @spec subscribe(GenServer.server()) :: :ok
-  def subscribe(server \\ Aiur.Events.Exchange) do
-    Aiur.Events.Exchange.subscribe("ticket.*.branch.push", server)
+  def subscribe(server \\ Aiur.Events.exchange_server()) do
+    Aiur.Events.subscribe("ticket.*.branch.push", server)
   catch
     :exit, reason ->
       detail = Aiur.SecretRedactor.redact(inspect(reason))
