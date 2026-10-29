@@ -60,7 +60,8 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
           data-streamdeck-url={value(face, :url)} data-streamdeck-command={value(face, :command)} data-streamdeck-icon={value(face, :icon)}
           data-command-state={value(face, :state)} data-command-hold={value(face, :hold) && "true"}
           data-command-label={value(face, :title)} data-command-sub={value(face, :sub)}
-          data-log-event-index={value(face, :event_index)} aria-current={if @mode == :logs, do: to_string(value(face, :selected, false))}
+          data-chat-turn={value(face, :chat_turn)} data-chat-live={@model.nav.surface == :chat && value(face, :live) && "true"}
+          data-log-event-index={value(face, :event_index)} aria-current={if @mode == :logs or not is_nil(value(face, :chat_turn)) or value(face, :live), do: to_string(value(face, :selected, false))}
           data-command-key={value(face, :decision_id)} data-command-option={@commands_view == :detail && value(face, :option_index)}
           data-command-selected={value(face, :selected) && "true"}
           phx-click={key_click(@mode, face, index)} phx-value-index={value(face, :option_index)} />

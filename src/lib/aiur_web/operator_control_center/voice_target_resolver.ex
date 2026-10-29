@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.VoiceTargetResolver do
       same cached payload the agent drawer reads (`AgentLogModal`).
     * command — the Command still takes an answer (`DecisionAction`), read
       through the `Aiur.Commands` facade, at the version the client saw.
+    * command revision — the Command has an answer, at the version the client saw.
   """
 
   @behaviour AiurWeb.VoiceTargetResolver
@@ -27,21 +28,27 @@ defmodule AiurWeb.OperatorControlCenter.VoiceTargetResolver do
   end
 
   @impl true
-  def command(decision_id, expected_version) do
-    case Commands.get(decision_id, store: decision_store()) do
-      {:ok, %{decision: decision}} -> command_state(decision, expected_version)
-      {:error, :not_found} -> {:error, :target_not_found}
-      {:error, {:invalid_decision_id, _reason}} -> {:error, :target_not_found}
-      # Unavailable or partial store: the Command's state is unknowable, not gone.
-      {:error, _unavailable} -> {:error, :unknown}
-    end
-  end
+  def command(decision_id, expected_version),
+    do: command_state(decision_id, expected_version, &DecisionAction.answerable?/1)
 
-  defp command_state(decision, expected_version) do
-    cond do
-      not DecisionAction.answerable?(decision) -> {:error, :target_stale}
-      expected_version not in [nil, decision.version] -> {:error, :target_stale}
-      true -> :ok
+  @impl true
+  def command_revision(decision_id, expected_version),
+    do: command_state(decision_id, expected_version, &(not is_nil(&1.answer)))
+
+  defp command_state(decision_id, expected_version, eligible?) do
+    case Commands.get(decision_id, store: decision_store()) do
+      {:ok, %{decision: decision}} ->
+        if eligible?.(decision) and expected_version in [nil, decision.version], do: :ok, else: {:error, :target_stale}
+
+      {:error, :not_found} ->
+        {:error, :target_not_found}
+
+      {:error, {:invalid_decision_id, _reason}} ->
+        {:error, :target_not_found}
+
+      # Unavailable or partial store: the Command's state is unknowable, not gone.
+      {:error, _unavailable} ->
+        {:error, :unknown}
     end
   end
 

@@ -13,6 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   attr(:writable, :boolean, required: true)
   attr(:drafts, :map, required: true)
   attr(:errors, :map, required: true)
+  attr(:receipts, :list, default: [])
   attr(:voice_capabilities, :map, default: %{})
 
   @spec agent_log_modal(map()) :: Phoenix.LiveView.Rendered.t()
@@ -56,7 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             enterkeyhint="send"
             data-voice-input
           >{@drafts[@modal.target_key] || ""}</textarea>
-          <.voice_input
+          <.voice_input delivery={AiurWeb.Components.VoiceDelivery.receipt(@receipts, @modal.target_key, @errors)}
             id={"agent-log-voice-#{@modal.target_key}"}
             capabilities={@voice_capabilities}
             surface="agent_composer"

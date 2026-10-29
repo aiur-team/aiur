@@ -50,6 +50,9 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
 
     assert eventually(fn -> render(view) =~ ~s(phx-submit="revise-decision") end, 100)
 
+    assert has_element?(view, "#decision-revision-form-#{decision.decision_id}[phx-hook=VoiceInput][data-voice-select-custom='revision[choice]']")
+    assert has_element?(view, "#decision-revision-voice-#{decision.decision_id}[data-voice-surface=command_revision]")
+
     revision_params = %{
       "decision_id" => decision.decision_id,
       "revision" => %{
@@ -61,6 +64,8 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
 
     assert render_change(view, "decision-revision-change", revision_params) =~
              "Hold deployment until the incident closes"
+
+    assert has_element?(view, "textarea[name='revision[custom_response]'][data-voice-input][maxlength='4000']")
 
     html = render_submit(view, "revise-decision", revision_params)
     assert html =~ "Confirm that you understand this revised direction"
