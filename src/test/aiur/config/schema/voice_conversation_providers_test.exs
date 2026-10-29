@@ -2,6 +2,24 @@ defmodule Aiur.Config.Schema.VoiceConversationProvidersTest do
   use ExUnit.Case, async: true
   alias Aiur.Config.Schema
 
+  test "default cascade parts map on a cold VM before the core is loaded" do
+    paths = Path.wildcard(Path.join([Mix.Project.build_path(), "lib", "*", "ebin"]))
+
+    script = """
+    settings = Aiur.Config.Schema.VoiceConversation.__struct__()
+    case Aiur.VoiceConverse.Host.Config.build(settings, "/unused/voice") do
+      {:ok, config} -> IO.inspect(config.providers.cascade)
+      error -> raise inspect(error)
+    end
+    """
+
+    args = Enum.flat_map(paths, &["-pa", &1]) ++ ["-e", script]
+    {output, status} = System.cmd(System.find_executable("elixir"), args, env: [{"ERL_FLAGS", "+S 2:2"}], stderr_to_stdout: true)
+    assert status == 0, output
+    assert output =~ "stt: [:browser_stt]"
+    assert output =~ "tts: [:browser_tts]"
+  end
+
   test "omitted providers use the core preference and leave model choices unset" do
     assert {:ok, settings} = Schema.parse(%{})
     providers = settings.voice.conversation.providers

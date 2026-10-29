@@ -26,7 +26,11 @@ defmodule Aiur.Config.Schema.VoiceConversationCascade do
   end
 
   @spec to_core(struct()) :: map()
-  def to_core(schema), do: %{stt: parts(schema.stt), llm: schema.llm, tts: parts(schema.tts)}
+  def to_core(schema) do
+    # The core's part atoms may not exist yet in a freshly booted VM.
+    Code.ensure_loaded!(VoiceConverse.ProviderConfig)
+    %{stt: parts(schema.stt), llm: schema.llm, tts: parts(schema.tts)}
+  end
 
   defp parts(nil), do: nil
   defp parts(values), do: Enum.map(values, &existing_atom/1)
