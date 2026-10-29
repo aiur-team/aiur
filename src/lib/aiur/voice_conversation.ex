@@ -2,8 +2,8 @@ defmodule Aiur.VoiceConversation do
   @moduledoc "Host configuration and lifecycle seam for the read-only Executor voice prototype."
 
   alias Aiur.Config
-  alias Aiur.VoiceConverse.Host.Credentials
   alias Aiur.VoiceConverse.Host.Config, as: HostConfig
+  alias Aiur.VoiceConverse.Host.Credentials
 
   @instance Aiur.VoiceConversation.Instance
 
