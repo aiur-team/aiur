@@ -62,7 +62,7 @@ def progress_row(label, row, total=False):
     progress = bar(parts, size) if parts else shown(UNAVAILABLE)
     chip = ('<span class="chip paused-pill">paused</span>' if value(row.get("paused")) is True else
             f'<span class="chip good">+{today:g} today</span>' if today is not None and today > 0 else
-            '<span class="delta-zero">0 today</span>' if today == 0 else shown(UNAVAILABLE))
+            '' if today == 0 else shown(UNAVAILABLE))
     return (f'<div class="frow{" total" if total else ""}{" paused" if value(row.get("paused")) is True else ""}{" long-name" if len(label) > 24 else ""}"><span class="fname">{text(label)}</span>{progress}'
             f'<span class="fnum">{shown(done)}<i>/{shown(size)}</i></span>{chip}</div>')
 
@@ -120,7 +120,6 @@ def state_bar(program):
 
 
 def funnel(outcomes):
-    return '<div class="pipeline">' + ''.join(
-        '<div class="pipeline-stage"><span class="kick">' + label + '</span><span class="snum">'
-        + shown(outcomes.get(key)) + '</span></div>' for label, key in
+    return '<div class="pipeline compact">' + ''.join(
+        metric_row(label, outcomes.get(key), outcomes.get("merged")) for label, key in
         (("Merged", "merged"), ("Live", "live"), ("Verified", "finished_verified"))) + '</div>'

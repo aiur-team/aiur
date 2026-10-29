@@ -57,8 +57,9 @@ Content wraps without reducing fonts. If it overflows, whole items are removed
 in this order: low-ranked patterns, shipped items, bottlenecks, blockers, notes.
 Unfinished lanes are balanced across both columns and never removed; completed
 lanes are excluded. Paused lanes have a pill, and tracker slugs use readable
-product names. A notice reports omitted items; the complete
-content stays in `report.json`. Mandatory metrics and headings are never
+product names. Each trimmed list keeps an accurate `+N more` summary, even if every item is
+hidden. A page notice also reports omitted items; the complete content stays
+in `report.json`. Mandatory metrics and headings are never
 clipped. If those alone cannot fit, compilation fails.
 
 The footer distinguishes merged PRs, merges proven live on a running build,

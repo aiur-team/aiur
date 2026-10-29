@@ -47,22 +47,25 @@ def html(report, timezone_name=None, notes=None):
     themes = sorted(patterns.get("themes", {}).items(), key=lambda r: -(numeric(r[1]) or 0))
     pattern_html = ''.join(removable('<p>' + text(k) + ' · ' + shown(v) + '</p>', "patterns", 10) for k, v in themes[:3])
     notes_html = ''.join(removable('<p>' + text(p) + '</p>', "notes", 60) for p in editorial.get("notes", []))
+    bottleneck_rows = editorial.get("bottlenecks", automated_bottlenecks(report))
     merged = outcomes.get("merged")
     fields = dict(styles=styles(), logo=data_url(STYLE / "assets/aiur-logo.png", "image/png"),
                   date=text(end.strftime("%A %d %B %Y")), window_end=text(end.strftime("%H:%M %Z")),
                   gauge=gauge(share.get("percent")), feature_count=shown(share.get("feature")), merged=shown(merged),
                   trend=trend(share.get("trend_pp")), focus=focus(report.get("allocation", {})), hand=icon("hand"),
                   blocker_count=str(len(editorial["blockers"])) if "blockers" in editorial else "?",
+                  shipped_count=str(len(editorial["shipped"])) if "shipped" in editorial else "?",
+                  bottleneck_count=str(len(bottleneck_rows)) if bottleneck_rows is not None else "?",
                   blockers=blockers(editorial.get("blockers")), program=progress_row("Whole program", program, True),
                   states=state_bar(program),
                   lanes=lane_rows(program), funnel=funnel(outcomes),
                   scope=''.join(metric_row(k.title(), program.get("scope", {}).get(k), program.get("total"))
                                 for k in ("added", "removed", "reopened", "paused", "shelved")),
                   shipped=shipped(editorial.get("shipped")),
-                  bottlenecks=bottlenecks(editorial.get("bottlenecks", automated_bottlenecks(report))),
-                  patterns='<section class="patterns"><span class="kick">Meta patterns</span>'
+                  bottlenecks=bottlenecks(bottleneck_rows),
+                  patterns='<section class="patterns" data-editorial-list="patterns" data-total="' + str(len(themes)) + '"><span class="kick">Meta patterns</span>'
                            + (pattern_html or text(patterns.get("status", "unavailable"))) + '</section>',
-                  notes='<section class="notes"><span class="kick">Executor notes</span>'
+                  notes='<section class="notes" data-editorial-list="notes" data-total="' + str(len(editorial.get("notes", []))) + '"><span class="kick">Executor notes</span>'
                         + (notes_html or shown(None)) + '</section>',
                   sources="GitHub, daemon, telemetry/meta (report.json)", omitted='')
     document = Template((HERE / "template.html").read_text()).substitute(fields)
@@ -72,38 +75,9 @@ def html(report, timezone_name=None, notes=None):
 
 def trim_script(omitted):
     # Trim whole lowest-priority items after embedded fonts load. Never clip or scale.
-    return '''<script>
-    document.fonts.ready.then(() => {
-      let removed = OMITTED;
-      const candidates = [...document.querySelectorAll('[data-trim]')]
-        .map((element, index) => ({element, index}))
-        .sort((a, b) => Number(a.element.dataset.trim) - Number(b.element.dataset.trim) || b.index - a.index);
-      const columns = [...document.querySelectorAll('[data-column]')];
-      const boards = [...document.querySelectorAll('[data-lane-board]')];
-      const lanes = [...document.querySelectorAll('[data-lane]')];
-      const balance = () => {
-        if (!lanes.length) return;
-        let best = 0, height = Infinity;
-        for (let split = 0; split <= lanes.length; split++) {
-          boards[0].replaceChildren(...lanes.slice(0, split));
-          boards[1].replaceChildren(...lanes.slice(split));
-          const trial = Math.max(...columns.map(column => column.scrollHeight));
-          if (trial < height) { height = trial; best = split; }
-        }
-        boards[0].replaceChildren(...lanes.slice(0, best));
-        boards[1].replaceChildren(...lanes.slice(best));
-      };
-      balance();
-      const notice = document.querySelector('.omitted');
-      const update = () => { notice.textContent = removed ? `${removed} lower priority items omitted; full details in report.json.` : ''; };
-      update();
-      for (const {element} of candidates) {
-        if (document.body.scrollHeight <= 1056 && document.body.scrollWidth <= 816) break;
-        element.remove(); removed++; update(); balance();
-      }
-      document.body.dataset.pagesFit = String(document.body.scrollHeight <= 1056 && document.body.scrollWidth <= 816);
-    });
-    </script>'''.replace('OMITTED', str(omitted))
+    script = (HERE / "layout.js").read_text().replace("INITIAL_OMITTED", str(omitted))
+    return "<script>" + script + "</script>"
+
 
 
 def compile_report(report, output, timezone_name=None, notes=None):

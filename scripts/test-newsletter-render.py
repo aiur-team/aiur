@@ -38,6 +38,39 @@ def report():
     return compute(today, prior)
 
 
+def editorial_report():
+    """The approved daily page's public content sizes, with no machine-local data."""
+    data = report()
+    data['allocation'] = compute(fixtures.snapshot())['allocation']
+    labels = ['Voice', 'Stream Deck redesign', 'Conversations', 'Command delivery', 'Listener',
+              'Acceptance tests', 'Event bus', 'Executor', 'Agent harness', 'Home page', 'Kernel',
+              'Paseo core', 'Paseo integration', 'Paseo sidecar', 'Unit refactor', 'Size reduction',
+              'Mobile foundations', 'Device pairing', 'Instance summaries', 'Push relay',
+              'Notification controls', 'Mobile app', 'Watch companion']
+    lane = data['program']['lanes']['feature:mail']
+    data['program']['lanes'] = {}
+    for i, label in enumerate(labels):
+        row = copy.deepcopy(lane)
+        row['name'] = label
+        row['done_in_window']['value'] = 1 if i < 5 else 0
+        row['paused'] = {'value': label in ('Executor', 'Mobile app', 'Watch companion')}
+        data['program']['lanes'][f'feature:lane-{i}'] = row
+    data['editorial'] = {
+        'blockers': [{'label': label, 'action': action} for label, action in [
+            ('Package publication', 'Set trusted publisher'), ('Voice demo', 'Enable Agents Write'),
+            ('Multi instance plan', 'Answer the design questions'), ('Network settings', 'Confirm intent'),
+            ('Stream Deck check', 'Look after deploy'), ('Phone commands', 'Pick the default'),
+            ('Release window', 'Confirm timing')]],
+        'shipped': [{'icon': 'rocket', 'label': label} for label in [
+            'Voice prototype deployed', 'Feature first dispatch live', 'Stream Deck screens live',
+            'Conversations merged', 'CPU investigation completed']],
+        'bottlenecks': [
+            {'problem': 'Feature share below goal', 'action': 'Feature first dispatch', 'result': 'Impact not measured'},
+            {'problem': 'Voice awaits credentials', 'action': 'Prototype deployed', 'result': 'Blocked on operator'},
+            {'problem': 'No allocation evidence', 'action': 'Capture daily evidence', 'result': 'Pending'}]}
+    return data
+
+
 def chromium_available():
     try:
         return render.find_chromium()
@@ -86,7 +119,7 @@ class RendererTest(unittest.TestCase):
         self.assertIn('class="unav">unavailable', bottlenecks(automated_bottlenecks(absent)))
         empty = compute(fixtures.snapshot())
         self.assertEqual(automated_bottlenecks(empty), [])
-        section = render.html(empty).split('aria-label="Bottlenecks">', 1)[1].split('</section>', 1)[0]
+        section = render.html(empty).split('aria-label="Bottlenecks"', 1)[1].split('>', 1)[1].split('</section>', 1)[0]
         self.assertIn('None reported', section)
         self.assertNotIn('unavailable', section)
 
@@ -127,6 +160,41 @@ class RendererTest(unittest.TestCase):
                              if word.tag.endswith('word') and word.text == 'Planned']
                 self.assertTrue(any(x < 100 for x in positions), 'feature rows must occupy the main column')
                 self.assertTrue(any(x > 380 for x in positions), 'feature rows must occupy the side column')
+
+    @unittest.skipUnless(chromium_available(), 'Chromium is not installed; full editorial PDF acceptance skipped')
+    @unittest.skipUnless(shutil.which('pdftotext'), 'pdftotext is not installed; printed content acceptance skipped')
+    def test_real_pdf_preserves_editorial_and_all_23_unfinished_lanes(self):
+        data = editorial_report()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render.compile_report(data, Path(temporary) / 'newsletter.pdf')
+            self.assertEqual(render.page_count(path), 1)
+            if shutil.which('pdftotext'):
+                printed = ' '.join(subprocess.check_output(['pdftotext', str(path), '-'], text=True).split())
+                for row in data['program']['lanes'].values():
+                    self.assertIn(row['name'], printed)
+                for row in data['editorial']['shipped']:
+                    self.assertIn(row['label'], printed)
+                for row in data['editorial']['bottlenecks']:
+                    self.assertIn(row['problem'], printed)
+                self.assertIn('+2 more', printed)
+                self.assertNotIn('omitted', printed)
+                self.assertNotIn('0 today', printed)
+
+    @unittest.skipUnless(chromium_available(), 'Chromium is not installed; trimmed-list PDF acceptance skipped')
+    @unittest.skipUnless(shutil.which('pdftotext'), 'pdftotext is not installed; printed count acceptance skipped')
+    def test_trimmed_editorial_lists_keep_truthful_remaining_counts(self):
+        data = editorial_report()
+        for row in data['editorial']['blockers']:
+            row['label'] += ' critical dependency' * 200
+        with tempfile.TemporaryDirectory() as temporary:
+            path = render.compile_report(data, Path(temporary) / 'newsletter.pdf')
+            self.assertEqual(render.page_count(path), 1)
+            if shutil.which('pdftotext'):
+                printed = ' '.join(subprocess.check_output(['pdftotext', str(path), '-'], text=True).split())
+                self.assertIn('+7 more', printed)
+                self.assertIn('+5 more', printed)
+                self.assertIn('Bottlenecks +3 more', printed)
+                self.assertIn('omitted', printed)
 
     def test_unknown_feature_share_does_not_draw_zero_gauge(self):
         data = compute(fixtures.snapshot())

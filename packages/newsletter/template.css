@@ -12,8 +12,6 @@ h1,h2,h3,h4,p{margin:0}
 
 /* masthead */
 .mast{display:flex;justify-content:center;padding-bottom:8px}
-.mast .side{font:500 12px/16px var(--mono);color:var(--muted);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
-.mast .side.r{text-align:right}
 .name{display:flex;align-items:center;gap:12px}
 .name img{width:48px;height:42px}
 .name h1{font:400 48px/1 "Bungee",var(--sans);letter-spacing:.02em;color:var(--fg);white-space:nowrap}
@@ -24,10 +22,6 @@ h1,h2,h3,h4,p{margin:0}
 .rule1{height:1px;background:var(--line-strong);margin-bottom:12px}
 
 /* grid with column rules (a rule element, not a one sided border) */
-.cols{display:grid;gap:0 24px}
-.vrule{background:var(--line);width:1px}
-.lead{grid-template-columns:1fr 1px 264px;margin-bottom:12px}
-.lead h2{font:600 30px/36px var(--serif);font-optical-sizing:auto;letter-spacing:-.01em;margin:4px 0 12px;text-wrap:balance;color:#fff}
 .hero{display:grid;grid-template-columns:240px 1fr;gap:16px;align-items:center}
 .gauge{position:relative;width:240px;height:136px}
 .gauge svg{width:240px;height:136px;display:block;overflow:visible}
@@ -50,7 +44,6 @@ h1,h2,h3,h4,p{margin:0}
 
 /* bars: dashboard .pbar */
 .pbar{position:relative;display:flex;height:8px;border-radius:9999px;background:var(--surface-3);border:1px solid var(--hairline);overflow:hidden;flex:1;min-width:0}
-.pbar.thick{height:12px}
 .seg{display:block;height:100%}
 .seg.accent{background:var(--accent)} .seg.today{background:var(--good-ink)} .seg.good{background:var(--good)}
 .seg.attn{background:var(--attn)} .seg.super{background:var(--super)} .seg.muted{background:#676b74} .seg.block{background:var(--block)}
@@ -69,7 +62,6 @@ h1,h2,h3,h4,p{margin:0}
 .byou li.more{font:600 12px/16px var(--mono);color:var(--attn-ink);padding-bottom:0}
 
 /* body */
-.body{grid-template-columns:1fr 1px 264px;margin-bottom:12px}
 .sec-h{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
 .sec-h h3{font:600 24px/32px var(--serif);font-optical-sizing:auto}
 .board{display:flex;flex-direction:column;gap:2px}
@@ -84,21 +76,11 @@ h1,h2,h3,h4,p{margin:0}
 .legend2{margin-top:8px}
 .lg i.today{background:var(--good-ink)}
 
-.rail{display:flex;flex-direction:column;gap:16px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
-.rail{gap:12px}
 .card .kick{display:block;margin-bottom:4px}
-.pipe{display:grid;grid-template-columns:1fr 16px 1fr 16px 1fr;align-items:end;gap:4px}
-.parw{padding-bottom:16px} .parw .ic{width:16px;height:16px}
-.stage{display:flex;flex-direction:column;gap:4px;min-width:0}
-.stage .kick{margin:0;color:var(--muted);font-size:12px;letter-spacing:.08em}
-.snum{font:700 24px/32px var(--mono)}
-.stage .unav{font-size:12px;line-height:32px}
 .srow{display:grid;grid-template-columns:16px 64px 1fr 40px;align-items:center;gap:8px;height:24px;font-size:12px;line-height:16px;color:var(--muted)}
 .srow b{font:700 14px/20px var(--mono);text-align:right;color:var(--fg)}
 .srow .unav{font-size:12px;grid-column:span 2}
-.duo{display:flex;flex-direction:column;gap:2px}
-.duo .pbar{flex:none;height:6px}
 .card.scope{border-color:rgba(198,155,255,.35)}
 .card.scope .kick{color:var(--super-ink)}
 .ship{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
@@ -108,7 +90,6 @@ h1,h2,h3,h4,p{margin:0}
 .bn{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:4px}
 .bn .kick{color:var(--muted)}
 .bn h4{font:600 18px/28px var(--serif);white-space:nowrap;display:flex;align-items:center;gap:8px}
-.bnum{font:700 12px/20px var(--mono);width:20px;height:20px;border-radius:9999px;text-align:center;background:var(--surface-3);color:var(--fg);flex:none}
 .bn.attn h4{color:var(--attn-ink)} .bn.block h4{color:var(--block-ink)} .bn.super h4{color:var(--super-ink)}
 .bl{display:grid;grid-template-columns:48px 1fr;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--muted)}
 .bl b{color:var(--fg);font:500 14px/20px var(--sans)}
@@ -138,10 +119,6 @@ h1,h2,h3,h4,p{margin:0}
 .focus .kick{display:block;margin-bottom:8px}
 .focus .pbar{flex:none;width:100%;height:8px;margin:4px 0 8px}
 .focus .allocation-unavailable{display:block;line-height:16px}
-.pipeline{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.pipeline-stage{display:flex;flex-direction:column;gap:4px}
-.pipeline .snum .unav{font-size:10px;line-height:20px}
-.pipeline .snum{font:600 24px/32px var(--mono)}
 .program .focus{margin:8px 0 0}
 .board{gap:4px}
 .frow{grid-template-columns:minmax(0,1fr) auto;gap:0 8px;min-height:32px;font-size:12px;line-height:16px}
@@ -181,3 +158,29 @@ h1,h2,h3,h4,p{margin:0}
 .right-column .frow.long-name .pbar{grid-column:1;grid-row:2}
 .right-column .frow.long-name .fnum{grid-column:2;grid-row:2}
 .right-column .frow.long-name .chip,.right-column .frow.long-name .delta-zero{grid-column:3;grid-row:2}
+/* Compact rows preserve editorial space without changing type sizes at runtime. */
+body{padding-top:16px;padding-bottom:12px}
+.card{padding:8px}
+.board{gap:2px}
+.byou{align-self:stretch;min-width:0;padding:8px 12px}
+.byou header{gap:4px;margin-bottom:4px}
+.byou li{padding:2px 0}
+.byou .count{padding:0 4px}
+.bn{padding:8px}
+.card.scope .srow{min-height:20px}
+.pipeline.compact{display:block}
+.outcomes .srow{grid-template-columns:12px 64px minmax(0,1fr) auto;gap:4px;min-height:16px}
+.outcomes .srow .ic{width:12px;height:12px}
+.outcomes .srow b{grid-column:4;font:600 12px/16px var(--mono)}
+.right-column .frow{grid-template-columns:116px minmax(24px,1fr) 44px 64px;gap:4px;min-height:16px}
+.right-column .frow .fname{grid-column:1;grid-row:1}
+.right-column .frow .pbar{grid-column:2;grid-row:1}
+.right-column .frow .fnum{grid-column:3;grid-row:1}
+.right-column .frow .chip,.right-column .frow>span.unav{grid-column:4;grid-row:1}
+.main-column .frow:not(:has(.chip)):not(:has(>span.unav)){grid-template-columns:144px minmax(32px,1fr) 60px}
+.right-column .frow:not(:has(.chip)):not(:has(>span.unav)){grid-template-columns:144px minmax(24px,1fr) 44px}
+.editorial-more{font:600 12px/16px var(--mono);color:var(--muted)}
+.editorial-more[hidden]{display:none}
+.main-column,.right-column{gap:4px}
+.newspaper{margin-bottom:8px}
+.outcomes .unav{font:inherit}
