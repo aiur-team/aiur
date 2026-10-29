@@ -3,6 +3,7 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
 
   require Logger
 
+  alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership.Guardian.{Provider, Receipt}
   alias Aiur.Workspace.Ownership.Retention
 
@@ -14,12 +15,28 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
     do: {:release, state}
 
   def maybe_release_or_reap(%{provider: nil, provider_expected?: true, release_requested?: true} = state) do
-    if local_provider_exited_after_reboot?(state), do: {:release, state}, else: {:wait, Retention.mark(state)}
+    case exit_proof(state) do
+      nil ->
+        {:wait, Retention.mark(state)}
+
+      proof ->
+        case record_provider_exit_audit(state, "guardian", "workspace_hold_auto_release", proof) do
+          :ok ->
+            Receipt.emit_telemetry(state, :point, :automatic_release_after_provider_exit_proof)
+            {:release, state}
+
+          {:error, reason} ->
+            Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{state.lease.generation} reason=#{inspect(reason)}")
+            {:wait, Retention.mark(state, "recovery_audit_failed")}
+        end
+    end
   end
 
   def maybe_release_or_reap(%{provider: nil, provider_expected?: true} = state) do
-    if local_provider_exited_after_reboot?(state) do
-      case record_provider_exit_audit(state, "guardian", "workspace_hold_auto_release") do
+    if exit_proof(state) do
+      proof = exit_proof(state)
+
+      case record_provider_exit_audit(state, "guardian", "workspace_hold_auto_release", proof) do
         :ok ->
           Logger.warning("Automatically released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
           Receipt.emit_telemetry(state, :point, :automatic_release_after_provider_exit_proof)
@@ -197,12 +214,14 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
 
   @spec release_with_provider_exit_proof(map(), term()) :: tuple()
   def release_with_provider_exit_proof(%{lease: %{generation: generation, phase: :reaping}, provider: nil, provider_expected?: true} = state, generation) do
-    if local_provider_exited_after_reboot?(state) do
-      case record_provider_exit_audit(state, System.get_env("USER") || "unknown", "workspace_hold_release") do
+    if exit_proof(state) do
+      proof = exit_proof(state)
+
+      case record_provider_exit_audit(state, System.get_env("USER") || "unknown", "workspace_hold_release", proof) do
         :ok ->
           Logger.warning("Operator released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
           Receipt.emit_telemetry(state, :point, :operator_release_after_provider_exit_proof)
-          {:ok, state}
+          {:ok, %{state | provider_cleanup: :succeeded}}
 
         {:error, reason} ->
           Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{generation} reason=#{inspect(reason)}")
@@ -215,17 +234,31 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
 
   def release_with_provider_exit_proof(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
 
-  defp record_provider_exit_audit(state, actor, action) do
+  defp record_provider_exit_audit(state, actor, action, proof) do
     record = %{
       action: action,
       actor: actor,
       generation: state.lease.generation,
-      proof: "local_host_boot_id_changed",
+      proof: if(proof == :owner_pid_dead, do: "owner_pid_dead", else: "local_host_boot_id_changed"),
       ticket: state.lease.ticket,
       timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
     }
 
     safe_audit(state.audit_fun, record)
+  end
+
+  defp exit_proof(state) do
+    cond do
+      local_provider_exited_after_reboot?(state) ->
+        :boot_changed_release_pending
+
+      state.provider_scope == :local ->
+        holder = get_in(state.host_lock || %{}, [:holder])
+        HostLock.dead_owner_proof(holder, to_string(Node.self()), state.lease.owner_id)
+
+      true ->
+        nil
+    end
   end
 
   defp safe_audit(audit_fun, record) do

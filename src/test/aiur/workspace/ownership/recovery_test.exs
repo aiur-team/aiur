@@ -7,6 +7,45 @@ defmodule Aiur.Workspace.Ownership.RecoveryTest do
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.{AuditLog, Guardian, HoldStatus, Store}
 
+  test "dead local lock pid proves exit for audited operator recovery" do
+    ticket = "ownership-dead-pid-#{System.unique_integer([:positive])}"
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+    audit_path = Path.join(Aiur.TestSupport.tmp_root!("workspace-dead-pid-audit"), "#{ticket}.ndjson")
+
+    audit_fun = fn record ->
+      case Agent.get_and_update(calls, fn n -> {n, n + 1} end) do
+        0 -> {:error, :temporary_failure}
+        _ -> AuditLog.write(record, path: audit_path)
+      end
+    end
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(calls)
+      File.rm(audit_path)
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun)
+    assert :ok = Ownership.expect_provider(lease, :local)
+    holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, ticket: ticket, owner_id: "old-host-lock", acquired_at: "2020-01-01T00:00:00Z"}
+    assert :ok = Ownership.track_host_lock(lease, %{path: "/unused/#{ticket}.lock", workspace: "/unused/#{ticket}", holder: holder})
+    assert {:ok, receipt} = Store.get(ticket)
+
+    Process.exit(lease.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:ok, _held} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    assert %{proof: :owner_pid_dead} = HoldStatus.for_ticket(ticket)
+
+    output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, lease.generation) end)
+    assert output =~ "proof=owner_pid_dead"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
+    assert [line] = File.read!(audit_path) |> String.split("\n", trim: true)
+    assert {:ok, record} = Jason.decode(line)
+    assert record["proof"] == "owner_pid_dead"
+  end
+
   test "a local unknown provider auto-releases after a verified reboot when audit persists" do
     ticket = "ownership-reboot-proof-#{System.unique_integer([:positive])}"
     {:ok, boot} = Agent.start_link(fn -> "boot-before" end)

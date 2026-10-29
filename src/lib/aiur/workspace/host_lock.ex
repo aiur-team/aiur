@@ -37,6 +37,7 @@ defmodule Aiur.Workspace.HostLock do
   @type worker_host :: String.t() | nil
 
   @type holder :: %{
+          optional(:owner_started_at) => String.t() | nil,
           node: String.t(),
           os_pid: integer() | nil,
           ticket: String.t(),
@@ -154,6 +155,66 @@ defmodule Aiur.Workspace.HostLock do
   def describe(_holder), do: "an unidentified holder"
 
   @doc false
+  @spec dead_owner_proof(map() | nil, String.t(), String.t()) :: :owner_pid_dead | nil
+  def dead_owner_proof(%{node: node, os_pid: pid, owner_id: owner_id, acquired_at: acquired_at} = holder, current_node, lease_owner)
+      when is_integer(pid) and pid > 0 and is_binary(owner_id) and is_binary(acquired_at) do
+    with true <- stale_owner?(node, owner_id, current_node, lease_owner),
+         {:dead, _reason} <- pid_status(pid, holder) do
+      :owner_pid_dead
+    else
+      _ -> nil
+    end
+  end
+
+  def dead_owner_proof(_holder, _current_node, _lease_owner), do: nil
+
+  defp stale_owner?(node, _owner_id, current_node, _lease_owner) when node != current_node, do: true
+  defp stale_owner?(_node, owner_id, _current_node, lease_owner), do: owner_id != lease_owner
+
+  defp pid_status(pid, holder) do
+    case File.read("/proc/#{pid}/stat") do
+      {:error, :enoent} -> {:dead, :absent}
+      {:ok, stat} -> process_start_status(stat, holder)
+      {:error, _} -> :unknown
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  defp process_start_status(stat, holder) do
+    with {close, _} <- List.last(:binary.matches(stat, ")")),
+         fields <- binary_part(stat, close + 1, byte_size(stat) - close - 1) |> String.split(),
+         {ticks, ""} <- Integer.parse(Enum.at(fields, 19)),
+         {:ok, acquired, _} <- DateTime.from_iso8601(Map.get(holder, :owner_started_at) || holder.acquired_at),
+         {:ok, boot_time} <- proc_boot_time(),
+         {:ok, clock_ticks} <- clock_ticks() do
+      started_at = boot_time + ticks / clock_ticks
+      if started_at > DateTime.to_unix(acquired), do: {:dead, :pid_reused}, else: :live
+    else
+      _ -> :unknown
+    end
+  end
+
+  defp proc_boot_time do
+    with {:ok, stat} <- File.read("/proc/stat"), [_, seconds] <- Regex.run(~r/^btime\s+(\d+)$/m, stat), {value, ""} <- Integer.parse(seconds), do: {:ok, value}
+  end
+
+  defp clock_ticks do
+    case System.cmd("getconf", ["CLK_TCK"], stderr_to_stdout: true) do
+      {value, 0} ->
+        case Integer.parse(String.trim(value)) do
+          {ticks, ""} when ticks > 0 -> {:ok, ticks}
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  @doc false
   @spec lock_path(Path.t()) :: Path.t()
   def lock_path(workspace) when is_binary(workspace) do
     String.trim_trailing(workspace, "/") <> ".lock"
@@ -165,7 +226,8 @@ defmodule Aiur.Workspace.HostLock do
       os_pid: Keyword.get(opts, :os_pid, os_pid()),
       ticket: ticket,
       owner_id: "#{System.unique_integer([:positive, :monotonic])}-#{System.system_time(:microsecond)}",
-      acquired_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+      acquired_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+      owner_started_at: owner_started_at(Keyword.get(opts, :os_pid, os_pid()))
     }
   end
 
@@ -174,6 +236,23 @@ defmodule Aiur.Workspace.HostLock do
   rescue
     _ -> nil
   end
+
+  defp owner_started_at(pid) when is_integer(pid) and pid > 0 do
+    with {:ok, stat} <- File.read("/proc/#{pid}/stat"),
+         {close, _} <- List.last(:binary.matches(stat, ")")),
+         fields <- binary_part(stat, close + 1, byte_size(stat) - close - 1) |> String.split(),
+         {ticks, ""} <- Integer.parse(Enum.at(fields, 19)),
+         {:ok, boot_time} <- proc_boot_time(),
+         {:ok, clock_ticks} <- clock_ticks() do
+      DateTime.from_unix!(trunc(boot_time + ticks / clock_ticks)) |> DateTime.to_iso8601()
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp owner_started_at(_pid), do: nil
 
   defp attempt(path, workspace, holder, alive_fun, reclaimable?) do
     case create_exclusive(path, holder) do
@@ -217,7 +296,7 @@ defmodule Aiur.Workspace.HostLock do
   # who is holding the workspace, and must not have to special-case a partial
   # one.
   defp contended_holder(_other),
-    do: %{node: "unknown", os_pid: nil, ticket: "unknown", owner_id: "unknown", acquired_at: "unknown"}
+    do: %{node: "unknown", os_pid: nil, ticket: "unknown", owner_id: "unknown", acquired_at: "unknown", owner_started_at: nil}
 
   # A holder whose pid cannot be read names no process to check, so it is not
   # evidence of a live session; a holder with a pid is honoured whenever the
@@ -269,7 +348,8 @@ defmodule Aiur.Workspace.HostLock do
       os_pid: integer_field(decoded, "os_pid"),
       ticket: string_field(decoded, "ticket"),
       owner_id: string_field(decoded, "owner_id"),
-      acquired_at: string_field(decoded, "acquired_at")
+      acquired_at: string_field(decoded, "acquired_at"),
+      owner_started_at: optional_string_field(decoded, "owner_started_at")
     }
   end
 
@@ -286,4 +366,6 @@ defmodule Aiur.Workspace.HostLock do
       _other -> nil
     end
   end
+
+  defp optional_string_field(decoded, key), do: if(is_binary(Map.get(decoded, key)), do: Map.get(decoded, key), else: nil)
 end

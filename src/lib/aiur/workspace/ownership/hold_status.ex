@@ -2,11 +2,12 @@ defmodule Aiur.Workspace.Ownership.HoldStatus do
   @moduledoc false
 
   alias Aiur.Workspace.HostBoot
+  alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
 
   @type proof ::
-          :same_boot | :boot_changed_release_pending | :boot_probe_unavailable | :remote | :not_recorded | :tracked_provider
+          :same_boot | :owner_pid_dead | :boot_changed_release_pending | :boot_probe_unavailable | :remote | :not_recorded | :tracked_provider
   @type t :: %{generation: pos_integer(), proof: proof()}
 
   @spec for_ticket(String.t(), Ownership.registry(), GenServer.server(), (-> {:ok, String.t()} | :unknown)) :: t() | nil
@@ -23,10 +24,10 @@ defmodule Aiur.Workspace.Ownership.HoldStatus do
   defp proof(%{provider: provider}, _boot_id_fun) when is_map(provider) and map_size(provider) > 0,
     do: :tracked_provider
 
-  defp proof(%{provider_expected?: true, provider_scope: :local, provider_boot_id: previous}, boot_id_fun)
+  defp proof(%{provider_expected?: true, provider_scope: :local, provider_boot_id: previous} = receipt, boot_id_fun)
        when is_binary(previous) and previous != "" do
     case boot_id_fun.() do
-      {:ok, ^previous} -> :same_boot
+      {:ok, ^previous} -> dead_owner_proof(receipt)
       {:ok, current} when is_binary(current) and current != "" -> :boot_changed_release_pending
       _ -> :boot_probe_unavailable
     end
@@ -34,6 +35,17 @@ defmodule Aiur.Workspace.Ownership.HoldStatus do
     _ -> :boot_probe_unavailable
   end
 
+  defp proof(%{provider_expected?: true, provider_scope: :local} = receipt, _boot_id_fun), do: dead_owner_proof(receipt)
+
   defp proof(%{provider_expected?: true, provider_scope: :remote}, _boot_id_fun), do: :remote
   defp proof(_receipt, _boot_id_fun), do: :not_recorded
+
+  defp dead_owner_proof(%{host_lock: host_lock, owner_id: owner_id}) do
+    case HostLock.dead_owner_proof(get_in(host_lock || %{}, [:holder]), to_string(Node.self()), owner_id) do
+      :owner_pid_dead -> :owner_pid_dead
+      _ -> :same_boot
+    end
+  end
+
+  defp dead_owner_proof(_receipt), do: :same_boot
 end

@@ -10,6 +10,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.GitHubUsageCLI
   alias Aiur.UnitsCLI
   alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.HoldStatus
   import Aiur.Orchestrator.ControlCLI.Output, only: [print_failure: 3]
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1, guarded: 2]
 
@@ -102,26 +103,38 @@ defmodule Aiur.ControlCLI.EntryPoints do
   def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
     guarded("workspace-recover", fn ->
       ticket_key = workspace_recovery_ticket_key(ticket)
+
+      proof =
+        case HoldStatus.for_ticket(ticket_key) do
+          %{proof: value} -> value
+          _ -> :unavailable
+        end
+
       result = Ownership.release_if_held_with_exit_proof(ticket_key, generation)
       status = %{identifier: ticket, issue_id: ticket}
 
-      report_workspace_recovery(result, ticket, generation, status)
+      report_workspace_recovery(result, ticket, generation, status, proof)
     end)
   end
 
-  defp report_workspace_recovery(:ok, ticket, generation, _status) do
-    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+  defp report_workspace_recovery(:ok, ticket, generation, _status, proof) do
+    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation} proof=#{proof}")
     exit_marker(0)
   end
 
-  defp report_workspace_recovery({:error, {:audit_write_failed, reason}}, _ticket, _generation, _status) do
+  defp report_workspace_recovery({:error, {:audit_write_failed, reason}}, _ticket, _generation, _status, _proof) do
     IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
     exit_marker(1)
   end
 
-  defp report_workspace_recovery(result, _ticket, _generation, status) do
+  defp report_workspace_recovery(result, _ticket, _generation, status, proof) do
     reason = if result == :not_found, do: :not_found, else: recovery_failure_reason(result)
     print_failure(:workspace_recover, status, reason)
+
+    if reason == :cannot_release_without_proof do
+      IO.puts("aiur: release checks failed: proof=#{proof}; verify owner pid is absent or started after the recorded owner start time, and that the lock node/owner is stale")
+    end
+
     exit_marker(1)
   end
 

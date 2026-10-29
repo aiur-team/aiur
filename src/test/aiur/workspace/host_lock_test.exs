@@ -66,6 +66,34 @@ defmodule Aiur.Workspace.HostLockTest do
   end
 
   describe "stale locks" do
+    test "dead owner pid is proof only when the lock owner is stale" do
+      holder = %{
+        node: to_string(Node.self()),
+        os_pid: 2_000_000_000,
+        owner_id: "old-lock",
+        acquired_at: DateTime.utc_now() |> DateTime.to_iso8601()
+      }
+
+      assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease")
+
+      live_holder = %{holder | os_pid: System.pid() |> String.to_integer()}
+      assert nil == HostLock.dead_owner_proof(live_holder, to_string(Node.self()), "live-lease")
+      assert nil == HostLock.dead_owner_proof(%{holder | os_pid: nil}, to_string(Node.self()), "live-lease")
+      assert nil == HostLock.dead_owner_proof(%{holder | owner_id: "live-lease"}, to_string(Node.self()), "live-lease")
+    end
+
+    test "a pid reused after the recorded owner start is treated as dead" do
+      holder = %{
+        node: to_string(Node.self()),
+        os_pid: System.pid() |> String.to_integer(),
+        owner_id: "old-lock",
+        acquired_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+        owner_started_at: "2000-01-01T00:00:00Z"
+      }
+
+      assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), "live-lease")
+    end
+
     test "a lock whose owning pid is dead is reclaimed" do
       workspace = workspace_path("host-lock-stale")
 
