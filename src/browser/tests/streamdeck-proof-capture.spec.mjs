@@ -55,43 +55,7 @@ async function openStreamdeck(page) {
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
-async function openUnits(page) {
-  await page.goto('/auth/read_only')
-  // Show every condition so the Units rows are the whole fleet the emulator
-  // grid pages through, not the default live-only scope.
-  const conditions = encodeURIComponent('active,alert,paused,queued,finished')
-  await page.goto(`/units-fixture?v=1&scope=unfinished&conditions=${conditions}`)
-  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
-  // A row click before the view joins is dropped; see support/units-helpers.mjs.
-  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
-}
 
-function dial(page, index) {
-  return page.locator('.sd-knob').nth(index)
-}
-
-function visibleIdentifiers(page) {
-  return page.locator('#sd-keys .sd-key').evaluateAll((keys) =>
-    keys.map((key) => (key.classList.contains('is-empty') ? null : key.getAttribute('data-streamdeck-identifier')))
-  )
-}
-
-// The bucket the emulator paints on each key.
-function gridBuckets(page) {
-  return page.locator('#sd-keys .sd-key:not(.is-empty)').evaluateAll((keys) =>
-    Object.fromEntries(
-      keys.map((key) => [
-        key.getAttribute('data-streamdeck-identifier'),
-        key.getAttribute('data-streamdeck-state') ?? 'unknown'
-      ])
-    )
-  )
-}
-
-// Every agent's bucket, not just the visible window's: the touch strip counts
-// the whole fleet, so a window-sized sample would compare two different
-// populations and call the difference a failure. Turn through each window,
-// then turn back to the opening window; dial D press cycles views.
 async function fleetBuckets(page, keys) {
   const windows = Number.parseInt(await keys.getAttribute('data-grid-page-count'), 10)
   const collected = {}
@@ -116,22 +80,7 @@ async function fleetBuckets(page, keys) {
 // need operator attention: a running agent has no tone at all. So the two
 // renderings are compared where they overlap (paused and queued) and the rest
 // is recorded side by side as evidence rather than asserted as equality.
-function unitTones(page) {
-  // Only the tone classes the table actually assigns, so an unrelated state
-  // class (a selection, say) cannot be read as a fleet state.
-  const tones = ['is-paused', 'is-queued', 'is-blocked', 'has-alert']
 
-  return page.locator('#units-rows tr.units-row').evaluateAll(
-    (rows, names) =>
-      Object.fromEntries(
-        rows.map((row) => [
-          row.querySelector('.ut-id-num')?.textContent.trim(),
-          [...row.classList].find((name) => names.includes(name)) ?? 'none'
-        ])
-      ),
-    tones
-  )
-}
 
 test.use({ video: 'on' })
 
@@ -334,76 +283,6 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
     ].join('\n')
   )
 
-  // ------------------------------------------------------- 2, part two --
-  // Units parity. The Units fixture pushes its own projected fleet into the
-  // Stream Deck snapshot when a unit is removed, so the two surfaces are only
-  // reading one fleet *after* that push — before it, the emulator runs its own
-  // default fixture fleet and a comparison would be a harness artifact rather
-  // than a product disagreement. This is also the runbook's "repeat after a
-  // fleet update", so it doubles as the live-change half of step 2. It runs
-  // last because it changes the fleet the earlier steps were captured on.
-  const units = await context.newPage()
-  await openUnits(units)
-
-  const rows = units.locator('#units-rows tr.units-row')
-  await expect(units.locator('.units-header p').nth(1)).toContainText('7 observed · 6 in selected scope')
-  const observedBefore = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
-
-  await rows.first().locator('td.ut-id-cell').click()
-  await units.locator('#remove-selected-unit').evaluate((button) => button.click())
-  await expect(units.locator('.units-header p').nth(1)).toContainText(`${observedBefore - 1} observed`)
-  // The header count and the tbody are separate patches from one diff, so wait
-  // on the rows before snapshotting them.
-  await expect(rows).toHaveCount(5)
-
-  const tones = await unitTones(units)
-  const unitIdentifiers = Object.keys(tones)
-  await expect(keys).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
-
-  const syncedWindow = await visibleIdentifiers(page)
-  const syncedBuckets = await gridBuckets(page)
-  await shot(page, '02-grid-after-change.png')
-  await shot(units, '02-units.png')
-
-  // Membership, and the column-major slot order the design specifies.
-  expect([...new Set(syncedWindow.filter(Boolean))].sort()).toEqual([...unitIdentifiers].sort())
-  expect(syncedWindow).toEqual(
-    Array.from({ length: 8 }, (_, slot) => unitIdentifiers[(slot % 4) * 2 + Math.floor(slot / 4)] ?? null)
-  )
-
-  // Deliberately NOT asserted: that the two surfaces agree about each agent's
-  // *state*. `set_streamdeck_snapshot_identities/1` hands the deck the Units
-  // page's identifiers and nothing else, so each surface keeps its own seeded
-  // states and an equality check here would be measuring the fixture. The two
-  // renderings are recorded side by side instead, and state parity with Units
-  // stays part of the live proof.
-
-  await record(
-    '02-grid-units-parity.txt',
-    [
-      'Step 2 (part 2) — emulator grid vs Units after a live fleet change.',
-      `Units removed one unit: ${observedBefore} observed -> ${observedBefore - 1} observed.`,
-      `fleet size (emulator data-grid-total): ${await keys.getAttribute('data-grid-total')}`,
-      `fleet size (Units rows): ${unitIdentifiers.length}`,
-      '',
-      'slot  identifier  emulator-bucket  units-row-tone  (column-major)',
-      ...syncedWindow.flatMap((identifier, slot) =>
-        identifier
-          ? [`${slot}  ${identifier}  ${syncedBuckets[identifier]}  ${tones[identifier]}`]
-          : [`${slot}  (empty)`]
-      ),
-      '',
-      'ASSERTED: membership and column-major slot order are identical.',
-      '',
-      'NOT ASSERTED: that the two surfaces agree per-agent about state. The',
-      'fixture hands the deck the Units identifiers and nothing else, so each',
-      'surface keeps its own seeded states — comparing the two columns below',
-      'would measure the harness. (Units also paints a row tone only for states',
-      'needing attention, so a running agent reads `none` there.) State parity',
-      'with Units is part of the live proof, not this run.'
-    ].join('\n')
-  )
-
   await record(
     'run.md',
     [
@@ -421,7 +300,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
       '| Step | Artifact |',
       '|---:|---|',
       '| 1 | `01-start.png` |',
-      '| 2 | `02-grid.png`, `02-grid.txt`, then after the live fleet change `02-grid-after-change.png`, `02-units.png`, `02-grid-units-parity.txt` |',
+      '| 2 | `02-grid.png`, `02-grid.txt` |',
       '| 3 | `03-paging.png` |',
       '| 4 | `04-pause-cmd.png`, `04-pause-grid.png`, `04-pause.txt`, `04-resume.png` |',
       '| 5 | `05-logs-live-end.png`, `05-logs-bounds.png`, `05-logs-bounds.txt` |',
@@ -442,7 +321,6 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
     ].join('\n')
   )
 
-  await units.close()
   await page.close()
   await page.video()?.saveAs(path.join(runDirectory, 'session.webm'))
 })

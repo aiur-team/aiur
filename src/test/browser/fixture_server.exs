@@ -12,10 +12,9 @@ Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/streamdeck_transcript.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
-Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live graph_live ticket_context_live units_live_data units_live voice_input_live
+      route_shell_live graph_live ticket_context_live voice_input_live
       support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
@@ -86,11 +85,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
-    live("/units-fixture", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
-    live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
-    live("/models-panel", Aiur.BrowserHarness.ModelsPanelLive, :index)
-    live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/route-shell", Aiur.BrowserHarness.RouteShellLive, :build)
     live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)

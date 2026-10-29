@@ -55,10 +55,6 @@
   box-shadow: 0 0 0 1px var(--good-line);
 }
 
-.bo-node.is-blocked {
-  border-color: var(--blocking-line);
-}
-
 /* Planning (pre-ticket): neutral, not-yet-started. */
 .bo-node.is-planned {
   border-style: solid;
@@ -338,4 +334,3 @@
 .bo-edge-dot.is-cleared {
   fill: var(--good);
 }
-

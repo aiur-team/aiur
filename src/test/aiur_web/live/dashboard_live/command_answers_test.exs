@@ -16,7 +16,7 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
 
   @endpoint AiurWeb.Endpoint
 
-  test "malformed filter and agent-log events do not crash the dashboard" do
+  test "malformed Command filter events do not crash the dashboard" do
     orchestrator_name = Module.concat(__MODULE__, :MalformedEventOrchestrator)
     start_counting_orchestrator(orchestrator_name)
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
@@ -24,7 +24,6 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
     {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert render_hook(view, "filter-decisions", %{}) =~ "Commands inbox"
-    assert render_hook(view, "show-agent-log", %{}) =~ "Commands inbox"
     assert Process.alive?(view.pid)
   end
 

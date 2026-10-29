@@ -29,14 +29,14 @@ Use the browser when you need interactive detail; use the paired command when te
 | GUI label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
 | **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
-| **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
+| **Units** | CLI fleet inspection; legacy /units URLs redirect to Build. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. **From Executor** filters inbox rows (`?requester=executor`); Executor requests carry a badge. | `aiur commands` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
 | --- | --- |
-| `/units` | Hidden Units rollback page, retained for one release. |
+| `/units` | Permanent redirect to /, preserving the query string. |
 | `/chat/:owner/:repository/:identifier` | Redirects same-repository ticket links to `/?ticket=identifier`, opening the Build ticket modal. |
 | `/?v=1&scope=…&conditions=…` | Opens Build with the matching legacy Units filter. |
 | `/commands` and `/commands/:decision_id` | Current Commands inbox and detail URLs. |
@@ -152,7 +152,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Page | Concept detail |
 | --- | --- |
 | Build | [Sections, views, the ticket modal, usage, and unknown states](/concepts/build-history). |
-| Units (`/units`, rollback) | [Fleet, tickets, and meters](/concepts/units). |
+| Units | CLI fleet inspection; /units redirects to /. |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
@@ -224,9 +224,9 @@ of the composer.
 | Writable control | Where | Action |
 | --- | --- | --- |
 | Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
-| Unit | `/units` | Pause or resume one agent, or send it a message. The mic opens an explicit Dictate / Converse choice; Dictate fills editable text for review and Send. Unavailable choices show their reason. Microphone selection is in the adjacent settings popover. |
-| Fleet capacity | `/units` | Adjust capacity. |
-| Ticket | `/units` Tickets panel | Apply routing labels. |
+| Unit | Build ticket modal | Read the conversation, message or pause the agent. |
+| Fleet capacity | CLI | Run `aiur set max-agents <n>`. |
+| Ticket | CLI | Queue with `aiur --todo <ticket-id>`. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
 | Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
 
@@ -258,7 +258,7 @@ observability:
 
 The home ticket modal hides Add to queue when `dashboard_writable` is `false`.
 
-In read-only mode, the `/units` Tickets panel shows the Add an agent action as unavailable before any routing choices are requested. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
+The legacy Units board, Tickets panel and routing preview have been retired. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
 

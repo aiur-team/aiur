@@ -11,7 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
   alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TrackerIdentity
   alias AiurWeb.{ControlCenterCache, Endpoint}
-  alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPresenter, UnitsTable}
+  alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPresenter}
 
   @endpoint Endpoint
   @orchestrator __MODULE__.Orchestrator
@@ -184,75 +184,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
     recovered = PayloadLoader.load(:fresh)
     assert recovered.units.status == loaded.units.status
     refute Map.has_key?(recovered.units, :retained_age_seconds)
-  end
-
-  test "a retained catalog renders its age and no old runtimes" do
-    catalog = %{status: :ready, message: nil, truncated?: false, snapshot: %{rows: [row()], truncated?: false}}
-    render = fn catalog -> render_component(&UnitsTable.units_table/1, %{view: UnitsPresenter.project(catalog, nil), now: ~U[2026-07-17 12:00:00Z]}) end
-
-    current = render.(catalog)
-    assert current =~ "1h 5m"
-    refute current =~ "Stale list."
-
-    retained = render.(Map.merge(catalog, %{status: :stale, retained_age_seconds: 192}))
-    assert retained =~ "<b>Stale list.</b> The last refresh failed. These units were last read 3m 12s ago."
-    assert retained =~ ~s(<span class="sr-only">Runtime </span>Stale)
-    refute retained =~ "1h 5m"
-  end
-
-  test "the page shows a stale list with its age, then one tick brings in a newly running agent" do
-    first = identity(1110)
-    second = identity(1111)
-    {:ok, running} = Agent.start_link(fn -> [first] end)
-    {:ok, blocked?} = Agent.start_link(fn -> false end)
-    publish_running([first])
-
-    # The provider deadline is deliberately longer than this cache's load
-    # timeout: that is the overrun the page has to survive, whatever causes it.
-    clock =
-      start_endpoint(
-        [
-          orchestrator: @orchestrator,
-          control_center_provider_budget_ms: 60_000,
-          units_membership_fun: fn -> membership(Agent.get(running, & &1)) end,
-          units_activity_fun: fn ->
-            if Agent.get(blocked?, & &1), do: Process.sleep(:infinity)
-            %{generation: 1, health: :healthy, freshness: %{status: :fresh}, entries: []}
-          end,
-          control_center_reload_timer: fn pid, message, _delay_ms ->
-            send(pid, message)
-            make_ref()
-          end
-        ],
-        load_timeout_ms: 100
-      )
-
-    conn = Plug.Conn.put_req_header(build_conn(), "authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
-    {:ok, view, _html} = live(conn, "/units")
-    current = render(view)
-    assert length(unit_rows(current)) == 1
-    refute current =~ "Stale list."
-
-    Agent.update(blocked?, fn _ -> true end)
-    advance(clock, 192_000)
-    tick(view)
-    stale = render(view)
-
-    assert stale =~ "<b>Stale list.</b> The last refresh failed. These units were last read 3m 12s ago."
-    assert stale =~ ~s(<span class="sr-only">Runtime </span>Stale)
-    assert length(unit_rows(stale)) == 1
-
-    Agent.update(blocked?, fn _ -> false end)
-    Agent.update(running, fn _ -> [first, second] end)
-    publish_running([first, second])
-    advance(clock, 15_000)
-    tick(view)
-    recovered = render(view)
-
-    refute recovered =~ "Stale list."
-    refute recovered =~ ~s(<span class="sr-only">Runtime </span>Stale)
-    assert length(unit_rows(recovered)) == 2
-    assert recovered =~ "Unit 1111"
   end
 
   # The tick queues the reload behind itself; wait for the tick before rendering.

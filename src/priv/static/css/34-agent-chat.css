@@ -1,14 +1,4 @@
-.chat-log-panel {
-  display: grid;
-  align-content: start;
-  gap: 0.65rem;
-  min-height: 16rem;
-  overflow: auto;
-  padding: 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg-2);
-}
+
 
 .log-message {
   width: min(720px, 100%);
@@ -60,42 +50,6 @@
   white-space: pre-wrap;
 }
 
-.agent-chat-composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.6rem;
-  align-items: end;
-}
-
-.agent-chat-textarea {
-  width: 100%;
-  min-width: 0;
-  padding: 0.65rem 0.75rem;
-  resize: vertical;
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--fg);
-}
-
-.agent-chat-actions {
-  display: flex;
-  gap: 0.45rem;
-}
-
-.agent-chat-error {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--blocking-ink);
-  font-size: 0.78rem;
-}
-
-.agent-chat-readonly {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.76rem;
-}
-
 @keyframes pulse {
   0%,
   100% {
@@ -135,20 +89,11 @@
 }
 
 @media (max-width: 640px) {
-  .units-filter-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 
-  .units-filter {
-    width: 100%;
-  }
 }
 
 @media (max-width: 360px) {
-  .units-actions {
-    grid-template-columns: minmax(0, 1fr);
-  }
+
 }
 
 @media (max-width: 820px) {
@@ -290,12 +235,4 @@
     gap: 0.15rem;
   }
 
-  .agent-chat-composer {
-    grid-template-columns: 1fr;
-  }
-
-  .agent-chat-actions {
-    justify-content: flex-end;
-  }
 }
-

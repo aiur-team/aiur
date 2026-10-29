@@ -31,7 +31,6 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/conversation-voice-controller.js"></script>
         <script defer src="/executor-voice-controller.js"></script>
         <script defer src="/voice-input-hook.js"></script>
-        <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>

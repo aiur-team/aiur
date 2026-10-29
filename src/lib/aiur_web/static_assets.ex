@@ -22,7 +22,6 @@ defmodule AiurWeb.StaticAssets do
     build-home
     build-order-grid-hook.js
     conversation-scroll-hook.js
-    conversation-drawer-hook.js
     conversation-voice-controller.js
     executor-voice-controller.js
     dashboard.css

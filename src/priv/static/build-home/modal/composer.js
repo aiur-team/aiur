@@ -53,10 +53,13 @@ export function renderComposer(t, msg) {
   const hint = placeholder(t);
   slot.insertAdjacentHTML('afterend', '<form class="cv-in" id="cv-in" data-voice-composer><textarea rows="1" placeholder="' + esc(hint) +
     '" aria-label="' + esc(hint.replace(/…$/, '')) + '" enterkeyhint="send" data-voice-input></textarea>' +
-    '<button class="cv-mic" type="button" id="cv-mic" title="Checking whether dictation is available…" aria-label="Dictate (unavailable)" aria-disabled="true" disabled data-voice-mic>' + MI.mic + '</button>' +
+    '<button class="cv-mic" type="button" id="cv-mic" title="Checking whether dictation is available…" aria-label="Dictate (unavailable)" aria-disabled="true" disabled data-voice-mic data-voice-mode="dictate">' + MI.mic + '</button>' +
     '<button class="cv-send" type="submit" aria-label="Send" data-voice-send>' + MI.send + '</button></form>' +
     '<p class="cv-in-st" id="cv-in-st" role="status" aria-live="polite" hidden data-voice-status></p>');
   const form = $('#cv-in'), ta = $('textarea', form);
+  form.dataset.voiceRoot = '';
+  form.dataset.voiceSurface = 'agent_composer';
+  form.dataset.voiceTarget = JSON.stringify({ kind: 'worker', ticket: String(t.id) });
   ta.value = drafts.get(t.id) || ''; if (ta.value) grow(ta);
   if (st.line) setLine(...st.line);
   if (msg.state === 'ended') st.ended = 'Agent is no longer running.';

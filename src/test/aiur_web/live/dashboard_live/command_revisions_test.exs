@@ -434,9 +434,6 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
     assert detail_html =~ "Revised"
     assert detail_html =~ "Event timeline"
 
-    root_html = render_patch(view, "/units")
-    refute root_html =~ "Command history"
-
     decisions_html = render_patch(view, "/commands")
     assert decisions_html =~ "Command history"
     assert decisions_html =~ "Hold deployment until the incident closes"

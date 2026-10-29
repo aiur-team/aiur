@@ -39,6 +39,7 @@ export const recordedSeconds = {
   'test:build-home-chains-unit': 1,
   // Job 118131038618 (shard 8/9): 132.3s.
   'test:build-home-chains': 133,
+  'test:browser-suite -- build-home-dictation-lifecycle': 11.1,
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
@@ -94,11 +95,8 @@ export const recordedSeconds = {
   'test:responsive': 16,
   'test:layout': 24,
   'test:ticket-context': 17,
-  'test:units': 38,
+  'test:voice-input': 38,
   'test:provider-meters': 14,
-  'test:meter-row': 15,
-  'test:models-panel': 9,
-  'test:quota-panel': 8,
   'test:streamdeck': 59,
   'test:streamdeck-flow': 13,
   'test:palette': 16,

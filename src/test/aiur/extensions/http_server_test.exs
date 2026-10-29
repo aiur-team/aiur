@@ -122,7 +122,6 @@ defmodule Aiur.Extensions.HttpServerTest do
 
     # Regression guard: router auth still returns 401 if the static directory registration is removed.
     for asset_path <- [
-          "/conversation-drawer-hook.js",
           "/conversation-voice-controller.js",
           "/voice-capture.js",
           "/voice-transport.js",
@@ -144,9 +143,6 @@ defmodule Aiur.Extensions.HttpServerTest do
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
 
-    conversation_drawer_hook = Req.get!("http://127.0.0.1:#{port}/conversation-drawer-hook.js", headers: [authorization])
-    assert conversation_drawer_hook.status == 200
-    assert conversation_drawer_hook.body =~ "AiurConversationDrawerHook"
 
     conversation_voice = Req.get!("http://127.0.0.1:#{port}/conversation-voice-controller.js", headers: [authorization])
     assert conversation_voice.status == 200

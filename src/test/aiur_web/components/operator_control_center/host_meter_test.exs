@@ -4,7 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.HostMeterTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Aiur.ProviderMeterSnapshot
-  alias AiurWeb.OperatorControlCenter.{ProviderMeters, ProviderMetersPresenter, RunSummaryStrip}
+  alias AiurWeb.OperatorControlCenter.{ProviderMeters, ProviderMetersPresenter}
 
   test "host allowance renders unverified scope and measured age without an account claim" do
     snapshot = %ProviderMeterSnapshot{
@@ -27,11 +27,6 @@ defmodule AiurWeb.OperatorControlCenter.HostMeterTest do
     assert html =~ "Current host · account unverified"
     assert html =~ "17 seconds old"
     refute html =~ "Account generation"
-    strip = render_component(&RunSummaryStrip.run_summary_strip/1, run: %{state: :loading}, usage: %{state: :locked}, meters: view, now: snapshot.observed_at)
-    assert strip =~ "0% left"
-    assert strip =~ ~s(aria-valuenow="0")
-    assert strip =~ "Account unverified"
-    assert strip =~ "17 seconds old"
   end
 
   test "unobserved host does not acquire a zero allowance or invented age" do
@@ -42,12 +37,5 @@ defmodule AiurWeb.OperatorControlCenter.HostMeterTest do
     assert card.health.age_seconds == nil
     assert card.health.age_label == nil
     html = render_component(&ProviderMeters.provider_meters/1, view: view)
-    strip = render_component(&RunSummaryStrip.run_summary_strip/1, run: %{state: :loading}, usage: %{state: :locked}, meters: view, now: DateTime.utc_now())
-    # An unrouted, unobserved host is a placeholder: the MODELS pane omits it (#3751).
-    refute strip =~ "Not observed"
-    assert strip |> Floki.parse_fragment!() |> Floki.find("[data-provider=muse]") == []
-    refute strip =~ "/provider-assets/muse.svg"
-    refute html =~ "0 seconds old"
-    assert html =~ "Current host · account unverified"
   end
 end

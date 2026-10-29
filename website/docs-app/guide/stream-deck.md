@@ -298,7 +298,7 @@ The waveform and level bar are computed on the sidecar, so they keep moving with
 
 The deck transcribes and does not speak, so it needs only the `Speech to Text` and `User` permissions.
 
-The Dashboard [agent conversation](/concepts/units#agent-conversation-and-voice) uses the same server-held credential for interactive spoken replies when `Text to Speech` permission and `elevenlabs.voice_id` are configured.
+Interactive voice chat in the legacy Units drawer has been retired. The Build ticket modal retains dictation.
 
 ### Configure it
 

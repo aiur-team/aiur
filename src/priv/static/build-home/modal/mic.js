@@ -15,6 +15,7 @@ export function mountMic(root, ctx) {
     mic.disabled = false;
     mic.title = 'Dictate';
     mic.removeAttribute('aria-disabled');
+    root.querySelector('[data-voice-root]').dataset.voiceSttState = reply.state;
     voice = new Controller({ el: root });
     voice.mount();
   }, () => {
