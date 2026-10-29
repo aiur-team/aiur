@@ -272,6 +272,7 @@ defmodule Aiur.Orchestrator.State do
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
+    # Lifecycle.init/2 rehydrates durable next-worker messages before dispatch.
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     terminal_verification_attempts: %{},
