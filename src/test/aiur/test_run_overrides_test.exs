@@ -56,6 +56,25 @@ defmodule Aiur.TestRunOverridesTest do
     assert {:ok, %{agent: %{max_concurrent_agents: 3}}} = TestRunOverrides.apply(parsed())
   end
 
+  test "a sandbox dashboard binds loopback even when config requests a public host" do
+    Aiur.TestScopeGuard.put_ticket_scope!("2897")
+    previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint, [])
+
+    try do
+      assert :ignore =
+               HttpServer.start_link(
+                 port: 0,
+                 dashboard_writable: false,
+                 endpoint_start_fun: fn -> :ignore end
+               )
+
+      assert Application.get_env(:aiur, AiurWeb.Endpoint)[:http][:ip] == {127, 0, 0, 1}
+      assert Application.get_env(:aiur, AiurWeb.Endpoint)[:public_bind] == false
+    after
+      Application.put_env(:aiur, AiurWeb.Endpoint, previous_endpoint)
+    end
+  end
+
   test "parse errors pass through" do
     assert TestRunOverrides.apply({:error, :bad}) == {:error, :bad}
   end

@@ -18,8 +18,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Prewarmer do
 
   @impl true
   def handle_info(:check_identity, state) do
-    identity = RetainedCache.identity(Aiur.RunTelemetry.boot_id())
-    state = if identity != state.identity, do: start_refresh(%{state | identity: identity}), else: state
+    state = if http_server_running?(), do: prewarm_identity(state), else: warn_http_unavailable(state)
+
     Process.send_after(self(), :check_identity, @check_interval_ms)
     {:noreply, state}
   end
@@ -45,5 +45,23 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Prewarmer do
   defp refresh_finished(state) do
     identity = if state.identity == state.refresh_identity, do: state.identity, else: nil
     %{state | identity: identity, refresh: nil, refresh_identity: nil}
+  end
+
+  defp prewarm_identity(state) do
+    identity = RetainedCache.identity(Aiur.RunTelemetry.boot_id())
+    if identity != state.identity, do: start_refresh(%{state | identity: identity}), else: state
+  end
+
+  defp http_server_running? do
+    is_pid(Process.whereis(Aiur.HttpServer)) and is_integer(Aiur.HttpServer.bound_port())
+  end
+
+  defp warn_http_unavailable(state) do
+    if not Map.get(state, :http_unavailable_logged?, false) do
+      require Logger
+      Logger.warning("Analytics prewarm skipped because the dashboard HTTP server is unavailable")
+    end
+
+    Map.put(state, :http_unavailable_logged?, true)
   end
 end
