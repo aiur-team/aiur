@@ -30,7 +30,7 @@ defmodule AiurWeb.VoicePortalTest do
     activity = if context[:empty_workers], do: %{activity | entries: []}, else: activity
 
     start_test_endpoint(
-      orchestrator: orchestrator_name,
+      orchestrator: orchestrator,
       snapshot_timeout_ms: 100,
       control_center_cache: if(context[:missing_cache], do: __MODULE__.MissingCache, else: false),
       dashboard_writable: !context[:read_only],

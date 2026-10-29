@@ -31,7 +31,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
     replace_counting_snapshot(orchestrator, %{snapshot | running: [Map.put(running, :listener, listener)]})
 
     start_test_endpoint(
-      orchestrator: name,
+      orchestrator: orchestrator,
       snapshot_timeout_ms: 100,
       control_center_cache: false,
       units_membership_fun: fn -> units_membership(identity) end,
@@ -76,7 +76,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
     stop_supervised!(CountingOrchestrator)
 
     start_test_endpoint(
-      orchestrator: name,
+      orchestrator: orchestrator,
       snapshot_timeout_ms: 100,
       dashboard_writable: true,
       control_center_cache: false,
