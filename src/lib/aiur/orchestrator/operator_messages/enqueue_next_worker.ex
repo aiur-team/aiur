@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
   alias Aiur.{AgentQueue, Orchestrator.LifecycleFence}
   alias Aiur.Orchestrator.OperatorMessages.Unread
 
+  @spec enqueue(map(), String.t(), String.t(), map(), function(), function()) ::
+          {{:ok, integer()} | {:error, term()}, map()}
   def enqueue(state, identifier, text, request, enqueue_plain, record_evidence) do
     attrs =
       AgentQueue.operator_message(identifier, text,
