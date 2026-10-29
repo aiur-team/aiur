@@ -87,16 +87,23 @@ defmodule Aiur.Listener.ConformanceTest do
         %{harness_id: backend, source: :session, callbacks: %{steer: native}, primitives: %{turn_boundary_start: turn, hard_interrupt: interrupt, pull_tool: pull}}
       end
 
-    for harness <- [nil, %{primitives: :unknown, source: :session} | harnesses], requested <- @modes, accepted <- [false, true], installed <- [false, true] do
-      view = Effective.compute(%{requested: requested, version: 0, actor: :default}, harness, emulated_interrupt_accepted?: accepted, pull_tool_installed?: installed)
-      assert Enum.sort(Map.keys(view.support)) == Enum.sort(@modes)
-      assert is_nil(view.effective) or Atom.to_string(view.effective) in Spec.modes()
+    observed =
+      for harness <- [nil, %{primitives: :unknown, source: :session} | harnesses], requested <- @modes, accepted <- [false, true], installed <- [false, true] do
+        view = Effective.compute(%{requested: requested, version: 0, actor: :default}, harness, emulated_interrupt_accepted?: accepted, pull_tool_installed?: installed)
+        assert Enum.sort(Map.keys(view.support)) == Enum.sort(@modes)
+        assert is_nil(view.effective) or Atom.to_string(view.effective) in Spec.modes()
 
-      for {_mode, support} <- view.support do
-        assert Atom.to_string(support.status) in statuses
-        if support.carrier, do: assert(Atom.to_string(support.carrier) in carriers)
+        for {_mode, support} <- view.support do
+          assert Atom.to_string(support.status) in statuses
+          if support.carrier, do: assert(Atom.to_string(support.carrier) in carriers)
+          support
+        end
       end
-    end
+
+    # Effective currently has no blocked_without_wrapper branch.
+    entries = List.flatten(observed)
+    assert entries |> Enum.map(&Atom.to_string(&1.status)) |> Enum.uniq() |> Enum.sort() == Enum.sort(statuses -- ["blocked_without_wrapper"])
+    assert entries |> Enum.reject(&is_nil(&1.carrier)) |> Enum.map(&Atom.to_string(&1.carrier)) |> Enum.uniq() |> Enum.sort() == Enum.sort(carriers)
   end
 
   defp scheduler_rows! do
