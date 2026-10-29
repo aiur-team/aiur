@@ -2,6 +2,7 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
   use Aiur.TestSupport
 
   alias Aiur.ExecutorWakeInbox
+  alias Aiur.ExecutorWakeInbox.StaleHumanReview
   alias Aiur.GitHub.ResourceStore
 
   setup do
@@ -22,35 +23,39 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
   test "drops and acknowledges a human-review wake after the ticket moves to ci-wait", %{opts: opts} do
     put_human_review_wake(opts)
     put_ticket_projection(42, "open", ["agent:ci-wait"])
-    start_supervised!({ExecutorWakeInbox, opts})
+    start_supervised!({ExecutorWakeInbox, with_state_reader(opts)})
 
     assert ExecutorWakeInbox.pending(__MODULE__) == []
+    assert_state_read()
     assert ExecutorWakeInbox.cursor(__MODULE__) == 1
   end
 
   test "drops and acknowledges a human-review wake for a closed ticket", %{opts: opts} do
     put_human_review_wake(opts)
     put_ticket_projection(42, "closed", ["agent:human-review"])
-    start_supervised!({ExecutorWakeInbox, opts})
+    start_supervised!({ExecutorWakeInbox, with_state_reader(opts)})
 
     assert ExecutorWakeInbox.pending(__MODULE__) == []
+    assert_state_read()
     assert ExecutorWakeInbox.cursor(__MODULE__) == 1
   end
 
   test "delivers a human-review wake while the live ticket remains in human-review", %{opts: opts} do
     put_human_review_wake(opts)
     put_ticket_projection(42, "open", ["agent:human-review"])
-    start_supervised!({ExecutorWakeInbox, opts})
+    start_supervised!({ExecutorWakeInbox, with_state_reader(opts)})
 
     assert [%{"wake_id" => 1, "action" => "human_review"}] = ExecutorWakeInbox.pending(__MODULE__)
+    assert_state_read()
     assert ExecutorWakeInbox.cursor(__MODULE__) == 0
   end
 
   test "delivers a human-review wake when the live issue projection is unavailable", %{opts: opts} do
     put_human_review_wake(opts)
-    start_supervised!({ExecutorWakeInbox, opts})
+    start_supervised!({ExecutorWakeInbox, with_state_reader(opts)})
 
     assert [%{"wake_id" => 1, "action" => "human_review"}] = ExecutorWakeInbox.pending(__MODULE__)
+    assert_state_read()
     assert ExecutorWakeInbox.cursor(__MODULE__) == 0
   end
 
@@ -58,10 +63,26 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
     put_human_review_wake(opts)
     repo = Aiur.GitHub.Config.repo(Aiur.Config.settings!())
     :ok = ResourceStore.put_resource(ResourceStore.key_for_repo(:issue, repo, 42), %{"number" => 42, "state" => "open"})
-    start_supervised!({ExecutorWakeInbox, opts})
+    start_supervised!({ExecutorWakeInbox, with_state_reader(opts)})
 
     assert [%{"wake_id" => 1, "action" => "human_review"}] = ExecutorWakeInbox.pending(__MODULE__)
+    assert_state_read()
     assert ExecutorWakeInbox.cursor(__MODULE__) == 0
+  end
+
+  defp with_state_reader(opts) do
+    caller = self()
+
+    reader = fn record ->
+      send(caller, {:human_review_state_read, record["wake_id"]})
+      StaleHumanReview.current_state(record)
+    end
+
+    Keyword.put(opts, :human_review_state_reader, reader)
+  end
+
+  defp assert_state_read do
+    assert_receive {:human_review_state_read, 1}, 1_000
   end
 
   defp put_human_review_wake(opts) do
