@@ -18,8 +18,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     StreamdeckTranscriptRelay
   }
 
-  alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, TicketPage}
+  alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, TicketPage}
   alias Phoenix.LiveView.Socket
 
   @spec refresh_grid(Socket.t()) :: Socket.t()
@@ -53,6 +52,8 @@ defmodule AiurWeb.StreamdeckLive.Grid do
 
   @spec assign_grid(Socket.t(), map(), integer(), map() | nil, number() | nil) :: Socket.t()
   def assign_grid(socket, grid, column_offset, usage, dial_value) do
+    usage = usage || StreamdeckProjection.provider_meters()
+
     {dial_value, _legacy_offset} =
       case dial_value do
         nil ->
@@ -66,12 +67,11 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     nav =
       Nav.clamp(
         socket.assigns.deck_nav,
-        Input.sizes(socket.assigns.deck_nav, Deck.navigation(grid))
+        Input.sizes(socket.assigns.deck_nav, MeterPage.sections(Map.put(grid, :meter_usage, usage), socket.assigns.deck_nav))
       )
 
     page = Nav.page(nav)
     column_offset = page * 4
-    usage = usage || StreamdeckProjection.provider_meters()
 
     visible_agents =
       Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)

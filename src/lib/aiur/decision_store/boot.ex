@@ -93,6 +93,7 @@ defmodule Aiur.DecisionStore.Boot do
         revision_follow_up_resolver: revision_resolver,
         event_id_reserver: Keyword.get(opts, :event_id_reserver, &Events.reserve_durable_id/0),
         relay_enabled: Keyword.get(opts, :relay_enabled, &Aiur.Config.relay_operator_answers?/0),
+        allow_reversible_human_required_answers: Keyword.get(opts, :allow_reversible_human_required_answers, &Aiur.Config.allow_reversible_human_required_answers?/0),
         relay_notifier: Keyword.get(opts, :relay_notifier, &Aiur.OperatorRelay.notify/2),
         executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
         executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),

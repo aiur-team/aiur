@@ -241,7 +241,12 @@ defmodule Aiur.DecisionStore.Revisions do
     options = if addressed, do: addressed.options, else: decision.options
     now = Keyword.get(opts, :now, DateTime.utc_now())
     request = addressed || decision
-    normalization_opts = Keyword.put(opts, :now, now)
+
+    allow_delegated_human_required? =
+      is_function(Map.get(state, :allow_reversible_human_required_answers)) and
+        state.allow_reversible_human_required_answers.() == true
+
+    normalization_opts = opts |> Keyword.put(:now, now) |> Keyword.put(:allow_reversible_human_required, allow_delegated_human_required?)
 
     answer_normalizer = fn answer_payload, _revision_opts ->
       Answers.normalize_answer(answer_payload, request, decision_version, options, actor, normalization_opts)

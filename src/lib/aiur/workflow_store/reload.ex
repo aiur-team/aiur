@@ -265,6 +265,7 @@ defmodule Aiur.WorkflowStore.Reload do
     broadcast_configuration(state)
     maybe_announce_base_branch_change(previous, state)
     maybe_announce_operator_relay_enablement(previous, state)
+    maybe_announce_reversible_human_required_delegation(previous, state)
     :ok
   end
 
@@ -287,6 +288,26 @@ defmodule Aiur.WorkflowStore.Reload do
 
   defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => true}}}}), do: true
   defp relay_enabled?(_state), do: false
+
+  defp maybe_announce_reversible_human_required_delegation(previous, current) do
+    if reversible_human_required_delegation_enabled?(current) and not reversible_human_required_delegation_enabled?(previous) do
+      Signal.alert("system.config.executor.human_required_delegation.enabled",
+        message: "executor.allow_reversible_human_required_answers enabled: Executor may answer reversible human-required engineering Commands",
+        reason: "The operator-delegation setting changed from disabled to enabled; spend, publication, product direction and security decisions remain human-only.",
+        needs_attention: false,
+        severity: "info"
+      )
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp reversible_human_required_delegation_enabled?(%{workflow: %{config: %{"executor" => %{"allow_reversible_human_required_answers" => true}}}}), do: true
+  defp reversible_human_required_delegation_enabled?(_state), do: false
 
   defp broadcast_configuration(%State{generation: generation}) do
     if Process.whereis(Aiur.PubSub) do
