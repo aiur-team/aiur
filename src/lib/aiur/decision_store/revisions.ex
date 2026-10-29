@@ -2,6 +2,7 @@ defmodule Aiur.DecisionStore.Revisions do
   @moduledoc false
 
   alias Aiur.Commands.Answering
+  alias Aiur.Commands.ConflictSummary
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionRevision
@@ -10,6 +11,7 @@ defmodule Aiur.DecisionStore.Revisions do
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Settlement
   alias Aiur.DecisionStore.Withdrawals
@@ -32,6 +34,45 @@ defmodule Aiur.DecisionStore.Revisions do
       nil -> {:reply, {:error, :answer_missing}, state}
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
+  end
+
+  @spec handle_override(String.t(), map(), keyword(), map()) :: term()
+  def handle_override(id, payload, opts, state) do
+    with {:ok, decision} <- Answers.fetch_decision(state, id),
+         %DecisionAnswer{} <- Decision.active_answer(decision),
+         {:ok, actor} <- Answers.fetch_actor(opts) do
+      case find_revision_replay(decision, payload) do
+        %DecisionRevision{} = accepted ->
+          correlated = correlate_override(payload, accepted.prior_action_id, accepted.sequence - 1)
+          handle_revision(id, correlated, Keyword.put(opts, :override, accepted.override), state)
+
+        nil ->
+          accept_override(decision, payload, actor, opts, state)
+      end
+    else
+      nil -> {:reply, {:error, :answer_missing}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp accept_override(decision, payload, actor, opts, state) do
+    opts = Keyword.put(opts, :override, Overrides.metadata(opts))
+    correlated = correlate_override(payload, decision.active_action_id, decision.revision_sequence)
+    replaceable? = ConflictSummary.for(decision, actor).replaceable
+
+    current? =
+      AgentLifecycle.payload_value(correlated, :expected_action_id) == decision.active_action_id and
+        AgentLifecycle.payload_value(correlated, :expected_revision_sequence) == decision.revision_sequence
+
+    if replaceable? and current?,
+      do: handle_supersede(decision.decision_id, correlated, opts, state),
+      else: handle_revision(decision.decision_id, correlated, opts, state)
+  end
+
+  defp correlate_override(payload, action_id, sequence) do
+    payload
+    |> Map.put_new("expected_action_id", AgentLifecycle.payload_value(payload, :expected_action_id) || action_id)
+    |> Map.put_new("expected_revision_sequence", AgentLifecycle.payload_value(payload, :expected_revision_sequence) || sequence)
   end
 
   # A relayed quote must not override an answer recorded directly by the operator.
@@ -218,7 +259,8 @@ defmodule Aiur.DecisionStore.Revisions do
       current_revision_sequence: current_revision_sequence,
       actor: actor,
       now: now,
-      answer_normalizer: answer_normalizer
+      answer_normalizer: answer_normalizer,
+      override: Keyword.get(opts, :override)
     )
   end
 

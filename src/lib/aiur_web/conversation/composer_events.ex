@@ -65,7 +65,7 @@ defmodule AiurWeb.Conversation.ComposerEvents do
 
     listener =
       case result do
-        {:ok, view} -> Map.put(view, :routing, Application.get_env(:aiur, :listener_send_routing, :legacy))
+        {:ok, view} -> Map.put(view, :routing, Listener.routing())
         _ -> nil
       end
 

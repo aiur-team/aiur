@@ -5,6 +5,7 @@ defmodule Aiur.DecisionStore.Info do
 
   alias Aiur.Decision
   alias Aiur.DecisionPubSub
+  alias Aiur.DecisionStore.OverridePushes
 
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
@@ -16,6 +17,23 @@ defmodule Aiur.DecisionStore.Info do
   alias Aiur.DecisionStore.Settlement
 
   @spec handle_info(term(), term()) :: term()
+  def handle_info(:reconcile_override_pushes, state) do
+    if state.writable?, do: OverridePushes.reconcile(state)
+    timer = Process.send_after(self(), :reconcile_override_pushes, 30_000)
+    {:noreply, %{state | override_reconcile_timer: timer}}
+  end
+
+  def handle_info({:event, event}, state) do
+    if state.writable?, do: OverridePushes.observe(state, event)
+    {:noreply, state}
+  end
+
+  def handle_info({:override_push_observed, candidates, sha, ref, at, pr}, state) do
+    if state.writable?,
+      do: {:noreply, OverridePushes.settle(state, candidates, sha, ref, at, pr)},
+      else: {:noreply, state}
+  end
+
   def handle_info(:repair_decision_projection, state) do
     if state.projection_retry, do: Process.cancel_timer(state.projection_retry)
     {:noreply, Persistence.repair_projection(%{state | projection_retry: nil})}

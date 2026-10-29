@@ -181,7 +181,7 @@ defmodule Aiur.ExecutorCommandCLI do
     answer_fun =
       if normalized.supersede do
         Keyword.get(deps, :supersede_fun, fn decision_id, answer_payload, opts, store ->
-          Commands.supersede(decision_id, answer_payload, opts, store)
+          Commands.override(decision_id, answer_payload, opts, store)
         end)
       else
         Keyword.get(deps, :answer_fun, fn decision_id, answer_payload, opts, store ->

@@ -23,7 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
         <span :if={!is_integer(@listener[:unread_count])} data-unread-count="unknown">Unread unknown</span>
         <span :if={@listener[:effective_reason] && @listener[:effective] == @listener[:requested]}>{reason(@listener[:effective_reason])}</span>
         <span :if={@listener[:status] == :paused}>Agent paused</span>
-        <span :if={@listener[:routing] == :legacy}>Legacy routing — mode does not control delivery</span>
+        <span :if={@listener[:routing] == :unavailable}>Listener routing unavailable</span>
         <span :if={is_integer(@listener[:unread_count])} data-unread-count={@listener[:unread_count]}>
           Unread {@listener[:unread_count]}<span :if={@listener[:unread_count] > 0}> · oldest {age(@listener[:oldest_unread_at], @now)}</span>
         </span>

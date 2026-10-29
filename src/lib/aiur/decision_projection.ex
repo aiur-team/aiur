@@ -10,6 +10,7 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
+  alias Aiur.Commands.Overrides
   alias Aiur.Commands.Projection, as: CommandProjection
   alias Aiur.Commands.Routing.Facts
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
@@ -211,7 +212,8 @@ defmodule Aiur.DecisionProjection do
         acknowledgement: existing.acknowledgement,
         resolution: existing.resolution,
         acknowledgements: existing.acknowledgements,
-        resolutions: existing.resolutions
+        resolutions: existing.resolutions,
+        overrides: existing.overrides
     }
     |> then(&Facts.inherit(existing, &1))
   end
@@ -262,6 +264,8 @@ defmodule Aiur.DecisionProjection do
   defp apply_lifecycle(projection, %DecisionEvent{} = event) do
     with {:ok, current} <- fetch_current(projection, event.decision_id),
          {:ok, updated} <- Reducers.transition(current, event) do
+      updated = Overrides.observe(updated, event)
+
       {:ok,
        %{
          projection
@@ -321,6 +325,7 @@ defmodule Aiur.DecisionProjection do
       "acknowledgements" => stringify_action_map(decision.acknowledgements, &fact_to_json_safe/1),
       "resolutions" => stringify_action_map(decision.resolutions, &fact_to_json_safe/1)
     }
+    |> then(fn raw -> if decision.overrides == [], do: raw, else: Map.put(raw, "overrides", Overrides.public(decision)) end)
     |> Map.merge(JSONSafe.normalize(Facts.public(decision)))
     |> maybe_put_legacy_attention(decision.legacy_attention)
     |> maybe_put_provenance(decision.provenance)

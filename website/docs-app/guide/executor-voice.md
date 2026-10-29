@@ -12,10 +12,17 @@ when supported and writable. Close the drawer to return to the Executor controls
 
 ## Composer voice
 
-The shared Executor composer from #5723 replaces Executor dictation only. It
-does not replace the prototype’s provider comparison or delivery receipts; the
-Executor view and send adapter integration is still pending. Converse surface
-availability is separate from the retained prototype.
+The shared Executor composer supports **Dictate** and **Converse**, like worker
+composers, when Executor messaging is enabled. Voice controls are hidden when
+the composer is read-only or its effective listener mode is unavailable.
+
+Dictate appends speech to the editable draft and waits for **Send**. Delivery
+receipts come from the Executor send path. Cancel restores the pre-recording
+draft; closing the conversation stops capture. The existing **Talk to Executor**
+prototype below remains separately available.
+
+The shared composer’s dictation path does not replace the prototype’s provider
+comparison, ratings or delivery receipts. Those remain on `/voice` for acceptance.
 
 ## Voice prototype
 

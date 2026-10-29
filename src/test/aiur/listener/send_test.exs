@@ -31,15 +31,9 @@ defmodule Aiur.Listener.SendTest do
 
   setup do
     previous = Application.fetch_env!(:aiur, :listener_delivery_target)
-    flag = Application.fetch_env(:aiur, :listener_send_routing)
 
     on_exit(fn ->
       Application.put_env(:aiur, :listener_delivery_target, previous)
-
-      case flag do
-        {:ok, value} -> Application.put_env(:aiur, :listener_send_routing, value)
-        :error -> Application.delete_env(:aiur, :listener_send_routing)
-      end
     end)
 
     :ok
@@ -63,32 +57,19 @@ defmodule Aiur.Listener.SendTest do
     assert opts[:correlation] == correlation
   end
 
-  test "legacy sends preserve interrupt, auto and checkpoint queue delivery" do
-    Application.put_env(:aiur, :listener_send_routing, :legacy)
+  test "all conversation surfaces default to sync without interrupting" do
     pid = server()
 
-    for {origin, interrupt, fallback} <- [{:agent_chat, true, :queue_next}, {:voice_assistant, true, :queue_next}, {:tui, false, nil}, {:http, false, nil}] do
+    for origin <- [:agent_chat, :voice_assistant, :tui, :http, :internal] do
       assert {:ok, id} = Listener.send("42", "hello", origin: origin)
       item = AgentQueueStore.get(:sys.get_state(pid).queue_store, id)
-
-      assert item.delivery == %{
-               priority: if(interrupt, do: :now, else: :next),
-               durability: :durable,
-               consume_at: :safe_checkpoint,
-               interrupt_requested: interrupt,
-               immediate: false,
-               fallback: fallback
-             }
-
+      assert item.delivery.listener_mode_at_claim == :sync
+      refute item.delivery.interrupt_requested
       assert item.origin == origin
     end
-
-    assert {:error, :invalid_message} = Listener.send("42", "unknown", origin: :future_surface)
-    assert {:error, :invalid_message} = Listener.send("42", "missing origin")
   end
 
   test "client_request_id deduplicates sends while explicit policy and native correlation survive" do
-    Application.put_env(:aiur, :listener_send_routing, :legacy)
     pid = server()
     opts = [origin: :http, client_request_id: "one-action", delivery_policy: :interrupt, correlation: %{native_ref: "native-reply"}]
     assert {:ok, id} = Listener.send("42", "hello", opts)
@@ -100,7 +81,6 @@ defmodule Aiur.Listener.SendTest do
   end
 
   test "HTTP copies authenticated device actor into the enqueued item" do
-    Application.put_env(:aiur, :listener_send_routing, :legacy)
     pid = server()
     unless Process.whereis(AiurWeb.Endpoint), do: start_supervised!({AiurWeb.Endpoint, server: false})
     conn = Plug.Test.conn(:post, "/") |> Plug.Conn.assign(:auth_actor, {:device, "d1"})
@@ -112,7 +92,7 @@ defmodule Aiur.Listener.SendTest do
     refute item.delivery.interrupt_requested
   end
 
-  test "listener AgentChat input waits for turn end and unavailable mode returns an error" do
+  test "default dashboard send to a mid-turn codex agent waits for turn end and unavailable mode returns an error" do
     spec = Module.concat(["Aiur", "Listener", "Spec"])
 
     unless Code.ensure_loaded?(spec) do
@@ -131,7 +111,6 @@ defmodule Aiur.Listener.SendTest do
       end)
     end
 
-    Application.put_env(:aiur, :listener_send_routing, :listener)
     pid = server()
     :ok = ActiveTurns.put("42", "active-send")
     on_exit(fn -> ActiveTurns.mark_closed("42", "active-send", :test_cleanup) end)

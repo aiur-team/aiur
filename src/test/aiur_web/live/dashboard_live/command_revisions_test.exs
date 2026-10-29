@@ -21,6 +21,27 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
 
   @endpoint AiurWeb.Endpoint
 
+  defmodule ActiveOverrideTarget do
+    @moduledoc false
+    defdelegate send_correlated(server, identifier, payload), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate revalidate_issue(issue, fetcher, states), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate terminal_state_set(), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate terminal_issue_state?(state, states), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate active_identifiers(), to: Aiur.Orchestrator.CommandDeliveryTarget
+    def override_context(_identifier), do: %{pr: :unknown, worker: :active, capacity: :available}
+  end
+
+  defmodule RejectingOverrideStore do
+    @moduledoc false
+    use GenServer
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    @impl true
+    defdelegate init(opts), to: RejectingRevisionStore
+    @impl true
+    def handle_call({:override, id, payload, opts}, from, state), do: RejectingRevisionStore.handle_call({:revise, id, payload, opts}, from, state)
+    def handle_call(message, from, state), do: RejectingRevisionStore.handle_call(message, from, state)
+  end
+
   test "append-only revision preserves the original answer and obeys the writable gate" do
     orchestrator_name = Module.concat(__MODULE__, :RevisionOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RevisionDecisionStore)
@@ -102,7 +123,7 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
     assert Enum.count(audit, &match?(%DecisionEvent{type: :revision_recorded}, &1)) == 1
   end
 
-  test "un-applicable revision exposes and handles the parent follow-up" do
+  test "override retains the terminal follow-up on an observational nonactive route" do
     orchestrator_name = Module.concat(__MODULE__, :RevisionFollowUpOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RevisionFollowUpDecisionStore)
 
@@ -147,36 +168,11 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
       })
 
     assert eventually(fn -> render(view) =~ "Executor follow-up required" end, 100)
-
     {:ok, pending} = DecisionStore.get(decision.decision_id, store)
-
-    {action_id, follow_up} =
-      Enum.find(pending.revision_follow_ups, fn {_action_id, item} ->
-        is_nil(item.handled_at)
-      end)
-
-    refute follow_up.question =~ ~r/rolled back|reverted|undone/i
-
-    html =
-      render_submit(view, "handle-revision-follow-up", %{
-        "decision_id" => decision.decision_id,
-        "action_id" => action_id,
-        "follow_up" => %{"detail" => "Opened an incident command and notified the operator"}
-      })
-
-    assert html =~ "Revision follow-up handled"
-
-    assert eventually(fn ->
-             {:ok, current} = DecisionStore.get(decision.decision_id, store)
-             not is_nil(current.revision_follow_ups[action_id].handled_at)
-           end)
-
-    assert {:ok, handled} = DecisionStore.get(decision.decision_id, store)
-
-    assert handled.revision_follow_ups[action_id].handled_detail ==
-             "Opened an incident command and notified the operator"
-
-    assert handled.revision_follow_ups[action_id].handled_by.kind == :operator
+    assert [%{state: :queued, route: :resume_pending, action_id: action_id}] = pending.overrides
+    assert action_id == pending.active_action_id
+    assert pending.revision_result == :no_longer_applicable
+    assert %{^action_id => %{handled_at: nil}} = pending.revision_follow_ups
   end
 
   test "stale revision rejection preserves the corrective draft" do
@@ -205,7 +201,7 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
 
     assert {:ok, answered} = DecisionStore.get(decision.decision_id, source_store)
 
-    start_supervised!({RejectingRevisionStore, name: rejecting_store_name, decision: answered, report: self()})
+    start_supervised!({RejectingOverrideStore, name: rejecting_store_name, decision: answered, report: self()})
 
     start_counting_orchestrator(orchestrator_name)
 
@@ -243,6 +239,13 @@ defmodule AiurWeb.DashboardLive.CommandRevisionsTest do
   end
 
   test "human dashboard revision traverses the corrective queue and lifecycle projections" do
+    prior_target = Application.get_env(:aiur, :commands_delivery_target)
+    Application.put_env(:aiur, :commands_delivery_target, ActiveOverrideTarget)
+
+    on_exit(fn ->
+      if prior_target, do: Application.put_env(:aiur, :commands_delivery_target, prior_target), else: Application.delete_env(:aiur, :commands_delivery_target)
+    end)
+
     orchestrator_name = Module.concat(__MODULE__, :RevisionCapstoneOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RevisionCapstoneDecisionStore)
     metrics_name = Module.concat(__MODULE__, :RevisionCapstoneDecisionMetrics)

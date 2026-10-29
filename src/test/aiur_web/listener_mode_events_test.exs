@@ -72,8 +72,8 @@ defmodule AiurWeb.ListenerModeEventsTest do
     assert timeout.assigns.listener_feedback.state == :error
   end
 
-  test "future regression guard: legacy, read-only, ambiguous targets and invalid input never write", %{socket: socket} do
-    for blocked <- [assign(socket, writable: false), assign(socket, listener_view: %{routing: :legacy}), assign(socket, agent_log_modal: %{writable_target?: false})] do
+  test "future regression guard: unavailable, read-only, ambiguous targets and invalid input never write", %{socket: socket} do
+    for blocked <- [assign(socket, writable: false), assign(socket, listener_view: %{routing: :unavailable}), assign(socket, agent_log_modal: %{writable_target?: false})] do
       assert {:noreply, ^blocked} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, blocked)
     end
 

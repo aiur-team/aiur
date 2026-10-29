@@ -21,4 +21,7 @@ The CLI supports `--scope live|unfinished|all|none` and repeated `--condition`
 filters. Context occupancy and Aiur orchestration turns remain separate from
 cumulative token usage. Missing or unsupported measurements remain unavailable.
 
+Dictation on the retained voice surface stops at the five-minute session limit
+with an explanation and keeps the text for review.
+
 See the [CLI reference](/reference/cli) for inspection and control commands.
