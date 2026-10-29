@@ -37,6 +37,23 @@ defmodule AiurWeb.OperatorControlCenter.VoiceTargetResolver do
     end
   end
 
+  @impl true
+  def command_revision(decision_id, expected_version) do
+    case Commands.get(decision_id, store: decision_store()) do
+      {:ok, %{decision: decision}} ->
+        if decision.answer != nil and expected_version in [nil, decision.version], do: :ok, else: {:error, :target_stale}
+
+      {:error, :not_found} ->
+        {:error, :target_not_found}
+
+      {:error, {:invalid_decision_id, _reason}} ->
+        {:error, :target_not_found}
+
+      {:error, _unavailable} ->
+        {:error, :unknown}
+    end
+  end
+
   defp command_state(decision, expected_version) do
     cond do
       not DecisionAction.answerable?(decision) -> {:error, :target_stale}

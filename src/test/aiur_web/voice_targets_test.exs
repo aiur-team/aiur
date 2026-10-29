@@ -125,6 +125,16 @@ defmodule AiurWeb.VoiceTargetsTest do
     end
   end
 
+  test "a revision target needs an answered Command at the expected version" do
+    answered = %{decision(:resolved, 4) | answer: %{custom_response: "Original direction"}}
+    store(%{"answered" => answered, "unanswered" => decision(:open, 4)})
+    assert :ok = VoiceTargets.validate(command("answered", 4), "command_revision")
+    assert :ok = VoiceTargets.validate(command("answered", nil), "command_revision")
+    assert {:error, %{reason_code: "target_stale"}} = VoiceTargets.validate(command("unanswered", 4), "command_revision")
+    assert {:error, %{reason_code: "target_stale"}} = VoiceTargets.validate(command("answered", 3), "command_revision")
+    assert {:error, %{reason_code: "target_not_found"}} = VoiceTargets.validate(command("missing", 4), "command_revision")
+  end
+
   # A malformed store reply must still refuse with a code, not crash the join.
   test "a malformed store reply is unknown" do
     store(%{"d1" => :not_a_decision})
