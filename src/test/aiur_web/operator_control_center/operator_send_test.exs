@@ -47,10 +47,12 @@ defmodule AiurWeb.OperatorControlCenter.OperatorSendTest do
     assert pending == %{}
   end
 
-  test "a known failure drops the pending id so the next press is a new message" do
-    stub_send([{:error, :no_running_agent}])
+  test "a failed send keeps the same id and text for retry" do
+    stub_send([{:error, :no_running_agent}, {:ok, 9}])
     pending = %{"42" => {"dashboard-kept", "go"}}
-    assert {:error, :no_running_agent, "dashboard-kept", %{}} = OperatorSend.send(@composer, "go", pending)
+    assert {:error, :no_running_agent, "dashboard-kept", ^pending} = OperatorSend.send(@composer, "go", pending)
+    assert {:ok, 9, "dashboard-kept", %{}} = OperatorSend.send(@composer, "go", pending)
+    assert_received {:sent, "42", "go", "dashboard-kept"}
   end
 
   test "empty text is refused without calling the send path" do

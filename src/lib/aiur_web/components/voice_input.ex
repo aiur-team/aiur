@@ -29,6 +29,8 @@ defmodule AiurWeb.Components.VoiceInput do
   attr(:surface, :string, default: "agent_composer")
   attr(:target, :map, default: %{})
 
+  attr(:delivery, :map, default: nil, doc: "canonical composer receipt; voice never creates delivery observations")
+
   @spec voice_input(map()) :: Phoenix.LiveView.Rendered.t()
   def voice_input(assigns) do
     assigns =
@@ -40,7 +42,7 @@ defmodule AiurWeb.Components.VoiceInput do
 
     ~H"""
     <div id={@id} phx-hook={@hook} class="agent-voice-tools" data-voice-root data-voice-surface={@surface} data-voice-target={Jason.encode!(@target)}
-      data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]} data-voice-state={if @dictate.available, do: "idle", else: "unavailable"}>
+      data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]} data-voice-delivery-accepted={to_string(accepted?(@delivery))} data-voice-state={if accepted?(@delivery), do: "sent", else: if(@dictate.available, do: "idle", else: "unavailable")}>
       {render_slot(@inner_block)}
       <div class="agent-voice-controls">
         <div class="agent-voice-choice">
@@ -102,9 +104,32 @@ defmodule AiurWeb.Components.VoiceInput do
       <p class="agent-voice-status" role="status" aria-live="polite" data-voice-status>
         {if @dictate.available, do: @status_copy, else: @dictate.reason}
       </p>
+      <.delivery_status delivery={@delivery} />
     </div>
     """
   end
+
+  attr(:delivery, :map, default: nil)
+  @spec delivery_status(map()) :: Phoenix.LiveView.Rendered.t()
+  def delivery_status(assigns) do
+    ~H"""
+    <p :if={@delivery} class="agent-voice-delivery" role="status" aria-live="polite" data-voice-delivery
+      data-voice-state={if accepted?(@delivery), do: "sent"} data-delivery-state={@delivery[:state] || :unknown}>
+      {delivery_copy(@delivery)}
+    </p>
+    """
+  end
+
+  defp accepted?(%{state: state}), do: state in [:accepted, :held_async, :waiting_turn_end, :harness_queued, :in_context, :read]
+  defp accepted?(_delivery), do: false
+
+  defp delivery_copy(%{copy: copy}) when is_binary(copy), do: copy
+  defp delivery_copy(%{state: state}) when state in [:accepted, :held_async, :waiting_turn_end], do: "Sent — waiting for the agent"
+  defp delivery_copy(%{state: :harness_queued}), do: "Delivered to the agent"
+  defp delivery_copy(%{state: state}) when state in [:in_context, :read], do: "The agent has it"
+  defp delivery_copy(%{state: :failed}), do: "Send failed. Check the log before you send again."
+  defp delivery_copy(%{state: :outcome_unknown}), do: AiurWeb.OperatorControlCenter.AgentLogModal.format_error({:outcome_unknown, %{}})
+  defp delivery_copy(_unknown), do: "Delivery outcome unknown. Check the log before you send again."
 
   defp mode({id, label, capability}, capabilities) do
     entry = Map.get(capabilities, capability, %{})

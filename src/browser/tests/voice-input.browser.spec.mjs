@@ -65,6 +65,11 @@ test('VoiceInput dictates into a standalone form and waits for Send', async ({ p
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
   await form.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'hello browser')
+  await expect(form.locator('[data-voice-delivery]')).toHaveText('Delivered to the agent')
+  await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'sent')
+  await patch(page, 1)
+  await expect(form.locator('[data-voice-delivery]')).toHaveText('Delivered to the agent')
+  await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'sent')
 })
 
 test('VoiceInput never requests the microphone before a click or without a textarea', async ({ page }) => {

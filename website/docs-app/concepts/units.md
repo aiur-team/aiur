@@ -87,6 +87,8 @@ interactive voice chat button.
 
 The voice status line follows idle → requesting microphone permission → listening → finishing transcription → ready to review. Permission denial explains how to allow the microphone; no-device errors explain how to connect one. Both allow another attempt. Channel failures keep the text captured so far; unknown failures show a neutral message.
 
+Dictated messages use the same delivery receipts and Command answer notices as typed text; voice never infers delivery from transcription or pressing Send.
+
 When speech-to-text is not configured, Dictate stays disabled with a reason and a [setup link](/apis/elevenlabs#configure-the-key). When voice is not installed, it stays disabled with “Voice input isn't installed in this Aiur. Typed messages work as usual.” Typing and Send remain available.
 
 Insecure origins and browsers without Web Audio also explain why dictation is unavailable. Capability changes during recording take effect on the next activation; the current session continues.

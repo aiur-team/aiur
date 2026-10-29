@@ -13,7 +13,7 @@ export const PAUSED = 'Message the agent — it resumes when you send';
 export const AMBIGUOUS = 'Agent actions are unavailable because this display identifier is not a unique writable target.';
 const NO_ANSWER = 'No answer from the dashboard, so the message may still be queued. Check the log before you send again.';
 const STATUS = {
-  queued: ['Queued · waiting for the agent', ''], delivered: null, unconfirmed: ['Queued · delivery unconfirmed', ''],
+  queued: ['Queued · waiting for the agent', ''], delivered: ['Delivered to the agent', ''], unconfirmed: ['Queued · delivery unconfirmed', ''],
   failed: ['Not delivered (failed)', 'bad'], superseded: ['Not delivered (superseded)', 'bad'],
 };
 let drafts = new Map(), st = null, offs = [], localOps = [], appending = false, mic = null;
@@ -90,7 +90,7 @@ async function submit() {
 function accepted(ref, raw, reply) {
   const ta = $('#cv-in textarea');
   if (ta && ta.value === raw) { ta.value = ''; ta.style.height = 'auto'; drafts.delete(ref.id); }
-  ref.last = reply.request_id; ref.sent = reply.text; setLine(null);
+  ref.last = reply.request_id; ref.sent = reply.text; $('#cv-in').dataset.voiceState = 'sent'; setLine('Sent — waiting for the agent');
   const log = $('#cv-log'); if (log) log.scrollTop = log.scrollHeight;
   // The composer's own row must not claim an earlier local row with the same text.
   appending = true;

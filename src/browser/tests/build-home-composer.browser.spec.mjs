@@ -185,7 +185,7 @@ test('failed, unknown and unanswered sends keep the draft and say why', async ({
   await expect(box(page)).toHaveValue('keep me')
 })
 
-test('delivery states: queued, delivered hides the line, failed restores the text, superseded does not', async ({ page }) => {
+test('delivery states: queued, delivered shows confirmed receipt, failed restores the text, superseded does not', async ({ page }) => {
   await open(page)
   await box(page).fill('one'); await box(page).press('Enter')
   await expect(page.locator('#cv-log .cv-op')).toHaveCount(1)
@@ -194,7 +194,7 @@ test('delivery states: queued, delivered hides the line, failed restores the tex
   await status(page, { request_id: 6, status: 'failed' })
   await expect(line(page)).toHaveText('Queued · waiting for the agent')
   await status(page, { request_id: 7, status: 'delivered' })
-  await expect(line(page)).toBeHidden()
+  await expect(line(page)).toHaveText('Delivered to the agent')
   await status(page, { request_id: 7, status: 'failed' })
   await expect(line(page)).toHaveText('Not delivered (failed)'); await expect(line(page)).toHaveClass(/bad/)
   await expect(box(page)).toHaveValue('one')

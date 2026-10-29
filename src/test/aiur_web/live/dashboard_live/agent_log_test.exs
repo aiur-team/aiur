@@ -107,6 +107,57 @@ defmodule AiurWeb.DashboardLive.AgentLogTest do
     refute fourth_id in [first_id, edited_id]
   end
 
+  test "Agent log send keeps its message id for a retry after an failed send" do
+    identity = units_identity()
+    membership = units_membership(identity)
+    orchestrator_name = Module.concat(__MODULE__, :FailedAgentLogOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+    replies = :counters.new(1, [])
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      agent_chat_send_fun: fn _selected, text, opts ->
+        send(test_pid, {:retry_agent_message, text, Keyword.fetch!(opts, :message_id)})
+        :counters.add(replies, 1, 1)
+
+        if :counters.get(replies, 1) <= 2,
+          do: {:error, :no_running_agent},
+          else: {:ok, 7}
+      end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/units")
+    render_hook(view, "show-agent-log", %{"unit" => UnitsPresenter.row_token(%{identity: identity})})
+
+    html = render_submit(view, "send-operator-message", %{"message" => "continue"})
+    assert_receive {:retry_agent_message, "continue", first_id}, 1000
+    assert html =~ "Agent is no longer running."
+    assert has_element?(view, "textarea[data-voice-input]", "continue")
+    assert has_element?(view, "[data-voice-delivery][data-delivery-state=failed]")
+
+    # An edited draft is a new message, so it gets a fresh id.
+    render_submit(view, "send-operator-message", %{"message" => "continue, please"})
+    assert_receive {:retry_agent_message, "continue, please", edited_id}, 1000
+    refute edited_id == first_id
+
+    # Send again with the same draft retries it under the kept id.
+    render_submit(view, "send-operator-message", %{"message" => "continue, please"})
+    assert_receive {:retry_agent_message, "continue, please", ^edited_id}, 1000
+
+    # After a success, the same text is a new message.
+    render_submit(view, "send-operator-message", %{"message" => "continue, please"})
+    assert_receive {:retry_agent_message, "continue, please", fourth_id}, 1000
+    refute fourth_id in [first_id, edited_id]
+  end
+
   test "the chat modal composer carries the writable agent log and passes the typed Unit identity" do
     identity = units_identity()
     membership = units_membership(identity)

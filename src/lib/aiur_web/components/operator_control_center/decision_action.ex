@@ -16,6 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
+    assigns = assign(assigns, :voice_delivery, AiurWeb.Components.VoiceDelivery.command(assigns.decision, assigns.state))
     form = Map.get(assigns.state, :form, %{})
     choice = Map.get(form, "choice") || default_choice(assigns.decision)
 
@@ -64,6 +65,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
       </p>
 
       <DecisionReplacement.decision_replacement decision={@decision} state={@state} writable={@writable} live_connected={@live_connected} />
+
+      <.delivery_status :if={!@answerable?} delivery={@voice_delivery} />
 
       <form
         :if={@writable and @answerable?}
@@ -126,7 +129,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           >{Map.get(@form, "custom_response", "")}</textarea>
         </label>
 
-        <.voice_input
+        <.voice_input delivery={@voice_delivery}
           :if={@questions == [] and answerable?(@decision) and not @disabled? and @live_connected}
           id={"decision-answer-voice-#{@decision.decision_id}"}
           capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_response})}
