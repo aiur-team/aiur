@@ -114,22 +114,18 @@ defmodule Aiur.Listener.ConformanceTest do
 
   defp boundary(%{"harness" => harness, "event" => event, "mode" => mode} = row)
        when harness in ["claude", "codex"] and event in ["start", "prompt", "tool", "stop"] and mode in ["steer", "sync", "async", "mute"] do
-    classify_boundary(row, harness, event, mode)
+    classify_boundary(row)
   end
 
   defp boundary(row), do: flunk("unclassified scheduler row: #{inspect(row)}")
 
-  defp classify_boundary(row, harness, event, mode) do
-    cond do
-      mode == "mute" -> {:not_applicable, :mute}
-      event == "start" -> {:not_applicable, :start}
-      event == "prompt" and harness == "claude" -> {:not_applicable, :prompt}
-      event == "prompt" -> :stop
-      event == "stop" and row["continuation"] -> {:not_applicable, :continuation}
-      event == "tool" -> :tool
-      event == "stop" -> :stop
-    end
-  end
+  defp classify_boundary(%{"mode" => "mute"}), do: {:not_applicable, :mute}
+  defp classify_boundary(%{"event" => "start"}), do: {:not_applicable, :start}
+  defp classify_boundary(%{"event" => "prompt", "harness" => "claude"}), do: {:not_applicable, :prompt}
+  defp classify_boundary(%{"event" => "prompt"}), do: :stop
+  defp classify_boundary(%{"event" => "stop", "continuation" => true}), do: {:not_applicable, :continuation}
+  defp classify_boundary(%{"event" => "tool"}), do: :tool
+  defp classify_boundary(%{"event" => "stop"}), do: :stop
 
   defp queued(row) do
     id = "conformance-#{System.unique_integer([:positive])}"
