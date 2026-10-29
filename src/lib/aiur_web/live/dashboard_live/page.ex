@@ -91,6 +91,7 @@ defmodule AiurWeb.DashboardLive.Page do
       |> Map.put_new(:instance_agent_roster, :disabled)
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
       |> Map.put_new(:voice_capabilities, %{})
+      |> Map.put_new(:voice_conversation_error, nil)
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -233,6 +234,7 @@ defmodule AiurWeb.DashboardLive.Page do
         drafts={@drafts}
         errors={@chat_errors}
         voice_capabilities={@voice_capabilities}
+        voice_conversation_error={@voice_conversation_error}
       />
       <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
       <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={@writable} />
@@ -255,6 +257,7 @@ defmodule AiurWeb.DashboardLive.Page do
         usage_error={@conversation_usage_error}
         context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
         voice_capabilities={@voice_capabilities}
+        voice_conversation_error={@voice_conversation_error}
         listener={@listener_view}
         listener_feedback={@listener_feedback}
         receipts={@listener_receipts}

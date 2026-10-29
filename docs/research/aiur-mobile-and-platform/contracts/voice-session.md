@@ -28,3 +28,21 @@ field, and appends to `revision[custom_response]`. Capture stops at the field's
 4,000-character limit while preserving the transcript for editing. The operator
 reviews the text, supplies a reason, and submits through `revise-decision`.
 Dictation does not submit a revision or bypass revision delivery guards.
+
+## Mic choice handoff
+
+`open-voice-conversation` carries `surface` and a JSON-encoded `target` from
+that composer's Dictate control. `AiurWeb.VoiceConversationEvents.open/2`
+strictly parses the target, calls `VoiceTargets.validate/2`, and re-reads the
+conversation capability before assigning `voice_conversation_panel` to
+`%{target: parsed_target, surface: surface}`. Refusal clears the panel request
+and assigns `voice_conversation_error` with `reason_code` and inline `reason`.
+`close/1` clears both assigns; neither function starts capture or a session.
+
+MP-E6-C7-T02 consumes this assign to render `AiurWeb.Components.ConversePanel`.
+Until that component is installed, the dashboard reports Converse as
+`not_installed` even if the conversation host is available. The panel's Start
+step owns consent and capture. The handoff requests no agent summary or pause.
+Command response and revision surfaces omit Converse. Executor targets parse
+but remain `unsupported_target` until their target owner supplies validation;
+the future Executor LiveView can delegate the same event to `open/2`.

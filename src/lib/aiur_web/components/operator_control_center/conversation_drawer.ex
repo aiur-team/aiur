@@ -36,6 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:usage_snapshot, :map, default: nil)
   attr(:usage_error, :atom, default: nil)
   attr(:context_occupancy, :map, default: nil)
+  attr(:voice_conversation_error, :map, default: nil)
   attr(:voice_capabilities, :map, default: %{})
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
@@ -201,7 +202,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               enterkeyhint="send"
               data-voice-input
             >{@drafts[@composer_key] || ""}</textarea>
-            <.voice_input delivery={AiurWeb.Components.VoiceDelivery.receipt(@receipts, @composer_key, @errors)} id={"#{@id}-voice"} capabilities={@voice_capabilities} surface="agent_composer" target={%{kind: "worker", ticket: to_string(Map.get(@composer || %{}, :issue_identifier, @composer_key))}} />
+            <.voice_input conversation_error={@voice_conversation_error} delivery={AiurWeb.Components.VoiceDelivery.receipt(@receipts, @composer_key, @errors)} id={"#{@id}-voice"} capabilities={@voice_capabilities} surface="agent_composer" target={%{kind: "worker", ticket: to_string(Map.get(@composer || %{}, :issue_identifier, @composer_key))}} />
             <div class="agent-chat-actions">
               <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
               <button class="aiur-button aiur-button--dashboard btn" type="submit" data-voice-send>Send</button>

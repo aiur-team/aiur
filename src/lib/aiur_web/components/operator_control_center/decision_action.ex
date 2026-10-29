@@ -134,7 +134,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           :if={@questions == [] and answerable?(@decision) and not @disabled? and @live_connected}
           id={"decision-answer-voice-#{@decision.decision_id}"}
           capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_response})}
-          legacy_conversation={false}
+          legacy_conversation={false} converse={false}
           surface="command_response"
           target={%{kind: "command", decision_id: @decision.decision_id, expected_version: @decision.version}}
           status_copy="Choose Dictate to speak a custom response. Review the text, then record your answer."
