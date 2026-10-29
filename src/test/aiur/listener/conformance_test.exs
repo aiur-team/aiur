@@ -114,6 +114,12 @@ defmodule Aiur.Listener.ConformanceTest do
 
   defp boundary(%{"harness" => harness, "event" => event, "mode" => mode} = row)
        when harness in ["claude", "codex"] and event in ["start", "prompt", "tool", "stop"] and mode in ["steer", "sync", "async", "mute"] do
+    classify_boundary(row, harness, event, mode)
+  end
+
+  defp boundary(row), do: flunk("unclassified scheduler row: #{inspect(row)}")
+
+  defp classify_boundary(row, harness, event, mode) do
     cond do
       mode == "mute" -> {:not_applicable, :mute}
       event == "start" -> {:not_applicable, :start}
@@ -124,8 +130,6 @@ defmodule Aiur.Listener.ConformanceTest do
       event == "stop" -> :stop
     end
   end
-
-  defp boundary(row), do: flunk("unclassified scheduler row: #{inspect(row)}")
 
   defp queued(row) do
     id = "conformance-#{System.unique_integer([:positive])}"
