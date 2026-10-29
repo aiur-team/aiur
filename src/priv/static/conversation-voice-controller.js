@@ -8,12 +8,10 @@
       this.onConversationClick = () => this.toggle("conversation");
       this.onDeviceChange = () => this.rememberDevice();
     }
-
     get starting() { return this.state === "requesting_permission"; }
     get recording() { return this.state === "listening"; }
     get finishing() { return this.state === "finishing"; }
     transition(next, detail) { window.AiurVoiceInputState.transition(this, next, detail); }
-
     mount() {
       this.bindElements();
       this.seenReplies = new Set(this.replyElements().map((element) => element.id));
@@ -29,7 +27,6 @@
         this.refreshDevices();
       }
     }
-
     bindElements() {
       const mic = this.hook.el.querySelector("[data-voice-mic]");
       const conversation = this.hook.el.querySelector("[data-voice-conversation]");
@@ -109,6 +106,8 @@
         this.status.hidden = false;
         this.status.classList.toggle("bad", this.statusFailed === true);
       }
+      const cancel = this.choice.root?.querySelector("[data-voice-cancel]");
+      if (cancel) cancel.hidden = !(this.recording || this.finishing);
       this.choice.sync();
       this.drawWaveform();
     }
@@ -153,6 +152,7 @@
         await this.hook.prepareVoiceInput?.();
         if (!this.current(generation)) return;
         if (!this.input || this.input.disabled) throw new Error("The response field did not open.");
+        this.restoreText = this.input.value;
         preparingField = false;
         this.limitReached = false;
         if (mode === "conversation") {
@@ -253,6 +253,20 @@
         const channel = this.channel;
         if (channel) this.handleTransportFailure({ reason_code: "transport_lost" }, this.generation, channel);
       }, 5000);
+    }
+
+    cancel() {
+      if (!this.recording && !this.finishing) return;
+      this.generation += 1;
+      this.clearFinishTimer();
+      this.channel?.push("cancel", {});
+      this.disposeCapture();
+      this.closeChannel();
+      this.resetConversationState();
+      this.input.value = this.restoreText;
+      this.input.dispatchEvent(new Event("input", { bubbles: true }));
+      this.transition("cancelled");
+      this.transition("idle");
     }
 
     handleSamples(samples) {

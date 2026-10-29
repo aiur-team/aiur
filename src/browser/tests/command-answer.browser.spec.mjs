@@ -177,6 +177,21 @@ test('a missing Custom response patch times out without requesting the microphon
   expect(await page.evaluate(() => window.__micRequests)).toEqual([])
 })
 
+test('Command Cancel restores the existing response without deciding the Command', async ({ page }) => {
+  const form = await openCommand(page)
+  await form.locator('[value=custom]').check()
+  const input = form.locator('[data-voice-input]')
+  await input.fill('Existing response')
+  await start(form)
+  await page.evaluate(() => window.__voiceHandlers.transcript({ kind: 'final', text: 'discard these words' }))
+  await expect(input).toHaveValue('Existing response discard these words')
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(input).toHaveValue('Existing response')
+  await expect(input).toBeEditable()
+  expect(await page.evaluate(() => window.__voicePushes)).toContain('cancel')
+  expect(await page.evaluate(() => window.__voicePushes)).not.toContain('stop')
+  expect((await (await page.request.get('/command-answer-state')).json()).decision_status).toBe('open')
+})
 
 test('revision dictation auto-selects Custom response and submits the reviewed correction', async ({ page }) => {
   const answer = await openCommand(page)

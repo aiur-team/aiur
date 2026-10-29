@@ -85,6 +85,8 @@ defmodule AiurWeb.Components.VoiceInput do
             <path d="M2.5 19c.5-3.3 2.4-5 5.5-5s5 1.7 5.5 5M13.5 15c1-.8 2.1-1.2 3.5-1.2 2.6 0 4.1 1.4 4.5 4.2M12 6.5l2-1.2M13.5 9.5l2 .8" />
           </svg>
         </button>
+        <button type="button" class="aiur-button aiur-button--dashboard btn" data-voice-cancel
+          data-conversation-focus="voice-cancel" hidden>Cancel</button>
         <details class="agent-voice-settings">
           <summary aria-label="Microphone settings">Settings</summary>
           <label class="agent-voice-device-label">
