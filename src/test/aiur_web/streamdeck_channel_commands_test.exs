@@ -412,18 +412,17 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       # The device answers the version it read; a different version is stale.
       stale_version = decision.version + 1
 
-      assert_reply(
+      ref =
         push(socket, "answer_command", %{
           "decision_id" => decision.decision_id,
           "version" => stale_version,
           "idempotency_key" => "sd-stale-1",
           "custom_response" => "Hold everything — this is stale."
-        }),
-        :error,
-        %{reason: reason}
-      )
+        })
 
-      assert reason == "stale"
+      reply = receive_barrier(%Phoenix.Socket.Reply{ref: ^ref})
+      assert reply.status == :error
+      assert reply.payload == %{reason: "stale"}
 
       # The stale press must not have recorded an answer: it is a conflict,
       # never a double-answer.
