@@ -23,6 +23,7 @@ defmodule Aiur.RecentMerge do
   @identity_max 200
 
   @type t :: %__MODULE__{
+          issue_references: term(),
           schema_version: pos_integer(),
           id: String.t(),
           repository: String.t(),
@@ -64,6 +65,7 @@ defmodule Aiur.RecentMerge do
   defstruct @enforce_keys ++
               [
                 schema_version: @schema_version,
+                issue_references: nil,
                 title: nil,
                 summary: nil,
                 commit_messages: [],
@@ -119,15 +121,10 @@ defmodule Aiur.RecentMerge do
   Cross-repository references are parsed but only same-repository ones are
   returned, since this reconciles tickets in the merge's own repository.
 
-  This remains derived rather than persisted so existing merge-audit records
-  retain their original content hashes.
+  Derived references are cached in memory and excluded from persisted audit hashes.
   """
   @spec closing_issue_identifiers(t()) :: [String.t()]
-  def closing_issue_identifiers(%__MODULE__{summary: summary, repository: repository, commit_messages: messages}) do
-    (closing_issue_identifiers_in_body(summary, repository) ++
-       Enum.flat_map(messages, &closing_issue_identifiers_in_body(&1, repository)))
-    |> Enum.uniq()
-  end
+  def closing_issue_identifiers(%__MODULE__{} = merge), do: merge |> Aiur.RecentMerge.IssueReferences.get() |> elem(0)
 
   @doc """
   `closing_issue_identifiers/1` against a raw pull request body.
@@ -156,11 +153,7 @@ defmodule Aiur.RecentMerge do
 
   @doc "Returns linked issue identifiers from the PR body and its commit messages."
   @spec linked_issue_identifiers(t()) :: [String.t()]
-  def linked_issue_identifiers(%__MODULE__{} = merge) do
-    body_ids = ClosingReferences.linked_identifiers_in_text(merge.summary, merge.repository)
-    commit_ids = Enum.flat_map(merge.commit_messages, &ClosingReferences.linked_identifiers_in_text(&1, merge.repository))
-    Enum.uniq(body_ids ++ commit_ids)
-  end
+  def linked_issue_identifiers(%__MODULE__{} = merge), do: merge |> Aiur.RecentMerge.IssueReferences.get() |> elem(1)
 
   defp normalize_github_merge(event, pull, opts) do
     live? = Keyword.get(opts, :live?, false) == true
@@ -207,6 +200,7 @@ defmodule Aiur.RecentMerge do
         last_observed_at: observed_at,
         content_hash: ""
       }
+      |> Aiur.RecentMerge.IssueReferences.prepare()
       |> with_content_hash()
       |> then(&{:ok, &1})
     else
@@ -234,6 +228,7 @@ defmodule Aiur.RecentMerge do
           observed_run_id: prefer(incoming.observed_run_id, existing.observed_run_id),
           last_observed_at: incoming.last_observed_at
       }
+      |> Aiur.RecentMerge.IssueReferences.prepare()
       |> with_content_hash()
 
     if comparable(candidate) == comparable(existing) do
@@ -331,7 +326,7 @@ defmodule Aiur.RecentMerge do
       }
 
       if with_content_hash(merge).content_hash == content_hash do
-        {:ok, merge}
+        {:ok, Aiur.RecentMerge.IssueReferences.prepare(merge)}
       else
         {:error, :content_hash_mismatch}
       end
@@ -341,7 +336,7 @@ defmodule Aiur.RecentMerge do
   def decode_record(_raw), do: {:error, :not_a_map}
 
   defp with_content_hash(merge) do
-    hash_fields = [:content_hash, :reconciled_ticket_ids]
+    hash_fields = [:content_hash, :reconciled_ticket_ids, :issue_references]
     hash_fields = if merge.commit_messages == [], do: [:commit_messages | hash_fields], else: hash_fields
 
     hash =
@@ -358,7 +353,7 @@ defmodule Aiur.RecentMerge do
   defp comparable(merge) do
     merge
     |> Map.from_struct()
-    |> Map.drop([:last_observed_at, :content_hash, :reconciled_ticket_ids])
+    |> Map.drop([:last_observed_at, :content_hash, :reconciled_ticket_ids, :issue_references])
   end
 
   defp optional_ticket_ids(ids) when is_list(ids) do
