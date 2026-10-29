@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.ConversationSource.JournalEntriesTest do
   use ExUnit.Case, async: true
-  alias AiurWeb.Build.Payload
   alias AiurWeb.Build.ConversationSource.JournalEntries
+  alias AiurWeb.Build.Payload
 
   test "journal kinds project to validated deck and modal rows without provider prompts" do
     now = DateTime.utc_now()

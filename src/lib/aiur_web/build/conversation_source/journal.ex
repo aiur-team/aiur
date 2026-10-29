@@ -62,13 +62,13 @@ defmodule AiurWeb.Build.ConversationSource.Journal do
   def page(ref, cursor, opts), do: read(ref, cursor, :page, opts)
 
   defp read(ref, cursor, direction, opts) do
-    with {:ok, ref} <- prepared(ref, opts) do
-      if ref[:journal_id] do
-        journal_page(ref, cursor, direction)
-      else
-        if is_binary(cursor) and String.starts_with?(cursor, "journal:"), do: {:error, :reset}, else: apply(Wave0b, direction, [ref, cursor, opts])
-      end
-    end
+    with {:ok, ref} <- prepared(ref, opts), do: read_prepared(ref, cursor, direction, opts)
+  end
+
+  defp read_prepared(%{journal_id: _id} = ref, cursor, direction, _opts), do: journal_page(ref, cursor, direction)
+
+  defp read_prepared(ref, cursor, direction, opts) do
+    if is_binary(cursor) and String.starts_with?(cursor, "journal:"), do: {:error, :reset}, else: apply(Wave0b, direction, [ref, cursor, opts])
   end
 
   defp prepared(%{prepared?: true} = ref, _opts), do: {:ok, ref}
