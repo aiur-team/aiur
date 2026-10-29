@@ -121,6 +121,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
     refute_received {:resumed, _}
   end
 
+  # Preserve existing label behavior as future regression guards; CLI pause coverage follows.
   test "label park stays parked and raises a Resume Command", ctx do
     assert_operator_hold(%State{max_concurrent_agents: 1}, %{ctx | issue: %{ctx.issue | parked: true}})
   end
@@ -169,6 +170,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
     refute_received {:resumed, _}
   end
 
+  # These existing resume paths guard future regressions when operator pause checks change.
   for reason <- [:agent_pause_request, :input_required, :capacity] do
     @pause_reason reason
     test "#{reason} pause resumes the same runner through normal control", ctx do

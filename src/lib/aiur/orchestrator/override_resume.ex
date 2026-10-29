@@ -75,7 +75,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
     store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     cond do
-      Issue.parked?(issue) or Issue.paused?(issue) or operator_paused?(current, entry) ->
+      explicit_pause?(current, issue, entry) ->
         persist_wait(decision, :resume_pending, :operator_pause, store)
         Keyword.get(opts, :ask_fun, &ask_resume/2).(decision, store)
         current
@@ -130,6 +130,9 @@ defmodule Aiur.Orchestrator.OverrideResume do
     admission = Keyword.get(opts, :admission_fun, &Capacity.auto_resume_admission/1)
     fleet? and admission.(admission_state) == :dispatch
   end
+
+  defp explicit_pause?(state, issue, entry),
+    do: Issue.parked?(issue) or Issue.paused?(issue) or operator_paused?(state, entry)
 
   defp operator_paused?(_state, nil), do: false
 
