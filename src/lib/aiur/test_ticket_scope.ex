@@ -210,18 +210,30 @@ defmodule Aiur.TestTicketScope do
   end
 
   defp pinned_tickets do
-    path = Path.expand(".aiur-test-tickets.json", Aiur.Codeowners.repo_root())
+    cwd = File.cwd!()
+    path = find_pinned_file(cwd)
 
-    key = {__MODULE__, :pinned_tickets, path}
+    key = {__MODULE__, :pinned_tickets, path || {:missing, cwd}}
 
     case :persistent_term.get(key, :not_loaded) do
       :not_loaded ->
-        result = read_pinned_tickets(path)
+        result = if path, do: read_pinned_tickets(path), else: {nil, []}
         :persistent_term.put(key, result)
         result
 
       result ->
         result
+    end
+  end
+
+  defp find_pinned_file(directory) do
+    path = Path.join(directory, ".aiur-test-tickets.json")
+    parent = Path.dirname(directory)
+
+    cond do
+      File.regular?(path) -> path
+      parent == directory -> nil
+      true -> find_pinned_file(parent)
     end
   end
 
