@@ -252,6 +252,9 @@ defmodule Aiur.ExecutorListener do
   defp deliver_executor_event(%{topic: "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
   defp deliver_executor_event(%{"topic" => "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
 
+  defp deliver_executor_event(%{topic: "executor.newsletter.failed"} = event, inbox, _store), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{"topic" => "executor.newsletter.failed"} = event, inbox, _store), do: deliver_projection(event, inbox)
+
   defp deliver_executor_event(event, inbox, _store) do
     scrubbed = ExecutorEvents.scrub_untrusted_output(event)
     if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)

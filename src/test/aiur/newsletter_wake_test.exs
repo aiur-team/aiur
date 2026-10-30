@@ -33,4 +33,23 @@ defmodule Aiur.NewsletterWakeTest do
     :sys.get_state(listener)
     assert ExecutorWakeInbox.pending(inbox) == records
   end
+
+  test "failed newsletter wakes replay the stage, reason and log path" do
+    root = Aiur.TestSupport.tmp_root!("newsletter-failed-wake")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    assert :ok = ExecutorBindings.reconcile()
+    payload = %{repo: "owner/repo", date: "2026-10-29", stage: "compile", reason: "render failed", log_path: Path.join(root, "run.log")}
+    assert {:ok, id, _} = ExecutorEvents.publish("executor.newsletter.failed", payload)
+
+    inbox =
+      start_supervised!(
+        {ExecutorWakeInbox,
+         name: __MODULE__.Inbox, path: Path.join(root, "wakes.ndjson"), cursor_path: Path.join(root, "cursor.json"), pending_path: Path.join(root, "pending.json"), debounce_ms: 60_000}
+      )
+
+    start_supervised!({ExecutorListener, name: __MODULE__.Listener, inbox: inbox, resubscribe_interval_ms: :infinity, escalation_interval_ms: :infinity})
+    send(inbox, :flush)
+    assert [%{"topic" => "executor.newsletter.failed", "event_id" => ^id} = record] = ExecutorWakeInbox.pending(inbox)
+    assert Map.take(record, ~w(repo date stage reason log_path)) == Map.new(payload, fn {key, value} -> {Atom.to_string(key), value} end)
+  end
 end

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'packages/newsletter'))
@@ -17,8 +18,8 @@ import daily
 import render
 
 
-def snapshot():
-    now = datetime.now(timezone.utc)
+def snapshot(now=None):
+    now = now or datetime.now(timezone.utc)
     return {'repo': 'owner/repo', 'captured_at': now.isoformat(), 'window_end': now.isoformat(),
             'window_start': (now - timedelta(days=1)).isoformat(), 'sources': {},
             'program': {'tickets': []}, 'merges': [], 'running_build': {},
@@ -36,7 +37,7 @@ class DailyTest(unittest.TestCase):
                           '--dry-run', '--fixture', str(self.fixture)]
 
     def outputs(self):
-        return self.root / 'newsletter' / datetime.now(timezone.utc).date().isoformat()
+        return self.root / 'newsletter' / datetime.now(ZoneInfo('America/Los_Angeles')).date().isoformat()
 
     def test_dry_run_real_pdf_without_email_or_daemon(self):
         if not any(shutil.which(name) for name in ('chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable')):
@@ -72,11 +73,63 @@ class DailyTest(unittest.TestCase):
             self.assertEqual(daily.main(), 0)
             self.assertEqual(daily.main(), 0)
             self.assertEqual(build.call_count, 2)
-            self.assertEqual(emit.call_count, 2)
+            self.assertEqual(emit.call_count, 3)
             command = emit.call_args.args[0]
             self.assertEqual(command[:4], ['test-aiur', 'executor-emit', 'system.newsletter.ready', '--payload'])
             self.assertEqual(json.loads(command[4])['pdf_path'], str(pdf))
         self.assertIn('FAILED:', (self.outputs() / 'run.log').read_text())
+
+    def test_render_failure_emits_failed_wake_and_limits_service_retries(self):
+        args = self.arguments[:5] + ['--aiur', 'test-aiur']
+        with patch.object(sys, 'argv', args), patch.object(daily.newsletter, 'collect', return_value=snapshot()), patch.object(daily.newsletter, 'publish', side_effect=RuntimeError('render failed')), patch.object(daily.subprocess, 'run') as emit:
+            self.assertEqual(daily.main(), 1)
+        emit.assert_called_once()
+        command = emit.call_args.args[0]
+        self.assertEqual(command[:4], ['test-aiur', 'executor-emit', 'executor.newsletter.failed', '--payload'])
+        self.assertEqual(json.loads(command[4]), {
+            'repo': 'owner/repo', 'date': self.outputs().name, 'stage': 'compile',
+            'reason': 'render failed', 'log_path': str(self.outputs() / 'run.log')})
+        self.assertFalse((self.outputs() / 'wake-sent.json').exists())
+        service = (ROOT / 'scripts/newsletter/systemd/aiur-newsletter.service').read_text()
+        unit = service.split('[Unit]', 1)[1].split('[Service]', 1)[0]
+        self.assertIn('StartLimitIntervalSec=3h', unit.splitlines())
+        self.assertIn('StartLimitBurst=6', unit.splitlines())
+
+    def test_failed_notification_is_best_effort_and_keeps_original_error(self):
+        args = self.arguments[:5] + ['--aiur', 'missing-aiur']
+        with patch.object(sys, 'argv', args), patch.object(daily.newsletter, 'collect', side_effect=RuntimeError('collect failed')), patch.object(daily.subprocess, 'run', side_effect=FileNotFoundError('CLI unavailable')):
+            self.assertEqual(daily.main(), 1)
+        log = (self.outputs() / 'run.log').read_text()
+        self.assertIn('FAILED: collect failed', log)
+        self.assertIn('Failure notification failed: CLI unavailable', log)
+
+    def test_catchup_does_not_suppress_next_local_morning(self):
+        evening = datetime(2026, 10, 30, 1, tzinfo=timezone.utc)
+        morning = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
+        args = self.arguments[:5] + ['--aiur', 'test-aiur']
+
+        def publish(report_path, report, timezone_name):
+            report_path.with_name('newsletter.html').write_text('test page')
+            pdf = report_path.with_name('newsletter.pdf')
+            pdf.write_bytes(b'test PDF')
+            return pdf
+
+        with patch.object(sys, 'argv', args), patch.object(daily, 'datetime') as clock, patch.object(daily.newsletter, 'collect', side_effect=[snapshot(evening), snapshot(morning)]), patch.object(daily.newsletter, 'publish', side_effect=publish), patch.object(daily.subprocess, 'run') as emit:
+            clock.now.side_effect = [evening, morning, morning]
+            self.assertEqual(daily.main(), 0)
+            self.assertTrue((self.root / 'newsletter/2026-10-29/wake-sent.json').exists())
+            self.assertFalse((self.root / 'newsletter/2026-10-30/wake-sent.json').exists())
+            self.assertEqual(daily.main(), 0)
+            self.assertEqual(daily.main(), 0)
+        self.assertEqual(emit.call_count, 2)
+        payloads = [json.loads(call.args[0][4]) for call in emit.call_args_list]
+        self.assertEqual([row['date'] for row in payloads], ['2026-10-29', '2026-10-30'])
+        for row in payloads:
+            directory = self.root / 'newsletter' / row['date']
+            self.assertEqual(row['report_path'], str(directory / 'report.json'))
+            self.assertEqual(row['pdf_path'], str(directory / 'newsletter.pdf'))
+            self.assertTrue((directory / 'wake-sent.json').exists())
+        self.assertEqual(datetime.fromisoformat(json.loads((self.root / 'newsletter/2026-10-29/report.json').read_text())['window_end']), evening)
 
     def test_systemd_units_verify(self):
         if not shutil.which('systemd-analyze'):

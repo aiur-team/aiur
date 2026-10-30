@@ -46,8 +46,14 @@ systemctl --user list-timers aiur-newsletter.timer
 
 `Persistent=true` catches a missed run when the user manager next starts.
 For runs while logged out, arrange user lingering with the machine's operator.
-The service retries a failed run every five minutes; failures appear in both
-its journal and the dated `run.log`.
+
+The service retries a failed run every five minutes, with at most six starts
+in three hours (`StartLimitIntervalSec=3h`, `StartLimitBurst=6`). Failures appear
+in both its journal and the dated `run.log`.
+
+Failures also attempt an `executor.newsletter.failed` notification carrying
+`repo`, `date`, `stage`, `reason` and `log_path`. Notification is best effort:
+if the daemon is down, the notification failure is logged too.
 
 ## Change the send time
 
@@ -82,17 +88,21 @@ journalctl --user -u aiur-newsletter.service -n 50
 scripts/newsletter/run-daily.sh --repo owner/repo
 ```
 
-Outputs live in `~/.aiur/repo/<owner>/<repo>/newsletter/<UTC-date>/`:
+Outputs live in `~/.aiur/repo/<owner>/<repo>/newsletter/<local-date>/`:
 `snapshot.json`, `report.json`, `newsletter.html`, `newsletter.pdf`, `run.log` and, after successful
 publication, `wake-sent.json`. Snapshots live in `newsletter/snapshots/` and the
 latest automatic outputs in `newsletter/latest/`. The package verifies that
 the PDF has one page.
 
+The directory and completion marker use the date in `--timezone`, defaulting
+to `America/Los_Angeles`. Snapshot filenames and daily baselines remain keyed
+by UTC date; report window timestamps remain UTC instants.
+
 Use `--state-dir` to override the per-repo state root,
 `--instance <name>` repeatedly for additional configured daemon sources, and
 `--aiur /absolute/path/to/aiur` to choose the CLI executable.
 
-Successful runs skip subsequent invocations on the same UTC date. A per-repo
+Successful runs skip subsequent invocations on the same local date. A per-repo
 file lock prevents overlapping local invocations. A crash between wake
 publication and writing the completion marker can redeliver the wake; the
 Executor should treat the repository and date as its delivery identity.
@@ -113,3 +123,21 @@ scripts/test-newsletter-run-daily.sh
 The fixture is a collector snapshot JSON. `--dry-run` suppresses wake
 publication and the completion marker. It uses live collection unless a fixture
 is supplied; fixtures require an explicit scratch state directory.
+
+## Uninstall
+
+Stop the timer and service before removing their local configuration:
+
+```sh
+systemctl --user disable --now aiur-newsletter.timer
+systemctl --user stop aiur-newsletter.service
+rm -f ~/.config/systemd/user/aiur-newsletter.service \
+  ~/.config/systemd/user/aiur-newsletter.timer ~/.config/aiur/newsletter.env
+rm -rf ~/.config/systemd/user/aiur-newsletter.service.d \
+  ~/.config/systemd/user/aiur-newsletter.timer.d
+systemctl --user daemon-reload
+```
+
+The `.d` directories hold overrides created with `systemctl --user edit`.
+Newsletter outputs under the per-repository state directory stay until you
+delete them explicitly.
