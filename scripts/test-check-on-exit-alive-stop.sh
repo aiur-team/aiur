@@ -13,6 +13,15 @@ defmodule CleanupTest do
   setup do
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     on_exit(fn -> if Process.alive?(pid), do: Supervisor.stop(pid) end)
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        try do
+          Supervisor.stop(pid)
+        catch
+          :exit, _ -> :ok
+        end
+      end
+    end)
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     on_exit(fn -> GenServer.stop(pid) end)
     on_exit(fn -> if Process.alive?(pid), do: send(pid, :stop) end)
@@ -26,7 +35,8 @@ if python3 "$repo_root/scripts/check-on-exit-alive-stop.py" "$tmpdir/fixtures" >
 fi
 grep -q 'cleanup_test.exs:5' "$tmpdir/checker.out"
 grep -q 'cleanup_test.exs:6' "$tmpdir/checker.out"
-if [ "$(grep -c 'cleanup_test.exs:' "$tmpdir/checker.out")" != 2 ]; then
+grep -q 'cleanup_test.exs:7' "$tmpdir/checker.out"
+if [ "$(grep -c 'cleanup_test.exs:' "$tmpdir/checker.out")" != 3 ]; then
   cat "$tmpdir/checker.out" >&2
   echo "checker reported a non-stop teardown" >&2
   exit 1

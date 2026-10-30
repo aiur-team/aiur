@@ -53,13 +53,18 @@ def violations(source: str) -> list[tuple[int, str]]:
         opening = source.find("(", callback.start())
         end = call_end(source, opening)
         body = source[opening + 1 : end - 1]
+        # Explicitly unlinked probes are outside the linked-process race.
+        unlinked = set(re.findall(r"Process\.unlink\s*\(\s*(\w+)\s*\)", source))
         for stop in list(STOP.finditer(body)) + list(HELPER_STOP.finditer(body)):
             prefix = body[: stop.start()]
-            guarded_stop = re.search(
-                r"if\s+Process\.alive\?\([^)]*\)\s*,\s*do:\s*(?:GenServer|Supervisor)\.stop\s*\(",
-                body[max(0, stop.start() - 100): stop.start() + 80],
+            guard_prefix = r"if\s+(?:is_pid\([^)]*\)\s+and\s+)?(?:Process\.alive\?|:erlang\.is_process_alive)\([^)]*\)"
+            guard_sep = r"\s*(?:,\s*do:\s*|\s+do\b)\s*"
+            alive_guard = re.search(guard_prefix + guard_sep + r"[\s\S]{0,240}?(?:GenServer|Supervisor)\.stop\s*\(", body)
+            helper_guard = re.search(
+                guard_prefix + guard_sep + r"[\s\S]{0,240}?(?:safe_stop_genserver|safe_stop_supervisor|safe_stop|stop_store)\s*\(",
+                body,
             )
-            helper_guard = re.search(r"if\s+Process\.alive\?\([^)]*\)\s*,\s*do:\s*(?:safe_stop_genserver|safe_stop_supervisor|stop_store)\s*\(", prefix)
+            guarded_stop = bool(alive_guard and not any(re.search(rf"\b{re.escape(pid)}\b", body[stop.start():stop.end() + 30]) for pid in unlinked))
             if guarded_stop or helper_guard:
                 line = source.count("\n", 0, callback.start()) + 1
                 found.append((line, source.splitlines()[line - 1].strip()))
