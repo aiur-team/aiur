@@ -89,15 +89,16 @@ defmodule Aiur.Executor.SessionTest do
     binding = bound()
     append(binding, ref)
     assert {:ok, _} = Session.record_offset(binding.binding_id, 123)
-    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{source: "clear", pid: "other"}))
-    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook("two"), :source, "startup"))
-    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook("two"), :source, "clear"))
-    assert next.provider_session_id == "two"
-    assert next.start_reason == "clear"
-    assert next.transcript_offset == 0
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook(), %{source: "clear", pid: "other"}))
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook(), :source, "startup"))
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook("two"), :source, "clear"))
+    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook(), :source, "clear"))
+    assert next.provider_session_id == "one"
+    assert next.start_reason == "start"
+    assert next.transcript_offset == 123
     append(next, ref)
-    assert Enum.any?(sessions(dir), &(&1["type"] == "start" and &1["provider_session_id"] == "two" and &1["start_reason"] == "clear"))
-    assert Enum.any?(sessions(dir), &(&1["type"] == "end" and &1["end_reason"] == "clear"))
+    assert Enum.any?(sessions(dir), &(&1["type"] == "start" and &1["provider_session_id"] == "one"))
+    refute Enum.any?(sessions(dir), &(&1["type"] == "end" and &1["end_reason"] == "clear"))
   end
 
   test "restart restores binding identity offset and private mode", %{clock: clock} do
@@ -153,19 +154,19 @@ defmodule Aiur.Executor.SessionTest do
 
   test "same session after TTL preserves the journal offset and start reason", %{control: control, ref: ref, dir: dir} do
     binding = bound()
-    {:ok, binding} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook("two"), :source, "clear"))
+    {:ok, binding} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook(), :source, "clear"))
     append(binding, ref)
     assert {:ok, _} = Session.record_offset(binding.binding_id, 500)
     Agent.update(control, &Map.update!(&1, :now, fn now -> DateTime.add(now, 600_001, :millisecond) end))
 
-    assert {:ok, refreshed} = Session.bind_provider_session(binding.binding_id, hook("two"))
+    assert {:ok, refreshed} = Session.bind_provider_session(binding.binding_id, hook())
     assert refreshed.live?
     assert refreshed.transcript_offset == 500
-    assert refreshed.start_reason == "clear"
+    assert refreshed.start_reason == "start"
     assert :ok = flush(ref)
     assert [session] = sessions(dir)
     assert session["type"] == "start"
-    assert session["provider_session_id"] == "two"
+    assert session["provider_session_id"] == "one"
   end
 
   test "same session can resume from a new pid after TTL and fences the old pid", %{control: control} do
@@ -179,9 +180,10 @@ defmodule Aiur.Executor.SessionTest do
     assert resumed.pid == "456"
     assert {:ok, _} = Session.bind_provider_session(binding.binding_id, resumed_hook)
     assert {:error, :foreign_session} = Session.bind_provider_session(binding.binding_id, hook())
-    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{pid: "456", source: "resume"}))
-    assert next.provider_session_id == "two"
-    assert next.start_reason == "resume"
+    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook(), %{pid: "456", source: "resume"}))
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{pid: "456", source: "resume"}))
+    assert next.provider_session_id == "one"
+    assert next.start_reason == "start"
   end
 
   test "touch coalesces file writes and eventually persists the last hook", %{now: now} do

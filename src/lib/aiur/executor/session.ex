@@ -4,8 +4,9 @@ defmodule Aiur.Executor.Session do
 
   `current/0` is daemon-internal; transport callers must use `public/1`.
   Journal sessions open on the first transcript append; `start_reason` is
-  carried for that producer. Rebinding requires the same nonempty `pid`
-  supplied by the first authenticated hook.
+  carried for that producer. Claude clear/compact rebinding is limited to the
+  attached Claude harness and rejects a supplied pid that differs from the
+  original process.
   """
   use GenServer
   alias Aiur.Conversation.{Ingest, Ref}
@@ -161,8 +162,9 @@ defmodule Aiur.Executor.Session do
 
   defp validate_rebind(binding, hook) do
     if binding.harness == "claude" and binding.state == "attached" and
+         hook.session_id == binding.provider_session_id and
          Map.get(hook, :source) in ["clear", "compact", "resume", "fork"] and
-         is_binary(binding.pid) and binding.pid != "" and Map.get(hook, :pid) == binding.pid, do: :ok, else: {:error, :foreign_session}
+         is_binary(binding.pid) and binding.pid != "" and Map.get(hook, :pid) in [nil, binding.pid], do: :ok, else: {:error, :foreign_session}
   end
 
   defp valid_hook(%{session_id: id} = hook) when is_binary(id) and id != "" do
