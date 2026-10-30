@@ -132,13 +132,16 @@ defmodule Aiur.Executor.TranscriptIngest do
         if identity(binding) == identity(state.capture.binding) and binding.state == "attached" do
           read_capture(state)
         else
-          close(state, Map.get(binding, :end_reason) || Map.get(binding, :start_reason) || "detached")
+          close(state, retarget_reason(binding))
         end
 
       :none ->
         close(state, "detached")
     end
   end
+
+  defp retarget_reason(%{state: "detached", end_reason: reason}), do: reason || "detached"
+  defp retarget_reason(_binding), do: "superseded"
 
   defp close(state, reason) do
     if Process.alive?(state.capture.pid) do
@@ -164,7 +167,7 @@ defmodule Aiur.Executor.TranscriptIngest do
 
   defp validate_read(state) do
     binding = state.capture.binding
-    opts = if state.home, do: [home: state.home], else: []
+    opts = path_options(state)
 
     case TranscriptPath.validate(binding.transcript_path, "claude", binding.provider_session_id, opts) do
       {:ok, _} -> TranscriptTailer.poll(state.capture.pid, :infinity)
@@ -172,10 +175,12 @@ defmodule Aiur.Executor.TranscriptIngest do
     end
   end
 
+  defp path_options(state), do: if(state.home, do: [home: state.home], else: [])
+
   defp start_capture(state) do
     case Session.current() do
       {:ok, %{harness: "claude", state: "attached", transcript_path: path} = binding} when is_binary(path) ->
-        case TranscriptPath.validate(path, "claude", binding.provider_session_id, if(state.home, do: [home: state.home], else: [])) do
+        case TranscriptPath.validate(path, "claude", binding.provider_session_id, path_options(state)) do
           {:ok, ^path} ->
             launch_ready(state, binding)
 

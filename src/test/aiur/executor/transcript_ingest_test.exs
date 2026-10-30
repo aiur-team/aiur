@@ -51,6 +51,8 @@ defmodule Aiur.Executor.TranscriptIngestTest do
   end
 
   test "restart resumes the saved cursor, replays uncheckpointed overlap without duplicates, and keeps partial lines", context do
+    timer = start_supervised!({Agent, fn -> 0 end})
+    context = Map.put(context, :clock, fn -> Agent.get(timer, & &1) end)
     path = bind(context, "one", [assistant("first", "first")])
     start_ingest(context)
     TranscriptIngest.poll()
@@ -209,6 +211,11 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     assert {:error, :binding_changed} = Session.record_offset(checkpointed, 999)
     assert {:ok, current} = Session.current()
     assert current.transcript_offset == 0
+    TranscriptIngest.poll()
+    TranscriptIngest.poll()
+    assert :ok = flush(context.ref)
+    assert Enum.map(rows(context.dir), & &1["body"]) == ["first", "second", "new"]
+    assert Enum.filter(sessions(context.dir), &(&1["type"] == "end")) |> Enum.map(& &1["end_reason"]) == ["superseded"]
   end
 
   test "failed journal fsync leaves the cursor resumable until a later successful flush", context do
