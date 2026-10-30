@@ -49,6 +49,13 @@ defmodule AiurWeb.ListenModeControllerTest do
     assert %{"requested" => "async", "effective" => nil, "effective_reason" => "not_running", "version" => 1, "actor" => "executor", "routing" => "listener"} = Jason.decode!(first.resp_body)
   end
 
+  test "mute is accepted and round-trips through the HTTP mode control" do
+    response = request(:post, %{mode: "mute", expected_version: 0})
+    assert response.status == 200
+    assert %{"requested" => "mute", "effective" => "mute", "version" => 1} = Jason.decode!(response.resp_body)
+    assert request(:get, %{}).resp_body == response.resp_body
+  end
+
   test "invalid mode and metadata return 422 without writing" do
     for body <- [%{mode: "bad", expected_version: 0}, %{mode: "sync"}, %{mode: "sync", expected_version: 0, actor: "system"}, %{mode: "sync", expected_version: 0, idempotency_key: 42}] do
       assert request(:post, body).status == 422

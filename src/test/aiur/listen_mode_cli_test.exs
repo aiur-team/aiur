@@ -41,6 +41,15 @@ defmodule Aiur.ListenModeCliTest do
     assert {:ok, %{requested: :async, effective: :sync, version: 1}} = Listener.get_mode("uuid")
   end
 
+  test "mute writes and reads the persisted mode and canonical copy" do
+    output = capture_io(fn -> ListenModeCli.run("uuid", ["mute"]) end)
+    assert output =~ "Mute · silent"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert {:ok, %{requested: :mute, effective: :mute, version: 1}} = Listener.get_mode("TEAM-42")
+    output = capture_io(fn -> ListenModeCli.run("uuid", ["--json"]) end)
+    assert output |> String.split("\n") |> hd() |> Jason.decode!() |> Map.fetch!("requested") == "mute"
+  end
+
   test "unknown write outcome prints the selected version and retry key" do
     output = capture_io(fn -> ListenModeCli.run("timeout", ["async", "--idempotency-key", "retry-42"]) end)
     assert output =~ "outcome unknown"
