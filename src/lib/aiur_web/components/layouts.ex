@@ -108,10 +108,13 @@ defmodule AiurWeb.Layouts do
                   } else this.mirror();
                 });
               },
-              reconnected: function () { this.mirror(); },
+              // A push made before the reconnect is lost, so the server state wins again.
+              reconnected: function () { this.pending = undefined; this.mirror(); },
               collapsed: function () { return this.el.dataset.navCollapsed === "true"; },
               mirror: function () {
-                if (!this.drag) this.root.classList.toggle("nav-collapsed", this.media.matches && this.collapsed());
+                // An unacknowledged choice outranks the server value it has not reached yet.
+                var collapsed = this.pending === undefined ? this.collapsed() : this.pending;
+                if (!this.drag) this.root.classList.toggle("nav-collapsed", this.media.matches && collapsed);
               },
               updated: function () {
                 if (this.pending !== undefined && this.collapsed() !== this.pending) return;
@@ -120,6 +123,7 @@ defmodule AiurWeb.Layouts do
                 this.navStorage?.writeStorage("aiur-nav-collapsed", String(this.collapsed()));
               },
               commit: function (collapsed) {
+                this.pending = collapsed;
                 this.root.classList.toggle("nav-collapsed", this.media.matches && collapsed);
                 this.pushEvent("restore-nav", {collapsed: collapsed}, () => {});
                 clearTimeout(this.resizeTimer);
