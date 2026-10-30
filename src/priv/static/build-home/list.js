@@ -11,6 +11,7 @@ import { I } from './icons.js';
 import { writeURL } from './url.js';
 import { LOGOS } from './logos.js';
 import { agentState, progress, modelLabel } from './now-state.js';
+import { rowState, holdLinkHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { H, loadEarlier } from './history.js';
 import { sectionState, headNote, reasonText, ageText } from './states.js';
@@ -29,7 +30,7 @@ export function stText(t) {
   if (isUnfiled(t)) return 'Not filed';
   if (t.sec === 'hist') return Object.hasOwn(HIST, t.status) ? HIST[t.status][1] : 'State unknown';
   if (t.sec === 'now') {
-    const stateLabel = agentState(t.agent?.state).label;
+    const stateLabel = rowState(t).label;
     return t.agent?.pause === 'usage_limit_exhausted' && Number.isFinite(t.agent?.resume_at)
       ? stateLabel + ' (resumes at ' + new Date(t.agent.resume_at).toISOString().slice(11, 16) + ' UTC)'
       : stateLabel;
@@ -98,7 +99,7 @@ function rowHTML(t, D, state) {
     ' aria-label="' + esc(refText(t) + ' ' + t.title + ', ' + stText(t)) + '">' +
     cell('c-id', '<span class="lr-ep' + (e.unsorted ? ' un' : '') + '" aria-hidden="true">' + (D.icons?.[e.icon] || e.svg || (Object.hasOwn(I, e.icon) ? I[e.icon] : '')) + '</span><span title="' + esc(refTitle(t)) + '">' + esc(refText(t)) + '</span>') +
     cell('c-tt', esc(t.title) + (f ? '<span class="lr-f"' + hue('--ft', f.hue) + ' title="' + esc(f.summary || f.label) + '" role="img" aria-label="' + esc('Feature: ' + f.label) + '">' + (D.icons?.[f.icon] || f.svg || '') + '</span>' : '')) +
-    cell('c-ep', esc(e.label)) + cell('c-st', '<span class="lst st-' + stClass(t) + '"><u aria-hidden="true"></u>' + esc(stText(t)) + '</span>') +
+    cell('c-ep', esc(e.label)) + cell('c-st', '<span class="lst st-' + stClass(t) + '"><u aria-hidden="true"></u>' + (holdLinkHTML(t) || esc(stText(t))) + '</span>') +
     cell('c-ag', agentCell(t)) + cell('c-pg', progCell(t)) + cell('c-dp', (ups ? '↑' + ups : '') + (dn ? ' ↓' + dn : ''), ' title="' + esc(deps) + '" aria-label="' + esc(deps) + '"') + '</div>';
 }
 function secHead(sec, label, sub, rows, extra, D, state, history, P, now) {
@@ -127,7 +128,7 @@ export function listHTML(D, state, history, P, now) {
   for (const ticket of rows.now) {
     const key = ticket.agent?.state === 'active' ? 'running'
       : ticket.agent?.state === 'retrying' ? 'retrying'
-        : ['error', 'retries', 'command'].includes(ticket.agent?.state) ? 'stuck'
+        : ['error', 'retries', 'command', 'native_question'].includes(ticket.agent?.state) ? 'stuck'
           : ['paused', 'parked', 'usage_limited', 'paused-usage-limit', 'paused-decision', 'paused-agent', 'ci_wait', 'merge-queued', 'blocked', 'handed-off'].includes(ticket.agent?.state) ? 'paused'
             : ['ci-red', 'body-fix'].includes(ticket.agent?.state) ? 'stuck' : 'unknown';
     nowCounts[key]++;
@@ -259,12 +260,14 @@ function bindOnce(vp) {
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
     const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { chooseEpic(epic.dataset.epic); return; }
+    if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
     const feature = e.target.closest('.fp-row'); if (feature) focusFeature(feature.dataset.feature);
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;
     const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { e.preventDefault(); chooseEpic(epic.dataset.epic); return; }
+    if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
     const feature = e.target.closest('.fp-row'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
   });

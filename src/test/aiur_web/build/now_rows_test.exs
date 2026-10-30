@@ -114,7 +114,7 @@ defmodule AiurWeb.Build.NowRowsTest do
 
   test "unknown model has no fabricated label; registry families and product efforts survive" do
     assert facts(row(%{agent_family: nil, backend: nil, resolved_model: "claude-opus-5-1"})).agent ==
-             %{model: nil, name: nil, state: "active", pause: nil, resume_at: nil, effort: nil}
+             %{model: nil, name: nil, state: "active", native_hold: nil, pause: nil, resume_at: nil, effort: nil}
 
     assert facts(row(%{agent_family: "muse"})).agent.model == "muse"
     assert facts(row(%{agent_family: "muse"})).agent.name == "Muse"

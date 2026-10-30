@@ -33,7 +33,7 @@ const rows = [
   ['ticket=AIUR-12', '', 'Ticket ids must be positive decimal digits.'],
   ['ticket=007', 'ticket=7', 'Leading zeros in ticket ids are canonicalized.'],
   ['feature=%3Cscript%3E', '', 'Feature slugs are shape-checked.'],
-  ['v=1&conditions=alert', 'astate=error,retries,command', 'Legacy Units keys map to home presets.'],
+  ['v=1&conditions=alert', 'astate=error,retries,command,native_question', 'Legacy Units keys map to home presets.'],
   ['zoom=2&density=compact', ''],
   ['view=graph&span=1&fmode=compact', ''],
 ];

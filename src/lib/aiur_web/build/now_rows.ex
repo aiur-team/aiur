@@ -9,6 +9,7 @@ defmodule AiurWeb.Build.NowRows do
 
   | Units condition | State |
   | --- | --- |
+  | Held native question | native_question |
   | Error work state or UnitsPolicy stuck | error |
   | Retry backoff | retrying |
   | Positive integer command count or waiting for human | command |
@@ -119,11 +120,19 @@ defmodule AiurWeb.Build.NowRows do
         model: model(family),
         name: UnitsPresentation.agent_label(family),
         state: agent_state(row),
+        native_hold: native_hold(row),
         pause: pause_state(row),
         resume_at: resume_at(row),
         effort: effort(row[:effort])
       }
     }
+  end
+
+  defp native_hold(row) do
+    case get_in(row, [:reasons, :native_hold]) do
+      %{decision_id: id} = hold when is_binary(id) and id != "" -> %{decision_id: id, since: timestamp(hold[:since])}
+      _ -> nil
+    end
   end
 
   defp agent_state(row) do
@@ -134,6 +143,7 @@ defmodule AiurWeb.Build.NowRows do
     waiting = get_in(row, [:reasons, :waiting])
 
     cond do
+      native_hold(row) != nil -> "native_question"
       is_binary(runtime_reason_state(row)) -> runtime_reason_state(row)
       error?(row) -> if(retrying?(row), do: "retrying", else: "error")
       command?(row[:open_command_count], waiting) -> "command"

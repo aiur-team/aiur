@@ -95,3 +95,6 @@ html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollb
 }
 /* Keep C:142's phone filter scrolling above later desktop overflow overrides. */
 @container bd (max-width: 640px) { .bd-toolbar .bd-filters { overflow-x: auto !important; } }
+
+.bd-card .bd-status > span:has(.bd-hold) { white-space: normal; overflow: visible; }
+.bd-hold { color: inherit; text-decoration: underline; }
