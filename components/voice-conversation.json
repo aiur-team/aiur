@@ -31,7 +31,9 @@
     "config": [
       "voice"
     ],
-    "env": [],
+    "env": [
+      "GEMINI_API_KEY"
+    ],
     "state": [
       "file: <conversation_state_dir>/voice/*.json",
       "voice_conversation_state_dir"
@@ -48,12 +50,18 @@
     "type": "included"
   },
   "docs": [
-    "apis/elevenlabs.md"
+    "apis/anthropic.md",
+    "apis/elevenlabs.md",
+    "apis/gemini.md",
+    "apis/openai.md",
+    "reference/configuration-voice.md"
   ],
   "config": [
     "voice"
   ],
-  "env": [],
+  "env": [
+    "GEMINI_API_KEY"
+  ],
   "capabilities": [
     "voice.conversation"
   ],

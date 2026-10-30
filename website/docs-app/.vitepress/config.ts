@@ -166,7 +166,10 @@ export default withMermaid(defineConfig({
             { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
             { text: 'Standalone gh-access', link: '/apis/gh-access' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
-            { text: 'ElevenLabs', link: '/apis/elevenlabs' }
+            { text: 'ElevenLabs', link: '/apis/elevenlabs' },
+            { text: 'OpenAI', link: '/apis/openai' },
+            { text: 'Gemini', link: '/apis/gemini' },
+            { text: 'Anthropic', link: '/apis/anthropic' }
           ]
         },
         {
