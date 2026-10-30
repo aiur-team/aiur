@@ -23,6 +23,11 @@ defmodule Aiur.ExecutorWakeProjection do
 
   def project(_event), do: :ignore
 
+  defp project("system.newsletter.ready" = topic, event, pr, head_sha, review_sha) do
+    {:ok, record} = project("newsletter.ready", event, pr, head_sha, review_sha)
+    {:ok, Map.merge(record, %{"topic" => topic, "topic_class" => topic, "report_path" => value(event, :report_path), "pdf_path" => value(event, :pdf_path)})}
+  end
+
   defp project("executor.voice.session_ended" = topic, event, _pr, _head_sha, _last_review_sha) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
 
