@@ -39,6 +39,26 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     }) <> "\n"
   end
 
+  test "tuple offset skips earlier records and reports only complete consumed bytes", %{path: path, test_pid: tp} do
+    earlier = assistant_line("earlier")
+    later = assistant_line("later")
+    File.write!(path, earlier <> later <> "partial")
+    tailer = start_tailer(path, tp, from: {:offset, byte_size(earlier)}, on_offset: fn n -> send(tp, {:offset, n}) end)
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:event, %{body: "later"}}, 1000
+    consumed = byte_size(earlier <> later)
+    assert_receive {:offset, ^consumed}, 1000
+    refute_receive {:event, _}, 0
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    refute_receive {:offset, _}, 0
+    File.write!(path, "\n" <> assistant_line("last"), [:append])
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:event, %{body: "last"}}, 1000
+    final = File.stat!(path).size
+    assert_receive {:offset, ^final}, 1000
+    assert final > consumed
+  end
+
   test "emits one event for an appended assistant text record", %{path: path, test_pid: tp} do
     File.write!(path, assistant_line("Hello"))
     tailer = start_tailer(path, tp)
