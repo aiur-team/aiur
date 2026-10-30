@@ -70,11 +70,15 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
   end
 
   defp observation_due?(state, decision, record) do
+    current_scope = scope(record)
+
     case Map.get(state.corrective_override_observations, decision.decision_id) do
-      {action_id, retry_at} when action_id == record.action_id -> DateTime.compare(state.corrective_override_now.(), retry_at) != :lt
+      {^current_scope, retry_at} -> DateTime.compare(state.corrective_override_now.(), retry_at) != :lt
       _ -> true
     end
   end
+
+  defp scope(record), do: {record.action_id, record.route, Map.get(record, :merge_version, 1), get_in(record, [:corrective_ticket, :identifier])}
 
   defp candidate?(_state, %{closed_without_merged_pr_at: %DateTime{}}), do: false
 
@@ -93,7 +97,7 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
 
   defp start_job(state, decision, record) do
     owner = self()
-    correlation = %{decision_id: decision.decision_id, action_id: record.action_id, job_id: make_ref()}
+    correlation = %{decision_id: decision.decision_id, action_id: record.action_id, scope: scope(record), job_id: make_ref()}
     operation = fn -> state.corrective_override_reconciler.(decision, record) end
     callback = fn key, result -> send(owner, {:corrective_override_result, key, result}) end
 
@@ -115,9 +119,11 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
     decision = Map.get(state.current, correlation.decision_id)
     record = if decision, do: Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id))
 
-    if decision && decision.active_action_id == correlation.action_id && record && record.state not in [:superseded, :implemented],
-      do: settle_result(state, decision, result),
-      else: state
+    if decision && decision.active_action_id == correlation.action_id && record && record.state not in [:superseded, :implemented] do
+      if Map.get(correlation, :scope) == scope(record), do: settle_result(state, decision, result), else: reconcile(state)
+    else
+      state
+    end
   end
 
   defp settle_result(state, decision, result) do
@@ -126,7 +132,7 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
     case result do
       {:ok, []} ->
         retry_at = DateTime.add(state.corrective_override_now.(), 300)
-        state = %{state | corrective_override_observations: Map.put(state.corrective_override_observations, decision.decision_id, {record.action_id, retry_at})}
+        state = %{state | corrective_override_observations: Map.put(state.corrective_override_observations, decision.decision_id, {scope(record), retry_at})}
         settle_facts(state, decision, [])
 
       {:ok, [{:override_merge_settled, _}] = facts} ->
