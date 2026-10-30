@@ -102,6 +102,15 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert NowRows.build(catalog([row()]), repository: {"other", "repo"}).rows == %{}
   end
 
+  test "a known open PR is part of running row facts" do
+    pr = %{num: 7280, state: "open", ci: "pr_opened"}
+
+    projected = NowRows.build(catalog([row()]), repository: @repo, pr_facts: %{"1" => pr})
+
+    assert projected.rows["1"].sec == "now"
+    assert projected.rows["1"].pr == pr
+  end
+
   test "unknown progress stays nil including absent field; numeric progress rounds only in range" do
     for input <- [row(%{progress: %{status: :unknown}}), Map.delete(row(), :progress)] do
       assert Map.fetch!(facts(input), :pct) == nil

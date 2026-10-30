@@ -1,6 +1,7 @@
 defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
   alias Aiur.BuildOrder.{Index, Metadata}
+  alias Aiur.StartTrigger.ProgressStore
   alias AiurWeb.Build.{Freshness, NowRows, PackRead, PlannedRows}
   alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   alias AiurWeb.OperatorControlCenter.PayloadLoader
@@ -46,7 +47,11 @@ defmodule AiurWeb.Build.IndexReader do
   defp read_now(repo, todo_ids, opts) do
     units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
     catalog = units_fun.()
-    units_now = NowRows.build(catalog, repository: repo, todo_ids: todo_ids) |> Map.put(:unit_rows, unit_rows(catalog, repo))
+    lookup_pr = Keyword.get(opts, :pr_lookup, &ProgressStore.lookup/1)
+    pr_facts = progress_pr_facts(catalog, lookup_pr)
+    unit_rows = unit_rows(catalog, repo)
+
+    units_now = NowRows.build(catalog, repository: repo, todo_ids: todo_ids, pr_facts: pr_facts) |> Map.put(:unit_rows, unit_rows)
 
     result =
       if map_size(units_now.rows) > 0 do
@@ -57,7 +62,7 @@ defmodule AiurWeb.Build.IndexReader do
         case snapshot_fun.(opts) do
           {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
             rows = fleet_rows(statuses, running)
-            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
+            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo, pr_facts: progress_pr_facts(rows, lookup_pr))
 
           {:error, :timeout} ->
             {:error, :running_snapshot_timeout}
@@ -98,6 +103,22 @@ defmodule AiurWeb.Build.IndexReader do
   end
 
   defp unit_rows(_catalog, _repo), do: %{}
+
+  defp progress_pr_facts(%{snapshot: %{rows: rows}}, lookup_pr) when is_list(rows), do: progress_pr_facts(rows, lookup_pr)
+
+  defp progress_pr_facts(rows, lookup_pr) when is_list(rows) do
+    Enum.reduce(rows, %{}, fn row, facts ->
+      with %{identifier: id} when is_binary(id) <- Map.get(row, :identity),
+           %{pr_number: number, stage: stage, closed_unmerged?: false} <- lookup_pr.(id),
+           true <- is_integer(number) and number > 0 and stage != :pr_merged do
+        Map.put(facts, id, %{num: number, state: "open", ci: if(stage, do: to_string(stage))})
+      else
+        _ -> facts
+      end
+    end)
+  end
+
+  defp progress_pr_facts(_rows, _lookup_pr), do: %{}
 
   defp fleet_rows(statuses, running) do
     running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
