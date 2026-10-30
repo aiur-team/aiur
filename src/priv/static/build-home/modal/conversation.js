@@ -110,7 +110,7 @@ async function older() {
   const ref = open; if (!ref || ref.pending || !ref.more) return;
   ref.pending = true; ref.failed = false;
   const row = document.createElement('div'); row.className = 'cv-end'; row.setAttribute('role', 'status'); row.textContent = 'Loading earlier…';
-  ref.loadingRow?.remove(); ref.loadingRow = row; $('#cv-log').prepend(row);
+  ref.loadingRow?.remove(); ref.loadingRow = row; $('#cv-log').prepend(row); fx.scheduleMap();
   const reply = await request(ref, ref.before);
   if (!current(ref)) return;
   ref.pending = false;
@@ -120,7 +120,7 @@ async function older() {
   else {
     ref.failed = true; row.textContent = 'Could not load earlier entries ';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Retry';
-    ref.offs.push(ref.life.on(button, 'click', older)); row.append(button);
+    ref.offs.push(ref.life.on(button, 'click', older)); row.append(button); fx.scheduleMap();
   }
 }
 export function receiveConversation(msg) {

@@ -19,7 +19,8 @@ export function updateTyping() {
   const el = $('#cv-typing'); if (!el || !MS.t) return;
   const t = ctx.D?.byId?.[MS.t.id] ?? MS.t;
   el.hidden = !typingVisible(t, live, ctx.offline?.isLive() === true);
-  el.replaceChildren(...Array.from({ length: 3 }, () => document.createElement('i')), document.createTextNode((t.agent?.name || 'Agent') + ' is working'));
+  const text = (t.agent?.name || 'Agent') + ' is working';
+  if (el.lastChild?.nodeType === Node.TEXT_NODE) el.lastChild.textContent = text;
 }
 export function appendLive(entries) {
   if (!V || !MS.t) return [];

@@ -164,3 +164,27 @@ test('top trimming preserves the visible anchor; bottom trimming fetches the tai
   await page.locator('#bd-tk-close').click()
   await expect(page.locator('#cv-map')).toHaveCount(0)
 })
+
+test('pending older page keeps event tick indices current and status rows out of the map', async ({ page }) => {
+  await scenario(page, 'kinds', { hold: 1, entries: Array.from({ length: 200 }, (_, i) => ({
+    id: 'held:' + i, k: i % 3 ? 'say' : 'ev', ev: 'progress', label: '<b>x</b>&', text: 'Message ' + i, at: null,
+  })) })
+  await expect(page.locator('#cv-mm > *')).toHaveCount(100)
+  await log(page).evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+  await expect(log(page).locator(':scope > :first-child')).toHaveText('Loading earlier…')
+  await expect.poll(() => page.locator('#cv-mm .mm-e').first().getAttribute('data-i')).toBe('3')
+  await expect(page.locator('#cv-mm > *')).toHaveCount(100)
+  await expect(page.locator('#cv-mm .k-undefined')).toHaveCount(0)
+  const tick = page.locator('#cv-mm .mm-e').first()
+  await tick.hover()
+  await expect(page.locator('#cv-tip')).toHaveText('<b>x</b>&—')
+  await expect(page.locator('#cv-tip b')).toHaveCount(0)
+  await log(page).locator('[data-k=ev]').first().evaluate(el => { el.dataset.at = '' })
+  await page.locator('#cv-map').dispatchEvent('pointermove', { clientY: 0 })
+  await tick.hover()
+  await expect(page.locator('#cv-tip time')).toHaveText('—')
+  await tick.click()
+  await expect(log(page).locator('[data-eid="held:102"]')).toHaveClass(/flash/)
+  await page.evaluate(() => window.releaseOlder())
+  await expect(log(page).locator('[data-k]')).toHaveCount(200)
+})
