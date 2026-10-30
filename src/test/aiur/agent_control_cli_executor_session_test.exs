@@ -152,7 +152,7 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     opts: opts,
     root: root
   } do
-    capture_io(fn -> AttachCLI.run_attach(Keyword.put(opts, :print_config, true)) end)
+    assert {:ok, _binding} = Session.attach(%{harness: "claude"})
     now = DateTime.utc_now()
     read_opts = [json: true, now: now, path: Path.join(root, "claims.json")]
     data = Jason.decode!(capture_io(fn -> assert SessionCLI.run(read_opts) == 0 end))
