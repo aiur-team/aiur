@@ -37,6 +37,25 @@ function bodyHTML(doc) {
     default: return cue('Loading the issue body…');
   }
 }
+const timelineKinds = { emit: 'Event emitted', consume: 'Event consumed', command: 'Command', note: 'Note', progress: 'Progress', phase: 'Phase' };
+const fmtMoment = ms => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function timelineHTML(timeline) {
+  if (!timeline) return cue('Timeline is unavailable');
+  const items = timeline.items || [];
+  const start = items[0]?.at || Date.now(), end = items.at(-1)?.at || start + 1, span = Math.max(1, end - start);
+  const actors = ['Executor', 'CI', 'Aiur agent', 'Aiur daemon'];
+  const gaps = items.slice(1).flatMap((item, index) => {
+    const previous = items[index]; const duration = item.at - previous.at;
+    return duration >= 30 * 60_000 ? [{ from: previous.at, to: item.at, duration }] : [];
+  });
+  return '<section class="bm-timeline" aria-label="Ticket timeline">' +
+    (timeline.truncated ? cue('Earlier timeline events are unavailable in the retained event history', I.warn) : '') +
+    '<div class="bm-timerange"><time>' + esc(fmtMoment(start)) + '</time><time>' + esc(fmtMoment(end)) + '</time></div>' +
+    '<div class="bm-timebar" aria-label="Real-time ticket progress">' + (timeline.phases || []).map(phase => '<i class="bm-timephase" style="left:' + ((phase.start - start) / span * 100) + '%;width:' + (phase.finish ? ((phase.finish - phase.start) / span * 100) : ((end - phase.start) / span * 100)) + '%" title="' + esc(phase.label) + '"></i>').join('') + gaps.map(g => '<i class="bm-timegap" style="left:' + ((g.from - start) / span * 100) + '%;width:' + ((g.to - g.from) / span * 100) + '%" title="No recorded activity · ' + esc(Math.round(g.duration / 60_000) + ' min') + '"></i>').join('') +
+    items.map(item => '<i class="bm-timepin kind-' + esc(item.kind) + '" style="left:' + ((item.at - start) / span * 100) + '%" title="' + esc(item.label) + '"></i>').join('') + '</div>' +
+    '<div class="bm-timelanes">' + actors.map(actor => '<section class="bm-timelane"><h3>' + esc(actor) + '</h3><ol class="bm-timeitems">' + items.filter(item => item.actor === actor).map(item => '<li class="bm-timeitem kind-' + esc(item.kind) + '"><time datetime="' + new Date(item.at).toISOString() + '">' + esc(fmtMoment(item.at)) + '</time><span><small>' + esc(timelineKinds[item.kind] || 'Note') + '</small><b>' + esc(item.label) + '</b>' + (item.topic ? '<code>' + esc(item.topic) + '</code>' : '') + '</span></li>').join('') + '</ol></section>').join('') + '</div>' +
+    '<div class="bm-timeprogress" aria-label="Reported progress">' + (timeline.progress || []).map(item => '<span style="left:' + ((item.at - start) / span * 100) + '%">' + esc(item.percent == null ? 'Unknown' : item.percent + '%') + '</span>').join('') + '</div></section>';
+}
 function cues(t) {
   const c = t.cue || {}, parts = [];
   if (c.held) parts.push(cue(c.held, I.lock));
@@ -81,7 +100,8 @@ export function renderDoc(body, t, D, doc, opts = {}) {
   const created = doc?.created ?? t.created;
   const source = isUnfiled(t) ? I.docs + esc(srcLine(t)) : I.github + esc(refText(t)) + (created == null ? '' : ' · opened ' + esc(fmtDate(created)) + (doc?.author ? ' by @' + esc(doc.author) : ''));
   const fact = (name, value) => '<div><small>' + name + '</small><b>' + esc(value) + '</b></div>';
-  body.innerHTML = '<div class="bm-doc"><article class="bm-art"><div class="bm-src">' + source + '</div><div class="bm-body">' + (isUnfiled(t) ? '' : bodyHTML(doc)) + '</div></article><aside class="bm-side"><div class="bm-facts">' +
+  const tab = view?.tab || 'description';
+  body.innerHTML = '<nav class="bm-tabs" aria-label="Ticket detail"><button type="button" data-tab="description" aria-selected="' + (tab === 'description') + '">Description</button><button type="button" data-tab="timeline" aria-selected="' + (tab === 'timeline') + '">Timeline</button></nav><div class="bm-doc"><article class="bm-art"><div class="bm-src">' + source + '</div><div class="bm-body">' + (tab === 'timeline' ? timelineHTML(doc?.timeline) : (isUnfiled(t) ? '' : bodyHTML(doc))) + '</div></article><aside class="bm-side"><div class="bm-facts">' +
     fact('Queue', t.sec === 'plan' && !isUnfiled(t) ? queueText(t) : '—') + (t.sec === 'plan' ? fact('Wave', t.wave == null ? '—' : 'W' + t.wave) : '') +
     fact('Estimate', estLabel(t)) + fact('Complexity', t.cx == null ? '—' : t.cx + '/5') + '</div>' +
     ((t.deps || []).length ? '<div class="bm-dg"><small>Depends on</small>' + dependencies(t.deps, D) + '</div>' : '') +
@@ -102,13 +122,14 @@ export function renderDoc(body, t, D, doc, opts = {}) {
   }
   body.querySelector('.bm-doc').scrollTop = scroll;
   body.querySelector('[data-a="queue-add"]')?.addEventListener('click', () => add(t.id));
+  body.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => { if (view) view.tab = button.dataset.tab; repaint(); }));
 }
 function repaint() {
   if (view && MS.t?.id === view.id && $('#tk-body')) renderDoc($('#tk-body'), MS.t, ctx.D, view.doc, view.opts);
 }
 export function applyDoc(doc) {
   if (doc?.v !== 1 || doc.kind !== 'doc' || doc.id !== view?.id || MS.t?.id !== doc.id) return;
-  view.doc = doc; repaint();
+  view.doc = { ...view.doc, ...doc }; repaint();
 }
 export function requestDoc(t) {
   if (!numeric(t.id) || ctx.socket !== 'up') return;
@@ -158,7 +179,7 @@ export function reconnectDoc() {
   repaint(); if (view && MS.t?.id === view.id) requestDoc(MS.t);
 }
 registerBody('doc', (t, body, opts = {}) => {
-  view = { id: t.id, opts, doc: null };
+  view = { id: t.id, opts, doc: null, tab: 'description' };
   renderDoc(body, t, ctx.D, null, opts); requestDoc(t);
 });
 const modalSync = fx.modalSync;

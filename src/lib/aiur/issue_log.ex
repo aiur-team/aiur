@@ -170,6 +170,16 @@ defmodule Aiur.IssueLog do
     end
   end
 
+  @doc "Reads a bounded ascending page from the durable event marker log after an event id."
+  @spec event_history_page(TrackerIdentity.t(), keyword()) :: {:ok, map()} | {:error, event_history_error()}
+  def event_history_page(%TrackerIdentity{} = identity, opts \\ []) do
+    if TrackerIdentity.joinable?(identity) do
+      EventHistory.read_event_page(event_log_path(identity), opts)
+    else
+      {:error, :invalid_identity}
+    end
+  end
+
   @doc """
   Returns the resolved file path for an issue's log. Useful for tests
   and for users who want to `tail -F` a specific issue.
@@ -355,7 +365,7 @@ defmodule Aiur.IssueLog do
   end
 
   def handle_info({:aiur_event, kind, event}, state)
-      when kind in [:emit, :emit_alert, :consumed, :self] do
+      when kind in [:emit, :emit_alert, :consumed, :self, :command] do
     write_event_and_continue(state, format_event_marker(kind, event))
   end
 
@@ -400,6 +410,25 @@ defmodule Aiur.IssueLog do
     end
 
     :ok
+  end
+
+  @doc "Writes a sanitized command marker to the ticket event journal."
+  @spec record_command(TrackerIdentity.t(), String.t(), keyword()) :: :ok
+  def record_command(%TrackerIdentity{} = identity, command, opts \\ []) when is_binary(command) do
+    identifier = identity.identifier
+    topic = "ticket.#{identifier}.agent.command"
+    observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
+    id = Keyword.get(opts, :id, System.unique_integer([:positive, :monotonic]))
+    event = %{id: id, topic: topic, message: command, observed_at: observed_at, timestamp: observed_at, ticket_observation: nil}
+
+    case writer_for_path(identifier, log_path(identity), writer_key(identity)) do
+      [{pid, _}] -> send(pid, {:aiur_event, :command, event})
+      [] -> :ok
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp event_identity(%{ticket_observation: %TicketObservation{} = observation}, identifier) do
