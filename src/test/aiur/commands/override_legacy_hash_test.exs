@@ -54,6 +54,18 @@ defmodule Aiur.Commands.OverrideLegacyHashTest do
     assert decoded.content_hash == historical["content_hash"]
   end
 
+  test "future regression guard: legacy push facts retain their hash and omit the later worker provenance field" do
+    now = DateTime.utc_now()
+    data = %{action_id: "worker-action", head_sha: String.duplicate("b", 40), pr_number: 77, at: now, worker_reported: false}
+    assert {:ok, event} = DecisionEvent.new(:override_implemented, "legacy-worker-command", 1, data, event_id: 3, run_id: "run", now: now)
+    raw = event |> DecisionEvent.to_json_safe() |> Jason.encode!() |> Jason.decode!()
+    historical = historical_event(raw, Map.delete(raw["data"], "worker_reported"), :override_implemented)
+    assert {:ok, decoded} = DecisionEvent.from_json_safe(historical)
+    assert decoded.content_hash == historical["content_hash"]
+    refute Map.has_key?(decoded.data, :worker_reported)
+    refute Map.has_key?(DecisionEvent.to_json_safe(decoded)["data"], "worker_reported")
+  end
+
   defp historical_event(raw, data, type) do
     hashed_data = if type == :requested, do: Map.drop(data, ["provenance", "provenance_hash", "provenance_state"]), else: data
 

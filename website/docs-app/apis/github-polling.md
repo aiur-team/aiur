@@ -295,3 +295,22 @@ request until its reported cost is known, stopping before the next reservation
 reaches 50 points. Source failure still produces a snapshot with reported cost.
 See
 [Daily newsletter snapshots](/skills#daily-newsletter-snapshots).
+
+Command override push reconciliation reads only held ticket-PR state every 30 seconds.
+Branch-push signals are observations, not worker attestations.
+
+It skips terminal closed-without-merge observations. Merge notifications wake the
+corrective reconciler, which bounds unresolved remote observations to five minutes
+and applies durable failure backoff to PR and ancestry read failures.
+
+At its own handoff, the worker attests its checkout head only when it matches the
+pushed upstream and verified PR head, and its commit date follows delivery.
+This reads the checkout locally or over its existing worker connection; it adds no GitHub read.
+
+A worker-attested post-delivery commit implements the override only when its SHA is
+the merged PR head or an ancestor. A different merged head uses one governed
+`/compare/<worker-sha>...<merged-head-sha>` read as `command_override_merge_head`;
+an identical head needs no read. A later committer date alone proves nothing.
+
+Provider handoff rechecks held PR state before delivery. These evidence reads
+claim no quota saving.
