@@ -33,6 +33,8 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     assert_receive {:briefing, briefing}, 1_000
     assert briefing.current_task.value == "Run tests"
     assert briefing.questions.value == ["Choose?"]
+    publish(ctx.exchange, "ticket.42.agent.progress.status", %{payload: %{unexpected: "ignore"}})
+    refute_receive {:briefing, _}, 100
     publish(ctx.exchange, "ticket.42.agent.phase.work.end", %{})
     assert_receive {:context_update, "Phase: work.end", []}, 1_000
     publish(ctx.exchange, "ticket.42.agent.ended", %{})

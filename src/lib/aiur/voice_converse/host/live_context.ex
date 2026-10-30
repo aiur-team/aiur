@@ -64,7 +64,7 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
   defp dispatch("agent.progress.status", event, %{kind: :briefing} = state) do
     payload = value(event, :payload) || event
 
-    if is_map(payload), do: notify(state, {:briefing, status_card(payload)})
+    if is_map(payload) and is_binary(value(payload, :doing)), do: notify(state, {:briefing, status_card(payload)})
   end
 
   defp dispatch("agent.decision." <> action, event, %{kind: :commands} = state), do: command(action, event, state)
