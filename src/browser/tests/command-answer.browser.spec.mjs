@@ -197,6 +197,8 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
   let socket
   let transcriptChangeRef
   let heldTranscriptReply
+  let holdFollowingReplies = false
+  const heldFollowingReplies = []
   await page.routeWebSocket('**/live/websocket**', route => {
     socket = route
     const server = route.connectToServer()
@@ -210,7 +212,10 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
     })
     server.onMessage(message => {
       const packet = JSON.parse(message)
-      if (packet[3] === 'phx_reply' && packet[1] === transcriptChangeRef) heldTranscriptReply = message
+      if (packet[3] === 'phx_reply' && packet[1] === transcriptChangeRef) {
+        heldTranscriptReply = message
+        holdFollowingReplies = true
+      } else if (holdFollowingReplies && packet[3] === 'phx_reply') heldFollowingReplies.push(message)
       else route.send(message)
     })
   })
@@ -247,6 +252,9 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
   heldTranscriptReply = undefined
   await expect.poll(() => page.evaluate(() => window.__voiceInputPatches)).toBeGreaterThan(patchesBeforeRelease)
   await expect(page.locator('[data-voice-input]')).toHaveValue('Hold the rollout after review')
+  const pendingReplies = heldFollowingReplies.splice(0)
+  holdFollowingReplies = false
+  for (const reply of pendingReplies) socket.send(reply)
   await form.locator('[name="revision[reason]"]').fill('New evidence')
   await form.getByRole('button', { name: 'Send correction', exact: true }).click()
   await expect(page.locator('.decision-revision-list')).toContainText('Hold the rollout after review')
