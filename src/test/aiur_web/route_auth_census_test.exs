@@ -19,6 +19,7 @@ defmodule AiurWeb.RouteAuthCensusTest do
     :auth_session,
     :auth_post,
     :supervisor_auth,
+    :executor_hook_auth,
     :github_webhook
   ]
   @intentionally_public [{:get, "/healthz"}, {:get, "/readyz"}]
