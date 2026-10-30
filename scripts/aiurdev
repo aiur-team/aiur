@@ -401,6 +401,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
+    executor-attach | executor-detach | executor-session) return 0 ;;
     voice | doctor | agents | alerts | status | set | pause | resume | stop | message | listen-mode | cleanup-stale | reset-budget | command | github-cost | github-usage | experiments | capabilities | epic | feature | ticket | pre-pr) return 0 ;;
     *) return 1 ;;
   esac
