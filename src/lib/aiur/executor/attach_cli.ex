@@ -1,7 +1,6 @@
-defmodule Aiur.ControlCLI.ExecutorAttach do
+defmodule Aiur.Executor.AttachCLI do
   @moduledoc false
-  alias Aiur.ControlCLI.ExecutorSession
-  alias Aiur.Executor.{HookConfig, HookToken, Session}
+  alias Aiur.Executor.{HookConfig, HookToken, Session, SessionCLI}
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec attach(keyword()) :: :ok
@@ -83,7 +82,7 @@ defmodule Aiur.ControlCLI.ExecutorAttach do
   defp install_failure(error, opts), do: failure({:failure, 73, "cannot update #{Path.join(opts[:repo_root], ".claude/settings.local.json")}: #{inspect(error)}; use --print-config to print hooks"})
 
   defp failure({:error, {:already_attached, binding}}) do
-    age = ExecutorSession.age(binding, DateTime.utc_now())
+    age = SessionCLI.age(binding, DateTime.utc_now())
     failure({:failure, 75, "already attached binding=#{binding.binding_id} harness=#{binding.harness} age_ms=#{age.age_ms || "unknown"}; use --takeover"})
   end
 

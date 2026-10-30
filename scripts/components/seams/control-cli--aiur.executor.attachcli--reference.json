@@ -1,0 +1,9 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.Executor.AttachCLI",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/agent_control_cli.ex"
+  ],
+  "reason": "MP-E3-C1-T03: local control adapter delegates opt-in Executor attach/detach"
+}

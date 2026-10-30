@@ -1,4 +1,4 @@
-defmodule Aiur.ControlCLI.ExecutorSession do
+defmodule Aiur.Executor.SessionCLI do
   @moduledoc false
   alias Aiur.Executor.{HarnessSession, Session}
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]

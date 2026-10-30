@@ -1,8 +1,7 @@
 defmodule Aiur.AgentControlCLIExecutorSessionTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.ControlCLI.{ExecutorAttach, ExecutorSession}
-  alias Aiur.Executor.{HookToken, Session}
+  alias Aiur.Executor.{AttachCLI, HookToken, Session, SessionCLI}
 
   setup do
     root = Aiur.TestSupport.tmp_root!("executor-cli")
@@ -32,14 +31,10 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
              Aiur.ControlCall.parse("Aiur.AgentControlCLI.executor_session(json: true)")
 
     assert {:error, :denied_remote} =
-             Aiur.ControlCall.parse(
-               "Aiur.AgentControlCLI.executor_attach(harness: \"claude\", repo_root: \"#{root}\")"
-             )
+             Aiur.ControlCall.parse(~s|Aiur.AgentControlCLI.executor_attach(harness: "claude", repo_root: "#{root}")|)
 
     assert {:error, :denied_remote} =
-             Aiur.ControlCall.parse(
-               "Aiur.AgentControlCLI.executor_detach(repo_root: \"#{root}\")"
-             )
+             Aiur.ControlCall.parse(~s|Aiur.AgentControlCLI.executor_detach(repo_root: "#{root}")|)
 
     assert {:error, :option_not_allowed} =
              Aiur.ControlCall.parse("Aiur.AgentControlCLI.executor_session(bound_port: 42)")
@@ -59,7 +54,7 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
   test "attach requires a listener and instance key before creating state", %{opts: opts} do
     output =
       capture_io(fn ->
-        assert ExecutorAttach.run_attach(Keyword.put(opts, :bound_port, nil)) == 69
+        assert AttachCLI.run_attach(Keyword.put(opts, :bound_port, nil)) == 69
       end)
 
     assert output =~ "restart without --no-dashboard"
@@ -67,7 +62,7 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     assert HookToken.read() == {:error, :enoent}
     System.delete_env("AIUR_INSTANCE_KEY")
 
-    assert capture_io(fn -> assert ExecutorAttach.run_attach(opts) == 69 end) =~
+    assert capture_io(fn -> assert AttachCLI.run_attach(opts) == 69 end) =~
              "AIUR_INSTANCE_KEY"
   end
 
@@ -75,7 +70,7 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     opts: opts,
     root: root
   } do
-    output = capture_io(fn -> assert ExecutorAttach.run_attach(opts) == 0 end)
+    output = capture_io(fn -> assert AttachCLI.run_attach(opts) == 0 end)
     assert {:ok, first} = Session.current()
 
     assert output =~
@@ -83,12 +78,12 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
 
     assert {:ok, _token} = HookToken.read()
     assert File.read!(Path.join(root, ".claude/settings.local.json")) =~ "AIUR_EXECUTOR_HOOK=1"
-    refusal = capture_io(fn -> assert ExecutorAttach.run_attach(opts) == 75 end)
+    refusal = capture_io(fn -> assert AttachCLI.run_attach(opts) == 75 end)
     assert refusal =~ "binding=#{first.binding_id} harness=claude age_ms=unknown; use --takeover"
 
     takeover =
       capture_io(fn ->
-        assert ExecutorAttach.run_attach(Keyword.put(opts, :takeover?, true)) == 0
+        assert AttachCLI.run_attach(Keyword.put(opts, :takeover?, true)) == 0
       end)
 
     assert takeover =~ "SUPERSEDED binding=#{first.binding_id}"
@@ -97,11 +92,11 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
   end
 
   test "detach removes hooks and rotates authentication", %{opts: opts, root: root} do
-    capture_io(fn -> assert ExecutorAttach.run_attach(opts) == 0 end)
+    capture_io(fn -> assert AttachCLI.run_attach(opts) == 0 end)
     {:ok, old} = HookToken.read()
     {:ok, binding} = Session.current()
 
-    assert capture_io(fn -> assert ExecutorAttach.run_detach(opts) == 0 end) =~
+    assert capture_io(fn -> assert AttachCLI.run_detach(opts) == 0 end) =~
              "DETACHED binding=#{binding.binding_id}"
 
     assert {:ok, fresh} = HookToken.read()
@@ -127,27 +122,25 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     root: root
   } do
     File.write!(Path.join(root, ".claude"), "a file blocks the directory")
-    output = capture_io(fn -> assert ExecutorAttach.run_attach(opts) == 73 end)
+    output = capture_io(fn -> assert AttachCLI.run_attach(opts) == 73 end)
     assert output =~ Path.join(root, ".claude/settings.local.json")
     assert {:ok, %{state: "awaiting_first_hook"}} = Session.current()
 
     assert capture_io(fn ->
-             assert ExecutorAttach.run_attach(
-                      Keyword.merge(opts, takeover?: true, print_config: true)
-                    ) == 0
+             assert AttachCLI.run_attach(Keyword.merge(opts, takeover?: true, print_config: true)) == 0
            end) =~ "AIUR_EXECUTOR_HOOK=1"
   end
 
   test "print config and Codex leave repository settings untouched", %{opts: opts, root: root} do
     assert capture_io(fn ->
-             assert ExecutorAttach.run_attach(Keyword.put(opts, :print_config, true)) == 0
+             assert AttachCLI.run_attach(Keyword.put(opts, :print_config, true)) == 0
            end) =~ "AIUR_EXECUTOR_HOOK=1"
 
     refute File.exists?(Path.join(root, ".claude"))
 
     output =
       capture_io(fn ->
-        assert ExecutorAttach.run_attach(Keyword.merge(opts, harness: "codex", takeover?: true)) ==
+        assert AttachCLI.run_attach(Keyword.merge(opts, harness: "codex", takeover?: true)) ==
                  0
       end)
 
@@ -159,10 +152,10 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     opts: opts,
     root: root
   } do
-    capture_io(fn -> ExecutorAttach.run_attach(Keyword.put(opts, :print_config, true)) end)
+    capture_io(fn -> AttachCLI.run_attach(Keyword.put(opts, :print_config, true)) end)
     now = DateTime.utc_now()
     read_opts = [json: true, now: now, path: Path.join(root, "claims.json")]
-    data = Jason.decode!(capture_io(fn -> assert ExecutorSession.run(read_opts) == 0 end))
+    data = Jason.decode!(capture_io(fn -> assert SessionCLI.run(read_opts) == 0 end))
     assert data["observed_at"] == DateTime.to_iso8601(now)
     assert data["age_ms"] == nil
     assert data["freshness"] == "unknown"
@@ -175,17 +168,17 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
              Session.bind_provider_session(binding.binding_id, %{session_id: "other"})
 
     assert {:error, :not_attached} = Session.touch("wrong-binding", now)
-    data = Jason.decode!(capture_io(fn -> ExecutorSession.run(read_opts) end))
+    data = Jason.decode!(capture_io(fn -> SessionCLI.run(read_opts) end))
     assert data["age_ms"] == 5000
     assert data["freshness"] == "fresh"
     assert data["foreign_session_count"] == 1
     assert data["not_attached_count"] == 1
 
-    assert capture_io(fn -> ExecutorSession.run(Keyword.put(read_opts, :json, false)) end) =~
+    assert capture_io(fn -> SessionCLI.run(Keyword.put(read_opts, :json, false)) end) =~
              "age_ms=5000 freshness=fresh"
 
     assert {:ok, _} = Session.touch(binding.binding_id, DateTime.add(now, -3600, :second))
-    stale = Jason.decode!(capture_io(fn -> ExecutorSession.run(read_opts) end))
+    stale = Jason.decode!(capture_io(fn -> SessionCLI.run(read_opts) end))
     assert stale["age_ms"] == 3_600_000
     assert stale["freshness"] == "stale"
   end
