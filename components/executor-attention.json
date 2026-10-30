@@ -64,8 +64,8 @@
   },
   "docs": [
     "concepts/executor.md",
-    "reference/cli.md",
-    "reference/cli-decisions.md"
+    "reference/cli-decisions.md",
+    "reference/cli.md"
   ],
   "config": [
     "alerts"
