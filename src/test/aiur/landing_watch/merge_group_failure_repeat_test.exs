@@ -19,7 +19,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    identity = ticket_identity()
+    unique = System.unique_integer([:positive])
+    repository = {"owner", "repo-#{unique}"}
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I#{unique}", "number" => "17"}, repository, repository)
     :ok = Aiur.IssueLog.attach(identity)
     writer = writer_pid(identity)
     on_exit(fn -> Aiur.TestSupport.safe_stop(writer) end)
@@ -86,7 +88,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    identity = ticket_identity()
+    unique = System.unique_integer([:positive])
+    repository = {"owner", "repo-#{unique}"}
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I#{unique}", "number" => "17"}, repository, repository)
     :ok = Aiur.IssueLog.attach(identity)
     writer = writer_pid(identity)
     on_exit(fn -> Aiur.TestSupport.safe_stop(writer) end)
@@ -489,20 +493,6 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
   defp writer_pid(identity) do
     [{pid, _}] = Registry.lookup(Aiur.IssueLog.Registry, Writers.writer_key(identity))
     pid
-  end
-
-  defp ticket_identity do
-    unique = System.unique_integer([:positive])
-    repository = "repo-#{unique}"
-
-    {:ok, identity} =
-      TrackerIdentity.from_github(
-        %{"node_id" => "I#{unique}", "number" => "17"},
-        {"owner", repository},
-        {"owner", repository}
-      )
-
-    identity
   end
 
   defp journal_path, do: Path.join(System.tmp_dir!(), "merge-group-repeat-#{System.unique_integer([:positive])}.json")
