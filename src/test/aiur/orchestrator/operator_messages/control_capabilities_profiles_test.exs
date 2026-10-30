@@ -10,8 +10,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlCapabilitiesProfilesTest do
   @states [:working_active, :working_idle, :sleeping, :paused, :self_paused, :self_paused_pending, :working_pending]
   @fixture Path.expand("../../../fixtures/harness_frames/control_capabilities_profiles.exs", __DIR__)
 
-  # Future regression guard: frozen legacy fields; additive listener projection is covered by unread_test.exs.
-  test "legacy control fields remain byte-identical for every C1 matrix profile" do
+  # Listener defaults add checkpoint support to REPL; other control fields stay unchanged.
+  test "control fields match every C1 matrix profile with listener defaults" do
     {expected, _} = Code.eval_file(@fixture)
 
     actual =

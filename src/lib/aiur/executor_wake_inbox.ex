@@ -5,7 +5,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
-  alias Aiur.ExecutorWakeInbox.{Recovery, Storage}
+  alias Aiur.ExecutorWakeInbox.{Recovery, StaleHumanReview, Storage, VoiceReceipt}
   alias Aiur.Journal
 
   @default_debounce_ms 2_000
@@ -86,6 +86,11 @@ defmodule Aiur.ExecutorWakeInbox do
   @spec cursor(GenServer.server()) :: non_neg_integer()
   def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
 
+  @doc "Acknowledgement evidence for exact voice handoff event ids, never inferred from event-id ordering."
+  @spec voice_receipts([pos_integer()], GenServer.server()) :: {:ok, [map()]} | {:error, term()}
+  def voice_receipts(event_ids, server \\ __MODULE__) when is_list(event_ids),
+    do: GenServer.call(server, {:voice_receipts, event_ids})
+
   @doc "The cursor and unread count for operator status surfaces."
   @spec stats(GenServer.server()) :: {:ok, %{cursor: non_neg_integer(), pending_count: non_neg_integer()}} | {:error, term()}
   def stats(server \\ __MODULE__), do: GenServer.call(server, :stats)
@@ -118,6 +123,7 @@ defmodule Aiur.ExecutorWakeInbox do
         records: summary.records,
         journal_signature: summary.journal_signature,
         replay_fun: Keyword.get(opts, :replay_fun, &Journal.replay/2),
+        human_review_state_reader: Keyword.get(opts, :human_review_state_reader, &StaleHumanReview.current_state/1),
         timer: nil,
         waiters: %{},
         alert_fun: alert_fun,
@@ -152,7 +158,7 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   def handle_call({:wait, timeout_ms, consumer_id, defer_ack?}, from, state) do
-    case Storage.unread_records(state) do
+    case deliverable_records(state) do
       {:ok, [_ | _] = records, state} ->
         {:reply, {:ok, records}, state}
 
@@ -190,10 +196,17 @@ defmodule Aiur.ExecutorWakeInbox do
     {:reply, state.cursor, state}
   end
 
+  def handle_call({:voice_receipts, event_ids}, _from, state) do
+    case VoiceReceipt.read(state, event_ids) do
+      {:ok, receipts, state} -> {:reply, {:ok, receipts}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
   def handle_call(:stats, _from, state) do
     state = Storage.refresh_cursor(state)
 
-    case Storage.unread_records(state) do
+    case deliverable_records(state) do
       {:ok, unread, state} ->
         in_flight = Enum.count(state.pending, fn {_key, record} -> record["wake_id"] > state.cursor end)
         stats = %{cursor: state.cursor, pending_count: length(unread) + in_flight}
@@ -205,7 +218,7 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   def handle_call(:pending, _from, state) do
-    case Storage.unread_records(state) do
+    case deliverable_records(state) do
       {:ok, records, state} ->
         {:reply, records, state}
 
@@ -296,7 +309,7 @@ defmodule Aiur.ExecutorWakeInbox do
   defp expire_waiter(state) do
     state = flush_now(state)
 
-    case Storage.unread_records(state) do
+    case deliverable_records(state) do
       {:ok, [_ | _] = records, state} -> {{:ok, records}, state}
       {:ok, [], state} -> {:timeout, state}
       {:error, reason} -> {{:error, reason}, state}
@@ -306,7 +319,7 @@ defmodule Aiur.ExecutorWakeInbox do
   defp serve_waiters(%{waiters: waiters} = state) when map_size(waiters) == 0, do: state
 
   defp serve_waiters(state) do
-    case Storage.unread_records(state) do
+    case deliverable_records(state) do
       {:ok, [_ | _] = records, state} ->
         Enum.each(state.waiters, fn {_key, waiter} ->
           Process.demonitor(waiter.monitor, [:flush])
@@ -347,6 +360,28 @@ defmodule Aiur.ExecutorWakeInbox do
     |> Map.put("wake_id", previous["wake_id"])
     |> Map.put("count", (previous["count"] || 1) + 1)
     |> Map.put("first_seen_at", previous["first_seen_at"])
+  end
+
+  defp deliverable_records(state) do
+    case Storage.unread_records(state) do
+      {:ok, records, state} ->
+        {deliverable, stale} = StaleHumanReview.filter(records, state.human_review_state_reader)
+        stale_prefix = Enum.take_while(records, &(&1 in stale))
+
+        state =
+          if stale_prefix == [] do
+            state
+          else
+            state
+            |> Storage.advance_cursor(stale_prefix)
+            |> Storage.trim_consumed()
+          end
+
+        {:ok, deliverable, state}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp fast_forward(state, consumer_id, wake_id) do

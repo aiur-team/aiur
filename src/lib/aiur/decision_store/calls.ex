@@ -140,6 +140,12 @@ defmodule Aiur.DecisionStore.Calls do
     Withdrawals.handle_moot(decision_id, payload, opts, state)
   end
 
+  def handle_call({:override, _id, _payload, _opts}, _from, %{writable?: false} = state),
+    do: {:reply, {:error, {:store_unavailable, state.health}}, state}
+
+  def handle_call({:override, id, payload, opts}, _from, state),
+    do: Revisions.handle_override(id, payload, opts, state)
+
   def handle_call({:supersede, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end

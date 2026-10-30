@@ -59,8 +59,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       "ProgressRenderer.json(",
       "ProgressRenderer.json(",
       "ProgressRenderer.json("
-    ],
-    "aiur_web/components/operator_control_center/build_order_graph.ex" => ["ProgressRenderer.html("]
+    ]
   }
 
   # These files own separate live-execution progress domains — including the
@@ -102,9 +101,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/build_order_presenter.ex",
     "aiur_web/build_order_presenter/activity.ex",
     "aiur_web/components/operator_control_center/run_summary.ex",
-    "aiur_web/components/operator_control_center/run_summary_strip.ex",
     "aiur_web/components/operator_control_center/ticket_context.ex",
-    "aiur_web/components/operator_control_center/units_table.ex",
     "aiur_web/live/streamdeck_live/components.ex",
     "aiur_web/operator_control_center/run_summary_presenter.ex",
     "aiur_web/operator_control_center/units_presentation.ex",

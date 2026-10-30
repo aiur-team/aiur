@@ -91,7 +91,6 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert html =~ "/voice-capture.js"
     assert html =~ "/voice-transport.js"
     assert html =~ "/conversation-voice-controller.js"
-    assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
     assert html =~ "/sortable-table-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
@@ -133,10 +132,6 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    conversation_drawer_hook_conn = get(build_conn(), "/conversation-drawer-hook.js")
-    assert response(conversation_drawer_hook_conn, 200) =~ "AiurConversationDrawerHook"
-    assert Plug.Conn.get_resp_header(conversation_drawer_hook_conn, "content-type") == ["text/javascript"]
-
     conversation_voice_conn = get(build_conn(), "/conversation-voice-controller.js")
     assert response(conversation_voice_conn, 200) =~ "AiurConversationVoiceController"
     assert Plug.Conn.get_resp_header(conversation_voice_conn, "content-type") == ["text/javascript"]
@@ -155,7 +150,7 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert response(sortable_table_hook_conn, 200) =~ "AiurSortableTableHook"
     assert Plug.Conn.get_resp_header(sortable_table_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    for hook <- ["build-order-grid-hook.js", "streamdeck-emulator-hook.js", "streamdeck-emulator-knob.js"] do
+    for hook <- ["streamdeck-emulator-hook.js", "streamdeck-emulator-knob.js"] do
       hook_conn = get(build_conn(), "/#{hook}")
       assert response(hook_conn, 200) != ""
       assert Plug.Conn.get_resp_header(hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
@@ -229,7 +224,6 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
       assert response(get(build_conn(), private_asset_url), 404) == "Not Found"
     end
 
-    assert html =~ "AgentLogPanel"
     assert html =~ "AiurTicketContextDialogHook"
     assert html =~ "hooks: Hooks"
   end

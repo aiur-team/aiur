@@ -26,6 +26,8 @@ Withdrawal removes only `agent:todo` after holding dispatch and proving it uncla
 
 CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), changed paths and Actions attempts (`ci_recovery`). Fully annotated tests outside the diff and known flakes may be rerun once per head.
 
+Landing-watch degraded-runner classification reads failed Actions job logs. When a job has a compile step, it also reads up to five recent successful main push runs and their steps to compare against that job's median. These bounded reads use `landing_watch_runner_degradation` and are memoized per poll; they claim no quota saving.
+
 Cancelled runs and drafts are not rerun; changes-requested PRs get one attention. Failed CI leaves queued or auto-merging approved heads in `ci-wait`. New heads wait with blocking attention until review.
 
 Reruns default on; limits: `agent.ci_recovery_max_per_poll` (5) and `agent.ci_recovery_max_per_hour` (20). Disable with `agent.ci_recovery_enabled: false`. Hourly cap shared across tickets and restarts.
@@ -52,7 +54,7 @@ The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |
-| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; unconfirmed backfill waits for explicit release. |
+| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; backfill joins wait for explicit release even after CLI confirmation, including when projection first observes the join after confirmation. |
 | A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
 | The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment or its own review reply. |
 | A label or a close is delivered | It reconciles state rather than waking anybody, so an orchestrator label write cannot wake the agent that state belongs to. |

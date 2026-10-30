@@ -7,6 +7,10 @@ decides who is asked first; authority decides who may answer.
 
 The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 
+A Command's **Open in conversation** link carries its agent's recorded request
+position, including after the Command is answered. An observed position is marked
+**approximate**; when no position is known, the detail shows **Conversation position unknown**.
+
 <img src="/images/dashboard/commands-dark.png" alt="Desktop Commands decision inbox populated with synthetic decisions">
 
 | Field | Meaning |
@@ -24,6 +28,20 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 | Defer | Leave the Command for a designated Executor agent to investigate and decide. |
 | Send correction | Append a corrected action without rewriting the original record. |
 
+On writable Command cards and detail pages, open the microphone menu and choose
+**Dictate** to speak a custom response. This selects **Custom response** and
+appends to any text already there. Review and edit the text, then use the existing
+answer button to record it; dictation never submits an answer.
+
+Capture stops at the 4,000-character limit and keeps the full transcript for editing. If voice is
+unavailable, you can still type. Structured multi-question forms use their own
+answer fields and do not offer this custom-response microphone.
+
+On an answered Command, **Send correction** offers the same dictation flow for
+the revised response. Dictation selects **Custom response** and appends to your draft.
+Review the text, type a reason for revision, then press **Send correction**.
+A rejected correction keeps your draft and shows the existing revision error.
+
 ## Authority and attention signals
 
 A structured agent question with `blocking: false` remains visible for an answer
@@ -37,10 +55,16 @@ re-raise moots the stale record before opening its replacement. The Executor
 can also moot or dismiss a blocker whose ticket is closed or question is moot.
 
 Agents classify the action, not the subsystem around it. Routine,
-reversible operational choices should use `supervisor_allowed`; irreversible
-actions, spend, external publication, and product direction remain
-`human_required`. The Executor can answer only a Command that declares
-`supervisor_allowed` or `supervisor_preferred` together with `reversible`.
+reversible operational choices should use `supervisor_allowed`.
+
+Irreversible actions, spend, external publication, and product direction
+remain `human_required`. By default, the Executor can answer only a Command
+that declares `supervisor_allowed` or `supervisor_preferred` together with
+`reversible`.
+
+Operators may opt in to delegation for reversible legacy
+engineering Commands with `executor.allow_reversible_human_required_answers`;
+product, spend, publication, and security decisions remain human-only.
 
 Classification is consequence-based and defaults delegable: a Command that
 omits `authority`/`reversibility` is treated as `supervisor_allowed` +
@@ -91,7 +115,7 @@ Command's age, so a restart continues it. `aiur status` prints
 `DECISIONS open N (E expired) ids=[…] oldest <age> (#ticket, gates M)`;
 the sorted IDs identify the exact Commands included in the count.
 
-That line counts the same Commands as `aiur commands --filter open`, including
+That line counts the same Commands as `aiur command --filter open`, including
 unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
 is older than 15 minutes.
 
@@ -192,7 +216,7 @@ When you answer a Command in conversation with an attended Executor, it can reco
 
 Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
 
-Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; delivery-state guards still apply.
+Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; withdrawal delivery guards still apply.
 
 <span id="who-can-replace-an-answer"></span>
 
@@ -201,23 +225,60 @@ Enabling the relay gate raises an info alert. Every relay also raises an info al
 The first accepted answer wins. If another responder answers first, the conflict
 shows the accepted answer and its delivery state instead of overwriting it.
 
-Use **Replace** while the answer has not reached the recipient and is not in
-flight. Replacement preserves the prior answer in history and delivers only the
-new answer. A failed send permits replacement again.
-
-After delivery, use **Send correction** to append corrected direction with its
-own delivery tracking. It cannot retract what the agent already received.
+Use **Replace** before delivery, or **Send correction** after delivery. Both
+record an override of the original Command. Before delivery the new answer
+replaces the pending answer; after delivery it sends corrective direction to the
+active worker on the existing work. It cannot retract earlier effects.
 
 Both revise and supersede use the current active answer's precedence:
 **direct operator > operator relayed by an Executor > Executor or supervisor**.
-A caller can replace an answer of equal or lower precedence while delivery guards
-permit it.
+A caller can override an answer of equal or lower precedence, including after
+delivery or acknowledgement.
 
 A relayed answer never replaces a direct operator answer; an Executor
 or supervisor cannot replace either human-attributed kind.
 
-Supersede is refused once an answer has been delivered or is in flight.
-Revisions keep their existing delivery and correction follow-up rules.
+An override retains its original Command, prior/new action IDs, ticket, and the
+PR number and merged state observed when routed. Unknown PR state stays explicit.
+`aiur commands --json` includes an `overrides` array with route, state and timestamps.
+
+
+A newer override supersedes the previous one; stale queued messages cannot deliver.
+Records survive daemon restart.
+
+Active-worker overrides progress from `queued` to `delivered` after confirmed
+delivery, then `implemented` when the worker acknowledges the override or a later
+branch push is confirmed as a changed head on the same PR. The record names the
+evidence.
+
+Push evidence needs a verified PR head-update timestamp later than
+delivery; unknown or same-second chronology stays unproven until acknowledgement
+or a later proven push. Queue acceptance alone does not mean implementation.
+
+For a confirmed unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
+journal-backed resume queue. Resumable workers continue on the same ticket,
+branch and PR, oldest request first, within the fleet and pressure limits.
+
+Capacity waits remain visible with `resume_reason: capacity` and survive restart.
+A newer override supersedes the earlier pending actions; only its text is used.
+
+Each resumed or continuation turn starts with “Operator override — this replaces
+your earlier instruction for Command …” until acknowledgement. A confirmed
+provider turn start marks prompt delivery; starting a worker alone does not.
+
+Explicit parked or paused labels stay in place, and a worker paused with
+`aiur pause N` stays paused, including while its pause request is pending.
+Aiur raises an Executor Command,
+“Resume #N to apply the override?”; the operator uses the normal resume control
+to authorize resumption. Capacity-only waits need no approval.
+
+Merged and unknown PR observations retain the legacy delivery path. A terminal
+target retains its Executor follow-up; it is not resumed or injected into a worker
+prompt. The resume scheduler requires a freshly confirmed live ticket.
+
+Corrective-ticket creation and unrecoverable worker replacement are separate
+routing work. Overrides never rewrite merged work. Direct legacy supersede
+calls retain their pre-delivery guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.

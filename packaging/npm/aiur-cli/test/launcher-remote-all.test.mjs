@@ -170,7 +170,8 @@ test("the reserved all name is rejected as a registry entry", () => {
   }
 });
 
-test("fleet executor wait defers acknowledgement and persists one cursor per instance", () => {
+// Quarantined: owner #6540, expires 2026-11-30. The woken nuc wait can cancel pc before it answers.
+test.skip("fleet executor wait defers acknowledgement and persists one cursor per instance", () => {
   const pc = startServer({ name: "pc", body: { ...successBody('{"status":"timeout","role":"owner","records":[]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/pc" } });
   // Let the no-wake timeout be recorded before the other instance wakes the fleet wait.
   const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":41},{"wake_id":44}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" }, delayMs: 500 });

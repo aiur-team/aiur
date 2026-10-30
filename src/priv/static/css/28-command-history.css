@@ -144,7 +144,6 @@
   white-space: nowrap;
 }
 
-
 .history-more {
   display: flex;
   justify-content: center;
@@ -210,4 +209,3 @@
   color: var(--muted);
   font-size: 0.84rem;
 }
-

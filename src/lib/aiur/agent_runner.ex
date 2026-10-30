@@ -470,11 +470,13 @@ defmodule Aiur.AgentRunner do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
-  defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
+  @doc false
+  @spec maybe_attach_issue_log(term()) :: :ok
+  def maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
+  def maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
   # No bare-map clause: `run/3` calls `CodingAgent.backend_for/1` first, which
   # constrains the argument to `%Issue{}`, so a plain map never reaches here.
-  defp maybe_attach_issue_log(_), do: :ok
+  def maybe_attach_issue_log(_), do: :ok
 
   @doc false
   @spec write_pause_log(Path.t() | nil, worker_host()) :: :ok

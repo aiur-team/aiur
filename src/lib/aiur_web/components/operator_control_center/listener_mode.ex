@@ -1,8 +1,9 @@
 defmodule AiurWeb.OperatorControlCenter.ListenerMode do
   @moduledoc "Listener mode, fallback, unread age and message receipt presentation."
+  alias Aiur.Listener.ModeCopy
   use Phoenix.Component
 
-  @modes [:steer, :sync, :async]
+  @modes [:steer, :sync, :async, :mute]
 
   attr(:listener, :any, default: :unavailable)
   attr(:writable, :boolean, default: false)
@@ -23,7 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
         <span :if={!is_integer(@listener[:unread_count])} data-unread-count="unknown">Unread unknown</span>
         <span :if={@listener[:effective_reason] && @listener[:effective] == @listener[:requested]}>{reason(@listener[:effective_reason])}</span>
         <span :if={@listener[:status] == :paused}>Agent paused</span>
-        <span :if={@listener[:routing] == :legacy}>Legacy routing — mode does not control delivery</span>
+        <span :if={@listener[:routing] == :unavailable}>Listener routing unavailable</span>
         <span :if={is_integer(@listener[:unread_count])} data-unread-count={@listener[:unread_count]}>
           Unread {@listener[:unread_count]}<span :if={@listener[:unread_count] > 0}> · oldest {age(@listener[:oldest_unread_at], @now)}</span>
         </span>
@@ -76,14 +77,12 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
   @spec modes() :: [atom()]
   def modes, do: @modes
   @spec mode_label(term()) :: String.t()
-  def mode_label(:steer), do: "Steer · interrupts"
-  def mode_label(:sync), do: "Sync · next turn"
-  def mode_label(:async), do: "Async · on demand"
-  def mode_label(_unknown), do: "Unavailable"
+  def mode_label(mode), do: ModeCopy.label(mode)
 
   defp badge_label(:steer), do: "Steer"
   defp badge_label(:sync), do: "Sync"
-  defp badge_label(:async), do: "Async"
+  defp badge_label(:async), do: mode_label(:async)
+  defp badge_label(:mute), do: mode_label(:mute)
   defp badge_label(_unknown), do: "Unavailable"
 
   defp reason(:not_running), do: "Agent not running"

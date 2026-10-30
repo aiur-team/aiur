@@ -119,11 +119,9 @@ defmodule Aiur.MixProject do
           Mix.Tasks.Aiur.AffectedTests,
           Aiur.TestReset,
           # Presentational OperatorControlCenter components no route currently
-          # renders (the compact Units redesign dropped the recent-/current-run
-          # outcomes and capacity panels). Pure HEEx with no executable branches
-          # to unit-test until they are re-wired or removed.
+          # renders. Pure HEEx with no executable branches to unit-test until
+          # they are re-wired or removed.
           AiurWeb.OperatorControlCenter.RecentOutcomes,
-          AiurWeb.OperatorControlCenter.CapacityControl,
           AiurWeb.OperatorControlCenter.BuildOrderStatus,
           AiurWeb.OperatorControlCenter.BuildOrderUsage,
           AiurWeb.Units.DemoSource
@@ -137,7 +135,6 @@ defmodule Aiur.MixProject do
         "test/support/dashboard_live_support.exs",
         "test/support/dashboard_live_processes.exs",
         "test/support/dashboard_live_decision_fixtures.exs",
-        "test/support/dashboard_live_control_fixtures.exs",
         "test/support/core_test_support.exs",
         "test/support/extensions_test_support.exs",
         "test/support/snapshot_support.exs",
@@ -172,7 +169,7 @@ defmodule Aiur.MixProject do
 
   defp deps do
     [
-      {:bandit, "~> 1.14"},
+      {:bandit, "~> 1.14 and >= 1.14.1"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.2", only: :test},

@@ -25,8 +25,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.FeatureSupply
   alias Aiur.Orchestrator.FirehosePolling
   alias Aiur.Orchestrator.IssueSync
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.MergedTicketReconciler
+  alias Aiur.Orchestrator.OverrideResume
   alias Aiur.Orchestrator.PausedCandidatePoll
   alias Aiur.Orchestrator.PollTiming
   alias Aiur.Orchestrator.PrAnchored
@@ -289,7 +291,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec dispatch_candidate_poll(State.t(), keyword()) :: State.t()
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
-    SettingsSnapshot.run(fn -> do_dispatch_candidate_poll(state, opts) end)
+    SettingsSnapshot.run(fn -> AttentionSnapshot.run(fn -> do_dispatch_candidate_poll(state, opts) end) end)
   end
 
   defp do_dispatch_candidate_poll(state, opts) do
@@ -341,6 +343,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           state
           |> FeatureSupply.observe(issues)
+          |> OverrideResume.schedule(issues)
           |> HoldsAndAlerts.dispatch_or_hold(issues)
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)

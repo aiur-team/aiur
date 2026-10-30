@@ -41,6 +41,15 @@ defmodule Aiur.ListenModeCliTest do
     assert {:ok, %{requested: :async, effective: :sync, version: 1}} = Listener.get_mode("uuid")
   end
 
+  test "mute writes and reads the persisted mode and canonical copy" do
+    output = capture_io(fn -> ListenModeCli.run("uuid", ["mute"]) end)
+    assert output =~ "Mute · silent"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert {:ok, %{requested: :mute, effective: :mute, version: 1}} = Listener.get_mode("TEAM-42")
+    output = capture_io(fn -> ListenModeCli.run("uuid", ["--json"]) end)
+    assert output |> String.split("\n") |> hd() |> Jason.decode!() |> Map.fetch!("requested") == "mute"
+  end
+
   test "unknown write outcome prints the selected version and retry key" do
     output = capture_io(fn -> ListenModeCli.run("timeout", ["async", "--idempotency-key", "retry-42"]) end)
     assert output =~ "outcome unknown"
@@ -51,7 +60,7 @@ defmodule Aiur.ListenModeCliTest do
   test "set prints requested and unavailable effective mode with reason and stores actor" do
     output = capture_io(fn -> ListenModeCli.run("42", ["async", "--actor", "executor"]) end)
     assert output =~ "requested async; effective unknown; reason not_running; version 1; actor executor"
-    assert output =~ "legacy routing ignores the stored mode"
+    assert output =~ "listener routing; observed"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert {:ok, %{requested: :async, version: 1, actor: :executor}} = Listener.get_mode("42")
   end
@@ -60,6 +69,7 @@ defmodule Aiur.ListenModeCliTest do
     {:ok, _} = Listener.set_mode("42", :steer, expected_version: 0)
     output = capture_io(fn -> ListenModeCli.run("42", ["--json"]) end)
     record = output |> String.split("\n") |> hd() |> Jason.decode!()
+    assert record["routing"] == "listener"
     assert record["requested"] == "steer"
     assert record["effective"] == nil
     assert record["effective_reason"] == "not_running"

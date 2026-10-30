@@ -31,6 +31,7 @@ defmodule Aiur.BuildOrder.History.CatchUpQuery do
       labels = if fields.labels_complete, do: fields.labels, else: :truncated
       label_fields = Feed.label_fields(held, labels, fields.updated_at)
       fields = Map.drop(fields, [:labels, :labels_complete, :blocked_by_complete, :last_closed_at])
+      fields = if issue.fields.labels_complete, do: fields, else: Map.put(fields, :labels_complete, false)
       fields = Map.merge(fields, label_fields)
       fields = if fields.closed_at == :none, do: %{fields | closed_at: :unknown}, else: fields
       lifecycle = fields.lifecycle

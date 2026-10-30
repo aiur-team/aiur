@@ -6,27 +6,18 @@ defmodule AiurWeb.DashboardLive.Session do
 
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.Commands
-  alias AiurWeb.DashboardLive.Controls
   alias AiurWeb.DashboardLive.Conversation
-  alias AiurWeb.DashboardLive.GitHubQuotaSnapshot
-  alias AiurWeb.DashboardLive.NetlifyUsage
-  alias AiurWeb.DashboardLive.ProviderMeters
   alias AiurWeb.DashboardLive.RepositoryLeaderBanner
-  alias AiurWeb.DashboardLive.Summaries
-  alias AiurWeb.DashboardLive.TicketContext
   alias AiurWeb.DashboardLive.UnitsPanel
-  alias AiurWeb.DashboardLive.Usage
   alias AiurWeb.DashboardLive.Voice
+  alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.InstanceRosterData
   alias AiurWeb.OperatorControlCenter.NavState
   alias AiurWeb.OperatorControlCenter.PayloadLoader
   alias AiurWeb.OperatorControlCenter.RouteRegistry
-  alias AiurWeb.OperatorControlCenter.TicketsPresenter
-  alias AiurWeb.OperatorControlCenter.UnitsURL
 
   @runtime_tick_ms 1_000
-  # Also refreshes the otherwise event-driven payload.
+  # Refresh Commands even if a projection notification was missed.
   @github_quota_tick_ms 15_000
   # Whole-account voice credit changes more slowly than the GitHub budget.
   @elevenlabs_quota_tick_ms 60_000
@@ -38,7 +29,6 @@ defmodule AiurWeb.DashboardLive.Session do
     connected = connected?(socket)
 
     socket = AiurWeb.RefreshSubscriptions.dashboard(socket)
-    if connected, do: TicketContext.subscribe_ticket_context_resets()
 
     payload = PayloadLoader.load(if connected, do: :join, else: :cached)
 
@@ -47,17 +37,12 @@ defmodule AiurWeb.DashboardLive.Session do
       |> assign(%{
         payload: payload,
         now: DateTime.utc_now(),
-        repository_leader: RepositoryLeaderBanner.initial_status(),
-        instance_agent_roster: InstanceRosterData.read()
+        repository_leader: RepositoryLeaderBanner.initial_status()
       })
       |> assign(:time_zone, browser_time_zone(socket))
-      |> assign(:github_quota, github_quota_snapshot())
-      |> assign(:netlify_dashboard, NetlifyUsage.snapshot())
       |> Voice.assign_voice()
-      |> assign(:agent_log_modal, nil)
-      |> assign(:drafts, %{})
-      |> assign(:pending_message_ids, %{})
-      |> assign(:chat_errors, %{})
+      |> AiurWeb.VoiceConversationEvents.close()
+      |> VoicePanel.init()
       |> assign(:decision_actions, %{})
       |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
@@ -67,40 +52,7 @@ defmodule AiurWeb.DashboardLive.Session do
       |> assign(:decision_page, Commands.empty_decision_page())
       |> assign(:decision_query, %{})
       |> CommandHistory.init_history_rows()
-      |> assign(:units_selection, UnitsURL.default_selection())
-      |> assign(:unit_controls, %{})
-      |> assign(:unit_control_subscriptions, MapSet.new())
-      |> assign(:tickets_visible, TicketsPresenter.initial_reveal())
       |> UnitsPanel.assign_units_view()
-      |> Controls.sync_unit_control_subscriptions(connected)
-      |> assign(:capacity_input, "")
-      |> assign(:capacity_feedback, nil)
-      |> Summaries.assign_initial_run_summary(connected)
-      |> ProviderMeters.assign_initial_provider_meters(connected)
-      |> Summaries.assign_initial_current_run_outcomes(connected)
-      |> Usage.assign_initial_usage_summary(connected)
-      |> assign(:ticket_detail, nil)
-      |> assign(:tickets_query, "")
-      |> assign(:add_agent_modal, nil)
-      |> assign(:add_agent_pending, nil)
-      |> assign(:add_agent_notice, nil)
-      |> assign(:ticket_context, nil)
-      |> assign(:ticket_context_detail, nil)
-      |> assign(:ticket_context_history, nil)
-      |> assign(:ticket_context_identity, nil)
-      |> assign(:ticket_context_row, nil)
-      |> assign(:ticket_context_subscriptions, MapSet.new())
-      |> assign(:conversation_drawer, nil)
-      |> assign(:conversation_from_route?, false)
-      |> assign(:conversation_notice, nil)
-      |> assign(:conversation_handle, nil)
-      |> assign(:conversation_identity, nil)
-      |> assign(:conversation_row, nil)
-      |> assign(:conversation_origin_id, nil)
-      |> assign(:conversation_lifecycle, :active)
-      |> assign(:conversation_snapshot, nil)
-      |> assign(:conversation_usage_snapshot, nil)
-      |> assign(:conversation_usage_error, nil)
       |> assign(:selected_decision_id, nil)
       |> assign(:selected_decision, nil)
       |> assign(:selected_decision_status, :none)
@@ -110,7 +62,6 @@ defmodule AiurWeb.DashboardLive.Session do
 
     if connected do
       schedule_runtime_tick()
-      schedule_instance_roster_tick()
       schedule_github_quota_tick()
       schedule_elevenlabs_quota_tick()
     end
@@ -120,23 +71,30 @@ defmodule AiurWeb.DashboardLive.Session do
 
   @doc false
   @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
-  def handle_params(params, uri, socket) do
+  def handle_params(_params, _uri, %{assigns: %{live_action: :voice}} = socket) do
+    {:noreply, socket |> assign(:table_sort, nil) |> assign(:current_route, RouteRegistry.current_route(:voice))}
+  end
+
+  def handle_params(params, _uri, socket) do
     filter = Commands.normalize_filter(params["route"] || params["filter"])
-    conversation_route? = String.starts_with?(URI.parse(uri).path || "", "/chat/")
 
     {:noreply,
      socket
-     |> assign(%{units_base_path: if(conversation_route?, do: "/units", else: URI.parse(uri).path), decision_filter: filter})
+     |> leave_voice()
+     |> assign(:decision_filter, filter)
      |> assign(:table_sort, UnitsPanel.normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
-     |> assign(:conversation_from_route?, conversation_route?)
-     |> UnitsPanel.assign_units_selection(params)
      |> Commands.assign_decision_page(filter, params)
      |> CommandHistory.load_history(:first_page)
-     |> Commands.assign_selected_decision(params["decision_id"])
-     |> Conversation.maybe_open_conversation_route(if(conversation_route?, do: params, else: %{}))
-     |> UnitsPanel.maybe_canonicalize_units_url(params)}
+     |> Commands.assign_selected_decision(params["decision_id"])}
   end
+
+  defp leave_voice(%{assigns: %{current_route: %{id: :voice}}} = socket) do
+    {:noreply, socket} = Conversation.on_close_conversation(socket)
+    AiurWeb.VoiceConversationEvents.close(socket)
+  end
+
+  defp leave_voice(socket), do: socket
 
   @doc false
   @spec dashboard_writable?() :: boolean()
@@ -156,25 +114,10 @@ defmodule AiurWeb.DashboardLive.Session do
   @spec schedule_runtime_tick() :: term()
   def schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
 
-  @doc false
-  @spec schedule_instance_roster_tick() :: term()
-  def schedule_instance_roster_tick, do: Process.send_after(self(), :instance_roster_tick, 10_000)
-
-  @doc false
-  @spec refresh_instance_roster(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  def refresh_instance_roster(socket) do
-    schedule_instance_roster_tick()
-    assign(socket, :instance_agent_roster, InstanceRosterData.read())
-  end
-
-  @doc false
-  @spec schedule_github_quota_tick() :: term()
+  @spec schedule_github_quota_tick() :: reference()
   def schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)
+
   @doc false
   @spec schedule_elevenlabs_quota_tick() :: term()
   def schedule_elevenlabs_quota_tick, do: Process.send_after(self(), :elevenlabs_quota_tick, @elevenlabs_quota_tick_ms)
-
-  @doc false
-  @spec github_quota_snapshot() :: term()
-  def github_quota_snapshot, do: GitHubQuotaSnapshot.read()
 end

@@ -1,9 +1,11 @@
 defmodule Aiur.Listener.ListenerDeliveryTest do
   use ExUnit.Case, async: false
   alias Aiur.{AgentQueue, AgentQueueStore, Issue, Orchestrator, TrackerIdentity}
+  alias Aiur.AgentRunner.QueueTurn
+  alias Aiur.Listener.ModeStore
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{ControlLifecycle, ListenerModes, OperatorMessages, State}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Enqueue, HeldReads}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Enqueue, HeldReads, Unread}
 
   setup_all do
     # The optional build artifact is the external boundary; exercise the real scheduler.
@@ -32,19 +34,103 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     dir = Aiur.TestSupport.tmp_root!("listener-delivery")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(dir)
-    previous = Application.fetch_env(:aiur, :listener_send_routing)
-    Application.put_env(:aiur, :listener_send_routing, :listener)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, flag} -> Application.put_env(:aiur, :listener_send_routing, flag)
-        :error -> Application.delete_env(:aiur, :listener_send_routing)
-      end
-    end)
 
     id = "listener-#{System.unique_integer([:positive])}"
     entry = %{identifier: id, issue: %Issue{id: id, identifier: id}, pid: self(), session_execution: %{backend: "codex"}, control: %{status: :working, can_interrupt: true}}
     %{id: id, entry: entry, state: %State{running: %{id => entry}, queue_store: AgentQueueStore.new()}}
+  end
+
+  test "addressed async messages each wake once without exposing or reading their bodies", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, %{effective: :async}}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    cursor = ModeStore.get(id)[:last_read_sequence]
+    payload = %{kind: :text, body: "private message one", delivery_policy: :listener, origin: :http, message_id: "ping-one"}
+    assert {:reply, {:ok, first}, state} = OperatorMessages.send_operator_message_call(state, id, payload)
+    assert {:reply, {:ok, ^first}, state} = OperatorMessages.send_operator_message_call(state, id, payload)
+    assert {:reply, {:ok, second}, state} = OperatorMessages.send_operator_message_call(state, id, %{payload | body: "private message two", message_id: "ping-two"})
+
+    final =
+      Enum.reduce(1..2, state, fn _, current ->
+        assert {:reply, {:ok, nudge}, after_claim} = OperatorMessages.claim_next_queue_item_call(current, id)
+        assert nudge.event_type == :listener_ping
+        assert_received {:agent_queue_updated, ^id, nudge_id, true}
+        assert nudge.id == nudge_id
+        text = QueueTurn.queue_item_text(nudge)
+        assert text =~ "aiur_read_messages"
+        refute text =~ "private message"
+        assert Unread.queue_summary(after_claim.queue_store, id).listener.unread_count == 2
+        assert ModeStore.get(id)[:last_read_sequence] == cursor
+        assert AgentQueueStore.get(after_claim.queue_store, first).body.text == "private message one"
+        assert AgentQueueStore.get(after_claim.queue_store, second).status == :pending
+        after_claim
+      end)
+
+    assert {:reply, :empty, ^final} = OperatorMessages.claim_next_queue_item_call(final, id)
+    refute_received {:agent_queue_updated, _, _, _}
+  end
+
+  test "async nudge waits for Stop while an addressed agent is busy", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, %{effective: :async}}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    :ok = ActiveTurns.put(id, "busy")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "busy", :test_cleanup) end)
+    assert {:reply, {:ok, _}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "private", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, _, false}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_checkpoint_queue_item_call(queued, id)
+    ActiveTurns.mark_closed(id, "busy", :completed)
+    assert {:reply, {:ok, %{event_type: :listener_ping}}, _} = OperatorMessages.claim_next_queue_item_call(queued, id)
+  end
+
+  test "entering mute cancels pending async nudges without acknowledging the message", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "held", delivery_policy: :listener, origin: :http})
+    assert_received {:agent_queue_updated, ^id, _, true}
+    assert {:reply, {:ok, %{effective: :mute}}, muted} = ListenerModes.set_mode(queued, id, :mute, expected_version: 1)
+    refute_received {:agent_queue_updated, ^id, _, true}
+    assert {:reply, :empty, ^muted} = OperatorMessages.claim_next_queue_item_call(muted, id)
+    assert AgentQueueStore.get(muted.queue_store, request).status == :pending
+    assert Unread.queue_summary(muted.queue_store, id).listener.unread_count == 1
+    assert Enum.map(AgentQueueStore.list_pending(muted.queue_store, id), & &1.id) == [request]
+  end
+
+  test "mute cancels an unclaimed backlog notice after leaving async", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    assert {:reply, {:ok, request}, state} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "held", delivery_policy: :listener, origin: :http})
+    assert_received {:agent_queue_updated, ^id, _, true}
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :sync, expected_version: 1)
+    notice = Enum.find(AgentQueueStore.list_pending(state.queue_store, id), &(&1.event_type == :async_backlog_notice))
+    assert notice
+    notice_id = notice.id
+    assert_received {:agent_queue_updated, ^id, ^notice_id, true}
+    assert {:reply, {:ok, %{effective: :mute}}, muted} = ListenerModes.set_mode(state, id, :mute, expected_version: 2)
+    assert {:reply, :empty, ^muted} = OperatorMessages.claim_next_queue_item_call(muted, id)
+    assert Enum.map(AgentQueueStore.list_pending(muted.queue_store, id), & &1.id) == [request]
+    assert Unread.queue_summary(muted.queue_store, id).listener.unread_count == 1
+    refute_received {:agent_queue_updated, ^id, _, true}
+  end
+
+  test "mute never restarts deactivated or completed agents", %{id: id, entry: entry, state: state} do
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :mute, expected_version: 0)
+
+    for status <- [:deactivated, :completed] do
+      parked = entry |> put_in([:control, :status], status) |> Map.put(:pid, nil) |> Map.put(:completed_provenance, status == :completed)
+      state = %{state | running: %{id => parked}, max_concurrent_agents: 0}
+      assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "silent", delivery_policy: :listener, origin: :http})
+      assert queued.running[id].control.status == status
+      assert AgentQueueStore.get(queued.queue_store, request).delivery.consume_at == :pull
+      refute_received {:agent_queue_updated, _, _, _}
+    end
+  end
+
+  test "mute retains messages without a nudge or automatic claim", %{id: id, state: state} do
+    assert {:reply, {:ok, %{effective: :mute}}, state} = ListenerModes.set_mode(state, id, :mute, expected_version: 0)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "silent", delivery_policy: :listener, origin: :http})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_queue_item_call(queued, id)
+    assert AgentQueueStore.get(queued.queue_store, request).body.text == "silent"
+    assert length(AgentQueueStore.list_pending(queued.queue_store, id)) == 1
   end
 
   test "REPL listener sync accepts checkpoint and holds until turn boundary", %{id: id, entry: entry, state: state} do
@@ -82,7 +168,7 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert claimed.id == request
   end
 
-  test "REPL native steer wakes the active session; legacy routing stays immediate only", %{id: id, entry: entry, state: state} do
+  test "REPL native steer wakes the active session", %{id: id, entry: entry, state: state} do
     entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
     state = %{state | running: %{id => entry}}
     :ok = ActiveTurns.put(id, "active")
@@ -97,8 +183,6 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:reply, {:ok, claimed}, after_steer} = OperatorMessages.claim_next_steer_queue_item_call(queued, id)
     assert claimed.id == request
     assert AgentQueueStore.get(after_steer.queue_store, held.id).status == :pending
-    Application.put_env(:aiur, :listener_send_routing, :legacy)
-    assert Capabilities.issue_control_capabilities(state, id).accepted_delivery_policies == [:immediate]
   end
 
   test "native steer enqueue wakes active turn and stays sync-safe on unsupported harness", %{id: id, entry: entry, state: state} do
@@ -159,7 +243,7 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:reply, {:error, :listener_mode_unavailable}, ^state} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "hello", delivery_policy: :listener, origin: :http})
   end
 
-  test "async never wakes any runner state, including cooperative self-pause", %{id: id, entry: entry, state: state} do
+  test "held async bodies never wake directly, including cooperative self-pause", %{id: id, entry: entry, state: state} do
     item = AgentQueue.operator_message(id, "held", listener_mode: :async)
 
     for {status, reason} <- [{:working, nil}, {:sleeping, nil}, {:paused, :agent_pause_request}, {:paused, :operator}, {:working, :agent_pause_request}] do

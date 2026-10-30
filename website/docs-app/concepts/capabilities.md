@@ -71,10 +71,10 @@ presence does not promise that its feature is installed or enabled.
 | `executor.background_agents` | Executor background agent observations |
 | `harness.<id>.native_question` | Harness questions; `mode` is `in_band_hold`, `defer_resume`, or `none` |
 | `events.export` | External event feed: `v: 1`, `retention.max_age_s` and `retention.max_records`; disabled → `unavailable/disabled`, no HTTP listener or exporter → `unavailable/not_running`, corrupt journal → `degraded/journal_corrupt` |
-| `listener_modes` | Listener routing modes; unavailable modes retain legacy sends |
+| `listener_modes` | Conversation listener modes; unavailable modes refuse sends |
 | `voice.stt` | Speech recognition |
 | `voice.tts` | Speech synthesis |
-| `voice.conversation` | Voice conversation |
+| `voice.conversation` | Voice conversation; requires a writable dashboard, listener, configured provider, model, disclosure and credential |
 | `streamdeck` | Stream Deck integration |
 | `webhook_ingress` | GitHub webhook ingress |
 | `remote_control` | Harness Remote Control |
@@ -86,14 +86,13 @@ presence does not promise that its feature is installed or enabled.
 | `accounting.meters` | Provider usage meters |
 | `merge_policy` | Configured merge policy; `mode` is `ci=<mode> local_tests=<mode>` ([configuration](/reference/merge-policy)) |
 
-`listener_modes` is available only with a valid v1 specification and listener routing
-enabled; its `version` is the selected spec major (1).
+`listener_modes` is available with a valid v1 specification; its `version` is the selected spec major (1).
 
 Missing specifications report
 `unavailable/not_installed`, failed validation reports `unavailable/spec_invalid`,
-and legacy or unrecognized routing flags report `unavailable/disabled`. Unexpected
-status or read failures report `unknown/unknown`. Sends retain legacy routing when
-listener modes are unavailable.
+and unexpected status or read failures report `unknown/unknown`. Conversation sends
+return `listener_mode_unavailable` when the specification is unavailable. Explicit
+internal delivery policies, including Command answers, keep their own behavior.
 
 Per-capability `version` defaults to 1. Registered `route` attributes tell clients
 where to open a feature's dashboard page; do not hard-code those destinations.

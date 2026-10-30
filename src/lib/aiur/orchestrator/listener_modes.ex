@@ -73,7 +73,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @doc "Re-stamp pending listener rows after a serialized mode or harness-view change."
   @spec mode_view_changed(State.t(), String.t(), map()) :: State.t()
   def mode_view_changed(state, id, view) do
-    store = AgentQueueStore.update_pending_delivery(state.queue_store, id, Scheduler.restamp_fun(view))
+    store = state.queue_store |> AgentQueueStore.update_pending_delivery(id, Scheduler.restamp_fun(view)) |> Scheduler.silence_nudges(id, view)
     pending = AgentQueueStore.list_pending(store, id)
     changed = Enum.find(pending, fn item -> item.delivery != AgentQueueStore.get(state.queue_store, item.id).delivery end)
     Unread.broadcast_change(state.queue_store, store, id)
@@ -164,6 +164,9 @@ defmodule Aiur.Orchestrator.ListenerModes do
       do: {:ok, canonical || id, entry},
       else: {:error, :issue_not_found}
   end
+
+  # Callers that skip Listener.get_mode validation (an issue without an identifier) must not crash the shared Orchestrator (#7151).
+  defp resolve(_state, _target), do: {:error, :invalid_target}
 
   defp stopped_identity(state, id) do
     if State.find_running_by_identifier(state.running, id), do: {:error, :ambiguous_identifier}, else: resolve(state, id)

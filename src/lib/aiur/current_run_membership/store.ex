@@ -10,7 +10,7 @@ defmodule Aiur.CurrentRunMembership.Store do
 
   alias Aiur.Boot
   alias Aiur.CurrentRunMembership.{Event, OutboundEvents, Projection}
-  alias Aiur.CurrentRunMembership.Store.{Recovery, Runtime}
+  alias Aiur.CurrentRunMembership.Store.{Batch, Recovery, Runtime}
   alias Aiur.TrackerIdentity
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -25,6 +25,16 @@ defmodule Aiur.CurrentRunMembership.Store do
     source = Keyword.get(opts, :source, :status_report)
     timeout = Keyword.get(opts, :timeout, 60_000)
     GenServer.call(server, {:observe, identity, lifecycle, observed_at, source}, timeout)
+  end
+
+  @doc false
+  @spec observe_many([{TrackerIdentity.t(), Event.lifecycle()}], keyword()) :: {:ok, map()} | {:error, term()}
+  def observe_many(observations, opts \\ []) do
+    GenServer.call(
+      Keyword.get(opts, :server, __MODULE__),
+      {:observe_many, observations, Keyword.get(opts, :observed_at, DateTime.utc_now()), Keyword.get(opts, :source, :status_report)},
+      Keyword.get(opts, :timeout, 60_000)
+    )
   end
 
   @spec snapshot(keyword()) :: map()
@@ -110,6 +120,10 @@ defmodule Aiur.CurrentRunMembership.Store do
       {:ok, event} -> Runtime.handle_observation(event, state)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  def handle_call({:observe_many, observations, observed_at, source}, _from, state) do
+    Batch.observe(observations, observed_at, source, state)
   end
 
   def handle_call({:snapshot, limit}, _from, state) do

@@ -51,7 +51,7 @@ defmodule AiurWeb.ListenerModeEvents do
          true <- view[:freshness] not in [:stale, :offline],
          false <- socket.assigns[:listener_feedback][:state] == :pending,
          {version, ""} <- parse_version(params["expected_version"]),
-         mode when mode in [:sync, :steer, :async] <- parse_mode(params["mode"]) do
+         mode when mode in [:sync, :steer, :async, :mute] <- parse_mode(params["mode"]) do
       key = "dashboard-mode-" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
       result = safe(fn -> Listener.set_mode(OperatorSend.target(composer), mode, expected_version: version, idempotency_key: key, actor: :human) end)
       {:noreply, changed(socket, result, mode)}
@@ -89,6 +89,7 @@ defmodule AiurWeb.ListenerModeEvents do
 
   defp parse_mode("sync"), do: :sync
   defp parse_mode("async"), do: :async
+  defp parse_mode("mute"), do: :mute
   defp parse_mode("steer"), do: :steer
   defp parse_mode(_invalid), do: nil
 
@@ -134,16 +135,51 @@ defmodule AiurWeb.ListenerModeEvents do
         _error -> %{}
       end
 
-    receipts = Enum.map(socket.assigns.listener_receipts, &Map.get(observed, &1.request_id, &1))
-    {:noreply, socket |> assign(:listener_receipts, receipts) |> assign(:listener_receipts_busy, false)}
+    previous = socket.assigns.listener_receipts
+    receipts = Enum.map(previous, &Map.get(observed, &1.request_id, &1))
+    {:noreply, socket |> assign(:listener_receipts, receipts) |> restore_failed_drafts(previous) |> assign(:listener_receipts_busy, false)}
   end
 
   def finish(_key, _result, socket), do: {:noreply, socket}
 
-  @spec sent(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
-  def sent(socket, result) do
+  @spec sent(Phoenix.LiveView.Socket.t(), term(), String.t() | nil, String.t() | nil) :: Phoenix.LiveView.Socket.t()
+  def sent(socket, result, message_id \\ nil, text \\ nil) do
+    composer = socket.assigns[:agent_log_modal]
+    key = if composer, do: OperatorSend.key(composer)
     receipt = %{request_id: request_id(result), receipt: Listener.receipt_for_send_result(result)}
+    receipt = if key, do: Map.merge(receipt, %{target_key: key, message_id: message_id, text: text}), else: receipt
+    socket = ensure_receipt_timer(socket, key)
     assign(socket, :listener_receipts, Enum.take([receipt | socket.assigns[:listener_receipts] || []], 20))
+  end
+
+  defp restore_failed_drafts(socket, previous) do
+    socket.assigns.listener_receipts
+    |> Enum.uniq_by(& &1[:target_key])
+    |> Enum.reduce(socket, fn
+      %{receipt: :failed, target_key: key, message_id: id, text: text} = item, acc when is_binary(id) and is_binary(text) ->
+        drafts = acc.assigns[:drafts] || %{}
+        pending = acc.assigns[:pending_message_ids] || %{}
+        newly_failed = Enum.any?(previous, &(&1.request_id == item.request_id and &1.receipt != :failed))
+
+        if newly_failed and drafts[key] in [nil, ""] do
+          acc |> assign(:drafts, Map.put(drafts, key, text)) |> assign(:pending_message_ids, Map.put(pending, key, {id, text}))
+        else
+          acc
+        end
+
+      _receipt, acc ->
+        acc
+    end)
+  end
+
+  defp ensure_receipt_timer(socket, key) do
+    if key && is_nil(socket.assigns[:listener_identifier]) do
+      token = make_ref()
+      Process.send_after(self(), {:listener_refresh, key, token}, 1_000)
+      socket |> assign(:listener_identifier, key) |> assign(:listener_timer, token)
+    else
+      socket
+    end
   end
 
   defp request_id({:ok, id}), do: id

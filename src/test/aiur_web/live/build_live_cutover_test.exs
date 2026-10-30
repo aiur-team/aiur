@@ -2,7 +2,7 @@ defmodule AiurWeb.BuildLiveCutoverTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   alias Aiur.TestSupport.LiveViewAsync
 
-  test "home and alias render Build while Units remains a hidden rollback" do
+  test "home and alias render Build without legacy Units navigation" do
     for path <- ["/", "/build"] do
       {:ok, view, _} = live(build_conn(), path)
       LiveViewAsync.render_when_complete(view)
@@ -13,13 +13,6 @@ defmodule AiurWeb.BuildLiveCutoverTest do
       refute has_element?(view, ~s(.sidenav-nav a[href="/units"]))
       refute has_element?(view, ~s(.sidenav-nav a[href="/build-orders"]))
     end
-
-    {:ok, view, _} = live(build_conn(), "/units")
-    assert has_element?(view, ".units-card")
-    refute has_element?(view, ".sidenav-nav [aria-current=page]")
-    render_click(view, "select-no-units-filters", %{})
-    assert_patch(view, "/units?v=1&scope=none")
-    refute has_element?(view, ~s(a[href="/"] .snav-c))
   end
 
   test "legacy Units filters canonicalize on home" do
@@ -57,7 +50,7 @@ defmodule AiurWeb.BuildLiveCutoverTest do
     assert view |> element(badge) |> render() =~ ">#{count}<"
   end
 
-  test "unknown pause stays unknown and rejects a forged toggle on home and Units" do
+  test "unknown pause stays unknown and rejects a forged toggle on home and Commands" do
     Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, :cutover_missing_orchestrator)
     # An adopted endpoint can carry another test's read-only mode, which refuses before the unknown check.
     previous_writable = AiurWeb.Endpoint.config(:dashboard_writable)
@@ -67,7 +60,7 @@ defmodule AiurWeb.BuildLiveCutoverTest do
       if Process.whereis(AiurWeb.Endpoint), do: Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable)
     end)
 
-    for path <- ["/", "/units"] do
+    for path <- ["/", "/commands"] do
       {:ok, view, _} = live(build_conn(), path)
       assert has_element?(view, "#ax-pause[disabled]")
       assert render(view) =~ "Pause state unknown"

@@ -121,24 +121,23 @@ test('cards expose complete names and a single roving button stop', async ({ pag
   expect(result.pack).toMatch(/^Not filed yet\. Accessibility pass\./)
 })
 
-// Quarantined: owner #6653, expires 2026-11-10
-test.skip('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
+test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
   const assets = test.info().project.metadata.agentAssets
   if (assets) await page.route('**/build-home/cards.js', route => route.fulfill({
     body: readFileSync(assets + '/cards.js', 'utf8'), contentType: 'text/javascript'
   }))
   await open(page, 'unknowns')
   const revealPlanCard = async id => {
-    await expect.poll(() => page.evaluate(id =>
-      state.ctx.L?.secs.plan.items.some(item => item.t.id === id), id)).toBe(true)
+    const card = page.locator('.bd-card[data-id="' + id + '"]')
+    await expect.poll(() => page.evaluate(id => state.ctx.L?.secs.plan.items.some(item => item.t.id === id), id)).toBe(true)
     await page.evaluate(id => {
       const item = state.ctx.L.secs.plan.items.find(item => item.t.id === id)
-      state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop + item.y
-      state.fx.update()
+      state.fx.scrollVP(state.ctx.secs.plan.el.offsetTop + item.y - 70, false)
     }, id)
+    await expect(card).toBeVisible()
+    return card
   }
-  await revealPlanCard('pack:unknowns/alpha')
-  const card = page.locator('.bd-card[data-id="pack:unknowns/alpha"]')
+  const card = await revealPlanCard('pack:unknowns/alpha')
   await expect(card).toHaveAttribute('aria-label', /^Not filed yet\./)
   const row = await page.evaluate(() => state.ctx.D.byId['pack:unknowns/alpha'])
   expect(row.num).toBeNull()
@@ -148,6 +147,39 @@ test.skip('unfiled cards do not inherit queue promotion cues', async ({ page }) 
   await expect(card.locator('.bd-q.promo')).toHaveCount(0)
   await revealPlanCard('607')
   await expect(page.locator('.bd-card[data-id="607"] .bd-q.promo')).toHaveCount(1)
+})
+
+test('live detail-tier changes preserve an unchanged focused plan card', async ({ page }) => {
+  await open(page)
+  const id = await page.evaluate(async () => {
+    const { ctx } = state
+    const item = ctx.L.secs.plan.items[0]
+    if (!item) throw new Error('fixture must contain a planned row')
+    state.fx.scrollVP(ctx.secs.plan.el.offsetTop + item.y - 70, false)
+    // The scroll event (which starts the settle and snap locks) fires in the next frame's rendering steps (#7189).
+    await new Promise(requestAnimationFrame)
+    window.boardHistory = await import('/build-home/history.js')
+    return item.t.id
+  })
+  // Wait out every flushLive() deferral, or the live pass below is skipped.
+  await page.waitForFunction(() => !state.ctx.snapping && !state.ctx.content.classList.contains('scrolling') &&
+    boardHistory.H.state !== 'loading' && !state.ctx.root.querySelector('.bd-sb.drag'))
+  const result = await page.evaluate(id => {
+    const { ctx } = state
+    const focused = ctx.R.get('plan:' + id)
+    const changed = ctx.D.plan.find(row => row.id !== id)
+    if (!focused || !changed) throw new Error('fixture must render two planned rows')
+    focused.focus()
+    // Force the prior global detail marker to differ; the next live relayout recomputes it.
+    ctx.L.det = null
+    const before = performance.getEntriesByName('build-home-live-pass').length
+    hook.receive({ kind: 'diff', v: 1, epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1,
+      now: ctx.snap.now, upsert: [{ ...changed, title: changed.title + ' unrelated update' }], remove: [], set: {} })
+    state.fx.flushLive()
+    return { sameElement: ctx.R.get('plan:' + id) === focused, connected: focused.isConnected,
+      focused: document.activeElement === focused, passes: performance.getEntriesByName('build-home-live-pass').length - before }
+  }, id)
+  expect(result).toEqual({ sameElement: true, connected: true, focused: true, passes: 1 })
 })
 
 test('arrow keys move focus and space uses the board button behavior', async ({ page }) => {
@@ -204,23 +236,26 @@ test('live rendering keeps the focused card node when its detail tier changes', 
   expect(result).toEqual({ sameNode: true, stillConnected: true })
 })
 
-// Quarantined: owner #6942, expires 2026-11-11
-test.skip('keyboard tree highlighting ends when card focus leaves the board', async ({ page }) => {
+test('keyboard tree highlighting ends when card focus leaves the board', async ({ page }) => {
   await open(page)
-  const planId = await page.evaluate(() => {
+  const planId = await page.evaluate(async () => {
     state.S.trees = true
     state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop
     state.fx.update()
-    const card = [...state.ctx.R.values()].find(card => card.closest('#bd-sec-plan'))
-    state.ctx.a11y.roving = card.dataset.id
-    for (const rendered of state.ctx.R.values()) rendered.tabIndex = rendered === card ? 0 : -1
-    return card.dataset.id
+    await new Promise(requestAnimationFrame)
+    return state.ctx.L.secs.plan.items[0]?.t.id
   })
-  await page.locator('.bd-card[data-id="' + planId + '"]').focus()
-  await page.keyboard.press('ArrowDown')
+  // markScrolling clears tree hover; settle the programmatic scroll before testing keyboard highlight.
+  await expect(page.locator('.bd-content')).not.toHaveClass(/scrolling/)
+  const card = page.locator('.bd-card[data-id="' + planId + '"]')
+  await expect(card).toBeVisible()
+  await card.focus()
+  await expect(card).toBeFocused()
+  await card.press('ArrowDown')
   await expect(page.locator('.bd-content')).toHaveClass(/hovering/)
   await page.locator('#bd-nowbtn').focus()
-  expect(await page.locator('.bd-content').getAttribute('class')).not.toContain('hovering')
+  await expect(page.locator('#bd-nowbtn')).toBeFocused()
+  await expect(page.locator('.bd-content')).not.toHaveClass(/hovering/)
 })
 
 test('view switches retain the focused ticket when it is still visible', async ({ page }) => {
@@ -275,7 +310,7 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         test.setTimeout(90_000)
         await open(page, dataset, view, mode)
         await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)
-        await settleAnimations(page, '#build-root')
+        await settleAnimations(page, '#build-root', 5000)
         await freezeAuditLayout(page)
         const audit = await new AxeBuilder({ page }).include('#bd-vp').exclude('.bd-cx[aria-hidden="true"]').analyze()
         await expectAuditLayoutStable(page)

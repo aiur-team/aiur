@@ -2,7 +2,9 @@
 
 ## elevenlabs
 
-Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
+Dashboard and Stream Deck dictation stream audio to Aiur, which calls ElevenLabs with this credential. Agent conversation can stream synthesized replies back to the browser. Neither client holds the key.
+
+The separate Executor voice prototype can also use OpenAI; see [voice configuration](/reference/configuration-voice).
 
 This optional section configures voice features; `aiur init` records declines as `enabled: false` and skips them on resume.
 
@@ -17,7 +19,7 @@ This optional section configures voice features; `aiur init` records declines as
 
 The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable, `ELEVENLABS_API_KEY` included, from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
 
-Configuring the key also adds an ElevenLabs meter beside the GitHub API meter on the Build page [usage strip](/concepts/build-history#usage-strip) and the Units [API meters](/concepts/units#api-meters). It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely.
+Configuring the key also adds an ElevenLabs meter beside the GitHub API meter on the Build page [usage strip](/concepts/build-history#usage-strip). It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely.
 
 ## opencode
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-19 -->

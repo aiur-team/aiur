@@ -65,7 +65,7 @@ p3 = %{
   immediate_delivery: true,
   queue_depth: 0,
   accepts_operator_messages: true,
-  accepted_delivery_policies: [:immediate],
+  accepted_delivery_policies: [:immediate, :checkpoint],
   unit_control: :request_only,
   pending_control: nil
 }
@@ -173,7 +173,7 @@ p11 = %{
   immediate_delivery: true,
   queue_depth: 0,
   accepts_operator_messages: true,
-  accepted_delivery_policies: [:immediate],
+  accepted_delivery_policies: [:immediate, :checkpoint],
   unit_control: :request_only,
   pending_control: nil
 }
@@ -213,7 +213,7 @@ p14 = %{
   immediate_delivery: true,
   queue_depth: 0,
   accepts_operator_messages: true,
-  accepted_delivery_policies: [:immediate],
+  accepted_delivery_policies: [:immediate, :checkpoint],
   unit_control: :request_only,
   pending_control: nil
 }
@@ -285,7 +285,7 @@ p19 = %{
   ],
   latest_control: pending,
   accepts_operator_messages: true,
-  accepted_delivery_policies: [:immediate],
+  accepted_delivery_policies: [:immediate, :checkpoint],
   unit_control: :request_only,
   pending_control: pending
 }
@@ -421,7 +421,7 @@ p29 = %{
   ],
   latest_control: pending,
   accepts_operator_messages: true,
-  accepted_delivery_policies: [:immediate],
+  accepted_delivery_policies: [:immediate, :checkpoint],
   unit_control: :request_only,
   pending_control: pending
 }

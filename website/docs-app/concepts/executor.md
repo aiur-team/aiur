@@ -62,3 +62,54 @@ The wake carries
 the `decision_id`; read the answer with `aiur commands <decision_id> --json`.
 An Executor request's optional ticket context never routes its answer to a worker.
 Once the wake is enqueued, the answer counts as delivered and cannot be superseded.
+
+## Conversation privacy
+
+Worker transcripts can contain secrets and remain on disk until deleted.
+The Executor journal identity follows the same storage contract when integrated.
+See [Conversations](/concepts/conversations) for storage paths, retention,
+masking limits and deletion steps.
+
+### Attached-session lifecycle hooks
+
+`POST /api/v1/executor/hook?harness=claude|codex` accepts lifecycle events for an
+explicitly attached Executor session. It requires a loopback connection (IPv4
+or IPv6) and the instance's dedicated hook bearer credential; dashboard login
+and dashboard write permissions do not grant hook access.
+
+The endpoint remains
+available with a read-only dashboard.
+
+Authenticated POSTs return `202` before
+asynchronous validation and binding updates; a `202` does not mean an event was
+accepted. Other authenticated methods return `405`.
+
+The daemon's `Aiur.Executor.HookToken.ensure/0` creates an instance-scoped
+`.executor.hook-token` and `.executor.hook-headers` pair in its Executor state
+directory, with mode `0600` (directory `0700`).
+
+Hook commands use
+`curl -H @<headers-file>` to keep the bearer out of command arguments.
+`rotate/0` revokes the previous credential; `ensure/0` repairs the header file
+from the current token.
+
+Each file replacement is atomic; rotation of the pair
+can briefly reject a concurrent hook.
+
+The harness is read only from the URL query. Unknown payload fields are dropped,
+strings are bounded, and transcript paths must identify an owned regular file
+under `~/.claude/projects/` or `~/.codex/sessions/` with the matching session
+filename; symlinks and traversal are refused.
+
+Claude subagents require `<session_id>/subagents/agent-<agent_id>.jsonl`.
+The Codex agent filename rule remains provisional until a real CLI capture
+confirms it.
+Rejected paths become `nil`. Unattached sessions, foreign sessions and events
+beyond 50 per second per binding are dropped.
+
+A nil or rejected path preserves an existing locator for the same session;
+a new session never inherits it.
+
+Accepted events publish on the
+internal `executor_hook` topic; rejection counts use
+`[:aiur, :executor, :hook]` telemetry without recording payload content.

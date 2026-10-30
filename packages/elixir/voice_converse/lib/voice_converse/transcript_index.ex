@@ -17,7 +17,8 @@ defmodule VoiceConverse.TranscriptIndex do
     with {:ok, limit} <- limit(opts, 100),
          {:ok, conversations} <- IndexFile.read_or_rebuild(root),
          {:ok, conversations} <- filter(conversations, Keyword.get(opts, :filter, %{})),
-         {:ok, page, cursor} <- page(conversations, Keyword.get(opts, :before), limit) do
+         {:ok, page, cursor} <- page(conversations, Keyword.get(opts, :before), limit),
+         {:ok, page} <- refresh_open(root, page) do
       {:ok, page, cursor}
     end
   end
@@ -62,6 +63,21 @@ defmodule VoiceConverse.TranscriptIndex do
     if is_integer(closed), do: ceil_minutes(closed + open), else: closed
   end
 
+  defp refresh_open(root, page) do
+    Enum.reduce_while(page, {:ok, []}, fn item, {:ok, items} ->
+      result = if is_nil(item.ended_at), do: Transcripts.conversation(root, item.conversation_id), else: {:ok, item}
+
+      case result do
+        {:ok, current} -> {:cont, {:ok, [current | items]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, items} -> {:ok, Enum.reverse(items)}
+      error -> error
+    end
+  end
+
   defp record_event(root, conversation_id, op) do
     with {:ok, conversation} <- Transcripts.conversation(root, conversation_id),
          do: IndexFile.append(root, op, conversation)
@@ -74,12 +90,17 @@ defmodule VoiceConverse.TranscriptIndex do
       {:ok,
        Enum.filter(
          conversations,
-         &((is_nil(target) or &1.target == target) and (is_nil(since) or after_or_equal?(&1.started_at, since)))
+         &((is_nil(target) or target_id(&1.target) == target_id(target)) and
+             (is_nil(since) or after_or_equal?(&1.started_at, since)))
        )}
     end
   end
 
   defp filter(_, _), do: {:error, :invalid_filter}
+
+  defp target_id(%{"id" => id}), do: id
+  defp target_id(%{id: id}), do: id
+  defp target_id(target), do: target
   defp page(conversations, nil, limit), do: make_page(conversations, limit)
 
   defp page(conversations, before, limit) when is_binary(before) do

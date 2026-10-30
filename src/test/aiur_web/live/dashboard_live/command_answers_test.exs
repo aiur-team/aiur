@@ -16,7 +16,7 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
 
   @endpoint AiurWeb.Endpoint
 
-  test "malformed filter and agent-log events do not crash the dashboard" do
+  test "malformed Command filter events do not crash the dashboard" do
     orchestrator_name = Module.concat(__MODULE__, :MalformedEventOrchestrator)
     start_counting_orchestrator(orchestrator_name)
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
@@ -24,7 +24,6 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
     {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert render_hook(view, "filter-decisions", %{}) =~ "Commands inbox"
-    assert render_hook(view, "show-agent-log", %{}) =~ "Commands inbox"
     assert Process.alive?(view.pid)
   end
 
@@ -247,7 +246,7 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
     assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
   end
 
-  test "dismissing a Command notifies a live agent to use its judgement, and skips a gone one" do
+  test "dismissing a Command notifies a live agent and queues guidance for a gone agent's next worker" do
     orchestrator_name = Module.concat(__MODULE__, :DismissNotifyOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DismissNotifyDecisionStore)
     orchestrator = start_queue_orchestrator(orchestrator_name, "987")
@@ -321,7 +320,9 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
 
     assert {:ok, gone_dismissed} = DecisionStore.get(gone_decision.decision_id, store)
     assert gone_dismissed.decision_status == :dismissed
-    assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+    assert {:ok, queued_item} = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+    assert queued_item.body.text =~ "dismissed by the operator"
+    assert queued_item.body.text =~ "Use your judgement"
   end
 
   test "a deferred detail command remains answerable" do

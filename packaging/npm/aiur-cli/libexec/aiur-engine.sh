@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -85,6 +85,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur restart [--keep-agents] [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
+       aiur command [<decision-id> [--option id|--custom-response text [--relayed --quote words]]]  list open, show, or answer a Command
        aiur command request <question> [--option id=label]… [--recommend id] [--blocking] [--urgency low|normal|high|critical] [--ticket n] [--context-file path] [--short-summary text] [--executor-id id] [--idempotency-key key] [--json]
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
@@ -101,7 +102,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur epic clear <ids...> [--as <who>] [--json]
-       aiur epic show [<ids...>] [--json]
+       aiur epic confirm <ids...> [--epic <key>] [--as <who>] [--json]
+       aiur epic show [<ids...>] [--unconfirmed] [--json]
        aiur epic list [--json]
        aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]... [--as <who>] [--json]
        aiur feature add <slug> <ids...> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]
@@ -109,7 +111,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature also <slug> <ids...> [--remove] [--as <who>] [--json]
        aiur feature baseline <slug> [--replace] [--as <who>] [--json]
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
-       aiur feature show [<slug>] [--json]
+       aiur feature confirm <slug> <ids...> [--as <who>] [--json]
+       aiur feature show [<slug>] [--unconfirmed] [--json]
+       aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
@@ -141,7 +145,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
-       aiur listen-mode <id> [steer|sync|async] [--expected-version N] [--json]
+       aiur listen-mode <id> [steer|sync|async|mute] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur message --status <request-id>          inspect a queued message
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
@@ -279,6 +283,12 @@ aiur_engine_main() {
       shift
       cmd_agents "$@"
       ;;
+    # @cli-reference aiur command | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | aiur command
+    # @cli-reference aiur command --filter open | Applies the existing Command filters through the canonical singular command. | aiur command --filter open
+    # @cli-reference aiur command DECISION-ID | Shows question, options, recommendation, context, status and delivery. | aiur command dec_123
+    # @cli-reference aiur command DECISION-ID --option ID | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | aiur command dec_123 --option keep
+    # @cli-reference aiur command DECISION-ID --custom-response TEXT | Records a local operator's bounded text answer after interactive confirmation. | aiur command dec_123 --custom-response 'Wait for a fresh build'
+    # @cli-reference aiur command DECISION-ID --option ID --relayed --quote TEXT [--idempotency-key KEY] | Relays an operator's already-given answer with the current version and a generated idempotency key unless one is supplied. Reuse a supplied key to safely retry after an unknown outcome; requires the relay config gate. | aiur command dec_123 --option keep --relayed --quote 'Keep them' --idempotency-key relay-1
     # @cli-reference aiur command request <question> --context-file PATH | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | aiur command request 'Ship?' --context-file release.md
     # @cli-reference aiur command request <question> --recommend ID | Moves the named supplied option first; omitted by default. | aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes
     # @cli-reference aiur command request <question> --short-summary TEXT | Adds a concise Command title; omitted by default. | aiur command request 'Ship?' --short-summary 'Beta release'
@@ -336,6 +346,7 @@ aiur_engine_main() {
       cmd_build_orders "$@"
       ;;
     history) shift; cmd_history "$@" ;;
+    voice) shift; cmd_voice "$@" ;;
     analytics) shift; cmd_analytics "$@" ;;
     github-cost) shift; usage_alias github-cost "$@" ;;
     experiments) shift; cmd_experiments "$@" ;;

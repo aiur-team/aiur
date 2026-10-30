@@ -23,6 +23,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     build_index?: true
   ]
 
+  # Conversation journals now precede producers, with the resolver bound immediately after Exchange.
   # Future regression guard: captured before extraction at d7fad40553019032df0a50354e1a9b559dd7540b, including options.
   @foreground [
     Aiur.Webhooks.ModeTable,
@@ -46,6 +47,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Registry, [keys: :unique, name: Aiur.Workspace.Ownership.Registry]},
     Aiur.Workspace.Ownership.Reconciler,
     {Task.Supervisor, [name: Aiur.TaskSupervisor]},
+    AiurWeb.Streamdeck.Deck.SettingsSnapshot,
     Aiur.AlertFeed.Backfill,
     Aiur.CoordinationTasks,
     Aiur.DecisionDispatchTasks,
@@ -66,7 +68,11 @@ defmodule Aiur.BuildOrder.ComponentTest do
        floor_files: &Aiur.IdFloorSources.floor_files/0,
        legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0
      ]},
+    Aiur.Conversation.HeadTable,
+    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     {Aiur.Events.Exchange, [name: Aiur.Events.Exchange]},
+    Aiur.Conversation.ResolverSupervisor,
     Aiur.PostDeployChecklist,
     Aiur.Events.BranchRefStore,
     Aiur.GitHub.OpenIssueSnapshot,
@@ -160,8 +166,6 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
     Aiur.PRLifecycle.HeadVerdictRouter,
-    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
-    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
@@ -200,7 +204,13 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    expected = @foreground ++ [Aiur.BuildOrder.History.LabelBackfill]
+    {early, final} = Enum.split_while(@foreground, &(&1 != AiurWeb.DashboardAuth.ChallengeStore))
+    assert {:ok, voice_config} = Aiur.VoiceConversation.config()
+
+    expected =
+      early ++
+        [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
+        final ++ [Aiur.BuildOrder.History.LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest]
 
     assert Aiur.Application.child_specs(@opts) == expected
 

@@ -114,11 +114,6 @@ defmodule AiurWeb.DashboardLive.CommandLifecycleTest do
     assert resolved_html =~ "Resolved"
     refute render(view) =~ "Command not found"
 
-    root_html = render_patch(view, "/units")
-    refute root_html =~ "987"
-    refute root_html =~ "Recent repository merges"
-    refute root_html =~ "Command history"
-
     decisions_html = render_patch(view, "/commands")
     assert decisions_html =~ "Command history"
     assert decisions_html =~ "dashboard"
@@ -384,10 +379,6 @@ defmodule AiurWeb.DashboardLive.CommandLifecycleTest do
     assert detail_html =~ "Original answer · preserved"
     assert detail_html =~ "Revision 1"
     refute detail_html =~ "Command not found"
-
-    _root_html = render_patch(view, "/units")
-    root_html = reload_view(view)
-    refute root_html =~ "Command history"
 
     decisions_html = render_patch(view, "/commands")
     assert decisions_html =~ "Command history"

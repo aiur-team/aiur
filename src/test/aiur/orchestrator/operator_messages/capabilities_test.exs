@@ -49,7 +49,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
            }
   end
 
-  test "immediate delivery replaces checkpoint and interrupt policies" do
+  test "immediate delivery keeps checkpoint for listener sync and replaces interrupt policies" do
     state =
       state_with_running_entry("42", %{
         can_interrupt: true,
@@ -60,7 +60,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
       })
 
     assert %{
-             accepted_delivery_policies: [:immediate],
+             accepted_delivery_policies: [:immediate, :checkpoint],
              can_interrupt: true,
              immediate_delivery: true,
              unit_control: :confirmed

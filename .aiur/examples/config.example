@@ -233,9 +233,21 @@ alerts:
 # llm and cloud_disclosure_accepted have no default: a session refuses to start until both are set.
 # voice:
 #   conversation:
+#     provider: elevenlabs_agents     # or openai_realtime; uses daemon OPENAI_API_KEY, no Agent id
+#     voice_id: marin                 # OpenAI only; optional
 #     llm: <model id>                  # required; the model the assistant reasons with
 #     cloud_disclosure_accepted: true  # required; true = accept that audio and text go to the cloud voice provider
 #     agent_id: <agent id>             # ElevenLabs Agents agent; an account-visible id, not a secret
+#     providers:
+#       preference: [elevenlabs_agents, openai_live, gemini_live, cascade]
+#       mode: voice                      # voice | text
+#       on_missing_credential: text_only  # next | text_only | refuse
+#       openai: {live_model: null, realtime_model: null}  # null = adapter default
+#       gemini: {live_model: null}
+#       cascade:
+#         stt: [browser_stt]
+#         llm: anthropic:<model id>       # cascade/text_only only; conversation.llm is separate
+#         tts: [browser_tts]
 #     roles_dir: voice/roles           # role pre-context files; a relative path resolves next to this config
 #     max_session_seconds: 1800        # 60..3600
 #     idle_timeout_seconds: 120        # 15..900

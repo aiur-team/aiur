@@ -1,6 +1,6 @@
 # How a ticket flows: steps 0–8
 
-Continues [How a ticket flows](/concepts/ticket-lifecycle), which holds the label lifecycle and state diagram. Covers every step from taking the Executor role to merge, and where tickets get stuck.
+Continues [How a ticket flows](/concepts/ticket-lifecycle), which holds the label lifecycle and state diagram. Covers every step from taking the Executor role to merge, and where tickets get stuck. For a visual happy-path timeline, see [Ticket lifecycle timeline](/concepts/lifecycle).
 
 ## Step 0 — Take the Executor role
 

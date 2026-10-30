@@ -19,6 +19,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   alias Aiur.AgentRunner.LiveObserver
   alias Aiur.AgentRunner.RepeatedCommandGuard
   alias Aiur.AgentRunner.TurnProgress
+  alias Aiur.AgentRunner.WorkerJournal
   alias Aiur.Protocol.MapAccess
   alias Aiur.Signal
   alias Aiur.Usage.Headless.Emitter
@@ -43,12 +44,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
     lifecycle_opts =
       lifecycle_opts
       |> Keyword.put(:backend, backend)
+      |> Keyword.put(:journal_workspace, if(is_nil(worker_host), do: workspace))
       |> Keyword.put_new(:live_conversation_recipient, recipient)
 
     activate_live_conversation(issue, backend, lifecycle_opts)
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
+      Aiur.Commands.record_override_prompt_receipt(message, lifecycle_opts)
 
       maybe_steer_repeated_command(message, lifecycle_opts)
 
@@ -59,6 +62,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, transcript_event)
       LiveObserver.maybe_observe_live_conversation(issue, transcript_event, lifecycle_opts)
+      WorkerJournal.observe(issue, transcript_event, backend, lifecycle_opts, message)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
     end

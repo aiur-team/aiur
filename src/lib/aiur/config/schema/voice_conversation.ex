@@ -3,9 +3,15 @@ defmodule Aiur.Config.Schema.VoiceConversation do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @external_resource Path.relative_to(Path.join(__DIR__, "voice_conversation_providers.ex"), File.cwd!(), force: true)
+  alias Aiur.Config.Schema.VoiceConversationProviders
+  require VoiceConversationProviders
+
   @type t :: %__MODULE__{}
 
   @fields [
+    :provider,
+    :voice_id,
     :agent_id,
     :llm,
     :cloud_disclosure_accepted,
@@ -18,6 +24,15 @@ defmodule Aiur.Config.Schema.VoiceConversation do
 
   @primary_key false
   embedded_schema do
+    embeds_one(:providers, VoiceConversationProviders, on_replace: :update, defaults_to_struct: true)
+    # @config-reference config-configuration-voice-00 voice.conversation.provider
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail voice.conversation.provider | string | elevenlabs_agents | Conversation provider: `elevenlabs_agents` or `openai_realtime`. OpenAI requires `llm` and the daemon's `OPENAI_API_KEY`; no Agent id. |
+    field(:provider, Ecto.Enum, values: [:elevenlabs_agents, :openai_realtime], default: :elevenlabs_agents)
+    # @config-reference config-configuration-voice-00 voice.conversation.voice_id
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail voice.conversation.voice_id | string or nil | nil | OpenAI Realtime voice; nil uses `marin`. ElevenLabs keeps its Agent voice. |
+    field(:voice_id, :string)
     # @config-reference config-configuration-voice-00 voice.conversation.agent_id
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail voice.conversation.agent_id | string or nil | nil | ElevenLabs Agents agent the assistant talks through. An account-visible id, not a secret. |
@@ -57,6 +72,9 @@ defmodule Aiur.Config.Schema.VoiceConversation do
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, @fields, empty_values: [])
+    |> cast_embed(:providers)
+    |> validate_required([:providers])
+    |> validate_not_blank(:voice_id)
     |> validate_not_blank(:agent_id)
     |> validate_not_blank(:llm)
     |> validate_not_blank(:roles_dir)

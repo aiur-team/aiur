@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Focused contract tests for newsletter collection (standard library only)."""
+"""Focused contract tests for newsletter collection (standard library only).
+
+This remains one fixture-only collector suite because its source seams and
+snapshot contract are shared; CI runs this file as one bounded Python command.
+"""
 import json
 import os
 from pathlib import Path
@@ -12,9 +16,9 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts" / "newsletter"))
+sys.path.insert(0, str(ROOT / "packages" / "newsletter"))
 import collect
-from classification import classify
+from classification import classify, main_fix
 from github import GitHub
 from local_sources import iso
 
@@ -144,15 +148,76 @@ class CollectorTest(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text()), new)
             self.assertEqual(list(root.iterdir()), [path])
 
-    def test_shared_classification_matches_shell_for_fixture(self):
-        for text, expected in [("feature:mail flaky test", "feature"), ("build-lane:watch", "feature"),
-                               ("MP-E8-C11 Ship", "feature"), ("repair CI", "test_ci"),
-                               ("coverage", "test_ci"), ("docs", "other")]:
-            with self.subTest(text=text):
-                shell = subprocess.check_output(["bash", str(ROOT / ".claude/skills/aiur-meta/scripts/feature-share.sh"),
-                                                 "--classify", text], text=True)
-                self.assertEqual(classify(text), expected)
-                self.assertEqual(shell, expected)
+    def test_classification_matches_daemon_label_and_nonfeature_rules(self):
+        for labels, title, expected in [
+                ([], "Fix build-order banner refresh", "other"),
+                ([], "MP-12 Fix login", "other"),
+                (["tooling"], "Document feature: flags", "tooling"),
+                (["feature:mail"], "flaky test", "feature"),
+                (["build-lane:watch"], "Review changes", "feature"),
+                (["build-order"], "Rework changes", "feature"),
+                ([], "repair CI", "test_ci"), (["tests"], "Coverage", "test_ci"),
+                (["main-fix"], "Repair regression", "test_ci"),
+                ([], "coverage", "other"), ([], "Update deps", "tooling")]:
+            with self.subTest(labels=labels, title=title):
+                self.assertEqual(classify(labels, title), expected)
+        self.assertTrue(main_fix(["main-fix"]))
+        self.assertTrue(main_fix(["main-fix:format"]))
+        self.assertFalse(main_fix(["other-main-fix", "main-fixes"]))
+
+    def test_collector_classifies_issue_and_merge_from_issue_labels_and_title(self):
+        for labels, title, expected in [
+                ([], "Fix build-order banner refresh", "other"),
+                ([], "MP-12 Fix login", "other"),
+                (["tooling"], "Document feature: flags", "tooling"),
+                (["feature:mail"], "Test changes", "feature"),
+                (["build-lane:watch"], "Review changes", "feature"),
+                (["build-order"], "Rework changes", "feature"),
+                ([], "Repair CI", "test_ci")]:
+            with self.subTest(labels=labels, title=title):
+                node = issue(labels=labels)
+                node["title"] = title
+                class LabeledGitHub(FakeGitHub):
+                    def search(self, expression, fields, kind):
+                        if kind == "Issue":
+                            return [node]
+                        rows = super().search(expression, fields, kind)
+                        rows[0]["title"] = "feature:fake MP-12 Ship composer"
+                        return rows
+
+                    def issues(self, numbers):
+                        return {n: {**node, "number": n} for n in numbers}
+                with tempfile.TemporaryDirectory() as tmp:
+                    result = collect.collect("owner/repo", Path(tmp), NOW, LabeledGitHub(), daemon)
+                self.assertEqual(result["program"]["tickets"][0]["class"], expected)
+                merged = result["merges"][0]
+                self.assertEqual(merged["class"], expected)
+                self.assertEqual(merged["issue_labels"], labels)
+                self.assertEqual(merged["issue_title"], title)
+                self.assertEqual(result["allocation"]["units"]["running"][expected], 1)
+
+    def test_issue_less_merge_uses_only_nonfeature_title_fallback(self):
+        class NoClosingIssue(FakeGitHub):
+            def search(self, expression, fields, kind):
+                rows = super().search(expression, fields, kind)
+                if kind != "Issue":
+                    rows[0].update(title="feature:fake MP-12 repair CI", body="", headRefName="topic",
+                                   closingIssuesReferences={"nodes": []})
+                return rows
+        with tempfile.TemporaryDirectory() as tmp:
+            result = collect.collect("owner/repo", Path(tmp), NOW, NoClosingIssue(), daemon)
+        self.assertEqual(result["merges"][0]["class"], "test_ci")
+        self.assertIsNone(result["merges"][0]["issue_labels"])
+
+        class UnresolvedClosingIssue(FakeGitHub):
+            def issues(self, numbers):
+                raise RuntimeError("Issue lookup unavailable")
+        with tempfile.TemporaryDirectory() as tmp:
+            result = collect.collect("owner/repo", Path(tmp), NOW, UnresolvedClosingIssue(), daemon)
+        self.assertIsNone(result["merges"][0]["class"])
+
+    def test_legacy_shell_classifier_stays_portable(self):
+        # The legacy shell's title policy is independent of daemon cohort labels.
         with tempfile.TemporaryDirectory() as tmp:
             portable = Path(tmp)
             for name in ("feature-share.sh", "classification.py"):

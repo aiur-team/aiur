@@ -4,6 +4,17 @@ defmodule AiurWeb.Build.PayloadTest do
   alias AiurWeb.Build.{Payload, Read}
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
+  test "shared index presentation metadata stays outside the strict browser row schema" do
+    row = fixture()["sections"]["now"] |> hd() |> Map.new(fn {key, value} -> {String.to_atom(key), value} end)
+    metadata = %{general_epics: ["runtime"], priority: 1, lane: "runtime", progress_freshness: "stale", dependency_ready: false}
+    data = put_in(fixture(), ["sections", "now"], [Map.merge(row, metadata)])
+    snapshot = Payload.snapshot(data, "epoch", 1)
+
+    assert Payload.validate(snapshot) == :ok
+    assert snapshot["sections"]["now"] == [Payload.scrub(row)]
+    assert snapshot["sections"]["now"] |> hd() |> Map.get("pct") == row.pct
+  end
+
   test "fixtures reach the full strict schema (future fixture guard)" do
     for name <- FixtureSource.datasets() -- ~w(unavailable hold) do
       {:ok, data} = FixtureSource.full(dataset: name)

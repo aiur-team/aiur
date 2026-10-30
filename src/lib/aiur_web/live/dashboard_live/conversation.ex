@@ -2,48 +2,16 @@ defmodule AiurWeb.DashboardLive.Conversation do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [push_patch: 2]
 
   alias Aiur.Agent.UsageSnapshotService
   alias Aiur.Conversation.History, as: ConversationHistory
   alias Aiur.TrackerIdentity
-  alias AiurWeb.DashboardLive.Controls
-  alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.AgentLogModal
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
   alias AiurWeb.OperatorControlCenter.OperatorSend
+  alias AiurWeb.OperatorControlCenter.UnitControls
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
-
-  @doc false
-  @spec maybe_open_conversation_route(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
-  def maybe_open_conversation_route(socket, %{"owner" => owner, "repository" => repository, "identifier" => identifier}) do
-    catalog = Map.get(socket.assigns.payload, :units, %{})
-    rows = get_in(catalog, [:snapshot, :rows]) || []
-
-    case Enum.find(rows, &conversation_route_row?(&1, owner, repository, identifier)) do
-      nil ->
-        assign(socket, :conversation_notice, "Chat is unavailable for this ticket.")
-
-      row ->
-        with token when is_binary(token) <- UnitsPresenter.row_token(row),
-             handle when is_binary(handle) <- conversation_handle(row),
-             {:ok, %{state: state} = snapshot} when state in [:live, :stale, :ended, :known_empty] <-
-               resolve_conversation(handle) do
-          socket |> assign(:conversation_notice, nil) |> open_conversation(row, token, handle, snapshot)
-        else
-          _unavailable -> assign(socket, :conversation_notice, "Chat is unavailable for this ticket.")
-        end
-    end
-  end
-
-  def maybe_open_conversation_route(socket, _params), do: assign(socket, :conversation_notice, nil)
-
-  defp conversation_route_row?(%{identity: %TrackerIdentity{} = identity}, owner, repository, identifier) do
-    identity.owner == owner and identity.repository == repository and identity.identifier == identifier
-  end
-
-  defp conversation_route_row?(_row, _owner, _repository, _identifier), do: false
 
   @doc false
   @spec pause_agent_action(Phoenix.LiveView.Socket.t(), term()) :: term()
@@ -53,7 +21,7 @@ defmodule AiurWeb.DashboardLive.Conversation do
     if Map.get(modal, :writable_target?) == true do
       modal
       |> agent_log_target()
-      |> Controls.pause_agent()
+      |> UnitControls.pause()
       |> pause_agent_result(socket, key)
     else
       {:noreply, put_chat_error(socket, key, :ambiguous_identifier)}
@@ -91,7 +59,7 @@ defmodule AiurWeb.DashboardLive.Conversation do
     |> assign(:conversation_handle, handle)
     |> assign(:conversation_identity, Map.get(row, :identity))
     |> assign(:conversation_row, row)
-    |> assign(:conversation_origin_id, "units-conversation-#{token}")
+    |> assign(:conversation_origin_id, "voice-conversation-#{token}")
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, snapshot)
     |> assign(:conversation_usage_snapshot, usage_snapshot)
@@ -271,26 +239,20 @@ defmodule AiurWeb.DashboardLive.Conversation do
 
   defp send_operator_message(socket, _modal, ""), do: socket
 
-  # OperatorSend owns the #2717 rule; the drawer keeps the draft only when the
-  # outcome is unknown, so a retry with the same text reuses the message id.
+  # OperatorSend owns the #2717 rule; the drawer keeps the draft when the send
+  # fails or its outcome is unknown, so a retry with the same text reuses the message id.
   defp send_operator_message(socket, modal, text) do
     key = agent_log_key(modal)
 
     case OperatorSend.send(modal, text, socket.assigns.pending_message_ids) do
-      {:ok, request_id, _message_id, pending} ->
-        socket |> AiurWeb.ListenerModeEvents.sent({:ok, request_id}) |> assign(:pending_message_ids, pending) |> clear_chat_state(key)
+      {:ok, request_id, message_id, pending} ->
+        socket |> AiurWeb.ListenerModeEvents.sent({:ok, request_id}, message_id, text) |> assign(:pending_message_ids, pending) |> clear_chat_state(key)
 
-      {:error, {:outcome_unknown, _info} = reason, _message_id, pending} ->
+      {:error, reason, message_id, pending} ->
         socket
-        |> AiurWeb.ListenerModeEvents.sent({:error, reason})
+        |> AiurWeb.ListenerModeEvents.sent({:error, reason}, message_id, text)
         |> assign(:pending_message_ids, pending)
         |> assign(:drafts, Map.put(socket.assigns.drafts, key, text))
-        |> put_chat_error(key, reason)
-
-      {:error, reason, _message_id, pending} ->
-        socket
-        |> AiurWeb.ListenerModeEvents.sent({:error, reason})
-        |> assign(:pending_message_ids, pending)
         |> put_chat_error(key, reason)
     end
   end
@@ -314,19 +276,7 @@ defmodule AiurWeb.DashboardLive.Conversation do
 
   @doc false
   @spec on_close_conversation(Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
-  def on_close_conversation(socket) do
-    socket = close_conversation(socket)
-
-    if socket.assigns.conversation_from_route? do
-      {:noreply,
-       push_patch(socket,
-         to: UnitsPanel.units_path(socket, socket.assigns.units_selection),
-         replace: true
-       )}
-    else
-      {:noreply, socket}
-    end
-  end
+  def on_close_conversation(socket), do: {:noreply, close_conversation(socket)}
 
   @doc false
   @spec on_show_agent_log(term(), term()) :: {:noreply, Phoenix.LiveView.Socket.t()}

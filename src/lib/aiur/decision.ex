@@ -162,7 +162,8 @@ defmodule Aiur.Decision do
           acknowledgement: map() | nil,
           resolution: map() | nil,
           acknowledgements: %{String.t() => map()},
-          resolutions: %{String.t() => map()}
+          resolutions: %{String.t() => map()},
+          overrides: [map()]
         }
 
   @schema_version 1
@@ -221,7 +222,8 @@ defmodule Aiur.Decision do
                 acknowledgement: nil,
                 resolution: nil,
                 acknowledgements: %{},
-                resolutions: %{}
+                resolutions: %{},
+                overrides: []
               ]
 
   @authorities [:human_required, :supervisor_allowed, :supervisor_preferred]
@@ -269,6 +271,7 @@ defmodule Aiur.Decision do
 
   def delivered?(%__MODULE__{} = decision) do
     not is_nil(decision.requester_notified_at) or map_size(decision.acknowledgements) > 0 or
+      Enum.any?(decision.overrides, &(not is_nil(&1.delivered_at))) or
       Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
   end
 

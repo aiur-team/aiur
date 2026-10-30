@@ -39,6 +39,22 @@ some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
 
+### Conversation event navigation
+
+At `/conversations/:id`, use the Events rail to jump to progress, pushes,
+PRs and Commands. Kind filters follow the catalogue defaults and are remembered
+in this browser when local storage is available. CI and review comments start
+hidden. On phones the rail sits above the transcript.
+
+Selecting an event opens `?pos=N`, loads the surrounding entries and brings
+that position into view. Observed events appear after an entry with an
+“approximate position” marker. Events without an anchor say “Not linked to a
+position” and have no jump.
+
+Command requests also link to their Command page;
+resolved Commands say “answered”. A missing position shows “Position not found”
+and the latest entries, with one retry after the next journal append.
+
 ### Build timeline filters
 
 Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
