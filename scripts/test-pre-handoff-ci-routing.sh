@@ -21,6 +21,7 @@ for guard in check-agent-scratch.py check-on-exit-rm-rf.py check-on-exit-alive-s
   esac
   chmod +x "$fixture/scripts/$guard"
 done
+test -f "$fixture/scripts/check-on-exit-alive-stop.py"
 printf 'exit(0)\n' > "$fixture/scripts/check-config-docs.py"
 printf 'process.exit(0)\n' > "$fixture/scripts/check-docs-prose.mjs"
 base="$(printf 'a%.0s' {1..40})"
