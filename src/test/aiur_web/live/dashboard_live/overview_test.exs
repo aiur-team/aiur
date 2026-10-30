@@ -12,7 +12,7 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
 
   @endpoint AiurWeb.Endpoint
 
-  test "unpublished dashboard payload uses the isolated startup clock" do
+  test "dashboard payload uses the endpoint startup clock" do
     orchestrator_name = {:global, make_ref()}
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
@@ -21,9 +21,14 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
       SnapshotStore.forget(orchestrator_name)
     end)
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 5,
+      control_center_cache: false,
+      units_startup_elapsed_ms_fun: fn -> 600_000 end
+    )
 
-    assert %{units: %{status: :loading}} = PayloadLoader.load(:fresh)
+    assert %{units: %{status: :unavailable}} = PayloadLoader.load(:fresh)
   end
 
   test "an unpublished snapshot raises no notice while an unreachable orchestrator does" do
