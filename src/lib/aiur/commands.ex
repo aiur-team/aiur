@@ -14,6 +14,18 @@ defmodule Aiur.Commands do
   @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   defdelegate override(id, payload, opts \\ [], server \\ Aiur.DecisionStore), to: Aiur.DecisionStore
 
+  @spec prepare_override_prompt(String.t(), keyword()) :: keyword()
+  defdelegate prepare_override_prompt(identifier, opts), to: Aiur.Commands.OverridePrompt, as: :prepare
+  @spec render_pending_overrides(keyword()) :: String.t()
+  defdelegate render_pending_overrides(opts), to: Aiur.Commands.OverridePrompt, as: :render
+  @spec record_override_prompt_receipt(map(), keyword()) :: :ok
+  defdelegate record_override_prompt_receipt(message, opts), to: Aiur.Commands.OverridePrompt, as: :received
+
+  @spec pending_override(Aiur.Decision.t()) :: map() | nil
+  defdelegate pending_override(decision), to: Aiur.Commands.Overrides, as: :pending
+  @spec pending_resume_override(Aiur.Decision.t()) :: map() | nil
+  defdelegate pending_resume_override(decision), to: Aiur.Commands.Overrides, as: :resume_request
+
   @doc "Whether the active override may use the existing delivery path."
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
