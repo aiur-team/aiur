@@ -6,7 +6,7 @@ defmodule Aiur.IssueLog.CommandRecorder do
 
   @spec record_command(TrackerIdentity.t(), String.t(), keyword()) :: :ok
   def record_command(%TrackerIdentity{} = identity, command, opts) when is_binary(command) do
-    command = String.slice(command, 0, 2_000)
+    command = sanitize_command(command)
     identifier = identity.identifier
     observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
 
@@ -29,5 +29,23 @@ defmodule Aiur.IssueLog.CommandRecorder do
     :ok
   rescue
     _ -> :ok
+  end
+
+  @doc false
+  @spec sanitize_command(String.t()) :: String.t()
+  def sanitize_command(command) when is_binary(command) do
+    command
+    |> Aiur.SecretRedactor.redact()
+    |> Aiur.SecretRedactor.redact_urls()
+    |> redact_named_credentials()
+    |> String.slice(0, 2_000)
+  end
+
+  defp redact_named_credentials(command) do
+    Regex.replace(
+      ~r/((?:authorization|(?:gh|github|openai|anthropic|api[_-]?)?token|password|secret|api[_-]?key)\s*(?:[:=]\s*|\s+)(?:Bearer\s+)?)[^\s"';&]+/i,
+      command,
+      "\\1[REDACTED:credential]"
+    )
   end
 end

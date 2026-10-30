@@ -36,6 +36,19 @@ defmodule Aiur.IssueLog.Paths do
     end
   end
 
+  @doc false
+  @spec timeline_event_log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
+  def timeline_event_log_path(identifier) when is_binary(identifier) do
+    timeline_path(configured_repository_scope(), identifier)
+  end
+
+  def timeline_event_log_path(%TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, owner, repository, _provider_id} -> timeline_path(repository_scope(owner, repository), identity.identifier)
+      nil -> raise ArgumentError, "Timeline event path requires a joinable tracker identity"
+    end
+  end
+
   @spec transcript_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
   def transcript_path(identifier) when is_binary(identifier) do
     issue_log_path(configured_repository_scope(), identifier, ".agent_events.jsonl")
@@ -77,6 +90,13 @@ defmodule Aiur.IssueLog.Paths do
 
   defp issue_log_path(scope, identifier, suffix) do
     Path.join(log_root_dir(), "#{scope}.#{sanitize(identifier)}#{suffix}")
+  end
+
+  defp timeline_path(scope, identifier) do
+    case ConfigPaths.runtime_state_dir() do
+      {:ok, root} -> Path.join([root, "ticket-events", "#{scope}.#{sanitize(identifier)}.events.log"])
+      {:error, reason} -> raise ArgumentError, "Timeline event state unavailable: #{inspect(reason)}"
+    end
   end
 
   defp repo_name, do: ConfigPaths.repo_name()
