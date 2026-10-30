@@ -1,7 +1,8 @@
 defmodule AiurWeb.Conversation.ComposerEvents do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2, assign: 3]
-  alias Aiur.Conversation.History
+  alias Aiur.Conversation.{History, Ref}
+  alias Aiur.Executor.Send
   alias Aiur.Listener
   alias AiurWeb.Conversation.DeliveryOverlay
   alias AiurWeb.Endpoint
@@ -11,7 +12,7 @@ defmodule AiurWeb.Conversation.ComposerEvents do
     target =
       case History.worker_identity(socket.assigns.id) do
         {:ok, identity} -> identity
-        _ -> nil
+        _ -> if socket.assigns.id == Ref.conversation_id(Ref.executor()), do: Ref.executor()
       end
 
     socket
@@ -35,7 +36,15 @@ defmodule AiurWeb.Conversation.ComposerEvents do
     retry = socket.assigns.composer_retry
     id = if retry && retry.text == text, do: retry.id, else: "conversation-" <> Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
     fun = Endpoint.config(:conversation_send_fun) || (&Listener.send/3)
-    result = safe(fn -> fun.(socket.assigns.composer_target, text, origin: :agent_chat, client_request_id: id) end)
+
+    result =
+      safe(fn ->
+        case socket.assigns.composer_target do
+          %Ref{subject: :executor} -> Send.send(text, id, writable: writable?())
+          target -> fun.(target, text, origin: :agent_chat, client_request_id: id)
+        end
+      end)
+
     unknown? = Listener.receipt_for_send_result(result) == :outcome_unknown
     overlay = DeliveryOverlay.put_send(socket.assigns.delivery_overlay, id, text, result, now())
 
@@ -69,7 +78,8 @@ defmodule AiurWeb.Conversation.ComposerEvents do
         _ -> nil
       end
 
-    assign(socket, :composer_listener, listener)
+    capability = if match?(%Ref{subject: :executor}, socket.assigns.composer_target), do: Send.capability(writable: writable?()), else: :available
+    assign(socket, composer_listener: listener, composer_capability: capability)
   end
 
   defp schedule(socket) do

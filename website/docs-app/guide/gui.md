@@ -198,6 +198,13 @@ agent** composer. Its read-only mode indicator shows the effective listener
 mode, or **mode unknown** when it cannot be observed. **Listener unavailable**
 means the specification cannot be used and conversation sends are refused.
 
+The Executor conversation reuses this composer and delivery list. Sending stays
+disabled with a reason when no session is attached, the binding is unreachable,
+or the listener delivery target lacks Executor support. An installed hook alone
+does not establish send support. Accepted Executor messages show **Waiting until
+the Executor’s next turn** until the matching journal entry arrives; acceptance
+does not wake an idle external session. The effective mode is read-only.
+
 **Accepted** means the message was accepted for processing. **Queued** means
 the harness queued it (Sync: next boundary), not that the agent read it.
 **Saved** in Async means the agent reads it when it chooses. The local delivery

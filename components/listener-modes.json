@@ -28,7 +28,9 @@
     "identity",
     "kernel"
   ],
-  "optional": [],
+  "optional": [
+    "conversations"
+  ],
   "owns": {
     "config": [],
     "env": [],
