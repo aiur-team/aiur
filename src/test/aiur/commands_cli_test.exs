@@ -306,6 +306,25 @@ defmodule Aiur.CommandsCLITest do
     assert envelope["data"]["page"]["pagination"]["total"] == nil
   end
 
+  test "all includes open and historic Commands and can narrow historic rows by ticket or search", %{store: store} do
+    open = request!(store, "still-open", false)
+    historic = request!(store, "historic-release", false)
+
+    assert {:ok, _} =
+             DecisionStore.answer(historic.decision_id, %{"idempotency_key" => "historic-answer", "expected_version" => 1, "option_id" => "ship"}, [actor: %{kind: :operator, id: "operator"}], store)
+
+    opts = [filter: :all, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end]
+
+    for selection <- [[], [ticket: "1592"]] do
+      assert {:ok, envelope} = CommandsCLI.build(opts ++ selection)
+      assert Enum.sort(Enum.map(envelope["data"]["page"]["decisions"], & &1["decision_id"])) == Enum.sort([open.decision_id, historic.decision_id])
+    end
+
+    assert {:ok, envelope} = CommandsCLI.build(opts ++ [search: historic.decision_id])
+    assert [row] = envelope["data"]["page"]["decisions"]
+    assert row["decision_id"] == historic.decision_id
+  end
+
   defp request!(store, source_id, blocking, extra \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(

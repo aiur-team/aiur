@@ -103,7 +103,7 @@ defmodule Aiur.CommandsCLI do
         :"needs-you" -> Map.merge(query, %{"lifecycle" => "open", "route" => "needs_you"})
         :"with-executor" -> Map.merge(query, %{"lifecycle" => "open", "route" => "with_executor"})
         :"from-executor" -> Map.merge(query, %{"lifecycle" => "open", "requester" => "executor"})
-        :all -> query |> Map.put("lifecycle", "open") |> maybe_put("ticket", opts[:ticket]) |> maybe_put("search", opts[:search])
+        :all -> query |> maybe_put("ticket", opts[:ticket]) |> maybe_put("search", opts[:search])
       end
 
     {:ok, query}

@@ -7,6 +7,22 @@ import { runControl, setupControlRpc } from "./launcher-control-support.mjs";
 
 useTempRoot();
 
+test("commands rejects limits outside 1 through 100 before RPC", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+  for (const limit of ["101", "150", "200", "0", "9999999999999999999999999"]) {
+    for (const flags of [["--limit", limit], [`--limit=${limit}`]]) {
+      const result = runControl(launcher, releaseDir, env, ["commands", "--filter", "resolved", ...flags, "--json"]);
+      expect(result.status).toBe(64);
+      expect(result.stderr).toContain("--limit must be between 1 and 100");
+    }
+  }
+  for (const limit of ["1", "100"]) {
+    expect(runControl(launcher, releaseDir, env, ["commands", "--limit", limit]).status).toBe(0);
+    expect(readFileSync(captureFile, "utf8")).toContain(`limit: ${limit}`);
+  }
+});
+
 // --- Control RPC error reporting -------------------------------------------
 
 test("bare pause/resume flip the global switch; targeted forms stay per-agent", () => {

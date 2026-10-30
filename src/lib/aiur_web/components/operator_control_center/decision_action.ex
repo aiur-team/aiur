@@ -67,8 +67,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
       <DecisionReplacement.decision_replacement decision={@decision} state={@state} writable={@writable} live_connected={@live_connected} />
 
-      <.delivery_status :if={!@answerable?} delivery={@voice_delivery} />
-
       <form
         :if={@writable and @answerable?}
         id={"decision-answer-form-#{@decision.decision_id}"}
