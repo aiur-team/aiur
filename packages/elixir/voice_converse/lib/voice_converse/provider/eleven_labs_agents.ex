@@ -104,7 +104,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
 
   @impl true
   def handle_cast({:push_audio, base64_pcm}, %{ready?: true} = state) do
-    case send_json(state, %{type: "user_audio_chunk", audio_base_64: base64_pcm}) do
+    case send_json(state, user_audio_chunk_frame(base64_pcm)) do
       {:ok, state} -> {:noreply, state}
       {:error, _reason} -> fail(state, :provider_unavailable, "ElevenLabs connection is unavailable.")
     end
@@ -254,7 +254,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     state = %{state | ready?: true, backlog: [], backlog_bytes: 0}
 
     Enum.reduce_while(backlog, {:ok, state}, fn audio, {:ok, state} ->
-      case send_json(state, %{type: "user_audio_chunk", audio_base_64: audio}) do
+      case send_json(state, user_audio_chunk_frame(audio)) do
         {:ok, state} -> {:cont, {:ok, state}}
         {:error, _reason} -> {:halt, {:error, state}}
       end
@@ -264,6 +264,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
       {:error, state} -> fail(state, :provider_unavailable, "ElevenLabs connection is unavailable.")
     end
   end
+
+  defp user_audio_chunk_frame(base64_pcm), do: %{user_audio_chunk: base64_pcm}
 
   defp close_from_provider(state, close_code \\ nil) do
     reason = close_reason(state.ready?, close_code)

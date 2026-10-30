@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.AgentLifecycle do
   @moduledoc false
 
+  alias Aiur.Commands.Overrides
   alias Aiur.Decision
   alias Aiur.DecisionEvent
   alias Aiur.DecisionStore.Answers
@@ -90,7 +91,8 @@ defmodule Aiur.DecisionStore.AgentLifecycle do
   end
 
   defp delivered_once?(decision) do
-    Enum.any?(Decision.active_dispatch_attempts(decision), &(not is_nil(&1.delivered_at)))
+    match?(%{delivered_at: %DateTime{}}, Overrides.pending(decision)) or
+      Enum.any?(Decision.active_dispatch_attempts(decision), &(not is_nil(&1.delivered_at)))
   end
 
   defp compare_lifecycle_replay(fact, data, conflict) do

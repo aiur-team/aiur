@@ -24,6 +24,34 @@ defmodule Aiur.FeatureEngineTest do
     opts
   end
 
+  test "confirm dispatches deduplicated IDs and filtered show with and without a slug" do
+    assert shell(["confirm", "a", "12", "12"]) ==
+             {"Aiur.AgentControlCLI.feature([op: :confirm, slug: Base.decode64!(\"YQ==\"), ids: [12], who: Base.decode64!(\"dGVzdGVy\")])\n", 0}
+
+    assert opts(["show", "--unconfirmed", "--json"]) == [op: :show, unconfirmed: true, json: true]
+    assert opts(["show", "a", "--unconfirmed"]) == [op: :show, slug: "a", unconfirmed: true]
+  end
+
+  @tag :future_regression
+  test "future regression guard: confirm rejects absent slug, IDs and unsupported flags before dispatch" do
+    for args <- [
+          ["confirm"],
+          ["confirm", "a"],
+          ["confirm", "a", "0"],
+          ["confirm", "a", "12", "--source", "backfill-agent"],
+          ["confirm", "a", "12", "--unconfirmed"],
+          ["confirm", "a", "12", "--epic", "f-a"],
+          ["confirm", "a", "12", "--as", "a b"],
+          ["confirm", "a"] ++ Enum.map(1..201, &to_string/1)
+        ] do
+      assert {output, 64} = shell(args)
+      refute output =~ "Aiur.AgentControlCLI"
+    end
+
+    assert {output, 64} = shell(["confirm", "a", "12"], [{"USER", ""}])
+    refute output =~ "Aiur.AgentControlCLI"
+  end
+
   test "feature add encodes slug and actor, strips hashes and collapses duplicates" do
     assert shell(["add", "khala-srv", "12", "#13", "12", "--json"]) ==
              {"Aiur.AgentControlCLI.feature([op: :add, slug: Base.decode64!(\"a2hhbGEtc3J2\"), ids: [12, 13], who: Base.decode64!(\"dGVzdGVy\"), json: true])\n", 0}
@@ -76,7 +104,7 @@ defmodule Aiur.FeatureEngineTest do
           {["add", "s"], "requires ticket ids"},
           {["add"], "requires a slug"},
           {["add", "s", "1", "--wat"], "unknown feature option"},
-          {["confirm", "s"], "feature requires"},
+          {["confirm", "s"], "feature confirm requires ticket ids"},
           {["add", "s" | Enum.map(1..201, &to_string/1)], "at most 200"}
         ] do
       assert {output, 64} = shell(args), "expected usage error for #{inspect(args)}"

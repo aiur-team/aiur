@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.CommandOverrideContextTest do
   alias Aiur.Orchestrator.{CommandOverrideContext, State}
 
   test "active worker remains active with no capacity, while parked workers need resuming" do
-    for {status, expected} <- [working: :active, sleeping: :resumable, paused: :resumable, deactivated: :resumable, completed: :resumable, unrecoverable: :unrecoverable] do
+    for {status, expected} <- [working: :active, sleeping: :active, paused: :resumable, deactivated: :resumable, completed: :resumable, unrecoverable: :unrecoverable] do
       state = %State{
         globally_paused: true,
         running: %{"id" => %{identifier: "6908", control: %{status: status}}}

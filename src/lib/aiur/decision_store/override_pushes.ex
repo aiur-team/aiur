@@ -35,7 +35,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
       for {_id, decision} <- state.current,
           ticket == :all or decision.ticket.identifier == ticket,
           record <- decision.overrides,
-          record.state == :delivered and record.route == :active_worker,
+          record.state == :delivered and record.route in [:active_worker, :resume_pending, :capacity_wait],
           record.action_id == decision.active_action_id,
           do: {decision.ticket.identifier, {decision.decision_id, record.action_id}}
 

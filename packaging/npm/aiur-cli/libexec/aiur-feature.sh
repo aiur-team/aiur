@@ -6,12 +6,12 @@ cmd_feature() {
   local op="${1:-}" slug="" who="${USER:-}" opts arg value n ids="" seen=" " count=0 edits=0
   [ "$#" -gt 0 ] && shift
   case "$op" in
-    create|add|remove|also|baseline|edit)
+    create|add|remove|also|baseline|edit|confirm)
       [ "$#" -gt 0 ] && [[ "$1" != --* ]] || feature_usage_error "feature $op requires a slug"
       slug="$1"; shift ;;
     show)
       if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then slug="$1"; shift; fi ;;
-    *) feature_usage_error 'feature requires create, add, remove, also, baseline, edit or show' ;;
+    *) feature_usage_error 'feature requires create, add, remove, also, baseline, edit, confirm or show' ;;
   esac
   opts="op: :$op"
   [ -n "$slug" ] && opts="$opts, slug: $(feature_rpc_string "$slug")"
@@ -20,6 +20,7 @@ cmd_feature() {
     arg="$1"
     case "$arg" in
       --json) json=1 ;;
+      --unconfirmed) [ "$op" = show ] || feature_usage_error '--unconfirmed requires feature show'; flags="$flags, unconfirmed: true" ;;
       --move) [ "$op" = add ] || feature_usage_error '--move requires feature add'; flags="$flags, move: true" ;;
       --remove) [ "$op" = also ] || feature_usage_error '--remove requires feature also'; flags="$flags, remove: true" ;;
       --replace) [ "$op" = baseline ] || feature_usage_error '--replace requires feature baseline'; flags="$flags, replace: true" ;;
@@ -57,7 +58,7 @@ cmd_feature() {
         esac ;;
       -*) feature_usage_error "unknown feature option $arg" ;;
       *)
-        [[ "$op" == add || "$op" == remove || "$op" == also ]] || feature_usage_error "feature $op does not accept ticket ids"
+        [[ "$op" == add || "$op" == remove || "$op" == also || "$op" == confirm ]] || feature_usage_error "feature $op does not accept ticket ids"
         [[ "$arg" =~ ^#?[1-9][0-9]{0,9}$ ]] || feature_usage_error 'invalid feature ticket id'
         n="${arg#\#}"; [ "$n" -lt 2147483648 ] || feature_usage_error 'feature ticket id must be below 2147483648'
         count=$((count + 1)); [ "$count" -le 200 ] || feature_usage_error 'feature accepts at most 200 ids'
@@ -69,7 +70,7 @@ cmd_feature() {
     shift
   done
   case "$op" in
-    add|remove|also) [ "$count" -gt 0 ] || feature_usage_error "feature $op requires ticket ids"; opts="$opts, ids: [$ids]" ;;
+    add|remove|also|confirm) [ "$count" -gt 0 ] || feature_usage_error "feature $op requires ticket ids"; opts="$opts, ids: [$ids]" ;;
     create) [ "$label_set" -eq 1 ] || feature_usage_error 'feature create requires --label' ;;
     edit) [ "$edits" -gt 0 ] || feature_usage_error 'feature edit requires at least one edit flag' ;;
   esac
