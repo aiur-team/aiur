@@ -41,10 +41,9 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
   end
 
   test "public control RPC emits binding status and exit markers", %{root: root} do
-    assert capture_io(fn ->
-             Aiur.AgentControlCLI.executor_attach(harness: "claude", repo_root: root)
-           end) =~ "__AIUR_CONTROL_EXIT__:69"
-
+    expected = if is_integer(Aiur.HttpServer.bound_port()), do: 0, else: 69
+    assert capture_io(fn -> Aiur.AgentControlCLI.executor_attach(harness: "claude", repo_root: root) end) =~ "__AIUR_CONTROL_EXIT__:#{expected}"
+    assert capture_io(fn -> Aiur.AgentControlCLI.executor_detach(repo_root: root) end) =~ "__AIUR_CONTROL_EXIT__:0"
     output = capture_io(fn -> Aiur.AgentControlCLI.executor_session(json: true) end)
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert output =~ "\"freshness\":\"unknown\""
