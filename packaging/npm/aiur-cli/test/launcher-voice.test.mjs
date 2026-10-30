@@ -27,3 +27,15 @@ test("voice transcripts rejects malformed and injection values before RPC", () =
     expect(existsSync(captureFile)).toBe(false);
   }
 });
+
+test("voice deletion requires matching confirmation before RPC", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  for (const args of [["--delete"], [id, "--delete"], [id, "--confirm", id],
+    [id, "--delete", "--confirm", 'x");System.halt();#'], [id, "--delete", "--confirm", id, "--json"]]) {
+    rmSync(captureFile, { force: true });
+    expect(runControl(launcher, releaseDir, env, ["voice", "transcripts", ...args]).status).toBe(64);
+    expect(existsSync(captureFile)).toBe(false);
+  }
+  expect(runControl(launcher, releaseDir, env, ["voice", "transcripts", id, "--delete", "--confirm", id]).status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain(`Aiur.VoiceCLI.transcripts(["${id}", "--delete", "--confirm", "${id}"])`);
+});

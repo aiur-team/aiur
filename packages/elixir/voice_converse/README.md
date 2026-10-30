@@ -80,3 +80,11 @@ mix voice_converse.transcripts --root /path/to/transcripts vc_aaaaaaaaaaaaaaaaaa
 
 The root is explicit; list limits are 1–100 (default 100). JSON preserves index fields
 or raw complete transcript records. Text output reports torn tails and skipped records.
+
+Whole-session deletion is explicit and requires an ended transcript:
+`TranscriptStore.delete(root, id, confirm: id, by: "operator")` or
+`mix voice_converse.transcripts --root PATH ID --delete --confirm ID`.
+A private `.deleted/` directory stores content-free audit markers and temporarily
+holds renamed transcripts until the index tombstone is synced. Boot reconciliation
+finishes interrupted deletions. Index rebuilds retain these markers; do not remove
+them when repairing an index. No automatic transcript deletion is performed.

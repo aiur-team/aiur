@@ -185,3 +185,18 @@ gaps after recovery; it cannot promise to recover every missing entry.
 `system.conversation.journal.degraded.resolved` reports recovery. Corrupt
 journals become read-only. Stop the daemon and preserve the files for diagnosis
 before attempting repair; do not edit entry segments while the daemon runs.
+
+## Deleting a voice transcript
+
+An operator can delete a whole ended voice conversation with
+`aiur voice transcripts <id> --delete --confirm <id>`. The confirmation must
+repeat the same conversation ID; an active conversation must be ended first.
+There is no bulk deletion or automatic retention policy.
+
+Deletion removes the local transcript, including its text, context, drafts and
+metadata. A content-free tombstone retains only the conversation ID, deletion
+time and actor. Deleted sessions disappear from transcript listings and no
+longer contribute to local daily minute accounting. Interrupted deletions are
+completed during boot reconciliation; an index rebuild preserves tombstones.
+This action does not retract instructions or Command answers already delivered
+to another conversation. Provider cleanup runs independently at session end.

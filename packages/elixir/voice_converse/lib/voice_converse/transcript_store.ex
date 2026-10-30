@@ -11,7 +11,7 @@ defmodule VoiceConverse.TranscriptStore do
 
   The append-then-sync barrier means a crash can only tear the line being written. `read/2`
   reports and skips such a line and leaves the file untouched: transcripts are review material, so
-  bytes are never deleted. A torn final line is `torn_tail: true`. `reopen/3` (used to append
+  reads never delete bytes. Explicit whole-session deletion uses `delete/3`. A torn final line is `torn_tail: true`. `reopen/3` (used to append
   after a crash, e.g. a `session_ended` at boot) first terminates a torn final line with `"\n"`, so
   later records start on their own line; the torn bytes then become an interior line, which
   `read/2` skips and lists in `skipped_lines`.
@@ -139,6 +139,10 @@ defmodule VoiceConverse.TranscriptStore do
       :ok
     end
   end
+
+  @doc "Explicitly deletes a whole ended conversation, retaining a content-free audit tombstone."
+  @spec delete(Path.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def delete(root, conversation_id, opts), do: VoiceConverse.TranscriptDeletion.delete(root, conversation_id, opts)
 
   @spec close(session_store()) :: :ok | {:error, term()}
   def close(:none), do: :ok

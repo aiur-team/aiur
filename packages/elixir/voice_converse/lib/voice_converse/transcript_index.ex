@@ -16,6 +16,7 @@ defmodule VoiceConverse.TranscriptIndex do
   def list(root, opts \\ []) do
     with {:ok, limit} <- limit(opts, 100),
          {:ok, conversations} <- IndexFile.read_or_rebuild(root),
+         conversations = Enum.reject(conversations, &Map.has_key?(&1, :deleted_at)),
          {:ok, conversations} <- filter(conversations, Keyword.get(opts, :filter, %{})),
          {:ok, page, cursor} <- page(conversations, Keyword.get(opts, :before), limit),
          {:ok, page} <- refresh_open(root, page) do
@@ -42,6 +43,7 @@ defmodule VoiceConverse.TranscriptIndex do
       case IndexFile.read_or_rebuild(root) do
         {:ok, conversations} ->
           conversations
+          |> Enum.reject(&Map.has_key?(&1, :deleted_at))
           |> Enum.filter(&(is_integer(&1.duration_s) and starts_on?(&1, today, local_date)))
           |> Enum.map(& &1.duration_s)
           |> Enum.sum()

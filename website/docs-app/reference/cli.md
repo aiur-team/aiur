@@ -97,6 +97,7 @@ Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `
 | Command | Behavior | Example |
 | --- | --- | --- |
 | `aiur voice transcripts [<conversation_id>] [--target <ticket>\|executor] [--limit N] [--json]` | List voice sessions or show a complete transcript in file order. | `aiur voice transcripts --target executor --json` |
+| `aiur voice transcripts <conversation_id> --delete --confirm <conversation_id>` | Delete a whole ended session after confirming its id. | `aiur voice transcripts vc_aaaaaaaaaaaaaaaaaaaaaa --delete --confirm vc_aaaaaaaaaaaaaaaaaaaaaa` |
 
 Requires a running daemon, including headless runs without a dashboard. Listing defaults
 to 100 sessions (maximum 100); `--target` filters by ticket id or `executor`.

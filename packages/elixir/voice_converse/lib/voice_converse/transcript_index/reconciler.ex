@@ -9,7 +9,8 @@ defmodule VoiceConverse.TranscriptIndex.Reconciler do
   def reconcile(root, opts) do
     enqueue = Keyword.get(opts, :enqueue, &ProviderCleanup.enqueue/2)
 
-    with {:ok, conversations, scan_errors} <- Transcripts.scans_with_errors(root) do
+    with :ok <- VoiceConverse.TranscriptDeletion.recover(root),
+         {:ok, conversations, scan_errors} <- Transcripts.scans_with_errors(root) do
       {count, reconciliation_errors, closed} =
         Enum.reduce(conversations, {0, [], []}, fn conversation, {count, errors, closed} ->
           {result, new_errors} = reconcile_conversation(root, conversation, enqueue)

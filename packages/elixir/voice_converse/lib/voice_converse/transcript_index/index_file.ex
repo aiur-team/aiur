@@ -49,7 +49,10 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
 
   def rebuild(root, conversations) when is_list(conversations) do
     with :ok <- ensure_root(root),
-         :ok <- replace(root, conversations) do
+         {:ok, tombstones} <- VoiceConverse.TranscriptDeletion.tombstones(root),
+         deleted_ids = MapSet.new(tombstones, & &1.conversation_id),
+         remaining = Enum.reject(conversations, &MapSet.member?(deleted_ids, &1.conversation_id)),
+         :ok <- replace(root, remaining ++ tombstones) do
       :ok
     end
   end
@@ -71,6 +74,10 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
             {:ok, %{"op" => op, "conversation" => %{"conversation_id" => id} = item}}
             when op in ["opened", "closed"] ->
               {:cont, {:ok, Map.put(conversations, id, decode_conversation(item))}}
+
+            {:ok, %{"op" => "deleted", "conversation" => %{"conversation_id" => id} = item}} ->
+              {:cont,
+               {:ok, Map.put(conversations, id, %{conversation_id: id, deleted_at: item["deleted_at"], by: item["by"]})}}
 
             _ ->
               {:halt, {:error, :torn_index}}
@@ -113,7 +120,7 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
 
   defp write_all(fd, conversations) do
     Enum.reduce_while(conversations, :ok, fn conversation, :ok ->
-      operations = if conversation.end_reason, do: ["opened", "closed"], else: ["opened"]
+      operations = operations(conversation)
 
       case Enum.reduce_while(operations, :ok, fn op, :ok ->
              case write_event(fd, event(op, conversation)) do
@@ -126,6 +133,9 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
       end
     end)
   end
+
+  defp operations(%{deleted_at: _}), do: ["deleted"]
+  defp operations(conversation), do: if(conversation.end_reason, do: ["opened", "closed"], else: ["opened"])
 
   defp event(op, conversation),
     do: %{"op" => op, "conversation" => Map.new(conversation, fn {k, v} -> {to_string(k), v} end)}
@@ -148,7 +158,7 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
     }
   end
 
-  defp sort(conversations), do: Enum.sort_by(conversations, &{&1.started_at || "", &1.conversation_id}, :desc)
+  defp sort(conversations), do: Enum.sort_by(conversations, &{Map.get(&1, :started_at, ""), &1.conversation_id}, :desc)
   defp path(root), do: Path.join(Path.expand(root), @index_filename)
 
   defp repair_torn_tail(fd, path) do
