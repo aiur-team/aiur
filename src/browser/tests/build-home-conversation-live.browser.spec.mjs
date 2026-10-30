@@ -253,16 +253,21 @@ test('L9: reset removes retired listeners and observers; one scroll synchronizes
       observers: audit.observers.flatMap(o => [...o.targets]).filter(el => retired.has(el)).length }
   })).toEqual({ listeners: 0, observers: 0 })
   expect(await page.evaluate(() => {
-    const vw = document.querySelector('#cv-vw'); vw.style.top = '-1px'
+    const vw = document.querySelector('#cv-vw'), realStyle = vw.style
+    realStyle.top = '-1px'; window.viewportTopWrites = 0
+    Object.defineProperty(vw, 'style', { configurable: true, value: new Proxy(realStyle, {
+      get: (target, key) => Reflect.get(target, key, target),
+      set: (target, key, value) => { if (key === 'top') window.viewportTopWrites++; return Reflect.set(target, key, value, target) },
+    }) })
     window.retired.find(el => el.id === 'cv-log').dispatchEvent(new Event('scroll'))
-    return vw.style.top
-  })).toBe('-1px')
+    return { top: vw.style.top, writes: window.viewportTopWrites }
+  })).toEqual({ top: '-1px', writes: 0 })
   expect(await log(page).evaluate(el => {
     const callbacks = window.liveAudit.listeners.filter(r => r.target === el && r.type === 'scroll' && r.active)
-    callbacks.forEach(r => { r.calls = 0 }); el.dispatchEvent(new Event('scroll'))
+    callbacks.forEach(r => { r.calls = 0 }); window.viewportTopWrites = 0; el.dispatchEvent(new Event('scroll'))
     const s = Math.min(.14, document.querySelector('#cv-map').clientHeight / el.scrollHeight)
-    return { calls: callbacks.map(r => r.calls), viewport: Math.abs(parseFloat(document.querySelector('#cv-vw').style.top) - el.scrollTop * s) < .1 }
-  })).toEqual({ calls: [1, 1], viewport: true }) // Paging listener and viewport listener each execute once.
+    return { calls: callbacks.map(r => r.calls), writes: window.viewportTopWrites, viewport: Math.abs(parseFloat(document.querySelector('#cv-vw').style.top) - el.scrollTop * s) < .1 }
+  })).toEqual({ calls: [1, 1], writes: 1, viewport: true }) // Paging listener and viewport listener each execute once.
 })
 
 test('L23: three reopens retain one live registration set and one map rebuild for one appended child', async ({ page }) => {
