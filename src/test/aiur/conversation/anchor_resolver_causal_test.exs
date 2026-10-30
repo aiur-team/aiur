@@ -146,18 +146,22 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
       command_body = String.replace(command_body, "42", Integer.to_string(pr_number))
       command(ctx, ctx.worker, command_body, if(merged?, do: "Merged", else: "https://github.com/aiur-team/aiur/pull/#{pr_number}"), "command-#{action}")
       delivery = webhook_pr_delivery(ctx, action, merged?, pr_number)
+      expected_topic = "ticket.6628.#{if(merged?, do: "pr.merged", else: "pr.opened")}"
+      test_pid = self()
 
       assert %{status: :published} =
                GithubWebhook.handle_delivery("pull_request", delivery,
                  repo: "aiur-team/aiur",
                  publish_fun: fn topic, payload, opts ->
-                   assert opts[:identity] == ctx.identity
+                   send(test_pid, {:webhook_publish, topic, opts[:identity]})
                    Aiur.Events.publish(topic, payload, opts)
                  end
                )
 
+      assert_receive {:webhook_publish, ^expected_topic, published_identity}
+      assert published_identity == ctx.identity
       assert_receive {:event, %{topic: topic, ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
-      assert topic == "ticket.6628.#{if(merged?, do: "pr.merged", else: "pr.opened")}"
+      assert topic == expected_topic
       assert identity == ctx.identity
       settle_global_resolver(ctx, resolver)
       assert Enum.any?(anchors(ctx.worker), &(&1["kind"] == kind and &1["precision"] == "causal"))
