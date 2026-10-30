@@ -1,0 +1,48 @@
+defmodule Aiur.Executor.TranscriptPath do
+  @moduledoc "Validates Executor transcript locators without trusting payload-supplied roots."
+
+  @spec validate(term(), String.t(), term(), keyword()) :: {:ok, Path.t() | nil} | {:error, atom()}
+  def validate(path, harness, session_id, opts \\ [])
+  def validate(nil, _harness, _session_id, _opts), do: {:ok, nil}
+
+  def validate(path, harness, session_id, opts) when is_binary(path) and is_binary(session_id) do
+    home = Keyword.get_lazy(opts, :home, &System.user_home!/0)
+    root = Path.join(home, root(harness))
+
+    with :ok <- contained(path, root),
+         :ok <- regular_chain(path, root),
+         {:ok, stat} <- File.lstat(path),
+         {:ok, owner} <- File.stat(home),
+         :ok <- owned(stat.uid, owner.uid),
+         :ok <- matches(path, harness, session_id) do
+      {:ok, path}
+    end
+  end
+
+  def validate(_path, _harness, _session_id, _opts), do: {:error, :invalid_path}
+  defp root("claude"), do: ".claude/projects"
+  defp root("codex"), do: ".codex/sessions"
+  defp root(_harness), do: "__invalid_harness__"
+
+  defp contained(path, root) do
+    if Path.type(path) == :absolute and ".." not in Path.split(path) and String.starts_with?(path, root <> "/"), do: :ok, else: {:error, :outside_root}
+  end
+
+  defp regular_chain(path, root) do
+    with {:ok, %{type: :regular}} <- File.lstat(path) do
+      directories = Stream.iterate(Path.dirname(path), &Path.dirname/1) |> Enum.take_while(&(&1 != Path.dirname(Path.dirname(root))))
+      if Enum.all?(directories, &match?({:ok, %{type: :directory}}, File.lstat(&1))), do: :ok, else: {:error, :not_regular}
+    else
+      _ -> {:error, :not_regular}
+    end
+  end
+
+  defp owned(uid, uid), do: :ok
+  defp owned(_uid, _owner), do: {:error, :wrong_owner}
+
+  defp matches(path, harness, id) do
+    name = Path.basename(path)
+    matches? = if harness == "claude", do: name == id <> ".jsonl", else: String.starts_with?(name, "rollout-") and String.ends_with?(name, "-#{id}.jsonl")
+    if matches?, do: :ok, else: {:error, :session_mismatch}
+  end
+end

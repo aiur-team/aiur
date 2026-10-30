@@ -324,7 +324,7 @@ defmodule Aiur.Application.Children do
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
         BuildOrders.child_specs(:label_backfill, opts) ++
-        List.wrap(if(recording?, do: Aiur.Executor.Session))
+        List.wrap(if(recording?, do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest]))
     )
   end
 
