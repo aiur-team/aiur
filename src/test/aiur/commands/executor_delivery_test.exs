@@ -22,8 +22,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
 
     :ok = ExecutorEvents.subscribe("executor.#")
     parent = self()
-    store = start_store!(dir, dispatch_scheduler: fn _, message, _ -> send(parent, {:scheduled, message}) end)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store = start_supervised_store!(dir, dispatch_scheduler: fn _, message, _ -> send(parent, {:scheduled, message}) end)
     inbox = start_supervised!({ExecutorWakeInbox, name: nil, debounce_ms: 60_000})
     %{store: store, inbox: inbox}
   end
