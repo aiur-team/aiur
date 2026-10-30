@@ -51,7 +51,14 @@ defmodule Aiur.DecisionOverrideMergeTest do
     Agent.update(ctx.observations, &%{&1 | merged?: true})
 
     assert {:error, {:override_delivery_deferred, :pr_merged}} =
-             Aiur.DecisionRevisionDispatch.dispatch(ctx.override, store: ctx.store, send_fun: fn _, _, _ -> flunk("merged work must not interrupt the worker") end)
+             Aiur.DecisionRevisionDispatch.dispatch(ctx.override,
+               store: ctx.store,
+               attempt_id: "routing-race",
+               terminal_states: MapSet.new(),
+               issue_fetcher: fn _ -> {:ok, []} end,
+               revalidate_fun: fn issue, _, _ -> {:ok, issue} end,
+               send_fun: fn _, _, _ -> flunk("merged work must not interrupt the worker") end
+             )
 
     action = ctx.override.active_action_id
     assert_receive {:corrective_requested, ^action}, 2_000
