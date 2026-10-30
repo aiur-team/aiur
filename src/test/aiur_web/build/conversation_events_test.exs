@@ -119,6 +119,19 @@ defmodule AiurWeb.Build.ConversationEventsTest do
       refute Enum.any?(current.tail, &(&1.ev == "merge"))
     end
 
+    test "a missing ticket id never matches a merge with no ticket id" do
+      row = %{pr: nil, status: "running", agent: %{state: "active"}}
+      orphan_merge = %{ticket_id: nil, repository: @repo, number: 7193, merged_at: ~U[2026-10-07 21:13:20Z]}
+
+      assert tail(row, facts(%{merges: [orphan_merge]})) == []
+    end
+
+    test "atom-keyed failed ticket state and closed PR render the failure rows" do
+      row = %{id: "12", num: 12, title: "Ticket twelve", pr: %{num: 8, state: "closed"}, status: "failed", agent: %{state: "error"}}
+
+      assert [%{ev: "fail", label: "PR #8 closed"}, %{ev: "fail", label: "Error"}] = tail(row)
+    end
+
     test "E22 an open PR reads like the design and has no invented time; a failed closed PR is a fail row" do
       assert [%{ev: "pr", label: "Opened PR #8", sub: "Ticket twelve", at: nil}] = tail(row(%{"pr" => %{"num" => 8, "state" => "open"}}))
       assert [%{ev: "fail", label: "PR #8 closed", id: "ev:fail:pr:8"}] = tail(row(%{"pr" => %{"num" => 8, "state" => "closed"}, "status" => "failed"}))
