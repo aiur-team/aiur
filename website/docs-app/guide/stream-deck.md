@@ -480,6 +480,6 @@ including after delivery. Ordinary answer submissions retain first-answer-wins
 semantics.
 
 The override record and routing state are visible in
-`aiur commands --json`. Absent or paused workers receive the override at their next
-session; terminal tickets raise an Executor follow-up.
+`aiur commands --json`. Resumable workers wait for capacity; explicit parked or
+paused labels require operator resume. Terminal tickets raise a follow-up.
 Physical override controls are separate from this transport operation.
