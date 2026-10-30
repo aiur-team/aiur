@@ -201,7 +201,7 @@ defmodule Aiur.DecisionStore.Transport do
     answer = Decision.answer_for_action(decision, context.action_id)
 
     cond do
-      decision.ticket.identifier != context.target -> {:error, :ticket_mismatch}
+      Aiur.Commands.Overrides.target_ticket(decision, context.action_id).identifier != context.target -> {:error, :ticket_mismatch}
       is_nil(answer) -> {:error, :action_mismatch}
       answer.decision_version != context.decision_version -> {:error, :version_mismatch}
       true -> :ok
