@@ -1,10 +1,10 @@
 defmodule AiurWeb.BuildLiveAtomKeyedConversationEventsTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
 
-  alias Aiur.TrackerIdentity
   alias Aiur.TestSupport.BuildHome.ProtocolCase
   alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TestSupport.LiveViewAsync
+  alias Aiur.TrackerIdentity
 
   defmodule Source do
     alias AiurWeb.Build.ConversationSource.Wave0bEvents
