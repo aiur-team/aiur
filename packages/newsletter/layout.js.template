@@ -41,6 +41,13 @@ document.fonts.ready.then(() => {
   update();
   for (const {element} of candidates) {
     if (document.body.scrollHeight <= 1056 && document.body.scrollWidth <= 816) break;
+    const kind = element.dataset.kind;
+    const group = kind && document.querySelector(`[data-editorial-list="${kind}"]`);
+    const visible = group ? group.querySelectorAll(`[data-kind="${kind}"]`).length : 0;
+    const minimum = kind === 'blockers' ? Number(group?.dataset.total || 0) :
+      kind === 'shipped' ? Math.min(5, Number(group?.dataset.total || 0)) :
+      kind === 'bottlenecks' ? Math.min(2, Number(group?.dataset.total || 0)) : 0;
+    if (group && visible <= minimum) continue;
     element.remove(); removed++; update(); balance();
   }
   document.body.dataset.pagesFit = String(document.body.scrollHeight <= 1056 && document.body.scrollWidth <= 816);

@@ -34,15 +34,15 @@ def removable(content, kind, priority):
 def blockers(rows):
     if rows is None:
         return '<li>' + shown(None) + '</li>'
-    content = ''.join(f'<li data-trim="50" data-kind="blockers"><b>{text(r.get("label"))}</b><span class="arw"></span>'
-                      f'<span>{text(r.get("action"))}</span></li>' for r in rows[:5])
+    content = ''.join(f'<li data-trim="100" data-kind="blockers"><b>{text(r.get("label"))}</b><span class="arw"></span>'
+                      f'<span>{text(r.get("action"))}</span></li>' for r in rows)
     return content + (f'<li class="more editorial-more" data-more="true">+{len(rows) - 5} more</li>' if len(rows) > 5 else '') or '<li>Nothing blocked on you today</li>'
 
 
 def shipped(rows):
     if rows is None:
         return '<li>' + shown(None) + '</li>'
-    return ''.join(f'<li data-trim="30" data-kind="shipped">{icon(r.get("icon"))}<span>{text(r.get("label"))}</span></li>'
+    return ''.join(f'<li data-trim="70" data-kind="shipped">{icon(r.get("icon"))}<span>{text(r.get("label"))}</span></li>'
                    for r in rows[:6]) or '<li>None reported</li>'
 
 
@@ -54,7 +54,7 @@ def bottlenecks(rows):
     result = []
     for r in rows[:3]:
         tone = r.get("tone") if r.get("tone") in ("attn", "block", "super", "good") else "attn"
-        result.append(f'<div class="bn {tone}" data-trim="40" data-kind="bottlenecks"><h4>{text(r.get("problem"))}</h4>'
+        result.append(f'<div class="bn {tone}" data-trim="80" data-kind="bottlenecks"><h4>{text(r.get("problem"))}</h4>'
                       f'<div class="bl"><span>Action</span><b>{text(r.get("action"))}</b></div>'
                       f'<div class="bl"><span>Result</span><span>{text(r.get("result"))}</span></div></div>')
     return ''.join(result)
