@@ -13,6 +13,16 @@ defmodule Aiur.DecisionStore.CorrectiveReadCadenceTest do
     assert {:ok, %{overrides: [%{state: :queued}]}} = DecisionStore.get(ctx.id, ctx.store)
   end
 
+  test "an unsupported closure capability leaves an observational override queued without a failure fact" do
+    ctx = fixture(:unsupported)
+    ticks(ctx, 20, 0)
+    assert Agent.get(ctx.counts, & &1) == %{closure: 1, graphql: 0, issues: 0}
+    assert {:ok, decision} = DecisionStore.get(ctx.id, ctx.store)
+    assert [%{state: :queued}] = decision.overrides
+    assert {:ok, audit} = DecisionStore.audit_history(ctx.id, ctx.store)
+    refute Enum.any?(audit, &match?(%Aiur.DecisionEvent{type: :override_corrective_failed}, &1))
+  end
+
   test "a linked corrective ticket without a PR uses only delivered PR observations over twenty ticks" do
     ctx = fixture(:linked)
     ticks(ctx, 20)
@@ -57,7 +67,7 @@ defmodule Aiur.DecisionStore.CorrectiveReadCadenceTest do
           issue_closure: fn _identifier, max_age ->
             assert max_age == 300_000
             bump.(:closure)
-            {:ok, %{open?: kind in [:open, :linked]}}
+            if kind == :unsupported, do: {:error, :unsupported}, else: {:ok, %{open?: kind in [:open, :linked]}}
           end,
           resolve_pull_request: fn _identifier, _ ->
             bump.(:graphql)

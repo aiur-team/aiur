@@ -22,6 +22,9 @@ defmodule Aiur.Commands.CorrectivePullRequest do
       {:ok, %{open?: true}} ->
         {:ok, nil}
 
+      {:error, :unsupported} ->
+        {:ok, nil}
+
       {:error, _reason} = error ->
         error
     end
