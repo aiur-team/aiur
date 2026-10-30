@@ -3,6 +3,12 @@ defmodule VoiceConverse.Session.Runtime do
 
   alias VoiceConverse.{Events, Tools, TranscriptStore}
 
+  def end_reason(reason) do
+    if Enum.any?(VoiceConverse.ClientErrors.table(), &(&1.code == reason and :end_reason in &1.kinds)),
+      do: reason,
+      else: :unknown
+  end
+
   def open(session, state, phase) do
     provider = state.provider
     spec = provider_spec(state, session)
@@ -140,7 +146,9 @@ defmodule VoiceConverse.Session.Runtime do
   end
 
   defp context(%{reconnects: 0, context: context}), do: context
-  defp context(state), do: transcript_tail(state)
+
+  defp context(state),
+    do: transcript_tail(state) <> "\nRecent milestones:\n" <> Enum.join(state.live_context.events, "\n")
 
   defp provider_code(:provider_quota), do: :provider_quota
   defp provider_code(code) when code in [:provider_auth, :provider_unavailable, :privacy_preflight_failed], do: code

@@ -80,3 +80,18 @@ mix voice_converse.transcripts --root /path/to/transcripts vc_aaaaaaaaaaaaaaaaaa
 
 The root is explicit; list limits are 1–100 (default 100). JSON preserves index fields
 or raw complete transcript records. Text output reports torn tails and skipped records.
+
+## Live context
+
+Sessions subscribe through all configured read/channel ports. `BriefingSource` pushes
+`{:briefing, %VoiceConverse.Briefing{}}`; only changed lines reach the provider.
+Ports may also send `{:context_update, text, announce: true}` for a refreshed note,
+`{:command_resolved, id}`, or `:target_gone`. Consult replies use their existing
+AgentChannel messages and are announced at the next pause.
+
+Context text is redacted and synced to the transcript before provider delivery.
+Bursts coalesce into at most one context update every five seconds, with each event
+retained in the transcript and the latest ten included on reconnect. A resolved
+Command conservatively invalidates proposed instruction drafts composed against the
+old context; sent instructions are unchanged. Unsupported subscriptions report a gap
+and refresh the briefing on tool calls. No host event-bus dependency enters this package.
