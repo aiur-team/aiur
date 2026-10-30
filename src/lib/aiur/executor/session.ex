@@ -34,8 +34,9 @@ defmodule Aiur.Executor.Session do
   def prepare_clear_rebind(id, hook), do: GenServer.call(__MODULE__, {:prepare_clear_rebind, id, hook})
   @spec detach(String.t(), atom() | String.t()) :: result()
   def detach(id, reason), do: GenServer.call(__MODULE__, {:detach, id, reason})
-  @spec record_offset(String.t(), non_neg_integer()) :: result()
-  def record_offset(id, offset), do: GenServer.call(__MODULE__, {:offset, id, offset})
+  @spec record_offset(String.t() | binding(), non_neg_integer()) :: result()
+  def record_offset(%{binding_id: id} = binding, offset), do: GenServer.call(__MODULE__, {:offset, id, offset, cursor_identity(binding)})
+  def record_offset(id, offset), do: GenServer.call(__MODULE__, {:offset, id, offset, nil})
   @spec public(binding()) :: map()
   def public(binding), do: Map.drop(binding, [:transcript_path, :cwd, :pid])
   @spec rejected_counts() :: map()
@@ -120,8 +121,8 @@ defmodule Aiur.Executor.Session do
     end
   end
 
-  def handle_call({:offset, id, offset}, _from, state) when is_integer(offset) and offset >= 0 do
-    case attached(state.binding, id) do
+  def handle_call({:offset, id, offset, expected}, _from, state) when is_integer(offset) and offset >= 0 do
+    case offset_binding(state.binding, id, expected) do
       :ok ->
         reply_saved(%{state | binding: Map.put(state.binding, :transcript_offset, offset)})
 
@@ -145,6 +146,7 @@ defmodule Aiur.Executor.Session do
     if changed? and not clear_already_ended?, do: end_binding(binding, if(stale?, do: "detached", else: reason))
 
     updated = provider_fields(binding, hook, now)
+    updated = if updated.transcript_path != binding.transcript_path, do: Map.put(updated, :transcript_offset, 0), else: updated
     updated = if changed?, do: Map.merge(updated, %{start_reason: reason, transcript_offset: 0}), else: updated
     updated = if changed?, do: Map.drop(updated, [:clear_rebind_pid, :clear_rebind_until]), else: updated
 
@@ -164,6 +166,14 @@ defmodule Aiur.Executor.Session do
       last_hook_at: DateTime.to_iso8601(now),
       takeover_armed: false
     })
+  end
+
+  defp cursor_identity(binding), do: Map.take(binding, [:binding_id, :generation, :provider_session_id, :transcript_path, :locator_hash])
+
+  defp offset_binding(binding, id, expected) do
+    with :ok <- attached(binding, id) do
+      if is_nil(expected) or cursor_identity(binding) == expected, do: :ok, else: {:error, :binding_changed}
+    end
   end
 
   defp valid_consumer?(opts), do: is_nil(Map.get(opts, :consumer_id)) or is_binary(Map.get(opts, :consumer_id))
@@ -220,8 +230,12 @@ defmodule Aiur.Executor.Session do
   defp projection(%{binding: nil}), do: :none
   defp projection(state), do: {:ok, Map.put(state.binding, :live?, live?(state.binding, state.clock.()))}
 
-  defp end_binding(%{provider_session_id: id, state: state}, reason) when is_binary(id) and state != "detached",
-    do: Ingest.end_session(Ref.executor(), id, reason)
+  defp end_binding(%{provider_session_id: id, state: state} = binding, reason) when is_binary(id) and state != "detached" do
+    case {binding.harness, Process.whereis(Aiur.Executor.TranscriptIngest)} do
+      {"claude", pid} when is_pid(pid) -> send(pid, {:end_binding, id, reason})
+      _ -> Ingest.end_session(Ref.executor(), id, reason)
+    end
+  end
 
   defp end_binding(_binding, _reason), do: :ok
   defp locator_hash(nil), do: nil
