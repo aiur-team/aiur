@@ -6,8 +6,17 @@ defmodule Aiur.Executor.HookUrlBindTest do
     key = System.get_env("AIUR_INSTANCE_KEY")
     System.put_env("AIUR_INSTANCE_KEY", "hook-url-bind")
     url_path = HookConfig.url_path()
+    # HttpServer.start_link rewrites these app-wide (dashboard_auth_required: false here); later tests read them.
+    previous_env = Map.new([AiurWeb.Endpoint, :dashboard_pages, :dashboard_url_fun], &{&1, Application.fetch_env(:aiur, &1)})
 
     on_exit(fn ->
+      for {env_key, value} <- previous_env do
+        case value do
+          {:ok, previous} -> Application.put_env(:aiur, env_key, previous)
+          :error -> Application.delete_env(:aiur, env_key)
+        end
+      end
+
       _ = File.rm(url_path)
       if key, do: System.put_env("AIUR_INSTANCE_KEY", key), else: System.delete_env("AIUR_INSTANCE_KEY")
     end)

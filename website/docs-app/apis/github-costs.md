@@ -134,6 +134,8 @@ The lookup shares the creation-time window and incomplete-read refusal described
 
 Missing or stale source PR evidence first checks issue closure through the conditional resource cache (`build_queue_observe`, five-minute freshness). Successful unresolved observations wait five minutes before another reconciliation; ordinary 30-second store ticks do not each trigger a remote read.
 
+When recovering an earlier override's corrective ticket, reconciliation checks whether the issue remains open through the same conditional closure cache before reuse; the current override's own marker is reused directly without a closure read.
+
 For a closed source ticket, `command_override_merged_pr` performs one governed GraphQL read of closing PRs and merge SHAs, outside dispatch. It is bounded to 100 references and rejects incomplete results. A complete result with no merged PR in the configured repository records a final journal fact, retained across restart.
 
 Linked corrective tickets observe only the delivered PR cache, including when no PR exists yet. They do not fetch issue labels or closing PRs on each reconciliation. Errors retain durable exponential backoff capped at one hour. These are read-cadence contracts; no measured production saving is claimed.

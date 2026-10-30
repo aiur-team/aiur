@@ -48,7 +48,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
         issue_facts: issue_source(status)
       })
 
-    startup_elapsed_ms = Map.get(payload, :startup_elapsed_ms, Aiur.Boot.elapsed_ms())
+    startup_elapsed_ms =
+      case Keyword.get(opts, :startup_elapsed_ms_fun) do
+        fun when is_function(fun, 0) -> fun.()
+        _missing -> Map.get(payload, :startup_elapsed_ms, Aiur.Boot.elapsed_ms())
+      end
 
     status =
       cond do
