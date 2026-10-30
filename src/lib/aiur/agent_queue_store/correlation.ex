@@ -31,7 +31,7 @@ defmodule Aiur.AgentQueueStore.Correlation do
   @doc "Corrective targets get their own idempotent delivery while retaining the Command action."
   @spec delivery_key(String.t() | nil, map() | nil) :: String.t() | nil
   def delivery_key(action, correlation) when is_map(correlation) do
-    case Map.get(correlation, :corrective_target, Map.get(correlation, "corrective_target")) do
+    case Map.get(correlation, :target_issue_identifier, Map.get(correlation, "target_issue_identifier")) do
       target when is_binary(target) -> "#{action}:corrective:#{target}"
       _ -> action
     end
@@ -47,7 +47,7 @@ defmodule Aiur.AgentQueueStore.Correlation do
       not (is_binary(action_id) and action_id != "") -> {:error, :missing_action_id}
       not is_map(correlation) -> {:error, :missing_correlation}
       Map.get(correlation, :action_id, Map.get(correlation, "action_id")) != action_id -> {:error, :action_mismatch}
-      Map.get(correlation, :corrective_target, Map.get(correlation, "corrective_target")) not in [nil, attrs.target_issue_identifier] -> {:error, :target_mismatch}
+      Map.get(correlation, :target_issue_identifier, Map.get(correlation, "target_issue_identifier")) not in [nil, attrs.target_issue_identifier] -> {:error, :target_mismatch}
       true -> {:ok, action_id}
     end
   end

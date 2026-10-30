@@ -135,7 +135,7 @@ defmodule Aiur.DecisionRevisionDispatch do
 
     correlation =
       if target.identifier != decision.ticket.identifier,
-        do: Map.put(correlation, :corrective_target, target.identifier),
+        do: Map.put(correlation, :target_issue_identifier, target.identifier),
         else: correlation
 
     payload = %{

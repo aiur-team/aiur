@@ -10,7 +10,7 @@ defmodule Aiur.AgentQueueCorrectiveCorrelationTest do
       body: %{text: "Override"},
       action_id: "override",
       target_issue_identifier: "original",
-      correlation: %{action_id: "override", corrective_target: "other"}
+      correlation: %{action_id: "override", target_issue_identifier: "other"}
     }
 
     assert {:error, :target_mismatch} = AgentQueueStore.enqueue_correlated(AgentQueueStore.new(), attrs)
