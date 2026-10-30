@@ -89,12 +89,7 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
         notify(state, {:context_update, "Build order progress: #{value(event, :percent)}%", []})
 
       topic == "system.capabilities.changed" ->
-        capabilities = Keyword.get(state.opts, :capabilities, Aiur.Capabilities)
-        report = capabilities.report()
-        executor = value(report, :executor)
-        status = if is_map(executor), do: value(executor, :state), else: nil
-        text = if is_binary(status), do: "Executor state: #{status}", else: "Executor state unavailable"
-        notify(state, {:context_update, text, []})
+        notify_executor(state)
 
       Regex.match?(~r/^ticket\.[^.]+\.queue\.attention\.prerequisite_failed$/, topic) and is_list(value(event, :blocked)) ->
         notify(state, {:context_update, "Failed prerequisite blocks #{length(value(event, :blocked))} tickets", []})
@@ -108,6 +103,15 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
   end
 
   defp dispatch(_topic, _event, _state), do: :ok
+
+  defp notify_executor(state) do
+    capabilities = Keyword.get(state.opts, :capabilities, Aiur.Capabilities)
+    report = capabilities.report()
+    executor = value(report, :executor)
+    status = if is_map(executor), do: value(executor, :state), else: nil
+    text = if is_binary(status), do: "Executor state: #{status}", else: "Executor state unavailable"
+    notify(state, {:context_update, text, []})
+  end
 
   defp status_card(payload) do
     now = DateTime.utc_now()
