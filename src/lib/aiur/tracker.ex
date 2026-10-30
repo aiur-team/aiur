@@ -88,6 +88,13 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ticket_pull_request, 1), do: tracker.ticket_pull_request(issue_id), else: {:ok, nil}
   end
 
+  @doc "Resolves a closed ticket's merged PR remotely; callers must keep this off dispatch paths."
+  @spec resolve_ticket_pull_request(String.t(), keyword()) :: ticket_pull_request_result()
+  def resolve_ticket_pull_request(issue_id, opts \\ []) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :resolve_ticket_pull_request, 2), do: tracker.resolve_ticket_pull_request(issue_id, opts), else: {:error, :unsupported}
+  end
+
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
     adapter().fetch_candidate_issues() |> TestTicketScope.filter_result()

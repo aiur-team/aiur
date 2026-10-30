@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
 
   defp load(requests) do
     Enum.map(requests, fn decision ->
-      identifier = decision.ticket.identifier
+      identifier = Commands.override_target_ticket(decision).identifier
       {decision, Tracker.fetch_issue_states_by_ids([identifier]), Tracker.ticket_pull_request(identifier)}
     end)
   end
@@ -33,7 +33,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
       end
     end)
     |> Enum.sort_by(&DateTime.to_unix(Commands.pending_override(&1).queued_at, :microsecond))
-    |> Enum.uniq_by(& &1.ticket.identifier)
+    |> Enum.uniq_by(&Commands.override_target_ticket(&1).identifier)
   end
 
   @doc false
@@ -60,6 +60,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
 
     with {:ok, %{decision: decision}} <- Commands.get(snapshot.decision_id, store: store),
          true <- decision.active_action_id == snapshot.active_action_id,
+         true <- Commands.override_target_ticket(decision).identifier == issue.identifier,
          %{state: :queued} <- Commands.pending_resume_override(decision) do
       entry = State.find_running_by_identifier(state.running, issue.identifier)
       entry = if entry, do: Map.put(entry, :issue, issue)
@@ -182,7 +183,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
   end
 
   defp ask_resume(decision, store) do
-    identifier = decision.ticket.identifier
+    identifier = Commands.override_target_ticket(decision).identifier
     source_id = "override-resume-#{identifier}"
 
     Commands.request(

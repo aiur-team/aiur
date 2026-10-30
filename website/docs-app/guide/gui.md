@@ -69,7 +69,7 @@ may still be missing. IssueLog bodies at its 1,000-character cut are marked
 truncated. Existing journals are not imported again.
 
 On `/voice`, the worker conversation drawer offers **Steer · interrupts**,
-**Sync · next turn**, or **Async · on demand**. A different effective mode is
+**Sync · next turn**, **Async · pings only**, or **Mute · silent**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
@@ -77,6 +77,9 @@ The selector is disabled on read-only dashboards. Conversation input defaults to
 Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
 remain pull-only.
+
+Aiur extends this count-only notice to leaving Mute for Sync or
+Steer; the Mute-exit notice is outside the shared listener spec.
 
 The drawer shows receipts for messages sent during this visit;
 “Accepted” and “Handed to the agent” do not mean the message was read. An unknown

@@ -23,6 +23,7 @@ defmodule AiurWeb.RouterTableTest do
   # Characterization of the router table, including the public health endpoints.
   @expected [
     {:post, "/api/v1/github/webhook", AiurWeb.GithubWebhookController, :create, [:github_webhook], false},
+    {:post, "/api/v1/executor/hook/deliver", AiurWeb.ExecutorHookDeliveryController, :create, [:executor_hook_delivery_auth], :debug},
     {:post, "/api/v1/executor/hook", AiurWeb.ExecutorHookController, :create, [:executor_hook_auth], :debug},
     {:*, "/api/v1/executor/hook", AiurWeb.ExecutorHookController, :method_not_allowed, [:executor_hook_auth], :debug},
     {:get, "/healthz", AiurWeb.PublicHealthController, :live, [], :debug},

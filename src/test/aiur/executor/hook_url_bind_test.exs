@@ -5,7 +5,12 @@ defmodule Aiur.Executor.HookUrlBindTest do
   test "HTTP binds rewrite the private hook URL with the actual port" do
     key = System.get_env("AIUR_INSTANCE_KEY")
     System.put_env("AIUR_INSTANCE_KEY", "hook-url-bind")
-    on_exit(fn -> if key, do: System.put_env("AIUR_INSTANCE_KEY", key), else: System.delete_env("AIUR_INSTANCE_KEY") end)
+    url_path = HookConfig.url_path()
+
+    on_exit(fn ->
+      _ = File.rm(url_path)
+      if key, do: System.put_env("AIUR_INSTANCE_KEY", key), else: System.delete_env("AIUR_INSTANCE_KEY")
+    end)
 
     File.mkdir_p!(Path.dirname(HookConfig.url_path()))
     File.write!(HookConfig.url_path(), "http://127.0.0.1:1")

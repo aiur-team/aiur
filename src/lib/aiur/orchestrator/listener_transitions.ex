@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.ListenerTransitions do
-  @moduledoc "Count-only async backlog notices; called by serialized mode control."
+  @moduledoc "Count-only quiet-mode backlog notices; called by serialized mode control."
 
   alias Aiur.{AgentQueue, AgentQueueStore}
   alias Aiur.Listener.Scheduler
@@ -7,9 +7,14 @@ defmodule Aiur.Orchestrator.ListenerTransitions do
 
   @spec on_change(AgentQueueStore.t(), String.t(), map(), map()) :: {AgentQueueStore.t(), map() | nil}
   def on_change(store, identifier, previous, current) do
+    store =
+      if previous.requested == :async and current.requested != :async,
+        do: supersede_notices(store, identifier, :listener_ping),
+        else: store
+
     cond do
-      current.requested == :async -> {supersede_notices(store, identifier), nil}
-      previous.requested == :async and current.requested in [:sync, :steer] -> notice(store, identifier, current)
+      current.requested == :async -> {supersede_notices(store, identifier, :async_backlog_notice), nil}
+      previous.requested in [:async, :mute] and current.requested in [:sync, :steer] -> notice(store, identifier, current)
       true -> {store, nil}
     end
   end
@@ -38,11 +43,11 @@ defmodule Aiur.Orchestrator.ListenerTransitions do
   defp notice_text(1), do: "1 earlier message is waiting; read it with aiur_read_messages"
   defp notice_text(count), do: "#{count} earlier messages are waiting; read them with aiur_read_messages"
 
-  defp supersede_notices(store, identifier) do
+  defp supersede_notices(store, identifier, event_type) do
     store
     |> AgentQueueStore.list_pending(identifier)
     |> Enum.reduce(store, fn
-      %{category: :system_notice, event_type: :async_backlog_notice, id: id}, acc ->
+      %{event_type: ^event_type, id: id}, acc ->
         {acc, _} = AgentQueueStore.mark_superseded(acc, id)
         acc
 
