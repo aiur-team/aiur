@@ -208,12 +208,19 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         # `timeline_decision` over a fetched timeline, which this branch never
         # reaches (#2409).
         {:error, reason} ->
-          {:deferred, reason}
+          deferred_fetch_result(issue, label, reason, opts)
       end
     else
       {:ambiguous, :missing_github_token}
     end
   end
+
+  defp deferred_fetch_result(issue, label, :timeline_page_limit_exceeded = reason, opts) do
+    cache_deferred_authorization(issue, label, reason, opts, :until_issue_update)
+    {:deferred, reason}
+  end
+
+  defp deferred_fetch_result(_issue, _label, reason, _opts), do: {:deferred, reason}
 
   defp decide_fetched_timeline(issue, label, prefix, events, owner, repo, opts) do
     decision = Timeline.decision(issue, label, prefix, events)
@@ -350,6 +357,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     now = authorization_now_ms(opts)
 
     case Map.get(cache().deferred_authorizations, key) do
+      %{reason: reason, expires_at_ms: :until_issue_update} -> {:deferred, reason}
       %{reason: reason, expires_at_ms: expires_at_ms} when now < expires_at_ms -> {:deferred, reason}
       _expired_or_missing -> nil
     end
@@ -357,10 +365,19 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp cached_deferred_authorization(_issue, _label, _opts), do: nil
 
-  defp cache_deferred_authorization(%Issue{id: id, updated_at: updated_at}, label, reason, opts) when is_binary(id) do
+  defp cache_deferred_authorization(issue, label, reason, opts, expiry \\ :cooldown)
+
+  defp cache_deferred_authorization(%Issue{id: id, updated_at: updated_at}, label, reason, opts, expiry) when is_binary(id) do
     cache = cache()
     key = {id, label, updated_at}
-    entry = %{reason: reason, expires_at_ms: authorization_now_ms(opts) + @deferred_authorization_ttl_ms}
+
+    expires_at_ms =
+      case expiry do
+        :until_issue_update -> :until_issue_update
+        :cooldown -> authorization_now_ms(opts) + @deferred_authorization_ttl_ms
+      end
+
+    entry = %{reason: reason, expires_at_ms: expires_at_ms}
 
     deferred_authorizations =
       cache.deferred_authorizations
@@ -370,7 +387,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     :persistent_term.put(@cache_key, %{cache | deferred_authorizations: deferred_authorizations})
   end
 
-  defp cache_deferred_authorization(_issue, _label, _reason, _opts), do: :ok
+  defp cache_deferred_authorization(_issue, _label, _reason, _opts, _expiry), do: :ok
 
   defp authorization_now_ms(opts), do: Keyword.get(opts, :authorization_now_ms, System.monotonic_time(:millisecond))
 

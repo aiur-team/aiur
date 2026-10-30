@@ -90,6 +90,13 @@ reconciliation fields in the shared usage envelope. The deprecated
 | `POINTS/HR` | The rate the caller is running at, extrapolated from the elapsed part of the window rather than a whole hour. `unknown` when too little of the window has elapsed to extrapolate from. |
 | `SOURCE` | `reported` when GitHub priced the call itself through a `rateLimit { cost }` selection in the query, `estimated` when it did not and the call is counted at one point. GraphQL queries are instrumented automatically; mutations and REST calls are counted per request. |
 
+The broker's REST `endpoint_family` follows the API route: repository endpoints
+use the first resource after `/repos/{owner}/{repo}`, a bare repository read is
+`repository`, and global routes such as `/app`, `/installation`, `/orgs`,
+`/user` and `/users` use their first path segment. A URL with no path falls back
+to `rest`. This makes those admissions visible by endpoint; it does not itself
+reduce quota. Use `aiur github-cost` for code-caller attribution.
+
 Below the ranking, one reconciliation line per budget compares the sum of the
 rows against `limit - remaining` on the credential's own window:
 
