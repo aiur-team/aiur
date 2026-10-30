@@ -37,7 +37,8 @@
   };
 
   // Preserve local dictation through stale server patches until the server has
-  // rendered the same value. Once it acknowledges the transcript, server wins.
+  // rendered the same value. An intentional server normalization/reset does not
+  // count as an ack; the hold remains until the input is reinitialized.
   window.AiurVoiceInputBeforeUpdate = (from, to) => {
     if (from.matches("textarea[data-voice-input][data-voice-recording='true']")) {
       const synced = from.value === to.value;

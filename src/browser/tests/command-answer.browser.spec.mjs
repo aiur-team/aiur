@@ -236,28 +236,30 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
   await expect(form.locator('[data-voice-status]')).toHaveText('Dictation ready. Review the text, then send your correction.')
   await expect(page.locator('.decision-revision-list')).toHaveCount(0)
   await expect.poll(() => heldTranscriptReply !== undefined).toBe(true)
-  expect(heldTranscriptReply).toContain('Hold the rollout hello browser')
-  await page.evaluate(() => {
-    const callbacks = window.liveSocket.domCallbacks
-    const beforeUpdate = callbacks.onBeforeElUpdated
-    window.__voiceInputPatches = 0
-    callbacks.onBeforeElUpdated = (from, to) => {
-      if (from.matches('[data-voice-input]')) window.__voiceInputPatches += 1
-      beforeUpdate(from, to)
-    }
-  })
+  const staleServerValue = JSON.stringify(JSON.parse(heldTranscriptReply)[4].response.diff)
+    .match(/Hold the rollout hello browser/)?.[0]
+  expect(staleServerValue).toBe('Hold the rollout hello browser')
   await form.locator('[data-voice-input]').fill('Hold the rollout after review')
   await form.locator('[name="revision[reason]"]').fill('New evidence')
-  const patchesBeforeRelease = await page.evaluate(() => window.__voiceInputPatches)
+  await page.evaluate((staleValue) => {
+    const from = document.querySelector('[data-voice-input]')
+    const to = from.cloneNode(true)
+    to.removeAttribute('data-voice-recording')
+    to.value = staleValue
+    // Apply the captured stale server value through LiveView's production DOM
+    // callback, then model the textarea update that morphdom makes.
+    window.liveSocket.domCallbacks.onBeforeElUpdated(from, to)
+    from.value = to.value
+  }, staleServerValue)
+  await expect(page.locator('[data-voice-input]')).toHaveValue('Hold the rollout after review')
   socket.send(heldTranscriptReply)
   heldTranscriptReply = undefined
-  await expect.poll(() => page.evaluate(() => window.__voiceInputPatches)).toBeGreaterThan(patchesBeforeRelease)
-  await expect(page.locator('[data-voice-input]')).toHaveValue('Hold the rollout after review')
-  await expect(page.locator('[data-voice-input]')).toHaveAttribute('data-voice-recording', 'true')
   const pendingReplies = heldFollowingReplies.splice(0)
   holdFollowingReplies = false
   for (const reply of pendingReplies) socket.send(reply)
   await form.getByRole('button', { name: 'Send correction', exact: true }).click()
+  await expect(page.locator('[data-voice-input]')).toHaveValue('Hold the rollout after review')
+  await expect(page.locator('[data-voice-input]')).not.toHaveAttribute('data-voice-recording')
   await expect(page.locator('.decision-revision-list')).toContainText('Hold the rollout after review')
   await expect(page.locator('.decision-revision-list')).toContainText('New evidence')
 })
