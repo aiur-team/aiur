@@ -31,6 +31,16 @@ test('hook-owned DOM survives a server patch', async ({ page }) => {
   await expect(page.locator('#probe')).toHaveCount(1)
 })
 
+test('snapshot with unavailable rows shows an honest partial-board notice', async ({ page }) => {
+  await open(page)
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js'), { receive } = await import('/build-home/hook.js')
+    receive({ ...ctx.snap, generation: ctx.proto.generation + 1, unavailable_rows: 2 })
+  })
+  await expect(page.locator('#bd-partial')).toHaveText('2 rows unavailable · this board is partial')
+  await expect(page.locator('#bd-partial')).toHaveAttribute('role', 'status')
+})
+
 test('an open modal survives a server patch', async ({ page }) => {
   await open(page)
   await page.evaluate(() => {
