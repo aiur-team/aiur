@@ -1,6 +1,6 @@
 defmodule Aiur.Executor.HookConfigTest do
   use ExUnit.Case, async: false
-  alias Aiur.Executor.{HookConfig, HookToken}
+  alias Aiur.Executor.{HookConfig, HookSettingsBackup, HookToken}
 
   setup do
     root = Aiur.TestSupport.tmp_root!("executor hooks ' quoted")
@@ -67,7 +67,7 @@ defmodule Aiur.Executor.HookConfigTest do
     first = File.read!(path)
     assert :ok = HookConfig.install(:claude, repo_root: root)
     assert File.read!(path) == first
-    assert [backup] = Path.wildcard(path <> ".aiur-bak-*")
+    assert [backup] = Path.wildcard(Path.join(HookSettingsBackup.backup_dir(), "settings.local.json.aiur-bak-*"))
     assert File.read!(backup) == original
     extra = %{event: "Stop", command: "AIUR_EXECUTOR_HOOK=1 deliver", timeout: 5}
     assert :ok = HookConfig.install(:claude, repo_root: root, extra_entries: [extra])
@@ -137,7 +137,7 @@ defmodule Aiur.Executor.HookConfigTest do
       assert HookConfig.install(:claude, repo_root: root) == {:error, :unparsable}
       assert HookConfig.uninstall(repo_root: root) == {:error, :unparsable}
       assert File.read!(path) == original
-      assert Path.wildcard(path <> ".aiur-bak-*") == []
+      assert Path.wildcard(Path.join(HookSettingsBackup.backup_dir(), "settings.local.json.aiur-bak-*")) == []
     end
   end
 
