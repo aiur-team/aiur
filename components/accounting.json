@@ -27,8 +27,7 @@
     "src/lib/aiur/usage_envelope.ex",
     "src/lib/aiur/usage_envelope/**",
     "src/lib/aiur/usage_ledger.ex",
-    "src/lib/aiur/usage_ledger/**",
-    "src/lib/aiur_web/components/operator_control_center/run_summary_strip/netlify_row.ex"
+    "src/lib/aiur/usage_ledger/**"
   ],
   "facades": [
     "*"

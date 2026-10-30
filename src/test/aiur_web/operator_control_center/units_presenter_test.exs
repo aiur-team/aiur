@@ -3,7 +3,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
-  alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsURL}
 
   import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
@@ -17,7 +16,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert view.total_count == nil
     assert view.count_status == :loading
     assert Enum.all?(Map.values(view.counts), &is_nil/1)
-    assert UnitsPanel.units_count_label(view) == "loading units…"
     assert UnitsPresenter.announcement(view) =~ "Loading Units"
   end
 

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
-import { openUnits } from './units-helpers.mjs'
+import { openVoice } from './voice-drawer-helpers.mjs'
 
-test('Units interactive voice chat can cancel an indefinitely queued reply', async ({ page }) => {
-  await openUnits(page)
+test('Voice drawer interactive voice chat can cancel an indefinitely queued reply', async ({ page }) => {
+  await openVoice(page)
 
   const state = await page.evaluate(() => {
     const root = document.createElement('div')
@@ -38,8 +38,8 @@ test('Units interactive voice chat can cancel an indefinitely queued reply', asy
   expect(state.socketDisconnected).toBe(true)
 })
 
-test('Units interactive voice chat recovers after a silent turn', async ({ page }) => {
-  await openUnits(page)
+test('Voice drawer interactive voice chat recovers after a silent turn', async ({ page }) => {
+  await openVoice(page)
 
   const state = await page.evaluate(() => {
     const root = document.createElement('div')
@@ -75,7 +75,7 @@ test('Units interactive voice chat recovers after a silent turn', async ({ page 
 // The voice socket decodes PCM16 little-endian: a byte-order slip would turn
 // every dictation into noise without any error on either side.
 test('voice capture module encodes 16 kHz PCM16 little-endian base64', async ({ page }) => {
-  await openUnits(page)
+  await openVoice(page)
 
   const encoded = await page.evaluate(() => {
     const capture = window.AiurVoiceCapture
@@ -89,7 +89,7 @@ test('voice capture module encodes 16 kHz PCM16 little-endian base64', async ({ 
 // Dictation and conversation are distinct server channels; joining the wrong
 // topic (or without the CSRF token) would silently route speech to the wrong mode.
 test('voice transport joins the requested topic with the CSRF param', async ({ page }) => {
-  await openUnits(page)
+  await openVoice(page)
 
   const joined = await page.evaluate(async () => {
     const record = {}

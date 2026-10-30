@@ -86,6 +86,10 @@ defmodule Aiur.Orchestrator.State do
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             optional(:broker_fast_retry_pending?) => boolean(),
+            optional(:ci_wait_draft_since) => %{optional(String.t()) => integer()},
+            optional(:ci_wait_draft_alerts | :ci_wait_draft_recovered | :ci_wait_draft_comments) => MapSet.t(),
+            optional(:ci_wait_draft_pending_alerts) => map(),
+            optional(:draft_stall_alerts) => MapSet.t(),
             approved_heads: map(),
             passed_heads: map(),
             test_failure_heads: map(),

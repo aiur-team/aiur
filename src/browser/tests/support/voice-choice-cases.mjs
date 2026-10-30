@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openUnits } from './units-helpers.mjs'
+import { openVoice } from './voice-drawer-helpers.mjs'
 
 async function openChoice(page, path) {
   await page.addInitScript(() => {
@@ -9,7 +9,7 @@ async function openChoice(page, path) {
       getUserMedia: async () => { window.__micRequests++; throw new DOMException('denied', 'NotAllowedError') }
     } })
   })
-  await openUnits(page, path)
+  await openVoice(page, path)
   await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
   return page.getByRole('dialog', { name: 'Responsive Units interface' })
 }
@@ -23,7 +23,7 @@ test('voice chooser requests no audio on load, open or LiveView patch and Escape
   await drawer.getByRole('menuitem', { name: 'Dictate message' }).press('ArrowDown')
   await expect(drawer.getByRole('menuitem', { name: 'Converse' })).toBeFocused()
   await drawer.getByLabel('Message agent').fill('editable draft')
-  await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-voice-draft', 'editable draft')
+  await expect(page.locator('[data-voice-drawer-fixture]')).toHaveAttribute('data-voice-draft', 'editable draft')
   await expect(drawer.getByRole('menu')).toBeVisible()
   expect(await page.evaluate(() => window.__micRequests)).toBe(0)
   await drawer.getByRole('menuitem', { name: 'Converse' }).press('Escape')
@@ -43,14 +43,14 @@ test('unavailable Converse stays visible with its reason and never requests audi
 })
 
 test('available Converse emits the target hand-off without dictation or microphone capture', async ({ page }) => {
-  const drawer = await openChoice(page, '/units-fixture?converse=available')
+  const drawer = await openChoice(page, '/voice-fixture?converse=available')
   await page.evaluate(() => {
     window.__voiceJoins = []
     window.AiurVoiceTransport.open = options => { window.__voiceJoins.push(options.topic); throw new Error('unexpected join') }
   })
   await drawer.getByRole('button', { name: 'Choose voice input' }).click()
   await drawer.getByRole('menuitem', { name: 'Converse' }).click()
-  await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-voice-handoff', JSON.stringify({ surface: 'agent_composer', target: JSON.stringify({ kind: 'worker', ticket: '1110' }) }))
+  await expect(page.locator('[data-voice-drawer-fixture]')).toHaveAttribute('data-voice-handoff', JSON.stringify({ surface: 'agent_composer', target: JSON.stringify({ kind: 'worker', ticket: '1110' }) }))
   expect(await page.evaluate(() => window.__voiceJoins)).toEqual([])
   expect(await page.evaluate(() => window.__micRequests)).toBe(0)
 })

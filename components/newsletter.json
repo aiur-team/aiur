@@ -1,0 +1,35 @@
+{
+  "id": "newsletter",
+  "name": "Daily newsletter",
+  "layer": 5,
+  "kind": "client",
+  "paths": [
+    "packages/newsletter/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "Standalone Python commands",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Collects daily evidence and compiles a one-page PDF with optional Executor notes.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "skills.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "steer"
+}
