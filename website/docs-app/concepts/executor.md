@@ -113,3 +113,34 @@ a new session never inherits it.
 Accepted events publish on the
 internal `executor_hook` topic; rejection counts use
 `[:aiur, :executor, :hook]` telemetry without recording payload content.
+
+### Generated hook settings
+
+The Executor hook generator installs Claude hooks in the repository's
+`.claude/settings.local.json`. It preserves existing settings and hook order,
+backs up changed files to
+`<repo>/.claude/settings.local.json.aiur-bak-<timestamp>`, and refuses invalid
+JSON or hook structures. Written settings and backups have mode `0600`.
+
+Before installing, ignore `.claude/settings.local.json*` in `.gitignore` or
+the repository's local `.git/info/exclude`. Settings and backups may contain
+environment values, permissions and absolute hook paths; file permissions do
+not prevent Git from committing them.
+
+Removing the integration removes only commands
+starting with `AIUR_EXECUTOR_HOOK=1`; backups remain available.
+
+An existing marked lifecycle command is preserved, including its paths.
+Uninstall and reinstall the hooks to point them at another instance.
+
+Codex configuration is printed for merging into `<repo>/.codex/hooks.json`.
+Review and trust those hooks in Codex's `/hooks` dialog before using them;
+the generator does not edit Codex settings or grant trust.
+
+Generated commands read the instance's private `.executor.hook-url` file on each
+invocation. The daemon rewrites that file after an HTTP bind, so a changed
+port does not require reinstalling hooks.
+
+Commands send input to the loopback
+endpoint with the separate header file, suppress output, bound curl to two
+seconds, and exit successfully even when the daemon is unavailable.
