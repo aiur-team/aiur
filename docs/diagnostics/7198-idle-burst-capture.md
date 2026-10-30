@@ -36,7 +36,9 @@ Each burst records the PID, registered name, initial call, reduction delta,
 window duration, and timestamped stacks. Capture time is excluded by taking
 a fresh baseline afterward. A deadline can truncate the eight-stack sequence;
 the returned sample count makes this visible. The result reports elapsed time,
-window count, and whether duration or the burst cap stopped capture.
+window count, and whether duration or the burst cap stopped capture. `observed_at`
+is the UTC start; subtract `started_at_ms` from burst/sample timestamps to get
+milliseconds since that start for correlation with host readings.
 
 All-process inspection adds overhead. Do not treat a profiled window as a clean
 CPU acceptance reading. A reduction trigger can also miss work in native code

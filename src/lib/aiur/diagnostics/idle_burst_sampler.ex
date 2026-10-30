@@ -29,11 +29,12 @@ defmodule Aiur.Diagnostics.IdleBurstSampler do
       clock: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end)
     }
 
+    observed_at = DateTime.utc_now() |> DateTime.to_iso8601()
     started = source.clock.()
     initial = snapshot(source)
     state = %{deadline: started + duration, max_bursts: max_bursts, bursts: [], windows: 0}
     result = poll(source, initial, state)
-    Map.merge(result, %{elapsed_ms: source.clock.() - started, interval_ms: @interval_ms, threshold: @threshold})
+    Map.merge(result, %{observed_at: observed_at, started_at_ms: started, elapsed_ms: source.clock.() - started, interval_ms: @interval_ms, threshold: @threshold})
   end
 
   defp positive!(opts, key, default) do
