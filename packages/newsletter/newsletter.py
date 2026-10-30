@@ -14,9 +14,9 @@ from metrics import compute
 from render import compile_report
 
 
-def prepare(repo, state_dir, now, instances=(), notes=None, output_date=None):
+def prepare(repo, state_dir, now, instances=(), notes=None, output_date=None, aiur="aiur"):
     directory = state_dir / "newsletter"
-    snapshot = collect(repo, state_dir, now, instances=instances, telemetry_root=Path.home() / ".aiur/logs")
+    snapshot = collect(repo, state_dir, now, instances=instances, telemetry_root=Path.home() / ".aiur/logs", aiur=aiur)
     baseline = directory / "snapshots" / ((now - timedelta(days=1)).date().isoformat() + ".json")
     yesterday = json.loads(baseline.read_text()) if baseline.exists() else None
     report = compute(snapshot, yesterday)
@@ -28,8 +28,8 @@ def prepare(repo, state_dir, now, instances=(), notes=None, output_date=None):
     return target, report
 
 
-def preprocess(repo, state_dir, now, instances=(), notes=None, output_date=None):
-    target, report = prepare(repo, state_dir, now, instances, notes, output_date)
+def preprocess(repo, state_dir, now, instances=(), notes=None, output_date=None, aiur="aiur"):
+    target, report = prepare(repo, state_dir, now, instances, notes, output_date, aiur)
     target.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     return target
 
@@ -55,6 +55,7 @@ def main():
         child.add_argument("--repo", help="owner/repo; defaults to current origin")
         child.add_argument("--state-dir", type=Path, help="Aiur per-repository state root")
         child.add_argument("--instance", action="append", default=[], help="additional configured daemon")
+        child.add_argument("--aiur", default="aiur", help="CLI executable targeting this repository daemon")
         child.add_argument("--notes", type=Path, help="editorial JSON or Markdown")
         child.add_argument("--timezone", help="IANA operator time zone (default: local)")
     child = commands.add_parser("compile")
