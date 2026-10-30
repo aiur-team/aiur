@@ -70,6 +70,11 @@ defmodule VoiceConverse.Session.Start do
     %{
       config
       | llm: Keyword.get(opts, :llm, config.llm),
+        providers:
+          if(Keyword.has_key?(opts, :provider),
+            do: %{config.providers | on_missing_credential: :refuse},
+            else: config.providers
+          ),
         limits: %{config.limits | max_session_seconds: min(seconds, config.limits.max_session_seconds)}
     }
   end

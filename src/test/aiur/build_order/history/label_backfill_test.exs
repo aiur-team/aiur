@@ -230,15 +230,12 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     request = Enum.find_index(messages, &match?({:request, _}, &1))
     assert is_integer(reservation) and reservation < request
     stop_supervised!(LabelBackfill)
+    # Expire the window before boot: init starts a batch at once, and a tick that joins it gets that batch's result.
+    update(ctx.fixture, %{now: DateTime.add(ctx.now, 3660)})
     opts = Keyword.put(ctx.opts, :writer, fn _, _, _ -> {:error, :enospc} end)
     server = boot(opts)
-    assert tick_after_expiry(server, ctx) in [%{state: :unavailable, reason: :checkpoint_write_failed}, {:error, :checkpoint_write_failed}]
+    assert tick(server) in [%{state: :unavailable, reason: :checkpoint_write_failed}, {:error, :checkpoint_write_failed}]
     assert requests() == []
-  end
-
-  defp tick_after_expiry(server, ctx) do
-    update(ctx.fixture, %{now: DateTime.add(ctx.now, 3660)})
-    tick(server)
   end
 
   defp drain(acc) do

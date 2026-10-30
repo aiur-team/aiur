@@ -35,11 +35,15 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
     write_voice(path, base, "")
     {after_removal, _warnings} = Collector.collect([])
     changed = for {id, entry} <- before.capabilities, entry != after_removal.capabilities[id], do: id
-    assert Enum.sort(changed) == ~w(voice.stt voice.tts)
+    assert Enum.sort(changed) == ~w(voice.conversation voice.stt voice.tts)
 
-    for id <- changed do
+    for id <- ~w(voice.stt voice.tts) do
       assert after_removal.capabilities[id] == %{state: :unavailable, reason: :not_configured}
     end
+
+    missing_key_reason = "ElevenLabs Agents skipped: elevenlabs.api_key / ELEVENLABS_API_KEY missing"
+    refute before.capabilities["voice.conversation"].provider_reason =~ missing_key_reason
+    assert after_removal.capabilities["voice.conversation"].provider_reason =~ missing_key_reason
 
     refute Jason.encode!(before) =~ "test-voice-secret"
   end
