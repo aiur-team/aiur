@@ -253,6 +253,7 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
   heldTranscriptReply = undefined
   await expect.poll(() => page.evaluate(() => window.__voiceInputPatches)).toBeGreaterThan(patchesBeforeRelease)
   await expect(page.locator('[data-voice-input]')).toHaveValue('Hold the rollout after review')
+  await expect(page.locator('[data-voice-input]')).toHaveAttribute('data-voice-recording', 'true')
   const pendingReplies = heldFollowingReplies.splice(0)
   holdFollowingReplies = false
   for (const reply of pendingReplies) socket.send(reply)
