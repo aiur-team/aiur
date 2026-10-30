@@ -151,14 +151,19 @@ test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
 
 test('live detail-tier changes preserve an unchanged focused plan card', async ({ page }) => {
   await open(page)
-  const id = await page.evaluate(() => {
+  const id = await page.evaluate(async () => {
     const { ctx } = state
     const item = ctx.L.secs.plan.items[0]
     if (!item) throw new Error('fixture must contain a planned row')
     state.fx.scrollVP(ctx.secs.plan.el.offsetTop + item.y - 70, false)
+    // The scroll event (which starts the settle and snap locks) fires in the next frame's rendering steps (#7189).
+    await new Promise(requestAnimationFrame)
+    window.boardHistory = await import('/build-home/history.js')
     return item.t.id
   })
-  await page.waitForFunction(() => !state.ctx.snapping && !state.ctx.content.classList.contains('scrolling'))
+  // Wait out every flushLive() deferral, or the live pass below is skipped.
+  await page.waitForFunction(() => !state.ctx.snapping && !state.ctx.content.classList.contains('scrolling') &&
+    boardHistory.H.state !== 'loading' && !state.ctx.root.querySelector('.bd-sb.drag'))
   const result = await page.evaluate(id => {
     const { ctx } = state
     const focused = ctx.R.get('plan:' + id)
