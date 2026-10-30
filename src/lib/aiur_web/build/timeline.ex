@@ -1,7 +1,8 @@
 defmodule AiurWeb.Build.Timeline do
   @moduledoc "Builds the ticket timeline from durable per-ticket event markers."
 
-  alias Aiur.{IssueLog, TrackerIdentity}
+  alias Aiur.BuildOrder.TicketTimelineProvider
+  alias Aiur.TrackerIdentity
 
   @page_size 200
 
@@ -9,7 +10,7 @@ defmodule AiurWeb.Build.Timeline do
   def read(identity, after_id \\ 0, opts \\ [])
 
   def read(%TrackerIdentity{} = identity, after_id, opts) when is_integer(after_id) and after_id >= 0 do
-    read_fun = Keyword.get(opts, :read_fun, &IssueLog.event_history_page/2)
+    read_fun = Keyword.get(opts, :read_fun, &TicketTimelineProvider.read_page/2)
     read_history(identity, after_id, read_fun)
   end
 
