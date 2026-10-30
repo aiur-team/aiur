@@ -247,6 +247,7 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
     }
   })
   await form.locator('[data-voice-input]').fill('Hold the rollout after review')
+  await form.locator('[name="revision[reason]"]').fill('New evidence')
   const patchesBeforeRelease = await page.evaluate(() => window.__voiceInputPatches)
   socket.send(heldTranscriptReply)
   heldTranscriptReply = undefined
@@ -255,7 +256,6 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
   const pendingReplies = heldFollowingReplies.splice(0)
   holdFollowingReplies = false
   for (const reply of pendingReplies) socket.send(reply)
-  await form.locator('[name="revision[reason]"]').fill('New evidence')
   await form.getByRole('button', { name: 'Send correction', exact: true }).click()
   await expect(page.locator('.decision-revision-list')).toContainText('Hold the rollout after review')
   await expect(page.locator('.decision-revision-list')).toContainText('New evidence')
