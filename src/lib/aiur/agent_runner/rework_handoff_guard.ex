@@ -109,7 +109,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
        when is_binary(workspace) and is_binary(tested_head) and is_binary(head) and is_binary(base_sha) do
     classifier = Keyword.get(opts, :approval_carry_classifier)
 
-    merge_only_advance?(workspace, tested_head, head) and
+    base_advanced_since_tested?(workspace, tested_head, base_sha) and
+      merge_only_advance?(workspace, tested_head, head) and
       classify_approval_carry(classifier, tested_head, head, pr["number"], opts) == :identical
   end
 
@@ -131,6 +132,14 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
 
       _ ->
         false
+    end
+  end
+
+  defp base_advanced_since_tested?(workspace, tested_head, base_sha) do
+    case System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", base_sha, tested_head], stderr_to_stdout: true) do
+      {_, 0} -> false
+      {_, 1} -> true
+      _ -> false
     end
   end
 
