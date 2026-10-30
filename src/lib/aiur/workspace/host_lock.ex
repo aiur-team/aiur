@@ -181,7 +181,6 @@ defmodule Aiur.Workspace.HostLock do
       {:keep, reason} -> {:keep, reason}
       {:live, reason} -> {:keep, reason}
       :unknown -> {:keep, :proc_unreadable}
-      _ -> {:keep, :pid_alive}
     end
   end
 
