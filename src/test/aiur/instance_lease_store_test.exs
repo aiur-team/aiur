@@ -83,7 +83,7 @@ defmodule Aiur.Instance.LeaseStoreTest do
     ]
 
     {:ok, supervisor} = Supervisor.start_link(children, strategy: :one_for_one)
-    on_exit(fn -> if Process.alive?(supervisor), do: safe_stop_supervisor(supervisor) end)
+    on_exit(fn -> safe_stop_supervisor(supervisor) end)
 
     assert_receive {:store_alert, "system.instance.ownership_unknown"}, 5_000
 
@@ -109,7 +109,7 @@ defmodule Aiur.Instance.LeaseStoreTest do
     server = Module.concat(__MODULE__, "Renewal#{System.unique_integer([:positive])}")
     {:ok, store} = LeaseStore.start_link(name: server, url: nil, instance_id: "self", leases: MapSet.new(["owner/repo#42"]))
     Process.unlink(store)
-    on_exit(fn -> if Process.alive?(store), do: safe_stop_genserver(store) end)
+    on_exit(fn -> safe_stop_genserver(store) end)
 
     {:ok, clock} = Agent.start_link(fn -> 0 end)
     on_exit(fn -> if Process.alive?(clock), do: Agent.stop(clock) end)
@@ -153,7 +153,7 @@ defmodule Aiur.Instance.LeaseStoreTest do
     server = Module.concat(__MODULE__, "BlockedRenewal#{System.unique_integer([:positive])}")
     {:ok, store} = LeaseStore.start_link(name: server, url: nil, instance_id: "self", leases: MapSet.new(["owner/repo#42"]))
     Process.unlink(store)
-    on_exit(fn -> if Process.alive?(store), do: safe_stop_genserver(store) end)
+    on_exit(fn -> safe_stop_genserver(store) end)
     parent = self()
 
     {worker, monitor} =
@@ -204,8 +204,8 @@ defmodule Aiur.Instance.LeaseStoreTest do
         {:ok, right_pid} = LeaseStore.start_link(name: right, url: url, instance_id: right_id)
 
         on_exit(fn ->
-          if Process.alive?(left_pid), do: safe_stop_genserver(left_pid)
-          if Process.alive?(right_pid), do: safe_stop_genserver(right_pid)
+          safe_stop_genserver(left_pid)
+          safe_stop_genserver(right_pid)
         end)
 
         assert LeaseStore.claim(key, server: left) == :acquired

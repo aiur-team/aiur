@@ -13,7 +13,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   defmodule StartingOrchestrator do
     use GenServer
 
-    def start_link, do: GenServer.start_link(__MODULE__, :starting)
+    def start_link(_opts), do: GenServer.start_link(__MODULE__, :starting)
     @impl true
     def init(state), do: {:ok, state}
     @impl true
@@ -125,8 +125,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   end
 
   test "an unpublished live orchestrator stops loading after the startup deadline" do
-    {:ok, pid} = StartingOrchestrator.start_link()
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    pid = start_supervised!({StartingOrchestrator, []})
 
     assert PauseState.pause_state(pid, 0) == :loading
     assert PauseState.pause_state(pid, 600_000) == nil
@@ -143,8 +142,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   end
 
   test "unpublished daemon snapshot renders a loading pause state" do
-    {:ok, pid} = StartingOrchestrator.start_link()
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    pid = start_supervised!({StartingOrchestrator, []})
     assert :loading == PauseState.pause_state(pid)
 
     html =

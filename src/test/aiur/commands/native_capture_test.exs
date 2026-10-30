@@ -15,8 +15,7 @@ defmodule Aiur.Commands.NativeCaptureTest do
     tracked = :persistent_term.get(tracked_key, nil)
     Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> :persistent_term.put(tracked_key, tracked) end)
-    store = start_store!(dir, dispatch_delay_ms: 60_000)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store = start_supervised!(store_spec(dir))
     %{ctx: %{ticket: @ticket, source: @source, session_ref: "session-1", store: store, workspace: dir}}
   end
 
@@ -46,6 +45,9 @@ defmodule Aiur.Commands.NativeCaptureTest do
   end
 
   defp records(dir), do: dir |> Path.join("decisions.ndjson") |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+
+  defp store_spec(dir),
+    do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000}, id: make_ref())
 
   test "captured question creates and persists one attributed Command using trusted identity", %{ctx: ctx, dir: dir} do
     input = normalized() |> Map.put(:ticket, %{identifier: "forged"}) |> Map.put(:source, %{session_id: "forged"})
@@ -191,8 +193,7 @@ defmodule Aiur.Commands.NativeCaptureTest do
     log = capture_log(fn -> assert NativeCapture.capture(normalized(), ctx) == {:release, UserInputAnswers.non_interactive_answer()} end)
     assert log =~ "native_capture phase=request_failed issue_id= issue_identifier=979 session_id=session-1 reason=store_unavailable"
 
-    store = start_store!(dir, dispatch_delay_ms: 60_000)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000})
     invalid = %{normalized() | blocking: "invalid"}
     capture_log(fn -> assert NativeCapture.capture(invalid, %{ctx | store: store}) == {:release, UserInputAnswers.non_interactive_answer()} end)
   end
