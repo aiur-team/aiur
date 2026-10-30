@@ -88,6 +88,11 @@ defmodule Aiur.Commands.Projection do
     end
   end
 
+  def apply(decision, %{type: type} = event) when type in [:override_resume_state, :override_prompt_delivered] do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         do: Overrides.resume_fact(decision, event)
+  end
+
   def apply(decision, %{type: :override_implemented} = event) do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
          do: Overrides.implemented(decision, event)

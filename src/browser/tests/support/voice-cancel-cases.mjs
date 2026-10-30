@@ -14,7 +14,7 @@ async function open(page, drawer = false) {
   })
   await page.goto('/auth/writable')
   await page.goto('/streamdeck-control/writable')
-  await page.goto(drawer ? '/units-fixture' : '/voice-input-fixture')
+  await page.goto(drawer ? '/voice-fixture' : '/voice-input-fixture')
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await page.evaluate(() => {
     window.__pushes = []
@@ -98,12 +98,12 @@ for (const target of ['input', 'control']) {
     await expect(input).toHaveValue('original draft hello')
     // The transcript dispatches phx-change. Let that patch settle before
     // focusing Cancel: its server-rendered hidden attribute can drop focus.
-    await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-voice-draft', 'original draft hello')
+    await expect(page.locator('[data-voice-drawer-fixture]')).toHaveAttribute('data-voice-draft', 'original draft hello')
     const focus = target === 'input' ? input : drawer.getByRole('button', { name: 'Cancel', exact: true })
     await focus.press('Escape')
     await expect(drawer).toBeVisible()
     await expect(input).toHaveValue('original draft')
-    await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-voice-draft', 'original draft')
+    await expect(page.locator('[data-voice-drawer-fixture]')).toHaveAttribute('data-voice-draft', 'original draft')
     expect(await page.evaluate(() => window.__pushes)).toEqual(['cancel'])
     await input.press('Escape')
     await expect(drawer).toHaveCount(0)

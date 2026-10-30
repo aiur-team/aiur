@@ -103,7 +103,7 @@ A mooted Command leaves `aiur commands --blocking` and the open/blocking counts,
 
 A decided answer is addressed to the ticket, not to one worker session. Until an agent receives it, Aiur delivers it to whichever worker runs the ticket, including a new worker after a requeue or a daemon restart.
 
-Before delivery, `executor-moot` withdraws an answer. `executor-answer --supersede` overrides an Executor answer even after delivery or acknowledgement; it cannot override a direct or relayed operator answer. 
+Before delivery, `executor-moot` withdraws an answer. `executor-answer --supersede` overrides an Executor answer even after delivery or acknowledgement; it cannot override a direct or relayed operator answer.
 
 The `overrides` array in `aiur commands --json` links the original Command, prior/new action IDs, ticket and observed PR to each override, its route, timestamps and queued/delivered/implemented/superseded state. Unknown PR state is explicit.
 

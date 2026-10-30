@@ -1,6 +1,7 @@
 defmodule Aiur.EpicCLI do
   @moduledoc "Formats local epic registry commands dispatched by the shared launcher."
   alias Aiur.BuildOrder.EpicOverrides
+  alias Aiur.EpicConfirmationCLI, as: Confirmation
   alias Aiur.JSONSafe
 
   @spec run(keyword()) :: non_neg_integer()
@@ -20,8 +21,10 @@ defmodule Aiur.EpicCLI do
     end
   end
 
+  defp error_result({:confirm_refused, failures}), do: Confirmation.refusal(failures)
   defp error_result(%{state: _} = health), do: %{ok: false, health: health}
   defp error_result(reason), do: %{ok: false, error: inspect(reason)}
+  defp error_text({:confirm_refused, failures}), do: Confirmation.error(failures)
   defp error_text(%{failure: reason}), do: "epic overrides unavailable (#{reason})"
   defp error_text(:epic_overrides_outcome_unknown), do: "epic write outcome is unknown"
   defp error_text(:epic_config_unavailable), do: "epic config unavailable"
@@ -42,7 +45,25 @@ defmodule Aiur.EpicCLI do
       ids = Keyword.get(opts, :ids, [])
       selected = if ids == [], do: overrides, else: Map.take(overrides, ids)
       rows = selected |> Map.values() |> Enum.sort_by(& &1.number) |> Enum.map(&Map.put(Map.from_struct(&1), :epic_known, if(is_nil(known), do: nil, else: &1.epic in known)))
-      {:ok, %{health: health, overrides: rows, missing: ids -- Map.keys(selected)}}
+      result = %{health: health, overrides: rows, missing: ids -- Map.keys(selected)}
+
+      if opts[:unconfirmed] do
+        rows = Enum.filter(rows, &(&1.confirmed == false))
+        {:ok, %{result | overrides: rows} |> Map.put(:unconfirmed_count, length(rows))}
+      else
+        {:ok, result}
+      end
+    end
+  end
+
+  defp execute(:confirm, opts) do
+    with false <- Keyword.has_key?(opts, :source),
+         {:ok, provenance} <- provenance(opts),
+         {:ok, result} <- EpicOverrides.confirm(opts[:ids], provenance, opts) do
+      {:ok, Confirmation.result(result, provenance)}
+    else
+      true -> {:error, :invalid_epic_arguments}
+      error -> error
     end
   end
 
@@ -74,8 +95,14 @@ defmodule Aiur.EpicCLI do
   defp render(:list, result, _opts), do: Enum.map_join(result.epics, "\n", &"#{&1.key}  #{&1.label}")
 
   defp render(:show, result, _opts) do
-    Enum.map_join(result.overrides, "\n", &show_row/1) <> Enum.map_join(result.missing, "", &"\n##{&1}  no override")
+    rows = Enum.map(result.overrides, &show_row/1)
+
+    if Map.has_key?(result, :unconfirmed_count),
+      do: Enum.join(rows ++ ["#{result.unconfirmed_count} unconfirmed"], "\n"),
+      else: Enum.join(rows ++ Enum.map(result.missing, &"##{&1}  no override"), "\n")
   end
+
+  defp render(:confirm, result, _opts), do: Confirmation.render(result)
 
   defp render(action, result, opts) do
     summary = Enum.map_join(result.results, ", ", &"##{&1.number} #{&1.status}")

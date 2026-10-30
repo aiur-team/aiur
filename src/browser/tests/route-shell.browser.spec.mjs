@@ -20,7 +20,7 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
 
-  for (const path of ['/', '/build', '/units', '/route-shell', '/units-fixture', '/commands', '/build-orders', '/analytics', '/experiments']) {
+  for (const path of ['/', '/build', '/route-shell', '/commands', '/build-orders', '/analytics', '/experiments']) {
     await page.goto(path)
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   }
@@ -42,29 +42,18 @@ test('legacy Commands URLs redirect permanently to the canonical route', async (
   await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
 })
 
-test('hidden rollback routes return to Build through the visible navigation', async ({ page }) => {
+test('legacy Units URL redirects permanently to Build', async ({ page }) => {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
-
-  for (const path of ['/units?v=1&scope=none']) {
-    await page.goto(path)
-    await expect(page.getByRole('link', { name: 'Units', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'Build Order', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'Experiments', exact: true })).toBeVisible()
-    await page.getByRole('link', { name: 'Build', exact: true }).click()
-    await expect(page).toHaveURL(/\/$/)
-    await expect(page.locator('#route-title')).toHaveText('Build')
-    await expect(page.locator('#build-root')).toBeVisible()
-    await expect(page.locator('#route-shell-action')).toHaveCount(0)
-    if (path.startsWith('/units')) {
-      await page.goBack()
-      await expect(page).toHaveURL(/\/units\?v=1&scope=none$/)
-      await expect(page.locator('.units-card')).toBeVisible()
-      await page.goForward()
-      await expect(page).toHaveURL(/\/$/)
-      await expect(page.locator('#build-root')).toBeVisible()
-    }
-  }
+  const response = await page.goto('/units?sort=command-history:command:asc')
+  let request = response.request()
+  while (request.redirectedFrom()) request = request.redirectedFrom()
+  const redirect = await request.response()
+  expect(redirect.status()).toBe(301)
+  expect(redirect.headers().location).toBe('/?sort=command-history:command:asc')
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/)
+  await expect(page.locator('#build-root')).toBeVisible()
+  await expect(page.locator('.units-card, #units-table')).toHaveCount(0)
 })
 
 test('navigation keeps its labels reachable after collapse and expansion', async ({ page }) => {

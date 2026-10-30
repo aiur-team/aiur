@@ -29,9 +29,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/voice-capture.js"></script>
         <script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script>
         <script defer src="/voice-waveform.js"></script><script defer src="/voice-playback.js"></script><script defer src="/conversation-voice-controller.js"></script>
-        <script defer src="/executor-voice-controller.js"></script>
-        <script defer src="/voice-input-hook.js"></script>
-        <script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/executor-voice-controller.js"></script><script defer src="/executor-voice-hook.js"></script><script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/streamdeck-emulator-knob.js"></script>
@@ -237,6 +235,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
             }
 
             if (window.AiurVoiceInputHook) window.BrowserHarnessHooks.VoiceInput = window.AiurVoiceInputHook;
+            if (window.AiurExecutorVoiceHook) window.BrowserHarnessHooks.ExecutorVoice = window.AiurExecutorVoiceHook;
 
             if (window.AiurConversationDrawerHook) {
               window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
