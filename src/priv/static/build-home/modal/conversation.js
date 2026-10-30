@@ -87,8 +87,16 @@ export function renderConversation(msg, t = open?.ticket, model = open?.model) {
   fx.renderComposer(t, msg);
   body.querySelectorAll('[data-tab]').forEach(button => {
     button.addEventListener('click', () => {
-      open.tab = button.dataset.tab; renderConversation(open.msg, open.ticket, open.model);
-      body.querySelector('[data-tab="' + open.tab + '"]')?.focus({ preventScroll: true });
+      if (!open) return;
+      open.tab = button.dataset.tab;
+      body.querySelectorAll('[role="tab"]').forEach(tabButton => {
+        const selected = tabButton === button;
+        tabButton.setAttribute('aria-selected', String(selected));
+        tabButton.tabIndex = selected ? 0 : -1;
+      });
+      body.querySelector('#cv-panel-conversation').hidden = open.tab !== 'conversation';
+      body.querySelector('#cv-panel-timeline').hidden = open.tab !== 'timeline';
+      if (open.tab === 'timeline') loadTimeline(open);
     });
     button.addEventListener('keydown', event => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -158,14 +166,18 @@ function start(t) {
   close();
   open = { id: t.id, ticket: t, model: modelInfo(t.agent?.model), req: ++sequence, serial: 0, life: ctx.life, offs: [], trimmed: false, tab: 'conversation' };
   timelineHTMLValue = '<p class="bm-cue">Loading ticket timeline…</p>';
-  requestTimeline(t, timeline => {
-    if (open?.id !== t.id) return;
-    timelineHTMLValue = timelineHTML(timeline);
-    const panel = $('#cv-panel-timeline'); if (panel) panel.innerHTML = timelineHTMLValue;
-  });
   const ref = open;
   ref.offs.push(ctx.life.every(60000, () => { if (current(ref)) state(ref.msg || {}); }));
   requestTail();
+}
+function loadTimeline(ref) {
+  if (ref.timelineRequested) return;
+  ref.timelineRequested = true;
+  requestTimeline(ref.ticket, timeline => {
+    if (!current(ref)) return;
+    timelineHTMLValue = timelineHTML(timeline);
+    const panel = $('#cv-panel-timeline'); if (panel) panel.innerHTML = timelineHTMLValue;
+  });
 }
 registerBody('conversation', start);
 Object.assign(fx, { appendEntries, appendItem, receiveConversation, reconnectConversation: requestTail });

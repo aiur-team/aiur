@@ -215,9 +215,10 @@ registerBody('doc', (t, body, opts = {}) => {
 const modalSync = fx.modalSync;
 fx.modalSync = msg => { modalSync(msg); syncDoc(msg); };
 onModalClose(() => {
+  const hadTimeline = timelineView && numeric(timelineView.id);
   timelineView = null;
   const hadDoc = view && numeric(view.id);
   view = null;
-  if (hadDoc && ctx.socket === 'up' && ctx.push) ctx.push('ticket-doc-close', {}).catch(() => {});
+  if ((hadDoc || hadTimeline) && ctx.socket === 'up' && ctx.push) ctx.push('ticket-doc-close', {}).catch(() => {});
 });
 onReset(() => { view = null; adds.clear(); });

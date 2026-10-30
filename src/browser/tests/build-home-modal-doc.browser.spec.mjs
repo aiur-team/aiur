@@ -23,6 +23,7 @@ async function display(page, patch = {}, options = {}) {
     ctx.push = (event, payload) => {
       window.docCalls.push({ event, payload })
       if (['ticket-doc', 'queue-add'].includes(event)) return new Promise(resolve => { window[event + 'Reply'] = resolve })
+      if (event === 'conversation-page' && options.conversation) return Promise.resolve({ v: 1, kind: 'conversation', id: payload.id, state: 'known_empty', entries: [], more: false, composer: 'ready' })
       return push(event, payload)
     }
     ctx.snap.writable = options.writable ?? true
@@ -219,10 +220,14 @@ test('mounted hook reconnect re-reads doc and turns pending adds into unknown ou
 })
 
 test('conversation opens skip body reads; doc close unsubscribes and pack ids never request GitHub', async ({ page }) => {
-  await display(page, { agent: { model: 'codex', state: 'active' }, start: 1 })
+  await display(page, { agent: { model: 'codex', state: 'active' }, start: 1 }, { conversation: true })
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc'))).toEqual([])
+  await expect(page.locator('#cv-tab-conversation')).toBeVisible()
+  await page.locator('#cv-tab-conversation').focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc').length)).toBe(1)
   await page.keyboard.press('Escape')
-  expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc-close'))).toEqual([])
+  expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc-close').length)).toBe(1)
   await display(page)
   await page.keyboard.press('Escape')
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc-close').length)).toBe(1)
