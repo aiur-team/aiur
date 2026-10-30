@@ -75,6 +75,12 @@ defmodule Aiur.CodeHost do
   @spec update_pull_request_body(integer(), String.t()) :: {:ok, map()} | {:error, term()}
   def update_pull_request_body(number, body), do: optimistic_call(:update_pull_request_body, [number, body])
 
+  @spec override_pull_request(pos_integer()) :: {:ok, map()} | {:error, term()}
+  def override_pull_request(number), do: optimistic_call(:override_pull_request, [number])
+
+  @spec close_superseded_pull_request(pos_integer(), String.t()) :: :ok | {:error, term()}
+  def close_superseded_pull_request(number, successor), do: optimistic_call(:close_superseded_pull_request, [number, successor])
+
   defp optimistic_call(function, arguments) do
     adapter = adapter()
 

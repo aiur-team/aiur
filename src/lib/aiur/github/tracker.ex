@@ -412,4 +412,10 @@ defmodule Aiur.GitHub.Tracker do
   defp client_module do
     Application.get_env(:aiur, :github_client_module, Client)
   end
+
+  @spec override_pull_request(pos_integer()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_pull_request(number), to: Aiur.GitHub.OverrideRecovery, as: :pull_request
+
+  @spec close_superseded_pull_request(pos_integer(), String.t()) :: :ok | {:error, term()}
+  defdelegate close_superseded_pull_request(number, successor), to: Aiur.GitHub.OverrideRecovery, as: :close
 end
