@@ -11,8 +11,7 @@ defmodule Aiur.Executor.BlockersTest do
     @impl true
     def handle_call(:list, _from, health), do: {:reply, [], health}
 
-    def handle_call(:retained_counts, _from, health),
-      do: {:reply, {:ok, %{counts: %{open: 0, blocking: 0, total: 0}, health: health}}, health}
+    def handle_call(:retained_counts, _from, health), do: {:reply, {:error, :store_unavailable}, health}
   end
 
   setup do
