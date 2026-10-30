@@ -1,8 +1,108 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
-  alias Aiur.LandingWatch.{Journal, MergeGroupFailureProcessor}
+  alias Aiur.IssueLog.Writers
+  alias Aiur.LandingWatch.{Journal, MergeGroupFailureProcessor, MergeGroupRequeue}
+  alias Aiur.TrackerIdentity
+
+  test "a repeated merge-group failure is published to the linked ticket journal" do
+    original_log_file = Application.get_env(:aiur, :log_file)
+    original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
+    root = Aiur.TestSupport.tmp_root!("merge-group-ticket-timeline")
+    Application.put_env(:aiur, :log_file, Path.join(root, "log/aiur.log"))
+    Application.put_env(:aiur, :runtime_state_dir, Path.join(root, "state"))
+
+    on_exit(fn -> restore_test_environment(original_log_file, original_runtime_state_dir, root) end)
+
+    unique = System.unique_integer([:positive])
+    repository = {"owner", "repo-#{unique}"}
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I#{unique}", "number" => "17"}, repository, repository)
+    :ok = Aiur.IssueLog.attach(identity)
+    writer = writer_pid(identity)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(writer) end)
+    path = Path.join(root, "journal.json")
+    parent = self()
+    identity_fun = fn "17" -> identity end
+
+    assert :ok = process_failure(701, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent, ticket_identity_fun: identity_fun)
+    assert :ok = process_failure(702, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent, ticket_identity_fun: identity_fun)
+    _ = :sys.get_state(writer)
+
+    assert {:ok,
+            %{
+              events: [
+                %{topic: "ticket.17.ci.merge_group.requeued", summary: first_requeue},
+                %{topic: "ticket.17.ci.merge_group.failed", summary: summary, ci_checks: [%{name: check}]}
+              ]
+            }} =
+             Aiur.IssueLog.event_history_page(identity, after_id: 0)
+
+    assert first_requeue =~ "Merge-group run #701 requeued PR #17"
+    assert summary =~ "Merge-group run 702 failed"
+    assert check =~ "reports parity"
+
+    pr = Map.merge(observation(), %{mergeable: "MERGEABLE", merge_state_status: "CLEAN"})
+
+    requeue_options = [
+      journal_path: Path.join(root, "requeue.json"),
+      ticket_identity_fun: identity_fun,
+      ticket_state_fun: fn "17", _ -> {:ok, %{state: "ci-wait", paused?: false, held?: false}} end,
+      revalidate_fun: fn _, _, _ -> :ok end,
+      approved_fun: fn _, _ -> {:ok, true} end,
+      attribution_fun: fn _ -> {:ok, :clean} end,
+      enqueue_fun: fn _, _, _ -> {:ok, "entry-17"} end,
+      comment_fun: fn _, _, _ -> :ok end
+    ]
+
+    assert :ok = MergeGroupRequeue.requeue_group_prs([17], [pr], %{"id" => 703}, "runner failure", requeue_options)
+    _ = :sys.get_state(writer)
+
+    assert {:ok,
+            %{
+              events: [
+                %{topic: "ticket.17.ci.merge_group.requeued"},
+                %{topic: "ticket.17.ci.merge_group.failed"},
+                %{topic: "ticket.17.ci.merge_group.requeued", summary: requeue_summary}
+              ]
+            }} =
+             Aiur.IssueLog.event_history_page(identity, after_id: 0)
+
+    assert requeue_summary =~ "Merge-group run #703 requeued PR #17: runner failure"
+  end
+
+  test "the first PR-caused merge-group failure reaches the linked ticket journal" do
+    original_log_file = Application.get_env(:aiur, :log_file)
+    original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
+    root = Aiur.TestSupport.tmp_root!("first-merge-group-ticket-timeline")
+    Application.put_env(:aiur, :log_file, Path.join(root, "log/aiur.log"))
+    Application.put_env(:aiur, :runtime_state_dir, Path.join(root, "state"))
+
+    on_exit(fn -> restore_test_environment(original_log_file, original_runtime_state_dir, root) end)
+
+    unique = System.unique_integer([:positive])
+    repository = {"owner", "repo-#{unique}"}
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I#{unique}", "number" => "17"}, repository, repository)
+    :ok = Aiur.IssueLog.attach(identity)
+    writer = writer_pid(identity)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(writer) end)
+
+    assert :ok =
+             process_failure(
+               704,
+               [{"reports parity", "src/aiur/parity.ex"}],
+               Path.join(root, "journal.json"),
+               self(),
+               changed_paths_by_pr: %{17 => ["src/aiur/parity.ex"]},
+               ticket_identity_fun: fn "17" -> identity end
+             )
+
+    _ = :sys.get_state(writer)
+    assert {:ok, %{events: [%{topic: topic, summary: summary, ci_checks: [%{name: check}]}]}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
+    assert topic == "ticket.17.ci.merge_group.failed"
+    assert summary =~ "Merge-group run 704 failed"
+    assert check == "parity"
+  end
 
   test "a second browser spec failure routes to rework and holds the head without enqueueing" do
     parent = self()
@@ -382,5 +482,18 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     }
   end
 
-  defp journal_path, do: Path.join(System.tmp_dir!(), "merge-group-repeat-#{System.unique_integer([:positive])}.json")
+  defp writer_pid(identity) do
+    [{pid, _}] = Registry.lookup(Aiur.IssueLog.Registry, Writers.writer_key(identity))
+    pid
+  end
+
+  defp journal_path,
+    do: Path.join(System.tmp_dir!(), "mgf-#{System.pid()}-#{System.unique_integer([:positive])}.json")
+
+  defp restore_test_environment(log_file, state_dir, root),
+    do:
+      Enum.each([{:log_file, log_file}, {:runtime_state_dir, state_dir}], fn
+        {key, nil} -> Application.delete_env(:aiur, key)
+        {key, value} -> Application.put_env(:aiur, key, value)
+      end) && Aiur.TestCleanup.rm_rf!(root)
 end

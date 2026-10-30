@@ -43,6 +43,9 @@ defmodule Aiur.Events.Catalog.Entries do
          %Entry{pattern: "ticket.*.ci.#{outcome}", class: :live, export?: true, refs: [:ticket, :pr_number, :head_sha], attrs: [ci_conclusion: {:enum, @ci_conclusions}], owner: "orchestration"}
        end)
 
+  @merge_group_failure %Entry{pattern: "ticket.*.ci.merge_group.failed", class: :live, export?: true, refs: [:ticket, :pr_number, :run_id], owner: "orchestration"}
+  @merge_group_requeue %Entry{pattern: "ticket.*.ci.merge_group.requeued", class: :live, export?: true, refs: [:ticket, :pr_number, :run_id], owner: "orchestration"}
+
   # aiur/events/github_comments_poller/publish.ex; aiur/events/github_webhook/triples.ex
   @comments (for suffix <- ~w(issue.commented pr.review_comment) do
                %Entry{pattern: "ticket.*.#{suffix}", class: :live, export?: true, refs: [:ticket, :pr_number], attrs: [author_trusted?: :boolean], owner: "github-listeners"}
@@ -60,10 +63,13 @@ defmodule Aiur.Events.Catalog.Entries do
                }
              end)
 
+  @agent_command %Entry{pattern: "ticket.*.agent.command", class: :logged, export?: true, refs: [:ticket], owner: "harness-adapters"}
+
   @entries @core ++
              @pull_requests ++
              @ci ++
              @comments ++
+             [@merge_group_failure, @merge_group_requeue, @agent_command] ++
              @progress ++
              PlannedEntries.entries() ++ SystemEntries.entries() ++ GithubSystemEntries.entries() ++ TicketEntries.entries() ++ AttentionEntries.entries() ++ LegacyEntries.entries()
 
