@@ -331,7 +331,7 @@ The waveform and level bar are computed on the sidecar, so they keep moving with
 
 The deck transcribes and does not speak, so it needs only the `Speech to Text` and `User` permissions.
 
-The Dashboard [agent conversation](/concepts/units#agent-conversation-and-voice) uses the same server-held credential for interactive spoken replies when `Text to Speech` permission and `elevenlabs.voice_id` are configured.
+The Build ticket modal retains dictation. Worker conversation voice and the Executor prototype remain available from Home’s **Settings → Talk to Executor** (`/voice`).
 
 ### Configure it
 
@@ -477,9 +477,9 @@ Aiur holds a streaming connection to ElevenLabs, so transcription results can ap
 The channel's `answer_command` operation also accepts `override: true` with a
 nonblank `rationale` (up to 4,000 characters) to override an existing answer,
 including after delivery. Ordinary answer submissions retain first-answer-wins
-semantics. 
+semantics.
 
 The override record and routing state are visible in
-`aiur commands --json`. Absent or paused workers receive the override at their next
-session; terminal tickets raise an Executor follow-up.
+`aiur commands --json`. Resumable workers wait for capacity; explicit parked or
+paused labels require operator resume. Terminal tickets raise a follow-up.
 Physical override controls are separate from this transport operation.

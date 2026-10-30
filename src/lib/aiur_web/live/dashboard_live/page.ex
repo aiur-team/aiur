@@ -3,34 +3,15 @@ defmodule AiurWeb.DashboardLive.Page do
 
   use Phoenix.Component
 
-  alias Aiur.Instance.Roster.Presentation, as: RosterPresentation
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.DashboardLive.Controls
-  alias AiurWeb.DashboardLive.ProviderMeters
-  alias AiurWeb.DashboardLive.UnitsPanel
-  alias AiurWeb.OperatorControlCenter.AddAgentModal
-  alias AiurWeb.OperatorControlCenter.AgentLogModal
-  alias AiurWeb.OperatorControlCenter.CapacityPresenter
-  alias AiurWeb.OperatorControlCenter.CodexHeadroomPresenter
-  alias AiurWeb.OperatorControlCenter.ConversationDrawer
-  alias AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter
+  alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.OperatorControlCenter.DashboardShell
   alias AiurWeb.OperatorControlCenter.DecisionInbox
   alias AiurWeb.OperatorControlCenter.History
   alias AiurWeb.OperatorControlCenter.Overview
   alias AiurWeb.OperatorControlCenter.RouteRegistry
-  alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
-  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
-  alias AiurWeb.OperatorControlCenter.TicketContext
-  alias AiurWeb.OperatorControlCenter.TicketDetailModal
-  alias AiurWeb.OperatorControlCenter.TicketsPanel
-  alias AiurWeb.OperatorControlCenter.TicketsPresenter
-  alias AiurWeb.OperatorControlCenter.UnitsFilters
-  alias AiurWeb.OperatorControlCenter.UnitsPresenter
-  alias AiurWeb.OperatorControlCenter.UnitsTable
-  alias AiurWeb.OperatorControlCenter.UnitsURL
-  alias AiurWeb.OperatorControlCenter.UsageSummaryPresenter
 
   @doc false
   @spec page(map()) :: Phoenix.LiveView.Rendered.t()
@@ -49,51 +30,8 @@ defmodule AiurWeb.DashboardLive.Page do
       |> Map.put_new(:history_total, nil)
       |> Map.put_new(:history_has_more, false)
       |> Map.put_new(:history_health, :ok)
-      |> Map.put_new(:ticket_context, nil)
-      |> Map.put_new(:unit_controls, %{})
-      |> Map.put_new(:conversation_drawer, nil)
-      |> Map.put_new(:conversation_notice, nil)
-      |> Map.put_new(:conversation_origin_id, nil)
-      |> Map.put_new(:units_selection, UnitsURL.default_selection())
-      |> Map.put_new(
-        :units_view,
-        UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
-      )
-      |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
-      |> then(&Map.put_new(&1, :units_count_label, UnitsPanel.units_count_label(&1.units_view)))
-      |> Map.put_new(:tickets_view, TicketsPresenter.normalize(Map.get(assigns.payload, :tickets)))
-      |> Map.put_new(:tickets_visible, TicketsPresenter.initial_reveal())
-      |> Map.put_new(:tickets_query, "")
-      |> then(&Map.put_new(&1, :tickets_panel_view, TicketsPresenter.search(&1.tickets_view, &1.tickets_query)))
-      |> Map.put_new(:ticket_detail, nil)
-      |> Map.put_new(:add_agent_modal, nil)
-      |> Map.put_new(:add_agent_pending, nil)
-      |> Map.put_new(:add_agent_notice, nil)
-      |> Map.put_new(:capacity_view, CapacityPresenter.present(Controls.capacity_facts(assigns.payload)))
-      |> Map.put_new(:capacity_input, "")
-      |> Map.put_new(:capacity_feedback, nil)
-      |> Map.put_new(:run_summary, RunSummaryPresenter.present(nil))
-      |> Map.put_new(:run_summary_announcement, nil)
-      |> Map.put_new(:usage_summary, UsageSummaryPresenter.present(nil))
-      |> Map.put_new(:usage_summary_announcement, nil)
-      |> Map.put_new(:usage_summary_drill, nil)
-      |> Map.put_new(:usage_summary_drill_trigger, nil)
-      |> Map.put_new(:netlify_dashboard, nil)
-      |> then(
-        &Map.put_new(
-          &1,
-          :provider_meters_view,
-          CodexHeadroomPresenter.provider_meters_view(ProviderMeters.financial_data_capability(&1), %{})
-        )
-      )
-      |> Map.put_new(:provider_meters_announcement, nil)
-      |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
-      |> Map.put_new(:instance_agent_roster, :disabled)
-      |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
       |> Map.put_new(:voice_capabilities, %{})
       |> Map.put_new(:voice_conversation_error, nil)
-      |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
-      |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
 
     ~H"""
@@ -118,6 +56,8 @@ defmodule AiurWeb.DashboardLive.Page do
       </:banner>
 
       <Overview.error error={@payload.fleet[:error]} />
+
+      <VoicePanel.panel :if={@live_action == :voice} {assigns} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
         <div :if={not is_nil(@selected_decision) and Commands.partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">
@@ -162,122 +102,9 @@ defmodule AiurWeb.DashboardLive.Page do
         />
       </div>
 
-      <div
-        :if={@live_action not in [:decisions, :decision]}
-        id="usage-watch"
-        phx-hook="UsageWatch"
-        class="control-panel"
-      >
-        <RunSummaryStrip.run_summary_strip
-          run={@run_summary}
-          usage={@usage_summary}
-          meters={@provider_meters_view}
-          github_quota={@github_quota}
-          elevenlabs_quota={@elevenlabs_quota}
-          netlify_dashboard={@netlify_dashboard}
-          now={@now}
-        />
-
-        <section class="section-card units-card" aria-labelledby="route-title">
-          <p :if={@conversation_notice} id="conversation-notice" role="status" class="bo-state-card">{@conversation_notice}</p>
-          <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
-            {@units_announcement}
-          </p>
-          <RunSummaryStrip.run_summary_compact
-            run={@run_summary}
-            usage={@usage_summary}
-            meters={@provider_meters_view}
-            now={@now}
-          />
-          <div class="rs-group-head units-group-head">
-            <span class="rs-group-title" id="units-title">Units</span>
-            <span class="rs-group-count">{@units_count_label}</span>
-          </div>
-          <UnitsFilters.units_filters
-            selection={@units_selection}
-            counts={@units_view[:counts] || %{}}
-            count_status={@units_view[:count_status] || :unavailable}
-          />
-          <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
-          <section :if={@instance_agent_roster != :disabled} id="instance-agent-list" aria-labelledby="instance-agent-list-title">
-            <h3 id="instance-agent-list-title">Agents across instances</h3>
-            <%= case @instance_agent_roster do %>
-              <% {:ok, %{instances: _instances}} -> %>
-                <p :if={instance_agent_rows(@instance_agent_roster) == []}>No agents have been reported by any instance.</p>
-                <ul>
-                  <li :for={row <- instance_agent_rows(@instance_agent_roster)}
-                      data-agent-instance={row.instance.instance_id}
-                      data-instance-state={row.instance.state}
-                      data-observation-age-ms={row.instance.age_ms}>
-                    {row.agent["identifier"] || "unknown ticket"} — {row.agent["state"] || "unknown"} — {row.instance.instance_id}<span :if={row.instance.state == :stale}> (stale)</span> (observed {RosterPresentation.age(row.instance.age_ms)} ago)
-                  </li>
-                </ul>
-              <% {:error, :repository_unavailable} -> %>
-                <p role="alert" data-empty-reason="repository_unavailable">Agent roster is unavailable because the repository identity could not be resolved.</p>
-              <% {:error, _reason} -> %>
-                <p role="alert" data-empty-reason="lease_store_unavailable">Agent roster is unavailable because the shared lease store could not be read.</p>
-            <% end %>
-          </section>
-        </section>
-
-        <%!-- The searched view, so the reveal batches and counts the matches
-        rather than the whole backlog behind them. --%>
-        <p :if={@add_agent_notice} id="add-agent-notice" class="add-agent-note" role="status">{@add_agent_notice}</p>
-        <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} writable={@writable} />
-      </div>
-
-      <AgentLogModal.agent_log_modal
-        :if={is_nil(@conversation_drawer)}
-        modal={@agent_log_modal}
-        receipts={@listener_receipts}
-        writable={@writable}
-        drafts={@drafts}
-        errors={@chat_errors}
-        voice_capabilities={@voice_capabilities}
-        voice_conversation_error={@voice_conversation_error}
-      />
-      <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
-      <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={@writable} />
-      <TicketContext.ticket_context
-        :if={@ticket_context}
-        id="units-ticket-context"
-        context={@ticket_context}
-        close_event="close-ticket-context"
-        fallback_focus_id="route-title"
-      />
-      <ConversationDrawer.conversation_drawer
-        :if={@conversation_drawer}
-        id="units-conversation-drawer"
-        view={@conversation_drawer}
-        full_conversation_href={AiurWeb.OperatorControlCenter.ConversationLink.href(Map.get(@conversation_row || %{}, :identity))}
-        composer={@agent_log_modal}
-        writable={@writable}
-        drafts={@drafts}
-        errors={@chat_errors}
-        usage_snapshot={@conversation_usage_snapshot}
-        usage_error={@conversation_usage_error}
-        context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
-        voice_capabilities={@voice_capabilities}
-        voice_conversation_error={@voice_conversation_error}
-        listener={@listener_view}
-        listener_feedback={@listener_feedback}
-        receipts={@listener_receipts}
-        now={@now}
-        close_event="close-conversation"
-        fallback_focus_id="route-title"
-        origin_id={@conversation_origin_id}
-      />
     </DashboardShell.dashboard_shell>
     """
   end
-
-  defp instance_agent_rows({:ok, %{instances: instances}}) when is_list(instances) do
-    Enum.flat_map(instances, fn instance ->
-      Enum.map(Map.get(instance, :agents) || [], &%{agent: &1, instance: instance})
-    end)
-  end
-
-  defp instance_agent_rows(_unavailable), do: []
 
   defp tracker_kind, do: to_string(Aiur.Config.tracker_kind())
   defp agent_kind, do: to_string(Aiur.Config.agent_kind())

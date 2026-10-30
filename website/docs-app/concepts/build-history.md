@@ -286,12 +286,12 @@ when the socket is open. It reads “Reconnecting…” while pending and return
 **Reconnect** after ten seconds if the page is still degraded. This control also
 works with read-only access.
 
-## What stays on the Units page
+## Retired Units board
 
-The Units page is the hidden rollback route `/units`, retained for one release.
-Orchestration turns, context occupancy, cumulative token usage, the Tickets
-panel and its routing preview stay there and in `aiur units`; see
-[Units](/concepts/units).
+The legacy `/units` URL redirects permanently to `/` with its query string.
+Use `aiur units` for fleet inspection, `aiur set max-agents <n>` for capacity,
+and `aiur --todo <ticket-id>` to queue work. The Units-only GUI controls and
+run-summary strip have been retired.
 
 ## Adding work
 
@@ -337,3 +337,11 @@ When packs cannot be read, **Planning packs unavailable** names the affected pac
 and shows when they were checked; readable packs and queued tickets remain visible.
 Pack writes refresh on the next index flush, including its ten-second daemon tick.
 Between issue creation and rewriting the pack, both rows may briefly appear.
+
+## Unconfirmed classifications
+
+A classification with `confirmed: false` is an unaccepted backfill-agent guess. The board and ticket modal do not mark these guesses. Other sources are confirmed when written, which does not imply human review.
+
+Use the [CLI review procedure](../reference/build-history-commands#review-unconfirmed-classifications) to find guesses, confirm selected IDs, or reject them with epic clear/feature remove.
+
+Confirmation preserves the stored epic, feature, feature epic and join time, while recording who accepted the guess. A confirmed override outranks type labels and can move a labelled ticket to that epic’s column; feature ownership still takes precedence. Later backfill writes cannot replace an accepted classification.

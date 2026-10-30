@@ -48,7 +48,7 @@ Partial aggregates divide known work by the weight of all members, so unresolved
 
 The External gates summary counts the same pack gates listed above the graph; graphs without pack gates show External dependencies instead.
 
-Open a member's context to use **Read chat** when that member has a readable conversation in the current run. This opens the same conversation drawer as Units and does not resume the worker.
+Open a ticket on Build to read its conversation without resuming the worker. Legacy Build Order links redirect to Build.
 
 A draft says chat has not started. A member without readable current-run history shows chat as unavailable. Completed workers normally have no current-run chat handle after leaving the running roster, so their context shows chat as unavailable.
 

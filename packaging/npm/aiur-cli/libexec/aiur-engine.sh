@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -102,7 +102,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur epic clear <ids...> [--as <who>] [--json]
-       aiur epic show [<ids...>] [--json]
+       aiur epic confirm <ids...> [--epic <key>] [--as <who>] [--json]
+       aiur epic show [<ids...>] [--unconfirmed] [--json]
        aiur epic list [--json]
        aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]... [--as <who>] [--json]
        aiur feature add <slug> <ids...> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]
@@ -110,7 +111,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature also <slug> <ids...> [--remove] [--as <who>] [--json]
        aiur feature baseline <slug> [--replace] [--as <who>] [--json]
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
-       aiur feature show [<slug>] [--json]
+       aiur feature confirm <slug> <ids...> [--as <who>] [--json]
+       aiur feature show [<slug>] [--unconfirmed] [--json]
+       aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
@@ -343,6 +346,7 @@ aiur_engine_main() {
       cmd_build_orders "$@"
       ;;
     history) shift; cmd_history "$@" ;;
+    voice) shift; cmd_voice "$@" ;;
     analytics) shift; cmd_analytics "$@" ;;
     github-cost) shift; usage_alias github-cost "$@" ;;
     experiments) shift; cmd_experiments "$@" ;;

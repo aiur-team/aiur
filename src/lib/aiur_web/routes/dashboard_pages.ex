@@ -34,6 +34,7 @@ defmodule AiurWeb.Routes.DashboardPages do
         pipe_through([:browser_dashboard_auth, :dashboard_pages, :browser])
 
         get("/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show)
+        get("/units", AiurWeb.UnitsRedirectController, :legacy)
         get("/decisions", AiurWeb.CommandsRedirectController, :legacy)
         get("/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy)
         get("/build-orders", AiurWeb.BuildOrderRedirectController, :catalog)
@@ -42,9 +43,9 @@ defmodule AiurWeb.Routes.DashboardPages do
         live_session :dashboard, session: {AiurWeb.Conversation.Access, :session, []}, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
           live("/", AiurWeb.BuildLive, :build)
           live("/conversations/:conversation_id", AiurWeb.ConversationLive, :show)
-          live("/units", AiurWeb.DashboardLive, :index)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
+          live("/voice", AiurWeb.DashboardLive, :voice)
           live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
           live("/instances", AiurWeb.InstanceRosterLive, :instances)

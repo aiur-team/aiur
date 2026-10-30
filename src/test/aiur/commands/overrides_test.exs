@@ -61,7 +61,8 @@ defmodule Aiur.Commands.OverridesTest do
     assert middle.superseded_at == DateTime.add(@at, 20)
     assert newest.state == :queued
     assert third.pending_for_session?
-    assert Overrides.observe(third, %{type: :acknowledged, data: %{action_id: "action-3"}, occurred_at: DateTime.add(@at, 21)}) == third
+    acknowledged = Overrides.observe(third, %{type: :acknowledged, data: %{action_id: "action-3"}, occurred_at: DateTime.add(@at, 21)})
+    assert List.last(acknowledged.overrides).state == :implemented
   end
 
   test "only a changed head on the same PR after delivery proves implementation" do
