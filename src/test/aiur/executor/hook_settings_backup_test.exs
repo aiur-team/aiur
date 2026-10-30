@@ -51,6 +51,24 @@ defmodule Aiur.Executor.HookSettingsBackupTest do
     assert Bitwise.band(mode, 0o777) == 0o600
   end
 
+  # Future-regression guard: uninstall must not restore over edits made after install.
+  test "uninstall preserves settings edited after installation", %{root: root} do
+    repo = init_repo(root)
+    settings_path = Path.join([repo, ".claude", "settings.local.json"])
+    File.mkdir_p!(Path.dirname(settings_path))
+    File.write!(settings_path, ~s({"permissions":{"allow":["Read"]}}))
+    assert :ok = HookConfig.install(:claude, repo_root: repo)
+
+    edited = Jason.decode!(File.read!(settings_path)) |> Map.put("env", %{"KEEP" => "this edit"})
+    File.write!(settings_path, Jason.encode!(edited))
+    assert :ok = HookConfig.uninstall(repo_root: repo)
+
+    restored = Jason.decode!(File.read!(settings_path))
+    assert restored["env"] == %{"KEEP" => "this edit"}
+    assert restored["permissions"] == %{"allow" => ["Read"]}
+    refute Map.has_key?(restored, "hooks")
+  end
+
   test "a conflicting private copy preserves the legacy file", %{root: root} do
     repo = init_repo(root)
     legacy = Path.join([repo, ".claude", "settings.local.json.aiur-bak-456"])

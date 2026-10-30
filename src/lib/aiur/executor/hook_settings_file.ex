@@ -68,8 +68,17 @@ defmodule Aiur.Executor.HookSettingsFile do
 
   defp write_changed(path, original, _settings, updated, backup?) do
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- backup(path, original, backup?) do
-      Fs.atomic_write(path, Jason.encode!(updated, pretty: true) <> "\n", mode: 0o600, fsync: true)
+         :ok <- backup(path, original, backup?),
+         {:ok, contents} <- updated_contents(updated, backup?) do
+      Fs.atomic_write(path, contents, mode: 0o600, fsync: true)
+    end
+  end
+
+  defp updated_contents(updated, true), do: {:ok, Jason.encode!(updated, pretty: true) <> "\n"}
+
+  defp updated_contents(updated, false) do
+    with {:ok, restored} <- HookSettingsBackup.restore_bytes(updated) do
+      {:ok, restored || Jason.encode!(updated, pretty: true) <> "\n"}
     end
   end
 

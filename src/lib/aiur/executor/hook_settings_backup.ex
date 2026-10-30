@@ -10,9 +10,8 @@ defmodule Aiur.Executor.HookSettingsBackup do
 
   @spec migrate(Path.t()) :: :ok | {:error, term()}
   def migrate(repo_root) do
-    with :ok <- ensure_dir(),
-         :ok <- migrate_files(legacy_paths(repo_root)) do
-      :ok
+    with :ok <- ensure_dir() do
+      migrate_files(legacy_paths(repo_root))
     end
   end
 
@@ -20,19 +19,50 @@ defmodule Aiur.Executor.HookSettingsBackup do
   def create(_settings_path, nil), do: :ok
 
   def create(settings_path, original) when is_binary(original) do
-    with :ok <- ensure_dir(),
-         name = Path.basename(settings_path) <> @legacy_suffix <> Integer.to_string(System.system_time(:nanosecond)),
-         :ok <- Fs.atomic_write(Path.join(backup_dir(), name), original, mode: 0o600, fsync: true) do
-      :ok
+    with :ok <- ensure_dir() do
+      name = Path.basename(settings_path) <> @legacy_suffix <> Integer.to_string(System.system_time(:nanosecond))
+      Fs.atomic_write(Path.join(backup_dir(), name), original, mode: 0o600, fsync: true)
     end
+  end
+
+  @spec restore_bytes(map()) :: {:ok, binary() | nil} | {:error, term()}
+  def restore_bytes(settings) when is_map(settings) do
+    backup_paths() |> Enum.reduce_while({:ok, nil}, &matching_backup(&1, &2, settings))
   end
 
   defp ensure_dir do
     dir = backup_dir()
 
-    with :ok <- File.mkdir_p(dir),
-         :ok <- File.chmod(dir, 0o700) do
-      :ok
+    with :ok <- File.mkdir_p(dir) do
+      File.chmod(dir, 0o700)
+    end
+  end
+
+  defp backup_paths do
+    Path.wildcard(Path.join(backup_dir(), "settings.local.json" <> @legacy_suffix <> "*")) |> Enum.sort()
+  end
+
+  defp matching_backup(path, {:ok, nil}, settings) do
+    case File.lstat(path) do
+      {:ok, %{type: :regular}} -> compare_backup(path, settings)
+      {:ok, _stat} -> {:halt, {:error, :invalid_backup_file}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp matching_backup(_path, result, _settings), do: {:halt, result}
+
+  defp compare_backup(path, settings) do
+    case File.read(path) do
+      {:ok, bytes} ->
+        case Jason.decode(bytes) do
+          {:ok, ^settings} -> {:halt, {:ok, bytes}}
+          {:ok, _other} -> {:cont, {:ok, nil}}
+          {:error, reason} -> {:halt, {:error, {:invalid_backup_json, reason}}}
+        end
+
+      {:error, reason} ->
+        {:halt, {:error, reason}}
     end
   end
 

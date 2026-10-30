@@ -77,6 +77,7 @@ defmodule Aiur.Executor.HookConfigTest do
     assert [^user, _, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5, "type" => "command"}]}] = settings["hooks"]["Stop"]
     assert :ok = HookConfig.uninstall(repo_root: root)
     assert Jason.decode!(File.read!(path)) == Jason.decode!(original)
+    assert File.read!(path) == original
     assert File.exists?(backup)
   end
 

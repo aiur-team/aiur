@@ -132,8 +132,9 @@ permissions and absolute hook paths; the backup is stored outside the working
 tree and is not covered by this ignore rule.
 
 Removing the integration removes only commands
-starting with `AIUR_EXECUTOR_HOOK=1`; the private backup remains available for
-manual restoration under the per-repository Executor state directory.
+starting with `AIUR_EXECUTOR_HOOK=1`. If no settings changed since install,
+uninstall restores the original file bytes from the private backup. Later user
+edits are preserved, and the backup remains available for manual restoration.
 
 An existing marked lifecycle command is preserved, including its paths.
 Uninstall and reinstall the hooks to point them at another instance.
