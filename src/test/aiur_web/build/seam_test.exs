@@ -63,7 +63,10 @@ defmodule AiurWeb.Build.SeamTest do
     # only the document presenter subscribes to detail updates and renders Markdown.
     document = Path.join(@root, "lib/aiur_web/build/ticket_doc.ex")
     identity = Path.join(@root, "lib/aiur_web/build/ticket_doc_identity.ex")
-    assert offenders(files -- [freshness, conversation, journal, events, document, identity], &allowed?/1) == []
+    # Running-row PR facts read the progress store only through this projection seam.
+    progress_pr_facts = Path.join(@root, "lib/aiur_web/build/progress_pr_facts.ex")
+    assert offenders(files -- [freshness, conversation, journal, events, document, identity, progress_pr_facts], &allowed?/1) == []
+    assert offenders([progress_pr_facts], &(allowed?(&1) or &1 == "Aiur.StartTrigger.ProgressStore")) == []
     assert offenders([document], &(allowed?(&1) or &1 in ~w(Aiur.PubSub AiurWeb.Markdown))) == []
     assert offenders([identity], &(allowed?(&1) or &1 == "Aiur.OpenTicketSource")) == []
     assert offenders([conversation], &(allowed?(&1) or &1 in adapter_facades)) == []
