@@ -115,6 +115,16 @@ defmodule Aiur.Workspace.HostLockTest do
                HostLock.dead_owner_proof(holder, to_string(Node.self()), %{path: Path.join(proc_root, "missing.lock")}, proof_opts)
     end
 
+    test "a live owner whose pid differs from the daemon is kept when it started before the lock" do
+      proc_root = proc_root("host-lock-live-owner", 4244, 100)
+      owner_started_at = DateTime.from_unix!(1_700_000_002_000, :millisecond) |> DateTime.to_iso8601()
+      holder = %{node: to_string(Node.self()), os_pid: 4244, owner_id: "live-lock", acquired_at: owner_started_at, owner_started_at: owner_started_at}
+      proof_opts = [proc_root: proc_root, clock_ticks: 100, current_os_pid: 1]
+
+      assert {:keep, :pid_alive} =
+               HostLock.dead_owner_proof(holder, to_string(Node.self()), %{path: Path.join(proc_root, "missing.lock")}, proof_opts)
+    end
+
     test "an unavailable proc root does not prove owner exit" do
       holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, owner_id: "old-lock", acquired_at: DateTime.utc_now() |> DateTime.to_iso8601()}
       proc_root = Path.join(Aiur.TestSupport.tmp_root!("host-lock-unavailable-proc"), "missing-proc")
