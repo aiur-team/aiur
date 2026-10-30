@@ -36,7 +36,10 @@ defmodule Aiur.Commands.OverrideMergeTest do
       assert route == if(contains?, do: :active_worker, else: :corrective_ticket)
       assert {:error, :stale} = merge(winner, head, DateTime.add(@at, 1))
       assert {:error, :override_push_mismatch} = push(winner)
-      assert {:error, :stale} = Overrides.resume_fact(winner, %{type: :override_resume_state, data: %{action_id: "override", route: :resume_pending, reason: :resume_failed, attempts: 1}})
+
+      for type <- [:override_resume_state, :override_prompt_delivered] do
+        assert {:error, :stale} = Overrides.resume_fact(winner, %{type: type, data: %{action_id: "override", route: :resume_pending, reason: :resume_failed, attempts: 1, at: @at}})
+      end
     end
   end
 

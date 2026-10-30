@@ -45,6 +45,8 @@ defmodule Aiur.DecisionOverrideMergeTest do
     {:ok, decision} = DecisionStore.get(ctx.override.decision_id, ctx.store)
     assert [%{state: :queued, corrective_ticket: %{identifier: "9000"}, merge_reason: "PR merged before the change; corrective ticket #9000"}] = decision.overrides
     assert Commands.override_target_ticket(decision).identifier == "9000"
+    assert {:error, {:invalid_transition, :stale}} = Commands.record_command_fact(decision.decision_id, :override_prompt_delivered, %{action_id: action, at: DateTime.utc_now()}, server: ctx.store)
+    assert {:ok, %{overrides: [%{state: :queued, delivered_at: nil}]}} = DecisionStore.get(decision.decision_id, ctx.store)
   end
 
   test "merge before dispatch never queues an interrupt for the old worker", ctx do

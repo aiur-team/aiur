@@ -58,7 +58,7 @@ defmodule Aiur.Commands.OverridePrompt do
            server: Keyword.get(opts, :decision_store, Commands.default_store())
          ) do
       {:ok, _} -> :ok
-      {:error, {:invalid_transition, :override_not_current}} -> :ok
+      {:error, {:invalid_transition, reason}} when reason in [:override_not_current, :stale] -> :ok
       {:error, reason} -> receipt_failed(decision, reason)
     end
   catch
