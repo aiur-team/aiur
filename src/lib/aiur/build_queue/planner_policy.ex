@@ -70,7 +70,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   end
 
   defp managed(%{item: %{override: override}} = f) when not is_nil(override) do
-    if parked?(f), do: result(:held, :parked_marker), else: result(:overridden, override)
+    if parked?(f) or not f.todo, do: result(:held, :parked_marker), else: result(:overridden, override)
   end
 
   defp managed(f) do

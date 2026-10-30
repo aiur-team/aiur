@@ -123,8 +123,8 @@ defmodule Aiur.BuildQueue.PlannerTest do
     assert {[%{state: :held}], []} = Planner.plan(%{input | opts: Keyword.put(input.opts, :label_prefix, "worker")})
   end
 
-  test "a stale manual promotion override is ignored for parked labels" do
-    for labels <- [~w(agent:queued agent:parked), ~w(agent:queued agent:paused)] do
+  test "a stale manual promotion override is ignored for parked or non-todo labels" do
+    for labels <- [~w(agent:queued agent:parked), ~w(agent:queued agent:paused), ~w(agent:queued)] do
       input = F.input() |> F.update_item(override: :manual_promotion) |> F.update_observation(labels: labels)
       assert {[%{state: :held, reason: :parked_marker}], []} = Planner.plan(input)
     end
@@ -172,7 +172,7 @@ defmodule Aiur.BuildQueue.PlannerTest do
     end
 
     assert {[%{state: :claimed}], []} = Planner.plan(%{F.input() | claims: %{"1" => :claimed}})
-    assert {[%{state: :overridden}], []} = F.input() |> F.update_item(override: :manual_promotion) |> Planner.plan()
+    assert {[%{state: :held, reason: :parked_marker}], []} = F.input() |> F.update_item(override: :manual_promotion) |> Planner.plan()
   end
 
   test "prerequisites wait, fail with latched attention, or stay unknown on missing and cyclic evidence" do
