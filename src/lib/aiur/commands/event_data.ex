@@ -34,9 +34,18 @@ defmodule Aiur.Commands.EventData do
 
   def normalize(:override_resume_state, raw) when is_map(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
-         {:ok, route} <- enum(Validation.get(raw, :route), [:resume_pending, :capacity_wait], :route),
-         {:ok, reason} <- enum(Validation.get(raw, :reason), [:capacity, :operator_pause, :eligible], :reason) do
-      {:ok, %{action_id: action_id, route: route, reason: reason}}
+         {:ok, route} <- enum(Validation.get(raw, :route), [:resume_pending, :capacity_wait, :replacement], :route),
+         {:ok, reason} <-
+           enum(
+             Validation.get(raw, :reason),
+             [:capacity, :operator_pause, :eligible, :resume_failed, :workspace_missing, :worker_unrecoverable, :branch_missing, :pr_closed, :replacement_failed],
+             :reason
+           ),
+         attempts when is_integer(attempts) and attempts >= 0 <- Validation.get(raw, :attempts) || 0 do
+      {:ok, %{action_id: action_id, route: route, reason: reason, attempts: attempts}}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, {:attempts, :invalid}}
     end
   end
 

@@ -74,7 +74,7 @@ defmodule Aiur.Commands.Overrides do
 
   def observe(decision, %{type: type, data: data, occurred_at: at}) when type in [:acknowledged, :resolved] do
     update(decision, data.action_id, fn
-      %{state: state, route: route, corrective_ticket: nil} = record when state in [:queued, :delivered] and route in [:active_worker, :resume_pending, :capacity_wait] ->
+      %{state: state, route: route, corrective_ticket: nil} = record when state in [:queued, :delivered] and route in [:active_worker, :resume_pending, :capacity_wait, :replacement] ->
         %{record | state: :implemented, implemented_at: at, evidence: :acknowledged}
 
       record ->
@@ -98,7 +98,7 @@ defmodule Aiur.Commands.Overrides do
 
   def resume_request(decision) do
     case pending(decision) do
-      %{pr_merged: false, route: route} = record when route in [:resume_pending, :capacity_wait] -> record
+      %{pr_merged: false, route: route} = record when route in [:resume_pending, :capacity_wait, :replacement] -> record
       _observational -> nil
     end
   end
@@ -116,8 +116,10 @@ defmodule Aiur.Commands.Overrides do
     end
   end
 
-  defp apply_resume_fact(record, %{type: :override_resume_state, data: data}),
-    do: record |> Map.put(:route, data.route) |> Map.put(:resume_reason, data.reason)
+  defp apply_resume_fact(record, %{type: :override_resume_state, data: data}) do
+    record = record |> Map.put(:route, data.route) |> Map.put(:resume_reason, data.reason) |> Map.put(:resume_attempts, data.attempts)
+    if data.route == :replacement, do: Map.put(record, :recovery_path, :replacement), else: record
+  end
 
   defp apply_resume_fact(%{state: state} = record, %{type: :override_prompt_delivered, data: data}) when state in [:queued, :failed],
     do: %{record | state: :delivered, delivered_at: data.at}
@@ -135,7 +137,7 @@ defmodule Aiur.Commands.Overrides do
     end
   end
 
-  defp valid_push?(%{state: :delivered, route: route, corrective_ticket: nil} = record, decision, data) when route in [:active_worker, :resume_pending, :capacity_wait] do
+  defp valid_push?(%{state: :delivered, route: route, corrective_ticket: nil} = record, decision, data) when route in [:active_worker, :resume_pending, :capacity_wait, :replacement] do
     decision.active_action_id == data.action_id && (is_nil(record.pr_number) || record.pr_number == data.pr_number) &&
       is_integer(data.pr_number) && changed_head?(record, data) && after_delivery?(record, data)
   end

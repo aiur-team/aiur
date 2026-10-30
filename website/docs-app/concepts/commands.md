@@ -303,8 +303,17 @@ Unknown PR observations never authorize automatic resumption. Closed targets
 are checked for a merged PR asynchronously, as described above. The resume
 scheduler requires a freshly confirmed live ticket.
 
-Unrecoverable worker replacement remains separate routing work. Overrides never
-rewrite merged work. Direct legacy supersede calls retain their pre-delivery
+After three failed non-capacity resumes, or evidence of a missing workspace or
+unrecoverable worker, Aiur starts a fresh session on the same ticket and PR head.
+Its first instruction is the override plus “The previous session ended; continue
+PR #N from its head.” Capacity refusals never count toward replacement.
+
+If the branch is deleted or the PR closed unmerged, Aiur creates one parked
+successor with the original Command and answer history, closes the old PR with
+“superseded by #M”, parks the old ticket with its reason, then releases the
+successor for normal dispatch. Failure keeps the override queued and opens an
+Executor Command. The override records its recovery path and reason.
+Overrides never rewrite merged work. Direct legacy supersede calls retain their pre-delivery
 guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,

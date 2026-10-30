@@ -27,8 +27,15 @@ defmodule Aiur.Commands.OverridePrompt do
   def render(opts) do
     Enum.map_join(Keyword.get(opts, :pending_overrides, []), "\n", fn decision ->
       "Operator override — this replaces your earlier instruction for Command #{decision.decision_id}\n\n" <>
-        DecisionRevisionDispatch.render(decision) <> "\n\n"
+        DecisionRevisionDispatch.render(decision) <> handover(decision) <> "\n\n"
     end)
+  end
+
+  defp handover(decision) do
+    case Overrides.pending(decision) do
+      %{route: :replacement, pr_number: number} when is_integer(number) -> "\n\nThe previous session ended; continue PR ##{number} from its head."
+      _ -> ""
+    end
   end
 
   @doc "Only a confirmed provider turn start records prompt delivery."

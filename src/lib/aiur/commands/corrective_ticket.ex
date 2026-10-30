@@ -12,6 +12,11 @@ defmodule Aiur.Commands.CorrectiveTicket do
     end
   end
 
+  @spec successor(Aiur.Decision.t(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def successor(decision, record, pr, opts) do
+    find_or_create(decision, record, Map.put(pr, :merged?, false), Keyword.put(opts, :successor, true))
+  end
+
   defp ensure(decision, record, opts) do
     with {:ok, %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) <-
            CorrectivePullRequest.read(record.ticket.identifier, opts),
@@ -58,7 +63,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp find_candidate(candidate, current, lookup_opts, opts) do
-    if candidate.route == :corrective_ticket or Map.get(candidate, :pr_merged) == :unknown or is_map(Map.get(candidate, :corrective_ticket)),
+    if candidate.route in [:corrective_ticket, :replacement] or Map.get(candidate, :pr_merged) == :unknown or is_map(Map.get(candidate, :corrective_ticket)),
       do: lookup_candidate(candidate, current, lookup_opts, opts),
       else: {:cont, {:ok, nil}}
   end
@@ -86,6 +91,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   defp create(decision, record, pr, opts) do
     with {:ok, [original]} <- call(opts, :issues, &Tracker.fetch_issue_states_by_ids/1, [[decision.ticket.identifier]]),
          attrs <- CorrectiveTicketBody.build(decision, record, pr, original.labels),
+         attrs <- if(Keyword.get(opts, :successor, false), do: Map.update!(attrs, :labels, &["agent:parked" | List.delete(&1, "agent:todo")]), else: attrs),
          {:ok, raw} <- call(opts, :create, &Tracker.create_issue/2, [attrs, [caller: "command_override_create"]]) do
       {:ok, normalize_ticket(raw)}
     else

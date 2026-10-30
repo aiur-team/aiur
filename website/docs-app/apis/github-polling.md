@@ -33,8 +33,10 @@ and PR observation through the existing governed Tracker reads, off the
 orchestrator mailbox.
 
 Missing or unavailable observations keep the request
-waiting. There is no separate polling timer or new issue/PR creation; no quota
-saving is claimed.
+waiting. There is no separate polling timer. Recovery may create a successor
+when a recorded PR is closed unmerged or its branch is gone; see
+[recovery reads and writes](/apis/github-costs#corrective-command-tickets).
+No quota saving is claimed.
 
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 

@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
 
   require Logger
   alias Aiur.{Commands, Issue, Tracker}
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, IssueSync, Slots, State, TrackerTasks}
+  alias Aiur.Orchestrator.{AutoResume, ControlLifecycle, Dispatcher, DispatchPolicy, IssueSync, OverrideRecovery, OverrideSuccessor, Slots, State, TrackerTasks}
   alias Aiur.Orchestrator.Dispatcher.Capacity
   alias Aiur.Orchestrator.PauseResume.{QueuedDispatch, Resume}
 
@@ -18,7 +18,9 @@ defmodule Aiur.Orchestrator.OverrideResume do
   defp load(requests) do
     Enum.map(requests, fn decision ->
       identifier = Commands.override_target_ticket(decision).identifier
-      {decision, Tracker.fetch_issue_states_by_ids([identifier]), Tracker.ticket_pull_request(identifier)}
+      record = Commands.pending_override(decision)
+      pr = if record.pr_number, do: Aiur.CodeHost.override_pull_request(record.pr_number), else: Tracker.ticket_pull_request(identifier)
+      {decision, Tracker.fetch_issue_states_by_ids([identifier]), pr}
     end)
   end
 
@@ -43,7 +45,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
   def apply_loaded(state, result, opts) when is_list(result) do
     Enum.reduce(result, state, fn
       {snapshot, {:ok, [%Issue{} = issue]}, {:ok, pr}}, current when is_nil(pr) or is_map(pr) ->
-        if is_nil(pr) or Map.get(pr, :merged?) == false, do: apply_one(current, snapshot, issue, opts), else: current
+        if is_nil(pr) or Map.get(pr, :merged?) == false, do: apply_one(current, snapshot, issue, pr, opts), else: current
 
       _, current ->
         current
@@ -55,7 +57,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
     state
   end
 
-  defp apply_one(state, snapshot, issue, opts) do
+  defp apply_one(state, snapshot, issue, pr, opts) do
     store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     with {:ok, %{decision: decision}} <- Commands.get(snapshot.decision_id, store: store),
@@ -66,21 +68,31 @@ defmodule Aiur.Orchestrator.OverrideResume do
       entry = if entry, do: Map.put(entry, :issue, issue)
       current = put_issue(state, issue, entry)
 
-      route(current, decision, issue, entry, opts)
+      route(current, decision, issue, entry, pr, opts)
     else
       _stale_or_unavailable -> state
     end
   end
 
-  defp route(current, decision, issue, entry, opts) do
+  defp route(current, decision, issue, entry, pr, opts) do
     store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     cond do
-      explicit_pause?(current, issue, entry) ->
+      explicit_pause?(current, issue, entry) and not retiring?(decision) ->
         persist_wait(decision, :resume_pending, :operator_pause, store)
         Keyword.get(opts, :ask_fun, &ask_resume/2).(decision, store)
         current
 
+      retiring?(decision) ->
+        OverrideSuccessor.schedule(current, decision, issue, entry, pr, opts)
+
+      true ->
+        route_worker(current, decision, issue, entry, pr, opts)
+    end
+  end
+
+  defp route_worker(current, decision, issue, entry, pr, opts) do
+    cond do
       not eligible_issue?(issue) ->
         current
 
@@ -94,25 +106,99 @@ defmodule Aiur.Orchestrator.OverrideResume do
         current
 
       not admitted?(current, entry, opts) ->
-        persist_wait(decision, :capacity_wait, :capacity, store)
+        persist_wait(decision, :capacity_wait, :capacity, Keyword.get(opts, :decision_store, Commands.default_store()))
         current
 
       true ->
-        resume_admitted(current, decision, issue, entry, opts)
+        case OverrideRecovery.reason(Commands.pending_override(decision), entry, pr, opts) do
+          nil -> resume_admitted(current, decision, issue, entry, pr, opts)
+          reason -> recover(current, decision, issue, entry, pr, reason, opts)
+        end
     end
   end
 
-  defp resume_admitted(current, decision, issue, entry, opts) do
+  defp resume_admitted(current, decision, issue, entry, pr, opts) do
     store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     case persist_wait(decision, :resume_pending, :eligible, store) do
       :ok ->
-        {_reply, next} = Keyword.get(opts, :resume_fun, &resume/3).(current, issue, entry)
-        next
+        {reply, next} = Keyword.get(opts, :resume_fun, &resume/3).(current, issue, entry)
+
+        case reply do
+          {:error, reason} -> resume_failed(next, decision, issue, entry, pr, reason, opts)
+          _ -> next
+        end
 
       {:error, _} ->
         current
     end
+  end
+
+  defp resume_failed(state, decision, issue, entry, pr, reason, opts) do
+    attempts = Map.get(Commands.pending_override(decision), :resume_attempts, 0)
+
+    cond do
+      OverrideRecovery.capacity?(reason) ->
+        OverrideRecovery.persist(decision, :capacity_wait, :capacity, attempts, opts)
+        state
+
+      attempts + 1 >= AutoResume.max_attempts() ->
+        recover(state, decision, issue, entry, pr, :resume_failed, Keyword.put(opts, :resume_attempts, attempts + 1))
+
+      true ->
+        OverrideRecovery.persist(decision, :resume_pending, :resume_failed, attempts + 1, opts)
+        state
+    end
+  end
+
+  defp recover(state, decision, issue, entry, pr, reason, opts) do
+    attempts = Keyword.get(opts, :resume_attempts, Map.get(Commands.pending_override(decision), :resume_attempts, 0))
+
+    with :ok <- OverrideRecovery.persist(decision, :replacement, reason, attempts, opts),
+         {:ok, %{decision: decision}} <- Commands.get(decision.decision_id, store: Keyword.get(opts, :decision_store, Commands.default_store())) do
+      recover_current(state, decision, issue, entry, pr, reason, attempts, opts)
+    else
+      {:error, _} -> state
+    end
+  end
+
+  defp recover_current(state, decision, issue, entry, pr, reason, attempts, opts) do
+    if reason in [:branch_missing, :pr_closed] do
+      OverrideSuccessor.schedule(state, decision, issue, entry, pr, opts)
+    else
+      {reply, next} = Keyword.get(opts, :replacement_fun, &OverrideRecovery.replace/5).(state, issue, entry, pr, opts)
+      replacement_result(reply, decision, attempts, opts)
+      next
+    end
+  end
+
+  defp replacement_result({:error, _}, decision, attempts, opts) do
+    OverrideRecovery.persist(decision, :replacement, :replacement_failed, attempts, opts)
+    ask_recovery(decision, opts)
+  end
+
+  defp replacement_result(_reply, _decision, _attempts, _opts), do: :ok
+
+  defp ask_recovery(decision, opts) do
+    Commands.request(
+      %{
+        question: "Recover override for ##{Commands.override_target_ticket(decision).identifier}?",
+        blocking: false,
+        authority: :supervisor_allowed,
+        reversibility: :reversible,
+        source_id: "override-recovery-#{decision.active_action_id}",
+        context: %{
+          long_context_markdown:
+            "Replacement failed for Command #{decision.decision_id}. The override remains queued. Restore the existing branch/worker, or retire the old PR and continue in a successor ticket."
+        }
+      },
+      [
+        ticket: %{identifier: "executor"},
+        requester: %{kind: :executor, executor_id: "override-recovery"},
+        source: %{agent_id: "executor", session_id: "override-recovery", event_id: decision.active_action_id}
+      ],
+      Keyword.get(opts, :decision_store, Commands.default_store())
+    )
   end
 
   defp eligible_issue?(issue) do
@@ -132,6 +218,13 @@ defmodule Aiur.Orchestrator.OverrideResume do
     fleet? and admission.(admission_state) == :dispatch
   end
 
+  defp retiring?(decision) do
+    case Commands.pending_override(decision) do
+      %{route: :replacement, resume_reason: reason} when reason in [:branch_missing, :pr_closed] -> true
+      _ -> false
+    end
+  end
+
   defp explicit_pause?(state, issue, entry),
     do: Issue.parked?(issue) or Issue.paused?(issue) or operator_paused?(state, entry)
 
@@ -143,6 +236,8 @@ defmodule Aiur.Orchestrator.OverrideResume do
   end
 
   defp active?(nil), do: false
+  defp active?(%{control: %{status: :unrecoverable}}), do: false
+  defp active?(%{pid: pid} = entry) when is_pid(pid) and node(pid) == node(), do: Process.alive?(pid) and State.active_running_entry?(entry) and not State.sleeping_running_entry?(entry)
   defp active?(entry), do: State.active_running_entry?(entry) and not State.sleeping_running_entry?(entry)
 
   # A control resume is not yet an active slot. Serialize until its receipt so
@@ -169,7 +264,12 @@ defmodule Aiur.Orchestrator.OverrideResume do
     record = Commands.pending_override(decision)
 
     if record.route != route or Map.get(record, :resume_reason) != reason do
-      case Commands.record_command_fact(decision.decision_id, :override_resume_state, %{action_id: decision.active_action_id, route: route, reason: reason}, server: store) do
+      case Commands.record_command_fact(
+             decision.decision_id,
+             :override_resume_state,
+             %{action_id: decision.active_action_id, route: route, reason: reason, attempts: Map.get(record, :resume_attempts, 0)},
+             server: store
+           ) do
         {:ok, _} ->
           :ok
 

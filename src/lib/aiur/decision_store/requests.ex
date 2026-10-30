@@ -378,6 +378,7 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:consumed), do: "consumed"
   def lifecycle_slug(:failed), do: "failed"
   def lifecycle_slug(:acknowledged), do: "acknowledged"
+  def lifecycle_slug(:override_successor_ticket), do: "override-successor-ticket"
   def lifecycle_slug(:override_corrective_ticket), do: "override-corrective-ticket"
   def lifecycle_slug(:override_corrective_implemented), do: "override-corrective-implemented"
   def lifecycle_slug(:override_corrective_failed), do: "override-corrective-failed"

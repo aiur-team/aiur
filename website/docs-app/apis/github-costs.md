@@ -137,3 +137,11 @@ Missing or stale source PR evidence first checks issue closure through the condi
 For a closed source ticket, `command_override_merged_pr` performs one governed GraphQL read of closing PRs and merge SHAs, outside dispatch. It is bounded to 100 references and rejects incomplete results. A complete result with no merged PR in the configured repository records a final journal fact, retained across restart.
 
 Linked corrective tickets observe only the delivered PR cache, including when no PR exists yet. They do not fetch issue labels or closing PRs on each reconciliation. Errors retain durable exponential backoff capped at one hour. These are read-cadence contracts; no measured production saving is claimed.
+
+
+Queued unmerged override recovery reads the recorded PR and its head branch
+through the governed REST transport as `command_override_recovery`. Unknown or
+failed reads do not authorize replacement. A missing branch or closed unmerged
+PR uses the corrective marker lookup and creates a parked successor. The old
+PR receives `superseded by #M` (`command_override_supersede`), then is closed
+and read back before the successor becomes dispatchable. No saving is claimed.
