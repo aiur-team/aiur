@@ -7,6 +7,7 @@ defmodule VoiceConverse.SessionRolesTest do
   setup do
     root = Path.join(System.tmp_dir!(), "session-roles-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
+    File.chmod!(root, 0o700)
     on_exit(fn -> VoiceConverse.TestCleanup.rm_rf!(root) end)
 
     {:ok, config} =
