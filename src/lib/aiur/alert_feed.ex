@@ -294,12 +294,14 @@ defmodule Aiur.AlertFeed do
   end
 
   defp read_alerts(path, opts) do
+    reader = if Keyword.get(opts, :strict, false), do: &Aiur.AlertFeed.StrictRead.read/2, else: &AlertLedger.read/2
+
     path
-    |> AlertLedger.read(opts)
+    |> reader.(opts)
     |> Stream.filter(&(Map.get(&1, "event") == "alert"))
     |> Enum.map(&normalize_alert(&1, agent_from_path(path, &1)))
   rescue
-    _ -> []
+    error -> if Keyword.get(opts, :strict, false), do: reraise(error, __STACKTRACE__), else: []
   end
 
   defp read_legacy_alerts(path) do
