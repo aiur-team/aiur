@@ -94,7 +94,7 @@ defmodule Aiur.Events.CatalogTest do
       assert %Entry{class: :ledgered, export?: true, attrs: [milestone: {:enum, ~w(25 50 75 100)}, percent: :integer, generation: :integer, freshness: {:enum, _}]} = Catalog.lookup(topic)
     end
 
-    assert %Entry{class: :live, export?: true, attrs: [requested: {:enum, ~w(steer sync async)}, effective: {:enum, ~w(steer sync async)}, effective_reason: {:enum, _}, version: :integer]} =
+    assert %Entry{class: :live, export?: true, attrs: [requested: {:enum, ~w(steer sync async mute)}, effective: {:enum, ~w(steer sync async mute)}, effective_reason: {:enum, _}, version: :integer]} =
              Catalog.lookup("ticket.42.agent.listen-mode.changed")
 
     assert %Entry{class: :live, export?: true, attrs: [revision: :integer]} = Catalog.lookup("system.capabilities.changed")
