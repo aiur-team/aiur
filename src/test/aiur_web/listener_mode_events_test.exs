@@ -45,6 +45,17 @@ defmodule AiurWeb.ListenerModeEventsTest do
     %{socket: socket}
   end
 
+  test "dashboard mute selection persists the mode and confirms its value", %{socket: socket} do
+    Aiur.AgentPubSub.subscribe_listen_mode("42")
+    {:noreply, pending} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "mute", "expected_version" => "0"}, socket)
+    assert pending.assigns.listener_feedback.state == :pending
+    event = receive_barrier({:listen_mode_changed, "42", %{version: 1, requested: :mute}})
+    {:noreply, confirmed} = DashboardLive.handle_info(event, pending)
+    assert confirmed.assigns.listener_view.requested == :mute
+    assert confirmed.assigns.listener_view.effective == :mute
+    assert {:ok, %{requested: :mute, version: 1}} = Listener.get_mode("42")
+  end
+
   test "stale expected version shows conflict and durable winner", %{socket: socket} do
     assert {:ok, %{version: 1}} = Listener.set_mode("42", :steer, expected_version: 0)
     assert {:noreply, changed} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, socket)

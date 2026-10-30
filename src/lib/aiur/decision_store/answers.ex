@@ -5,6 +5,7 @@ defmodule Aiur.DecisionStore.Answers do
 
   alias Aiur.Commands.ActorSource
   alias Aiur.Commands.NativeAnswer
+  alias Aiur.Commands.Overrides
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
@@ -47,7 +48,7 @@ defmodule Aiur.DecisionStore.Answers do
 
     state.current
     |> Map.values()
-    |> Enum.filter(&(&1.ticket.identifier == ticket_identifier and &1.pending_for_session? and MapSet.member?(action_ids, &1.active_action_id)))
+    |> Enum.filter(&(Overrides.target_ticket(&1).identifier == ticket_identifier and &1.pending_for_session? and MapSet.member?(action_ids, &1.active_action_id)))
     |> Enum.reduce(state, fn decision, acc ->
       case Persistence.build_and_persist_event(:session_started, decision, %{action_id: decision.active_action_id, session_id: session_id}, DateTime.utc_now(), acc) do
         {:ok, next_state, _updated} -> next_state

@@ -14,6 +14,9 @@ defmodule Aiur.Commands do
   @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   defdelegate override(id, payload, opts \\ [], server \\ Aiur.DecisionStore), to: Aiur.DecisionStore
 
+  @doc "The active override's effective work ticket, retaining the original Command identity."
+  @spec override_target_ticket(Aiur.Decision.t()) :: map()
+  defdelegate override_target_ticket(decision), to: Aiur.Commands.Overrides, as: :target_ticket
   @spec prepare_override_prompt(String.t(), keyword()) :: keyword()
   defdelegate prepare_override_prompt(identifier, opts), to: Aiur.Commands.OverridePrompt, as: :prepare
   @spec render_pending_overrides(keyword()) :: String.t()
@@ -35,10 +38,8 @@ defmodule Aiur.Commands do
 
   @spec needs_you?(map()) :: boolean()
   defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
-
   @spec matches_route?(map(), atom() | nil) :: boolean()
   defdelegate matches_route?(decision, route), to: Aiur.Commands.Routing.Policy
-
   @spec public_v2(Aiur.Decision.t()) :: map()
   defdelegate public_v2(decision), to: Aiur.Commands.Projection
 
@@ -201,7 +202,6 @@ defmodule Aiur.Commands do
 
   @spec list_decisions() :: [Aiur.Decision.t()]
   defdelegate list_decisions(), to: Aiur.DecisionStore, as: :list
-
   @spec list_decisions(GenServer.server()) :: [Aiur.Decision.t()]
   defdelegate list_decisions(server), to: Aiur.DecisionStore, as: :list
 

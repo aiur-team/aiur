@@ -1,15 +1,17 @@
 defmodule Aiur.Commands.EventData do
   @moduledoc "Closed, bounded data for additive Command facts outside the v1 request snapshot."
 
+  alias Aiur.Commands.CorrectiveFacts
   alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.RequestContent
   alias Aiur.Commands.Routing.FactData
   alias Aiur.DecisionEvent.Validation
 
   @routing_types FactData.types()
+  @corrective_types CorrectiveFacts.types()
 
   @spec fact_types() :: [atom()]
-  def fact_types, do: [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_resume_state, :override_prompt_delivered] ++ @routing_types
+  def fact_types, do: [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_resume_state, :override_prompt_delivered] ++ @routing_types ++ @corrective_types
 
   @spec normalize(atom(), term()) :: {:ok, map()} | {:error, term()}
   def normalize(:request_attributed, raw) when is_map(raw) do
@@ -59,6 +61,8 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
+  def normalize(type, raw) when type in @corrective_types and is_map(raw), do: CorrectiveFacts.normalize(type, raw)
+
   def normalize(:requester_notified, raw) when is_map(raw), do: ExecutorDelivery.normalize(raw)
 
   def normalize(type, raw) when type in @routing_types and is_map(raw), do: FactData.normalize(type, raw)
@@ -66,6 +70,7 @@ defmodule Aiur.Commands.EventData do
   def normalize(_type, _raw), do: {:error, {:event_data, :invalid}}
 
   @spec to_json_safe(atom(), map()) :: map()
+  def to_json_safe(type, data) when type in @corrective_types, do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(type, data) when type in [:override_resume_state, :override_prompt_delivered], do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:override_implemented, data), do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:requester_notified, data), do: Aiur.JSONSafe.normalize(data)

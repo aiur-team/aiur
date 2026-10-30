@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
+  alias Aiur.Commands.CorrectiveFacts
   alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.Overrides
   alias Aiur.Commands.Requester
@@ -86,6 +87,12 @@ defmodule Aiur.Commands.Projection do
         _other -> {:error, :native_ref_mismatch}
       end
     end
+  end
+
+  def apply(decision, %{type: type} = event)
+      when type in [:override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered, :override_corrective_closed] do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         do: CorrectiveFacts.apply(decision, event)
   end
 
   def apply(decision, %{type: type} = event) when type in [:override_resume_state, :override_prompt_delivered] do

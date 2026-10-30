@@ -4,6 +4,7 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    override_target_ticket: {Aiur.Commands.Overrides, :target_ticket},
     pending_override: {Aiur.Commands.Overrides, :pending},
     pending_resume_override: {Aiur.Commands.Overrides, :resume_request},
     prepare_override_prompt: {Aiur.Commands.OverridePrompt, :prepare},

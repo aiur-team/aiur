@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Retry do
 
   require Logger
 
+  alias Aiur.Commands.Overrides, as: CommandOverrides
   alias Aiur.Commands.Requester
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
@@ -165,7 +166,8 @@ defmodule Aiur.DecisionStore.Retry do
       addressed ->
         %{
           addressed
-          | answer: decision.answer,
+          | overrides: decision.overrides,
+            answer: decision.answer,
             active_action_id: decision.active_action_id,
             revision_sequence: decision.revision_sequence,
             revisions: decision.revisions,
@@ -273,10 +275,10 @@ defmodule Aiur.DecisionStore.Retry do
   # is not `:decided`, and a replaced answer is not the active one, so neither
   # is ever redelivered.
   defp answer_awaiting_worker?(
-         %Decision{decision_status: :decided, ticket: %{identifier: ticket_identifier}} = decision,
+         %Decision{decision_status: :decided} = decision,
          ticket_identifier
        ) do
-    dispatchable?(decision, true) and
+    CommandOverrides.target_ticket(decision).identifier == ticket_identifier and dispatchable?(decision, true) and
       Enum.all?(Decision.active_dispatch_attempts(decision), &is_nil(&1.delivered_at))
   end
 
