@@ -258,7 +258,7 @@ test('future regression guard: overlapping navigation choices survive older ackn
     })
   })
   await handle.dispatchEvent('keydown', { key: 'Enter' })
-  // A media-query change (or reconnect) mirrors the shell while the first choice is still unacknowledged.
+  // A media-query change mirrors the shell while the first choice is still unacknowledged.
   await page.evaluate(() => window.liveSocket.main.getHook(document.querySelector('#ax-drag')).media.dispatchEvent(new Event('change')))
   await handle.dispatchEvent('keydown', { key: 'Enter' })
   await expect.poll(() => replies.size).toBe(2)
@@ -272,6 +272,34 @@ test('future regression guard: overlapping navigation choices survive older ackn
   socket.send(replies.get(requests[1].ref))
   socket.send(replies.get(requests[2].ref))
   await collapsed(page, true)
+})
+
+test('a navigation choice lost with the socket yields to the server state after reconnect', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('aiur-nav-collapsed', 'false'))
+  let socket
+  let joins = 0
+  let dropChoice = false
+  await page.routeWebSocket('**/live/websocket**', route => {
+    socket = route
+    const server = route.connectToServer()
+    route.onMessage(message => {
+      const packet = JSON.parse(message)
+      if (packet[3] === 'phx_join' && packet[2].startsWith('lv:')) joins += 1
+      if (dropChoice && packet[3] === 'event' && packet[4].event === 'restore-nav') return
+      server.send(message)
+    })
+  })
+  await openProbe(page)
+  const joined = joins
+  dropChoice = true
+  await page.locator('#ax-drag').dispatchEvent('keydown', { key: 'Enter' })
+  await expect(page.locator('html')).toHaveClass(/nav-collapsed/)
+  dropChoice = false
+  await socket.close()
+  await expect.poll(() => joins).toBe(joined + 1)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+  await expect(page.locator('html')).not.toHaveClass(/nav-collapsed/)
+  await collapsed(page, false)
 })
 
 test('B-8 blocked storage keeps expanded navigation and working controls', async ({ page }) => {
