@@ -26,16 +26,12 @@ defmodule Aiur.Executor.AttachCLI do
   @spec run_detach(keyword()) :: non_neg_integer()
   def run_detach(opts) do
     with {:ok, binding} <- detach_binding(Session.current()),
-         :ok <- HookToken.rotate() do
-      case uninstall(if(binding, do: binding.harness, else: "claude"), opts) do
-        0 ->
-          IO.puts(if(binding, do: "DETACHED binding=#{binding.binding_id}", else: "DETACHED (no Executor binding)"))
-          0
-
-        code ->
-          code
-      end
+         :ok <- HookToken.rotate(),
+         0 <- uninstall(if(binding, do: binding.harness, else: "claude"), opts) do
+      IO.puts(if(binding, do: "DETACHED binding=#{binding.binding_id}", else: "DETACHED (no Executor binding)"))
+      0
     else
+      code when is_integer(code) -> code
       error -> failure(error)
     end
   end
