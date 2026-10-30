@@ -51,6 +51,21 @@ defmodule Aiur.Executor.HookSettingsBackupTest do
     assert Bitwise.band(mode, 0o777) == 0o600
   end
 
+  test "uninstall skips a corrupt backup when a valid backup is available", %{root: root} do
+    repo = init_repo(root)
+    settings_path = Path.join([repo, ".claude", "settings.local.json"])
+    original = ~s({"permissions":{"allow":["Read"]}})
+    File.mkdir_p!(Path.dirname(settings_path))
+    File.write!(settings_path, original)
+    assert :ok = HookConfig.install(:claude, repo_root: repo)
+
+    corrupt = Path.join(HookSettingsBackup.backup_dir(), "settings.local.json.aiur-bak-000-corrupt")
+    File.write!(corrupt, "not json")
+
+    assert :ok = HookConfig.uninstall(repo_root: repo)
+    assert File.read!(settings_path) == original
+  end
+
   # Future-regression guard: uninstall must not restore over edits made after install.
   test "uninstall preserves settings edited after installation", %{root: root} do
     repo = init_repo(root)

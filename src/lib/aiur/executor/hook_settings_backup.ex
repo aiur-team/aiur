@@ -58,7 +58,7 @@ defmodule Aiur.Executor.HookSettingsBackup do
         case Jason.decode(bytes) do
           {:ok, ^settings} -> {:halt, {:ok, bytes}}
           {:ok, _other} -> {:cont, {:ok, nil}}
-          {:error, reason} -> {:halt, {:error, {:invalid_backup_json, reason}}}
+          {:error, _reason} -> {:cont, {:ok, nil}}
         end
 
       {:error, reason} ->
