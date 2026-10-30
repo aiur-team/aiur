@@ -40,7 +40,7 @@ defmodule Aiur.Executor.SessionCLI do
   defp transcript_status do
     TranscriptIngest.status()
   catch
-    :exit, {:noproc, _call} -> %{transcript_rejection: nil}
+    :exit, {reason, _call} when reason in [:noproc, :timeout] -> %{transcript_rejection: :unknown}
   end
 
   defp rejection_status do

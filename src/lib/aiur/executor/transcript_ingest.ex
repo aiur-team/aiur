@@ -18,7 +18,7 @@ defmodule Aiur.Executor.TranscriptIngest do
   def poll(server \\ __MODULE__), do: GenServer.call(server, :poll, :infinity)
   @doc false
   @spec status() :: map()
-  def status, do: GenServer.call(__MODULE__, :status)
+  def status, do: GenServer.call(__MODULE__, :status, 500)
 
   @impl true
   def init(opts) do

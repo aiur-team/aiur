@@ -148,6 +148,18 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     rendered = capture_io(fn -> SessionCLI.run(opts) end) |> Jason.decode!()
     assert rendered["transcript_rejection"] == "not_regular"
     assert capture_io(fn -> SessionCLI.run(Keyword.put(opts, :json, false)) end) =~ "transcript_rejection=not_regular"
+    manager = Process.whereis(TranscriptIngest)
+    :sys.suspend(manager)
+
+    try do
+      busy = capture_io(fn -> SessionCLI.run(opts) end) |> Jason.decode!()
+      assert busy["state"] == "attached"
+      assert busy["provider_session_id"] == "one"
+      assert busy["transcript_rejection"] == "unknown"
+    after
+      :sys.resume(manager)
+    end
+
     assert :ok = flush(context.ref)
     assert [gap] = rows(context.dir)
     assert {gap["kind"], gap["meta"]["reason"]} == {"gap", "source_unreadable"}
