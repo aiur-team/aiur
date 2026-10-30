@@ -36,7 +36,7 @@ def blockers(rows):
         return '<li>' + shown(None) + '</li>'
     content = ''.join(f'<li data-trim="50" data-kind="blockers"><b>{text(r.get("label"))}</b><span class="arw"></span>'
                       f'<span>{text(r.get("action"))}</span></li>' for r in rows[:5])
-    return content + (f'<li class="more editorial-more" data-more="true">+{len(rows) - 5} more</li>' if len(rows) > 5 else '') or '<li>None reported</li>'
+    return content + (f'<li class="more editorial-more" data-more="true">+{len(rows) - 5} more</li>' if len(rows) > 5 else '') or '<li>Nothing blocked on you today</li>'
 
 
 def shipped(rows):
