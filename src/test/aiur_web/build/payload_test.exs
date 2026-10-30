@@ -2,8 +2,8 @@ Code.require_file("../../support/build_home/queue_read_model_fixture.ex", __DIR_
 
 defmodule AiurWeb.Build.PayloadTest do
   use ExUnit.Case, async: true
-  alias Aiur.TestSupport.BuildHome.FixtureSource
   alias Aiur.Test.BuildHome.QueueReadModelFixture, as: FixtureQueue
+  alias Aiur.TestSupport.BuildHome.FixtureSource
   alias AiurWeb.Build.{Payload, PlannedRows, Read}
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
