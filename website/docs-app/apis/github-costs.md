@@ -54,7 +54,7 @@ The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |
-| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; unconfirmed backfill waits for explicit release. |
+| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; backfill joins wait for explicit release even after CLI confirmation, including when projection first observes the join after confirmation. |
 | A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
 | The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment or its own review reply. |
 | A label or a close is delivered | It reconciles state rather than waking anybody, so an orchestrator label write cannot wake the agent that state belongs to. |

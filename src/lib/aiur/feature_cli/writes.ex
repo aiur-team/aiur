@@ -4,6 +4,14 @@ defmodule Aiur.FeatureCLI.Writes do
   alias Aiur.FeatureCLI.Output
 
   @spec apply(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def apply(%{op: :confirm} = args, _snapshot, context) do
+    meta = Keyword.take(context, [:actor, :source, :server, :timeout])
+
+    with {:ok, result} <- Features.confirm(args.slug, args.ids, meta) do
+      {:ok, Map.merge(result, %{schema_version: 1, command: "feature confirm", feature: args.slug})}
+    end
+  end
+
   def apply(args, snapshot, context) do
     meta = Keyword.take(context, [:actor, :source, :server, :timeout]) ++ Enum.to_list(Map.take(args, [:epic, :move, :remove, :replace]))
 
