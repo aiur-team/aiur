@@ -22,6 +22,36 @@ defmodule Aiur.TestQuarantine do
     |> Enum.uniq()
   end
 
+  @doc "Sorts quarantine entries in the order enforced by the quarantine list validator."
+  @spec sort_key(entry()) :: {String.t(), String.t()}
+  def sort_key(%{module: module, name: name}), do: {module, name}
+
+  @doc "Inserts a quarantine row while preserving the validator's module/name ordering."
+  @spec insert_sorted(String.t(), String.t()) :: String.t()
+  def insert_sorted(contents, row) when is_binary(contents) and is_binary(row) do
+    rows = String.split(String.trim_trailing(contents), "\n", trim: true)
+    identity = row_identity(row)
+
+    {before, after_rows} =
+      Enum.split_while(rows, fn existing ->
+        case row_identity(existing) do
+          nil -> true
+          existing_identity -> existing_identity <= identity
+        end
+      end)
+
+    (before ++ [row] ++ after_rows)
+    |> Enum.join("\n")
+    |> Kernel.<>("\n")
+  end
+
+  defp row_identity(row) do
+    case String.split(row, "\t", parts: 3) do
+      [module, name, _] -> sort_key(%{module: module, name: name})
+      _ -> nil
+    end
+  end
+
   defp filter(%{module: module, name: "*"}), do: {:module, String.to_atom(module)}
   defp filter(%{name: name}), do: {:test, String.to_atom("test " <> name)}
 
@@ -52,6 +82,7 @@ defmodule Aiur.TestQuarantine do
   defp reverse_entries({:ok, entries}), do: {:ok, Enum.reverse(entries)}
   defp reverse_entries(error), do: error
 
+  defp valid_module?("*"), do: true
   defp valid_module?(module), do: Regex.match?(~r/^Aiur(?:Web)?(?:\.[A-Za-z0-9_]+)+$/, module)
   defp valid_ticket?(ticket), do: Regex.match?(~r/^#?[1-9][0-9]*$/, ticket)
 end

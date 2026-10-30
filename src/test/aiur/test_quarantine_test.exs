@@ -25,7 +25,7 @@ defmodule Aiur.TestQuarantineTest do
     path = Path.join(test_root, "quarantine.txt")
     assert {:ok, entries} = TestQuarantine.read(path)
 
-    identities = Enum.map(entries, &{&1.module, &1.name})
+    identities = Enum.map(entries, &TestQuarantine.sort_key/1)
     assert identities == Enum.sort(identities)
     assert length(identities) == length(Enum.uniq(identities))
     assert Enum.all?(entries, &(&1.ticket =~ ~r/^#?[1-9][0-9]*$/))
@@ -33,7 +33,19 @@ defmodule Aiur.TestQuarantineTest do
 
     test_modules = test_root |> Path.join("**/*_test.exs") |> Path.wildcard() |> test_module_names()
 
-    assert Enum.all?(entries, &MapSet.member?(test_modules, &1.module))
+    assert Enum.all?(entries, &(&1.module == "*" or MapSet.member?(test_modules, &1.module)))
+  end
+
+  test "sorted insertion places a row in the middle and produces a valid sorted list" do
+    fixture = "# fixture\nAiur.ATest\talpha\t#1\t2026-12-31\nAiur.ZTest\tomega\t#2\t2026-12-31\n"
+    inserted = "Aiur.MTest\tmiddle\t#3\t2026-12-31"
+
+    result = TestQuarantine.insert_sorted(fixture, inserted)
+    assert {:ok, entries} = TestQuarantine.parse(result)
+    identities = Enum.map(entries, &TestQuarantine.sort_key/1)
+
+    assert identities == [{"Aiur.ATest", "alpha"}, {"Aiur.MTest", "middle"}, {"Aiur.ZTest", "omega"}]
+    assert identities == Enum.sort(identities)
   end
 
   test "filters exclude synthetic plain, described, and special-character test names" do

@@ -75,6 +75,21 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     refute contents =~ "\t#7020\nBrowserSpec\tsrc/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs\t#7020"
   end
 
+  test "inserts an ExUnit row in sorted position and quarantines ambiguous names by module" do
+    contents = "# Existing entries\nAiur.ATest\tfirst\t#1\t2026-12-31\nAiur.ZTest\tshared name\t#2\t2026-12-31\n"
+
+    assert {:ok, sorted} = QuarantinePR.entry("Aiur.MTest :: middle", 7021, contents, ~D[2026-12-31])
+    assert {:ok, entries} = Aiur.TestQuarantine.parse(sorted)
+
+    assert Enum.map(entries, &Aiur.TestQuarantine.sort_key/1) ==
+             [{"Aiur.ATest", "first"}, {"Aiur.MTest", "middle"}, {"Aiur.ZTest", "shared name"}]
+
+    assert {:ok, ambiguous} = QuarantinePR.entry("Aiur.MTest :: shared name", 7022, contents, ~D[2026-12-31])
+    assert ambiguous =~ "*\tshared name\t#7022\t2026-12-31\n"
+    assert {:ok, ambiguous_entries} = Aiur.TestQuarantine.parse(ambiguous)
+    assert Enum.any?(ambiguous_entries, &(&1.module == "*" and &1.name == "shared name"))
+  end
+
   test "same per-test row is already listed and legacy whole-spec row covers it" do
     identity = "BrowserSpec :: src/browser/tests/example.browser.spec.mjs :: skips one test :: 187"
     per_test = "BrowserSpec\tsrc/browser/tests/example.browser.spec.mjs\tskips one test\t187\t#7020\n"

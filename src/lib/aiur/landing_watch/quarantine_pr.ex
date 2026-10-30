@@ -8,6 +8,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   alias Aiur.Config.TrackerSettings
   alias Aiur.GitHub.Access
+  alias Aiur.TestQuarantine
 
   @branch_prefix "aiur/quarantine/"
   @exunit_list "src/test/quarantine.txt"
@@ -82,17 +83,40 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   def entry(identity, ticket, contents, expires) do
     case String.split(identity, " :: ", parts: 2) do
       [module, name] ->
+        {module, name} = quarantine_identity(module, name, contents)
         fields = quarantine_fields(module, name, ticket, expires)
 
         line = Enum.join(fields, "\t")
 
         if listed?(contents, identity),
           do: {:error, :already_quarantined},
-          else: {:ok, String.trim_trailing(contents) <> "\n" <> line <> "\n"}
+          else: {:ok, TestQuarantine.insert_sorted(contents, line)}
 
       _ ->
         {:error, :invalid_quarantine_identity}
     end
+  end
+
+  defp quarantine_identity(module, name, contents) do
+    if module == "BrowserSpec" do
+      {module, name}
+    else
+      exunit_quarantine_identity(module, name, contents)
+    end
+  end
+
+  defp exunit_quarantine_identity(module, name, contents) do
+    duplicate_name? =
+      contents
+      |> String.split("\n")
+      |> Enum.any?(fn line ->
+        case String.split(line, "\t", parts: 3) do
+          [other_module, ^name, _] -> other_module != module
+          _ -> false
+        end
+      end)
+
+    if duplicate_name?, do: {"*", name}, else: {module, name}
   end
 
   defp quarantine_fields("BrowserSpec", name, ticket, _expires) do
