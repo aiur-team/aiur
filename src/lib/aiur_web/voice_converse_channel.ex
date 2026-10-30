@@ -27,7 +27,6 @@ defmodule AiurWeb.VoiceConverseChannel do
       false -> Join.error(:auth_changed)
       {:error, %{} = refusal} -> {:error, refusal}
       {:error, reason} -> Join.error(reason)
-      _ -> Join.error(:auth_changed)
     end
   end
 
@@ -80,10 +79,6 @@ defmodule AiurWeb.VoiceConverseChannel do
         {:noreply, socket}
 
       {:ok, _} ->
-        {:noreply, socket}
-
-      :error ->
-        Frames.push(socket, EventFrames.frames({:error, :target_not_found, "Voice session ended."}))
         {:noreply, socket}
 
       {:error, reason} ->
