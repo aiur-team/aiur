@@ -28,7 +28,8 @@ defmodule Aiur.DecisionStore.OverrideMerges do
 
   @spec before_delivery(map(), map()) :: {:ok, map()} | {:merged, map()}
   def before_delivery(state, item) do
-    id = get_in(item, [:correlation, :decision_id])
+    correlation = Map.get(item, :correlation) || %{}
+    id = Map.get(correlation, :decision_id, Map.get(correlation, "decision_id"))
     decision = Map.get(state.current, id)
     record = if decision, do: Enum.find(decision.overrides, &(&1.action_id == Map.get(item, :action_id)))
 
