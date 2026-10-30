@@ -10,7 +10,7 @@ defmodule AiurWeb.Build.ConversationEvents do
   """
 
   @log_limit 500
-  @progress ~w(progress progress.checkin progress.phase)
+  @progress ~w(agent.progress agent.progress.checkin agent.progress.phase progress progress.checkin progress.phase)
   @dep_states %{"failed" => "failed", "not_planned" => "not planned", "closed" => "closed", "done" => "closed", "queued" => "queued", "open" => "open"}
 
   @type entry :: map()
@@ -19,10 +19,10 @@ defmodule AiurWeb.Build.ConversationEvents do
   @spec log_limit() :: pos_integer()
   def log_limit, do: @log_limit
 
-  @doc "Maps the ticket's own event-log rows (rows 1–5); every other topic is not shown."
+  @doc "Maps the ticket's own event-log rows; unsupported topics are omitted."
   @spec from_log([map()], String.t(), %{optional(pos_integer()) => 0..100}) :: [entry()]
   def from_log(rows, identifier, percents) do
-    prefix = "ticket." <> identifier <> ".agent."
+    prefix = "ticket." <> identifier <> "."
 
     Enum.flat_map(rows, fn row ->
       with topic when is_binary(topic) <- row[:topic],
@@ -38,6 +38,14 @@ defmodule AiurWeb.Build.ConversationEvents do
 
   defp log_kind(topic, pct) when topic in @progress and is_integer(pct), do: {"prog", "Progress · #{pct}%", pct}
   defp log_kind(topic, _pct) when topic in @progress, do: {"prog", "Progress updated", nil}
+  defp log_kind("pr.opened", _), do: {"pr", "Opened PR", nil}
+  defp log_kind("pr.ready_for_review", _), do: {"pr", "PR ready for review", nil}
+  defp log_kind("branch.push", _), do: {"commit", "Commit pushed", nil}
+  defp log_kind("agent.phase.review.start", _), do: {"review", "Review started", nil}
+  defp log_kind("agent.phase.review.end", _), do: {"review", "Review complete", nil}
+  defp log_kind("agent.blocked", _), do: {"dep", "Blocked", nil}
+  defp log_kind("agent.unblocked", _), do: {"dep", "Unblocked", nil}
+  defp log_kind("agent.pause.request", _), do: {"you", "Agent asked to pause", nil}
   defp log_kind("phase.review.start", _), do: {"review", "Review started", nil}
   defp log_kind("phase.review.end", _), do: {"review", "Review complete", nil}
   defp log_kind("blocked", _), do: {"dep", "Blocked", nil}
