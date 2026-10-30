@@ -79,6 +79,36 @@ class DailyTest(unittest.TestCase):
             self.assertEqual(json.loads(command[4])['pdf_path'], str(pdf))
         self.assertIn('FAILED:', (self.outputs() / 'run.log').read_text())
 
+    def test_daily_runner_uses_configured_aiur_over_path(self):
+        configured_dir = self.root / 'configured'
+        path_dir = self.root / 'path-first'
+        configured_dir.mkdir()
+        path_dir.mkdir()
+        configured_log = self.root / 'configured-calls.jsonl'
+        path_log = self.root / 'path-calls.jsonl'
+        for directory, log in ((configured_dir, configured_log), (path_dir, path_log)):
+            executable = directory / 'aiur'
+            executable.write_text(
+                '#!/usr/bin/env python3\n'
+                'import json, os, sys\n'
+                'with open(os.environ["CALL_LOG"], "a") as stream:\n'
+                ' stream.write(json.dumps(sys.argv[1:]) + "\\n")\n'
+                'if "units" in sys.argv: print(json.dumps({"data":{"view":{"rows":[]}},"auxiliary":{}}))\n'
+            )
+            executable.chmod(0o755)
+        args = ['--repo', 'owner/repo', '--state-dir', str(self.root), '--aiur', str(configured_dir / 'aiur')]
+        result = subprocess.run([str(ROOT / 'scripts/newsletter/run-daily.sh'), *args],
+                                capture_output=True, text=True,
+                                env={**os.environ, 'HOME': str(self.root),
+                                     'PATH': str(path_dir) + os.pathsep + os.environ['PATH'],
+                                     'NEWSLETTER_AIUR': str(configured_dir / 'aiur'),
+                                     'CALL_LOG': str(configured_log)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [json.loads(line) for line in configured_log.read_text().splitlines()]
+        self.assertTrue(any('units' in call for call in calls), calls)
+        self.assertTrue(any(call[:2] == ['executor-emit', 'system.newsletter.ready'] for call in calls), calls)
+        self.assertFalse(path_log.exists())
+
     def test_render_failure_emits_failed_wake_and_limits_service_retries(self):
         args = self.arguments[:5] + ['--aiur', 'test-aiur']
         with patch.object(sys, 'argv', args), patch.object(daily.newsletter, 'collect', return_value=snapshot()), patch.object(daily.newsletter, 'publish', side_effect=RuntimeError('render failed')), patch.object(daily.subprocess, 'run') as emit:
