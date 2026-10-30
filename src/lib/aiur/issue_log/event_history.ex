@@ -46,7 +46,7 @@ defmodule Aiur.IssueLog.EventHistory do
 
     with true <- is_integer(after_id) and after_id >= 0 and is_integer(limit) and limit in 1..500,
          {:ok, %{size: size}} <- File.stat(path, time: :posix),
-         {:ok, content} <- read_page_chunk(path, max(size - (Encoding.max_record_bytes() + 1) * limit * 2, 0), min(size, (Encoding.max_record_bytes() + 1) * limit * 2)) do
+         {:ok, content} <- read_page_chunk(path, page_start(size, after_id, limit), page_bytes(size, after_id, limit)) do
       events =
         content
         |> String.split("\n", trim: true)
@@ -63,6 +63,12 @@ defmodule Aiur.IssueLog.EventHistory do
       {:error, reason} -> {:error, {:unavailable, reason}}
     end
   end
+
+  defp page_start(_size, 0, _limit), do: 0
+  defp page_start(size, _after_id, limit), do: max(size - (Encoding.max_record_bytes() + 1) * limit * 2, 0)
+
+  defp page_bytes(size, 0, _limit), do: size
+  defp page_bytes(size, _after_id, limit), do: min(size, (Encoding.max_record_bytes() + 1) * limit * 2)
 
   defp read_page_chunk(path, start, bytes) do
     with {:ok, file} <- File.open(path, [:read, :binary]) do

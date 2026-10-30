@@ -24,6 +24,24 @@ defmodule AiurWeb.Build.TimelineTest do
     assert selected == identity()
   end
 
+  test "first build drains all event pages and later pages start at the prior high-water mark" do
+    owner = self()
+
+    read = fn _identity, opts ->
+      send(owner, {:page, Keyword.fetch!(opts, :after_id)})
+
+      case Keyword.fetch!(opts, :after_id) do
+        0 -> {:ok, %{events: [%{id: 200}], high_water: 200, has_more: true}}
+        200 -> {:ok, %{events: [%{id: 400}], high_water: 400, has_more: false}}
+      end
+    end
+
+    assert {:ok, %{events: [%{id: 200}, %{id: 400}], high_water: 400, truncated: false}} = Timeline.read(identity(), 0, read_fun: read)
+    assert_received {:page, 0}
+    assert_received {:page, 200}
+    refute_received {:page, 400}
+  end
+
   test "durable timeline provider validates ticket identity" do
     assert {:error, :invalid_identity} = TicketTimelineProvider.read_page(%TrackerIdentity{status: :invalid}, [])
   end

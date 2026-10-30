@@ -36,15 +36,25 @@ defmodule AiurWeb.Build.Timeline do
   def append_cache(_cache, incoming) when is_list(incoming), do: append_cache(%{events: [], high_water: 0}, incoming)
 
   defp read_history(identity, after_id, read_fun) do
+    read_pages(identity, after_id, read_fun, [])
+  end
+
+  defp read_pages(identity, after_id, read_fun, accumulated) do
     case read_fun.(identity, after_id: after_id, kinds: [:emit, :emit_alert, :consumed, :self, :command], limit: @page_size) do
       {:ok, %{events: events, high_water: high_water, has_more: has_more}} when is_list(events) ->
-        {:ok, %{events: events, high_water: high_water, truncated: has_more}}
+        pages = accumulated ++ events
+
+        if has_more and high_water > after_id do
+          read_pages(identity, high_water, read_fun, pages)
+        else
+          {:ok, %{events: pages, high_water: high_water, truncated: false}}
+        end
 
       {:ok, events} when is_list(events) ->
-        {:ok, %{events: events, truncated: length(events) == @page_size}}
+        {:ok, %{events: accumulated ++ events, truncated: length(events) == @page_size}}
 
       events when is_list(events) ->
-        {:ok, %{events: events, truncated: length(events) == @page_size}}
+        {:ok, %{events: accumulated ++ events, truncated: length(events) == @page_size}}
 
       {:error, reason} ->
         {:error, reason}

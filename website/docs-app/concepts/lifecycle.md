@@ -22,4 +22,4 @@ This is the happy path. GitHub events can arrive through polling or webhook reco
 
 The live Build ticket Timeline uses this chart's actor and item-kind vocabulary. Items carry their event ID, observed timestamp, actor, kind, label and topic; progress items include the reported percentage. Phase spans use matching start and end events.
 
-The durable ticket log stores emitted and consumed events and agent command text, without command output. The open ticket view reads it by event ID and caches the latest page.
+The durable ticket log stores emitted and consumed events and agent command text, without command output. The open ticket view reads every page once, then fetches only event IDs after its cached high-water mark.
