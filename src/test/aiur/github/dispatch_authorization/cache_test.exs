@@ -9,7 +9,11 @@ defmodule Aiur.GitHub.DispatchAuthorization.CacheTest do
   alias Aiur.GitHub.ReadCache
 
   setup do
+    cache_snapshot = DispatchAuthorization.cache_snapshot_for_test()
     DispatchAuthorization.clear_cache()
+
+    on_exit(fn -> DispatchAuthorization.restore_cache_for_test(cache_snapshot) end)
+
     :ok
   end
 

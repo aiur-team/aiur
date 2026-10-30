@@ -48,6 +48,15 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     :ok
   end
 
+  @doc false
+  @spec cache_snapshot_for_test() :: :not_set | map()
+  def cache_snapshot_for_test, do: :persistent_term.get(@cache_key, :not_set)
+
+  @doc false
+  @spec restore_cache_for_test(:not_set | map()) :: :ok
+  def restore_cache_for_test(:not_set), do: :persistent_term.erase(@cache_key)
+  def restore_cache_for_test(snapshot) when is_map(snapshot), do: :persistent_term.put(@cache_key, snapshot)
+
   defp authorize_label_applier(issue, owner, repo, prefix, allowed_users, opts) do
     case trigger_label(issue, prefix) do
       {:ok, label} ->

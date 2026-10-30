@@ -218,8 +218,7 @@ read TTL cannot replay the early snapshot.
 
 For a `todo` ticket, the deferred result for the unchanged issue version is
 memoized for 60 seconds. This keeps rapid candidate polls from repeatedly
-fetching the same incomplete timeline while still retrying within the normal
-poll interval.
+fetching the same incomplete timeline and caps the retry delay at one minute.
 
 An issue update uses a new memo key; otherwise the next fetch is bounded by
 that minute. Active and rework tickets continue to deny incomplete evidence
