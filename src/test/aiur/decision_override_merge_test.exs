@@ -1,5 +1,7 @@
 defmodule Aiur.DecisionOverrideMergeTest do
   use ExUnit.Case, async: false
+  alias Aiur.Commands.OverridePrompt
+  alias Aiur.DecisionStore.Retry
   alias Aiur.{Commands, DecisionStore}
 
   @pr %{number: 77, merged?: false, head_sha: "before", head_ref: "work"}
@@ -53,7 +55,7 @@ defmodule Aiur.DecisionOverrideMergeTest do
              )
 
     Agent.update(ctx.observations, &%{&1 | merged?: true})
-    assert Aiur.Commands.OverridePrompt.prepare("6912", decision_store: ctx.store)[:pending_overrides] == []
+    assert OverridePrompt.prepare("6912", decision_store: ctx.store)[:pending_overrides] == []
     action = ctx.override.active_action_id
     assert_receive {:corrective_requested, ^action}, 2_000
   end
@@ -79,7 +81,7 @@ defmodule Aiur.DecisionOverrideMergeTest do
     assert decision.decision_status == :decided
     assert decision.acknowledgement == nil
     assert decision.resolution == nil
-    assert Aiur.DecisionStore.Retry.dispatchable?(decision, false)
+    assert Retry.dispatchable?(decision, false)
   end
 
   test "merge notification after delivery without a later commit routes once, including after replay", ctx do
@@ -109,7 +111,16 @@ defmodule Aiur.DecisionOverrideMergeTest do
 
     send_fun = fn _server, target, payload ->
       Agent.get_and_update(queue, fn store ->
-        attrs = %{target_issue_identifier: target, category: :operator_message, source: :executor, event_type: nil, body: %{text: payload.body}, action_id: payload.action_id, correlation: payload.correlation}
+        attrs = %{
+          target_issue_identifier: target,
+          category: :operator_message,
+          source: :executor,
+          event_type: nil,
+          body: %{text: payload.body},
+          action_id: payload.action_id,
+          correlation: payload.correlation
+        }
+
         assert {:ok, next, item, status} = Aiur.AgentQueueStore.enqueue_correlated(store, attrs)
         {{:ok, %{item: item, status: status}}, next}
       end)
@@ -134,6 +145,16 @@ defmodule Aiur.DecisionOverrideMergeTest do
     assert {:error, :ticket_mismatch} = DecisionStore.validate_delivery(original, ctx.store)
     assert {:ok, :accepted} = DecisionStore.validate_delivery(corrective, ctx.store)
     assert {:ok, :accepted} = DecisionStore.record_delivery(corrective, ctx.store)
+  end
+
+  test "a duplicate handoff after merge waits for commit evidence rather than creating corrective work", ctx do
+    deliver(ctx)
+    {:ok, delivered} = DecisionStore.get(ctx.override.decision_id, ctx.store)
+    [record] = delivered.overrides
+    Agent.update(ctx.observations, &Map.merge(&1, %{merged?: true, head_sha: "after", committed_at: DateTime.add(record.delivered_at, 1)}))
+    assert {:error, {:answer_withdrawn, :pr_merged}} = DecisionStore.validate_delivery(item(ctx.override), ctx.store)
+    wait_for(ctx, &(&1.state == :implemented))
+    refute_receive {:corrective_requested, _}, 20
   end
 
   test "two concurrent merge dispositions use the override version, with one stale loser", ctx do

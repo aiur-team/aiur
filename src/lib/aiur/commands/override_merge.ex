@@ -41,7 +41,7 @@ defmodule Aiur.Commands.OverrideMerge do
   defp eligible?(nil, _, _), do: false
 
   defp eligible?(record, decision, data) do
-    record.action_id == decision.active_action_id and record.state in [:queued, :delivered] and
+    record.action_id == decision.active_action_id and record.state in [:queued, :delivered, :failed] and
       record.route != :corrective_ticket and is_nil(record.corrective_ticket) and
       Map.get(record, :merge_version, 1) == data.expected_version and
       (is_nil(record.pr_number) or record.pr_number == data.pr_number)

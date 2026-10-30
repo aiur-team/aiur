@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.CorrectiveTicket do
   @moduledoc false
 
+  alias Aiur.GitHub.OverrideMergeEvidence
   alias Aiur.Commands.{CorrectivePullRequest, CorrectiveTicketBody}
   alias Aiur.{Config, Tracker}
 
@@ -19,17 +20,22 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp ensure(decision, record, opts) do
-    with {:ok, %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) <-
-           CorrectivePullRequest.read(record.ticket.identifier, opts) do
-      if record.route == :corrective_ticket do
-        create_and_link(decision, record, pr, opts)
-      else
-        settle_merge(record, pr, opts)
-      end
-    else
-      {:error, _reason} = error -> error
-      {:ok, %{state: :closed, merged?: false}} -> {:ok, [{:override_corrective_closed, %{action_id: record.action_id}}]}
-      _unmerged_or_unknown -> if record.route == :corrective_ticket, do: {:error, :merged_pr_evidence_missing}, else: {:ok, []}
+    case CorrectivePullRequest.read(record.ticket.identifier, opts) do
+      {:ok, %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) ->
+        if record.route == :corrective_ticket do
+          create_and_link(decision, record, pr, opts)
+        else
+          settle_merge(record, pr, opts)
+        end
+
+      {:error, _reason} = error ->
+        error
+
+      {:ok, %{state: :closed, merged?: false}} ->
+        {:ok, [{:override_corrective_closed, %{action_id: record.action_id}}]}
+
+      _unmerged_or_unknown ->
+        if record.route == :corrective_ticket, do: {:error, :merged_pr_evidence_missing}, else: {:ok, []}
     end
   end
 
@@ -40,7 +46,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp settle_merge(record, pr, opts) do
-    read = Keyword.get(opts, :merge_head, &Aiur.GitHub.OverrideMergeEvidence.read/1)
+    read = Keyword.get(opts, :merge_head, &OverrideMergeEvidence.read/1)
     result = if record.state == :delivered, do: read.(pr), else: {:ok, pr}
 
     with {:ok, evidence} <- result do

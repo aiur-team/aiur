@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
 
   @max_operator_message_chars 8_000
 
+  alias Aiur.AgentQueueStore.Correlation
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, OperatorWaitLog}
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.Scheduler
@@ -147,7 +148,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
          %{mode: :correlated, action_id: action_id} = request
        )
        when is_binary(action_id) do
-    case AgentQueueStore.find_by_action(state.queue_store, Aiur.AgentQueueStore.Correlation.delivery_key(action_id, request.correlation)) do
+    case AgentQueueStore.find_by_action(state.queue_store, Correlation.delivery_key(action_id, request.correlation)) do
       nil ->
         :continue
 

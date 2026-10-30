@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
   require Logger
 
+  alias Aiur.GitHub.OverrideMergeEvidence
   alias Aiur.Commands.CorrectivePullRequest
   alias Aiur.DecisionStore.CommandFacts
 
@@ -37,7 +38,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
       for {_id, decision} <- state.current,
           ticket == :all or decision.ticket.identifier == ticket,
           record <- decision.overrides,
-          record.state in [:queued, :delivered] and record.route in [:active_worker, :resume_pending, :capacity_wait, :replacement],
+          record.state in [:queued, :delivered, :failed] and record.route in [:active_worker, :resume_pending, :capacity_wait, :replacement],
           record.action_id == decision.active_action_id,
           do: {decision.ticket.identifier, {decision.decision_id, record.action_id, Map.get(record, :merge_version, 1)}}
 
@@ -45,7 +46,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
       owner = self()
       reader = state.override_context_reader
 
-      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates, Map.get(state, :override_merge_reader, &Aiur.GitHub.OverrideMergeEvidence.read/1)) end)
+      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates, Map.get(state, :override_merge_reader, &OverrideMergeEvidence.read/1)) end)
     end
 
     :ok
@@ -98,11 +99,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
     if ref == "refs/heads/" <> branch and match?(%DateTime{}, at) do
       Enum.reduce(candidates, state, fn candidate, acc ->
-        {id, action_id} =
-          case candidate do
-            {id, action, _version} -> {id, action}
-            pair -> pair
-          end
+        {id, action_id} = candidate_action(candidate)
 
         data = %{action_id: action_id, at: at, head_sha: sha, pr_number: number}
         settle_candidate(acc, id, branch, data)
@@ -113,6 +110,9 @@ defmodule Aiur.DecisionStore.OverridePushes do
   end
 
   def settle(state, _candidates, _sha, _ref, _at, _pr), do: state
+
+  defp candidate_action({id, action, _version}), do: {id, action}
+  defp candidate_action(pair), do: pair
 
   defp settle_candidate(state, id, branch, data) do
     if same_branch?(state, id, data.action_id, branch), do: record_push(state, id, data), else: state

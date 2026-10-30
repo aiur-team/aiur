@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.Calls do
   @moduledoc false
 
+  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.DecisionStore.AgentLifecycle
   alias Aiur.DecisionStore.Answers
@@ -211,7 +212,7 @@ defmodule Aiur.DecisionStore.Calls do
   def handle_call({:recheck_override_delivery, id, action}, _from, state) do
     item = %{action_id: action, correlation: %{decision_id: id}}
 
-    case Aiur.DecisionStore.OverrideMerges.before_delivery(state, item) do
+    case OverrideMerges.before_delivery(state, item) do
       {:merged, next} -> {:reply, {:error, :pr_merged}, next}
       {:ok, next} -> {:reply, :ok, next}
     end

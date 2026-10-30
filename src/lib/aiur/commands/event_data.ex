@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.EventData do
   @moduledoc "Closed, bounded data for additive Command facts outside the v1 request snapshot."
 
+  alias Aiur.Commands.OverrideMerge
   alias Aiur.Commands.CorrectiveFacts
   alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.RequestContent
@@ -61,7 +62,7 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
-  def normalize(:override_merge_settled, raw) when is_map(raw), do: Aiur.Commands.OverrideMerge.normalize(raw)
+  def normalize(:override_merge_settled, raw) when is_map(raw), do: OverrideMerge.normalize(raw)
 
   def normalize(:override_implemented, raw) when is_map(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),

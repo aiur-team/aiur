@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Info do
 
   require Logger
 
+  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.Decision
   alias Aiur.DecisionPubSub
   alias Aiur.DecisionStore.CorrectiveOverrides
@@ -43,7 +44,7 @@ defmodule Aiur.DecisionStore.Info do
 
   def handle_info({:override_merge_observed, candidates, pr}, state) do
     if state.writable?,
-      do: {:noreply, Aiur.DecisionStore.OverrideMerges.settle(state, candidates, pr)},
+      do: {:noreply, OverrideMerges.settle(state, candidates, pr)},
       else: {:noreply, state}
   end
 

@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
+  alias Aiur.Commands.OverrideMerge
   alias Aiur.Commands.CorrectiveFacts
   alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.Overrides
@@ -102,7 +103,7 @@ defmodule Aiur.Commands.Projection do
 
   def apply(decision, %{type: :override_merge_settled} = event) do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
-         do: Aiur.Commands.OverrideMerge.apply(decision, event)
+         do: OverrideMerge.apply(decision, event)
   end
 
   def apply(decision, %{type: :override_implemented} = event) do

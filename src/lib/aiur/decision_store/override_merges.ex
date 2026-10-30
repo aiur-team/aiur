@@ -35,6 +35,10 @@ defmodule Aiur.DecisionStore.OverrideMerges do
 
     if record && record.route != :corrective_ticket && is_nil(record.corrective_ticket) do
       case state.override_pr_reader.(record.ticket.identifier) do
+        {:ok, %{merged?: true}} when record.state == :delivered ->
+          send(self(), {:override_ticket_merged, record.ticket.identifier})
+          {:merged, state}
+
         {:ok, %{merged?: true} = pr} ->
           {:merged, settle(state, [{id, record.action_id, Map.get(record, :merge_version, 1)}], pr)}
 

@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
+  alias Aiur.AgentQueueStore.Correlation
   alias Aiur.{AgentQueueStore, TrackerIdentity}
 
   alias Aiur.Orchestrator.State
@@ -56,7 +57,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     |> control_api_call({:send_correlated_operator_message, issue_identifier, payload}, timeout)
     |> reconcile_send_timeout(
       server,
-      {:action_id, Aiur.AgentQueueStore.Correlation.delivery_key(Enqueue.payload_key(payload, :action_id), Map.get(payload, :correlation))},
+      {:action_id, Correlation.delivery_key(Enqueue.payload_key(payload, :action_id), Map.get(payload, :correlation))},
       timeout,
       &{:ok, %{status: :duplicate, item: &1}}
     )
