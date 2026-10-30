@@ -9,6 +9,14 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     def subscribe(observer), do: send(observer, {:live_subscriber, self()})
   end
 
+  defmodule Capabilities do
+    def report, do: %{executor: %{state: "idle"}}
+  end
+
+  defmodule UnavailableCapabilities do
+    def report, do: %{executor: nil}
+  end
+
   setup do
     exchange = start_supervised!({Exchange, []})
     {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I_42", "number" => 42}, {"org", "repo"}, {"org", "repo"})
@@ -42,15 +50,23 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
   end
 
   test "executor subscribes to system and executor namespaces", %{exchange: exchange} do
-    assert :ok = LiveContext.subscribe(:executor, self(), :briefing, exchange: exchange)
+    assert :ok = LiveContext.subscribe(:executor, self(), :briefing, exchange: exchange, capabilities: Capabilities)
     publish(exchange, "system.build_order.root.progress", %{percent: 50})
     assert_receive {:context_update, "Build order progress: 50%", []}, 1_000
-    publish(exchange, "executor.state.changed", %{state: "paused"})
-    assert_receive {:context_update, "Executor state: paused", []}, 1_000
-    publish(exchange, "system.blockers.changed", %{count: 3})
-    assert_receive {:context_update, "Blockers: 3", []}, 1_000
+    publish(exchange, "system.capabilities.changed", %{revision: 2})
+    assert_receive {:context_update, "Executor state: idle", []}, 1_000
+    publish(exchange, "ticket.42.queue.attention.prerequisite_failed", %{blocked: ["43", "44", "45"]})
+    assert_receive {:context_update, "Failed prerequisite blocks 3 tickets", []}, 1_000
+    publish(exchange, "ticket.42.queue.attention.prerequisite_failed.resolved", %{})
+    assert_receive {:context_update, "Failed prerequisite cleared", []}, 1_000
     publish(exchange, "ticket.42.pr.opened", %{})
     refute_receive {:context_update, "PR opened", []}, 100
+  end
+
+  test "unavailable Executor state is explicit after a capability change", %{exchange: exchange} do
+    assert :ok = LiveContext.subscribe(:executor, self(), :briefing, exchange: exchange, capabilities: UnavailableCapabilities)
+    publish(exchange, "system.capabilities.changed", %{revision: 3})
+    assert_receive {:context_update, "Executor state unavailable", []}, 1_000
   end
 
   test "an ended live worker generation ends its subscribed voice target", ctx do
@@ -73,11 +89,14 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
 
   test "subscriptions are reaped when the session exits", %{exchange: exchange, target: target} do
     subscriber =
-      spawn(fn ->
-        receive do
-          :stop -> :ok
-        end
-      end)
+      start_supervised!(
+        {Task,
+         fn ->
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
 
     assert :ok = LiveContext.subscribe(target, subscriber, :commands, exchange: exchange)
     assert 1 == publish(exchange, "ticket.42.agent.decision.requested", %{question: "Ship?"})

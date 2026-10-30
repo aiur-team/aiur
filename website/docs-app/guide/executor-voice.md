@@ -87,3 +87,6 @@ Each event is redacted and saved before delivery. When a Command resolves elsewh
 unconfirmed instruction drafts become stale so you can review them against the new
 context. A missing live subscription is reported as a gap; tool calls still refresh
 the briefing.
+
+Live Executor context reads presence after capability notifications and reports the number
+of tickets affected by a failed queue prerequisite, plus when that prerequisite clears.

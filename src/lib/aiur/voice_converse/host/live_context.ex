@@ -56,7 +56,7 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
   defp subscribe_live(_target, _kind, _opts), do: :ok
 
   defp patterns(%Worker{identity: identity}), do: ["ticket.#{identity.identifier}.#"]
-  defp patterns(:executor), do: ["system.#", "executor.#"]
+  defp patterns(:executor), do: ["system.#", "executor.#", "ticket.*.queue.attention.#"]
 
   defp suffix(topic, %Worker{identity: identity}), do: String.replace_prefix(topic, "ticket.#{identity.identifier}.", "")
   defp suffix(topic, :executor), do: topic
@@ -88,11 +88,19 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
       Regex.match?(~r/^system\.build_order\.[^.]+\.progress$/, topic) and is_integer(value(event, :percent)) ->
         notify(state, {:context_update, "Build order progress: #{value(event, :percent)}%", []})
 
-      topic == "executor.state.changed" and is_binary(value(event, :state)) ->
-        notify(state, {:context_update, "Executor state: #{value(event, :state)}", []})
+      topic == "system.capabilities.changed" ->
+        capabilities = Keyword.get(state.opts, :capabilities, Aiur.Capabilities)
+        report = capabilities.report()
+        executor = value(report, :executor)
+        status = if is_map(executor), do: value(executor, :state), else: nil
+        text = if is_binary(status), do: "Executor state: #{status}", else: "Executor state unavailable"
+        notify(state, {:context_update, text, []})
 
-      topic == "system.blockers.changed" and is_integer(value(event, :count)) ->
-        notify(state, {:context_update, "Blockers: #{value(event, :count)}", []})
+      Regex.match?(~r/^ticket\.[^.]+\.queue\.attention\.prerequisite_failed$/, topic) and is_list(value(event, :blocked)) ->
+        notify(state, {:context_update, "Failed prerequisite blocks #{length(value(event, :blocked))} tickets", []})
+
+      Regex.match?(~r/^ticket\.[^.]+\.queue\.attention\.prerequisite_failed\.resolved$/, topic) ->
+        notify(state, {:context_update, "Failed prerequisite cleared", []})
 
       true ->
         :ok
