@@ -1,16 +1,20 @@
+Code.require_file("../conversation/journal_support.exs", __DIR__)
+
 defmodule Aiur.Executor.AttachCLIDetachTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
+  alias Aiur.Conversation.TestSupport
   alias Aiur.Executor.{AttachCLI, HookConfig, HookToken, Session, SessionIngest}
 
-  setup do
-    root = Aiur.TestSupport.tmp_root!("executor-detach")
+  setup context do
+    context = TestSupport.setup(context)
+    root = context.root
     previous = Application.fetch_env(:aiur, :executor_state_dir)
     key = System.get_env("AIUR_INSTANCE_KEY")
     Application.put_env(:aiur, :executor_state_dir, Path.join(root, "state"))
     System.put_env("AIUR_INSTANCE_KEY", "detach-test")
     start_supervised!({Session, instance_key: "detach-test"})
-    start_supervised!(SessionIngest)
+    start_supervised!({SessionIngest, pubsub: context.pubsub})
     path = Path.join([root, ".claude", "settings.local.json"])
     File.mkdir_p!(Path.dirname(path))
     original = ~s({"permissions":{"allow":["Read"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo user"}]}]}})
@@ -24,8 +28,6 @@ defmodule Aiur.Executor.AttachCLIDetachTest do
       if key,
         do: System.put_env("AIUR_INSTANCE_KEY", key),
         else: System.delete_env("AIUR_INSTANCE_KEY")
-
-      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{opts: [harness: "claude", repo_root: root, bound_port: 1234], path: path, original: original}
