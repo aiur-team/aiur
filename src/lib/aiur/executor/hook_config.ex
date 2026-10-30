@@ -8,7 +8,7 @@ defmodule Aiur.Executor.HookConfig do
   commands owned by Aiur must begin with `AIUR_EXECUTOR_HOOK=1` for removal.
   """
   alias Aiur.Executor.{HookSettingsFile, HookToken}
-  alias Aiur.Fs
+  alias Aiur.{Fs, Shell}
 
   @marker "AIUR_EXECUTOR_HOOK=1"
   @common ~w(SessionStart UserPromptSubmit PostToolUse Stop SubagentStart SubagentStop SessionEnd)
@@ -29,14 +29,14 @@ defmodule Aiur.Executor.HookConfig do
   def entries(harness, extra \\ []) when harness in [:claude, :codex] do
     script =
       "u=$(cat " <>
-        quote_sh(url_path()) <>
+        Shell.escape(url_path()) <>
         " 2>/dev/null) || exit 0; " <>
         "curl -sS -m 2 -o /dev/null -H @" <>
-        quote_sh(HookToken.headers_path()) <>
+        Shell.escape(HookToken.headers_path()) <>
         " -H 'Content-Type: application/json' --data-binary @- " <>
         "\"$u/api/v1/executor/hook?harness=#{harness}\" >/dev/null 2>&1; exit 0"
 
-    command = @marker <> " sh -c " <> quote_sh(script)
+    command = @marker <> " sh -c " <> Shell.escape(script)
     events = if harness == :claude, do: @claude, else: @common
     initial = Map.new(events, &{&1, [entry(command, 3)]})
 
@@ -69,5 +69,4 @@ defmodule Aiur.Executor.HookConfig do
   def uninstall(opts), do: HookSettingsFile.uninstall(Keyword.fetch!(opts, :repo_root))
 
   defp entry(command, timeout), do: %{"hooks" => [%{"type" => "command", "command" => command, "timeout" => timeout}]}
-  defp quote_sh(value), do: "'" <> String.replace(value, "'", "'\\''") <> "'"
 end
