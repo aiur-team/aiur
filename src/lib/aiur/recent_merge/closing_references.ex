@@ -72,14 +72,19 @@ defmodule Aiur.RecentMerge.ClosingReferences do
   def references(text) when is_binary(text) do
     text
     |> quotable_text()
+    |> closing_references()
+  end
+
+  def references(_text), do: []
+
+  defp closing_references(text) do
+    text
     |> then(&Regex.scan(@closing_reference_regex, &1, capture: [:reference]))
     |> Enum.map(fn [reference] -> parse_closing_reference(reference) end)
     |> Enum.filter(fn {_repository, number} -> String.to_integer(number) > 0 end)
     |> Enum.map(fn {repository, number} -> {repository, number |> String.to_integer() |> Integer.to_string()} end)
     |> Enum.uniq()
   end
-
-  def references(_text), do: []
 
   defp leading_part_of_reference(text) do
     case Regex.run(~r{\A[ \t]*part[ \t]+of[ \t]+(?:([A-Za-z0-9._-]+/[A-Za-z0-9._-]+))?#([0-9]+)\b}i, text, capture: :all) do
@@ -106,31 +111,40 @@ defmodule Aiur.RecentMerge.ClosingReferences do
 
   @doc "Returns same-repository identifiers named by a reference or closing keyword in arbitrary text."
   @spec linked_identifiers_in_text(term(), String.t() | nil) :: [String.t()]
-  def linked_identifiers_in_text(text, repository) when is_binary(text) do
-    text
-    |> quotable_text()
-    |> then(fn quotable ->
-      referenced_identifiers_in_body(quotable, repository) ++ identifiers_in_body(quotable, repository)
-    end)
-    |> Enum.uniq()
+  def linked_identifiers_in_text(text, repository), do: text |> parse(repository) |> elem(1)
+
+  @doc "Computes closing and linked identifiers with one Markdown preprocessing pass."
+  @spec parse(term(), String.t() | nil) :: {[String.t()], [String.t()]}
+  def parse(text, repository) when is_binary(text) do
+    quotable = quotable_text(text)
+    closing = quotable |> closing_references() |> local_identifiers(repository)
+    referenced = referenced_identifiers(quotable, quotable, repository)
+    {closing, Enum.uniq(referenced ++ closing)}
   end
 
-  def linked_identifiers_in_text(_, _), do: []
+  def parse(_, _), do: {[], []}
 
   @spec referenced_identifiers_in_body(String.t() | nil, String.t() | nil) :: [String.t()]
   def referenced_identifiers_in_body(body, repository) when is_binary(body) do
-    body
-    |> quotable_text()
-    |> then(&Regex.scan(@reference_regex, &1, capture: [:repository, :number]))
-    |> Enum.map(fn [reference_repository, number] -> {empty_to_nil(reference_repository), number} end)
-    |> then(&(&1 ++ leading_part_of_reference(body)))
-    |> Enum.filter(fn {reference_repository, _number} -> reference_repository == nil or same_repository?(reference_repository, repository) end)
-    |> Enum.map(&elem(&1, 1))
-    |> Enum.filter(&(String.to_integer(&1) > 0))
-    |> Enum.uniq()
+    referenced_identifiers(quotable_text(body), body, repository)
   end
 
   def referenced_identifiers_in_body(_, _), do: []
+
+  defp referenced_identifiers(quotable, body, repository) do
+    Regex.scan(@reference_regex, quotable, capture: [:repository, :number])
+    |> Enum.map(fn [reference_repository, number] -> {empty_to_nil(reference_repository), number} end)
+    |> then(&(&1 ++ leading_part_of_reference(body)))
+    |> local_identifiers(repository)
+    |> Enum.filter(&(String.to_integer(&1) > 0))
+  end
+
+  defp local_identifiers(references, repository) do
+    references
+    |> Enum.filter(fn {reference_repository, _number} -> reference_repository == nil or same_repository?(reference_repository, repository) end)
+    |> Enum.map(&elem(&1, 1))
+    |> Enum.uniq()
+  end
 
   # Drops the regions GitHub itself does not read closing keywords from:
   # fenced code blocks, inline code spans and blockquotes.
@@ -173,7 +187,9 @@ defmodule Aiur.RecentMerge.ClosingReferences do
 
   defp blockquote_line?(line), do: Regex.match?(~r/^[ \t]{0,3}>/, line)
 
-  defp strip_inline_code(line), do: String.replace(line, ~r/`[^`]*`/, " ")
+  defp strip_inline_code(line) do
+    if String.contains?(line, "`"), do: String.replace(line, ~r/`[^`]*`/, " "), else: line
+  end
 
   defp same_repository?(reference_repository, repository) when is_binary(repository) do
     String.downcase(reference_repository) == String.downcase(repository)

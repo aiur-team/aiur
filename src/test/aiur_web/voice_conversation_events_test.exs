@@ -8,7 +8,6 @@ defmodule AiurWeb.VoiceConversationEventsTest do
   import AiurWeb.DashboardLiveSupport.UnitFixtures
 
   alias Aiur.TestSupport.EndpointStubs
-  alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
 
@@ -19,8 +18,10 @@ defmodule AiurWeb.VoiceConversationEventsTest do
 
   setup do
     identity = units_identity()
+    handle = conversation_handle_value("v")
+    now = DateTime.utc_now()
     orchestrator = start_counting_orchestrator(__MODULE__.Orchestrator)
-    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+    replace_counting_snapshot(orchestrator, freshen(units_conversation_snapshot(identity, handle), now))
     {:ok, capability} = Agent.start_link(fn -> %{state: :available} end)
     {:ok, workers} = Agent.start_link(fn -> ["1110"] end)
 
@@ -33,13 +34,16 @@ defmodule AiurWeb.VoiceConversationEventsTest do
       dashboard_writable: true,
       voice_conversation_panel_module: InstalledPanel,
       capabilities_report_fun: fn -> %{capabilities: %{"voice.conversation" => Agent.get(capability, & &1)}} end,
-      units_membership_fun: fn -> units_membership(identity) end,
-      units_activity_fun: fn -> units_activity(identity) end
+      units_membership_fun: fn -> freshen(units_membership(identity), now) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      live_conversation_resolve_fun: fn ^handle -> {:ok, freshen(conversation_snapshot(handle), now)} end,
+      live_conversation_subscribe_fun: fn ^handle -> :ok end,
+      live_conversation_unsubscribe_fun: fn ^handle -> :ok end,
+      usage_snapshot_fun: fn _identifier, _opts -> {:error, :no_usage_data} end
     )
 
-    {:ok, view, _html} = live(build_conn(), "/units")
-    token = UnitsPresenter.row_token(%{identity: identity})
-    render_hook(view, "show-agent-log", %{"unit" => token})
+    {:ok, view, _html} = live(build_conn(), "/voice")
+    view |> element(~s(#voice-workers button[aria-label="Open conversation for 1110"])) |> render_click()
     target = view |> element("[data-voice-root]") |> render() |> Floki.parse_fragment!() |> Floki.attribute("data-voice-target") |> hd()
     %{view: view, capability: capability, workers: workers, params: %{"surface" => "agent_composer", "target" => target}}
   end
@@ -121,4 +125,10 @@ defmodule AiurWeb.VoiceConversationEventsTest do
   end
 
   defp assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp freshen(%DateTime{}, now), do: now
+  defp freshen(%_{} = value, _now), do: value
+  defp freshen(value, now) when is_map(value), do: Map.new(value, fn {key, item} -> {key, freshen(item, now)} end)
+  defp freshen(value, now) when is_list(value), do: Enum.map(value, &freshen(&1, now))
+  defp freshen(value, _now), do: value
 end
