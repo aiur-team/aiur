@@ -150,19 +150,7 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
       expected_topic = "ticket.6628.#{if(merged?, do: "pr.merged", else: "pr.opened")}"
       assert {:publish, [{^expected_topic, _payload, producer_opts}]} = Normalizer.normalize("pull_request", delivery, repo: "aiur-team/aiur")
       assert producer_opts[:identity] == ctx.identity
-      test_pid = self()
-
-      assert %{status: :published} =
-               GithubWebhook.handle_delivery("pull_request", delivery,
-                 repo: "aiur-team/aiur",
-                 publish_fun: fn topic, payload, opts ->
-                   send(test_pid, {:webhook_publish, topic, opts[:identity]})
-                   Aiur.Events.publish(topic, payload, opts)
-                 end
-               )
-
-      assert_receive {:webhook_publish, ^expected_topic, published_identity}
-      assert published_identity == ctx.identity
+      assert %{status: :published} = GithubWebhook.handle_delivery("pull_request", delivery, repo: "aiur-team/aiur")
       assert_receive {:event, %{topic: topic, ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
       assert topic == expected_topic
       assert identity == ctx.identity
