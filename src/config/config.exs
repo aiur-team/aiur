@@ -245,6 +245,12 @@ if config_env() == :test do
   # beside every discovered pack, so the shared app must stay idle.
   config :aiur, :build_order_pack_status_poll?, false
 
+  # The shared app's LandingWatch, QuarantineLifter and MainWatch read GitHub on a
+  # timer and on bus events. With no token they log `landing watcher poll
+  # unavailable: :missing_github_token` into unrelated async capture_log calls
+  # (#6474). Tests that exercise them start their own named instances.
+  config :aiur, :repository_services?, false
+
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and
   # Aiur.Events.IdGenerator persists <log_root>/<repo>.event_id during
