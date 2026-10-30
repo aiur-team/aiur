@@ -27,6 +27,7 @@ defmodule Aiur.ReleaseVmArgsTest do
       {"ERL_AFLAGS", nil},
       {"ERL_ZFLAGS", nil}
     ]
+
     {output, status} = System.cmd("mix", ["release"], cd: root, env: env, stderr_to_stdout: true)
     assert status == 0, output
 
