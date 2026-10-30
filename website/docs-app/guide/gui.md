@@ -205,7 +205,8 @@ does not establish send support.
 
 Accepted Executor messages show **Waiting until
 the Executor’s next turn** until the matching journal entry arrives; acceptance
-does not wake an idle external session. The effective mode is read-only.
+does not wake an idle external session. Pending Executor sends are not retained
+across daemon restarts. The effective mode is read-only.
 
 **Accepted** means the message was accepted for processing. **Queued** means
 the harness queued it (Sync: next boundary), not that the agent read it.
