@@ -49,6 +49,10 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.ControlTokenAuth)
   end
 
+  pipeline :executor_hook_delivery_auth do
+    plug(AiurWeb.ExecutorHookAuth, delivery: true)
+  end
+
   pipeline :executor_hook_auth do
     plug(AiurWeb.ExecutorHookAuth)
   end
@@ -112,6 +116,11 @@ defmodule AiurWeb.Router do
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
+
+  scope "/", AiurWeb do
+    pipe_through(:executor_hook_delivery_auth)
+    post("/api/v1/executor/hook/deliver", ExecutorHookDeliveryController, :create)
+  end
 
   scope "/", AiurWeb do
     pipe_through(:executor_hook_auth)

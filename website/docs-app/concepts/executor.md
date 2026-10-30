@@ -84,6 +84,30 @@ Authenticated POSTs return `202` before
 asynchronous validation and binding updates; a `202` does not mean an event was
 accepted. Other authenticated methods return `405`.
 
+`POST /api/v1/executor/hook/deliver?harness=claude|codex` uses the same
+credential and normalizer to deliver pending Executor messages at a hook boundary.
+Only the attached provider session and harness can receive a batch.
+
+A `200`
+contains the JSON envelope to print verbatim to hook stdout; every other status
+prints nothing (`204` means no delivery). Non-loopback delivery requests return
+`403`; missing or incorrect credentials return `401`.
+
+Sync delivers at `Stop` or the next `UserPromptSubmit`; steer also delivers at
+`PostToolUse`. Async messages remain pull-only. `SessionStart`, subagent hooks,
+and `Stop` with `stop_hook_active: true` never claim messages.
+
+Batches preserve arrival order, with at most 50 messages and a 64 KiB rendered frame. Oversized
+first bodies are truncated.
+
+A claim records harness queueing, not consumption; failed rendering, expired deadlines, and failed HTTP writes leave messages
+pending for retry. The request budget is 1.5 seconds. An idle session waits for
+the next prompt; this endpoint does not wake it.
+
+The loopback `remote_ip` check is defence in depth, not the boundary: a local
+tunnel or reverse proxy that forwards remote traffic to `127.0.0.1` passes it.
+The hook token is the boundary.
+
 The daemon's `Aiur.Executor.HookToken.ensure/0` creates an instance-scoped
 `.executor.hook-token` and `.executor.hook-headers` pair in its Executor state
 directory, with mode `0600` (directory `0700`).
@@ -113,3 +137,40 @@ a new session never inherits it.
 Accepted events publish on the
 internal `executor_hook` topic; rejection counts use
 `[:aiur, :executor, :hook]` telemetry without recording payload content.
+
+### Generated hook settings
+
+The Executor hook generator installs Claude hooks in the repository's
+`.claude/settings.local.json`. It preserves existing settings and hook order,
+refuses invalid JSON or hook structures, and backs up each changed file under
+the private per-repository Executor state directory at
+`hook-settings/settings.local.json.aiur-bak-<timestamp>`.
+
+The backup directory has mode `0700`; files have mode `0600`. Install and
+uninstall migrate backups left in the working tree by older versions, removing
+each old copy only after verifying its private copy.
+
+Add `.claude/settings.local.json` itself to `.gitignore` or the repository's
+local `.git/info/exclude`. Settings may contain environment values,
+permissions and absolute hook paths; the backup is stored outside the working
+tree and is not covered by this ignore rule.
+
+Removing the integration removes only commands
+starting with `AIUR_EXECUTOR_HOOK=1`. If no settings changed since install,
+uninstall restores the original file bytes from the private backup. Later user
+edits are preserved, and the backup remains available for manual restoration.
+
+An existing marked lifecycle command is preserved, including its paths.
+Uninstall and reinstall the hooks to point them at another instance.
+
+Codex configuration is printed for merging into `<repo>/.codex/hooks.json`.
+Review and trust those hooks in Codex's `/hooks` dialog before using them;
+the generator does not edit Codex settings or grant trust.
+
+Generated commands read the instance's private `.executor.hook-url` file on each
+invocation. The daemon rewrites that file after an HTTP bind, so a changed
+port does not require reinstalling hooks.
+
+Commands send input to the loopback
+endpoint with the separate header file, suppress output, bound curl to two
+seconds, and exit successfully even when the daemon is unavailable.

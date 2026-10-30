@@ -33,6 +33,8 @@ Put these settings in the local file, replacing the example values:
 ```ini
 NEWSLETTER_CHECKOUT=/absolute/path/to/checkout
 NEWSLETTER_REPO=owner/repo
+NEWSLETTER_AIUR=/absolute/path/to/aiur
+AIUR_SKIP_BUILD=1
 ```
 
 Use an absolute checkout path. This file stays local; it needs no email address
@@ -100,7 +102,16 @@ by UTC date; report window timestamps remain UTC instants.
 
 Use `--state-dir` to override the per-repo state root,
 `--instance <name>` repeatedly for additional configured daemon sources, and
-`--aiur /absolute/path/to/aiur` to choose the CLI executable.
+`--aiur /absolute/path/to/aiur` to choose the CLI executable. The collector
+and wake publisher both use this executable.
+
+`NEWSLETTER_AIUR` sets the same choice for the timer. A command-line `--aiur`
+value takes precedence, and the runner falls back to `aiur` on `PATH` when
+neither is set.
+
+The timer runs from the selected checkout. Set `AIUR_SKIP_BUILD=1` in
+`newsletter.env` to prevent `aiurdev` from rebuilding that checkout's live
+release during the daily run; omit it when automatic rebuilds are desired.
 
 Successful runs skip subsequent invocations on the same local date. A per-repo
 file lock prevents overlapping local invocations. A crash between wake

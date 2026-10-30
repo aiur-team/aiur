@@ -134,6 +134,22 @@ The lookup shares the creation-time window and incomplete-read refusal described
 
 Missing or stale source PR evidence first checks issue closure through the conditional resource cache (`build_queue_observe`, five-minute freshness). Successful unresolved observations wait five minutes before another reconciliation; ordinary 30-second store ticks do not each trigger a remote read.
 
+When recovering an earlier override's corrective ticket, reconciliation checks whether the issue remains open through the same conditional closure cache before reuse; the current override's own marker is reused directly without a closure read.
+
 For a closed source ticket, `command_override_merged_pr` performs one governed GraphQL read of closing PRs and merge SHAs, outside dispatch. It is bounded to 100 references and rejects incomplete results. A complete result with no merged PR in the configured repository records a final journal fact, retained across restart.
 
 Linked corrective tickets observe only the delivered PR cache, including when no PR exists yet. They do not fetch issue labels or closing PRs on each reconciliation. Errors retain durable exponential backoff capped at one hour. These are read-cadence contracts; no measured production saving is claimed.
+
+
+Normal queued overrides route from the cached PR observation. Only an admitted
+recovery candidate reads the recorded PR and head branch through the governed
+REST transport as `command_override_recovery`. Recovery observations wait at least 60 seconds between reads. Failed reads
+back off to one hour; the journal retains retry state across restart.
+
+A failed fresh read defers recovery without adding a dependency to normal T2
+resumes. Capacity waits and active workers make no recovery reads.
+
+A missing branch or closed unmerged PR uses the corrective marker lookup and
+creates a parked successor. The old PR receives `superseded by #M`
+(`command_override_supersede`), reusing that comment on retries, then is closed
+and read back before the successor becomes dispatchable. No saving is claimed.
