@@ -49,6 +49,7 @@
     "identity",
     "kernel",
     "signal",
+    "tracker",
     "web-kit"
   ],
   "optional": [],

@@ -11,6 +11,7 @@ defmodule Aiur.Tracker.IssueTracker do
   @optional_callbacks with_poll_cycle: 1, format_preflight_error: 1
 
   @callback ticket_pull_request(String.t()) :: ticket_pull_request_result()
+  @callback resolve_ticket_pull_request(String.t(), keyword()) :: ticket_pull_request_result()
 
   @type issue_closure_result :: {:ok, %{open?: boolean(), state_reason: String.t() | nil}} | {:error, term()}
   @callback issue_closure(String.t(), pos_integer()) :: issue_closure_result()
@@ -56,6 +57,7 @@ defmodule Aiur.Tracker.IssueTracker do
                       hydrate_blocked_by: 1,
                       with_transient_retry: 2,
                       ticket_pull_request: 1,
+                      resolve_ticket_pull_request: 2,
                       blocked_by: 1,
                       issue_closure: 2,
                       ensure_labels: 1,
