@@ -39,7 +39,6 @@ defmodule Aiur.Executor.AttachCLI do
   defp detach_binding(:none), do: {:ok, nil}
   defp detach_binding({:ok, %{state: "detached"}} = result), do: result
   defp detach_binding({:ok, binding}), do: Session.detach(binding.binding_id, "stopped")
-  defp detach_binding(error), do: error
 
   defp validate(opts) do
     cond do
