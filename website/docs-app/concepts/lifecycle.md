@@ -17,3 +17,7 @@ Progress percentages are illustrative positions, not elapsed time or guarantees.
 The dashboard Build ticket detail has a live Timeline tab for recorded ticket events; open any ticket and select **Timeline** to see it live on a real ticket. The view uses the same actor/kind vocabulary as this lifecycle example and places recorded items at their observed times.
 
 This is the happy path. GitHub events can arrive through polling or webhook reconciliation, and review feedback, failed CI, blockers, or retries can add turns. See the [label lifecycle](/concepts/ticket-lifecycle) and [step reference](/concepts/ticket-lifecycle-steps) for details.
+
+## Dashboard timeline data
+
+The live Build ticket Timeline uses the same actor and item-kind vocabulary as this chart. Each item carries its event ID, observed timestamp, actor, kind, display label and event topic; progress items also carry the reported percentage. Phase intervals are built from matching phase start/end events. The per-ticket event log stores emitted and consumed event markers, plus agent command markers containing command text only. It does not store command output. The timeline pages this durable log by event ID and keeps the last rendered page in the open ticket view.

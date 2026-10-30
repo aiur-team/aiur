@@ -117,7 +117,9 @@ defmodule Aiur.IssueLog.EventHistory do
       summary: summary,
       source: flags |> Map.get("src") |> maybe_atomize_source(),
       author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool(),
-      digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source()
+      digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source(),
+      actor: Map.get(flags, "actor"),
+      percent: safe_percent(Map.get(flags, "pct"))
     }
   end
 
@@ -129,6 +131,15 @@ defmodule Aiur.IssueLog.EventHistory do
   end
 
   defp decode_command(_flags, summary), do: summary
+
+  defp safe_percent(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {percent, ""} when percent in 0..100 -> percent
+      _ -> nil
+    end
+  end
+
+  defp safe_percent(_value), do: nil
 
   defp parse_flags(flag_segment) when is_binary(flag_segment) do
     flag_segment

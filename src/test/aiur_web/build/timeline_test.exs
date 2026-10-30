@@ -1,6 +1,8 @@
 defmodule AiurWeb.Build.TimelineTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.IssueLog.{EventHistory, Format}
+  alias Aiur.TestCleanup
   alias AiurWeb.Build.Timeline
 
   defp identity do
@@ -13,11 +15,11 @@ defmodule AiurWeb.Build.TimelineTest do
 
     read = fn identity, opts ->
       send(owner, {:read, identity, opts})
-      %{events: [%{id: 12, topic: "ticket.12.agent.progress", kind: "self", ts: "2026-10-29T12:00:00Z", summary: "Progress 60%"}], high_water: 12, has_more: false}
+      {:ok, %{events: [%{id: 12, topic: "ticket.12.agent.progress", kind: "self", ts: "2026-10-29T12:00:00Z", summary: "Progress 60%"}], high_water: 12, has_more: false}}
     end
 
     assert {:ok, %{events: [%{id: 12}], high_water: 12, truncated: false}} = Timeline.read(identity(), 11, read_fun: read)
-    assert_received {:read, selected, %{after_id: 11, kinds: [:emit, :emit_alert, :consumed, :self, :command], limit: 200}}
+    assert_received {:read, selected, [after_id: 11, kinds: [:emit, :emit_alert, :consumed, :self, :command], limit: 200]}
     assert selected == identity()
   end
 
@@ -38,11 +40,21 @@ defmodule AiurWeb.Build.TimelineTest do
 
   test "durable event pages advance a high-water mark without rereading old events" do
     path = Path.join(System.tmp_dir!(), "timeline-#{System.unique_integer([:positive])}.events.log")
-    File.write!(path, "2026-10-29T12:00:00Z [event:self] id=4 ticket.12.agent.progress: Progress 40%\n2026-10-29T12:01:00Z [event:emit] id=5 ticket.12.pr.opened\n")
-    on_exit(fn -> File.rm(path) end)
+    File.write!(path, "2026-10-29T12:00:00Z [event:self] id=4 pct=40 ticket.12.agent.progress\n2026-10-29T12:01:00Z [event:emit] id=5 ticket.12.pr.opened\n")
+    on_exit(fn -> TestCleanup.rm_rf!(path) end)
 
-    assert {:ok, %{events: [%{id: 4}], high_water: 4, has_more: true}} = Aiur.IssueLog.EventHistory.read_event_page(path, limit: 1)
-    assert {:ok, %{events: [%{id: 5}], high_water: 5, has_more: false}} = Aiur.IssueLog.EventHistory.read_event_page(path, after_id: 4, limit: 1)
+    assert {:ok, %{events: [%{id: 4}], high_water: 4, has_more: true}} = EventHistory.read_event_page(path, limit: 1)
+    assert {:ok, %{events: [%{id: 5}], high_water: 5, has_more: false}} = EventHistory.read_event_page(path, after_id: 4, limit: 1)
+  end
+
+  test "timeline marker persistence carries the real progress percentage" do
+    event = %{id: 4, topic: "ticket.12.agent.progress", percent: 75, observed_at: ~U[2026-10-29 12:00:00Z]}
+    line = Format.format_event_marker(:self, event)
+    assert line =~ "pct=75"
+    path = Path.join(System.tmp_dir!(), "timeline-progress-#{System.unique_integer([:positive])}.events.log")
+    File.write!(path, line)
+    on_exit(fn -> TestCleanup.rm_rf!(path) end)
+    assert {:ok, %{events: [%{percent: 75}]}} = EventHistory.read_event_page(path, kinds: [:self])
   end
 
   test "command records retain their complete command text without output" do
@@ -50,9 +62,9 @@ defmodule AiurWeb.Build.TimelineTest do
     command = "mise exec -- mix test --max-cases 4"
     encoded = Base.url_encode64(command, padding: false)
     File.write!(path, "2026-10-29T12:00:00Z [event:command] id=4 cmd=#{encoded} ticket.12.agent.command\n")
-    on_exit(fn -> File.rm(path) end)
+    on_exit(fn -> TestCleanup.rm_rf!(path) end)
 
-    assert {:ok, %{events: [%{kind: "command", summary: ^command}]}} = Aiur.IssueLog.EventHistory.read_event_page(path, kinds: [:command])
+    assert {:ok, %{events: [%{kind: "command", summary: ^command}]}} = EventHistory.read_event_page(path, kinds: [:command])
   end
 
   test "cache append reuses prior segments and accepts only newer event ids" do

@@ -92,7 +92,39 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   defp command_started(%{event: :tool_call, payload: %{name: "exec_command", arguments: arguments}}), do: Map.get(arguments, :command) || Map.get(arguments, "command")
+
+  defp command_started(%{event: :notification, payload: payload}) when is_map(payload) do
+    payload
+    |> notification_item()
+    |> command_from_notification(notification_method(payload))
+  end
+
   defp command_started(_message), do: nil
+
+  defp notification_method(payload), do: Map.get(payload, :method) || Map.get(payload, "method")
+
+  defp notification_item(payload),
+    do: get_in(payload, [:params, :item]) || get_in(payload, ["params", "item"]) || %{}
+
+  defp command_from_notification(item, "item/started"), do: started_command(item)
+  defp command_from_notification(item, "item/created"), do: created_command(item)
+  defp command_from_notification(_item, _method), do: nil
+
+  defp started_command(item) do
+    if value(item, :type) == "commandExecution" do
+      actions = value(item, :commandActions) || []
+      first = List.first(actions) || %{}
+      value(first, :command) || value(item, :command)
+    end
+  end
+
+  defp created_command(item) do
+    if value(item, :type) == "tool_call" and value(item, :name) == "Bash" do
+      value(value(item, :input) || %{}, :command)
+    end
+  end
+
+  defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp observe_lifecycle(%Issue{identifier: identifier}, backend, message, lifecycle_opts)
        when is_binary(identifier) and is_list(lifecycle_opts) do

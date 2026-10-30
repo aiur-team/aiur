@@ -3,6 +3,7 @@ defmodule AiurWeb.Build.TicketDoc do
   import Phoenix.Component, only: [assign: 2]
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot, State}
   alias Aiur.BuildOrder.TicketDetailCoordinator
+  alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.TrackerIdentity
   alias AiurWeb.Build.{DataSource, Payload, Read, TicketDocIdentity, Timeline}
   alias AiurWeb.{EndpointConfig, Markdown}
@@ -79,8 +80,8 @@ defmodule AiurWeb.Build.TicketDoc do
   def close(socket) do
     if identity = socket.assigns[:doc_identity] do
       call(:ticket_detail_unsubscribe_fun, &unsubscribe/1, identity)
-      Phoenix.PubSub.unsubscribe(Aiur.PubSub, Aiur.BuildOrder.TicketHistoryProvider.topic(identity))
-      Phoenix.PubSub.unsubscribe(Aiur.PubSub, Aiur.BuildOrder.TicketHistoryProvider.reset_topic())
+      Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
+      Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.reset_topic())
     end
 
     assign(socket, doc_id: nil, doc_identity: nil, timeline: nil)
@@ -95,17 +96,17 @@ defmodule AiurWeb.Build.TicketDoc do
     do: push(socket, validate_identity(request(identity), identity))
 
   def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:ticket_timeline_updated, github_key}) do
-    if TrackerIdentity.github_key(identity) == github_key, do: refresh_timeline(socket, identity), else: socket
+    if TrackerIdentity.github_key(identity) == github_key, do: socket |> refresh_timeline(identity) |> push_timeline(), else: socket
   end
 
   def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:ticket_history_updated, _payload}),
-    do: refresh_timeline(socket, identity)
+    do: socket |> refresh_timeline(identity) |> push_timeline()
 
   def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:build_order_history_changed, _payload}),
-    do: refresh_timeline(socket, identity)
+    do: socket |> refresh_timeline(identity) |> push_timeline()
 
   def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:build_order_ticket_history_reset, _epoch}),
-    do: refresh_timeline(socket, identity)
+    do: socket |> refresh_timeline(identity) |> push_timeline()
 
   def update(socket, _message), do: socket
 
@@ -114,8 +115,13 @@ defmodule AiurWeb.Build.TicketDoc do
 
   defp push(socket, result), do: Phoenix.LiveView.push_event(socket, "build-ticket-doc", Payload.scrub(Map.put(present(socket.assigns.doc_id, result), :timeline, socket.assigns.timeline)))
 
+  defp push_timeline(socket) do
+    payload = %{v: 1, kind: "doc", id: socket.assigns.doc_id, timeline: socket.assigns.timeline}
+    Phoenix.LiveView.push_event(socket, "build-ticket-doc", Payload.scrub(payload))
+  end
+
   defp load_timeline(socket, identity) do
-    _ = Aiur.BuildOrder.TicketHistoryProvider.subscribe(identity)
+    _ = TicketHistoryProvider.subscribe(identity)
     refresh_timeline(socket, identity)
   end
 

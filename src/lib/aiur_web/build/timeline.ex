@@ -65,10 +65,13 @@ defmodule AiurWeb.Build.Timeline do
     end
   end
 
+  defp actor(%{kind: "consumed"}), do: "Aiur daemon"
+
   defp actor(%{topic: "ticket." <> rest}) do
     case String.split(rest, ".", parts: 2) do
       [_id, "agent." <> _] -> "Aiur agent"
       [_id, "ci." <> _] -> "CI"
+      [_id, suffix] when suffix in ["pr.opened", "pr.merged", "pr.ready_for_review", "pr.review_comment", "issue.commented"] -> "Executor"
       _ -> "Aiur daemon"
     end
   end
@@ -77,8 +80,11 @@ defmodule AiurWeb.Build.Timeline do
 
   defp classify(%{topic: topic} = event) do
     cond do
+      event.kind == "consumed" ->
+        {:ok, :consume, %{}}
+
       String.ends_with?(topic, ".progress") or String.ends_with?(topic, ".progress.checkin") ->
-        value = percent(event.summary)
+        value = Map.get(event, :percent) || percent(event.summary)
         {:ok, :progress, if(is_integer(value), do: %{percent: value}, else: %{})}
 
       String.contains?(topic, ".agent.phase.") ->
@@ -95,7 +101,7 @@ defmodule AiurWeb.Build.Timeline do
   defp event_kind(_), do: :note
 
   defp percent(summary) when is_binary(summary) do
-    case Regex.run(~r/\b(\d{1,3})%\b/, summary, capture: :all_but_first) do
+    case Regex.run(~r/\b(\d{1,3})%/, summary, capture: :all_but_first) do
       [value] -> String.to_integer(value)
       _ -> nil
     end
@@ -103,20 +109,28 @@ defmodule AiurWeb.Build.Timeline do
 
   defp percent(_summary), do: nil
 
-  defp label(%{topic: topic, summary: summary}) do
+  defp label(%{topic: topic, summary: summary} = event) do
     suffix = topic |> String.split(".") |> Enum.drop(2) |> Enum.join(".")
+    summary = if is_integer(event[:percent]), do: "Progress #{event.percent}%", else: summary
     if is_binary(summary) and summary != "", do: "#{suffix}: #{summary}", else: suffix
   end
 
   defp phases(items), do: phase_intervals(items)
 
   defp phase_intervals(items) do
-    starts = Enum.filter(items, &String.ends_with?(&1.topic, ".start"))
+    starts = Enum.filter(items, &(&1.kind != :consume and String.ends_with?(&1.topic, ".start")))
 
     Enum.map(starts, fn start ->
       finish = Enum.find(items, &(&1.topic == String.replace_suffix(start.topic, ".start", ".end") and &1.at >= start.at))
-      %{label: start.label |> String.replace_suffix(" started", ""), start: start.at, finish: if(finish, do: finish.at)}
+      %{label: phase_name(start.topic), start: start.at, finish: if(finish, do: finish.at)}
     end)
+  end
+
+  defp phase_name(topic) do
+    case String.split(topic, ".") do
+      ["ticket", _id, "agent", "phase", name, _transition] -> String.capitalize(name)
+      _ -> "Phase"
+    end
   end
 
   defp progress(items) do
