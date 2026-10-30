@@ -131,6 +131,30 @@ defmodule Aiur.AgentRunner.OverrideHandoffTest do
              )
   end
 
+  test "an unavailable store does not block a handoff when no override exists" do
+    dir = Aiur.TestSupport.tmp_root!("unavailable-worker-handoff")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    store = start_supervised!(Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: :unavailable_worker_handoff_test_store))
+    :sys.replace_state(store, &%{&1 | writable?: false, health: {:unavailable, :test}})
+    assert :ok = OverrideHandoff.record("50", "ci-wait", %{head_sha: @worker, number: 77}, "/worker", nil, decision_store: store)
+    assert %{writable?: false} = :sys.get_state(store)
+  end
+
+  test "an unavailable store still refuses a handoff when an override exists", ctx do
+    :sys.replace_state(ctx.store, &%{&1 | writable?: false, health: {:unavailable, :test}})
+
+    assert {:error, {:override_handoff_unconfirmed, message}} =
+             OverrideHandoff.record("50", "ci-wait", %{head_sha: @worker, number: 77}, "/worker", nil,
+               decision_store: ctx.store,
+               override_handoff_head_reader: fn _, _ ->
+                 {:ok, %{head_sha: @worker, upstream_sha: @worker, committed_at: DateTime.add(ctx.delivered, 1)}}
+               end
+             )
+
+    assert message =~ "store_read_only"
+    assert %{writable?: false, health: {:unavailable, :test}} = :sys.get_state(ctx.store)
+  end
+
   test "missing PR or workspace evidence skips store and checkout probing" do
     opts = [decision_store: :no_store_for_handoff_test, override_handoff_head_reader: fn _, _ -> flunk("missing evidence cannot probe") end]
     assert :ok = OverrideHandoff.record("50", "ci-wait", nil, "/worker", nil, opts)

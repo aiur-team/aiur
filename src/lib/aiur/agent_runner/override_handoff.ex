@@ -20,14 +20,20 @@ defmodule Aiur.AgentRunner.OverrideHandoff do
     store_opts = [server: Keyword.get(opts, :decision_store, Commands.default_store())]
 
     with {:ok, snapshots} <- Commands.override_handoff_candidates(identifier, store_opts),
-         :ok <- attest(identifier, snapshots, pr, workspace, worker_host, store_opts, opts) do
+         :ok <- attest_if_needed(identifier, snapshots, pr, workspace, worker_host, store_opts, opts) do
       :ok
     else
       {:error, reason} -> {:error, {:override_handoff_unconfirmed, "Cannot persist the worker's Command override receipt: #{inspect(reason)}"}}
     end
   end
 
-  defp attest(_identifier, [], _pr, _workspace, _worker_host, _store_opts, _opts), do: :ok
+  # Empty candidates mean there is no override receipt to write. In that case
+  # the DecisionStore is irrelevant to this handoff and need not be available
+  # after the read has established the empty set.
+  defp attest_if_needed(_identifier, [], _pr, _workspace, _worker_host, _store_opts, _opts), do: :ok
+
+  defp attest_if_needed(identifier, snapshots, pr, workspace, worker_host, store_opts, opts),
+    do: attest(identifier, snapshots, pr, workspace, worker_host, store_opts, opts)
 
   defp attest(identifier, snapshots, pr, workspace, worker_host, store_opts, opts) do
     reader = Keyword.get(opts, :override_handoff_head_reader, &read_head/2)
