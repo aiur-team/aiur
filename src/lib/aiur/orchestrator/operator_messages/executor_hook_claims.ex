@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ExecutorHookClaims do
     with true <- before_deadline?(opts),
          {:ok, binding} <- current(opts),
          true <- matches?(binding, binding_id, opts),
+         # shortcut: use requested mode until the Executor effective view exists.
          mode <- ModeStore.get(Ref.canonical(Ref.executor())).requested,
          true <- Scheduler.hook_delivers?(binding.harness, mode, boundary),
          items <- pending(state.queue_store),
@@ -92,12 +93,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.ExecutorHookClaims do
   end
 
   defp commit(state, store, output, opts) do
-    case PendingStore.save(store) do
+    case persist(store, opts) do
       :ok ->
         if before_deadline?(opts) do
           {:reply, {:ok, output}, %{state | queue_store: store}}
         else
-          PendingStore.save(state.queue_store)
+          persist(state.queue_store, opts)
           {:reply, :none, state}
         end
 
@@ -106,6 +107,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ExecutorHookClaims do
     end
   end
 
-  defp before_deadline?(opts), do: System.monotonic_time(:millisecond) < opts[:deadline]
+  defp persist(store, opts), do: Keyword.get(opts, :persist, &PendingStore.save/1).(store)
+  defp before_deadline?(opts), do: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end).() < opts[:deadline]
   defp server_for(opts), do: Keyword.get(opts, :server, Orchestrator)
 end

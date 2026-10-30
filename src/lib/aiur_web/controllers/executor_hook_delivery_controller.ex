@@ -10,7 +10,8 @@ defmodule AiurWeb.ExecutorHookDeliveryController do
     deadline = System.monotonic_time(:millisecond) + 1_400
     conn = Plug.Conn.fetch_query_params(conn)
 
-    with {:ok, hook} <- HookPayload.normalize(conn.body_params, conn.query_params["harness"]),
+    with true <- valid_continuation_flag?(conn.body_params),
+         {:ok, hook} <- HookPayload.normalize(conn.body_params, conn.query_params["harness"]),
          boundary when boundary in [:tool, :prompt, :stop] <- boundary(hook),
          {:ok, binding} <- current(deadline) do
       attempt = Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
@@ -24,6 +25,9 @@ defmodule AiurWeb.ExecutorHookDeliveryController do
       _ -> send_resp(conn, 204, "")
     end
   end
+
+  defp valid_continuation_flag?(%{"stop_hook_active" => value}), do: is_boolean(value)
+  defp valid_continuation_flag?(_body), do: true
 
   defp current(deadline) do
     GenServer.call(Session, :current, max(1, deadline - System.monotonic_time(:millisecond)))

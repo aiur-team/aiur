@@ -96,6 +96,47 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
     end
   end
 
+  test "invalid hook goldens and malformed continuation flags return no delivery", context do
+    id = enqueue("executor", "must remain pending")
+    # Steer makes every delivery boundary reachable if validation is removed.
+    assert {:ok, _} = ModeStore.put("executor", :steer, 0, %{actor: :human})
+
+    invalid_goldens =
+      :aiur
+      |> Application.app_dir("priv/listener_spec/v1/goldens/hook/*.json")
+      |> Path.wildcard()
+      |> Enum.map(&(&1 |> File.read!() |> Jason.decode!()))
+      |> Enum.filter(&is_nil(&1["parsed"]))
+
+    assert invalid_goldens != []
+
+    for harness <- ["claude", "codex"] do
+      assert {:ok, binding} = Session.attach(%{harness: harness, takeover?: true})
+      assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "session-http"})
+
+      for golden <- Enum.filter(invalid_goldens, &(&1["harness"] == harness)) do
+        body =
+          case Jason.decode(golden["stdin"]) do
+            {:ok, %{"session_id" => _} = decoded} -> Map.put(decoded, "session_id", "session-http")
+            {:ok, decoded} -> decoded
+            {:error, _} -> golden["stdin"]
+          end
+
+        response = request(context, body, harness: harness)
+        assert response.status == 204
+        assert response.resp_body == ""
+        assert item(id).status == :pending
+      end
+
+      for event <- ["Stop", "PostToolUse", "UserPromptSubmit"], value <- ["true", "false", nil, 0, 1, [], %{}] do
+        response = request(context, payload(event, %{"stop_hook_active" => value}), harness: harness)
+        assert response.status == 204
+        assert response.resp_body == ""
+        assert item(id).status == :pending
+      end
+    end
+  end
+
   test "PostToolUse delivers steer but not sync; async stays pull-only", context do
     id = enqueue("executor", "waiting")
     assert request(context, payload("PostToolUse")).status == 204
@@ -225,6 +266,34 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
     send(renderer, :finish_render)
     assert item(id).status == :pending
     assert item(id).provider_delivered_at == nil
+  end
+
+  # Future-regression guard for the existing post-persistence deadline check.
+  test "deadline expiring inside persistence restores pending state and durable rows", context do
+    id = enqueue("executor", "keep pending after a slow save")
+    initial = System.monotonic_time(:millisecond)
+    deadline = initial + 1_400
+    Agent.update(context.control, &Map.put(&1, :hook_now, initial))
+    owner = self()
+
+    persist = fn store ->
+      :ok = PendingStore.save(store)
+      status = AgentQueueStore.get(store, id).status
+      send(owner, {:hook_saved, status})
+      if status == :delivered, do: Agent.update(context.control, &Map.put(&1, :hook_now, deadline))
+      :ok
+    end
+
+    opts = options(context, deadline: deadline, clock: fn -> Agent.get(context.control, & &1.hook_now) end, persist: persist)
+    state = %Orchestrator.State{queue_store: GenServer.call(Orchestrator, :store)}
+    assert {:reply, :none, ^state} = ExecutorHookClaims.handle_call(state, context.binding.binding_id, :stop, opts)
+    assert_received {:hook_saved, :delivered}
+    assert_received {:hook_saved, :pending}
+    restored = PendingStore.load() |> AgentQueueStore.get(id)
+    assert restored.status == :pending
+    assert restored.body.text == "keep pending after a slow save"
+    assert restored.provider_delivered_at == nil
+    assert restored.delivery[:delivery_attempt_id] == nil
   end
 
   test "response write failure restores only its attempt, including persisted messages", context do
