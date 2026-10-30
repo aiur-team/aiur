@@ -90,6 +90,13 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     assert Enum.any?(ambiguous_entries, &(&1.module == "*" and &1.name == "shared name"))
   end
 
+  test "an existing global ExUnit quarantine row makes retries idempotent" do
+    contents = "Aiur.ATest\tfirst\t#1\t2026-12-31\n*\tshared name\t#2\t2026-12-31\n"
+
+    assert {:error, :already_quarantined} =
+             QuarantinePR.entry("Aiur.MTest :: shared name", 7023, contents, ~D[2026-12-31])
+  end
+
   test "same per-test row is already listed and legacy whole-spec row covers it" do
     identity = "BrowserSpec :: src/browser/tests/example.browser.spec.mjs :: skips one test :: 187"
     per_test = "BrowserSpec\tsrc/browser/tests/example.browser.spec.mjs\tskips one test\t187\t#7020\n"

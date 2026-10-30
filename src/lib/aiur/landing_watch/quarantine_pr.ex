@@ -144,7 +144,10 @@ defmodule Aiur.LandingWatch.QuarantinePR do
       _ ->
         contents
         |> String.split("\n")
-        |> Enum.any?(&String.starts_with?(&1, module <> "\t" <> name <> "\t"))
+        |> Enum.any?(fn line ->
+          String.starts_with?(line, module <> "\t" <> name <> "\t") or
+            String.starts_with?(line, "*\t" <> name <> "\t")
+        end)
     end
   end
 
