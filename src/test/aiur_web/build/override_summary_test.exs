@@ -2,10 +2,11 @@ defmodule AiurWeb.Build.OverrideSummaryTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest, only: [render_component: 2]
   alias AiurWeb.Build.OverrideSummary
+  alias AiurWeb.OperatorControlCenter.DecisionCommands
 
   test "fleet badges include delivered and queued overrides but omit implemented and superseded work" do
     decisions = Enum.map([:queued, :delivered, :implemented, :superseded], &decision/1)
-    rows = OverrideSummary.rows(decisions)
+    rows = DecisionCommands.pending_override_rows(decisions)
     assert Enum.map(rows, & &1.label) == ["Delivered", "Queued — waiting for a slot"]
     html = render_component(&OverrideSummary.summary/1, state: {:ok, rows})
     links = html |> Floki.parse_fragment!() |> Floki.find(".fleet-override-badge")
@@ -15,7 +16,7 @@ defmodule AiurWeb.Build.OverrideSummaryTest do
   end
 
   test "unavailable store is shown explicitly instead of an empty fleet summary" do
-    assert OverrideSummary.load(store: :missing_override_summary_store) == :unavailable
+    assert DecisionCommands.pending_overrides(store: :missing_override_summary_store) == :unavailable
     html = render_component(&OverrideSummary.summary/1, state: :unavailable)
     assert html =~ "Override status unavailable"
     refute html =~ "fleet-override-badge"
