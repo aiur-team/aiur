@@ -225,6 +225,8 @@ Malformed compounds and command strings that could hide a Mix build fail with st
 
 Fleet admission uses CPU PSI and configured reserves, falling back to load when PSI is unavailable, and fails open on missing reserve measurements.
 
+Daemon releases default to `+sbwt none +sbwtdcpu none +sbwtdio none` to lower idle CPU on shared hosts and avoid triggering CPU-PSI dispatch holds with scheduler spinning; operators can override the release VM args with `RELEASE_VM_ARGS`.
+
 | Signal | Admission behavior |
 | --- | --- |
 | CPU pressure and AIMD | `agent.max_cpu_pressure` is the hard Linux CPU PSI `some avg60` ceiling and always uses raw host pressure. The soft `agent.target_cpu_pressure` AIMD signal discounts measured CPU from niced processes outside the daemon and registered fleet-agent process trees, such as Executor review work. Detached agent relays are included through the process reaper registry, so their niced build descendants remain counted. After 3 fresh overload samples and `agent.load_cooldown_seconds`, AIMD floors its reduction at half occupied slots or the recorded safe level, capped at the current envelope; it adds `agent.load_ramp_step` only below 80% of target. |

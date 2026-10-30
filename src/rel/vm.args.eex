@@ -1,0 +1,5 @@
+<%= Mix.Tasks.Release.Init.vm_args_text(false) %>
+## Avoid scheduler spinning on shared hosts, where it contributes to CPU PSI.
++sbwt none
++sbwtdcpu none
++sbwtdio none
