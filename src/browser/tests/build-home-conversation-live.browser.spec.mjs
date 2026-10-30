@@ -22,7 +22,10 @@ test.beforeEach(async ({ page }, info) => {
     }
     const NativeObserver = ResizeObserver
     window.ResizeObserver = class extends NativeObserver {
-      constructor(callback) { super(callback); this.targets = new Set(); audit.observers.push(this) }
+      constructor(callback) {
+        super((entries, observer) => { observer.deliveries++; callback(entries, observer) })
+        this.targets = new Set(); this.deliveries = 0; audit.observers.push(this)
+      }
       observe(target, options) { this.targets.add(target); super.observe(target, options) }
       unobserve(target) { this.targets.delete(target); super.unobserve(target) }
       disconnect() { this.targets.clear(); super.disconnect() }
@@ -283,6 +286,12 @@ test('L23: three reopens retain one live registration set and one map rebuild fo
     await expect(log(page).locator('[data-k]')).toHaveCount(100)
     await expect(page).toHaveURL(new RegExp('ticket=' + ticket.id + '$'))
   }
+  await expect(page.locator('#tk-head .bm-agent')).toHaveAttribute('data-control', 'ready')
+  // An initial ResizeObserver delivery can follow the URL acknowledgement and two frames.
+  // Wait for both real subscriptions before counting rebuilds caused by the append.
+  await expect.poll(() => page.evaluate(() => ['cv-log', 'cv-map'].every(id =>
+    window.liveAudit.observers.some(observer => observer.targets.has(document.getElementById(id)) && observer.deliveries > 0)
+  ))).toBe(true)
   await page.evaluate(async () => {
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     window.mapBuilds = 0
