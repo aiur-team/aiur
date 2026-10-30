@@ -130,6 +130,31 @@ defmodule Aiur.BuildQueue.ReadinessTest do
     assert hd(model.queues).waiting_reason == "GitHub dependencies unknown"
   end
 
+  test "stale manual overrides are parked in queue summaries without changing planner state" do
+    queue = %Queue{id: "q-0001", name: "focus", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-15 00:00:00Z]}
+
+    for labels <- [~w(agent:queued agent:parked), ~w(agent:queued)] do
+      item = %Item{issue_id: "11", queue_id: queue.id, position: 0, hold: nil, override: :manual_promotion, promoted_at: nil, added_at: queue.created_at}
+      observation = %Observation{issue_id: "11", open?: true, labels: labels, state_reason: nil, pr: nil, observed_at_ms: 10_000}
+
+      model =
+        ReadModel.build(%{
+          status: :running,
+          clock: fn -> 10_000 end,
+          document: %{queues: [queue], items: [item], edges: [], latches: []},
+          settings: %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}},
+          projections: [%{issue_id: "11", state: :overridden, verdict: :ready, reason: :manual_promotion, rank: {0, 5, 0, 0, "11"}}],
+          observations: %{"11" => observation}
+        })
+
+      [summary] = model.queues
+      [projected] = summary.items
+      assert {projected.state, projected.reason} == {:held, :parked_marker}
+      assert {summary.counts.ready, summary.counts.startable} == {0, 0}
+      assert summary.waiting_reason == "parked"
+    end
+  end
+
   test "an open native blocker beyond edge 30 is rendered pending" do
     queue = %Queue{id: "q-0001", name: "focus", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-15 00:00:00Z]}
     item = %Item{issue_id: "11", queue_id: queue.id, position: 0, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
@@ -180,6 +205,15 @@ defmodule Aiur.BuildQueue.ReadinessTest do
 
     assert ReadModel.focus_starvation(state, [ready, claimed]) == {:starved, [11]}
     assert ReadModel.focus_starvation(state, [%{ready | state: :claimed}, claimed]) == :clear
+
+    stale_override_state =
+      Map.merge(state, %{
+        document: %{state.document | items: [%{hd(members) | override: :manual_promotion}, List.last(members)]},
+        observations: %{"11" => %Observation{issue_id: "11", labels: ["agent:queued"], open?: true, state_reason: nil, pr: nil, observed_at_ms: 10_000}},
+        settings: %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
+      })
+
+    assert ReadModel.focus_starvation(stale_override_state, [ready, claimed]) == :clear
 
     blocked = %{state | native_blockers: %{"11" => {:ok, [%{number: 3141, open?: true}]}}}
     assert ReadModel.focus_starvation(blocked, [ready, claimed]) == :clear
