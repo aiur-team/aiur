@@ -1,10 +1,15 @@
 import { test, expect } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
 test.use({ httpCredentials: dashboardCredentials })
 for (const { width, unknown = false } of [{ width: 1440 }, { width: 390 }, { width: 1440, unknown: true }]) test(`held native question card and modal at ${width}px${unknown ? " with unknown age" : ""}`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 900 })
   page.on('pageerror', error => { throw error })
+  // Mutation runs route only the reverted asset from an isolated worktree.
+  for (const [asset, path] of Object.entries(info.project.metadata.holdAssets || {})) {
+    await page.route('**/build-home/' + asset, route => readFile(path, 'utf8').then(body => route.fulfill({ body, contentType: 'text/javascript' })))
+  }
   await page.goto('/build-fixture/live')
   await expect.poll(() => page.evaluate(async () => (await import('/build-home/state.js')).ctx.D?.now.length)).toBeGreaterThan(0)
   await expect.poll(() => page.evaluate(async () => (await import('/build-home/history.js')).H.state)).toBe('idle')
