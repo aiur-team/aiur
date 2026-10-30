@@ -72,6 +72,8 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
     assert {:ok, id} = Send.send("inspect this run", "executor-adapter-request", writable: true)
     assert item(id).target_issue_identifier == "executor"
     assert item(id).body.text == "inspect this run"
+    refute item(id).persist_across_restart?
+    assert AgentQueueStore.get(PendingStore.load(), id) == nil
     assert {:ok, ^id} = Send.send("inspect this run", "executor-adapter-request", writable: true)
     assert {:ok, %{receipt: :accepted}} = Listener.receipt(id)
     response = request(context)
