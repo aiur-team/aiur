@@ -33,6 +33,7 @@
     "Aiur.Commands.NativeCapture.Claude",
     "Aiur.Commands.NativeCapture.Codex",
     "Aiur.Commands.RequestContent",
+    "Aiur.Commands.Requester",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",

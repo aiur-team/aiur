@@ -83,17 +83,50 @@ defmodule Aiur.Executor.BlockersTest do
     assert result.sources.fleet == :ok
   end
 
-  test "strict fleet reads expose corrupt and unreadable ledgers", %{opts: opts} do
+  test "strict fleet reads distinguish unreadable paths from malformed records", %{opts: opts} do
     path = Path.join(System.tmp_dir!(), "blockers-#{System.unique_integer([:positive])}")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
     File.mkdir_p!(path)
 
-    for ledger <- [path, Path.join(path, "corrupt")] do
-      if ledger != path, do: File.write!(ledger, "invalid json\n")
-      result = Blockers.snapshot(Keyword.put(opts, :fleet_fun, fn -> AlertFeed.list(ledger_path: ledger, strict: true) end))
-      assert {:unavailable, {:exception, _type}} = result.sources.fleet
-      assert result.items == []
+    result = Blockers.snapshot(Keyword.put(opts, :fleet_fun, fn -> AlertFeed.list(ledger_path: path, strict: true) end))
+    assert result.sources.fleet == {:unavailable, {:exception, File.Error}}
+    assert result.items == []
+
+    ledger = Path.join(path, "corrupt")
+    File.write!(ledger, "invalid json\n")
+    result = Blockers.snapshot(Keyword.put(opts, :fleet_fun, fn -> AlertFeed.list(ledger_path: ledger, strict: true) end))
+    assert result.sources.fleet == :ok
+    assert result.items == []
+  end
+
+  test "malformed and torn records do not hide active fleet blockers", %{now: now, opts: opts} do
+    path = Path.join(System.tmp_dir!(), "blockers-torn-#{System.unique_integer([:positive])}")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+    alert = fleet_alert("system.fleet.capacity.starved", "Capacity needed", now)
+    line = Jason.encode!(alert) <> "\n"
+    fragment = ~s({"event":"alert","topi)
+    read = fn -> AlertFeed.list(ledger_path: path, strict: true) end
+
+    for contents <- [fragment <> "\n" <> line, line <> fragment, fragment <> line <> line] do
+      File.write!(path, contents)
+      result = Blockers.snapshot(Keyword.put(opts, :fleet_fun, read))
+      assert result.sources.fleet == :ok
+      assert result.items == [%{kind: :fleet, id: "system.fleet.capacity.starved", title: "Capacity needed", age_ms: 0, link: "/"}]
     end
+  end
+
+  test "strict fleet reads keep only the bounded tail", %{now: now, opts: opts} do
+    path = Path.join(System.tmp_dir!(), "blockers-tail-#{System.unique_integer([:positive])}")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+    older = Jason.encode!(fleet_alert("system.github.connectivity_lost", "Old blocker", DateTime.add(now, -60, :second))) <> "\n"
+    newest = Jason.encode!(fleet_alert("system.fleet.capacity.starved", "Recent blocker", now)) <> "\n"
+    padding = Jason.encode!(%{"padding" => String.duplicate("x", 512)}) <> "\n"
+    File.write!(path, [older, padding, newest])
+    read = fn -> AlertFeed.list(ledger_path: path, strict: true, max_bytes: byte_size(newest) + 1) end
+    result = Blockers.snapshot(Keyword.put(opts, :fleet_fun, read))
+
+    assert result.sources.fleet == :ok
+    assert result.items == [%{kind: :fleet, id: "system.fleet.capacity.starved", title: "Recent blocker", age_ms: 0, link: "/"}]
   end
 
   test "strict fleet read resolves cleared conditions and accepts a missing ledger", %{now: now, opts: opts} do
@@ -121,6 +154,9 @@ defmodule Aiur.Executor.BlockersTest do
     result = opts |> Keyword.delete(:commands_fun) |> Keyword.put(:store, store) |> Blockers.snapshot()
     assert result.sources.commands == {:unavailable, :decision_store_down}
   end
+
+  defp fleet_alert(topic, message, now),
+    do: %{"event" => "alert", "topic" => topic, "needs_attention" => true, "message" => message, "timestamp" => DateTime.to_iso8601(now)}
 
   defp command(id, timestamp) do
     struct(Decision, decision_id: id, version: 1, question: "Help #{id}", created_at: timestamp, requester: %{kind: :executor}, decision_status: :open)

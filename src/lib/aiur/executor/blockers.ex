@@ -2,6 +2,7 @@ defmodule Aiur.Executor.Blockers do
   @moduledoc "Read-only Executor blockers with independent source availability."
 
   alias Aiur.{AlertFeed, Commands, Events, ExecutorBindings}
+  alias Aiur.Commands.Requester
   alias Aiur.Config.Paths
 
   @type item :: %{kind: :command | :ask | :fleet, id: String.t(), title: String.t(), age_ms: non_neg_integer() | nil, link: String.t()}
@@ -67,7 +68,7 @@ defmodule Aiur.Executor.Blockers do
 
   defp project_commands(decisions, now) do
     decisions
-    |> Enum.filter(fn decision -> match?(%{requester: %{kind: :executor}}, decision) and Commands.open?(decision) end)
+    |> Enum.filter(fn decision -> Requester.executor?(decision) and Commands.open?(decision) end)
     |> Enum.map(fn decision ->
       item(:command, decision.decision_id, decision.short_label || decision.question, decision.created_at, "/commands/" <> URI.encode_www_form(decision.decision_id), now)
     end)
