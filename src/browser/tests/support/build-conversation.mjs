@@ -10,6 +10,8 @@ export async function mountConversation(page, info) {
     catch { await route.continue() }
   })
   await page.goto('/build-fixture/live')
+  await expect(page).toHaveURL(/\/build$/)
+  await expect(page.locator('[data-phx-main]')).toHaveClass(/phx-connected/)
   await expect.poll(() => page.evaluate(async () => !!(await import('/build-home/state.js')).ctx.D?.now.length)).toBe(true)
 }
 export async function scenario(page, name, opts = {}) {
