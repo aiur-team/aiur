@@ -1,7 +1,7 @@
 Code.require_file("journal_support.exs", __DIR__)
 
 defmodule Aiur.Conversation.AnchorResolverCausalTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
   alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, TestSupport}
   alias Aiur.Events.{BranchRefStore, Exchange, GithubFirehose, GithubWebhook, LsRemoteTicker, Publisher}
   alias Aiur.Events.GithubWebhook.Normalizer
