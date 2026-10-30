@@ -103,9 +103,11 @@ by UTC date; report window timestamps remain UTC instants.
 Use `--state-dir` to override the per-repo state root,
 `--instance <name>` repeatedly for additional configured daemon sources, and
 `--aiur /absolute/path/to/aiur` to choose the CLI executable. The collector
-and wake publisher both use this executable. `NEWSLETTER_AIUR` sets the same
-choice for the timer; a command-line `--aiur` value takes precedence, and the
-runner falls back to `aiur` on `PATH` when neither is set.
+and wake publisher both use this executable.
+
+`NEWSLETTER_AIUR` sets the same choice for the timer. A command-line `--aiur`
+value takes precedence, and the runner falls back to `aiur` on `PATH` when
+neither is set.
 
 The timer runs from the selected checkout. Set `AIUR_SKIP_BUILD=1` in
 `newsletter.env` to prevent `aiurdev` from rebuilding that checkout's live
