@@ -15,9 +15,9 @@ defmodule AiurWeb.Build.ProgressPRFacts do
 
     Enum.reduce(rows, %{}, fn row, facts ->
       with %{identifier: id} when is_binary(id) <- Map.get(row, :identity),
-           %{pr_number: number, stage: stage, closed_unmerged?: false} <- lookup.(id),
-           true <- is_integer(number) and number > 0 and stage != :pr_merged do
-        Map.put(facts, id, %{num: number, state: "open", ci: if(stage, do: to_string(stage))})
+           pr_fact <- lookup.(id),
+           true <- ProgressStore.open_pr?(pr_fact) do
+        Map.put(facts, id, %{num: pr_fact.pr_number, state: "open", ci: if(pr_fact.stage, do: to_string(pr_fact.stage))})
       else
         _ -> facts
       end
