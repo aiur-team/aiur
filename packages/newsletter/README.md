@@ -48,15 +48,16 @@ Optional notes are Markdown paragraphs (rendered as escaped text) or JSON:
 Notes cannot replace computed metrics. Omitted editorial lists display
 `unavailable`; explicit empty lists mean none reported. Bottlenecks fall back to
 linked meta/action evidence when no editorial list is supplied. The page shows
-up to five blockers plus `+N more`, every unfinished lane sorted by daily movement,
-six shipped items, three patterns and three bottlenecks. Supported Phosphor bold
+all blockers, every unfinished lane sorted by daily movement,
+up to six shipped items, three patterns and three bottlenecks. At least five
+shipped items and two bottleneck cards are retained when present. Supported Phosphor bold
 icons are `rocket`, `lightning`, `paper-plane-tilt`, `git-branch`, `cpu`, and
 `seal-check`; unknown names use `git-branch`.
 
-Content wraps without reducing fonts. If it overflows, whole items are removed
-in this order: low-ranked patterns, shipped items, bottlenecks, blockers, notes.
-Unfinished lanes are balanced across both columns and never removed; completed
-lanes are excluded. Paused lanes have a pill, and tracker slugs use readable
+Content wraps without reducing fonts. If it overflows, whole optional items are
+removed in this order: low-ranked patterns, notes, shipped items after the first
+five and bottlenecks after the first two. All blockers and unfinished lanes are
+retained; completed lanes are excluded. Paused lanes have a pill, and tracker slugs use readable
 product names. Each trimmed list keeps an accurate `+N more` summary, even if every item is
 hidden. A page notice also reports omitted items; the complete content stays
 in `report.json`. Mandatory metrics and headings are never

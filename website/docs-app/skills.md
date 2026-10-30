@@ -232,11 +232,13 @@ These fields add context without replacing metrics. Missing inputs visibly say `
 `preprocess` runs collection plus metrics without Chromium; `compile <report>`
 prints an existing report, with the same notes/timezone options.
 
-Fonts, logo and
-dark tokens are embedded from `packages/aiur-style`; rendering needs no font
-network access. The page balances all unfinished feature lanes across both columns, excludes
-completed lanes, and drops only optional editorial items to fit. Fonts stay
-readable and all data stays in the report.
+Fonts, logo and dark tokens are embedded from `packages/aiur-style`; rendering
+needs no font network access. The page balances unfinished feature lanes across
+both columns and excludes completed lanes.
+
+When present, all blockers, five shipped items and two bottleneck cards are
+retained while optional editorial items are trimmed to fit. Fonts stay readable
+and all data stays in the report.
 
 Overflow or missing Chromium fails
 with a clear error. See `packages/newsletter/README.md` for the notes schema and
