@@ -76,3 +76,18 @@ is still sent without inventing decisions.
 Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
 for provider configuration, credentials and ElevenLabs client-tool setup.
+
+### Read-only side questions
+
+Hosts that advertise a fork can answer `ask_agent` history or reasoning questions from
+an isolated read-only session while the parent keeps working. Questions needing fresh
+state or action use checkpoint delivery.
+
+A fork has a 60-second deadline and only one
+question can wait per voice session; failure falls back to checkpoint delivery when available.
+
+Replay answers are identified as coming from a summary once per session.
+
+The voice transcript
+records `side_query` with the fork mode, child session ID and cost when supplied by the host;
+missing identity or cost remains unknown. Host support determines whether this path is available.
