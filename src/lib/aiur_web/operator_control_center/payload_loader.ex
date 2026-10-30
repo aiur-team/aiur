@@ -287,7 +287,11 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     }
   end
 
-  defp units_options(bound, funs), do: [membership_fun: bound.(funs.membership), activity_fun: bound.(funs.activity)]
+  defp units_options(bound, funs) do
+    opts = [membership_fun: bound.(funs.membership), activity_fun: bound.(funs.activity)]
+
+    maybe_put_option(opts, :startup_elapsed_ms_fun, EndpointConfig.get(:units_startup_elapsed_ms_fun))
+  end
 
   defp maybe_put_option(opts, _key, nil), do: opts
   defp maybe_put_option(opts, key, value), do: Keyword.put(opts, key, value)

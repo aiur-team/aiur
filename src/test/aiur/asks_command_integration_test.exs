@@ -12,7 +12,7 @@ defmodule Aiur.AsksCommandIntegrationTest do
       if previous, do: Application.put_env(:aiur, :executor_state_dir, previous), else: Application.delete_env(:aiur, :executor_state_dir)
     end)
 
-    store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
+    store = start_supervised_store!(dir)
     %{store: store}
   end
 

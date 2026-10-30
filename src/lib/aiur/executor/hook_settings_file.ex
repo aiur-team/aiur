@@ -1,5 +1,6 @@
 defmodule Aiur.Executor.HookSettingsFile do
   @moduledoc false
+  alias Aiur.Executor.HookSettingsBackup
   alias Aiur.Fs
   @marker "AIUR_EXECUTOR_HOOK=1"
 
@@ -56,7 +57,8 @@ defmodule Aiur.Executor.HookSettingsFile do
     path = Path.join([root, ".claude", "settings.local.json"])
 
     :global.trans({{__MODULE__, path}, self()}, fn ->
-      with {:ok, original, settings} <- read(path) do
+      with :ok <- HookSettingsBackup.migrate(root),
+           {:ok, original, settings} <- read(path) do
         write_changed(path, original, settings, transform.(settings), backup?)
       end
     end)
@@ -66,8 +68,17 @@ defmodule Aiur.Executor.HookSettingsFile do
 
   defp write_changed(path, original, _settings, updated, backup?) do
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- backup(path, original, backup?) do
-      Fs.atomic_write(path, Jason.encode!(updated, pretty: true) <> "\n", mode: 0o600, fsync: true)
+         :ok <- backup(path, original, backup?),
+         {:ok, contents} <- updated_contents(updated, backup?) do
+      Fs.atomic_write(path, contents, mode: 0o600, fsync: true)
+    end
+  end
+
+  defp updated_contents(updated, true), do: {:ok, Jason.encode!(updated, pretty: true) <> "\n"}
+
+  defp updated_contents(updated, false) do
+    with {:ok, restored} <- HookSettingsBackup.restore_bytes(updated) do
+      {:ok, restored || Jason.encode!(updated, pretty: true) <> "\n"}
     end
   end
 
@@ -96,5 +107,5 @@ defmodule Aiur.Executor.HookSettingsFile do
   defp valid_group?(group), do: is_map(group) and is_list(group["hooks"]) and Enum.all?(group["hooks"], &is_map/1)
   defp backup(_path, nil, _backup?), do: :ok
   defp backup(_path, _original, false), do: :ok
-  defp backup(path, original, true), do: Fs.atomic_write(path <> ".aiur-bak-#{System.system_time(:nanosecond)}", original, mode: 0o600, fsync: true)
+  defp backup(path, original, true), do: HookSettingsBackup.create(path, original)
 end

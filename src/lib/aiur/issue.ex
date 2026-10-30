@@ -20,6 +20,7 @@ defmodule Aiur.Issue do
     :url,
     :assignee_id,
     :pr_head_ref,
+    :continuation_head_ref,
     :selected_backend,
     :selected_model,
     # The account a headroom dispatch chose for `selected_backend` (#3960), and

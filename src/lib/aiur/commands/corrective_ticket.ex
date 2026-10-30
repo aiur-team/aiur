@@ -2,7 +2,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   @moduledoc false
 
   alias Aiur.Commands.{CorrectivePullRequest, CorrectiveTicketBody}
-  alias Aiur.Tracker
+  alias Aiur.{Config, Tracker}
 
   @spec reconcile(Aiur.Decision.t(), map(), keyword()) :: {:ok, list()} | {:error, term()}
   def reconcile(decision, record, opts \\ []) do
@@ -10,6 +10,12 @@ defmodule Aiur.Commands.CorrectiveTicket do
       nil -> ensure(decision, record, opts)
       ticket -> observe_merge(record, ticket, opts)
     end
+  end
+
+  @spec successor(Aiur.Decision.t(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def successor(decision, record, pr, opts) do
+    opts = Keyword.put_new_lazy(opts, :label_prefix, fn -> Config.settings!().tracker.github.label_prefix end)
+    find_or_create(decision, record, Map.put(pr, :merged?, false), Keyword.put(opts, :successor, true))
   end
 
   defp ensure(decision, record, opts) do
@@ -35,7 +41,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp find_or_create(decision, record, pr, opts) do
-    earliest = Enum.min_by(decision.revisions, & &1.recorded_at, DateTime).recorded_at
+    earliest = decision.revisions |> Enum.map(& &1.recorded_at) |> Enum.min(DateTime)
     lookup_opts = [caller: "command_override_reconcile", since: DateTime.to_iso8601(DateTime.add(earliest, -300))]
 
     with {:ok, existing} <- find_existing(decision, record, lookup_opts, opts) do
@@ -58,7 +64,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp find_candidate(candidate, current, lookup_opts, opts) do
-    if candidate.route == :corrective_ticket or Map.get(candidate, :pr_merged) == :unknown or is_map(Map.get(candidate, :corrective_ticket)),
+    if candidate.route in [:corrective_ticket, :replacement] or Map.get(candidate, :pr_merged) == :unknown or is_map(Map.get(candidate, :corrective_ticket)),
       do: lookup_candidate(candidate, current, lookup_opts, opts),
       else: {:cont, {:ok, nil}}
   end
@@ -73,24 +79,46 @@ defmodule Aiur.Commands.CorrectiveTicket do
     end
   end
 
-  defp reuse_candidate(%{action_id: id}, %{action_id: id}, ticket, _opts), do: {:halt, {:ok, ticket}}
+  defp reuse_candidate(%{action_id: id}, %{action_id: id}, ticket, _opts) do
+    {:halt, {:ok, ticket}}
+  end
 
   defp reuse_candidate(_candidate, _current, ticket, opts) do
     case CorrectivePullRequest.read(ticket.identifier, opts) do
-      {:ok, %{merged?: true}} -> {:cont, {:ok, nil}}
-      {:ok, _unmerged} -> {:halt, {:ok, ticket}}
-      {:error, _reason} = error -> {:halt, error}
+      {:ok, %{merged?: true}} ->
+        {:cont, {:ok, nil}}
+
+      {:ok, _unmerged} ->
+        case Keyword.get(opts, :issue_closure, &Tracker.issue_closure/2).(ticket.identifier, 300_000) do
+          {:ok, %{open?: true}} -> {:halt, {:ok, ticket}}
+          {:ok, %{open?: false}} -> {:cont, {:ok, nil}}
+          {:error, :unsupported} -> {:halt, {:error, :corrective_ticket_state_unavailable}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+
+      {:error, _reason} = error ->
+        {:halt, error}
     end
   end
 
   defp create(decision, record, pr, opts) do
     with {:ok, [original]} <- call(opts, :issues, &Tracker.fetch_issue_states_by_ids/1, [[decision.ticket.identifier]]),
          attrs <- CorrectiveTicketBody.build(decision, record, pr, original.labels),
+         attrs <- park_successor(attrs, opts),
          {:ok, raw} <- call(opts, :create, &Tracker.create_issue/2, [attrs, [caller: "command_override_create"]]) do
       {:ok, normalize_ticket(raw)}
     else
       {:ok, _missing} -> {:error, :original_ticket_missing}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp park_successor(attrs, opts) do
+    if Keyword.get(opts, :successor, false) do
+      prefix = Keyword.fetch!(opts, :label_prefix)
+      Map.update!(attrs, :labels, &["#{prefix}:parked" | List.delete(&1, "agent:todo")])
+    else
+      attrs
     end
   end
 

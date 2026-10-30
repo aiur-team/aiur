@@ -15,7 +15,7 @@ defmodule Aiur.Commands.RoutingTest do
       if previous, do: Application.put_env(:aiur, :executor_state_dir, previous), else: Application.delete_env(:aiur, :executor_state_dir)
     end)
 
-    store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
+    store = start_supervised_store!(dir)
     clock = start_supervised!(Supervisor.child_spec({Agent, fn -> DateTime.utc_now() end}, id: make_ref()))
     roster = start_supervised!(Supervisor.child_spec({Agent, fn -> :active end}, id: make_ref()))
     %{store: store, clock: clock, roster: roster}

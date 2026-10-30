@@ -142,17 +142,23 @@ internal `executor_hook` topic; rejection counts use
 
 The Executor hook generator installs Claude hooks in the repository's
 `.claude/settings.local.json`. It preserves existing settings and hook order,
-backs up changed files to
-`<repo>/.claude/settings.local.json.aiur-bak-<timestamp>`, and refuses invalid
-JSON or hook structures. Written settings and backups have mode `0600`.
+refuses invalid JSON or hook structures, and backs up each changed file under
+the private per-repository Executor state directory at
+`hook-settings/settings.local.json.aiur-bak-<timestamp>`.
 
-Before installing, ignore `.claude/settings.local.json*` in `.gitignore` or
-the repository's local `.git/info/exclude`. Settings and backups may contain
-environment values, permissions and absolute hook paths; file permissions do
-not prevent Git from committing them.
+The backup directory has mode `0700`; files have mode `0600`. Install and
+uninstall migrate backups left in the working tree by older versions, removing
+each old copy only after verifying its private copy.
+
+Add `.claude/settings.local.json` itself to `.gitignore` or the repository's
+local `.git/info/exclude`. Settings may contain environment values,
+permissions and absolute hook paths; the backup is stored outside the working
+tree and is not covered by this ignore rule.
 
 Removing the integration removes only commands
-starting with `AIUR_EXECUTOR_HOOK=1`; backups remain available.
+starting with `AIUR_EXECUTOR_HOOK=1`. If no settings changed since install,
+uninstall restores the original file bytes from the private backup. Later user
+edits are preserved, and the backup remains available for manual restoration.
 
 An existing marked lifecycle command is preserved, including its paths.
 Uninstall and reinstall the hooks to point them at another instance.

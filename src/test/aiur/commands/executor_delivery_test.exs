@@ -22,7 +22,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
 
     :ok = ExecutorEvents.subscribe("executor.#")
     parent = self()
-    store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_scheduler: fn _, message, _ -> send(parent, {:scheduled, message}) end})
+    store = start_supervised_store!(dir, dispatch_scheduler: fn _, message, _ -> send(parent, {:scheduled, message}) end)
     inbox = start_supervised!({ExecutorWakeInbox, name: nil, debounce_ms: 60_000})
     %{store: store, inbox: inbox}
   end
