@@ -27,6 +27,15 @@ Label read/create failures stop startup before agents start and explain the requ
 | Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. Merged PR bodies also supply `Post-deploy check:` lines for the Executor checklist. `GithubFirehose.enrich_merged_event/2` and `GithubWebhook.Triples.maybe_enrich_commit_messages/4` share commit-message reads through caller `pull_request_commits`, cached by repository, PR number and immutable head SHA for four hours. `Refs #N`, `issue N`, and similar references remain nonclosing links. |
 | Analytics facts | Terminal and on-demand backfill PR facts; boot/hourly base history and tags | Body-free `pr_facts` and `analytics/repo-timeline.ndjson`; callers `analytics_facts` and `analytics_repo_timeline`. |
 
+Waiting Command overrides are read from the local Decision journal during candidate
+polls. For each waiting ticket, the resume scheduler refreshes its tracker state
+and PR observation through the existing governed Tracker reads, off the
+orchestrator mailbox.
+
+Missing or unavailable observations keep the request
+waiting. There is no separate polling timer or new issue/PR creation; no quota
+saving is claimed.
+
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 
 Rows and the resume checkpoint share the history file; a restart resumes unfinished work and skips a completed walk. This is a one-time read, not a poll or a page-view request.
@@ -82,7 +91,7 @@ The landing watcher quarantines a flaky test within 24 hours (caller `landing_wa
 - **Actions:** each ExUnit row in `src/test/quarantine.txt` has four tab-separated fields: module, full test name, owner fix-ticket number, and ISO expiry date. The ticket owns that test's quarantine and carries its run links. New rows are clamped to a maximum 14-day expiry; existing longer rows are grandfathered. An auto-merging `aiur/quarantine/` PR adds the row; browser quarantine entries remain whole Playwright spec files in `src/browser/quarantine.txt`, as the shared `aiur-test-failure` reporter names them. Approved PRs whose merge group was dropped are requeued. Degraded runner runs with multiple ExUnit timeouts, a partition-bound kill, or a compile step far above its recent same-job median do not file flake tickets. No ticket is filed when every failing run is over 12 hours old or a newer base-branch commit changed the test file.
 - **OrchestratorGuard:** the guard names the last test to finish, not the cause, so its failures only add run evidence to one `OrchestratorGuard` flake ticket and skip no test. The intentional-failure browser probes are never annotated.
 - **Retries:** decisions come from the landing journal, so a GitHub error retries without new CI reads. Each step (quarantine PR, requeue, scan of a red base-branch commit) backs off from 1 to 32 minutes and stops after 7 failures in 24 hours with `system.pr.landing.quarantine_gave_up`. A retry reuses a quarantine branch that already holds the entry.
-- **CI and expiry:** blocking CI skips listed tests. On main pushes the non-blocking `quarantined tests` job and a step of browser smoke shard 4 run them. Merging a fix PR or closing its owner ticket lifts the entry. Expiry decisions use per-test failure annotations from scheduled runs: three green runs lift an expired ExUnit row, while a failing run escalates only that test's owner ticket to `priority:1`. Unexpired rows are left alone. The hourly sweep reads up to 20 scheduled main CI runs and their job details. A local run of a quarantined test or spec skips it (browser runs print `Skipped by quarantine`) unless `AIUR_RUN_QUARANTINED=1` is set.
+- **CI and expiry:** blocking CI skips listed tests. On main pushes the non-blocking `quarantined tests` job and a step of browser smoke shard 4 run them. A merged PR lifts an entry only when it changes the quarantined test or its matching production module, or when a merged non-quarantine PR closes the owner ticket. Quarantine-list-only changes and test skips do not count as fixes. Expiry decisions use per-test failure annotations from scheduled runs: three green runs lift an expired ExUnit row, while a failing run escalates only that test's owner ticket to `priority:1`. Unexpired rows are left alone. The hourly sweep reads up to 20 scheduled main CI runs and their job details. A local run of a quarantined test or spec skips it (browser runs print `Skipped by quarantine`) unless `AIUR_RUN_QUARANTINED=1` is set.
 
 An approved PR that is not landing acts only when every failed required run has a non-PR cause. Infrastructure failures and known flakes are rerun.
 
@@ -267,7 +276,7 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 ## Newsletter snapshots
 
-`scripts/newsletter/collect.py` is an on-demand reader, separate from daemon
+`packages/newsletter/collect.py` is an on-demand reader, separate from daemon
 polling. It searches open and closed issues separately for each discovered
 `phase:*` label, then deduplicates by issue number.
 

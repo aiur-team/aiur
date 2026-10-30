@@ -319,13 +319,9 @@
   fill: var(--attention);
 }
 
-.bo-layout-edge.is-unknown {
-  stroke: var(--muted);
-}
 
-.bo-layout-edge-marker.is-unknown {
-  fill: var(--muted);
-}
+
+
 
 .bo-layout-edge.is-cyclic {
   stroke: var(--super);

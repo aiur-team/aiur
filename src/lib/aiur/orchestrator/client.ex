@@ -1,6 +1,5 @@
 defmodule Aiur.Orchestrator.Client do
   @moduledoc "Client forwarding for the Orchestrator RPC facade, with the original server defaults."
-  alias Aiur.Listener
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{Cancellation, GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
 
@@ -290,22 +289,26 @@ defmodule Aiur.Orchestrator.Client do
   @spec listener_prompt_context(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def listener_prompt_context(identifier, opts) do
     if Scheduler.routing(opts) == :listener do
-      reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context/1)
+      server = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
+      reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context(&1, server))
       reader.(identifier)
     else
-      {:error, :legacy}
+      {:error, :listener_mode_unavailable}
     end
   end
 
-  defp read_listener_prompt_context(identifier) do
-    with {:ok, %{effective: :async}} <- Listener.get_mode(identifier) do
+  defp read_listener_prompt_context(identifier, server) do
+    with {:ok, %{effective: :async}} <- GenServer.call(server, {:listener_get_mode, identifier}, 5_000) do
       count =
-        case control_capabilities(identifier) do
+        case control_capabilities(server, identifier) do
           {:ok, %{listener: %{unread_count: count}}} -> count
           _unavailable -> nil
         end
 
       {:ok, %{effective: :async, unread_count: count}}
     end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
   end
 end

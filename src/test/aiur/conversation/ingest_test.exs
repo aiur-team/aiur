@@ -72,6 +72,16 @@ defmodule Aiur.Conversation.IngestTest do
     assert Enum.count(rows(dir), &(&1["meta"]["reason"] == "import_missing")) == 1
   end
 
+  test "a stray message neither restarts the writer nor drops its pending gap", %{ref: ref, control: control, now: now} do
+    {:ok, writer} = Ingest.writer(ref)
+    GenServer.cast(writer, {:dropped, now, now})
+    # A late release from a store-blocking test's on_exit reaches a writer that is no longer blocked.
+    send(writer, :release_store)
+    actions(control, :append, [:ambiguous])
+    assert {:error, :degraded} = flush(ref)
+    assert {:ok, ^writer} = Ingest.writer(ref)
+  end
+
   test "concurrent cold producers share one writer and positions", %{ref: ref, dir: dir} do
     1..12
     |> Task.async_stream(fn n -> Ingest.append(ref, source(), [event(n)]) end, max_concurrency: 4)

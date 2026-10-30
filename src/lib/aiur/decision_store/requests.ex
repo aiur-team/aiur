@@ -382,6 +382,8 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:override_corrective_implemented), do: "override-corrective-implemented"
   def lifecycle_slug(:override_corrective_failed), do: "override-corrective-failed"
   def lifecycle_slug(:override_corrective_recovered), do: "override-corrective-recovered"
+  def lifecycle_slug(:override_resume_state), do: "override-resume-state"
+  def lifecycle_slug(:override_prompt_delivered), do: "override-prompt-delivered"
   def lifecycle_slug(:override_implemented), do: "override-implemented"
   def lifecycle_slug(:resolved), do: "resolved"
 end

@@ -40,6 +40,30 @@ defmodule Aiur.Commands.CorrectiveWorkerRouteTest do
     assert [%{state: :delivered, delivered_at: ^now, failure: %{attempts: 1}}] = observed.overrides
   end
 
+  test "a failed corrective resume retains T2 admission and accepts its prompt receipt" do
+    now = DateTime.utc_now()
+    ticket = %{identifier: "43", title: "Correction", url: "https://example.test/43"}
+    decision = struct(Decision, decision_id: "command", decision_status: :decided, ticket: %{identifier: "42"}, active_action_id: "first")
+    merged = StoreOverrides.metadata(override_context: %{pr: %{merged?: true}, worker: :active, capacity: :available})
+    first = Overrides.observe(decision, revision("first", merged, now))
+    link = %{type: :override_corrective_ticket, data: %{action_id: "first", ticket: ticket, pr_number: 77, merge_commit_sha: "merge"}, occurred_at: now}
+    assert {:ok, linked} = CorrectiveFacts.apply(first, link)
+
+    for capacity <- [:available, :full] do
+      metadata = StoreOverrides.metadata(override_context: %{pr: %{merged?: false}, worker: :parked, capacity: capacity})
+      latest = Overrides.observe(%{linked | active_action_id: "second"}, revision("second", metadata, now))
+      failure = CorrectiveFailures.build(List.last(latest.overrides), :outcome_unknown, now)
+      assert {:ok, failed} = CorrectiveFacts.apply(latest, %{type: :override_corrective_failed, data: failure, occurred_at: now})
+      assert %{state: :failed, pr_merged: false, corrective_ticket: ^ticket} = Overrides.resume_request(failed)
+      refute StoreOverrides.dispatchable?(failed)
+      receipt = %{type: :override_prompt_delivered, data: %{action_id: "second", at: now}}
+      assert {:ok, delivered} = Overrides.resume_fact(failed, receipt)
+      assert %{state: :delivered, delivered_at: ^now, corrective_ticket: ^ticket} = List.last(delivered.overrides)
+      acknowledged = Overrides.observe(delivered, %{type: :acknowledged, data: %{action_id: "second"}, occurred_at: now})
+      assert List.last(acknowledged.overrides).state == :delivered
+    end
+  end
+
   defp revision(action, metadata, now) do
     %{type: :revision_recorded, data: %{action_id: action, prior_action_id: "original", override: metadata}, occurred_at: now}
   end

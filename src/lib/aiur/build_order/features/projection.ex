@@ -67,6 +67,7 @@ defmodule Aiur.BuildOrder.Features.Projection do
           epic: event.epic,
           joined_at: if(old, do: old.joined_at, else: event.at),
           at_basis: if(old, do: old.at_basis, else: event.at_basis),
+          joined_source: if(old, do: Map.get(old, :joined_source, old.source), else: record.source),
           source: record.source,
           actor: record.actor,
           confirmed: event.confirmed

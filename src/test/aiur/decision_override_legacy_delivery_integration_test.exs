@@ -1,7 +1,8 @@
 defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
   use Aiur.TestSupport
 
-  alias Aiur.AgentRunner.DeliveryCorrelation
+  alias Aiur.AgentRunner.{DeliveryCorrelation, TurnPrompt}
+  alias Aiur.Commands
   alias Aiur.{DecisionDispatch, DecisionPubSub, DecisionStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, PauseResume}
 
@@ -83,27 +84,28 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     %{runtime: runtime, dir: dir}
   end
 
-  test "before-delivery override replaces an absent worker answer in its first queued input exactly once", ctx do
+  test "before-delivery override replaces an absent worker answer in its first prompt", ctx do
     store = start_store!(ctx)
     decision = answer!(store)
     pending = wait_for(store, decision.decision_id, &(&1.delivery_status == :queued))
     revised = override!(store, pending, "replacement")
     assert revised.answer.action_id == pending.answer.action_id
     assert revised.active_action_id != pending.active_action_id
-    refute revised.pending_for_session?
-    wait_for(store, revised.decision_id, &(&1.delivery_status == :queued))
+    refute Commands.override_dispatchable?(revised)
 
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}, 2_000
+    receive_barrier({:first_session_input, ^worker, []})
+    receive_barrier({:override_prompt, ^worker, prompt})
+    assert String.starts_with?(prompt, "Operator override — this replaces your earlier instruction for Command")
+    assert prompt =~ "replacement"
+    assert prompt =~ revised.active_action_id
+    assert_prompt_delivered_once(store, revised)
     send(worker, :read_next)
-    assert_receive {:worker_input, ^worker, action, body}, 2_000
-    assert action == revised.active_action_id
-    assert body =~ "replacement"
-    assert_queue_consumed_once(store, revised)
-    assert OperatorMessages.claim_next_queue_item(ctx.runtime, @identifier) == :empty
+    receive_barrier({:worker_queue_empty, ^worker})
+    refute_received {:worker_input, ^worker, _, _}
   end
 
-  test "two absent-worker overrides deliver only the newest answer through the next-worker queue", ctx do
+  test "two absent-worker overrides put only the newest answer in the next prompt", ctx do
     store = start_store!(ctx)
     decision = answer!(store)
     pending = wait_for(store, decision.decision_id, &(&1.delivery_status == :queued))
@@ -111,76 +113,66 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     latest = override!(store, first, "newest direction")
     assert [%{state: :superseded}, %{state: :queued}] = latest.overrides
 
-    wait_for(store, latest.decision_id, &(&1.delivery_status == :queued))
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}, 2_000
+    receive_barrier({:first_session_input, ^worker, []})
+    receive_barrier({:override_prompt, ^worker, prompt})
+    assert prompt =~ "newest direction"
+    assert prompt =~ latest.active_action_id
+    refute prompt =~ "earlier direction"
+    assert_prompt_delivered_once(store, latest)
     send(worker, :read_next)
-    assert_receive {:worker_input, ^worker, action, body}, 2_000
-    assert action == latest.active_action_id
-    assert body =~ "newest direction"
-    refute body =~ "earlier direction"
-    assert_queue_consumed_once(store, latest)
-    refute_receive {:worker_input, ^worker, _, _}, 0
-    assert OperatorMessages.claim_next_queue_item(ctx.runtime, @identifier) == :empty
+    receive_barrier({:worker_queue_empty, ^worker})
+    refute_received {:worker_input, ^worker, _, _}
   end
 
-  test "paused worker receives override as its first resumed input once, before later ordinary messages", ctx do
+  test "paused worker gets the override before an ordinary queued message", ctx do
     store = start_store!(ctx)
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}, 2_000
+    receive_barrier({:first_session_input, ^worker, []})
     original = answer!(store)
     delivered = wait_for(store, original.decision_id, &(&1.delivery_status == :consumed))
-    assert_receive {:worker_input, ^worker, original_action, _}, 2_000
+    receive_barrier({:worker_input, ^worker, original_action, _})
     assert original_action == delivered.active_action_id
 
     assert {:ok, _} = PauseResume.request_control(ctx.runtime, @identifier, :pause, 3032)
-    assert_receive {:worker_paused, ^worker}, 2_000
+    receive_barrier({:worker_paused, ^worker})
     assert GenServer.call(ctx.runtime, :worker_status) == [:paused]
-
     revised = override!(store, delivered, "first resumed direction")
-    queued = wait_for(store, revised.decision_id, &(&1.delivery_status == :queued))
-    assert queued.active_action_id == revised.active_action_id
+    refute Commands.override_dispatchable?(revised)
     assert GenServer.call(ctx.runtime, :worker_status) == [:paused]
-    refute_receive {:worker_input, ^worker, _, _}, 0
+    refute_received {:worker_input, ^worker, _, _}
 
-    # A plain message sent during a pause intentionally becomes the causal
-    # resume input. Exercise explicit resume here, then add competing input
-    # while the resumed provider is held just before its first queue claim.
     assert {:ok, _} = PauseResume.request_control(ctx.runtime, @identifier, :resume, 3033)
-    assert_receive {:resume_waiting, ^worker}, 2_000
+    receive_barrier({:resume_waiting, ^worker})
     send(worker, :allow_resume)
-    assert_receive {:worker_resumed, ^worker}, 2_000
+    receive_barrier({:worker_resumed, ^worker})
     assert GenServer.call(ctx.runtime, :worker_status) == [:working]
     assert {:ok, _} = OperatorMessages.send_operator_message(ctx.runtime, @identifier, %{kind: :text, body: "later ordinary message"})
     send(worker, :allow_input)
-    assert_receive {:worker_input, ^worker, action, body}, 2_000
-    assert action == revised.active_action_id
-    assert body =~ "Replacement response: first resumed direction"
-    assert GenServer.call(ctx.runtime, :worker_status) == [:working]
-    wait_for(store, revised.decision_id, &(&1.delivery_status == :consumed))
-
+    receive_barrier({:override_prompt, ^worker, prompt})
+    assert String.starts_with?(prompt, "Operator override — this replaces your earlier instruction for Command")
+    assert prompt =~ "Replacement response: first resumed direction"
+    assert prompt =~ revised.active_action_id
+    receive_barrier({:worker_input, ^worker, nil, "later ordinary message"})
+    assert_prompt_delivered_once(store, revised)
     send(worker, :read_next)
-    assert_receive {:worker_input, ^worker, nil, "later ordinary message"}, 2_000
-    send(worker, :read_next)
-    assert_receive {:worker_queue_empty, ^worker}, 2_000
-    assert {:ok, history} = DecisionStore.audit_history(revised.decision_id, store)
-    assert Enum.count(history, &(&1.type == :delivered and &1.data.action_id == action)) == 1
+    receive_barrier({:worker_queue_empty, ^worker})
   end
 
   test "merged PR override waits for a corrective ticket instead of a terminal follow-up", ctx do
     store = start_store!(ctx, "done")
     worker = launch!(ctx.runtime, store)
-    assert_receive {:first_session_input, ^worker, []}, 2_000
+    receive_barrier({:first_session_input, ^worker, []})
     original = answer!(store)
     delivered = wait_for(store, original.decision_id, &(&1.delivery_status == :consumed))
-    assert_receive {:worker_input, ^worker, _, _}, 2_000
+    receive_barrier({:worker_input, ^worker, _, _})
     context = %{@context | pr: %{@context.pr | merged?: true}}
     revised = override!(store, delivered, "correct merged work", context)
     action = revised.active_action_id
     assert [%{route: :corrective_ticket, state: :queued, action_id: ^action}] = revised.overrides
-    refute Aiur.Commands.override_dispatchable?(revised)
+    refute Commands.override_dispatchable?(revised)
     assert revised.revision_follow_ups == %{}
-    refute_receive {:worker_input, ^worker, ^action, _}, 0
+    refute_received {:worker_input, ^worker, ^action, _}
   end
 
   defp start_store!(ctx, target_state \\ "in-progress") do
@@ -243,6 +235,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     runner = fn issue, recipient, opts ->
       send(parent, {:worker_started, self()})
       send(parent, {:first_session_input, self(), opts[:answered_decisions]})
+      read_prompt(parent, issue, store)
       now = DateTime.utc_now()
       send(recipient, {:codex_worker_update, issue.id, %{event: :session_started, timestamp: now, thread_id: "new-session"}})
       send(recipient, {:codex_worker_update, issue.id, %{event: :notification, timestamp: now, payload: %{"method" => "turn/started"}}})
@@ -252,7 +245,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "I_override_6908", "database_id" => 6908, "number" => 6908}, {"owner", "repo"}, {"owner", "repo"})
     issue = %Issue{id: @identifier, identifier: @identifier, tracker_identity: identity, title: "Override", state: "in-progress", selected_backend: "codex"}
     assert :ok = GenServer.call(runtime, {:launch, issue, store, runner})
-    assert_receive {:worker_started, worker}, 2_000
+    receive_barrier({:worker_started, worker})
     worker
   end
 
@@ -275,6 +268,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
         worker_loop(parent, runtime, issue, store, :resumed_wait)
 
       :allow_input when phase == :resumed_wait ->
+        read_prompt(parent, issue, store)
         read_input(parent, runtime, issue, store)
         worker_loop(parent, runtime, issue, store, :working)
 
@@ -291,6 +285,16 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
 
       _notice ->
         worker_loop(parent, runtime, issue, store, phase)
+    end
+  end
+
+  defp read_prompt(parent, issue, store) do
+    opts = Commands.prepare_override_prompt(issue.identifier, decision_store: store)
+
+    if opts[:pending_overrides] != [] do
+      prompt = TurnPrompt.build_turn_prompt(issue, opts, 2, nil)
+      send(parent, {:override_prompt, self(), prompt})
+      :ok = Commands.record_override_prompt_receipt(%{event: :notification, payload: %{"method" => "turn/started"}}, opts)
     end
   end
 
@@ -315,10 +319,10 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     end
   end
 
-  defp assert_queue_consumed_once(store, decision) do
-    wait_for(store, decision.decision_id, &(&1.delivery_status == :consumed))
+  defp assert_prompt_delivered_once(store, decision) do
+    wait_for(store, decision.decision_id, &(&1.delivery_status == :delivered))
     assert {:ok, history} = DecisionStore.audit_history(decision.decision_id, store)
-    assert Enum.count(history, &(&1.type == :delivered and &1.data.action_id == decision.active_action_id)) == 1
+    assert Enum.count(history, &(&1.type == :override_prompt_delivered and &1.data.action_id == decision.active_action_id)) == 1
   end
 
   defp wait_for(store, id, predicate), do: wait_for(store, id, predicate, System.monotonic_time(:millisecond) + 3_000)

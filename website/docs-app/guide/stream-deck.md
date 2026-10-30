@@ -2,6 +2,8 @@
 
 Open `/streamdeck` in the [GUI](/guide/gui) for the emulator, or install the physical Stream Deck + sidecar. Both show the same daemon-rendered images. Ticket frames and the desktop modal read masked journal entries that survive restarts and workspace removal, falling back to workspace logs only without a journal. The browser retains Settings and Commands.
 
+Conversation dictation follows the ticket’s listener mode: default Sync waits for turn end; Steer delivers mid-turn when supported; Async holds messages for agent pull. If a turn is stuck, use the existing operator interrupt control.
+
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
 The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
@@ -329,7 +331,7 @@ The waveform and level bar are computed on the sidecar, so they keep moving with
 
 The deck transcribes and does not speak, so it needs only the `Speech to Text` and `User` permissions.
 
-The Dashboard [agent conversation](/concepts/units#agent-conversation-and-voice) uses the same server-held credential for interactive spoken replies when `Text to Speech` permission and `elevenlabs.voice_id` are configured.
+The Build ticket modal retains dictation. Worker conversation voice and the Executor prototype remain available from Home’s **Settings → Talk to Executor** (`/voice`).
 
 ### Configure it
 
@@ -356,14 +358,14 @@ Prefer the environment reference over a literal key. See [Configuration](/refere
 
 | State | What the operator can expect |
 | --- | --- |
-| Key configured | Held microphone audio goes to Aiur, then to ElevenLabs; returned text goes to the selected agent. |
+| Key configured | Held microphone audio goes to Aiur, then to ElevenLabs; returned text waits in the deck buffer for Send. |
 | Voice input declined (`enabled: false`) | Device selection, waveform, and level meters work; transcription and ElevenLabs metering are disabled; no audio leaves the machine. |
 | Enabled, key absent | Device selection, waveform, and level meters work; transcription does not; no audio leaves the machine. |
 | Capture released | Audio capture stops; there is no always-on listener or wake word. |
-| Transcript returned | Text stays in memory until sent or discarded; nothing writes it to disk. |
+| Transcript returned | Unsent text stays in memory until sent or discarded; sent text follows ordinary message retention. |
 | Coding agent launched | `ELEVENLABS_API_KEY` is removed from its environment and never logged. |
 
-When voice input is enabled, the Units meter reads the ElevenLabs credit quota as percentage remaining and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures). Declining voice input disables this provider meter.
+When voice input is enabled, the Units meter shows the ElevenLabs credit quota as percentage used; it omits invoice amounts and speech-to-text audio-minute spend. See [ElevenLabs metering](/apis/elevenlabs#what-the-usage-meter-measures). Declining voice input disables this provider meter.
 
 ### Without a key
 
@@ -379,7 +381,7 @@ The key is optional and its absence is not an error; unlike an absent key, `elev
 
 See [voice responsibilities and cloud processing](/apis/elevenlabs#who-does-what) for capture, transport, transcription, delivery and retention.
 
-This is the one part of Aiur that sends operator data to a third party.
+Voice transcription sends operator audio to a cloud provider.
 
 **Aiur holds the credential and Aiur performs the ElevenLabs call. The sidecar never sees the key.**
 
@@ -402,8 +404,8 @@ This is the one part of Aiur that sends operator data to a third party.
 | Key configured | Microphone audio reaches ElevenLabs and the transcribed text comes back; both leave your machine. |
 | Key absent | No audio leaves your machine and no ElevenLabs connection is opened. |
 | Mic released | Capture stops; there is no always-on listening and no wake word. |
-| Waveform and level meter | Computed on the sidecar, so "is my microphone working" is answered locally; only transcribed text makes the trip. |
-| Transcripts | Held in memory until sent or discarded; nothing writes them to disk. |
+| Waveform and level meter | Computed on the sidecar, so "is my microphone working" is answered locally; audio still travels through Aiur to ElevenLabs for transcription. |
+| Transcripts | Unsent text stays in memory; submitted text follows ordinary message or Command retention. |
 
 ### Key handling
 
@@ -475,11 +477,13 @@ Aiur holds a streaming connection to ElevenLabs, so transcription results can ap
 The channel's `answer_command` operation also accepts `override: true` with a
 nonblank `rationale` (up to 4,000 characters) to override an existing answer,
 including after delivery. Ordinary answer submissions retain first-answer-wins
-semantics. 
+semantics.
 
 The override record and routing state are visible in
-`aiur commands --json`. Absent or paused workers receive the override at their next
-session. A merged PR creates a corrective ticket for a new worker and PR; later
-overrides reuse its open work. Implementation requires the corrective PR to merge.
+`aiur commands --json`. Resumable workers wait for capacity; explicit parked or
+paused labels require operator resume.
+
+A merged PR creates a corrective ticket for a new worker and PR; later overrides
+reuse its open work. Implementation requires the corrective PR to merge.
 
 Physical override controls are separate from this transport operation.

@@ -5,15 +5,24 @@ defmodule AiurWeb.ConversationFirstEntryTest do
   import Aiur.TestSupport.BuildHome.ProtocolCase, except: [source: 1]
   import Aiur.Conversation.TestSupport
   alias Aiur.Conversation.{History, Ingest, Ref, TestSupport}
-  alias AiurWeb.OperatorControlCenter.{ConversationLink, UnitsTableFixtures}
 
   setup context, do: TestSupport.setup(context)
 
   test "an unrecorded worker receives its first message without reloading" do
-    identity = UnitsTableFixtures.row().identity
+    identity = %Aiur.TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "acme",
+      repository: "aiur",
+      provider_id: "NODE-1110",
+      database_id: 1110,
+      identifier: "1110",
+      reason: nil
+    }
+
     {:ok, ref} = Ref.worker(identity)
     assert {:error, :not_found} = History.snapshot(ref)
-    {:ok, view, html} = live(build_conn(), ConversationLink.href(identity))
+    {:ok, view, html} = live(build_conn(), "/conversations/#{Ref.conversation_id(ref)}")
     assert html =~ "No messages yet"
     assert has_element?(view, "[data-state=not_found]")
 

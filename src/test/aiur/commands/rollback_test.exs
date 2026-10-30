@@ -23,6 +23,8 @@ defmodule Aiur.Commands.RollbackTest do
       override_corrective_implemented: %{action_id: "action-1", pr_number: 78, merge_commit_sha: "merged-2"},
       override_corrective_failed: %{action_id: "action-1", failure_class: "github", reason: "HTTP 422", attempts: 1, retry_at: at, alerted: true},
       override_corrective_recovered: %{action_id: "action-1"},
+      override_resume_state: %{action_id: "action-1", route: :capacity_wait, reason: :capacity},
+      override_prompt_delivered: %{action_id: "action-1", at: at},
       override_implemented: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
       requester_notified: %{action_id: "action-1", at: at, channel: :wake_inbox},
       executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}

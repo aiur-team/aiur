@@ -14,7 +14,7 @@ Unknown keys are refused. An empty payload retains legacy join behavior.
 | `agent_composer` | `worker` | One running worker with the named ticket. |
 | `command_response` | `command` | Command remains answerable at the expected version. |
 | `command_revision` | `command` | Command has an answer at the expected version. |
-| `executor_composer` | `executor` | Parsed; target is currently unsupported. |
+| `executor_composer` | `executor` | Same instance with an available or degraded, writable Executor conversation. |
 | `conversation_panel` | None yet | Parsed; target validation currently refuses it. |
 
 Command targets contain `kind: "command"`, `decision_id`, and optional
@@ -44,6 +44,18 @@ MP-E6-C7-T02 consumes this assign to render `AiurWeb.Components.ConversePanel`.
 Until that component is installed, the dashboard reports Converse as
 `not_installed` even if the conversation host is available. The panel's Start
 step owns consent and capture. The handoff requests no agent summary or pause.
-Command response and revision surfaces omit Converse. Executor targets parse
-but remain `unsupported_target` until their target owner supplies validation;
-the future Executor LiveView can delegate the same event to `open/2`.
+Command response and revision surfaces omit Converse. Executor targets use
+`AiurWeb.ExecutorVoiceTarget` to validate the instance and conversation capability. Composer controls are hidden without an effective
+listener mode; dictation still requires review and the ordinary Send action.
+
+## Compatibility audit — 2026-10-29
+
+No shipped client in `src/priv/static` or `packages/` references
+`voice:dictation`; dashboard dictation uses `voice:dictate`. The server alias
+is retained for browser tabs loaded before that migration: no retirement or
+forced-reload boundary has been established for those clients. Remove the alias
+when that boundary is established; its presence does not select a different
+capture or delivery path.
+
+Dashboard privacy and retention are documented in the
+[ElevenLabs API guide](../../../../website/docs-app/apis/elevenlabs.md#privacy-and-secret-handling).

@@ -279,13 +279,30 @@ A later override targets this corrective ticket while its PR remains unmerged.
 It keeps the observed active-worker, resume or capacity-wait route.
 For corrective work, `implemented` requires the corrective PR to merge.
 
-Other routes (`resume_pending`, `capacity_wait`, `replacement`)
-retain the existing delivery path. An absent or paused worker receives the answer
-at its next session start; a terminal ticket raises an Executor follow-up.
+For a confirmed unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
+journal-backed resume queue. Resumable workers continue on the same ticket,
+branch and PR, oldest request first, within the fleet and pressure limits.
 
-Automatic resumption for other routes is subsequent routing work.
-Override acceptance never spawns a worker or rewrites merged work. Direct legacy
-supersede calls retain their pre-delivery guard.
+Capacity waits remain visible with `resume_reason: capacity` and survive restart.
+A newer override supersedes the earlier pending actions; only its text is used.
+
+Each resumed or continuation turn starts with “Operator override — this replaces
+your earlier instruction for Command …” until acknowledgement. A confirmed
+provider turn start marks prompt delivery; starting a worker alone does not.
+
+Explicit parked or paused labels stay in place, and a worker paused with
+`aiur pause N` stays paused, including while its pause request is pending.
+Aiur raises an Executor Command,
+“Resume #N to apply the override?”; the operator uses the normal resume control
+to authorize resumption. Capacity-only waits need no approval.
+
+Unknown PR observations never authorize automatic resumption. Closed targets
+are checked for a merged PR asynchronously, as described above. The resume
+scheduler requires a freshly confirmed live ticket.
+
+Unrecoverable worker replacement remains separate routing work. Overrides never
+rewrite merged work. Direct legacy supersede calls retain their pre-delivery
+guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.

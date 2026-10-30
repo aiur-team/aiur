@@ -1,24 +1,39 @@
 # Executor voice
 
+## Open the prototype
+
+From the Build home page (`/`), open **Settings → Talk to Executor** (`/voice`).
+The prototype remains available for Kevin’s acceptance, including both providers,
+minute meters, session comparison, ratings and delivery receipts.
+
+Select a worker on that page to open its conversation drawer. Its **Dictate**
+and **Converse** controls, listener modes and message delivery remain available
+when supported and writable. Close the drawer to return to the Executor controls.
+
 ## Composer voice
 
 The shared Executor composer supports **Dictate** and **Converse**, like worker
 composers, when Executor messaging is enabled. Voice controls are hidden when
 the composer is read-only or its effective listener mode is unavailable.
 
-This integration awaits the Executor view and send adapter; the existing
-**Talk to Executor** prototype below remains separately available.
+Dictate appends speech to the editable draft and waits for **Send**. Delivery
+receipts come from the Executor send path. Cancel restores the pre-recording
+draft; closing the conversation stops capture. The existing **Talk to Executor**
+prototype below remains separately available.
+
+The shared composer’s dictation path does not replace the prototype’s provider
+comparison, ratings or delivery receipts. Those remain on `/voice` for acceptance.
 
 ## Voice prototype
 
-Open a conversation drawer, choose **ElevenLabs** or **OpenAI**, enter its model,
+On `/voice`, choose **ElevenLabs** or **OpenAI**, enter its model,
 and press **Talk to Executor** to start a continuous spoken session. Change the
 provider between sessions without editing config or restarting.
 
 Both credentials and the ElevenLabs Agent id must be configured for a two-provider comparison. The voice control
 always targets the Executor, regardless of the worker shown in the drawer.
 
-The drawer shows each provider's cumulative used or reserved minutes. Comparison
+The page shows each provider's cumulative used or reserved minutes. Comparison
 limits are 45 minutes each for OpenAI and ElevenLabs on this runtime, separate
 from the existing shared daily cap. Starts at the comparison cap are refused;
 remaining minutes also shorten the session's automatic stop.
@@ -51,14 +66,13 @@ Each item keeps its sent event id and timestamp after the session ends.
 
 Receipts say **sent, not received** until the Executor acknowledges the
 matching wake. **Received** confirms acknowledgment, not approval or execution.
-A missing acknowledgment stays visible; re-rendering the drawer or starting
+A missing acknowledgment stays visible; re-rendering the page or starting
 another session preserves earlier receipts. A failed handoff shows an error.
 
 The summary separates decisions, open questions and ideas. If the assistant did
-not record one before ending, the drawer says **unstructured**; the transcript
+not record one before ending, the page says **unstructured**; the transcript
 is still sent without inventing decisions.
 
 Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
 for provider configuration, credentials and ElevenLabs client-tool setup.
-

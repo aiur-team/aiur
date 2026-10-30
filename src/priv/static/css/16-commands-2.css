@@ -375,16 +375,8 @@
   border-top: 1px solid var(--hairline);
 }
 
-
-.units-card {
-  min-width: 0;
-  /* Clip the full-bleed units table to the card's rounded corners. */
-  overflow: hidden;
-}
-
 .units-count-summary {
   margin: 0 0 0.2rem;
   font-size: 0.85rem;
   color: var(--muted);
 }
-

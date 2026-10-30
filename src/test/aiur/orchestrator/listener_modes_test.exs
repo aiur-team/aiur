@@ -32,6 +32,13 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
     assert {:reply, {:ok, %{effective: :async}}, _} = ListenerModes.get_mode(installed, id)
   end
 
+  test "a nil or malformed target replies invalid_target instead of crashing", %{state: state} do
+    for target <- [nil, 42, %{}] do
+      assert {:reply, {:error, :invalid_target}, ^state} = ListenerModes.get_mode(state, target)
+      assert {:reply, {:error, :invalid_target}, ^state} = ListenerModes.set_mode(state, target, :async, expected_version: 0)
+    end
+  end
+
   test "fallback recomputes effective reason, broadcasts as system, and preserves requested record", %{state: state, id: id, issue: issue} do
     assert {:ok, record} = ModeStore.put(id, :sync, 0, %{actor: :executor})
     bytes = File.read!(ModeStore.path_for(id))
