@@ -177,7 +177,7 @@ defmodule Aiur.Executor.TranscriptIngest do
       {:ok, %{harness: "claude", state: "attached", transcript_path: path} = binding} when is_binary(path) ->
         case TranscriptPath.validate(path, "claude", binding.provider_session_id, if(state.home, do: [home: state.home], else: [])) do
           {:ok, ^path} ->
-            if Map.has_key?(binding, :clear_rebind_until), do: state, else: launch(state, binding)
+            launch_ready(state, binding)
 
           {:error, reason} ->
             reject_path(state, binding, reason)
@@ -196,6 +196,9 @@ defmodule Aiur.Executor.TranscriptIngest do
 
     %{state | error: reason, error_binding: identity(binding)}
   end
+
+  defp launch_ready(state, %{clear_rebind_until: _}), do: state
+  defp launch_ready(state, binding), do: launch(state, binding)
 
   defp launch(state, binding) do
     {:ok, writer} = Ingest.writer(Ref.executor())
