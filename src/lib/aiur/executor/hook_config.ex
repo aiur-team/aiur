@@ -33,6 +33,7 @@ defmodule Aiur.Executor.HookConfig do
         " 2>/dev/null) || exit 0; " <>
         "curl -sS -m 2 -o /dev/null -H @" <>
         Shell.escape(HookToken.headers_path()) <>
+        " -H \"X-Aiur-Executor-Pid: $PPID\"" <>
         " -H 'Content-Type: application/json' --data-binary @- " <>
         "\"$u/api/v1/executor/hook?harness=#{harness}\" >/dev/null 2>&1; exit 0"
 

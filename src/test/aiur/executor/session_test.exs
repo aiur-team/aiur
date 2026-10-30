@@ -85,20 +85,35 @@ defmodule Aiur.Executor.SessionTest do
     assert {:ok, ^binding} = Session.current()
   end
 
-  test "SessionStart clear requires the same Claude process and carries the new start reason", %{ref: ref, dir: dir} do
+  test "SessionStart compact accepts a pidless same-session hook but refuses foreign sessions", %{ref: ref, dir: dir} do
     binding = bound()
     append(binding, ref)
     assert {:ok, _} = Session.record_offset(binding.binding_id, 123)
-    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook(), %{source: "clear", pid: "other"}))
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook(), %{source: "compact", pid: "other"}))
     assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook(), :source, "startup"))
-    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook("two"), :source, "clear"))
-    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook(), :source, "clear"))
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook("two"), :source, "compact"))
+    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook(), %{source: "compact", pid: nil}))
     assert next.provider_session_id == "one"
     assert next.start_reason == "start"
     assert next.transcript_offset == 123
     append(next, ref)
     assert Enum.any?(sessions(dir), &(&1["type"] == "start" and &1["provider_session_id"] == "one"))
-    refute Enum.any?(sessions(dir), &(&1["type"] == "end" and &1["end_reason"] == "clear"))
+    refute Enum.any?(sessions(dir), &(&1["type"] == "end" and &1["end_reason"] == "compact"))
+  end
+
+  test "clear accepts a new session only after a same-process clear end", %{ref: ref, dir: dir} do
+    binding = bound()
+    append(binding, ref)
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{source: "clear", pid: "123"}))
+    clear_end = %{event: "SessionEnd", harness: "claude", session_id: "one", source: nil, reason: "clear", pid: "123"}
+    assert {:ok, _} = Session.prepare_clear_rebind(binding.binding_id, clear_end)
+    assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{source: "clear", pid: "other"}))
+    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{source: "clear", pid: "123"}))
+    assert next.provider_session_id == "two"
+    assert next.start_reason == "clear"
+    assert next.transcript_offset == 0
+    assert :ok = flush(ref)
+    assert Enum.any?(sessions(dir), &(&1["type"] == "end" and &1["end_reason"] == "clear"))
   end
 
   test "restart restores binding identity offset and private mode", %{clock: clock} do
@@ -154,7 +169,7 @@ defmodule Aiur.Executor.SessionTest do
 
   test "same session after TTL preserves the journal offset and start reason", %{control: control, ref: ref, dir: dir} do
     binding = bound()
-    {:ok, binding} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook(), :source, "clear"))
+    {:ok, binding} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook(), :source, "compact"))
     append(binding, ref)
     assert {:ok, _} = Session.record_offset(binding.binding_id, 500)
     Agent.update(control, &Map.update!(&1, :now, fn now -> DateTime.add(now, 600_001, :millisecond) end))

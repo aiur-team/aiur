@@ -28,6 +28,8 @@ defmodule Aiur.Executor.Session do
   def rebind_on_session_start(id, hook), do: GenServer.call(__MODULE__, {:bind, id, hook, true})
   @spec touch(String.t(), DateTime.t()) :: result()
   def touch(id, at), do: GenServer.call(__MODULE__, {:touch, id, at})
+  @spec prepare_clear_rebind(String.t(), map()) :: result()
+  def prepare_clear_rebind(id, hook), do: GenServer.call(__MODULE__, {:prepare_clear_rebind, id, hook})
   @spec detach(String.t(), atom() | String.t()) :: result()
   def detach(id, reason), do: GenServer.call(__MODULE__, {:detach, id, reason})
   @spec record_offset(String.t(), non_neg_integer()) :: result()
@@ -73,7 +75,7 @@ defmodule Aiur.Executor.Session do
     with :ok <- attached(state.binding, id),
          :ok <- valid_hook(hook),
          :ok <- accept_session(state.binding, hook, rebind?, state.clock.()) do
-      bind(state, hook, rebind?)
+      bind(state, hook, rebind?, state.clock.())
     else
       {:error, reason} -> reject(state, reason)
     end
@@ -101,6 +103,21 @@ defmodule Aiur.Executor.Session do
     end
   end
 
+  def handle_call({:prepare_clear_rebind, id, hook}, _from, state) do
+    with :ok <- attached(state.binding, id),
+         :ok <- valid_hook(hook),
+         true <-
+           hook.event == "SessionEnd" and hook.reason == "clear" and hook.harness == "claude" and hook.session_id == state.binding.provider_session_id and is_binary(state.binding.pid) and
+             hook.pid == state.binding.pid do
+      end_binding(state.binding, "clear")
+      binding = Map.merge(state.binding, %{clear_rebind_pid: hook.pid, clear_rebind_until: DateTime.to_iso8601(DateTime.add(state.clock.(), 30, :second)), takeover_armed: false})
+      reply_saved(%{state | binding: binding})
+    else
+      false -> reject(state, :foreign_session)
+      {:error, reason} -> reject(state, reason)
+    end
+  end
+
   def handle_call({:offset, id, offset}, _from, state) when is_integer(offset) and offset >= 0 do
     case attached(state.binding, id) do
       :ok ->
@@ -117,15 +134,17 @@ defmodule Aiur.Executor.Session do
   def handle_info({:persist_touch, token}, %{timer: {_timer, token}} = state), do: {:noreply, save(%{state | timer: nil})}
   def handle_info({:persist_touch, _token}, state), do: {:noreply, state}
 
-  defp bind(state, hook, rebind?) do
+  defp bind(state, hook, rebind?, now) do
     binding = state.binding
     changed? = binding.provider_session_id != hook.session_id
-    stale? = not live?(binding, state.clock.())
+    stale? = not live?(binding, now)
     reason = if rebind?, do: hook.source, else: "start"
-    if changed?, do: end_binding(binding, if(stale?, do: "detached", else: reason))
+    clear_already_ended? = clear_rebind_live?(binding, now)
+    if changed? and not clear_already_ended?, do: end_binding(binding, if(stale?, do: "detached", else: reason))
 
-    updated = provider_fields(binding, hook, state.clock.())
+    updated = provider_fields(binding, hook, now)
     updated = if changed?, do: Map.merge(updated, %{start_reason: reason, transcript_offset: 0}), else: updated
+    updated = if changed?, do: Map.drop(updated, [:clear_rebind_pid, :clear_rebind_until]), else: updated
 
     if Map.drop(updated, [:last_hook_at]) == Map.drop(binding, [:last_hook_at]), do: reply_touched(%{state | binding: updated}), else: reply_saved(%{state | binding: updated})
   end
@@ -149,7 +168,7 @@ defmodule Aiur.Executor.Session do
 
   defp accept_session(binding, hook, rebind?, now) do
     cond do
-      rebind? -> validate_rebind(binding, hook)
+      rebind? -> validate_rebind(binding, hook, now)
       binding.takeover_armed or not live?(binding, now) -> :ok
       binding.provider_session_id in [nil, hook.session_id] -> same_process(binding, hook)
       true -> {:error, :foreign_session}
@@ -160,12 +179,26 @@ defmodule Aiur.Executor.Session do
     if binding.pid && Map.get(hook, :pid) not in [nil, binding.pid], do: {:error, :foreign_session}, else: :ok
   end
 
-  defp validate_rebind(binding, hook) do
+  defp validate_rebind(binding, %{source: "clear"} = hook, now) do
+    pending? = Map.get(binding, :clear_rebind_pid) == hook.pid and is_binary(hook.pid) and clear_rebind_live?(binding, now)
+    if binding.harness == "claude" and binding.state == "attached" and pending? and hook.session_id != binding.provider_session_id, do: :ok, else: {:error, :foreign_session}
+  end
+
+  defp validate_rebind(binding, hook, _now) do
     if binding.harness == "claude" and binding.state == "attached" and
          hook.session_id == binding.provider_session_id and
-         Map.get(hook, :source) in ["clear", "compact", "resume", "fork"] and
-         is_binary(binding.pid) and binding.pid != "" and Map.get(hook, :pid) in [nil, binding.pid], do: :ok, else: {:error, :foreign_session}
+         Map.get(hook, :source) in ["compact", "resume", "fork"] and
+         Map.get(hook, :pid) in [nil, binding.pid], do: :ok, else: {:error, :foreign_session}
   end
+
+  defp clear_rebind_live?(%{clear_rebind_until: until}, now) when is_binary(until) do
+    case DateTime.from_iso8601(until) do
+      {:ok, at, _} -> DateTime.compare(now, at) != :gt
+      _ -> false
+    end
+  end
+
+  defp clear_rebind_live?(_, _), do: false
 
   defp valid_hook(%{session_id: id} = hook) when is_binary(id) and id != "" do
     if Enum.all?([:transcript_path, :cwd, :pid], &(is_nil(Map.get(hook, &1)) or is_binary(Map.get(hook, &1)))), do: :ok, else: {:error, :invalid_hook}

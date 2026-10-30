@@ -4,6 +4,7 @@
   "transcript_path": null,
   "cwd": "/workspace",
   "source": "startup",
+  "reason": "clear",
   "turn_id": null,
   "agent_id": null,
   "agent_type": null,

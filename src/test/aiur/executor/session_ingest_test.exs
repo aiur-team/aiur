@@ -48,7 +48,7 @@ defmodule Aiur.Executor.SessionIngestTest do
     refute_receive {:executor_hook, _event}, 0
   end
 
-  test "binds, touches, rebinds clear in the same process and ends stopped" do
+  test "binds, touches, rebinds compact in the same session and ends stopped" do
     assert {:ok, pending} = Session.attach(%{harness: "claude"})
     dispatch("SessionStart")
     SessionIngest.rejected_counts()
@@ -59,12 +59,12 @@ defmodule Aiur.Executor.SessionIngestTest do
     assert_receive {:executor_hook, %{event: "SessionStart", session_id: "one", observed_at: observed}}, 1000
     assert bound.last_hook_at == DateTime.to_iso8601(observed)
 
-    dispatch("SessionStart", "one", %{"source" => "clear"})
+    dispatch("SessionStart", "one", %{"source" => "compact", "pid" => nil})
     SessionIngest.rejected_counts()
     assert {:ok, rebound} = Session.current()
     assert rebound.provider_session_id == "one"
     assert rebound.start_reason == "start"
-    assert_receive {:executor_hook, %{session_id: "one", source: "clear"}}, 1000
+    assert_receive {:executor_hook, %{session_id: "one", source: "compact"}}, 1000
 
     dispatch("PostToolUse", "one")
     SessionIngest.rejected_counts()
@@ -80,7 +80,7 @@ defmodule Aiur.Executor.SessionIngestTest do
     refute_receive {:executor_hook, _event}, 0
   end
 
-  test "real Claude clear and compact payloads without pid rebind, while foreign sessions are refused", %{root: root} do
+  test "real Claude compact payload without pid and clear new-session payload with hook pid rebind safely", %{root: root} do
     assert {:ok, _} = Session.attach(%{harness: "claude"})
     initial = claude_fixture_payload(root, "session", "startup")
     SessionIngest.dispatch(initial, "claude")
@@ -88,21 +88,33 @@ defmodule Aiur.Executor.SessionIngestTest do
     assert {:ok, bound} = Session.current()
     assert bound.provider_session_id == "session"
 
-    for {reason, session_id} <- [{"clear", "session"}, {"compact", "session"}] do
-      payload = claude_fixture_payload(root, session_id, reason) |> Map.delete("pid")
-      SessionIngest.dispatch(payload, "claude")
-      assert_receive {:executor_hook, %{event: "SessionStart", session_id: ^session_id, source: ^reason}}, 1000
-      assert {:ok, rebound} = Session.current()
-      assert rebound.provider_session_id == session_id
-      assert rebound.start_reason == "start"
-    end
+    compact = claude_fixture_payload(root, "session", "compact") |> Map.delete("pid")
+    SessionIngest.dispatch(compact, "claude")
+    assert_receive {:executor_hook, %{event: "SessionStart", session_id: "session", source: "compact"}}, 1000
 
-    foreign = claude_fixture_payload(root, "foreign", "clear") |> Map.delete("pid") |> Map.put("transcript_path", nil)
+    clear_end =
+      Path.join([__DIR__, "../../fixtures/executor_hooks/claude/SessionEnd.json"])
+      |> Path.expand()
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.put("reason", "clear")
+
+    SessionIngest.dispatch(clear_end, "claude")
+    assert_receive {:executor_hook, %{event: "SessionEnd", reason: "clear"}}, 1000
+
+    cleared = claude_fixture_payload(root, "session-new", "clear") |> Map.put("pid", "123")
+    SessionIngest.dispatch(cleared, "claude")
+    assert_receive {:executor_hook, %{event: "SessionStart", session_id: "session-new", source: "clear"}}, 1000
+    assert {:ok, rebound} = Session.current()
+    assert rebound.provider_session_id == "session-new"
+    assert rebound.start_reason == "clear"
+
+    foreign = claude_fixture_payload(root, "foreign", "clear") |> Map.put("pid", "different") |> Map.put("transcript_path", nil)
     SessionIngest.dispatch(foreign, "claude")
     SessionIngest.rejected_counts()
     assert SessionIngest.rejected_counts()[:foreign_session] == 1
     assert {:ok, current} = Session.current()
-    assert current.provider_session_id == "session"
+    assert current.provider_session_id == "session-new"
     refute_receive {:executor_hook, %{session_id: "foreign"}}, 0
   end
 
@@ -125,7 +137,7 @@ defmodule Aiur.Executor.SessionIngestTest do
       assert current.locator_hash == initial.locator_hash
     end
 
-    dispatch("SessionStart", "one", %{"source" => "clear"})
+    dispatch("SessionStart", "one", %{"source" => "compact"})
     SessionIngest.rejected_counts()
     assert {:ok, rebound} = Session.current()
     assert rebound.provider_session_id == "one"
