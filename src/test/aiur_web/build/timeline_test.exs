@@ -1,8 +1,9 @@
 defmodule AiurWeb.Build.TimelineTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.BuildOrder.TicketTimelineProvider
   alias Aiur.IssueLog.{EventHistory, Format}
-  alias Aiur.TestCleanup
+  alias Aiur.{TestCleanup, TrackerIdentity}
   alias AiurWeb.Build.Timeline
 
   defp identity do
@@ -21,6 +22,10 @@ defmodule AiurWeb.Build.TimelineTest do
     assert {:ok, %{events: [%{id: 12}], high_water: 12, truncated: false}} = Timeline.read(identity(), 11, read_fun: read)
     assert_received {:read, selected, [after_id: 11, kinds: [:emit, :emit_alert, :consumed, :self, :command], limit: 200]}
     assert selected == identity()
+  end
+
+  test "durable timeline provider validates ticket identity" do
+    assert {:error, :invalid_identity} = TicketTimelineProvider.read_page(%TrackerIdentity{status: :invalid}, [])
   end
 
   test "presentation uses real timestamps and retains actor, event kind and progress" do
