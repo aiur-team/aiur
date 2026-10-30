@@ -26,6 +26,7 @@ defmodule Aiur.Config.Schema.VoiceConversationProvidersTest do
     providers = settings.voice.conversation.providers
     assert providers.preference == VoiceConverse.Providers.default_preference()
     assert hd(providers.preference) == :elevenlabs_agents
+    assert providers.on_missing_credential == :text_only
     assert providers.openai.live_model == nil
     assert providers.openai.realtime_model == nil
     assert providers.gemini.live_model == nil
@@ -70,5 +71,14 @@ defmodule Aiur.Config.Schema.VoiceConversationProvidersTest do
     assert config.providers.openai == %{live_model: "chosen-live", realtime_model: "chosen-realtime"}
     assert config.providers.gemini == %{live_model: "chosen-gemini"}
     assert config.providers.cascade == %{stt: [:elevenlabs_stt, :browser_stt], llm: "anthropic:chosen-model", tts: [:elevenlabs_tts, :browser_tts]}
+  end
+
+  test "empty preferences and blank YAML list entries fail with the preference path" do
+    for preference <- ["[]", "[null]", "[elevenlabs_agents, null]"] do
+      yaml = "voice:\n  conversation:\n    providers:\n      preference: #{preference}\n"
+      assert {:ok, attrs} = YamlElixir.read_from_string(yaml)
+      assert {:error, {:invalid_workflow_config, message}} = Schema.parse(attrs)
+      assert message =~ "voice.conversation.providers.preference"
+    end
   end
 end

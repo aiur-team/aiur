@@ -8,7 +8,7 @@ defmodule VoiceConverse.ProviderConfig do
     openai: %{live_model: nil, realtime_model: nil},
     gemini: %{live_model: nil},
     cascade: %{stt: [:browser_stt], llm: nil, tts: [:browser_tts]},
-    on_missing_credential: :next,
+    on_missing_credential: :text_only,
     features: %{codex_realtime: false}
   }
   @stt_parts [:browser_stt, :elevenlabs_stt, :openai_stt, :text_in]

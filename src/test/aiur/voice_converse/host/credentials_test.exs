@@ -1,5 +1,6 @@
 defmodule Aiur.VoiceConverse.Host.CredentialsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [refute_leak: 2]
   alias Aiur.Config.Schema.VoiceConversation, as: Settings
   alias Aiur.VoiceConverse.Host.{Capability, Config, Credentials}
 
@@ -13,10 +14,10 @@ defmodule Aiur.VoiceConverse.Host.CredentialsTest do
       assert Credentials.fetch(provider, :probe, opts) == {:ok, :present}
       assert Credentials.fetch(provider, :connect, opts) == {:ok, "sentinel-first"}
       assert {:ok, config} = Config.build(%Settings{}, "/unused/voice")
-      refute inspect(config) =~ "sentinel-first"
+      refute_leak(config, "sentinel-first")
       reason = Capability.resolution_detail(config, {:error, :no_usable_option, [{:cascade, {:missing_credential, provider}}]})
       assert reason.provider_reason == "Cascade skipped: #{expected_name} missing"
-      refute inspect(reason) =~ "sentinel-first"
+      refute_leak(reason, "sentinel-first")
       System.put_env(variable, "sentinel-second")
       assert Credentials.fetch(provider, :connect, opts) == {:ok, "sentinel-second"}
       System.put_env(variable, "  ")

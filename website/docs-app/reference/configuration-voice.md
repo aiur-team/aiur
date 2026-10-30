@@ -21,7 +21,7 @@ Optional settings for the conversational voice assistant; an absent `voice:` blo
 | `voice.conversation.providers.cascade.tts` | list of strings | [browser_tts] | Ordered speech synthesis parts, validated by the core. |
 | `voice.conversation.providers.gemini.live_model` | string or nil | nil | Gemini Live model; nil uses the adapter default. |
 | `voice.conversation.providers.mode` | string | voice | Requested conversation mode: `voice` or `text`. |
-| `voice.conversation.providers.on_missing_credential` | string | next | Missing-key policy: `next`, `text_only` or `refuse`. |
+| `voice.conversation.providers.on_missing_credential` | string | text_only | Missing-key policy: `next`, `text_only` or `refuse`. Text fallback requires `text_only` in the preference list. |
 | `voice.conversation.providers.openai.live_model` | string or nil | nil | OpenAI Live model; nil uses the adapter default. |
 | `voice.conversation.providers.openai.realtime_model` | string or nil | nil | OpenAI Realtime model; nil uses the adapter default. |
 | `voice.conversation.providers.preference` | list of strings | [elevenlabs_agents, openai_live, gemini_live, cascade] | Ordered core registry option ids. Unknown ids fail config loading; unavailable adapters are skipped. |
@@ -49,7 +49,7 @@ voice:
     providers:
       preference: [elevenlabs_agents, openai_live, gemini_live, cascade]
       mode: voice
-      on_missing_credential: next
+      on_missing_credential: text_only
       openai: {live_model: null, realtime_model: null}
       gemini: {live_model: null}
       cascade:
@@ -59,13 +59,30 @@ voice:
 ```
 
 Model overrides default to `null`, meaning the adapter's default; choose a model
-available to your account. `cascade.llm` applies to cascade and text-only options.
+available to your account. `openai.live_model` belongs to the `openai_live`
+adapter; `openai.realtime_model` belongs to `openai_realtime`. These are separate
+registry options.
+
+`openai_realtime` is intentionally absent from the core default
+preference: add it explicitly to opt in. The prototype below uses its explicit
+`conversation.llm` model, rather than these resolver overrides.
+
+`cascade.llm` applies to cascade and text-only options.
 The existing `conversation.llm` configures the hosted Agent model and the prototype's
 explicit Realtime selection below; these are separate settings.
 
-`next` skips missing keys; `refuse` stops at the first missing key (including an
-ElevenLabs key with the default order); `text_only` tries text fallback when the
-preference list has no usable option, and still requires the cascade model key.
+The default `text_only` stops at a missing key. It can use text fallback only if
+`text_only` is explicitly in `preference`; otherwise it refuses. Text fallback still
+requires the configured cascade LLM key and can incur model charges. No option
+outside the configured list is selected.
+
+The operator must approve each paid provider before use. Opting into `next` can
+reach **any listed provider whose key exists**, including paid providers; it never
+adds unlisted providers. `refuse` stops at the first missing key.
+
+An explicit
+provider/model choice in the comparison drawer always uses `refuse`, regardless
+of the configured policy; it never records another provider under the chosen arm.
 Text mode excludes options that support only voice.
 
 Cascade STT ids are `browser_stt`, `elevenlabs_stt`, `openai_stt`, `text_in`;
