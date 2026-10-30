@@ -2,6 +2,8 @@ defmodule Aiur.Executor.HookConfig do
   @moduledoc """
   Executor lifecycle hooks for explicit attach. `install/2` and `uninstall/1`
   edit only project-local Claude settings; `render/2` returns printable config.
+  Install/uninstall require `repo_root:`. Install/render accept `extra_entries:`.
+  Codex install returns `{:error, :print_only}`; its renderer includes trust guidance.
   Extra entries are `%{event: name, command: command, timeout: seconds}`;
   commands owned by Aiur must begin with `AIUR_EXECUTOR_HOOK=1` for removal.
   """
@@ -43,9 +45,9 @@ defmodule Aiur.Executor.HookConfig do
     end)
   end
 
-  @spec render(:claude | :codex, list(map())) :: String.t()
-  def render(harness, extra \\ []) do
-    json = Jason.encode!(%{"hooks" => entries(harness, extra)}, pretty: true)
+  @spec render(:claude | :codex, keyword()) :: String.t()
+  def render(harness, opts \\ []) do
+    json = Jason.encode!(%{"hooks" => entries(harness, Keyword.get(opts, :extra_entries, []))}, pretty: true)
 
     case harness do
       :claude -> json
@@ -53,15 +55,18 @@ defmodule Aiur.Executor.HookConfig do
     end
   end
 
-  @spec install(Path.t(), list(map())) :: :ok | {:error, term()}
-  def install(repo_root, extra \\ []) do
-    additions = entries(:claude, extra)
+  @spec install(:claude | :codex, keyword()) :: :ok | {:error, term()}
+  def install(harness, opts \\ [])
+  def install(:codex, _opts), do: {:error, :print_only}
+
+  def install(:claude, opts) do
+    additions = entries(:claude, Keyword.get(opts, :extra_entries, []))
     command = get_in(additions, ["SessionStart", Access.at(0), "hooks", Access.at(0), "command"])
-    HookSettingsFile.install(repo_root, additions, command)
+    HookSettingsFile.install(Keyword.fetch!(opts, :repo_root), additions, command)
   end
 
-  @spec uninstall(Path.t()) :: :ok | {:error, term()}
-  def uninstall(repo_root), do: HookSettingsFile.uninstall(repo_root)
+  @spec uninstall(keyword()) :: :ok | {:error, term()}
+  def uninstall(opts), do: HookSettingsFile.uninstall(Keyword.fetch!(opts, :repo_root))
 
   defp entry(command, timeout), do: %{"hooks" => [%{"type" => "command", "command" => command, "timeout" => timeout}]}
   defp quote_sh(value), do: "'" <> String.replace(value, "'", "'\\''") <> "'"

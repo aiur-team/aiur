@@ -24,11 +24,12 @@ defmodule Aiur.Executor.HookConfigTest do
     assert Enum.sort(Map.keys(claude)) == Enum.sort(~w(SessionStart UserPromptSubmit PostToolUse Stop StopFailure SubagentStart SubagentStop Notification SessionEnd TaskCreated TaskCompleted))
     assert Enum.sort(Map.keys(HookConfig.entries(:codex))) == Enum.sort(~w(SessionStart UserPromptSubmit PostToolUse Stop SubagentStart SubagentStop SessionEnd))
     assert [_, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5}]}] = claude["Stop"]
-    assert Jason.decode!(HookConfig.render(:claude, [extra])) == %{"hooks" => claude}
+    assert Jason.decode!(HookConfig.render(:claude, extra_entries: [extra])) == %{"hooks" => claude}
     codex = HookConfig.render(:codex)
     assert codex =~ "<repo>/.codex/hooks.json"
     assert codex =~ "trust"
     assert codex =~ "harness=codex"
+    assert HookConfig.install(:codex, repo_root: "/unused") == {:error, :print_only}
   end
 
   test "command reads private paths at invocation, forwards stdin, stays silent and exits zero", %{root: root} do
@@ -62,19 +63,19 @@ defmodule Aiur.Executor.HookConfigTest do
     original = Jason.encode!(%{"permissions" => %{"allow" => ["Read"]}, "hooks" => %{"Stop" => [user]}})
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, original)
-    assert :ok = HookConfig.install(root)
+    assert :ok = HookConfig.install(:claude, repo_root: root)
     first = File.read!(path)
-    assert :ok = HookConfig.install(root)
+    assert :ok = HookConfig.install(:claude, repo_root: root)
     assert File.read!(path) == first
     assert [backup] = Path.wildcard(path <> ".aiur-bak-*")
     assert File.read!(backup) == original
     extra = %{event: "Stop", command: "AIUR_EXECUTOR_HOOK=1 deliver", timeout: 5}
-    assert :ok = HookConfig.install(root, [extra])
-    assert :ok = HookConfig.install(root, [extra])
+    assert :ok = HookConfig.install(:claude, repo_root: root, extra_entries: [extra])
+    assert :ok = HookConfig.install(:claude, repo_root: root, extra_entries: [extra])
     settings = Jason.decode!(File.read!(path))
     assert settings["permissions"] == %{"allow" => ["Read"]}
     assert [^user, _, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5, "type" => "command"}]}] = settings["hooks"]["Stop"]
-    assert :ok = HookConfig.uninstall(root)
+    assert :ok = HookConfig.uninstall(repo_root: root)
     assert Jason.decode!(File.read!(path)) == Jason.decode!(original)
     assert File.exists?(backup)
   end
@@ -84,7 +85,7 @@ defmodule Aiur.Executor.HookConfigTest do
     group = %{"matcher" => "*", "hooks" => [user, %{"command" => "AIUR_EXECUTOR_HOOK=1 sh -c true"}]}
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, Jason.encode!(%{"hooks" => %{"Stop" => [group], "SessionEnd" => [%{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 true"}]}]}}))
-    assert :ok = HookConfig.uninstall(root)
+    assert :ok = HookConfig.uninstall(repo_root: root)
     assert Jason.decode!(File.read!(path)) == %{"hooks" => %{"Stop" => [%{"matcher" => "*", "hooks" => [user]}]}}
   end
 
@@ -93,7 +94,7 @@ defmodule Aiur.Executor.HookConfigTest do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, Jason.encode!(%{"hooks" => %{"Stop" => [old]}}))
     extra = %{event: "Stop", command: "AIUR_EXECUTOR_HOOK=1 deliver", timeout: 5}
-    assert :ok = HookConfig.install(root, [extra])
+    assert :ok = HookConfig.install(:claude, repo_root: root, extra_entries: [extra])
     assert [^old, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5, "type" => "command"}]}] = Jason.decode!(File.read!(path))["hooks"]["Stop"]
   end
 
@@ -102,23 +103,23 @@ defmodule Aiur.Executor.HookConfigTest do
 
     for original <- ["{bad", "[]", ~s({"hooks":null}), ~s({"hooks":{"Stop":{}}})] do
       File.write!(path, original)
-      assert HookConfig.install(root) == {:error, :unparsable}
-      assert HookConfig.uninstall(root) == {:error, :unparsable}
+      assert HookConfig.install(:claude, repo_root: root) == {:error, :unparsable}
+      assert HookConfig.uninstall(repo_root: root) == {:error, :unparsable}
       assert File.read!(path) == original
       assert Path.wildcard(path <> ".aiur-bak-*") == []
     end
   end
 
   test "absent settings and filesystem errors leave other files untouched", %{root: root, path: path} do
-    assert :ok = HookConfig.uninstall(root)
+    assert :ok = HookConfig.uninstall(repo_root: root)
     refute File.exists?(path)
-    assert :ok = HookConfig.install(root)
+    assert :ok = HookConfig.install(:claude, repo_root: root)
     assert map_size(Jason.decode!(File.read!(path))["hooks"]) == 11
-    assert :ok = HookConfig.uninstall(root)
+    assert :ok = HookConfig.uninstall(repo_root: root)
     assert Jason.decode!(File.read!(path)) == %{}
     bad_root = Path.join(root, "regular-file")
     File.write!(bad_root, "untouched")
-    assert {:error, :enotdir} = HookConfig.install(bad_root)
+    assert {:error, :enotdir} = HookConfig.install(:claude, repo_root: bad_root)
     assert File.read!(bad_root) == "untouched"
   end
 end
