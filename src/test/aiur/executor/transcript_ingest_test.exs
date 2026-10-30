@@ -90,12 +90,16 @@ defmodule Aiur.Executor.TranscriptIngestTest do
 
   test "clear retargets to a new file and detach drains without reopening a session", context do
     path = bind(context, "one", [assistant("first", "first")])
-    start_ingest(context)
+    manager = start_ingest(context)
     TranscriptIngest.poll()
     assert {:ok, binding} = Session.current()
+    :sys.suspend(manager)
+    # This old hook reconciles the new binding before its queued clear notification.
+    send(manager, {:executor_hook, %{event: "Stop", session_id: "one"}})
     assert {:ok, _} = Session.prepare_clear_rebind(binding.binding_id, %{event: "SessionEnd", reason: "clear", harness: "claude", session_id: "one", pid: "123"})
     next_path = transcript(context, "two", [assistant("second", "second")])
     assert {:ok, _} = Session.rebind_on_session_start(binding.binding_id, %{session_id: "two", harness: "claude", transcript_path: next_path, pid: "123", source: "clear"})
+    :sys.resume(manager)
     TranscriptIngest.poll()
     TranscriptIngest.poll()
     append(next_path, [assistant("last", "last")])

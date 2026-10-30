@@ -65,6 +65,9 @@ defmodule Aiur.Executor.TranscriptIngest do
   def handle_info({:end_binding, id, reason}, %{capture: %{binding: %{provider_session_id: id}, closing: false}} = state),
     do: {:noreply, close(state, reason)}
 
+  def handle_info({:end_binding, id, reason}, %{capture: %{binding: %{provider_session_id: id}, closing: true} = capture} = state),
+    do: {:noreply, %{state | capture: %{capture | reason: reason}}}
+
   def handle_info({:end_binding, id, reason}, %{capture: nil} = state) do
     Ingest.end_session(Ref.executor(), id, reason)
     {:noreply, state}
