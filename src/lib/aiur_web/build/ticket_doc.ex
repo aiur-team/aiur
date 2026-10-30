@@ -168,6 +168,7 @@ defmodule AiurWeb.Build.TicketDoc do
   defp unwrap_cache(cache) when is_map(cache), do: cache
   defp unwrap_cache(_), do: nil
 
+  defp unwrap_read({:ok, result}) when is_map(result), do: {:ok, result}
   defp unwrap_read({:ok, {:ok, result}}), do: {:ok, result}
   defp unwrap_read({:ok, {:error, reason}}), do: {:error, reason}
   defp unwrap_read(_), do: {:error, :unavailable}
