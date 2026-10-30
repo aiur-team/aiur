@@ -93,6 +93,21 @@ defmodule AiurWeb.BuildLiveReadTest do
     assert log =~ "wave"
   end
 
+  test "a dropped row recovery restarts the client snapshot to restore cross-row references" do
+    source(mode: :invalid)
+    {:ok, view, _} = live(build_conn(), "/build")
+    LiveViewAsync.render_when_complete(view)
+    render_hook(view, "build-resync", %{})
+    assert_reply(view, %{"kind" => "snapshot", "unavailable_rows" => 1})
+
+    recovered = hd(data()["sections"]["plan"])
+    send(view.pid, {:build_changes, change(recovered)})
+    render(view)
+
+    assert_push_event(view, "build-diff", %{"generation" => 2, "upsert" => [], "remove" => [], "set" => %{}})
+    assert Process.alive?(view.pid)
+  end
+
   test "malformed changes request a resync without killing the view" do
     {:ok, view, _} = live(build_conn(), "/build")
     LiveViewAsync.render_when_complete(view)

@@ -114,6 +114,19 @@ defmodule AiurWeb.Build.Protocol do
   defp page_reply({:error, reason}, socket), do: {:reply, Payload.error(error_reason(reason)), socket}
 
   defp push_change(socket, changes, opts) do
+    recovering_dropped_row? =
+      Enum.any?(changes["upsert"], fn row ->
+        is_map(row) and MapSet.member?(socket.assigns.build_dropped_row_ids, row["id"])
+      end)
+
+    if recovering_dropped_row? do
+      restart(socket)
+    else
+      push_valid_change(socket, changes, opts)
+    end
+  end
+
+  defp push_valid_change(socket, changes, opts) do
     {changes, dropped_ids} = SnapshotRows.scrub_changes(changes, socket.assigns.build_dropped_row_ids)
     changes = if opts[:financial] == :locked, do: update_in(changes["set"], &Map.delete(&1, "usage")), else: changes
     generation = socket.assigns.build_generation + 1
