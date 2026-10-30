@@ -15,7 +15,7 @@ defmodule AiurWeb.Build.OverrideSummary do
     <section :if={@state != {:ok, []}} id="fleet-overrides" class="fleet-overrides" aria-label="Fleet overrides">
       <details id="fleet-overrides-disclosure" phx-mounted={JS.ignore_attributes(["open"])} phx-click-away={JS.remove_attribute("open", to: "#fleet-overrides details")}
         phx-window-keydown={JS.remove_attribute("open", to: "#fleet-overrides details")} phx-key="Escape">
-        <summary class="chip attention" title={if @state == :unavailable, do: "Override status unavailable", else: "Pending overrides"}>
+        <summary class="chip attention" aria-label={if @state == :unavailable, do: "Override status unavailable", else: "Pending overrides: #{length(elem(@state, 1))}"} title={if @state == :unavailable, do: "Override status unavailable", else: "Pending overrides"}>
           Overrides: {if @state == :unavailable, do: "?", else: length(elem(@state, 1))}
         </summary>
         <div class="fleet-overrides-panel">

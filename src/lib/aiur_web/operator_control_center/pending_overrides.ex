@@ -8,8 +8,10 @@ defmodule AiurWeb.OperatorControlCenter.PendingOverrides do
   def load(opts \\ []) do
     store = Keyword.get(opts, :store, EndpointConfig.get(:decision_store) || Commands.default_store())
 
-    case Commands.query_counts(store: store) do
-      {:ok, %{health: %{status: :available}}} -> {:ok, store |> Commands.list_decisions(1_000) |> rows()}
+    with {:ok, %{health: %{status: :available}}} <- Commands.query_counts(store: store),
+         decisions when is_list(decisions) <- Commands.list_decisions(store, 1_000) do
+      {:ok, rows(decisions)}
+    else
       _unknown -> :unavailable
     end
   catch

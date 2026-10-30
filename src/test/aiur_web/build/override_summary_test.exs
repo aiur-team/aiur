@@ -11,6 +11,7 @@ defmodule AiurWeb.Build.OverrideSummaryTest do
     html = render_component(&OverrideSummary.summary/1, state: {:ok, rows})
     dom = Floki.parse_fragment!(html)
     assert dom |> Floki.find("details > summary") |> Floki.text() =~ "Overrides: 2"
+    assert Floki.attribute(Floki.find(dom, "summary"), "aria-label") == ["Pending overrides: 2"]
     assert Floki.find(dom, "details[open]") == []
     links = html |> Floki.parse_fragment!() |> Floki.find(".fleet-override-badge")
     assert length(links) == 2
@@ -25,8 +26,35 @@ defmodule AiurWeb.Build.OverrideSummaryTest do
     dom = Floki.parse_fragment!(html)
     assert dom |> Floki.find("summary") |> Floki.text() =~ "Overrides: ?"
     assert Floki.attribute(Floki.find(dom, "summary"), "title") == ["Override status unavailable"]
+    assert Floki.attribute(Floki.find(dom, "summary"), "aria-label") == ["Override status unavailable"]
     assert Floki.find(dom, "details[open]") == []
     refute html =~ "fleet-override-badge"
+  end
+
+  defmodule ResultStore do
+    use GenServer
+
+    @spec start_link(term()) :: GenServer.on_start()
+    def start_link(result), do: GenServer.start_link(__MODULE__, result)
+
+    @impl true
+    def init(result), do: {:ok, result}
+
+    @impl true
+    def handle_call(:retained_counts, _from, result),
+      do: {:reply, {:ok, %{counts: %{open: 0, blocking: 0}, health: :writable}}, result}
+
+    def handle_call(:list, _from, result), do: {:reply, result, result}
+  end
+
+  test "a failed list read remains unavailable even when counts are available" do
+    for result <- [{:error, :unsupported_in_docs_fixture}, nil, %{}] do
+      store = start_supervised!({ResultStore, result}, id: make_ref())
+      assert DecisionCommands.pending_overrides(store: store) == :unavailable
+    end
+
+    store = start_supervised!({ResultStore, []}, id: make_ref())
+    assert DecisionCommands.pending_overrides(store: store) == {:ok, []}
   end
 
   defp decision(state) do

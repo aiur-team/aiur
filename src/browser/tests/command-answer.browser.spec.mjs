@@ -221,6 +221,14 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
 test('override timeline and form fit desktop and mobile after an answer', async ({ page }, testInfo) => {
   await openFixture(page, 'writable')
   await page.goto('/command-answer-control/answerable')
+  const commandUrl = page.url()
+  // The fixture retains earlier repeats; measure the real pending rows first.
+  await page.goto('/voice-input-fixture?command=true')
+  await page.goto('/')
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+  await expect(page.locator('summary[title="Override status unavailable"]')).toHaveCount(0)
+  const pendingBefore = await page.locator('.fleet-override-badge').count()
+  await page.goto(commandUrl)
   await page.getByRole('button', { name: 'Decision', exact: true }).click()
   const form = page.locator('form[phx-submit="revise-decision"]')
   await expect(form).toBeVisible()
@@ -268,7 +276,8 @@ test('override timeline and form fit desktop and mobile after an answer', async 
   const disclosure = page.locator('#fleet-overrides details')
   const toggle = disclosure.locator('summary')
   const panel = disclosure.locator('.fleet-overrides-panel')
-  await expect(toggle).toHaveText('Overrides: 1')
+  await expect(page.locator('.fleet-override-badge')).toHaveCount(pendingBefore + 1)
+  await expect(toggle).toHaveText(`Overrides: ${pendingBefore + 1}`)
   await expect(panel).toBeHidden()
   await expect(page.locator('.aiur-shell__topbar #fleet-overrides')).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('override-fleet-390.png'), fullPage: true })
@@ -282,7 +291,7 @@ test('override timeline and form fit desktop and mobile after an answer', async 
   await page.locator('#route-title').click()
   await expect(panel).toBeHidden()
   await toggle.click()
-  const badge = page.locator('.fleet-override-badge').first()
+  const badge = page.locator(`.fleet-override-badge[href="${new URL(commandUrl).pathname}"]`)
   await expect(badge).toHaveAttribute('href', /\/commands\/dec_/)
   await expect(badge).toBeVisible()
   // A CSS-only reflow probe; routing and implementation evidence are tested separately.
