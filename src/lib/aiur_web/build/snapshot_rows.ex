@@ -26,7 +26,7 @@ defmodule AiurWeb.Build.SnapshotRows do
   def retain_valid(message), do: {message, []}
 
   @spec scrub_changes(map(), MapSet.t()) :: {map(), MapSet.t()}
-  def scrub_changes(changes, dropped_ids) when is_map(changes) and is_struct(dropped_ids, MapSet) do
+  def scrub_changes(changes, dropped_ids) when is_map(changes) do
     recovered =
       changes
       |> Map.get("upsert", [])
@@ -45,8 +45,6 @@ defmodule AiurWeb.Build.SnapshotRows do
 
     {changes, dropped_ids}
   end
-
-  def scrub_changes(changes, _dropped_ids), do: {changes, MapSet.new()}
 
   defp retain_section(section, rows, message) when is_list(rows) do
     rows
@@ -86,6 +84,5 @@ defmodule AiurWeb.Build.SnapshotRows do
   defp reject_ids(ids, _dropped_ids), do: ids
   defp reject_keys(states, dropped_ids) when is_map(states), do: Map.drop(states, MapSet.to_list(dropped_ids))
   defp reject_keys(states, _dropped_ids), do: states
-  defp row_id(row) when is_map(row), do: row["id"]
-  defp row_id(_row), do: nil
+  defp row_id(row), do: if(is_map(row), do: Map.get(row, "id"), else: nil)
 end

@@ -3,10 +3,10 @@ defmodule AiurWeb.Build.PayloadValidator do
   alias AiurWeb.Build.ConversationPayload
   alias AiurWeb.Build.PayloadSchema, as: Schema
 
-  @spec validate_row(map(), String.t()) :: :ok | {:error, [{String.t(), atom()}]}
+  @spec validate_row(term(), String.t()) :: :ok | {:error, [{String.t(), atom()}]}
   def validate_row(row, section), do: row_validation(row, section, nil, nil)
 
-  @spec validate_row(map(), String.t(), term(), term()) :: :ok | {:error, [{String.t(), atom()}]}
+  @spec validate_row(term(), String.t(), term(), term()) :: :ok | {:error, [{String.t(), atom()}]}
   def validate_row(row, section, epics, features), do: row_validation(row, section, epics, features)
 
   defp row_validation(row, section, epics, features) when is_map(row) and is_binary(section) do

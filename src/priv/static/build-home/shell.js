@@ -13,7 +13,7 @@ export function syncSB() {
 }
 export function shell() {
   const { root, life } = ctx;
-  for (const id of ['bd-usage', 'bd-offline', 'bd-fh', 'bd-partial', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status']) {
+  for (const id of ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status']) {
     if (!$('#' + id, root)) return fail(id);
   }
   const sb = $('#bd-sb', root), th = $(':scope > i', sb), vp = ctx.vp = $('#bd-vp', root);

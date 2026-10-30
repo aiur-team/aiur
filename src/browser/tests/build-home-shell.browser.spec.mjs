@@ -39,6 +39,7 @@ test('snapshot with unavailable rows shows an honest partial-board notice', asyn
   })
   await expect(page.locator('#bd-partial')).toHaveText('2 rows unavailable · this board is partial')
   await expect(page.locator('#bd-partial')).toHaveAttribute('role', 'status')
+  await expect(page.locator('#bd-partial')).toHaveClass('bd-partial')
 })
 
 test('an open modal survives a server patch', async ({ page }) => {
