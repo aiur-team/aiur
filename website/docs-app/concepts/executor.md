@@ -63,10 +63,91 @@ the `decision_id`; read the answer with `aiur commands <decision_id> --json`.
 An Executor request's optional ticket context never routes its answer to a worker.
 Once the wake is enqueued, the answer counts as delivered and cannot be superseded.
 
+## Talk to the Executor from the dashboard
+
+Attaching identifies your external session as this instance's Executor session.
+Opt-in is separate from wake recording and `--executor` authority; no Remote Control is required.
+
+From the repository root, with the dashboard listener running, choose one:
+
+```bash
+aiur executor-attach --harness claude
+aiur executor-attach --harness codex
+```
+
+Claude attachment installs marked `AIUR_EXECUTOR_HOOK=1` hooks in
+`.claude/settings.local.json`, preserving other settings and hooks. Use
+`--print-config` to review the configuration without installing it.
+
+Codex always prints configuration: merge it into `<repo>/.codex/hooks.json`, then
+review and trust it in Codex's `/hooks` dialog.
+
+Start or resume the selected
+session and confirm its hooks are enabled. Keep local settings out of Git; see
+[Generated hook settings](#generated-hook-settings) for backups and cleanup.
+
+Attachment creates private hook token, header and URL files in the Executor
+state directory (normally `~/.aiur/repo/<owner>/<repo>/executor/`). These let
+hooks authenticate to this instance's loopback endpoint. Codex attachment does not
+edit Codex configuration or grant trust.
+
+**Privacy before opting in:** attachment authorizes Aiur to read the attached
+session's transcript, including your messages, assistant replies, reasoning and
+tool output. Unrelated sessions are not opted in.
+
+When Executor conversation recording is available, Aiur copies entries into its local
+[conversation journal](/concepts/conversations#where-transcripts-live), with
+owner-only directories (`0700`) and files (`0600`).
+
+Transcripts can contain
+secrets; masking and collapsed or hidden content are not a privacy boundary.
+There is no automatic pruning: retained entries stay until you delete them.
+
+**Phone visibility:** paired phones and watches may read the Executor transcript
+by default. D19 pairing grants full access; there is no separate Executor
+transcript visibility toggle. Treat pairing a device as granting access to this
+conversation, including sensitive content.
+
+Attachment alone does not guarantee a dashboard transcript or message delivery.
+Attach-only builds still report the Executor conversation as unavailable; the
+transcript reader and dashboard integration must also be present.
+
+Sending is
+**disabled until delivery is installed** and the session is eligible. Where
+available, listener modes govern when messages arrive: Steer at tool boundaries,
+Sync at turn end or the next prompt, Async through explicit reads, and Mute
+silently holds messages.
+
+See [listener modes](/guide/gui#conversations) and
+[hook delivery](#attached-session-lifecycle-hooks). An idle session is not woken
+by a delivery hook, and queued does not mean read.
+
+Use `aiur executor-session --json` for the binding, liveness, last-hook age and freshness.
+`awaiting_first_hook` means waiting for the first hook, not proof of transcript recording.
+
+Check enabled
+hooks and Codex trust first. A missing dashboard listener blocks attachment;
+an existing live binding requires CLI `--takeover`. Commands and fleet blockers
+remain in the [Commands inbox](/concepts/commands).
+
+To opt out, run `aiur executor-detach`. It ends the binding, rotates the hook
+credential and removes marked Claude hooks, preserving user edits. Remove
+manually merged Codex hooks yourself.
+
+Detaching does not erase existing
+journals, provider logs, binding records, token/URL files or private settings
+backups.
+
+To erase recorded text, stop Aiur and follow the
+[conversation deletion steps](/concepts/conversations#retention-and-deletion);
+provider logs and other copies require separate deletion. Remove unused Executor
+state files or backups only after stopping the instance.
+
 ## Conversation privacy
 
 Worker transcripts can contain secrets and remain on disk until deleted.
-The Executor journal identity follows the same storage contract when integrated.
+Attached Executor transcripts follow the opt-in and paired-device access contract
+above, and use the same journal storage contract when integrated.
 See [Conversations](/concepts/conversations) for storage paths, retention,
 masking limits and deletion steps.
 
