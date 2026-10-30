@@ -241,11 +241,15 @@ that pending binding and print config for manual installation.
 
 Attached Claude sessions capture their validated JSONL transcript into the durable
 Executor conversation, including history from the first record. Capture resumes
-from a saved byte offset after daemon restarts. Typed prompts and Remote Control
+from a saved byte offset after daemon restarts.
+
+Typed prompts and Remote Control
 prompts appear as Executor operator messages; Remote Control retains its origin.
+
 Only the attached session file is read; Aiur does not scan provider directories.
 A missing or rejected source records a conversation gap. Clear opens a new
 session, truncation opens a fork, and detach ends capture while preserving history.
+
 `executor-session` reports stored-path rejection reasons such as `not_regular`
 when a file has been replaced by a symlink. Provider flush latency can delay live
 entries beyond the 400 ms poll interval.

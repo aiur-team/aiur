@@ -140,6 +140,9 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     assert :ok = flush(context.ref)
     assert [gap] = rows(context.dir)
     assert {gap["kind"], gap["meta"]["reason"]} == {"gap", "source_unreadable"}
+    assert {:ok, _} = Session.attach(%{harness: "codex", takeover?: true})
+    TranscriptIngest.poll()
+    assert TranscriptIngest.status() == %{transcript_rejection: nil}
   end
 
   test "unattached, nil-path and foreign hooks never start capture", context do
@@ -216,6 +219,65 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     assert Enum.count(rows(context.dir), &(&1["body"] == "first")) == 1
   end
 
+  test "writer replacement cannot acknowledge a lost buffer and restart replays it", context do
+    timer = start_supervised!({Agent, fn -> 0 end})
+    context = Map.put(context, :clock, fn -> Agent.get(timer, & &1) end)
+    path = bind(context, "one", [assistant("first", "first")])
+    start_ingest(context, :temporary)
+    TranscriptIngest.poll()
+    assert {:ok, first} = Session.current()
+    {:ok, writer} = Aiur.Conversation.Ingest.writer(context.ref)
+    :sys.suspend(writer)
+    append(path, [assistant("second", "second")])
+    Agent.update(timer, fn _ -> 1000 end)
+    TranscriptIngest.poll()
+    monitor = Process.monitor(writer)
+    Process.exit(writer, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 1000
+    # Explicitly start a replacement with no copy of the predecessor's mailbox.
+    assert :ok = flush(context.ref)
+    Agent.update(timer, fn _ -> 2000 end)
+    assert catch_exit(TranscriptIngest.poll())
+    assert {:ok, receipt} = Session.current()
+    assert receipt.transcript_offset == first.transcript_offset
+    stop_supervised!(TranscriptIngest)
+    start_ingest(context)
+    TranscriptIngest.poll()
+    assert :ok = flush(context.ref)
+    assert Enum.map(rows(context.dir), & &1["body"]) == ["first", "second"]
+  end
+
+  test "boot closes a persisted detach whose manager message was lost", context do
+    bind(context, "one", [assistant("first", "first")])
+    manager = start_ingest(context, :temporary)
+    TranscriptIngest.poll()
+    assert {:ok, binding} = Session.current()
+    :sys.suspend(manager)
+    assert {:ok, _} = Session.detach(binding.binding_id, "stopped")
+    monitor = Process.monitor(manager)
+    Process.exit(manager, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^manager, :killed}, 1000
+    stop_supervised!(TranscriptIngest)
+    start_ingest(context)
+    TranscriptIngest.poll()
+    assert :ok = flush(context.ref)
+    assert Enum.map(sessions(context.dir), &{&1["type"], &1["end_reason"]}) == [{"start", nil}, {"end", "stopped"}]
+    assert DynamicSupervisor.count_children(context.tail_supervisor).active == 0
+  end
+
+  test "accepted hook alone starts capture through the subscribed topic", context do
+    start_ingest(context)
+    TranscriptIngest.poll()
+    start_supervised!({Aiur.Executor.SessionIngest, pubsub: context.pubsub})
+    assert {:ok, _} = Session.attach(%{harness: "claude"})
+    path = transcript(context, "one", [assistant("hook", "hook")])
+    assert {:ok, event} = Aiur.Executor.HookPayload.normalize(%{"session_id" => "one", "hook_event_name" => "SessionStart", "transcript_path" => path}, "claude", home: context.home)
+    Aiur.Executor.SessionIngest.dispatch(event)
+    assert_receive {:journal_batch, 1}, 5000
+    assert :ok = flush(context.ref)
+    assert Enum.map(rows(context.dir), & &1["body"]) == ["hook"]
+  end
+
   test "recording starts the capture manager after its session and dynamic supervisor" do
     specs = Aiur.Application.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, recording?: true)
 
@@ -230,12 +292,10 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     assert Enum.find_index(modules, &(&1 == Session)) < Enum.find_index(modules, &(&1 == TranscriptIngest))
   end
 
-  defp start_ingest(context),
-    do:
-      start_supervised!(
-        {TranscriptIngest,
-         home: context.home, pubsub: context.pubsub, supervisor: context.tail_supervisor, interval_ms: nil, clock: Map.get(context, :clock, fn -> System.monotonic_time(:millisecond) end)}
-      )
+  defp start_ingest(context, restart \\ :permanent) do
+    opts = [home: context.home, pubsub: context.pubsub, supervisor: context.tail_supervisor, interval_ms: nil, clock: Map.get(context, :clock, fn -> System.monotonic_time(:millisecond) end)]
+    start_supervised!(Supervisor.child_spec({TranscriptIngest, opts}, restart: restart))
+  end
 
   defp bind(context, id, records) do
     path = transcript(context, id, records)

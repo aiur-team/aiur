@@ -58,8 +58,8 @@ defmodule Aiur.Claude.TranscriptTailer do
   Run one read cycle synchronously and return the number of events emitted.
   Used in tests for deterministic stepping; production relies on the timer.
   """
-  @spec poll(GenServer.server()) :: {:ok, non_neg_integer()}
-  def poll(server), do: GenServer.call(server, :poll)
+  @spec poll(GenServer.server(), timeout()) :: {:ok, non_neg_integer()}
+  def poll(server, timeout \\ 5000), do: GenServer.call(server, :poll, timeout)
 
   @doc false
   @spec handoff_cursor(GenServer.server()) :: map()
@@ -125,8 +125,6 @@ defmodule Aiur.Claude.TranscriptTailer do
   defp read_new(state) do
     case File.stat(state.path) do
       {:ok, %{size: size}} ->
-        state.on_status.(:readable)
-
         state =
           if size < state.offset do
             state.on_status.(:reset)

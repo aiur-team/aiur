@@ -28,6 +28,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     state = %{
       capture: nil,
       error: nil,
+      error_binding: nil,
       home: Keyword.get(opts, :home),
       interval: Keyword.get(opts, :interval_ms, 400),
       clock: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end),
@@ -35,6 +36,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     }
 
     for {_, pid, _, _} <- DynamicSupervisor.which_children(state.supervisor), is_pid(pid), do: DynamicSupervisor.terminate_child(state.supervisor, pid)
+    reconcile_detach()
     send(self(), :tick)
     {:ok, state}
   end
@@ -165,7 +167,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     opts = if state.home, do: [home: state.home], else: []
 
     case TranscriptPath.validate(binding.transcript_path, "claude", binding.provider_session_id, opts) do
-      {:ok, _} -> TranscriptTailer.poll(state.capture.pid)
+      {:ok, _} -> TranscriptTailer.poll(state.capture.pid, :infinity)
       {:error, _} -> send(self(), {state.capture.token, {:status, :unreadable}})
     end
   end
@@ -178,20 +180,21 @@ defmodule Aiur.Executor.TranscriptIngest do
             if Map.has_key?(binding, :clear_rebind_until), do: state, else: launch(state, binding)
 
           {:error, reason} ->
-            if state.error != reason do
+            if state.error != reason or state.error_binding != identity(binding) do
               now = DateTime.utc_now()
               Ingest.gap(Ref.executor(), :source_unreadable, now, now)
             end
 
-            %{state | error: reason}
+            %{state | error: reason, error_binding: identity(binding)}
         end
 
       _ ->
-        state
+        %{state | error: nil, error_binding: nil}
     end
   end
 
   defp launch(state, binding) do
+    {:ok, writer} = Ingest.writer(Ref.executor())
     owner = self()
     token = make_ref()
     hash = :crypto.hash(:sha256, binding.transcript_path) |> Base.encode16(case: :lower)
@@ -229,10 +232,21 @@ defmodule Aiur.Executor.TranscriptIngest do
       closing: false,
       reason: nil,
       supervisor: state.supervisor,
-      clock: state.clock
+      clock: state.clock,
+      writer: writer
     }
 
-    %{state | capture: capture, error: nil}
+    %{state | capture: capture, error: nil, error_binding: nil}
+  end
+
+  defp reconcile_detach do
+    case Session.current() do
+      {:ok, %{harness: "claude", state: "detached", provider_session_id: id, end_reason: reason}} when is_binary(id) ->
+        Ingest.end_session(Ref.executor(), id, reason || "detached")
+
+      _ ->
+        :ok
+    end
   end
 
   defp identity(binding), do: Map.take(binding, [:binding_id, :generation, :provider_session_id, :transcript_path])
@@ -241,8 +255,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     now = capture.clock.()
 
     if force? or is_nil(capture.written_at) or now - capture.written_at >= 2000 do
-      with {:ok, writer} <- Ingest.writer(Ref.executor()),
-           :ok <- GenServer.call(writer, :flush, :infinity),
+      with :ok <- GenServer.call(capture.writer, :flush, :infinity),
            {:ok, binding} <- Session.current(),
            true <- identity(binding) == identity(capture.binding),
            {:ok, _} <- Session.record_offset(capture.binding, capture.offset) do

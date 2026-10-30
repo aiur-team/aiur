@@ -59,6 +59,23 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert final > consumed
   end
 
+  test "failed reads stay unreadable until a successful read", %{path: path, test_pid: tp} do
+    File.write!(path, assistant_line("recovered"))
+    File.chmod!(path, 0o000)
+    on_exit(fn -> File.chmod(path, 0o600) end)
+    tailer = start_tailer(path, tp, on_status: fn status -> send(tp, {:status, status}) end)
+    assert {:ok, 0} = TranscriptTailer.poll(tailer, :infinity)
+    assert_receive {:status, :unreadable}, 1000
+    refute_receive {:status, :readable}, 0
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    assert_receive {:status, :unreadable}, 1000
+    refute_receive {:status, :readable}, 0
+    File.chmod!(path, 0o600)
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:status, :readable}, 1000
+    assert_receive {:event, %{body: "recovered"}}, 1000
+  end
+
   test "emits one event for an appended assistant text record", %{path: path, test_pid: tp} do
     File.write!(path, assistant_line("Hello"))
     tailer = start_tailer(path, tp)
