@@ -4,7 +4,7 @@ defmodule Aiur.Listener do
   alias Aiur.Listener.{Effective, ModeStore, Receipt, SpecStatus}
   alias Aiur.TrackerIdentity
 
-  @type target :: String.t() | TrackerIdentity.t() | Aiur.Conversation.Ref.t()
+  @type target :: String.t() | TrackerIdentity.t() | %{v: 1, subject: :executor}
   @type result :: {:ok, Effective.view()} | {:error, term()}
 
   @doc false
@@ -108,7 +108,7 @@ defmodule Aiur.Listener do
   def receipt_for_send_result({:error, _}), do: :failed
   def receipt_for_send_result({:ok, _}), do: :accepted
 
-  defp valid_target?(%Aiur.Conversation.Ref{v: 1, subject: :executor}), do: executor_delivery_installed?()
+  defp valid_target?(%{v: 1, subject: :executor}), do: executor_delivery_installed?()
   defp valid_target?(%TrackerIdentity{identifier: id}), do: is_binary(id) and id != ""
   defp valid_target?(id), do: is_binary(id) and id != ""
   defp delivery_target, do: Application.fetch_env!(:aiur, :listener_delivery_target)

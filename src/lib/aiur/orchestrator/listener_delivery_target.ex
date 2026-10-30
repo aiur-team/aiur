@@ -2,7 +2,6 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
   @moduledoc "Routes internal listener control to the Orchestrator mailbox."
   @behaviour Aiur.Listener.DeliveryTarget
 
-  alias Aiur.Conversation.Ref
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.OperatorMessages
 
@@ -38,7 +37,7 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
   def read_snapshot(id, timeout), do: OperatorMessages.Snapshot.read(Orchestrator, id, timeout)
 
   # The hook consumer owns this queue key; external sessions never become worker runners.
-  defp queue_target(%Ref{v: 1, subject: :executor}), do: "executor"
+  defp queue_target(%{v: 1, subject: :executor}), do: "executor"
   defp queue_target(target), do: target
 
   defp call(request, timeout, timeout_result) do
