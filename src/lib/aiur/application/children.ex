@@ -323,7 +323,8 @@ defmodule Aiur.Application.Children do
         Aiur.VoiceConversation.child_specs() ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
-        BuildOrders.child_specs(:label_backfill, opts)
+        BuildOrders.child_specs(:label_backfill, opts) ++
+        List.wrap(if(recording?, do: Aiur.Executor.Session))
     )
   end
 
@@ -331,8 +332,7 @@ defmodule Aiur.Application.Children do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
       List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       BuildOrders.child_specs(:estimates, opts) ++
-      List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor)) ++
-      List.wrap(if(recording?, do: Aiur.Executor.Session))
+      List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
 
   defp dashboard_cache_children(dashboard?) do
