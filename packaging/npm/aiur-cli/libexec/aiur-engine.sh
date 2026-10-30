@@ -135,7 +135,10 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
        aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
-       aiur executor-roster [--json]  list Executor consumers; executor-session [--json] reads the live Executor harness session
+       aiur executor-roster [--json]  list Executor consumers
+       aiur executor-session [--json]  show Executor binding, hook age and harness handle
+       aiur executor-attach --harness claude|codex [--takeover] [--print-config]
+       aiur executor-detach  detach the Executor and revoke its hook token
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
@@ -390,7 +393,7 @@ aiur_engine_main() {
       shift
       cmd_executor_subscriptions "$@"
       ;;
-    executor-roster | executor-session)
+    executor-roster | executor-session | executor-attach | executor-detach)
       shift; "cmd_${cmd//-/_}" "$@" ;;
     executor-fast-forward)
       shift
