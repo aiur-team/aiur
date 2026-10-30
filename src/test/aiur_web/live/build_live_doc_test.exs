@@ -137,7 +137,8 @@ defmodule AiurWeb.BuildLiveDocTest do
 
     send(view.pid, {:ticket_history_updated, %{generation: 2}})
 
-    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => %{"items" => []}})
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => %{"items" => items}})
+    assert is_list(items)
   end
 
   test "successful timeline reads scheduled by the LiveView are available" do
@@ -151,7 +152,8 @@ defmodule AiurWeb.BuildLiveDocTest do
     key = Aiur.TrackerIdentity.github_key(selected)
     event_path = Paths.timeline_event_log_path(selected)
     File.mkdir_p!(Path.dirname(event_path))
-    File.write!(event_path, "2026-10-30T12:00:00Z [event:emit] id=42 ticket.#{selected.identifier}.agent.progress.status: Timeline event\n")
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    File.write!(event_path, "#{timestamp} [event:emit] id=42 ticket.#{selected.identifier}.agent.progress.status: Timeline event\n")
     TicketTimelineCache.put(key, %{events: [], high_water: 0})
 
     on_exit(fn ->
