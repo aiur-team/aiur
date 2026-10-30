@@ -23,7 +23,8 @@ defmodule Aiur.TestQuarantine do
   end
 
   @doc "Sorts quarantine entries in the order enforced by the quarantine list validator."
-  @spec sort_key(entry()) :: {String.t(), String.t()}
+  @spec sort_key(%{required(:module) => String.t(), required(:name) => String.t()}) ::
+          {String.t(), String.t()}
   def sort_key(%{module: module, name: name}), do: {module, name}
 
   @doc "Inserts a quarantine row while preserving the validator's module/name ordering."
