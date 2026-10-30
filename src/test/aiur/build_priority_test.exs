@@ -44,6 +44,25 @@ defmodule Aiur.BuildPriorityTest do
     refute output =~ "should-not-run"
   end
 
+  # #7291 diagnostic: names the sender of a TERM/HUP/INT sent to the command's process group.
+  @signal_witness """
+  import signal, sys
+  sigs = {signal.SIGTERM, signal.SIGHUP, signal.SIGINT}
+  signal.pthread_sigmask(signal.SIG_BLOCK, sigs)
+  info = signal.sigtimedwait(sigs, 120)
+  def read(path):
+      try:
+          return open(path, "rb").read().replace(b"\\0", b" ").decode(errors="replace").strip()
+      except OSError as error:
+          return f"<{error.strerror}>"
+  if info:
+      stat = read(f"/proc/{info.si_pid}/stat")
+      ppid = stat.rsplit(")", 1)[1].split()[1] if ")" in stat else "?"
+      with open(sys.argv[1], "a") as out:
+          out.write(f"signal={info.si_signo} sender={info.si_pid} cmd={read(f'/proc/{info.si_pid}/cmdline')!r} "
+                    f"ppid={ppid} parent_cmd={read(f'/proc/{ppid}/cmdline')!r}\\n")
+  """
+
   @tag skip: not (match?({:unix, :linux}, :os.type()) and not is_nil(System.find_executable("flock")))
   test "admitted commands and nested leases inherit priority once and preserve exit status" do
     root = Path.join(System.tmp_dir!(), "build-priority-#{System.unique_integer([:positive])}")
@@ -62,6 +81,8 @@ defmodule Aiur.BuildPriorityTest do
     """)
 
     File.chmod!(executable, 0o755)
+    witness = Path.join(root, "signal_witness.py")
+    File.write!(witness, @signal_witness)
     {baseline, 0} = System.cmd("bash", ["-c", "ps -o ni= -p $$"])
     baseline = baseline |> String.trim() |> String.to_integer()
 
@@ -69,7 +90,13 @@ defmodule Aiur.BuildPriorityTest do
       gate = Path.join(root, "#{strategy}-#{adjustment}")
       lock = BuildGate.lock_dir(gate)
 
+      {signals, witness_pid} = {gate <> ".signals", gate <> ".witness-pid"}
+
       on_exit(fn ->
+        with {:ok, pid} <- File.read(witness_pid), {:ok, cmdline} <- File.read("/proc/#{String.trim(pid)}/cmdline"), true <- cmdline =~ "signal_witness" do
+          System.cmd("kill", ["-KILL", String.trim(pid)], stderr_to_stdout: true)
+        end
+
         File.chmod(lock, 0o755)
         Aiur.TestCleanup.rm_rf!(lock)
       end)
@@ -78,7 +105,9 @@ defmodule Aiur.BuildPriorityTest do
       assert {"AIUR_BUILD_NICE", Integer.to_string(adjustment)} in env
 
       {output, status} =
-        System.cmd("bash", ["-c", "ps -o ni= -p $$; mix test"],
+        System.cmd(
+          "bash",
+          ["-c", "python3 #{witness} #{signals} </dev/null >/dev/null 2>&1 & echo $! >#{witness_pid}; ps -o ni= -p $$; mix test; rc=$?; kill -KILL $!; exit $rc"],
           env:
             env ++
               [
@@ -95,7 +124,17 @@ defmodule Aiur.BuildPriorityTest do
 
       priorities = Regex.scan(~r/^\s*(-?\d+)\s*$/m, output) |> Enum.map(fn [_, value] -> String.to_integer(value) end)
       assert priorities == [baseline | List.duplicate(min(19, baseline + adjustment), 2)], output
-      assert status == 37
+
+      assert status == 37,
+             "strategy=#{strategy} adjustment=#{adjustment} status=#{status}\noutput (gate stderr included):\n#{output}\n" <>
+               "signal witness: #{witness_report(signals)}"
+    end
+  end
+
+  defp witness_report(signals) do
+    case File.read(signals) do
+      {:ok, seen} -> seen
+      {:error, _} -> "no TERM/HUP/INT reached the command's process group"
     end
   end
 end
