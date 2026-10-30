@@ -9,9 +9,11 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   use GenServer
 
+  alias Aiur.{Issue, Orchestrator.TrackerIdentityStore}
   alias Aiur.Orchestrator.State
 
   @table __MODULE__
+  @identity_table Module.concat(__MODULE__, Identity)
   @table_opts [
     :named_table,
     :public,
@@ -51,7 +53,7 @@ defmodule Aiur.Orchestrator.TrackedSet do
   def tracker_identity(nil), do: nil
 
   def tracker_identity(identifier) do
-    case :ets.lookup(@table, to_string(identifier)) do
+    case :ets.lookup(@identity_table, to_string(identifier)) do
       [{_identifier, %Aiur.TrackerIdentity{} = identity}] -> identity
       _ -> nil
     end
@@ -61,30 +63,42 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   @spec refresh(State.t()) :: State.t()
   def refresh(%State{} = state) do
-    # Deactivated rows remain visible in state but must reject late publisher events.
-    entries =
-      state.running
-      |> Enum.reject(fn {_id, entry} ->
-        get_in(entry, [:control, :status]) == :deactivated
-      end)
-      |> Enum.map(fn {_id, entry} ->
-        {entry[:identifier] || Map.get(entry, :identifier), Aiur.Issue.tracker_identity(Map.get(entry, :issue))}
-      end)
-      |> Enum.reject(fn {identifier, _identity} -> is_nil(identifier) end)
+    entries = Enum.map(state.running, fn {_id, entry} -> {entry[:identifier] || Map.get(entry, :identifier), Issue.tracker_identity(Map.get(entry, :issue))} end)
+    identities = Enum.reject(entries, fn {identifier, identity} -> is_nil(identifier) or is_nil(identity) end)
 
-    call({:reset, entries})
+    # Membership rejects late worker events after deactivation. Identity is a
+    # separate durable snapshot: PR lifecycle events can arrive after handoff
+    # or after an orchestrator restart without another tracker read.
+    active_entries =
+      Enum.reject(state.running, fn {_id, entry} -> get_in(entry, [:control, :status]) == :deactivated end)
+      |> Enum.map(fn {_id, entry} -> {entry[:identifier] || Map.get(entry, :identifier), true} end)
+      |> Enum.reject(fn {identifier, _member} -> is_nil(identifier) end)
+
+    call({:refresh, active_entries, identities})
     state
   end
 
   @impl true
   def init(_opts) do
     ensure_table()
-    {:ok, %{}}
+    ensure_identity_table()
+    identities = TrackerIdentityStore.load()
+    replace_all(@identity_table, Map.to_list(identities))
+    {:ok, %{identities: identities}}
   end
 
   @impl true
   def handle_call({:reset, issue_ids}, _from, state) do
-    {:reply, replace_all(issue_ids), state}
+    :ets.delete_all_objects(@identity_table)
+    :ok = TrackerIdentityStore.save(%{})
+    {:reply, replace_all(@table, issue_ids), %{state | identities: %{}}}
+  end
+
+  def handle_call({:refresh, active_entries, identities}, _from, state) do
+    next_identities = Map.merge(state.identities, Map.new(identities, fn {identifier, identity} -> {to_string(identifier), identity} end))
+    :ok = TrackerIdentityStore.save(next_identities)
+    replace_all(@identity_table, Map.to_list(next_identities))
+    {:reply, replace_all(@table, active_entries), %{identities: next_identities}}
   end
 
   defp call(message, attempts_left \\ 3) do
@@ -102,29 +116,31 @@ defmodule Aiur.Orchestrator.TrackedSet do
     :exit, _reason -> :ok
   end
 
-  defp replace_all(issue_ids, attempts_left \\ 2) do
-    ensure_table()
-    :ets.delete_all_objects(@table)
+  defp replace_all(table, entries, attempts_left \\ 2) do
+    ensure_table(table)
+    :ets.delete_all_objects(table)
 
-    Enum.each(issue_ids, fn
-      {identifier, identity} -> :ets.insert(@table, {to_string(identifier), identity})
-      identifier -> :ets.insert(@table, {to_string(identifier), true})
+    Enum.each(entries, fn
+      {identifier, value} -> :ets.insert(table, {to_string(identifier), value})
+      identifier -> :ets.insert(table, {to_string(identifier), true})
     end)
 
     :ok
   rescue
     ArgumentError ->
       if attempts_left > 1 do
-        replace_all(issue_ids, attempts_left - 1)
+        replace_all(table, entries, attempts_left - 1)
       else
         :ok
       end
   end
 
-  defp ensure_table do
-    case :ets.whereis(@table) do
-      :undefined -> :ets.new(@table, @table_opts)
-      table -> table
+  defp ensure_table(table \\ @table) do
+    case :ets.whereis(table) do
+      :undefined -> :ets.new(table, @table_opts)
+      existing -> existing
     end
   end
+
+  defp ensure_identity_table, do: ensure_table(@identity_table)
 end

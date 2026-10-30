@@ -3,7 +3,7 @@ Code.require_file("journal_support.exs", __DIR__)
 defmodule Aiur.Conversation.AnchorResolverCausalTest do
   use ExUnit.Case, async: false
   alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, TestSupport}
-  alias Aiur.Events.{BranchRefStore, Exchange, LsRemoteTicker, Publisher}
+  alias Aiur.Events.{BranchRefStore, Exchange, GithubFirehose, GithubWebhook, LsRemoteTicker, Publisher}
   alias Aiur.Orchestrator.TrackedSet
   import TestSupport
 
@@ -111,6 +111,50 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
     assert [%{"precision" => "causal", "pos" => 1, "kind" => "pr_opened"}] = anchors(ctx.worker)
   end
 
+  test "firehose PR open and merge retain identity after the ticket leaves running", ctx do
+    prepare_deactivated_ticket(ctx)
+    resolver = start_global_resolver(ctx)
+
+    for {action, kind, command_body, body} <- [
+          {"opened", "pr_opened", "gh pr create --draft", "Closes #6628"},
+          {"merged", "pr_merged", "gh pr merge 42 --squash", "Closes #6628"}
+        ] do
+      pr_number = 40_000 + System.unique_integer([:positive])
+      command_body = String.replace(command_body, "42", Integer.to_string(pr_number))
+      command(ctx, ctx.worker, command_body, if(action == "merged", do: "Merged", else: "https://github.com/aiur-team/aiur/pull/#{pr_number}"), "command-#{action}")
+      event = firehose_pr_event(ctx, action, body, pr_number)
+      boot_time = DateTime.to_unix(ctx.now) - 60
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(boot_time: boot_time, token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 200, headers: [{"ETag", action}], body: [event]}} end)
+      assert_receive {:event, %{topic: topic, ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
+      assert topic == "ticket.6628.#{if(action == "opened", do: "pr.opened", else: "pr.merged")}"
+      assert identity == ctx.identity
+      settle_global_resolver(ctx, resolver)
+      assert Enum.any?(anchors(ctx.worker), &(&1["kind"] == kind and &1["precision"] == "causal"))
+    end
+  end
+
+  test "webhook PR open and merge retain identity after the ticket leaves running", ctx do
+    prepare_deactivated_ticket(ctx)
+    resolver = start_global_resolver(ctx)
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "aiur-team/aiur", tracker_label_prefix: "aiur")
+
+    for {action, merged?, kind, command_body} <- [
+          {"opened", false, "pr_opened", "gh pr create --draft"},
+          {"closed", true, "pr_merged", "gh pr merge 42 --squash"}
+        ] do
+      pr_number = 50_000 + System.unique_integer([:positive])
+      command_body = String.replace(command_body, "42", Integer.to_string(pr_number))
+      command(ctx, ctx.worker, command_body, if(merged?, do: "Merged", else: "https://github.com/aiur-team/aiur/pull/#{pr_number}"), "command-#{action}")
+      delivery = webhook_pr_delivery(ctx, action, merged?, pr_number)
+      assert %{status: :published} = GithubWebhook.handle_delivery("pull_request", delivery, repo: "aiur-team/aiur")
+      assert_receive {:event, %{topic: topic, ticket_observation: %{status: :joinable, tracker_identity: identity}}}, 1_000
+      assert topic == "ticket.6628.#{if(merged?, do: "pr.merged", else: "pr.opened")}"
+      assert identity == ctx.identity
+      settle_global_resolver(ctx, resolver)
+      assert Enum.any?(anchors(ctx.worker), &(&1["kind"] == kind and &1["precision"] == "causal"))
+    end
+  end
+
   test "Executor causal anchor upgrades when a later exact source entry arrives", ctx do
     command(ctx, ctx.worker, "git push", "1234567..abcdef1 feature -> feature")
     command(ctx, Ref.executor(), "git push", "1234567..abcdef1 feature -> feature")
@@ -142,8 +186,8 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
     assert [%{"precision" => "exact", "pos" => 1}] = anchors(ctx.worker)
   end
 
-  defp command(ctx, ref, body, output) do
-    Ingest.append(ref, source(), [%{role: "command", msg_id: "command-1", body: body, timestamp: ctx.now, payload: %{command: body, output: output, exit_code: 0}}, event(1)])
+  defp command(ctx, ref, body, output, msg_id \\ "command-1") do
+    Ingest.append(ref, source(), [%{role: "command", msg_id: msg_id, body: body, timestamp: ctx.now, payload: %{command: body, output: output, exit_code: 0}}, event(1)])
     assert :ok = flush(ref)
   end
 
@@ -159,5 +203,59 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
   defp anchors(ref) do
     assert {:ok, anchors} = History.list_anchors(ref, principal: :internal)
     anchors
+  end
+
+  defp prepare_deactivated_ticket(ctx) do
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = %Aiur.Issue{id: "issue-6628", identifier: "6628", tracker_identity: ctx.identity}
+    active = %Aiur.Orchestrator.State{running: %{"issue-6628" => %{identifier: "6628", issue: issue}}}
+    assert active == TrackedSet.refresh(active)
+    deactivated = %Aiur.Orchestrator.State{running: %{"issue-6628" => %{identifier: "6628", issue: issue, control: %{status: :deactivated}}}}
+    assert deactivated == TrackedSet.refresh(deactivated)
+    assert %Aiur.Orchestrator.State{running: %{}} == TrackedSet.refresh(%Aiur.Orchestrator.State{running: %{}})
+    refute Aiur.Orchestrator.issue_tracked?("6628")
+    assert TrackedSet.tracker_identity("6628") == ctx.identity
+    on_exit(fn -> TrackedSet.reset([]) end)
+  end
+
+  defp start_global_resolver(ctx) do
+    resolver = start_supervised!({AnchorResolver, name: nil, exchange: Aiur.Events.exchange_server(), pubsub: ctx.pubsub}, id: {:producer_anchor_resolver, System.unique_integer([:positive])})
+    :ok = Aiur.Events.subscribe("ticket.6628.pr.opened")
+    :ok = Aiur.Events.subscribe("ticket.6628.pr.merged")
+    resolver
+  end
+
+  defp settle_global_resolver(ctx, resolver) do
+    :sys.get_state(Aiur.Events.exchange_server())
+    :sys.get_state(resolver)
+    flush(ctx.worker)
+  end
+
+  defp firehose_pr_event(ctx, action, body, pr_number) do
+    %{
+      "id" => "producer-#{action}-#{System.unique_integer([:positive])}",
+      "type" => "PullRequestEvent",
+      "created_at" => DateTime.to_iso8601(ctx.now),
+      "actor" => %{"login" => "alice"},
+      "repo" => %{"name" => "aiur-team/aiur"},
+      "payload" => %{"action" => action, "pull_request" => %{"number" => pr_number, "body" => body, "head" => %{"ref" => "aiur/6628", "sha" => "sha-#{action}-#{pr_number}"}}}
+    }
+  end
+
+  defp webhook_pr_delivery(ctx, action, merged?, pr_number) do
+    %{
+      "action" => action,
+      "repository" => %{"full_name" => "aiur-team/aiur"},
+      "sender" => %{"login" => "alice"},
+      "pull_request" => %{
+        "number" => pr_number,
+        "merged" => merged?,
+        "commit_messages" => [],
+        "body" => "Closes #6628",
+        "updated_at" => DateTime.to_iso8601(ctx.now),
+        "head" => %{"ref" => "aiur/6628", "sha" => "sha-#{action}-#{pr_number}"}
+      }
+    }
   end
 end
