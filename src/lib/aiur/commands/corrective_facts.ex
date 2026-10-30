@@ -5,11 +5,11 @@ defmodule Aiur.Commands.CorrectiveFacts do
   alias Aiur.DecisionEvent.Validation
 
   @spec types() :: [atom()]
-  def types, do: [:override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered, :override_corrective_closed]
+  def types, do: [:override_successor_ticket, :override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered, :override_corrective_closed]
 
   @spec normalize(atom(), map()) :: {:ok, map()} | {:error, term()}
-  def normalize(:override_corrective_ticket, raw) do
-    with {:ok, data} <- common(raw),
+  def normalize(type, raw) when type in [:override_corrective_ticket, :override_successor_ticket] do
+    with {:ok, data} <- ticket_evidence(type, raw),
          ticket when is_map(ticket) <- Validation.get(raw, :ticket),
          {:ok, identifier} <- Validation.map_required_string(ticket, :identifier, 256),
          {:ok, title} <- Validation.bounded_optional(Validation.get(ticket, :title), 512, :title),
@@ -28,6 +28,12 @@ defmodule Aiur.Commands.CorrectiveFacts do
   def normalize(:override_corrective_implemented, raw), do: common(raw)
   def normalize(type, raw) when type in [:override_corrective_failed, :override_corrective_recovered], do: CorrectiveFailures.normalize(type, raw)
 
+  defp ticket_evidence(:override_corrective_ticket, raw), do: common(raw)
+
+  defp ticket_evidence(:override_successor_ticket, raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256), do: {:ok, %{action_id: action_id}}
+  end
+
   defp common(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
          {:ok, sha} <- Validation.map_required_string(raw, :merge_commit_sha, 128),
@@ -43,9 +49,10 @@ defmodule Aiur.Commands.CorrectiveFacts do
   def apply(decision, %{type: type, data: data} = event) do
     case Enum.find(decision.overrides, &(&1.action_id == data.action_id)) do
       record when is_map(record) ->
-        if record.route == :corrective_ticket or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown,
-          do: update(decision, record, type, data, event),
-          else: {:error, :corrective_override_missing}
+        if (type == :override_successor_ticket and record.pr_merged == false) or record.route in [:corrective_ticket, :replacement] or is_map(Map.get(record, :corrective_ticket)) or
+             Map.get(record, :pr_merged) == :unknown,
+           do: update(decision, record, type, data, event),
+           else: {:error, :corrective_override_missing}
 
       _missing ->
         {:error, :corrective_override_missing}
@@ -55,13 +62,15 @@ defmodule Aiur.Commands.CorrectiveFacts do
   defp update(decision, record, :override_corrective_closed, _data, event),
     do: {:ok, replace(decision, Map.put(record, :closed_without_merged_pr_at, event.occurred_at))}
 
-  defp update(decision, record, :override_corrective_ticket, data, event) do
+  defp update(decision, record, type, data, event) when type in [:override_corrective_ticket, :override_successor_ticket] do
     linked = Map.get(record, :corrective_ticket)
 
-    if is_nil(linked) or linked == data.ticket do
+    if type == :override_successor_ticket or is_nil(linked) or linked == data.ticket do
       updated = record |> Map.put(:corrective_ticket, data.ticket) |> Map.put(:route, if(is_nil(linked), do: :corrective_ticket, else: record.route))
+      updated = if type == :override_successor_ticket, do: Map.put(updated, :recovery_path, :successor), else: updated
       decision = replace(decision, updated)
-      {:ok, retarget(decision, record, data.ticket, event)}
+      prior = if type == :override_successor_ticket, do: %{record | corrective_ticket: nil, ticket: linked || record.ticket}, else: record
+      {:ok, retarget(decision, prior, data.ticket, event)}
     else
       {:error, :corrective_ticket_mismatch}
     end

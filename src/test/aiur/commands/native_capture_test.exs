@@ -15,8 +15,7 @@ defmodule Aiur.Commands.NativeCaptureTest do
     tracked = :persistent_term.get(tracked_key, nil)
     Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> :persistent_term.put(tracked_key, tracked) end)
-    store = start_store!(dir, dispatch_delay_ms: 60_000)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store = start_supervised_store!(dir, dispatch_delay_ms: 60_000)
     %{ctx: %{ticket: @ticket, source: @source, session_ref: "session-1", store: store, workspace: dir}}
   end
 
@@ -191,8 +190,7 @@ defmodule Aiur.Commands.NativeCaptureTest do
     log = capture_log(fn -> assert NativeCapture.capture(normalized(), ctx) == {:release, UserInputAnswers.non_interactive_answer()} end)
     assert log =~ "native_capture phase=request_failed issue_id= issue_identifier=979 session_id=session-1 reason=store_unavailable"
 
-    store = start_store!(dir, dispatch_delay_ms: 60_000)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store = start_supervised_store!(dir, dispatch_delay_ms: 60_000)
     invalid = %{normalized() | blocking: "invalid"}
     capture_log(fn -> assert NativeCapture.capture(invalid, %{ctx | store: store}) == {:release, UserInputAnswers.non_interactive_answer()} end)
   end
