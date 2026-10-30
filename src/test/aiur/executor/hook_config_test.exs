@@ -23,7 +23,7 @@ defmodule Aiur.Executor.HookConfigTest do
     claude = HookConfig.entries(:claude, [extra])
     assert Enum.sort(Map.keys(claude)) == Enum.sort(~w(SessionStart UserPromptSubmit PostToolUse Stop StopFailure SubagentStart SubagentStop Notification SessionEnd TaskCreated TaskCompleted))
     assert Enum.sort(Map.keys(HookConfig.entries(:codex))) == Enum.sort(~w(SessionStart UserPromptSubmit PostToolUse Stop SubagentStart SubagentStop SessionEnd))
-    assert [_, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5}]}] = claude["Stop"]
+    assert [_, _, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5}]}] = claude["Stop"]
     assert Jason.decode!(HookConfig.render(:claude, extra_entries: [extra])) == %{"hooks" => claude}
     codex = HookConfig.render(:codex)
     assert codex =~ "<repo>/.codex/hooks.json"
@@ -74,7 +74,7 @@ defmodule Aiur.Executor.HookConfigTest do
     assert :ok = HookConfig.install(:claude, repo_root: root, extra_entries: [extra])
     settings = Jason.decode!(File.read!(path))
     assert settings["permissions"] == %{"allow" => ["Read"]}
-    assert [^user, _, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5, "type" => "command"}]}] = settings["hooks"]["Stop"]
+    assert [^user, _, _, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5, "type" => "command"}]}] = settings["hooks"]["Stop"]
     assert :ok = HookConfig.uninstall(repo_root: root)
     assert Jason.decode!(File.read!(path)) == Jason.decode!(original)
     assert File.read!(path) == original
@@ -127,7 +127,7 @@ defmodule Aiur.Executor.HookConfigTest do
     File.write!(path, Jason.encode!(%{"hooks" => %{"Stop" => [old]}}))
     extra = %{event: "Stop", command: "AIUR_EXECUTOR_HOOK=1 deliver", timeout: 5}
     assert :ok = HookConfig.install(:claude, repo_root: root, extra_entries: [extra])
-    assert [^old, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5, "type" => "command"}]}] = Jason.decode!(File.read!(path))["hooks"]["Stop"]
+    assert [^old, _, %{"hooks" => [%{"command" => "AIUR_EXECUTOR_HOOK=1 deliver", "timeout" => 5, "type" => "command"}]}] = Jason.decode!(File.read!(path))["hooks"]["Stop"]
   end
 
   test "invalid JSON and hook shapes are never overwritten", %{path: path, root: root} do
