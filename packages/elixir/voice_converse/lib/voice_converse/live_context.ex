@@ -79,6 +79,11 @@ defmodule VoiceConverse.LiveContext do
     {:noreply, enqueue(state, "Command #{id} resolved", false)}
   end
 
+  def handle_info(:live_context_unavailable, state) do
+    state = put_in(state.live_context.fallback?, true)
+    {:noreply, enqueue(state, "Gaps: Live updates unavailable; refresh on tool calls", false)}
+  end
+
   def handle_info(:target_gone, state) do
     # Ending goes through the normal session close path, including transcript cleanup.
     send(self(), {:live_target_gone, :target_gone})

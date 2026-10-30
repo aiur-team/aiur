@@ -22,7 +22,7 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
     try do
       Enum.each(patterns(target), &Exchange.subscribe(&1, exchange))
       subscribe_live(target, kind, opts)
-      {:ok, %{target: target, subscriber: subscriber, monitor: monitor, kind: kind, opts: opts}}
+      {:ok, %{target: target, subscriber: subscriber, monitor: monitor, kind: kind, opts: opts, exchange_monitor: Process.monitor(GenServer.whereis(exchange))}}
     catch
       :exit, _ -> {:stop, :exchange_unavailable}
     end
@@ -30,6 +30,11 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
 
   @impl true
   def handle_info({:DOWN, monitor, :process, _pid, _reason}, %{monitor: monitor} = state), do: {:stop, :normal, state}
+
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, %{exchange_monitor: monitor} = state) do
+    notify(state, :live_context_unavailable)
+    {:stop, :normal, state}
+  end
 
   def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
     dispatch(suffix(topic, state.target), event, state)

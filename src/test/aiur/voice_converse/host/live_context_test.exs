@@ -63,6 +63,12 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     assert :unsupported = LiveContext.subscribe(target, self(), :briefing, exchange: :missing_test_exchange)
   end
 
+  test "Exchange loss reports unavailable instead of silently retaining a dead subscription", ctx do
+    assert :ok = BriefingSource.subscribe(ctx.target, self(), exchange: ctx.exchange)
+    GenServer.stop(ctx.exchange)
+    assert_receive :live_context_unavailable, 1_000
+  end
+
   test "subscriptions are reaped when the session exits", %{exchange: exchange, target: target} do
     subscriber =
       spawn(fn ->

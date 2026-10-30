@@ -134,6 +134,15 @@ defmodule VoiceConverse.LiveContextTest do
     assert state.live_context.briefing.summary.value == "updated"
   end
 
+  test "a lost subscription records a gap and enables tool refresh", ctx do
+    {state, _clock} = state(ctx)
+    refute state.live_context.fallback?
+    {:noreply, state} = LiveContext.handle_info(:live_context_unavailable, state)
+    assert state.live_context.fallback?
+    assert_receive {:sent, "Gaps: Live updates unavailable; refresh on tool calls", records}, 1_000
+    assert List.last(records)["source"] == "events"
+  end
+
   test "reconnect defers updates and retains only ten recent milestones", ctx do
     {state, _clock} = state(ctx)
     ref = state.provider_ref
