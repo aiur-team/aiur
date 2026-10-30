@@ -3,6 +3,7 @@
     constructor(hook) {
       this.hook = hook;
       this.generation = 0;
+      this.pendingTranscriptSync = false;
       this.waveform = window.AiurVoiceCapture && new window.AiurVoiceCapture.WaveformBuffer();
       this.choice = new window.AiurVoiceModeChoice(this);
       this.onConversationClick = () => this.toggle("conversation");
@@ -95,7 +96,7 @@
       }
       const composerLocked = Boolean(this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking);
       if (this.input) {
-        if (this.recording) this.input.dataset.voiceRecording = "true";
+        if (this.recording || this.finishing || this.pendingTranscriptSync) this.input.dataset.voiceRecording = "true";
         else delete this.input.dataset.voiceRecording;
         this.input.readOnly = composerLocked;
         this.input.setAttribute("aria-readonly", composerLocked ? "true" : "false");
@@ -284,9 +285,13 @@
     applyTranscript(payload) {
       if (!this.input || typeof payload?.text !== "string") return;
       const text = payload.text.trim();
-      if (payload.kind === "final") this.baseText = this.joinText(this.baseText, text);
+      if (payload.kind === "final") {
+        this.baseText = this.joinText(this.baseText, text);
+        this.pendingTranscriptSync = Boolean(this.form?.hasAttribute("phx-change"));
+      }
       this.input.value = this.joinText(this.baseText, payload.kind === "final" ? "" : text);
       this.input.dispatchEvent(new Event("input", { bubbles: true }));
+      this.syncElements();
       if (this.input.maxLength > 0 && this.input.value.length >= this.input.maxLength && this.recording) {
         this.limitReached = true;
         this.stop();
@@ -363,6 +368,13 @@
     clearFinishTimer() {
       if (this.finishTimer) window.clearTimeout(this.finishTimer);
       this.finishTimer = null;
+    }
+
+    serverUpdated() {
+      const input = this.hook.el.querySelector("[data-voice-input]");
+      if (this.pendingTranscriptSync && input && !input.hasAttribute("data-voice-recording")) {
+        this.pendingTranscriptSync = false;
+      }
     }
 
     clearPlaybackTimer() { window.AiurVoicePlayback.clearPlaybackTimer.call(this); }

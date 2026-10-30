@@ -5,6 +5,7 @@
       this.voice.mount();
     },
     updated() {
+      this.voice.serverUpdated();
       this.voice.bindElements();
       this.resolveVoiceInput?.();
     },
@@ -35,12 +36,14 @@
     destroyed() { this.voice.destroy(); }
   };
 
-  // Preserve local dictation through repeated stale server patches. Once
-  // capture stops, the controller removes the marker and server values win.
+  // Preserve local dictation through stale server patches until the server has
+  // rendered the same value. Once it acknowledges the transcript, server wins.
   window.AiurVoiceInputBeforeUpdate = (from, to) => {
     if (from.matches("textarea[data-voice-input][data-voice-recording='true']")) {
+      const synced = from.value === to.value;
       to.value = from.value;
-      to.dataset.voiceRecording = "true";
+      if (synced) delete to.dataset.voiceRecording;
+      else to.dataset.voiceRecording = "true";
     }
   };
 })();
