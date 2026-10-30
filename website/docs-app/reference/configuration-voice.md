@@ -233,10 +233,12 @@ Never claim that discussion has sent an instruction.
 
 `id`, `title`, and a nonempty body are required. `targets` is a nonempty list
 containing `worker`, `executor`, or both.
+
 Directory files override shipped roles
 by id; duplicate ids and invalid files appear in registry warnings. Files load in
 filename order (the last duplicate wins); names beginning with `_` are ignored.
 A missing directory leaves the shipped roles available.
+
 The host appends its
 shared dictated-input glossary. Each session snapshots the resulting prompt and
 records its `role_id` and SHA-256 `role_hash` in `session_started`; edits affect
