@@ -29,6 +29,7 @@ defmodule Aiur.AgentRunner.OverrideFreshSessionTest do
 
     assert {{:ok, :started}, next} = OverrideRecovery.replace(%State{max_concurrent_agents: 1}, candidate, nil, pr, runner: runner)
     receive_barrier({:replacement_run, pid, dispatched, opts})
+    on_exit(fn -> Process.exit(pid, :kill) end)
     assert opts[:fresh_session] == true
     assert opts[:prior_work] == true
     assert dispatched.id == candidate.id

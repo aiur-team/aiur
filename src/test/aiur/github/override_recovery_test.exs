@@ -56,6 +56,7 @@ defmodule Aiur.GitHub.OverrideRecoveryTest do
     end
 
     assert :ok = OverrideRecovery.close(77, "9000", token: "fixture", request_fun: request, comment: comment)
+    refute_received :patched
 
     assert {:error, :superseded_pr_not_closed} =
              OverrideRecovery.close(77, "9000", token: "fixture", comment: comment, request_fun: fn _ -> {:ok, %{status: 200, body: %{"state" => "open", "merged" => false}}} end)

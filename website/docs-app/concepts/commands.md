@@ -311,7 +311,9 @@ PR #N from its head.” Capacity refusals never count toward replacement.
 If the branch is deleted or the PR closed unmerged, Aiur creates one parked
 successor with the original Command and answer history, closes the old PR with
 “superseded by #M”, parks the old ticket with its reason, then releases the
-successor for normal dispatch. Failure keeps the override queued and opens an
+successor for normal dispatch.
+
+Failure keeps the override queued and opens an
 Executor Command. The override records its recovery path and reason.
 Overrides never rewrite merged work. Direct legacy supersede calls retain their pre-delivery
 guard.

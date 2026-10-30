@@ -141,7 +141,9 @@ Linked corrective tickets observe only the delivered PR cache, including when no
 
 Queued unmerged override recovery reads the recorded PR and its head branch
 through the governed REST transport as `command_override_recovery`. Unknown or
-failed reads do not authorize replacement. A missing branch or closed unmerged
+failed reads do not authorize replacement.
+
+A missing branch or closed unmerged
 PR uses the corrective marker lookup and creates a parked successor. The old
 PR receives `superseded by #M` (`command_override_supersede`), then is closed
 and read back before the successor becomes dispatchable. No saving is claimed.
