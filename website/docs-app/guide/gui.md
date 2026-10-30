@@ -201,7 +201,9 @@ means the specification cannot be used and conversation sends are refused.
 The Executor conversation reuses this composer and delivery list. Sending stays
 disabled with a reason when no session is attached, the binding is unreachable,
 or the listener delivery target lacks Executor support. An installed hook alone
-does not establish send support. Accepted Executor messages show **Waiting until
+does not establish send support.
+
+Accepted Executor messages show **Waiting until
 the Executor’s next turn** until the matching journal entry arrives; acceptance
 does not wake an idle external session. The effective mode is read-only.
 
