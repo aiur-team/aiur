@@ -139,6 +139,7 @@ test('top trimming preserves the visible anchor; bottom trimming fetches the tai
     await log(page).evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
     await expect(log(page).locator('[data-k]')).toHaveCount((i + 2) * 100)
   }
+  await log(page).evaluate(el => { el.style.overflowAnchor = 'none' })
   await scrollUp(page, 200)
   const anchor = await log(page).evaluate(el => {
     const row = [...el.children].find(row => row.offsetTop + row.offsetHeight > el.scrollTop)
