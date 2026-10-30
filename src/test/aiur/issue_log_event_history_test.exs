@@ -16,16 +16,23 @@ defmodule Aiur.IssueLogEventHistoryTest do
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
+    original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
     identifier = "test-event-history-#{System.unique_integer([:positive])}"
     tmp = Aiur.TestSupport.tmp_root!("aiur-event-history")
     File.mkdir_p!(Path.join(tmp, "log"))
 
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
+    Application.put_env(:aiur, :runtime_state_dir, Path.join(tmp, "state"))
 
     on_exit(fn ->
       case original_log_file do
         nil -> Application.delete_env(:aiur, :log_file)
         value -> Application.put_env(:aiur, :log_file, value)
+      end
+
+      case original_runtime_state_dir do
+        nil -> Application.delete_env(:aiur, :runtime_state_dir)
+        value -> Application.put_env(:aiur, :runtime_state_dir, value)
       end
 
       Aiur.TestCleanup.rm_rf!(tmp)
@@ -263,6 +270,30 @@ defmodule Aiur.IssueLogEventHistoryTest do
 
     assert {:ok, [%{id: 6}]} = Aiur.IssueLog.event_history(first_identity)
     assert {:ok, [%{id: 7}]} = Aiur.IssueLog.event_history(second_identity)
+  end
+
+  test "ticket timeline markers survive writer restart" do
+    number = Integer.to_string(System.unique_integer([:positive]))
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I#{number}", "number" => number}, {"owner", "repo"}, {"owner", "repo"})
+    :ok = Aiur.IssueLog.attach(identity)
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+    :ok =
+      Aiur.IssueLog.record_event(identity.identifier, :emit, %{
+        id: 8,
+        topic: "ticket.#{identity.identifier}.pr.opened",
+        ticket_observation: %TicketObservation{status: :joinable, tracker_identity: identity}
+      })
+
+    _ = :sys.get_state(pid)
+    assert {:ok, %{events: [%{id: 8}]}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
+
+    :ok = Aiur.TestSupport.safe_stop(pid)
+    :ok = Aiur.IssueLog.attach(identity)
+    restarted_pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(restarted_pid) end)
+    assert {:ok, %{events: [%{id: 8}], high_water: 8}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
   end
 
   test "lines without [event:*] tag are ignored", %{identifier: id} do

@@ -56,8 +56,51 @@ defmodule Aiur.IssueLog.Format do
         do: append_flag([], "pct", event_field(event, :percent, nil)) |> Enum.join(" "),
         else: ""
 
-    flag_segment(event) <> actor_segment(event) <> if(progress == "", do: "", else: " " <> progress)
+    flag_segment(event) <> actor_segment(event) <> if(progress == "", do: "", else: " " <> progress) <> ci_checks_segment(event)
   end
+
+  defp ci_checks_segment(event) do
+    if String.ends_with?(event_field(event, :topic, ""), ".ci.failed") do
+      case safe_ci_checks(event_field(event, :checks, [])) do
+        [] -> ""
+        checks -> " ci=#{checks |> Jason.encode!() |> Base.url_encode64(padding: false)}"
+      end
+    else
+      ""
+    end
+  end
+
+  defp safe_ci_checks(checks) when is_list(checks) do
+    checks
+    |> Enum.take(30)
+    |> Enum.flat_map(fn check ->
+      name = check_field(check, :name)
+      url = check_field(check, :url) || check_field(check, :html_url)
+      name = if is_binary(name), do: name |> Aiur.SecretRedactor.redact() |> String.slice(0, 160), else: nil
+
+      case {name, safe_check_url(url)} do
+        {name, url} when is_binary(name) and name != "" -> [%{"name" => name, "url" => url}]
+        _ -> []
+      end
+    end)
+  end
+
+  defp safe_ci_checks(_), do: []
+  defp check_field(check, key) when is_map(check), do: Map.get(check, key) || Map.get(check, Atom.to_string(key))
+  defp check_field(_check, _key), do: nil
+
+  defp safe_check_url(url) when is_binary(url) do
+    uri = URI.parse(url)
+
+    if uri.scheme == "https" and uri.host in ["github.com", "www.github.com"] and is_nil(uri.userinfo) and
+         is_binary(uri.path) and String.contains?(uri.path, ["/actions/runs/", "/check-runs/"]) do
+      URI.to_string(%{uri | query: nil, fragment: nil})
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp safe_check_url(_url), do: nil
 
   defp actor_segment(event) do
     topic = event_field(event, :topic, "")

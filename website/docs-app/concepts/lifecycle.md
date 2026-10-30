@@ -14,12 +14,8 @@ Icons and borders identify commands, emitted events, consumed events, and notes.
 
 Progress percentages are illustrative positions, not elapsed time or guarantees. Agents report estimates for the agent-list display. A 100% update does not prove that a worker slot has been released; Build Order completion is a separate member-resolution measure.
 
-The dashboard Build ticket detail has a live Timeline tab for recorded ticket events; open any ticket and select **Timeline** to see it live on a real ticket. The view uses the same actor/kind vocabulary as this lifecycle example and places recorded items at their observed times.
+The dashboard Build ticket detail has a live Timeline tab for recorded ticket events. [See it live on a real ticket](/guide/dashboard-and-telemetry#ticket-timeline) to compare the recorded view with this lifecycle example.
 
 This is the happy path. GitHub events can arrive through polling or webhook reconciliation, and review feedback, failed CI, blockers, or retries can add turns. See the [label lifecycle](/concepts/ticket-lifecycle) and [step reference](/concepts/ticket-lifecycle-steps) for details.
 
-## Dashboard timeline data
-
-The live Build ticket Timeline uses this chart's actor and item-kind vocabulary. Items carry their event ID, observed timestamp, actor, kind, label and topic; progress items include the reported percentage. Phase spans use matching start and end events.
-
-Durable markers store event ID, topic, observed timestamp and kind. Commands carry base64url `cmd` text (up to 2,000 characters), never output; progress carries `pct` (0–100). The open ticket view reads every page once, then fetches only event IDs after its cached high-water mark.
+The live Timeline uses this chart's item contract: timestamp, actor, kind, label and optional topic. Durable command markers are redacted; CI markers carry safe check names and links. Per-instance event journals let the view rebuild after a daemon restart.

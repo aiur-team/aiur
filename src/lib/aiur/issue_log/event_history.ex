@@ -125,7 +125,8 @@ defmodule Aiur.IssueLog.EventHistory do
       author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool(),
       digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source(),
       actor: Map.get(flags, "actor"),
-      percent: safe_percent(Map.get(flags, "pct"))
+      percent: safe_percent(Map.get(flags, "pct")),
+      ci_checks: safe_ci_checks(Map.get(flags, "ci"))
     }
   end
 
@@ -146,6 +147,23 @@ defmodule Aiur.IssueLog.EventHistory do
   end
 
   defp safe_percent(_value), do: nil
+
+  defp safe_ci_checks(encoded) when is_binary(encoded) do
+    with {:ok, json} <- Base.url_decode64(encoded, padding: false),
+         {:ok, checks} when is_list(checks) <- Jason.decode(json) do
+      Enum.take(checks, 30)
+      |> Enum.flat_map(fn
+        %{"name" => name, "url" => url} when is_binary(name) and is_binary(url) -> [%{name: name, url: url}]
+        %{"name" => name, "url" => nil} when is_binary(name) -> [%{name: name}]
+        %{"name" => name} when is_binary(name) -> [%{name: name}]
+        _ -> []
+      end)
+    else
+      _ -> []
+    end
+  end
+
+  defp safe_ci_checks(_value), do: []
 
   defp parse_flags(flag_segment) when is_binary(flag_segment) do
     flag_segment

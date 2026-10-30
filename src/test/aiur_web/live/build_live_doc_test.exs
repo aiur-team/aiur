@@ -61,6 +61,7 @@ defmodule AiurWeb.BuildLiveDocTest do
     assert first == :subscribe
     assert_received {:doc_action, second, ^expected}
     assert second == :request
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => _})
     expected
   end
 
@@ -79,6 +80,7 @@ defmodule AiurWeb.BuildLiveDocTest do
     second_id = row(1)["id"]
     render_hook(view, "ticket-doc", %{id: second_id})
     assert_reply(view, %{"id" => ^second_id, "state" => "available"})
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^second_id, "timeline" => _})
     second = identity(second_id)
     assert_received {:doc_action, action, selected}
     assert {action, selected} == {:unsubscribe, first}

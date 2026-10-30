@@ -33,26 +33,30 @@
 .bm-tabs { display: flex; gap: .25rem; padding: .55rem 1.4rem 0; border-bottom: 1px solid var(--line); }
 .bm-tabs button { padding: .55rem .75rem; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; font: 600 .7rem "JetBrains Mono", monospace; cursor: pointer; }
 .bm-tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
-.bm-timeline { width: 100%; min-width: 0; color: var(--fg); }
+.bm-timeline { width: 100%; min-width: 0; color: var(--fg); container-type: inline-size; }
 .bm-timebar { position: relative; height: 24px; margin: .25rem 0 1rem; border-radius: 12px; background: var(--surface-2); overflow: hidden; }
 .bm-timerange { display: flex; justify-content: space-between; color: var(--muted); font: .62rem "JetBrains Mono", monospace; }
 .bm-timephase { position: absolute; inset-block: 3px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .bm-timegap { position: absolute; inset-block: 0; background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--muted) 38%, transparent) 5px 8px); }
-.bm-timegap-label { position: absolute; z-index: 1; top: 4px; overflow: hidden; color: var(--fg); text-align: center; white-space: nowrap; font: .56rem "JetBrains Mono", monospace; }
 .bm-timepin { position: absolute; top: 5px; width: 3px; height: 14px; background: var(--accent); }
 .bm-timepin.kind-consume { border: 1px dashed var(--fg); background: var(--surface); }
 .bm-timeitems { list-style: none; display: grid; gap: .5rem; margin: 0; padding: 0; }
 .bm-timelanes { display: grid; gap: .75rem; }
 .bm-timelane { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: .5rem; align-items: start; }
 .bm-timelane h3 { margin: .65rem 0; color: var(--muted); font: 600 .65rem "JetBrains Mono", monospace; }
-.bm-timeprogress { position: relative; min-height: 22px; margin-top: .6rem; border-top: 1px solid var(--line); }
-.bm-timeprogress span { position: absolute; top: 3px; color: var(--accent); font: .6rem "JetBrains Mono", monospace; }
+.bm-timeprogress { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; margin: .6rem 0 0; padding: .5rem 0 0; border-top: 1px solid var(--line); }
+.bm-timeprogress li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem; max-width: 100%; padding: .2rem .35rem; border: 1px solid var(--line); border-radius: 5px; color: var(--accent); font: .6rem "JetBrains Mono", monospace; }
+.bm-timeprogress time { color: var(--muted); }
+.bm-timegaps { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; margin: .35rem 0; padding: 0; color: var(--muted); font: .58rem/1.4 "JetBrains Mono", monospace; }
+.bm-timegaps li { overflow-wrap: anywhere; }
 .bm-timeitem { display: grid; grid-template-columns: minmax(88px, 120px) minmax(0, 1fr); gap: .65rem; padding: .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .bm-timeitem time, .bm-timeitem small, .bm-timeitem code { color: var(--muted); font: .62rem/1.4 "JetBrains Mono", monospace; }
 .bm-timeitem span { display: grid; gap: .2rem; min-width: 0; }
 .bm-timeitem b { font-size: .78rem; font-weight: 550; overflow-wrap: anywhere; }
 .bm-timeitem code { overflow-wrap: anywhere; }
-@media (max-width: 600px) { .bm-doc { grid-template-columns: minmax(0, 1fr); } .bm-side { border-left: 0; border-top: 1px solid var(--line); } .bm-timeitem { grid-template-columns: minmax(0, 1fr); } .bm-timelane { grid-template-columns: minmax(0, 1fr); gap: .15rem; } }
+.bm-timeitem a { color: var(--accent); font: .65rem "JetBrains Mono", monospace; overflow-wrap: anywhere; }
+@container (max-width: 520px) { .bm-timeitem { grid-template-columns: minmax(0, 1fr); } .bm-timelane { grid-template-columns: minmax(0, 1fr); gap: .15rem; } }
+@media (max-width: 600px) { .bm-doc { grid-template-columns: minmax(0, 1fr); } .bm-side { border-left: 0; border-top: 1px solid var(--line); } }
 .bd-list-label { color: var(--muted); font: 600 .68rem "JetBrains Mono", monospace; white-space: nowrap; }
 .bd-list-shows button span { display: inline; }
 .bd-list-placeholder { padding: 2rem; color: var(--muted); text-align: center; font: .8rem "JetBrains Mono", monospace; }
