@@ -21,7 +21,7 @@ defmodule Aiur.Config.Schema.VoiceConversationProviders do
     # @config-detail voice.conversation.providers.mode | string | voice | Requested conversation mode: `voice` or `text`. |
     field(:mode, Ecto.Enum, values: [:voice, :text], default: :voice)
     # @config-reference config-configuration-voice-00 voice.conversation.providers.on_missing_credential
-    # @config-detail voice.conversation.providers.on_missing_credential | string | text_only | Missing-key policy: `next`, `text_only` or `refuse`. Text fallback requires `text_only` in the preference list. |
+    # @config-detail voice.conversation.providers.on_missing_credential | string | text_only | Missing-key policy: `next`, `text_only` or `refuse`. Text fallback must be listed in preference. |
     field(:on_missing_credential, Ecto.Enum, values: [:next, :text_only, :refuse], default: VoiceConverse.ProviderConfig.default().on_missing_credential)
     embeds_one(:openai, VoiceConversationOpenAI, on_replace: :update, defaults_to_struct: true)
     embeds_one(:gemini, VoiceConversationGemini, on_replace: :update, defaults_to_struct: true)

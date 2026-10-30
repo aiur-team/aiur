@@ -22,6 +22,7 @@ defmodule VoiceConverse.ProviderSafetyTest do
     assert {:error, :no_usable_option, [{:openai_live, {:missing_credential, :openai}}]} = Providers.resolve(config)
   end
 
+  # Deliberate future regression guard for the existing list-only traversal.
   test "next only visits the explicit preference list" do
     assert {:ok, config} = new_config(preference: [:openai_live], on_missing_credential: :next)
     assert {:error, :no_usable_option, [{:openai_live, {:missing_credential, :openai}}]} = Providers.resolve(config)

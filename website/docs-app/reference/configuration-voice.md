@@ -21,7 +21,7 @@ Optional settings for the conversational voice assistant; an absent `voice:` blo
 | `voice.conversation.providers.cascade.tts` | list of strings | [browser_tts] | Ordered speech synthesis parts, validated by the core. |
 | `voice.conversation.providers.gemini.live_model` | string or nil | nil | Gemini Live model; nil uses the adapter default. |
 | `voice.conversation.providers.mode` | string | voice | Requested conversation mode: `voice` or `text`. |
-| `voice.conversation.providers.on_missing_credential` | string | text_only | Missing-key policy: `next`, `text_only` or `refuse`. Text fallback requires `text_only` in the preference list. |
+| `voice.conversation.providers.on_missing_credential` | string | text_only | Missing-key policy: `next`, `text_only` or `refuse`. Text fallback must be listed in preference. |
 | `voice.conversation.providers.openai.live_model` | string or nil | nil | OpenAI Live model; nil uses the adapter default. |
 | `voice.conversation.providers.openai.realtime_model` | string or nil | nil | OpenAI Realtime model; nil uses the adapter default. |
 | `voice.conversation.providers.preference` | list of strings | [elevenlabs_agents, openai_live, gemini_live, cascade] | Ordered core registry option ids. Unknown ids fail config loading; unavailable adapters are skipped. |
