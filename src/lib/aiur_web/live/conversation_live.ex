@@ -150,7 +150,7 @@ defmodule AiurWeb.ConversationLive do
         </div>
       </div>
       <button :if={@new_below > 0} id="conversation-new" phx-click="jump_latest">{@new_below} new entries below</button>
-      <Composer.composer writable={@writable} target={@composer_target} draft={@draft} overlay={@delivery_overlay} listener={@composer_listener} />
+      <Composer.composer writable={@writable} target={@composer_target} draft={@draft} overlay={@delivery_overlay} listener={@composer_listener} capability={@composer_capability} />
     </section>
     """
   end
