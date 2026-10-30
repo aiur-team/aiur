@@ -45,7 +45,7 @@ defmodule Aiur.Commands.CorrectiveStalePrTest do
 
   test "open tickets never trigger the remote merged PR lookup", ctx do
     {:ok, storage} = Agent.start_link(fn -> %{ticket: nil, creates: 0, reads: 0} end)
-    opts = options(storage) |> Keyword.put(:issues, fn ["50"] -> {:ok, [%Issue{state: "todo"}]} end)
+    opts = options(storage) |> Keyword.put(:issue_closure, fn "50", _ -> {:ok, %{open?: true}} end)
     assert {:ok, []} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
     assert Agent.get(storage, &{&1.creates, &1.reads}) == {0, 0}
   end
@@ -60,11 +60,11 @@ defmodule Aiur.Commands.CorrectiveStalePrTest do
   test "a foreign merged PR cannot authorize a corrective ticket in this repository", ctx do
     {:ok, storage} = Agent.start_link(fn -> %{ticket: nil, creates: 0, reads: 0} end)
     opts = options(storage) |> Keyword.put(:resolve_pull_request, resolver([node("other/repository", 99, "foreign-merge")]))
-    assert {:ok, []} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
+    assert {:ok, [{:override_corrective_closed, %{action_id: "override"}}]} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
     assert Agent.get(storage, & &1.creates) == 0
     assert Agent.get(storage, & &1.ticket) == nil
     record = %{ctx.record | route: :corrective_ticket}
-    assert {:error, :merged_pr_evidence_missing} = CorrectiveTicket.reconcile(%{ctx.decision | overrides: [record]}, record, opts)
+    assert {:ok, [{:override_corrective_closed, %{action_id: "override"}}]} = CorrectiveTicket.reconcile(%{ctx.decision | overrides: [record]}, record, opts)
   end
 
   test "mixed closing PRs preserve the configured repository identity before picking the latest merge", ctx do
@@ -79,6 +79,7 @@ defmodule Aiur.Commands.CorrectiveStalePrTest do
 
   defp options(storage) do
     [
+      issue_closure: fn "50", _ -> {:ok, %{open?: false}} end,
       issues: fn ["50"] -> {:ok, [%Issue{state: "Closed", labels: ["feature:colour"]}]} end,
       resolve_pull_request: fn "50", _opts ->
         Tracker.resolve_ticket_pull_request("50",

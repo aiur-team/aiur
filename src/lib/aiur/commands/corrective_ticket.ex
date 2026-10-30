@@ -20,6 +20,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
       {:ok, link_facts(record, ticket, pr)}
     else
       {:error, _reason} = error -> error
+      {:ok, %{state: :closed, merged?: false}} -> {:ok, [{:override_corrective_closed, %{action_id: record.action_id}}]}
       _unmerged_or_unknown -> if record.route == :corrective_ticket, do: {:error, :merged_pr_evidence_missing}, else: {:ok, []}
     end
   end
@@ -114,7 +115,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp observe_merge(record, ticket, opts) do
-    case CorrectivePullRequest.read(ticket.identifier, opts) do
+    case Keyword.get(opts, :pull_request, &Tracker.ticket_pull_request/1).(ticket.identifier) do
       {:ok, %{merged?: true, number: number, merge_commit_sha: sha}} when is_integer(number) and is_binary(sha) ->
         {:ok, [{:override_corrective_implemented, %{action_id: record.action_id, pr_number: number, merge_commit_sha: sha}}]}
 

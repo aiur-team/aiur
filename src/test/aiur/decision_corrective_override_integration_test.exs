@@ -100,6 +100,7 @@ defmodule Aiur.DecisionCorrectiveOverrideIntegrationTest do
 
   defp tracker_options(tracker) do
     [
+      issue_closure: fn identifier, _ -> {:ok, %{open?: identifier == "70"}} end,
       pull_request: fn
         "50" -> {:ok, %{merged?: true, number: 60, merge_commit_sha: "original-merge"}}
         "70" -> {:ok, if(Agent.get(tracker, & &1.merged), do: %{merged?: true, number: 80, merge_commit_sha: "corrective-merge"}, else: nil)}

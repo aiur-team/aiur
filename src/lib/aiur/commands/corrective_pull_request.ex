@@ -1,7 +1,8 @@
 defmodule Aiur.Commands.CorrectivePullRequest do
   @moduledoc false
-  alias Aiur.Commands.DeliveryTarget
   alias Aiur.Tracker
+
+  @closure_freshness_ms 300_000
 
   @spec read(String.t(), keyword()) :: Aiur.Tracker.ticket_pull_request_result()
   def read(identifier, opts) do
@@ -14,16 +15,12 @@ defmodule Aiur.Commands.CorrectivePullRequest do
   end
 
   defp resolve_closed(identifier, opts) do
-    case Keyword.get(opts, :issues, &Tracker.fetch_issue_states_by_ids/1).([identifier]) do
-      {:ok, [issue]} ->
-        target = DeliveryTarget.impl()
+    case Keyword.get(opts, :issue_closure, &Tracker.issue_closure/2).(identifier, @closure_freshness_ms) do
+      {:ok, %{open?: false}} ->
+        Keyword.get(opts, :resolve_pull_request, &Tracker.resolve_ticket_pull_request/2).(identifier, caller: "command_override_merged_pr")
 
-        if target.terminal_issue_state?(issue.state, target.terminal_state_set()),
-          do: Keyword.get(opts, :resolve_pull_request, &Tracker.resolve_ticket_pull_request/2).(identifier, caller: "command_override_merged_pr"),
-          else: {:ok, nil}
-
-      {:ok, _missing} ->
-        {:error, :original_ticket_missing}
+      {:ok, %{open?: true}} ->
+        {:ok, nil}
 
       {:error, _reason} = error ->
         error

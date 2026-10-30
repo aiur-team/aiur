@@ -59,8 +59,8 @@ defmodule Aiur.DecisionStore.CorrectiveOverridesTest do
     refute_receive {:corrective_started, "command", "action"}, 10
     completed = CorrectiveOverrides.settle(pending, correlation, {:ok, []})
     assert completed.corrective_override_jobs == %{}
-    assert Map.has_key?(CorrectiveOverrides.reconcile(completed).corrective_override_jobs, "command")
-    assert_receive {:corrective_started, "command", "action"}, 2_000
+    assert CorrectiveOverrides.reconcile(completed).corrective_override_jobs == %{}
+    refute_receive {:corrective_started, "command", "action"}, 10
   end
 
   test "read-only and implemented records never schedule work" do

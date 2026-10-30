@@ -14,6 +14,7 @@ defmodule Aiur.Commands.CorrectiveTicketTest do
     {:ok, storage} = Agent.start_link(fn -> %{tickets: [], comments: %{}, creates: 0, timeout: false} end)
 
     opts = [
+      issue_closure: fn identifier, _ -> {:ok, %{open?: identifier == "70"}} end,
       pull_request: fn
         "50" -> {:ok, %{merged?: true, number: 60, merge_commit_sha: "source-merge"}}
         "70" -> {:ok, nil}

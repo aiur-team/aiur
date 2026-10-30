@@ -44,7 +44,7 @@ defmodule Aiur.GitHub.ClosedTicketPullRequest do
 
   defp parse(%{"state" => "CLOSED", "closedByPullRequestsReferences" => %{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => false}}}, repo) when is_list(nodes) do
     merged = Enum.filter(nodes, &(valid_merged?(&1) and same_repo?(&1, repo))) |> Enum.max_by(& &1["mergedAt"], fn -> nil end)
-    {:ok, normalize(merged)}
+    {:ok, if(merged, do: normalize(merged), else: %{state: :closed, merged?: false})}
   end
 
   defp parse(%{"closedByPullRequestsReferences" => %{"pageInfo" => %{"hasNextPage" => true}}}, _repo), do: {:error, :incomplete_merged_pr_lookup}

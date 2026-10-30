@@ -9,6 +9,7 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
   def configure(state, opts) do
     Map.merge(state, %{
       corrective_override_jobs: %{},
+      corrective_override_observations: %{},
       corrective_override_reconciler: Keyword.get(opts, :corrective_override_reconciler, &CorrectiveTicket.reconcile/2),
       corrective_override_now: Keyword.get(opts, :corrective_override_now, &DateTime.utc_now/0),
       corrective_override_alert: Keyword.get(opts, :corrective_override_alert, &Aiur.Signal.agent_alert/3)
@@ -27,7 +28,7 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
 
     case Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id)) do
       %{state: status} = record when status not in [:superseded, :implemented] ->
-        if candidate?(record) and CorrectiveFailures.due?(record, state.corrective_override_now.()), do: enqueue(state, decision, record), else: state
+        if candidate?(record) and observation_due?(state, decision, record) and CorrectiveFailures.due?(record, state.corrective_override_now.()), do: enqueue(state, decision, record), else: state
 
       _other ->
         state
@@ -50,6 +51,14 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
     end)
   end
 
+  defp observation_due?(state, decision, record) do
+    case Map.get(state.corrective_override_observations, decision.decision_id) do
+      {action_id, retry_at} when action_id == record.action_id -> DateTime.compare(state.corrective_override_now.(), retry_at) != :lt
+      _ -> true
+    end
+  end
+
+  defp candidate?(%{closed_without_merged_pr_at: %DateTime{}}), do: false
   defp candidate?(record), do: record.route == :corrective_ticket or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown
 
   defp enqueue(state, decision, record) do
@@ -91,9 +100,19 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
     record = Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id))
 
     case result do
-      {:ok, facts} when is_list(facts) -> settle_facts(state, decision, facts)
-      {:error, reason} -> fail(state, decision, record, reason)
-      other -> fail(state, decision, record, {:invalid_result, other})
+      {:ok, []} ->
+        retry_at = DateTime.add(state.corrective_override_now.(), 300)
+        state = %{state | corrective_override_observations: Map.put(state.corrective_override_observations, decision.decision_id, {record.action_id, retry_at})}
+        settle_facts(state, decision, [])
+
+      {:ok, facts} when is_list(facts) ->
+        settle_facts(state, decision, facts)
+
+      {:error, reason} ->
+        fail(state, decision, record, reason)
+
+      other ->
+        fail(state, decision, record, {:invalid_result, other})
     end
   end
 

@@ -77,6 +77,7 @@ defmodule Aiur.DecisionCorrectiveRetargetTest do
         send(owner, {:effective_dispatch, target})
         if target == "42", do: old_target_result, else: {:ok, %{status: :accepted, item: %{id: 1}}}
       end,
+      corrective_override_now: fn -> DateTime.add(DateTime.utc_now(), if(Agent.get(ready, & &1), do: 300, else: 0)) end,
       corrective_override_reconciler: fn _decision, record ->
         if Agent.get(ready, & &1) and is_nil(Map.get(record, :corrective_ticket)) do
           ticket = %{identifier: "43", title: "Correction", url: "https://example.test/issues/43"}

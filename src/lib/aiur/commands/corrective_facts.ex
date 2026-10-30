@@ -5,7 +5,7 @@ defmodule Aiur.Commands.CorrectiveFacts do
   alias Aiur.DecisionEvent.Validation
 
   @spec types() :: [atom()]
-  def types, do: [:override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered]
+  def types, do: [:override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered, :override_corrective_closed]
 
   @spec normalize(atom(), map()) :: {:ok, map()} | {:error, term()}
   def normalize(:override_corrective_ticket, raw) do
@@ -19,6 +19,10 @@ defmodule Aiur.Commands.CorrectiveFacts do
       {:error, _reason} = error -> error
       _invalid -> {:error, :invalid_corrective_ticket}
     end
+  end
+
+  def normalize(:override_corrective_closed, raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256), do: {:ok, %{action_id: action_id}}
   end
 
   def normalize(:override_corrective_implemented, raw), do: common(raw)
@@ -47,6 +51,9 @@ defmodule Aiur.Commands.CorrectiveFacts do
         {:error, :corrective_override_missing}
     end
   end
+
+  defp update(decision, record, :override_corrective_closed, _data, event),
+    do: {:ok, replace(decision, Map.put(record, :closed_without_merged_pr_at, event.occurred_at))}
 
   defp update(decision, record, :override_corrective_ticket, data, event) do
     linked = Map.get(record, :corrective_ticket)

@@ -89,7 +89,8 @@ defmodule Aiur.Commands.Projection do
     end
   end
 
-  def apply(decision, %{type: type} = event) when type in [:override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered] do
+  def apply(decision, %{type: type} = event)
+      when type in [:override_corrective_ticket, :override_corrective_implemented, :override_corrective_failed, :override_corrective_recovered, :override_corrective_closed] do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
          do: CorrectiveFacts.apply(decision, event)
   end

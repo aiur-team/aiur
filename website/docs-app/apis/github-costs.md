@@ -132,8 +132,8 @@ Post-merge Command overrides create corrective issues through the governed trans
 
 The lookup shares the creation-time window and incomplete-read refusal described under [Experiment analyst tickets](#experiment-analyst-tickets). A read failure never proves absence or authorizes another create.
 
-When a closed ticket's PR observation is missing or stale, asynchronous
-reconciliation uses `command_override_merged_pr` for one governed GraphQL read
-of its closing PRs and merge SHA. The read is bounded to 100 references and
-rejects incomplete results. It runs outside dispatch; failed reconciliation
-uses durable exponential backoff capped at one hour.
+Missing or stale source PR evidence first checks issue closure through the conditional resource cache (`build_queue_observe`, five-minute freshness). Successful unresolved observations wait five minutes before another reconciliation; ordinary 30-second store ticks do not each trigger a remote read.
+
+For a closed source ticket, `command_override_merged_pr` performs one governed GraphQL read of closing PRs and merge SHAs, outside dispatch. It is bounded to 100 references and rejects incomplete results. A complete result with no merged PR in the configured repository records a final journal fact, retained across restart.
+
+Linked corrective tickets observe only the delivered PR cache, including when no PR exists yet. They do not fetch issue labels or closing PRs on each reconciliation. Errors retain durable exponential backoff capped at one hour. These are read-cadence contracts; no measured production saving is claimed.
