@@ -1,6 +1,7 @@
 defmodule Aiur.Config.Schema.VoiceConversationProvidersTest do
   use ExUnit.Case, async: true
   alias Aiur.Config.Schema
+  alias Aiur.VoiceConverse.Host.Config, as: HostConfig
 
   test "default cascade parts map on a cold VM before the core is loaded" do
     paths = Path.wildcard(Path.join([Mix.Project.build_path(), "lib", "*", "ebin"]))
@@ -62,7 +63,7 @@ defmodule Aiur.Config.Schema.VoiceConversationProvidersTest do
 
     assert {:ok, attrs} = YamlElixir.read_from_string(yaml)
     assert {:ok, settings} = Schema.parse(attrs)
-    assert {:ok, config} = Aiur.VoiceConverse.Host.Config.build(settings.voice.conversation, "/unused/voice")
+    assert {:ok, config} = HostConfig.build(settings.voice.conversation, "/unused/voice")
     assert config.providers.preference == [:openai_live, :elevenlabs_agents, :gemini_live, :cascade]
     assert config.providers.mode == :text
     assert config.providers.on_missing_credential == :text_only

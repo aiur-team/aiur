@@ -1,6 +1,8 @@
 defmodule Aiur.VoiceConverse.Host.CapabilityTest do
   use ExUnit.Case, async: true
-  alias Aiur.VoiceConverse.Host.Capability
+  alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.VoiceConversation, as: Settings
+  alias Aiur.VoiceConverse.Host.{Capability, Config}
 
   defmodule Credentials do
     def fetch(:elevenlabs, :probe), do: {:ok, :present}
@@ -8,7 +10,7 @@ defmodule Aiur.VoiceConverse.Host.CapabilityTest do
   end
 
   test "capability exposes core selection and missing credential names without secrets" do
-    assert {:ok, settings} = Aiur.Config.Schema.parse(%{"voice" => %{"conversation" => %{"providers" => %{"preference" => ["openai_realtime", "elevenlabs_agents"]}}}})
+    assert {:ok, settings} = Schema.parse(%{"voice" => %{"conversation" => %{"providers" => %{"preference" => ["openai_realtime", "elevenlabs_agents"]}}}})
     context = %{run_shape: %{http_listener: true}, settings: settings}
 
     resolve = fn config ->
@@ -30,7 +32,7 @@ defmodule Aiur.VoiceConverse.Host.CapabilityTest do
   end
 
   test "ElevenLabs missing reason includes both host credential names" do
-    assert {:ok, config} = Aiur.VoiceConverse.Host.Config.build(%Aiur.Config.Schema.VoiceConversation{}, "/unused/voice")
+    assert {:ok, config} = Config.build(%Settings{}, "/unused/voice")
     result = Capability.resolution_detail(config, {:error, :no_usable_option, [{:elevenlabs_agents, {:missing_credential, :elevenlabs}}]})
     assert result.preferred_provider == nil
     assert result.preference_state == :unavailable

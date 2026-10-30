@@ -1,6 +1,7 @@
 defmodule Aiur.VoiceConverse.Host.CredentialsTest do
   use ExUnit.Case, async: true
-  alias Aiur.VoiceConverse.Host.Credentials
+  alias Aiur.Config.Schema.VoiceConversation, as: Settings
+  alias Aiur.VoiceConverse.Host.{Capability, Config, Credentials}
 
   test "probes hide secrets and connections look them up at call time" do
     for {provider, expected_name} <- [openai: "OPENAI_API_KEY", gemini: "GEMINI_API_KEY", anthropic: "ANTHROPIC_API_KEY"] do
@@ -11,9 +12,9 @@ defmodule Aiur.VoiceConverse.Host.CredentialsTest do
       System.put_env(variable, "sentinel-first")
       assert Credentials.fetch(provider, :probe, opts) == {:ok, :present}
       assert Credentials.fetch(provider, :connect, opts) == {:ok, "sentinel-first"}
-      assert {:ok, config} = Aiur.VoiceConverse.Host.Config.build(%Aiur.Config.Schema.VoiceConversation{}, "/unused/voice")
+      assert {:ok, config} = Config.build(%Settings{}, "/unused/voice")
       refute inspect(config) =~ "sentinel-first"
-      reason = Aiur.VoiceConverse.Host.Capability.resolution_detail(config, {:error, :no_usable_option, [{:cascade, {:missing_credential, provider}}]})
+      reason = Capability.resolution_detail(config, {:error, :no_usable_option, [{:cascade, {:missing_credential, provider}}]})
       assert reason.provider_reason == "Cascade skipped: #{expected_name} missing"
       refute inspect(reason) =~ "sentinel-first"
       System.put_env(variable, "sentinel-second")

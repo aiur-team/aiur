@@ -2,6 +2,7 @@ defmodule Aiur.VoiceConverse.Host.Config do
   @moduledoc "Maps Aiur's resolved voice settings into a conversation instance."
 
   alias Aiur.Config.Paths
+  alias Aiur.Config.Schema.VoiceConversationProviders
   alias Aiur.VoiceConversation.Provider
   alias Aiur.VoiceConverse.Host.{AgentChannel, BriefingSource, CommandSource, Credentials}
 
@@ -29,7 +30,7 @@ defmodule Aiur.VoiceConverse.Host.Config do
       provider: provider(settings),
       credentials: Credentials,
       credential_names: Credentials.names(),
-      providers: Aiur.Config.Schema.VoiceConversationProviders.to_core(settings.providers),
+      providers: VoiceConversationProviders.to_core(settings.providers),
       briefing_source: BriefingSource,
       command_source: CommandSource,
       agent_channel: AgentChannel,
