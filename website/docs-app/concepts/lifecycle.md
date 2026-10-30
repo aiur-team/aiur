@@ -1,3 +1,7 @@
+---
+aside: false
+---
+
 # Ticket lifecycle timeline
 
 This visual follows one representative ticket from the queue through deployment. It complements [How a ticket flows](/concepts/ticket-lifecycle), which explains the label lifecycle, and [Ticket flow: steps 0–8](/concepts/ticket-lifecycle-steps), which gives the step-by-step reference.

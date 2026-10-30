@@ -111,8 +111,8 @@ jobs:
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: Test lifecycle timeline responsiveness
-        working-directory: website
-        run: npx playwright test --config docs-app/playwright.config.ts
+        working-directory: website/docs-app
+        run: bun run test:responsive
       - name: Test brand accessibility and theme navigation
         run: npm run test:brand
       - name: Test visual regressions
