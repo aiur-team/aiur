@@ -2,7 +2,8 @@ defmodule Aiur.Orchestrator.OverrideRecovery do
   @moduledoc "Recovers queued overrides without starting a competing worker."
 
   alias Aiur.{Commands, Config, Issue, Workspace}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoResume, Dispatcher, State}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoResume, Dispatcher, RetryEngine, State}
+  alias Aiur.Orchestrator.PauseResume.QueuedDispatch
 
   @spec reason(map(), map() | nil, map() | nil, keyword()) :: atom() | nil
   def reason(record, entry, pr, opts) do
@@ -29,9 +30,16 @@ defmodule Aiur.Orchestrator.OverrideRecovery do
 
   @spec capacity?(term()) :: boolean()
   def capacity?(:max_concurrent_agents_reached), do: true
+  def capacity?(:no_worker_capacity), do: true
+  def capacity?({:state_concurrency_limit_reached, _}), do: true
   def capacity?({:max_concurrent_agents_reached, _}), do: true
   def capacity?({:redispatch_deferred, reason}), do: capacity?(reason)
   def capacity?(_), do: false
+
+  @spec admission_hold(term()) :: :capacity | :claim_pending | nil
+  def admission_hold(:already_claimed), do: :claim_pending
+  def admission_hold({:redispatch_deferred, reason}), do: admission_hold(reason)
+  def admission_hold(reason), do: if(capacity?(reason), do: :capacity)
 
   @spec persist(map(), atom(), atom(), non_neg_integer(), keyword()) :: :ok | {:error, term()}
   def persist(decision, route, reason, attempts, opts) do
@@ -45,12 +53,32 @@ defmodule Aiur.Orchestrator.OverrideRecovery do
 
   @spec replace(State.t(), Issue.t(), map() | nil, map() | nil, keyword()) :: {term(), State.t()}
   def replace(state, issue, entry, pr, opts) do
-    # Keep ticket identity (and its lease) while explicitly selecting the existing PR branch.
-    issue = %{issue | continuation_head_ref: if(pr, do: Map.get(pr, :head_ref))}
-    stop = Keyword.get(opts, :stop_fun, &stop/3)
-    state = stop.(state, issue, entry)
-    dispatch = Keyword.get(opts, :dispatch_fun, fn state, issue -> dispatch(state, issue, opts) end)
-    dispatch.(state, issue)
+    case admission(state, issue, entry) do
+      :ok ->
+        # Keep ticket identity (and its lease) while explicitly selecting the existing PR branch.
+        issue = %{issue | continuation_head_ref: if(pr, do: Map.get(pr, :head_ref))}
+        stop = Keyword.get(opts, :stop_fun, &stop/3)
+        state = stop.(state, issue, entry)
+        dispatch = Keyword.get(opts, :dispatch_fun, fn state, issue -> dispatch(state, issue, opts) end)
+        dispatch.(state, issue)
+
+      {:error, reason} ->
+        {{:error, reason}, state}
+    end
+  end
+
+  @spec admission(State.t(), Issue.t(), map() | nil) :: :ok | {:error, term()}
+  def admission(state, issue, entry) do
+    state |> replacement_admission_state(issue, entry) |> QueuedDispatch.queued_issue_resumability(issue)
+  end
+
+  defp replacement_admission_state(state, issue, entry) do
+    if is_map(entry) and Map.get(state.running, issue.id) == entry do
+      {_entry, prospective} = State.pop_running_entry(state, issue.id)
+      RetryEngine.release_issue_claim(prospective, issue.id)
+    else
+      state
+    end
   end
 
   defp stop(state, _issue, nil), do: state

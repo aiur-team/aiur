@@ -306,12 +306,15 @@ scheduler requires a freshly confirmed live ticket.
 After three failed non-capacity resumes, or evidence of a missing workspace or
 unrecoverable worker, Aiur starts a fresh session on the same ticket and PR head.
 Its first instruction is the override plus “The previous session ended; continue
-PR #N from its head.” Capacity refusals never count toward replacement.
+PR #N from its head.” Capacity and in-flight claim refusals never count toward replacement.
 
 If the branch is deleted or the PR closed unmerged, Aiur creates one parked
 successor with the original Command and answer history, closes the old PR with
 “superseded by #M”, parks the old ticket with its reason, then releases the
 successor for normal dispatch.
+
+An operator pause added during retirement keeps
+the successor parked until the operator resumes the work.
 
 Failure keeps the override queued and opens an
 Executor Command. The override records its recovery path and reason.

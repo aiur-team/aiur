@@ -2,7 +2,7 @@ defmodule Aiur.Commands.OverrideRecoveryTest do
   use ExUnit.Case, async: false
   alias Aiur.{Commands, DecisionStore, Issue}
   alias Aiur.Commands.OverridePrompt
-  alias Aiur.Orchestrator.{DispatchPolicy, OverrideResume, OverrideSuccessor, Slots, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, OverrideRecovery, OverrideResume, OverrideSuccessor, RetryEngine, Slots, State}
 
   defmodule ReleaseTracker do
     def update_issue_state("9000", "todo", []), do: send(self(), :successor_todo) && :ok
@@ -70,13 +70,75 @@ defmodule Aiur.Commands.OverrideRecoveryTest do
 
   # Future regression guard: mutate the capacity classification to constrain this exclusion.
   test "capacity refusals never count as failed resumes or trigger replacement", ctx do
-    for reason <- [:max_concurrent_agents_reached, {:max_concurrent_agents_reached, %{fleet: 1}}, {:redispatch_deferred, :max_concurrent_agents_reached}] do
+    for reason <- [
+          :max_concurrent_agents_reached,
+          {:max_concurrent_agents_reached, %{fleet: 1}},
+          {:redispatch_deferred, :max_concurrent_agents_reached},
+          :no_worker_capacity,
+          {:state_concurrency_limit_reached, "in-progress"},
+          {:redispatch_deferred, :no_worker_capacity}
+        ] do
       opts = options(ctx, resume_fun: fn state, _, _ -> {{:error, reason}, state} end)
       Enum.reduce(1..4, %State{max_concurrent_agents: 1}, fn _, state -> apply_request(state, ctx, opts) end)
       {:ok, waiting} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
       assert [%{route: :capacity_wait, resume_reason: :capacity, resume_attempts: 0}] = waiting.overrides
       refute_received {:dispatch, _}
     end
+  end
+
+  test "an in-flight claim stays pending without exhausting the resume budget", ctx do
+    for reason <- [:already_claimed, {:redispatch_deferred, :already_claimed}] do
+      opts = options(ctx, resume_fun: fn state, _, _ -> {{:error, reason}, state} end)
+      Enum.reduce(1..4, %State{max_concurrent_agents: 1}, fn _, state -> apply_request(state, ctx, opts) end)
+      {:ok, waiting} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
+      assert [%{route: :resume_pending, resume_reason: :claim_pending, resume_attempts: 0}] = waiting.overrides
+      assert length(Commands.list_decisions(ctx.store)) == 1
+      refute_received {:dispatch, _}
+    end
+  end
+
+  test "replacement preserves an in-flight claim when no owned runner exists", ctx do
+    state = %State{max_concurrent_agents: 3, claimed: MapSet.new([ctx.issue.id])}
+    assert {{:error, :already_claimed}, ^state} = OverrideRecovery.replace(state, ctx.issue, nil, ctx.pr, options(ctx))
+    refute_received {:stopped, _}
+    refute_received {:dispatch, _}
+  end
+
+  test "replacement rechecks state and worker limits before stopping the old runner", ctx do
+    previous = Aiur.Workflow.workflow_file_path()
+    path = Path.join(ctx.store_opts[:state_dir], "replacement-config.yaml")
+    Aiur.Workflow.set_workflow_file_path(path)
+    on_exit(fn -> Aiur.Workflow.set_workflow_file_path(previous) end)
+    worker = %{issue: ctx.issue, identifier: ctx.issue.identifier, control: %{status: :paused}}
+    busy = %{ctx.issue | id: "busy", identifier: "busy"}
+    busy_worker = %{issue: busy, identifier: busy.identifier, control: %{status: :working}, worker_host: "worker-host"}
+    state = %State{max_concurrent_agents: 3, running: %{ctx.issue.id => worker, busy.id => busy_worker}, claimed: MapSet.new([ctx.issue.id])}
+
+    Aiur.TestSupport.write_workflow_file!(path, tracker_kind: "memory", tracker_active_states: ["in-progress"], max_concurrent_agents: 3, max_concurrent_agents_by_state: %{"in-progress" => 1})
+    assert {{:error, {:state_concurrency_limit_reached, "in-progress"}}, ^state} = OverrideRecovery.replace(state, ctx.issue, worker, ctx.pr, options(ctx))
+    refute_received {:stopped, _}
+    refute_received {:dispatch, _}
+
+    Aiur.TestSupport.write_workflow_file!(path,
+      tracker_kind: "memory",
+      tracker_active_states: ["in-progress"],
+      max_concurrent_agents: 3,
+      worker_ssh_hosts: ["worker-host"],
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    assert {{:error, :no_worker_capacity}, ^state} = OverrideRecovery.replace(state, ctx.issue, worker, ctx.pr, options(ctx))
+    refute_received {:stopped, _}
+    refute_received {:dispatch, _}
+  end
+
+  test "future regression guard: replacement can reuse its own runner reservation and claim", ctx do
+    worker = %{issue: ctx.issue, identifier: ctx.issue.identifier, control: %{status: :paused}}
+    state = %State{max_concurrent_agents: 1, running: %{ctx.issue.id => worker}, claimed: MapSet.new([ctx.issue.id])}
+    assert {{:ok, :started}, next} = OverrideRecovery.replace(state, ctx.issue, worker, ctx.pr, options(ctx))
+    assert_received {:stopped, "6911"}
+    assert_received {:dispatch, %Issue{id: "6911", continuation_head_ref: "original-branch"}}
+    assert Map.keys(next.running) == [ctx.issue.id]
   end
 
   test "missing workspace replaces only after capacity admission and stops the old runner first", ctx do
@@ -183,6 +245,7 @@ defmodule Aiur.Commands.OverrideRecoveryTest do
     opts = [
       label_prefix: "agent",
       tracker: ReleaseTracker,
+      issues: fn _ -> {:ok, [ctx.issue]} end,
       successor_fun: fn _, _, _, _ -> {:ok, ticket} end,
       close_fun: fn 77, "9000" -> :ok end,
       comment_fun: fn _, _ -> :ok end,
@@ -199,11 +262,14 @@ defmodule Aiur.Commands.OverrideRecoveryTest do
     Keyword.merge(
       [
         decision_store: ctx.store,
+        # These fixtures already supply confirmed PR evidence; fresh-read wiring has its own tests.
+        recovery_verified: true,
         workspace_path_fun: fn _ -> Path.join(ctx.store_opts[:state_dir], "workspace") end,
         admission_fun: fn _ -> :dispatch end,
         stop_fun: fn state, issue, _ ->
           send(parent, {:stopped, issue.id})
-          %{state | running: Map.delete(state.running, issue.id)}
+          {_entry, state} = State.pop_running_entry(state, issue.id)
+          RetryEngine.release_issue_claim(state, issue.id)
         end,
         dispatch_fun: fn state, issue ->
           refute Map.has_key?(state.running, issue.id)

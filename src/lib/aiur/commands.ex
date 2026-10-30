@@ -489,6 +489,7 @@ defmodule Aiur.Commands do
   @spec validate_delivery(map(), GenServer.server()) ::
           {:ok, :accepted | :ignored} | {:error, term()}
   defdelegate validate_delivery(item, server), to: Aiur.DecisionStore
+  @doc "Find or create a parked successor for uncontinuable work."
   @spec override_successor(Aiur.Decision.t(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate override_successor(decision, record, pr, opts), to: Aiur.Commands.CorrectiveTicket, as: :successor
   @spec capability_ids() :: [String.t()]

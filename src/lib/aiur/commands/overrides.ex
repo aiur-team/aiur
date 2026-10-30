@@ -117,7 +117,7 @@ defmodule Aiur.Commands.Overrides do
   end
 
   defp apply_resume_fact(record, %{type: :override_resume_state, data: data}) do
-    record = record |> Map.put(:route, data.route) |> Map.put(:resume_reason, data.reason) |> Map.put(:resume_attempts, data.attempts)
+    record = record |> Map.put(:route, data.route) |> Map.put(:resume_reason, data.reason) |> Map.put(:resume_attempts, data.attempts) |> Map.merge(Map.take(data, [:read_attempts, :read_retry_at]))
     if data.route == :replacement, do: Map.put(record, :recovery_path, :replacement), else: record
   end
 

@@ -29,7 +29,7 @@ Label read/create failures stop startup before agents start and explain the requ
 
 Waiting Command overrides are read from the local Decision journal during candidate
 polls. For each waiting ticket, the resume scheduler refreshes its tracker state
-and PR observation through the existing governed Tracker reads, off the
+and cached PR observation through the existing Tracker reads, off the
 orchestrator mailbox.
 
 Missing or unavailable observations keep the request

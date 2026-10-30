@@ -55,10 +55,26 @@ defmodule Aiur.GitHub.OverrideRecoveryTest do
       end
     end
 
-    assert :ok = OverrideRecovery.close(77, "9000", token: "fixture", request_fun: request, comment: comment)
+    assert :ok = OverrideRecovery.close(77, "9000", token: "fixture", request_fun: request, comment: comment, comments: fn _, _ -> {:ok, []} end)
     refute_received :patched
 
     assert {:error, :superseded_pr_not_closed} =
-             OverrideRecovery.close(77, "9000", token: "fixture", comment: comment, request_fun: fn _ -> {:ok, %{status: 200, body: %{"state" => "open", "merged" => false}}} end)
+             OverrideRecovery.close(77, "9000",
+               token: "fixture",
+               comment: comment,
+               comments: fn _, _ -> {:ok, []} end,
+               request_fun: fn _ -> {:ok, %{status: 200, body: %{"state" => "open", "merged" => false}}} end
+             )
+  end
+
+  test "a close retry reuses its existing superseded comment" do
+    request = fn req ->
+      assert req.method in [:patch, :get]
+      {:ok, %{status: 200, body: %{"state" => "closed", "merged" => false}}}
+    end
+
+    opts = [token: "fixture", request_fun: request, comments: fn "77", _ -> {:ok, [%{body: "superseded by #9000"}]} end, comment: fn _, _, _ -> flunk("close retry must not post another comment") end]
+    assert :ok = OverrideRecovery.close(77, "9000", opts)
+    assert :ok = OverrideRecovery.close(77, "9000", opts)
   end
 end

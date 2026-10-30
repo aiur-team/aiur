@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.OverrideSuccessor do
   @moduledoc "Retires uncontinuable work before releasing one successor ticket."
 
   require Logger
-  alias Aiur.{CodeHost, Commands, Config, Tracker}
+  alias Aiur.{CodeHost, Commands, Config, Issue, Tracker}
   alias Aiur.Orchestrator.{AgentTeardown, IssueSync, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.PauseResume.Resume
 
@@ -35,9 +35,10 @@ defmodule Aiur.Orchestrator.OverrideSuccessor do
   defp stop(state, issue, _entry), do: AgentTeardown.terminate_running_issue(state, issue.id, false)
 
   @doc false
-  @spec reconcile(map(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec reconcile(map(), map(), map(), keyword()) :: {:ok, map()} | {:hold, :operator_pause} | {:error, term()}
   def reconcile(decision, record, pr, opts) do
     prefix = Keyword.get_lazy(opts, :label_prefix, fn -> Config.settings!().tracker.github.label_prefix end)
+    opts = Keyword.put(opts, :label_prefix, prefix)
     create = Keyword.get(opts, :successor_fun, &Commands.override_successor/4)
     close = Keyword.get(opts, :close_fun, &CodeHost.close_superseded_pull_request/2)
     comment = Keyword.get(opts, :comment_fun, &Tracker.create_comment/2)
@@ -48,8 +49,19 @@ defmodule Aiur.Orchestrator.OverrideSuccessor do
          {:ok, ticket} <- create.(decision, record, pr, opts),
          :ok <- close.(pr.number, ticket.identifier),
          :ok <- comment.(record.ticket.identifier, "superseded by ##{ticket.identifier}: #{record.resume_reason}"),
+         :ok <- source_resumable(record, opts),
          :ok <- release.(ticket.identifier) do
       {:ok, ticket}
+    end
+  end
+
+  defp source_resumable(record, opts) do
+    issues = Keyword.get(opts, :issues, &Tracker.fetch_issue_states_by_ids/1)
+
+    case issues.([record.ticket.identifier]) do
+      {:ok, [issue]} -> if Issue.paused?(issue), do: {:hold, :operator_pause}, else: :ok
+      {:error, _} = error -> error
+      _ -> {:error, :original_ticket_missing}
     end
   end
 
@@ -68,6 +80,8 @@ defmodule Aiur.Orchestrator.OverrideSuccessor do
       {:error, reason} -> settle(state, decision, {:error, reason}, opts)
     end
   end
+
+  defp settle(state, _decision, {:hold, :operator_pause}, _opts), do: state
 
   defp settle(state, decision, {:error, reason}, opts) do
     Logger.warning("Override successor failed: command=#{decision.decision_id} reason=#{inspect(reason)}")

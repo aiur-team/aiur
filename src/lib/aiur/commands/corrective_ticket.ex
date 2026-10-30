@@ -2,7 +2,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   @moduledoc false
 
   alias Aiur.Commands.{CorrectivePullRequest, CorrectiveTicketBody}
-  alias Aiur.Tracker
+  alias Aiur.{Config, Tracker}
 
   @spec reconcile(Aiur.Decision.t(), map(), keyword()) :: {:ok, list()} | {:error, term()}
   def reconcile(decision, record, opts \\ []) do
@@ -14,6 +14,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
 
   @spec successor(Aiur.Decision.t(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def successor(decision, record, pr, opts) do
+    opts = Keyword.put_new_lazy(opts, :label_prefix, fn -> Config.settings!().tracker.github.label_prefix end)
     find_or_create(decision, record, Map.put(pr, :merged?, false), Keyword.put(opts, :successor, true))
   end
 
@@ -91,12 +92,21 @@ defmodule Aiur.Commands.CorrectiveTicket do
   defp create(decision, record, pr, opts) do
     with {:ok, [original]} <- call(opts, :issues, &Tracker.fetch_issue_states_by_ids/1, [[decision.ticket.identifier]]),
          attrs <- CorrectiveTicketBody.build(decision, record, pr, original.labels),
-         attrs <- if(Keyword.get(opts, :successor, false), do: Map.update!(attrs, :labels, &["agent:parked" | List.delete(&1, "agent:todo")]), else: attrs),
+         attrs <- park_successor(attrs, opts),
          {:ok, raw} <- call(opts, :create, &Tracker.create_issue/2, [attrs, [caller: "command_override_create"]]) do
       {:ok, normalize_ticket(raw)}
     else
       {:ok, _missing} -> {:error, :original_ticket_missing}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp park_successor(attrs, opts) do
+    if Keyword.get(opts, :successor, false) do
+      prefix = Keyword.fetch!(opts, :label_prefix)
+      Map.update!(attrs, :labels, &["#{prefix}:parked" | List.delete(&1, "agent:todo")])
+    else
+      attrs
     end
   end
 
