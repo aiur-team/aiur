@@ -122,6 +122,8 @@ defmodule AiurWeb.VoiceConverseChannelTest do
     assert {:error, %{reason_code: "invalid_payload"}} = subscribe_and_join(client(), "voice:converse", Map.put(payload(), "mode", "dictate"))
     EndpointStubs.put(capabilities_report_fun: fn -> put_in(report(), [:capabilities, "voice.conversation"], %{state: :unavailable, reason: :unconfigured}) end)
     assert {:error, %{reason_code: "unconfigured"}} = subscribe_and_join(client(), "voice:converse", payload())
+    EndpointStubs.put(capabilities_report_fun: fn -> put_in(report(), [:capabilities, "voice.conversation"], %{state: :unknown, reason: :not_running}) end)
+    assert {:error, %{reason_code: "unknown", reasons: [:not_running]}} = subscribe_and_join(client(), "voice:converse", payload())
   end
 
   test "audio, text, playback and malformed frames use the session APIs", ctx do

@@ -55,8 +55,12 @@ defmodule AiurWeb.VoiceConverse.Join do
   @spec error(term()) :: {:error, map()}
   def error(reason) do
     code = to_string_code(reason)
-    {:error, %{reason_code: code, reason: "Voice conversation could not proceed (#{code})."}}
+    refusal = %{reason_code: code, reason: "Voice conversation could not proceed (#{code})."}
+    {:error, if(code == "unknown", do: Map.put(refusal, :reasons, [safe_reason(reason)]), else: refusal)}
   end
+
+  defp safe_reason(reason) when is_atom(reason) or is_binary(reason), do: reason
+  defp safe_reason(_), do: :unknown
 
   defp to_string_code(reason) when is_atom(reason) or is_binary(reason) do
     code = to_string(reason)
