@@ -4,6 +4,8 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    override_rows: {Aiur.Commands.OverridePresentation, :rows},
+    pending_override_status: {Aiur.Commands.OverridePresentation, :pending},
     notify_override_merge: {Aiur.DecisionStore.OverrideMerges, :notify},
     override_successor: {Aiur.Commands.CorrectiveTicket, :successor},
     override_target_ticket: {Aiur.Commands.Overrides, :target_ticket},

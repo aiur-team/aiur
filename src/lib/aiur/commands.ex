@@ -2,9 +2,7 @@ defmodule Aiur.Commands do
   @moduledoc """
   Public entry point for Commands and Asks.
 
-  The existing Decision services retain persistence, validation and delivery
-  ownership; this facade preserves their arguments and results. All supported
-  arities stay together so the public delegation contract is easy to audit.
+  Decision services retain persistence, validation and delivery ownership.
   """
   @spec requester_notified(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate requester_notified(decision_id, action_id, opts \\ []), to: Aiur.Commands.ExecutorDelivery, as: :on_enqueued
@@ -41,6 +39,10 @@ defmodule Aiur.Commands do
   defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
   @spec matches_route?(map(), atom() | nil) :: boolean()
   defdelegate matches_route?(decision, route), to: Aiur.Commands.Routing.Policy
+  @spec override_rows(map()) :: [map()]
+  defdelegate override_rows(decision), to: Aiur.Commands.OverridePresentation, as: :rows
+  @spec pending_override_status(map()) :: map() | nil
+  defdelegate pending_override_status(decision), to: Aiur.Commands.OverridePresentation, as: :pending
   @spec public_v2(Aiur.Decision.t()) :: map()
   defdelegate public_v2(decision), to: Aiur.Commands.Projection
 
@@ -55,10 +57,8 @@ defmodule Aiur.Commands do
   defdelegate all_asks(repo), to: Aiur.Asks, as: :all
   @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate get(decision_id, opts \\ []), to: Aiur.DecisionQuery
-
   @spec answer(String.t(), map()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload), to: Aiur.DecisionStore
-
   @spec answer(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload, opts), to: Aiur.DecisionStore
 
