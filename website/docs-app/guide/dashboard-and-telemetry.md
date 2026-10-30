@@ -53,6 +53,18 @@ some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
 
+### Build ticket conversation
+
+Open a running ticket in Build to watch its loaded conversation. New entries
+follow the bottom while you are within 60 pixels of it. Scroll up to read
+without moving; **New activity** returns to the latest entries, fetching the
+tail again if paging older history displaced it. The view keeps at most 500 entries.
+
+The right minimap previews loaded rows. Drag it to scroll, or select an event
+tick to jump and highlight that event; hover for its label and time. Focus the
+conversation to scroll with the keyboard. The working indicator appears only
+for an active agent with live conversation state and a live dashboard link.
+
 ### Conversation event navigation
 
 At `/conversations/:id`, use the Events rail to jump to progress, pushes,

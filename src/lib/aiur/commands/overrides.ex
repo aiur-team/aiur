@@ -49,6 +49,7 @@ defmodule Aiur.Commands.Overrides do
     record =
       Map.merge(metadata, %{
         override_id: revision.action_id,
+        merge_version: 1,
         decision_id: decision.decision_id,
         prior_action_id: revision.prior_action_id,
         action_id: revision.action_id,
@@ -69,16 +70,6 @@ defmodule Aiur.Commands.Overrides do
     update(decision, data.action_id, fn
       %{state: state} = record when state in [:queued, :failed] -> %{record | state: :delivered, delivered_at: at}
       record -> record
-    end)
-  end
-
-  def observe(decision, %{type: type, data: data, occurred_at: at}) when type in [:acknowledged, :resolved] do
-    update(decision, data.action_id, fn
-      %{state: state, route: route, corrective_ticket: nil} = record when state in [:queued, :delivered] and route in [:active_worker, :resume_pending, :capacity_wait, :replacement] ->
-        %{record | state: :implemented, implemented_at: at, evidence: :acknowledged}
-
-      record ->
-        record
     end)
   end
 
@@ -106,6 +97,9 @@ defmodule Aiur.Commands.Overrides do
   @spec resume_fact(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
   def resume_fact(decision, %{data: %{action_id: action_id}} = event) do
     case pending(decision) do
+      %{action_id: ^action_id, pr_merged: true} ->
+        {:error, :stale}
+
       %{action_id: ^action_id} ->
         updated = update(decision, action_id, &apply_resume_fact(&1, event))
         updated = if event.type == :override_prompt_delivered, do: %{updated | delivery_status: :delivered}, else: updated
@@ -127,11 +121,20 @@ defmodule Aiur.Commands.Overrides do
   defp apply_resume_fact(record, _event), do: record
 
   @spec implemented(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
-  def implemented(decision, %{data: data}) do
+  def implemented(decision, event), do: record_push(decision, event, false)
+
+  @spec worker_handoff(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
+  def worker_handoff(decision, event), do: record_push(decision, event, true)
+
+  defp record_push(decision, %{data: data}, reported) do
     record = Enum.find(decision.overrides, &(&1.action_id == data.action_id))
 
     if valid_push?(record, decision, data) do
-      {:ok, update(decision, data.action_id, &%{&1 | state: :implemented, implemented_at: data.at, evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number}})}
+      if match?(%{worker_reported: true}, record.evidence) and not reported do
+        {:ok, decision}
+      else
+        {:ok, update(decision, data.action_id, &%{&1 | evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number, at: data.at, worker_reported: reported}})}
+      end
     else
       {:error, :override_push_mismatch}
     end

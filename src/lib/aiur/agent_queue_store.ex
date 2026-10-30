@@ -227,7 +227,7 @@ defmodule Aiur.AgentQueueStore do
     Enum.reduce(items, store, fn %AgentQueueItem{} = item, acc ->
       acc = acc |> Items.put_item(item) |> TargetIndex.add_item(item)
       acc = if item.status == :pending, do: Items.append_pending_id(acc, item.target_issue_identifier, item.id), else: acc
-      acc = if is_binary(item.action_id), do: %{acc | item_id_by_action: Map.put(acc.item_id_by_action, item.action_id, item.id)}, else: acc
+      acc = if is_binary(item.action_id), do: %{acc | item_id_by_action: Map.put(acc.item_id_by_action, Correlation.delivery_key(item.action_id, item.correlation), item.id)}, else: acc
       acc = if is_binary(item.message_id), do: %{acc | item_id_by_message_id: Map.put(acc.item_id_by_message_id, item.message_id, item.id)}, else: acc
       %{acc | next_id: max(acc.next_id, item.id + 1), next_sequence: max(acc.next_sequence, item.sequence + 1)}
     end)

@@ -23,6 +23,7 @@ import './states.js';
 import './list.js';
 import { controlMessage } from './modal/frame.js';
 import './modal/conversation.js';
+import './modal/live.js';
 import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
 import './modal/composer.js';
 import './modal/command.js';

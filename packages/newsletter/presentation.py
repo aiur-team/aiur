@@ -86,12 +86,11 @@ def focus(allocation):
     known = any(observed(context.get(k)) for k in ("running_agents", "held_slots", "agent_hours"))
     if not known and not any(observed(metric) for metric in daily):
         return ('<div class="focus unavailable-focus"><span class="kick">Running agents · 95% goal</span>'
-                '<div class="pbar"><i class="goal" title="95% goal"></i></div>'
-                '<p class="allocation-unavailable">' + shown(None) + '</p></div>')
+                '<span class="allocation-unavailable">' + shown(None) + '</span></div>')
     counts = context.get("running_by_class", {})
     counts = counts if isinstance(counts, dict) else {}
     classes = [(numeric(counts.get(k)), tone) for k, _, tone in CLASSES]
-    result = '<div class="focus"><span class="kick">Running agents · 95% goal</span>'
+    result = '<div class="focus compact-focus"><span class="kick">Running agents · 95% goal</span>'
     result += bar(classes, context.get("running_agents"), goal=True)
     result += ' '.join(f'<span class="lg">{label} {shown(counts.get(k))}</span>' for k, label, _ in CLASSES)
     result += '<p>Held: '
@@ -104,8 +103,13 @@ def focus(allocation):
                                   if isinstance(hours, dict) and "value" not in hours else shown(hours)) + '</p>'
     for machine, windows in allocation.get("headline", {}).items():
         daily = windows.get("window_24h", {})
-        result += '<span class="lg">' + text(machine.upper()) + ' 24h turn hour share ' + shown(daily.get("feature_turn_hours_percent")) + '</span>'
+        result += '<span class="lg">' + text(machine.upper()) + ' 24h turn hour share ' + percent(daily.get("feature_turn_hours_percent")) + '</span>'
     return result + '</div>'
+
+
+def percent(node):
+    number = numeric(node)
+    return shown(node) if number is None else text(f"{number:.0f}%")
 
 
 def state_bar(program):
