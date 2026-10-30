@@ -53,7 +53,6 @@ defmodule Aiur.Executor.Blockers do
     case Commands.query_counts(store: store) do
       {:ok, %{health: %{status: :available}}} -> {:ok, decisions}
       {:ok, %{health: %{reason: reason}}} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
     end
   end
 
