@@ -18,7 +18,7 @@ defmodule Aiur.Commands.RoutingFactsTest do
     end)
 
     :ok = ExecutorEvents.subscribe("executor.#")
-    pid = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
+    pid = start_supervised_store!(dir)
     {:ok, %{decision: decision}} = request(pid, %{question: "Private question?", blocking: false})
     %{pid: pid, decision: decision, at: DateTime.utc_now()}
   end
