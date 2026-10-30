@@ -1,9 +1,16 @@
 import { test, expect } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 import { mountConversation, scenario, states } from './support/build-conversation.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
 test.use({ httpCredentials: dashboardCredentials, viewport: { width: 1440, height: 900 } })
-test.beforeEach(async ({ page }, info) => mountConversation(page, info))
+test.beforeEach(async ({ page }, info) => {
+  await page.route('**/build-home/home/10-conversation.css', async route => route.fulfill({
+    body: await readFile(new URL('../../priv/static/build-home/home/10-conversation.css', import.meta.url)),
+    contentType: 'text/css',
+  }))
+  await mountConversation(page, info)
+})
 
 test('running ticket modal switches between live conversation and timeline with keyboard tabs', async ({ page }) => {
   const entries = Array.from({ length: 201 }, (_, index) => ({
