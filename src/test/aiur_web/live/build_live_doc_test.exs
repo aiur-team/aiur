@@ -126,6 +126,16 @@ defmodule AiurWeb.BuildLiveDocTest do
     refute_push_event(view, "build-ticket-doc", _)
   end
 
+  test "ticket history updates push the cached timeline to the open modal" do
+    view = open_view()
+    id = row()["id"]
+    open_doc(view, id)
+
+    send(view.pid, {:ticket_history_updated, %{generation: 2}})
+
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => %{"items" => []}})
+  end
+
   test "invalid ids leave the open doc unchanged without reading the source" do
     view = open_view()
     selected = open_doc(view, row()["id"])

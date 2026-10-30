@@ -49,7 +49,15 @@ defmodule Aiur.IssueLog.Format do
   end
 
   defp event_segments(:command, event), do: " cmd=#{Base.url_encode64(to_string(event_field(event, :message, "")), padding: false)}"
-  defp event_segments(_kind, event), do: flag_segment(event) <> actor_segment(event)
+
+  defp event_segments(_kind, event) do
+    progress =
+      if String.ends_with?(event_field(event, :topic, ""), ".progress") or String.ends_with?(event_field(event, :topic, ""), ".progress.checkin"),
+        do: append_flag([], "pct", event_field(event, :percent, nil)) |> Enum.join(" "),
+        else: ""
+
+    flag_segment(event) <> actor_segment(event) <> if(progress == "", do: "", else: " " <> progress)
+  end
 
   defp actor_segment(event) do
     topic = event_field(event, :topic, "")

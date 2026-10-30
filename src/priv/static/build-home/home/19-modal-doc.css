@@ -38,6 +38,7 @@
 .bm-timerange { display: flex; justify-content: space-between; color: var(--muted); font: .62rem "JetBrains Mono", monospace; }
 .bm-timephase { position: absolute; inset-block: 3px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .bm-timegap { position: absolute; inset-block: 0; background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--muted) 38%, transparent) 5px 8px); }
+.bm-timegap-label { position: absolute; z-index: 1; top: 4px; overflow: hidden; color: var(--fg); text-align: center; white-space: nowrap; font: .56rem "JetBrains Mono", monospace; }
 .bm-timepin { position: absolute; top: 5px; width: 3px; height: 14px; background: var(--accent); }
 .bm-timepin.kind-consume { border: 1px dashed var(--fg); background: var(--surface); }
 .bm-timeitems { list-style: none; display: grid; gap: .5rem; margin: 0; padding: 0; }
