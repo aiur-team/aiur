@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.Conversation.Ref",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/operator_messages/executor_hook_claims.ex"
+  ],
+  "reason": "#6503 derive the canonical Executor key only for authenticated attached-hook claims; missing optional modules return no delivery"
+}

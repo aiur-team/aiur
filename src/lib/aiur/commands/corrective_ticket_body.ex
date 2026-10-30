@@ -36,14 +36,19 @@ defmodule Aiur.Commands.CorrectiveTicketBody do
     Old answer: #{answer(decision, old)}
     New answer: #{answer(decision, revision.answer)}
 
-    Merged PR: ##{pr.number}
-    Merge SHA: #{pr.merge_commit_sha}
+    #{pr_context(pr)}
     Override id: #{revision.action_id}
 
-    Change the merged behaviour to match the new answer through a new PR.
+    #{instruction(pr)}
     """
     |> String.trim()
   end
+
+  defp instruction(%{merged?: false}), do: "Apply the new answer through a new PR."
+  defp instruction(_pr), do: "Change the merged behaviour to match the new answer through a new PR."
+
+  defp pr_context(%{merged?: false} = pr), do: "Supersedes unmerged PR: ##{pr.number}. The old branch cannot be continued."
+  defp pr_context(pr), do: "Merged PR: ##{pr.number}\nMerge SHA: #{pr.merge_commit_sha}"
 
   defp answer(_decision, nil), do: "Unavailable"
   defp answer(_decision, %{custom_response: response}) when is_binary(response), do: response

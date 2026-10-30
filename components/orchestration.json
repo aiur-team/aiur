@@ -52,6 +52,7 @@
   "optional": [
     "accounting",
     "build-queue",
+    "conversations",
     "executor-attention",
     "github",
     "github-access",

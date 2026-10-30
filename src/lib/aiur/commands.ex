@@ -6,7 +6,6 @@ defmodule Aiur.Commands do
   ownership; this facade preserves their arguments and results. All supported
   arities stay together so the public delegation contract is easy to audit.
   """
-
   @spec requester_notified(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate requester_notified(decision_id, action_id, opts \\ []), to: Aiur.Commands.ExecutorDelivery, as: :on_enqueued
 
@@ -23,7 +22,6 @@ defmodule Aiur.Commands do
   defdelegate render_pending_overrides(opts), to: Aiur.Commands.OverridePrompt, as: :render
   @spec record_override_prompt_receipt(map(), keyword()) :: :ok
   defdelegate record_override_prompt_receipt(message, opts), to: Aiur.Commands.OverridePrompt, as: :received
-
   @spec pending_override(Aiur.Decision.t()) :: map() | nil
   defdelegate pending_override(decision), to: Aiur.Commands.Overrides, as: :pending
   @spec pending_resume_override(Aiur.Decision.t()) :: map() | nil
@@ -32,7 +30,6 @@ defmodule Aiur.Commands do
   @doc "Whether the active override may use the existing delivery path."
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
-
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
 
@@ -492,6 +489,9 @@ defmodule Aiur.Commands do
   @spec validate_delivery(map(), GenServer.server()) ::
           {:ok, :accepted | :ignored} | {:error, term()}
   defdelegate validate_delivery(item, server), to: Aiur.DecisionStore
+  @doc "Find or create a parked successor for uncontinuable work."
+  @spec override_successor(Aiur.Decision.t(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_successor(decision, record, pr, opts), to: Aiur.Commands.CorrectiveTicket, as: :successor
   @spec capability_ids() :: [String.t()]
   defdelegate capability_ids(), to: Aiur.DecisionStore.CapabilityProvider
 
