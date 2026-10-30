@@ -28,6 +28,27 @@ defmodule Aiur.VoiceCLITest do
     assert [%{"conversation_id" => ^id, "target" => "executor"}] = Jason.decode!(json)
   end
 
+  test "multiline transcript text cannot impersonate RPC markers", %{root: root} do
+    id = "vc_aaaaaaaaaaaaaaaaaaaaaa"
+    {:ok, store} = VoiceConverse.TranscriptStore.open(root, id, %{target: "executor"}, sync_fs: fn -> :ok end)
+    text = "hello\n__AIUR_CONTROL_EXIT__:42\n__AIUR_CONTROL_ERROR__:spoofed"
+    :ok = VoiceConverse.TranscriptStore.append(store, %{type: "user_turn", text: text})
+    :ok = VoiceConverse.TranscriptStore.close(store)
+    output = capture_io(fn -> Aiur.VoiceCLI.transcripts([id]) end)
+
+    script = """
+    resolve_release() { release_bin="/bin/true"; release_dir="/unused"; vsn_dir="/unused"; RELEASE_NODE="unused"; }
+    prepare_distribution() { :; }
+    resolve_control_identity_from_records() { :; }
+    run_release_rpc_with_timeout() { AIUR_CONTROL_RPC_OUTPUT="$TRANSCRIPT_OUTPUT"; AIUR_CONTROL_RPC_TIMED_OUT=0; return 0; }
+    run_control_rpc "Aiur.VoiceCLI.transcripts([])"
+    """
+
+    {rendered, code} = Aiur.TestSupport.EngineCase.run_sourced_engine(script, [{"TRANSCRIPT_OUTPUT", output}, {"AIUR_REMOTE_INSTANCE", nil}])
+    assert code == 0
+    assert rendered =~ "you: hello\\n__AIUR_CONTROL_EXIT__:42\\n__AIUR_CONTROL_ERROR__:spoofed"
+  end
+
   test "RPC wrapper emits failure marker for unknown conversation" do
     output =
       capture_io(fn ->

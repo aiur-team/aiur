@@ -107,7 +107,7 @@ Rows show id, target, local start time, duration, end reason, user turns and dra
 An empty list prints “No voice conversations recorded.” and exits successfully.
 
 Pass a `vc_` conversation id to show all turns, context with observation age at recording,
-tool calls, drafts and delivery outcomes in stored order.
+tool calls, drafts and delivery outcomes in stored order. Embedded line breaks are escaped.
 
 `--target` and `--limit` apply
 only to listing. An unknown id exits 1 with “No such conversation”.

@@ -11,7 +11,10 @@ defmodule VoiceConverse.Transcripts.Format do
 
   @spec show([map()], map()) :: String.t()
   def show(records, meta) do
-    lines = Enum.map(records, fn record -> "[#{time(record["at"])}] #{record_text(record)}" end)
+    lines =
+      Enum.map(records, fn record ->
+        "[#{time(record["at"])}] #{record_text(record)}" |> String.replace("\r", "\\r") |> String.replace("\n", "\\n")
+      end)
 
     lines =
       if meta.skipped_lines == [],
