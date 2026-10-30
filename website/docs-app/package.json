@@ -8,6 +8,7 @@
     "build": "vitepress build .",
     "preview": "vitepress preview .",
     "check:cli-reference": "bash scripts/check-cli-reference.sh",
+    "check:lifecycle-topics": "node scripts/check-lifecycle-topics.mjs",
     "test:components": "node --test scripts/test-components*.mjs"
   },
   "devDependencies": {

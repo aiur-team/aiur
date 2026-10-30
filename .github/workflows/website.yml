@@ -99,6 +99,9 @@ jobs:
       - name: Check CLI reference
         working-directory: website/docs-app
         run: npm run check:cli-reference && bash scripts/test-check-cli-reference.sh
+      - name: Check lifecycle event topics
+        working-directory: website/docs-app
+        run: npm run check:lifecycle-topics
       - name: Build docs
         working-directory: website/docs-app
         run: python3 scripts/test-cli-reference.py && python3 ../../scripts/test-reference-carry.py && bun run build
@@ -107,6 +110,9 @@ jobs:
         run: bun run test:components
       - name: Install browser
         run: npx playwright install --with-deps chromium
+      - name: Test lifecycle timeline responsiveness
+        working-directory: website
+        run: npx playwright test --config docs-app/playwright.config.ts
       - name: Test brand accessibility and theme navigation
         run: npm run test:brand
       - name: Test visual regressions
