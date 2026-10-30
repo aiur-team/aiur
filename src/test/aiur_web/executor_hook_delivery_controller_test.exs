@@ -8,7 +8,7 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
   alias Aiur.{AgentQueue, AgentQueueStore, Orchestrator}
   alias Aiur.Conversation.TestSupport
   alias Aiur.Executor.{HookToken, Session}
-  alias Aiur.Listener.{ModeStore, Receipt}
+  alias Aiur.Listener.{HookEnvelope, ModeStore, Receipt}
   alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, PendingStore}
 
   # Only process lifecycle and fixture insertion are doubled; claims route through the production callbacks.
@@ -211,7 +211,7 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
       send(owner, {:rendering, self()})
 
       receive do
-        :finish_render -> Aiur.Listener.HookEnvelope.render(harness, event, entries)
+        :finish_render -> HookEnvelope.render(harness, event, entries)
       end
     end
 
