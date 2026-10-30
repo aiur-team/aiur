@@ -25,7 +25,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     :ok = Aiur.IssueLog.attach(identity)
     writer = writer_pid(identity)
     on_exit(fn -> Aiur.TestSupport.safe_stop(writer) end)
-    path = journal_path()
+    path = Path.join(root, "journal.json")
     parent = self()
     identity_fun = fn "17" -> identity end
 
@@ -99,7 +99,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
              process_failure(
                704,
                [{"reports parity", "src/aiur/parity.ex"}],
-               journal_path(),
+               Path.join(root, "journal.json"),
                self(),
                changed_paths_by_pr: %{17 => ["src/aiur/parity.ex"]},
                ticket_identity_fun: fn "17" -> identity end
@@ -495,5 +495,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     pid
   end
 
-  defp journal_path, do: Path.join(System.tmp_dir!(), "merge-group-repeat-#{System.unique_integer([:positive])}.json")
+  defp journal_path do
+    root = Aiur.TestSupport.tmp_root!("merge-group-repeat")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    Path.join(root, "journal.json")
+  end
 end
