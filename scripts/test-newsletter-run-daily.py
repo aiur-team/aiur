@@ -96,7 +96,7 @@ class DailyTest(unittest.TestCase):
                 'if "units" in sys.argv: print(json.dumps({"data":{"view":{"rows":[]}},"auxiliary":{}}))\n'
             )
             executable.chmod(0o755)
-        args = ['--repo', 'owner/repo', '--state-dir', str(self.root), '--aiur', str(configured_dir / 'aiur')]
+        args = ['--repo', 'owner/repo', '--state-dir', str(self.root)]
         result = subprocess.run([str(ROOT / 'scripts/newsletter/run-daily.sh'), *args],
                                 capture_output=True, text=True,
                                 env={**os.environ, 'HOME': str(self.root),
