@@ -195,8 +195,11 @@ There is no bulk deletion or automatic retention policy.
 
 Deletion removes the local transcript, including its text, context, drafts and
 metadata. A content-free tombstone retains only the conversation ID, deletion
-time and actor. Deleted sessions disappear from transcript listings and no
+time and actor.
+
+Deleted sessions disappear from transcript listings and no
 longer contribute to local daily minute accounting. Interrupted deletions are
 completed during boot reconciliation; an index rebuild preserves tombstones.
+
 This action does not retract instructions or Command answers already delivered
 to another conversation. Provider cleanup runs independently at session end.
