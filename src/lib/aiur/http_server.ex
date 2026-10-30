@@ -7,6 +7,7 @@ defmodule Aiur.HttpServer do
 
   alias Aiur.{Commands, Config, Orchestrator}
   alias Aiur.Config.Paths
+  alias Aiur.Executor.HookConfig
   alias AiurWeb.DashboardAuth.Passkeys
   alias AiurWeb.Endpoint
 
@@ -189,7 +190,7 @@ defmodule Aiur.HttpServer do
   defp publish_executor_hook_url do
     with key when is_binary(key) and key != "" <- System.get_env("AIUR_INSTANCE_KEY"),
          port when is_integer(port) and port > 0 <- bound_port() do
-      case Aiur.Executor.HookConfig.write_url(port) do
+      case HookConfig.write_url(port) do
         :ok -> :ok
         {:error, reason} -> Logger.warning("Could not publish Executor hook URL: #{inspect(reason)}")
       end

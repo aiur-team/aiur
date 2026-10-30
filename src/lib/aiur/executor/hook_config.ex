@@ -5,8 +5,7 @@ defmodule Aiur.Executor.HookConfig do
   Extra entries are `%{event: name, command: command, timeout: seconds}`;
   commands owned by Aiur must begin with `AIUR_EXECUTOR_HOOK=1` for removal.
   """
-  alias Aiur.Executor.HookToken
-  alias Aiur.Executor.HookSettingsFile
+  alias Aiur.Executor.{HookSettingsFile, HookToken}
   alias Aiur.Fs
 
   @marker "AIUR_EXECUTOR_HOOK=1"
