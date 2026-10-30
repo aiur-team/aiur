@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare the daily Aiur newsletter and wake the Executor
+StartLimitIntervalSec=3h
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/aiur/newsletter.env
+ExecStart=/bin/sh -c 'cd "$$NEWSLETTER_CHECKOUT" && exec scripts/newsletter/run-daily.sh --repo "$$NEWSLETTER_REPO"'
+Restart=on-failure
+RestartSec=5min

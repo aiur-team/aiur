@@ -1,0 +1,9 @@
+[Unit]
+Description=Prepare the Aiur newsletter at 05:00 Pacific
+
+[Timer]
+OnCalendar=*-*-* 05:00 America/Los_Angeles
+Persistent=true
+
+[Install]
+WantedBy=timers.target

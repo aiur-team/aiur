@@ -80,7 +80,7 @@ defmodule Aiur.ExecutorListener do
 
     state =
       if "executor.#" in patterns and bound?("executor.#") do
-        replay_and_deliver("executor.#", state)
+        replay_and_deliver(state)
       else
         state
       end
@@ -103,7 +103,7 @@ defmodule Aiur.ExecutorListener do
 
     state =
       if (executor_missing? or state.delivery_failed?) and "executor.#" in state.patterns and bound?("executor.#") do
-        replay_and_deliver("executor.#", %{state | watermark: read_watermark()})
+        replay_and_deliver(%{state | watermark: read_watermark()})
       else
         state
       end
@@ -169,8 +169,8 @@ defmodule Aiur.ExecutorListener do
   # Replay threads the caller's state through every event and returns it, so a
   # watermark advanced during replay survives (#2039). Folding over a throwaway
   # state instead would re-deliver the whole replayed range on the next restart.
-  defp replay_and_deliver(pattern, state) do
-    case ExecutorEvents.replay([pattern], state.watermark) do
+  defp replay_and_deliver(state) do
+    case ExecutorEvents.replay(Enum.filter(["executor.#", "system.newsletter.ready"], &(&1 in state.patterns)), state.watermark) do
       {:ok, events} ->
         Enum.reduce_while(events, %{state | delivery_failed?: false}, &replay_event/2)
 
@@ -190,7 +190,7 @@ defmodule Aiur.ExecutorListener do
       try do
         :ok = deliver(event, state.inbox, state.decision_store)
 
-        if executor_topic?(event) do
+        if journaled_topic?(event) do
           :ok = advance_watermark(event_id(event))
           %{state | watermark: event_id(event)}
         else
@@ -199,11 +199,11 @@ defmodule Aiur.ExecutorListener do
       rescue
         error ->
           log_delivery_failure(event, error)
-          %{state | delivery_failed?: state.delivery_failed? or executor_topic?(event)}
+          %{state | delivery_failed?: state.delivery_failed? or journaled_topic?(event)}
       catch
         kind, reason ->
           log_delivery_failure(event, {kind, reason})
-          %{state | delivery_failed?: state.delivery_failed? or executor_topic?(event)}
+          %{state | delivery_failed?: state.delivery_failed? or journaled_topic?(event)}
       end
     else
       state
@@ -214,7 +214,7 @@ defmodule Aiur.ExecutorListener do
     case {event_topic(event), event_id(event)} do
       {topic, id} when is_binary(topic) and is_integer(id) ->
         Enum.any?(state.patterns, &Events.matches?(&1, topic)) and
-          (not String.starts_with?(topic, "executor.") or (not state.delivery_failed? and id > (state.watermark || 0)))
+          (not ExecutorEvents.journaled_topic?(topic) or (not state.delivery_failed? and id > (state.watermark || 0)))
 
       _ ->
         false
@@ -223,10 +223,10 @@ defmodule Aiur.ExecutorListener do
 
   defp deliver(event, inbox, store) do
     cond do
-      executor_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
+      journaled_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
         :ok
 
-      executor_topic?(event) ->
+      journaled_topic?(event) ->
         deliver_executor_event(event, inbox, store)
 
       true ->
@@ -244,10 +244,16 @@ defmodule Aiur.ExecutorListener do
     do: deliver_answer(event, inbox, store)
 
   defp deliver_executor_event(%{topic: "executor.voice.session_ended"} = event, inbox, _store),
-    do: deliver_voice(event, inbox)
+    do: deliver_projection(event, inbox)
 
   defp deliver_executor_event(%{"topic" => "executor.voice.session_ended"} = event, inbox, _store),
-    do: deliver_voice(event, inbox)
+    do: deliver_projection(event, inbox)
+
+  defp deliver_executor_event(%{topic: "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{"topic" => "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
+
+  defp deliver_executor_event(%{topic: "executor.newsletter.failed"} = event, inbox, _store), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{"topic" => "executor.newsletter.failed"} = event, inbox, _store), do: deliver_projection(event, inbox)
 
   defp deliver_executor_event(event, inbox, _store) do
     scrubbed = ExecutorEvents.scrub_untrusted_output(event)
@@ -255,7 +261,7 @@ defmodule Aiur.ExecutorListener do
     wake_blocking_decision(event, inbox)
   end
 
-  defp deliver_voice(event, inbox) do
+  defp deliver_projection(event, inbox) do
     {:ok, record} = ExecutorWakeProjection.project(event)
     enqueue_wake(record, inbox)
   end
@@ -418,7 +424,7 @@ defmodule Aiur.ExecutorListener do
 
   defp event_topic(event), do: value(event, :topic)
   defp event_id(event), do: value(event, :id)
-  defp executor_topic?(event), do: is_binary(event_topic(event)) and String.starts_with?(event_topic(event), "executor.")
+  defp journaled_topic?(event), do: is_binary(event_topic(event)) and ExecutorEvents.journaled_topic?(event_topic(event))
   defp command_topic?(event), do: event_topic(event) in @command_topics
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
