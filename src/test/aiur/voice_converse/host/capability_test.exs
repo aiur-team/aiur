@@ -10,7 +10,7 @@ defmodule Aiur.VoiceConverse.Host.CapabilityTest do
   end
 
   test "capability exposes core selection and missing credential names without secrets" do
-    assert {:ok, settings} = Schema.parse(%{"voice" => %{"conversation" => %{"providers" => %{"preference" => ["openai_realtime", "elevenlabs_agents"]}}}})
+    assert {:ok, settings} = Schema.parse(%{"voice" => %{"conversation" => %{"providers" => %{"preference" => ["openai_realtime", "elevenlabs_agents"], "on_missing_credential" => "next"}}}})
     context = %{run_shape: %{http_listener: true}, settings: settings}
 
     resolve = fn config ->
