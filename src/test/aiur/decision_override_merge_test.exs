@@ -1,5 +1,5 @@
 defmodule Aiur.DecisionOverrideMergeTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
   alias Aiur.Commands.OverridePrompt
   alias Aiur.DecisionStore.Retry
   alias Aiur.{Commands, DecisionStore}

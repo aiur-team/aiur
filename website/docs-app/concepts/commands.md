@@ -251,7 +251,9 @@ Records survive daemon restart.
 
 Active-worker overrides progress from `queued` to `delivered` after confirmed
 delivery. Acknowledgement and push evidence do not prove implementation: the
-merged PR head must contain a commit made after delivery. If the PR merges first,
+merged PR head must contain a commit made after delivery.
+
+If the PR merges first,
 Aiur automatically routes the override to a corrective ticket and records
 “PR merged before the change; corrective ticket #M”. A late worker push cannot
 reverse this outcome. Overrides delivered while a PR is queued for merge follow
