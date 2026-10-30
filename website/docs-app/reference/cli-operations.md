@@ -93,7 +93,9 @@ Listener mode writes are stored for the ticket run, including stopped tickets, a
 
 `aiur message` prints `accepted under <mode> listener mode` when its receipt carries the mode. Command answers and coordination digests keep their separate delivery policies.
 
-With async support usable, leaving `async` queues one notice with the unread count. Earlier bodies stay pull-only through `aiur_read_messages`.
+With async support usable, leaving `async` queues one notice with the unread count. The control projection declares `backlog_on_leave_async: notice` (Khala uses `skip`). Earlier bodies stay pull-only through `aiur_read_messages`. Aiur also shows this notice when leaving `mute` for Sync or Steer; that Mute-exit behavior is an Aiur extension outside spec v1.
+
+In Sync, unaddressed agent event broadcasts do not wake an idle agent; they wait for its next turn. Actionable signals from declared blockers are addressed dependency inputs and still wake it.
 
 If the pull tool becomes unavailable, held bodies follow the effective mode instead; no new pull notice is queued. An empty backlog adds no notice. Returning to `async` supersedes an undelivered backlog notice.
 

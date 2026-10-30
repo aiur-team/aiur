@@ -12,7 +12,7 @@ defmodule Aiur.Listener.ConformanceTest do
   @not_applicable %{
     agent_self_mode: "Khala agents may lower their own mode; Aiur v1 retains human and Executor mode control",
     owner_lock: "Khala owner locks have no counterpart in Aiur v1's operator authority model",
-    channel_addressing: "Khala channel broadcasts, agent senders and mention parsing are outside Aiur's addressed operator-message port",
+    channel_addressing: "Khala mention parsing is absent; operator sends are addressed, agent broadcasts are not, actionable declared-blocker signals are addressed dependency inputs",
     start: "Hook session registration has no Aiur queue-claim boundary",
     prompt: "Claude hook prompt busy/age rules do not apply to Aiur's runner-owned turn boundaries",
     continuation: "Hook Stop continuations do not end the Aiur turn"
@@ -22,6 +22,24 @@ defmodule Aiur.Listener.ConformanceTest do
     dir = Aiur.TestSupport.tmp_root!("listener-conformance")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir}
+  end
+
+  test "all shared wake rows match the production wake rule" do
+    rows = Application.app_dir(:aiur, "priv/listener_spec/v1/wake.v1.json") |> File.read!() |> Jason.decode!()
+    assert length(rows) == 16
+
+    for row <- rows do
+      mode = Enum.find(@modes, &(Atom.to_string(&1) == row["mode"]))
+      assert Scheduler.wakes?(mode, row["addressed"], row["from_agent"]) == row["wakes"], inspect(row)
+    end
+  end
+
+  test "control declares the spec notice backlog policy" do
+    golden = Application.app_dir(:aiur, "priv/listener_spec/v1/goldens/control-record-notice.json") |> File.read!() |> Jason.decode!()
+    harness = %{source: :session, harness_id: "codex", callbacks: %{steer: :none}, primitives: %{turn_boundary_start: true, hard_interrupt: :none, pull_tool: false}}
+    view = Effective.compute(%{requested: :sync, version: 1, actor: :human}, harness)
+    control = view |> Jason.encode!() |> Jason.decode!() |> Map.take(Map.keys(golden))
+    assert control == golden
   end
 
   test "every shared row is classified and modeled boundaries agree with delivers" do

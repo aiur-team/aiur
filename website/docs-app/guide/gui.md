@@ -78,6 +78,9 @@ Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wai
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
 remain pull-only.
 
+Aiur extends this count-only notice to leaving Mute for Sync or
+Steer; the Mute-exit notice is outside the shared listener spec.
+
 The drawer shows receipts for messages sent during this visit;
 “Accepted” and “Handed to the agent” do not mean the message was read. An unknown
 outcome is shown explicitly.

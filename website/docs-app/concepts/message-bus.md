@@ -350,6 +350,15 @@ when unread bodies remain and the read tool is available. The bodies stay
 unread until explicitly read. Leaving Async supersedes its pending pings so
 the backlog notice is the only remaining nudge.
 
+The control projection declares `backlog_on_leave_async: notice`, the shared
+spec's alternative to Khala's `skip`. Showing a notice on exit from Mute is
+an Aiur-specific extension outside spec v1.
+
+In Sync, an unaddressed agent broadcast stays queued without waking an idle
+agent. A manual subscription watches a sender's events; it does not address
+them to the watcher. Actionable declared-blocker signals are addressed
+dependency inputs and retain their wake, as do operator/system inputs.
+
 Agent self-mode changes and owner locks are Khala-only features; Aiur v1 keeps
 human and Executor mode controls. Conversation sends default to Sync.
 

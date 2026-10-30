@@ -5,8 +5,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
 
   alias Aiur.Listener.Scheduler
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CommentWake, EventTopics, PauseResume, State}
+  alias Aiur.Orchestrator.{CommentWake, EventTopics, ListenerModes, PauseResume, State}
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
+  alias Aiur.Protocol.MapAccess
 
   @spec normalize_delivery_request(term(), term(), map()) ::
           {:ok, keyword()} | {:error, atom()}
@@ -147,10 +148,50 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   @spec wake_now?(State.t(), map(), map()) :: boolean() | :steer
   defp wake_now?(state, running_entry, item) do
     cond do
+      unaddressed_sync_digest?(state, running_entry, item) -> false
       queue_wake_required?(running_entry) -> true
       item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true -> true
       item.delivery[:steer_requested] == true and native_steer?(state, running_entry) -> :steer
       true -> false
+    end
+  end
+
+  # Agent event topics name the sender's ticket, not the recipient. A manual
+  # subscription is a broadcast watch, not a ping. The enqueue path marks
+  # actionable declared-blocker signals urgent: those are addressed dependency
+  # inputs and retain their wake. Mixed digests retain any non-agent wake.
+  defp unaddressed_sync_digest?(state, entry, %{event_type: :events_digest, body: %{events: events} = body}) do
+    addressed? = Map.get(body, :urgent, false)
+    wakes? = Enum.any?(events, &Scheduler.wakes?(:sync, addressed?, agent_event?(&1)))
+
+    if events != [] and not wakes? do
+      case ListenerModes.get_mode(state, entry.identifier) do
+        {:reply, {:ok, %{effective: :sync}}, _} -> true
+        _ -> false
+      end
+    else
+      false
+    end
+  end
+
+  defp unaddressed_sync_digest?(_state, _entry, _item), do: false
+
+  defp agent_event?(event) do
+    case MapAccess.get(event, :digest_source) || MapAccess.get(event, :source) do
+      source when source in [:agent, "agent"] -> true
+      %{kind: :agent_event} -> true
+      %{"kind" => "agent_event"} -> true
+      source when source in [:orchestrator, :system, :github, "orchestrator", "system", "github"] -> false
+      _ -> legacy_agent_topic?(MapAccess.get(event, :topic) || "")
+    end
+  end
+
+  defp legacy_agent_topic?(topic) do
+    case String.split(topic, ".") do
+      ["ticket", _sender, "agent" | _] -> true
+      ["ticket", _sender, "optimistic", "integrated"] -> true
+      ["agent" | _] -> true
+      _ -> false
     end
   end
 

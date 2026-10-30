@@ -17,6 +17,13 @@ defmodule Aiur.Listener.Scheduler do
   @spec spec_status() :: term()
   def spec_status, do: SpecStatus.read()
 
+  @doc "Canonical spec v1 idle wake rule; addressing is supplied by the delivery port."
+  @spec wakes?(atom(), boolean(), boolean()) :: boolean()
+  def wakes?(:steer, _addressed, _from_agent), do: true
+  def wakes?(:sync, addressed, from_agent), do: addressed or not from_agent
+  def wakes?(:async, addressed, _from_agent), do: addressed
+  def wakes?(:mute, _addressed, _from_agent), do: false
+
   @spec resolve(origin(), map() | nil, map(), atom() | nil) :: {:ok, keyword()} | {:error, atom()}
   def resolve(origin, view, capabilities, fallback), do: resolve(origin, view, capabilities, fallback, [])
 

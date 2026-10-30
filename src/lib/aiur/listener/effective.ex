@@ -14,6 +14,7 @@ defmodule Aiur.Listener.Effective do
           version: non_neg_integer(),
           actor: atom(),
           harness_source: :session | :dispatch | nil,
+          backlog_on_leave_async: :notice,
           support: %{steer: support(), sync: support(), async: support()}
         }
 
@@ -33,6 +34,7 @@ defmodule Aiur.Listener.Effective do
       version: mode_record.version,
       actor: mode_record.actor,
       harness_source: if(harness, do: harness.source),
+      backlog_on_leave_async: :notice,
       support: support
     }
   end
