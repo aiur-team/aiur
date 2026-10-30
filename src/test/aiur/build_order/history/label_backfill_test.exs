@@ -401,7 +401,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
   test "supervision keeps the optional writer before the Executor binding" do
     opts = [interactive_cli?: false, headless?: true, dashboard?: false, tailscale_funnel?: false]
     enabled = Aiur.Application.child_specs([recording?: true] ++ opts)
-    assert Enum.map(Enum.take(enabled, -2), &Supervisor.child_spec(&1, []).id) == [LabelBackfill, Aiur.Executor.Session]
+    assert Enum.map(Enum.take(enabled, -3), &Supervisor.child_spec(&1, []).id) == [LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest]
     disabled = Aiur.Application.child_specs([recording?: false] ++ opts)
     refute Enum.any?(disabled, &(Supervisor.child_spec(&1, []).id == LabelBackfill))
   end
