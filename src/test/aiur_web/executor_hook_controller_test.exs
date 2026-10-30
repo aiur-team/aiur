@@ -95,6 +95,16 @@ defmodule AiurWeb.ExecutorHookControllerTest do
     assert SessionIngest.rejected_counts()[:invalid_payload] == 2
   end
 
+  test "forwards hook command parent pid when the Claude payload has no pid", %{token: token} do
+    assert {:ok, _} = Session.attach(%{harness: "claude"})
+    body = Map.delete(payload(), "pid")
+    response = build_conn(token, "/api/v1/executor/hook?harness=claude", body) |> put_req_header("x-aiur-executor-pid", "456") |> route()
+    assert response.status == 202
+    SessionIngest.rejected_counts()
+    assert {:ok, binding} = Session.current()
+    assert binding.pid == "456"
+  end
+
   test "authenticated unsupported methods return 405", %{token: token} do
     response = :get |> conn("/api/v1/executor/hook") |> put_req_header("authorization", "Bearer #{token}") |> route()
     assert response.status == 405

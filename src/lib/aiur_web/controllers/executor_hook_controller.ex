@@ -6,7 +6,8 @@ defmodule AiurWeb.ExecutorHookController do
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, _params) do
     conn = Plug.Conn.fetch_query_params(conn)
-    SessionIngest.dispatch(conn.body_params, conn.query_params["harness"])
+    payload = Map.put_new(conn.body_params, "pid", get_req_header(conn, "x-aiur-executor-pid") |> List.first())
+    SessionIngest.dispatch(payload, conn.query_params["harness"])
     conn |> put_status(202) |> json(%{ok: true})
   end
 

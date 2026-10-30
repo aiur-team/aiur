@@ -23,7 +23,15 @@ defmodule Aiur.Events.GithubFirehose.PullRequest do
           issue_number: id,
           identity: trusted_identity(id),
           bypass_contamination: merged?,
-          dedup_key: pr_dedup_key(repo_name, pr_number, action, head_sha, id, merged?)
+          dedup_key:
+            pr_dedup_key(
+              repo_name,
+              pr_number,
+              action,
+              head_sha,
+              id,
+              merged?
+            )
         ]
 
         payload = %{action: action, pr: pr, timestamp: Map.get(event, "created_at"), repository: repo_name}
@@ -83,8 +91,8 @@ defmodule Aiur.Events.GithubFirehose.PullRequest do
   defp pr_dedup_key(repo, pr_number, action, head_sha, _ticket, false),
     do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha)
 
-  defp pr_dedup_key(repo, pr_number, action, head_sha, ticket, true),
-    do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha, ticket)
+  defp pr_dedup_key(repo, pr_number, _action, _head_sha, ticket, true),
+    do: GithubKeys.merged_pr_dedup_key(repo, pr_number, ticket)
 
   defp trusted_identity(id) do
     Aiur.Orchestrator.tracker_identity(id)

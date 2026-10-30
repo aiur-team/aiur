@@ -209,7 +209,7 @@ defmodule Aiur.Events.GithubFirehoseRetryTest do
       boot_time = DateTime.add(DateTime.utc_now(), -3600, :second) |> DateTime.to_unix()
 
       stub = fn %{url: url} ->
-        if String.contains?(url, "/pulls/5606/commits") do
+        if String.contains?(url, "/pulls/5607/commits") do
           :atomics.add(commit_fetches, 1, 1)
           {:error, :offline}
         else
@@ -226,7 +226,7 @@ defmodule Aiur.Events.GithubFirehoseRetryTest do
                  "repo" => %{"name" => "owner/repo"},
                  "payload" => %{
                    "action" => "merged",
-                   "pull_request" => %{"number" => 5606, "body" => "Closes #5605", "merged" => true, "head" => %{"ref" => "executor/patch", "sha" => String.duplicate("b", 40)}}
+                   "pull_request" => %{"number" => 5607, "body" => "Closes #5605", "merged" => true, "head" => %{"ref" => "executor/patch", "sha" => String.duplicate("b", 40)}}
                  }
                }
              ]
