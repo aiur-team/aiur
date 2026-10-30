@@ -68,6 +68,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
             <span :if={length(@decision.options) > 2} class="chip faint">+{length(@decision.options) - 2} more</span>
           </div>
           <div class="decision-card-foot">
+            <AiurWeb.OperatorControlCenter.DecisionOverrides.badge decision={@decision} />
             <AiurWeb.OperatorControlCenter.CommandRouting.routing decision={@decision} now={@now} />
             <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
             <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]}>{@agent_label}</span>

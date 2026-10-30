@@ -8,6 +8,7 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
   alias Aiur.Commands
   alias Aiur.Commands.Answering
   alias AiurWeb.{EndpointConfig, StreamdeckCommands}
+  alias AiurWeb.Streamdeck.FrameUpdates
 
   # The focused agent's Commands page. An unreadable store is projected as
   # explicitly unavailable rather than as an empty history, so the device says
@@ -20,6 +21,18 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
     case StreamdeckCommands.history(identifier, nil, store: command_store()) do
       {:ok, page} -> Map.put(page, "identifier", identifier)
       {:error, _reason} -> %{"identifier" => identifier, "unavailable" => true}
+    end
+  end
+
+  @doc "Paint override changes on the physical deck's existing frame status message."
+  @spec push_override_status(Phoenix.Socket.t(), String.t()) :: Phoenix.Socket.t()
+  def push_override_status(socket, decision_id) do
+    case StreamdeckCommands.detail(decision_id, store: command_store()) do
+      {:ok, %{"override_status" => status}} when is_binary(status) ->
+        socket |> Phoenix.Socket.assign(:deck_toast, status) |> FrameUpdates.push()
+
+      _unchanged ->
+        socket
     end
   end
 

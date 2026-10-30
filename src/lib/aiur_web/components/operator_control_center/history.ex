@@ -126,6 +126,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
       phx-click={@toggle}
     >
       <td class="history-command" data-sort-value={@decision.question}>
+        <AiurWeb.OperatorControlCenter.DecisionOverrides.badge decision={@decision} />
         <%!-- The whole row is clickable, but the accordion control is a real
               button: it is what carries the accessible name and aria-expanded,
               and it is what Enter and Space activate. The row click is a mouse
