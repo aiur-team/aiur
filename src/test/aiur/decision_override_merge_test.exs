@@ -47,6 +47,16 @@ defmodule Aiur.DecisionOverrideMergeTest do
     assert Commands.override_target_ticket(decision).identifier == "9000"
   end
 
+  test "merge before dispatch never queues an interrupt for the old worker", ctx do
+    Agent.update(ctx.observations, &%{&1 | merged?: true})
+
+    assert {:error, {:override_delivery_deferred, :pr_merged}} =
+             Aiur.DecisionRevisionDispatch.dispatch(ctx.override, store: ctx.store, send_fun: fn _, _, _ -> flunk("merged work must not interrupt the worker") end)
+
+    action = ctx.override.active_action_id
+    assert_receive {:corrective_requested, ^action}, 2_000
+  end
+
   test "resumed prompt excludes work when its PR merged after routing", ctx do
     # Route this pending action through the real resume projection.
     assert {:ok, _} =
@@ -126,7 +136,7 @@ defmodule Aiur.DecisionOverrideMergeTest do
       end)
     end
 
-    opts = [attempt_id: "original", send_fun: send_fun, terminal_states: MapSet.new(), issue_fetcher: fn _ -> {:ok, []} end, revalidate_fun: fn issue, _, _ -> {:ok, issue} end]
+    opts = [store: ctx.store, attempt_id: "original", send_fun: send_fun, terminal_states: MapSet.new(), issue_fetcher: fn _ -> {:ok, []} end, revalidate_fun: fn issue, _, _ -> {:ok, issue} end]
     assert {:ok, %{item: original}} = Aiur.DecisionRevisionDispatch.dispatch(ctx.override, opts)
     assert {:ok, :accepted} = DecisionStore.validate_delivery(original, ctx.store)
     assert {:ok, :accepted} = DecisionStore.record_delivery(original, ctx.store)

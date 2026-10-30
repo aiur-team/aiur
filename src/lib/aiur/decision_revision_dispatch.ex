@@ -9,8 +9,9 @@ defmodule Aiur.DecisionRevisionDispatch do
   for a permanent outcome.
   """
 
+  alias Aiur.Commands
   alias Aiur.Commands.{DeliveryTarget, NativeAnswer, Overrides}
-  alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
+  alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, DecisionStore, Issue, Tracker}
 
   @max_message_chars 7_800
 
@@ -38,12 +39,22 @@ defmodule Aiur.DecisionRevisionDispatch do
   def dispatch(%Decision{} = decision, opts \\ []) when is_list(opts) do
     with %DecisionRevision{} = revision <- List.last(decision.revisions),
          ticket <- Overrides.target_ticket(decision),
+         :ok <- recheck_override(decision, opts),
          {:ok, %Issue{} = target} <- revalidate_target(%{decision | ticket: ticket}, opts) do
       send_revision(decision, revision, target, opts)
     else
       nil -> {:error, :revision_missing}
       {:no_longer_applicable, _reason} = outcome -> outcome
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp recheck_override(%{overrides: []}, _opts), do: :ok
+
+  defp recheck_override(decision, opts) do
+    case DecisionStore.recheck_override_delivery(decision.decision_id, decision.active_action_id, Keyword.get(opts, :store, Commands.default_store())) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:override_delivery_deferred, reason}}
     end
   end
 
