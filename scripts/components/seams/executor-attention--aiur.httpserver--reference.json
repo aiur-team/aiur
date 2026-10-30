@@ -1,9 +1,0 @@
-{
-  "from": "executor-attention",
-  "to_module": "Aiur.HttpServer",
-  "kind": "reference",
-  "only_paths": [
-    "src/lib/aiur/executor/attach_cli.ex"
-  ],
-  "reason": "MP-E3-C1-T03: attach requires proof that the hook sink HTTP listener is bound"
-}

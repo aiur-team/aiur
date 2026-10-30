@@ -49,7 +49,7 @@ defmodule Aiur.Executor.AttachCLI do
   end
 
   defp listener(opts) do
-    port = Keyword.get_lazy(opts, :bound_port, &Aiur.HttpServer.bound_port/0)
+    port = Keyword.get(opts, :bound_port)
     if is_integer(port), do: :ok, else: {:failure, 69, "the Executor hook needs the dashboard listener; restart without --no-dashboard"}
   end
 

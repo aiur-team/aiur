@@ -148,10 +148,7 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     refute File.exists?(Path.join(root, ".codex"))
   end
 
-  test "session renders unknown hook age then real age and rejection counters", %{
-    opts: opts,
-    root: root
-  } do
+  test "session renders unknown hook age then real age and rejection counters", %{root: root} do
     assert {:ok, _binding} = Session.attach(%{harness: "claude"})
     now = DateTime.utc_now()
     read_opts = [json: true, now: now, path: Path.join(root, "claims.json")]

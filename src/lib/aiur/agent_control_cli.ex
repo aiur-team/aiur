@@ -58,7 +58,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate executor_fast_forward(wake_id), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_fast_forward(wake_id, opts), to: Aiur.ExecutorAttention.CLI
   @spec executor_attach(keyword()) :: :ok
-  defdelegate executor_attach(opts), to: Aiur.Executor.AttachCLI, as: :attach
+  def executor_attach(opts), do: Aiur.Executor.AttachCLI.attach(Keyword.put(opts, :bound_port, Aiur.HttpServer.bound_port()))
   @spec executor_detach(keyword()) :: :ok
   defdelegate executor_detach(opts), to: Aiur.Executor.AttachCLI, as: :detach
   @spec executor_session(keyword()) :: :ok

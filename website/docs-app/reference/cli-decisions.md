@@ -223,8 +223,12 @@ An agent attention is a visibility signal rather than a gate — the agent keeps
 Answering a Command dismisses duplicate unanswered Commands on the same ticket, including deferred ones. A blocking Command is not swept up, since the waiting agent needs its answer. Dismissing a Command closes it; a live agent is told to use its judgement, while a gone agent gets no notice.
 
 Attach and detach operate locally on the daemon and the repository you run them from;
-remote instance RPC does not permit these file-writing commands. No listener returns
+remote instance RPC does not permit these file-writing commands.
+
+No listener returns
 exit 69 with restart instructions; missing or invalid flags return 64. If Claude
 settings cannot be written, attach keeps its `awaiting_first_hook` binding and
-returns 73 naming the settings path. Use `--takeover --print-config` to replace
+returns 73 naming the settings path.
+
+Use `--takeover --print-config` to replace
 that pending binding and print config for manual installation.
