@@ -1,0 +1,23 @@
+import { expect, it, vi } from "vitest";
+import { connectStreamDeckChannel, type StreamDeckChannelEvents, type WebSocketLike } from "../src/channel.js";
+it("queues inventory until join and delivers daemon settings and deck alerts", async () => {
+  const sent: string[] = [];
+  const socket: WebSocketLike = { binaryType: "", onopen: null, onmessage: null, onerror: null, onclose: null, send: (value) => sent.push(value), close: vi.fn() };
+  const events = Object.fromEntries(["snapshot", "fleet", "grid", "usage", "transcript", "logs", "control", "commands", "commandAnswered", "commandsError", "voiceStarted", "voice", "voiceError", "voiceClosed", "voiceAvailability", "closed", "settings", "alert"].map((name) => [name, vi.fn()])) as unknown as StreamDeckChannelEvents;
+  const channel = await connectStreamDeckChannel({ baseUrl: "http://test", fetch: async () => ({ ok: true, json: async () => ({ token: "signed" }) }), websocket: () => socket, events });
+  const devices = { mics: [{ id: "mic", label: "Mic" }], speakers: [], instances: ["local"], legacy_mic_id: "old-mic" };
+  channel.devices(devices);
+  expect(sent).toHaveLength(0);
+  socket.onopen?.();
+  socket.onmessage?.({ data: JSON.stringify(["4", "1", "streamdeck:fleet", "phx_reply", { status: "ok" }]) });
+  expect(JSON.parse(sent[1]!)).toEqual(["4", "2", "streamdeck:fleet", "devices", devices]);
+  channel.settingsSet({ brightness: 30 });
+  expect(JSON.parse(sent[2]!)).toEqual(["4", "3", "streamdeck:fleet", "settings_set", { brightness: 30 }]);
+  socket.onmessage?.({ data: JSON.stringify(["4", null, "streamdeck:fleet", "settings", { brightness: 30 }]) });
+  expect(events.settings).toHaveBeenCalledWith({ brightness: 30 });
+  socket.onmessage?.({ data: JSON.stringify(["4", null, "streamdeck:fleet", "alert", { name: "error" }]) });
+  expect(events.alert).toHaveBeenCalledWith({ name: "error" });
+  channel.voiceStatus("Listening");
+  expect(JSON.parse(sent[3]!)).toEqual(["4", "4", "streamdeck:fleet", "voice_status", { text: "Listening" }]);
+  channel.close();
+});

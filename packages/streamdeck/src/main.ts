@@ -19,11 +19,18 @@
  * endpoints and FEATURE reports over control transfers. `usb` ships N-API
  * prebuilt binaries, so it needs no native toolchain at install time.
  */
+import { createDeviceInventory } from "./device-inventory.js";
+import { createNodeSystem, createFilePreferenceStore } from "./audio/index.js";
+import { type DeckSettings, type DeckDevices } from "./deck-settings.js";
+import { createDeckAlerts, deckChime } from "./deck-alerts.js";
+import { createDeckDictation } from "./deck-dictation.js";
+import { createDeckAudio } from "./deck-audio.js";
 import { spawn } from "node:child_process";
 import net from "node:net";
 import process from "node:process";
 import path from "node:path";
 import { loadInstances } from "./instances.js";
+import { createInstanceSettings } from "./instance-settings.js";
 import { createInstanceSwitcher } from "./instance-switcher.js";
 import { guardChannelEvents } from "./instance-events.js";
 import { parseBrightness } from "./device-path.js";
@@ -46,7 +53,22 @@ export const main = async (): Promise<void> => {
   let activeBackend: HidBackend | null = null;
   let channel: StreamDeckChannel | null = null;
   let runtime: Runtime | null = null;
-  const input = createFrameInput((event) => channel?.input(event));
+  let settings: DeckSettings | null = null;
+  let devices: DeckDevices = { mics: [], speakers: [], instances: [] };
+  const system = createNodeSystem();
+  const audio = createDeckAudio({ settings: () => settings, devices: () => devices, system });
+  const dictation = createDeckDictation({ channel: () => channel, capture: audio.capture,
+    setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  });
+  const alert = createDeckAlerts({
+    choices: () => settings?.alerts ?? {},
+    flash: () => runtime?.flash(),
+    chime: () => {
+      const port = audio.playback();
+      void Promise.resolve().then(() => port.write(deckChime())).finally(() => port.close()).catch((error: unknown) => console.warn("[streamdeck] chime failed", error));
+    },
+  });
+  const input = createFrameInput((event) => { instances.resetSelectionChain(); if (event.kind === "key" && event.action === "down") dictation.focus(null); dictation.input(event); channel?.input(event); });
   const handleInput = (data: Uint8Array): void => { traceInput(data); input.handleReport(data); };
   const repaint = async (backend: HidBackend): Promise<void> => {
     activeBackend = backend;
@@ -65,20 +87,36 @@ export const main = async (): Promise<void> => {
     auth: { token: process.env.AIUR_CLIENT_TOKEN, username: process.env.AIUR_DASHBOARD_USERNAME, password: process.env.AIUR_DASHBOARD_PASSWORD },
   });
   if (registry.error) console.warn(`[streamdeck] ${registry.error}`);
+  const inventory = createDeviceInventory({
+    system, spawn, instances: registry.targets.map((target) => target.name),
+    legacyMicId: createFilePreferenceStore(micPreferencePath()).read(),
+    changed: (value) => { devices = value; channel?.devices(value); },
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  });
   const instances = createInstanceSwitcher<StreamDeckChannel>({
     targets: registry.targets,
     preferencePath: path.join(path.dirname(micPreferencePath()), "streamdeck-instance.json"),
     changed: () => undefined,
-    channel: (connected) => { channel = connected; },
-    disconnect: () => { input.reset(); show(offline); },
+    channel: (connected) => { channel = connected; if (connected !== null) void inventory.refresh(); },
+    disconnect: () => { dictation.disconnect(); input.reset(); show(offline); },
     resetInstance: () => show(offline),
-    connect: (target, lifecycle) => connectStreamDeckChannel({
+    connect: (target, lifecycle) => {
+      const followSettings = createInstanceSettings((name, explicit) => instances.select(name, explicit));
+      return connectStreamDeckChannel({
       baseUrl: target.baseUrl,
       ...target.auth,
       fetch: defaultFetch,
       websocket: defaultWebSocket,
       events: guardChannelEvents({
-        snapshot: () => lifecycle.connected(),
+        snapshot: () => { lifecycle.connected(); void inventory.refresh(); },
+        settings: (value) => {
+          settings = value;
+          runtime?.applySettings(value);
+          followSettings(value);
+        },
+        alert,
+        ticket: (ticket) => dictation.focus(ticket.id),
         frame: show,
         fleet: () => undefined,
         grid: () => undefined,
@@ -88,14 +126,15 @@ export const main = async (): Promise<void> => {
         commands: () => undefined,
         commandAnswered: () => undefined,
         commandsError: () => undefined,
-        voiceStarted: () => undefined,
-        voice: () => undefined,
-        voiceError: () => undefined,
-        voiceClosed: () => undefined,
-        voiceAvailability: () => undefined,
+        voiceStarted: dictation.started,
+        voice: dictation.voice,
+        voiceError: dictation.error,
+        voiceClosed: dictation.closed,
+        voiceAvailability: dictation.availability,
         closed: () => lifecycle.closed(),
       }, lifecycle.current),
-    }),
+      });
+    },
   });
   instances.start();
   if (!presentAtStart) console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");
@@ -122,11 +161,13 @@ export const main = async (): Promise<void> => {
     repaint,
     onBackendClosed: (backend) => {
       if (backend !== null && activeBackend === backend) activeBackend = null;
+      dictation.focus(null);
       input.reset();
       renderer.invalidate();
     },
     registerSignals: (handler) => {
       const shutdown = (): void => {
+        inventory.stop();
         instances.close();
         handler();
       };
@@ -138,6 +179,7 @@ export const main = async (): Promise<void> => {
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     log: logLine,
   });
+  if (settings !== null) runtime.applySettings(settings);
 };
 
 void main().catch((error) => {

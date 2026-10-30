@@ -165,7 +165,6 @@ for file <-
         dashboard_live_support
         dashboard_live_processes
         dashboard_live_decision_fixtures
-        dashboard_live_control_fixtures
       ) do
   Code.require_file("support/#{file}.exs", __DIR__)
 end

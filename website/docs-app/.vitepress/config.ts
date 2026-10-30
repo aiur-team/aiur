@@ -129,6 +129,7 @@ export default withMermaid(defineConfig({
             { text: 'GUI', link: '/guide/gui' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
             { text: 'Outbound events', link: '/guide/outbound-events' },
+            { text: 'Daily newsletter', link: '/guide/newsletter' },
             { text: 'Stream Deck', link: '/guide/stream-deck' },
             { text: 'Mobile local builds', link: '/guide/mobile' }
           ]
@@ -144,6 +145,7 @@ export default withMermaid(defineConfig({
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
             { text: 'Ticket flow: steps 0–8', link: '/concepts/ticket-lifecycle-steps' },
+            { text: 'Ticket lifecycle timeline', link: '/concepts/lifecycle' },
             { text: 'Agent workspaces', link: '/concepts/workspaces' },
             { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
             { text: 'Operating with aiurdev', link: '/concepts/operating-with-aiurdev' },
@@ -166,7 +168,10 @@ export default withMermaid(defineConfig({
             { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
             { text: 'Standalone gh-access', link: '/apis/gh-access' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
-            { text: 'ElevenLabs', link: '/apis/elevenlabs' }
+            { text: 'ElevenLabs', link: '/apis/elevenlabs' },
+            { text: 'OpenAI', link: '/apis/openai' },
+            { text: 'Gemini', link: '/apis/gemini' },
+            { text: 'Anthropic', link: '/apis/anthropic' }
           ]
         },
         {

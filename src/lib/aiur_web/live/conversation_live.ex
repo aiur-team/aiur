@@ -118,7 +118,7 @@ defmodule AiurWeb.ConversationLive do
   def render(assigns) do
     ~H"""
     <section id="conversation" class="conversation-page">
-      <a href="/units">Units</a>
+      <a href="/">Build</a>
       <Components.status state={@state} age={@age} reason={@reason} last_entry={@last_entry} />
       <div :if={@state == :loading} role="status" aria-busy="true" class="conversation-skeleton">Loading conversation…</div>
       <p :if={@page && not @page.complete_from_start} role="note">Earlier history is not available</p>

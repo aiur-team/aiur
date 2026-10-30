@@ -47,6 +47,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Registry, [keys: :unique, name: Aiur.Workspace.Ownership.Registry]},
     Aiur.Workspace.Ownership.Reconciler,
     {Task.Supervisor, [name: Aiur.TaskSupervisor]},
+    AiurWeb.Streamdeck.Deck.SettingsSnapshot,
     Aiur.AlertFeed.Backfill,
     Aiur.CoordinationTasks,
     Aiur.DecisionDispatchTasks,
@@ -209,7 +210,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     expected =
       early ++
         [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
-        final ++ [Aiur.BuildOrder.History.LabelBackfill]
+        final ++ [Aiur.BuildOrder.History.LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest]
 
     assert Aiur.Application.child_specs(@opts) == expected
 

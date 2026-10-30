@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
   alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame, Nav}
-  alias AiurWeb.Streamdeck.Render.{Fleet, MeterDetail, Svg, ViewStrip}
+  alias AiurWeb.Streamdeck.Render.{Fleet, MeterDetail, Settings, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
   @glyphs %{
@@ -14,7 +14,7 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     "up" => "↑",
     "down" => "↓"
   }
-  @microphone "Microphone selection lives on the machine running the sidecar. The browser emulator has no access to those devices, so there is nothing to choose here."
+  @microphone "Settings are saved by the connected daemon. Microphone and speaker choices use inventory reported by the PC sidecar."
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
 
   @spec compose(map()) :: {[map() | nil], [map()]}
@@ -43,7 +43,13 @@ defmodule AiurWeb.Streamdeck.Render.Views do
 
   def compose(model) do
     context = field(model, :view_context, %{})
-    faces = keys(to_string(field(model, :surface)), context)
+    compose(to_string(field(model, :surface)), model, context)
+  end
+
+  defp compose("settings", _model, context), do: Settings.compose(field(context, :settings))
+
+  defp compose(surface, model, context) do
+    faces = keys(surface, context)
     faces = Enum.take(faces ++ List.duplicate(nil, 8), 8)
     {faces, ViewStrip.compose(model, context)}
   end
@@ -75,12 +81,6 @@ defmodule AiurWeb.Streamdeck.Render.Views do
         card(key.label, key.label, key.sub, glyph: @glyphs[key.icon], command: key.command, state: key.state, disabled: key.disabled?, hold: key.mic?, icon: key.icon, url: Map.get(key, :url))
     end)
   end
-
-  defp keys("settings", _context),
-    do: [
-      card("Microphone", @microphone, "SIDECAR", disabled: true),
-      card("Voice", @voice, "DAEMON", disabled: true)
-    ]
 
   defp keys("commands", context) do
     keys = field(context, :decision_keys, [])

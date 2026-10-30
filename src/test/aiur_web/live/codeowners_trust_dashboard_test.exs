@@ -42,7 +42,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
     start_endpoint()
 
     conn = build_conn() |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
-    {:ok, view, _html} = live(conn, "/units")
+    {:ok, view, _html} = live(conn, "/commands")
     banner = element(view, "#codeowners-trust-degraded")
     html = render(banner)
     assert html =~ "Team lookup failed for @acme/team"

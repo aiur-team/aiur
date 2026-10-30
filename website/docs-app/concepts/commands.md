@@ -226,9 +226,12 @@ The first accepted answer wins. If another responder answers first, the conflict
 shows the accepted answer and its delivery state instead of overwriting it.
 
 Use **Replace** before delivery, or **Send correction** after delivery. Both
-record an override of the original Command. Before delivery the new answer
+record an override of the original Command.
+
+Before delivery the new answer
 replaces the pending answer; after delivery it sends corrective direction to the
-active worker on the existing work. It cannot retract earlier effects.
+active worker on unmerged work. If the PR has merged, it creates a corrective
+ticket for a new worker and PR. It cannot retract earlier effects.
 
 Both revise and supersede use the current active answer's precedence:
 **direct operator > operator relayed by an Executor > Executor or supervisor**.
@@ -255,13 +258,54 @@ Push evidence needs a verified PR head-update timestamp later than
 delivery; unknown or same-second chronology stays unproven until acknowledgement
 or a later proven push. Queue acceptance alone does not mean implementation.
 
-Other routes (`resume_pending`, `capacity_wait`, `corrective_ticket`, `replacement`)
-retain the existing delivery path. An absent or paused worker receives the answer
-at its next session start; a terminal ticket raises an Executor follow-up.
+When the PR has merged, the override creates one corrective ticket, with the
+question, old and new answers, original PR and merge SHA. Its `corrective_ticket`
+link survives restart, and comments link the original ticket and merged PR to it.
+Retries reconcile the override marker before creating a ticket.
 
-Automatic resumption and corrective-ticket creation are subsequent routing work.
-Override acceptance never spawns a worker or rewrites merged work. Direct legacy
-supersede calls retain their pre-delivery guard.
+Linking a corrective ticket closes any follow-up about the old target.
+Delayed results from that target cannot cancel the corrective work.
+
+If the local PR observation is missing or stale, reconciliation checks a closed
+ticket's merged PR through GitHub before filing the correction. This runs outside
+worker dispatch.
+
+Reconciliation errors appear in `aiur commands --json` as a `failure` record,
+including the redacted reason, attempt count and next retry time. Before
+delivery, the override state becomes `failed`; confirmed delivery remains
+visible. Retries back off from one minute to one hour. Permanent failures
+alert immediately; other failures alert after three attempts.
+
+The corrective
+ticket enters normal dispatch and capacity limits; merged history is preserved.
+A later override targets this corrective ticket while its PR remains unmerged.
+It keeps the observed active-worker, resume or capacity-wait route.
+For corrective work, `implemented` requires the corrective PR to merge.
+
+For a confirmed unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
+journal-backed resume queue. Resumable workers continue on the same ticket,
+branch and PR, oldest request first, within the fleet and pressure limits.
+
+Capacity waits remain visible with `resume_reason: capacity` and survive restart.
+A newer override supersedes the earlier pending actions; only its text is used.
+
+Each resumed or continuation turn starts with “Operator override — this replaces
+your earlier instruction for Command …” until acknowledgement. A confirmed
+provider turn start marks prompt delivery; starting a worker alone does not.
+
+Explicit parked or paused labels stay in place, and a worker paused with
+`aiur pause N` stays paused, including while its pause request is pending.
+Aiur raises an Executor Command,
+“Resume #N to apply the override?”; the operator uses the normal resume control
+to authorize resumption. Capacity-only waits need no approval.
+
+Unknown PR observations never authorize automatic resumption. Closed targets
+are checked for a merged PR asynchronously, as described above. The resume
+scheduler requires a freshly confirmed live ticket.
+
+Unrecoverable worker replacement remains separate routing work. Overrides never
+rewrite merged work. Direct legacy supersede calls retain their pre-delivery
+guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.

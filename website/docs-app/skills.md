@@ -147,7 +147,7 @@ The complexity routing rules that pick which CE skill to run live in [complexity
 
 ## Daily newsletter snapshots
 
-Run `python3 scripts/newsletter/collect.py` from the repository to capture a
+Run `python3 packages/newsletter/collect.py` from the repository to capture a
 rolling 24-hour window (merges retain 48 hours) beneath the per-repository Aiur
 state directory at `newsletter/snapshots/YYYY-MM-DD.json`. Repeating a UTC date
 atomically replaces that file.
@@ -187,7 +187,7 @@ hours remain unavailable until per-ticket active intervals cover the window.
 Running build identity comes from each daemon's release stamp, separately
 from merged changes; a merge alone does not establish deployment or verification.
 
-Newsletter metrics use `scripts/newsletter/metrics.py`'s pure
+Newsletter metrics use `packages/newsletter/metrics.py`'s pure
 `compute(today, yesterday_or_none)` function. The report separates merge outcomes,
 seven-day allocation per PC/NUC machine, program scope changes, lanes, and
 meta/action evidence.
@@ -197,7 +197,7 @@ and trend `unavailable`; merge timestamps alone never prove a change is live.
 
 Ancestry and Executor verification require explicit snapshot evidence, so their
 counts remain unavailable when the collector cannot supply it. The input and
-report contract is in `scripts/newsletter/metrics-contract.md` in the repository.
+report contract is in `packages/newsletter/metrics-contract.md` in the repository.
 
 The allocation headline compares feature turn-hours and distinct tickets worked
 with the 95% target over seven days, separately for PC and NUC. Instant agent
@@ -207,3 +207,56 @@ non-feature intake by source, and observed feature-starved slot-minutes.
 Each machine needs complete evidence for its window; absent or partial capture
 shows `unavailable` for that machine. A 24-hour capture cannot substitute for
 seven days, and current todo labels cannot establish first-dispatch intake.
+
+
+### Build the daily PDF
+
+Run `python3 packages/newsletter/newsletter.py build --repo owner/repo` to
+collect a snapshot, compute metrics and compile the approved dark broadsheet.
+Chromium or Google Chrome is required.
+
+The command writes `report.json`,
+`newsletter.html` and a checked one-page US Letter `newsletter.pdf` under the
+repository state root at `newsletter/<UTC-date>/`.
+
+`--state-dir <dir>` selects
+a different root; repeat `--instance <name>` for additional daemon sources.
+
+Use `--timezone <IANA-zone>` for the operator's printed window end (default:
+local time). `--notes <file>` accepts Markdown paragraphs or editorial JSON with
+`notes`, `blockers[{label,action}]`, `shipped[{icon,label}]` and
+`bottlenecks[{problem,action,result,tone}]`. 
+
+These fields add context without replacing metrics. Missing inputs visibly say `unavailable`.
+
+`preprocess` runs collection plus metrics without Chromium; `compile <report>`
+prints an existing report, with the same notes/timezone options.
+
+Fonts, logo and
+dark tokens are embedded from `packages/aiur-style`; rendering needs no font
+network access. The page balances all unfinished feature lanes across both columns, excludes
+completed lanes, and drops only optional editorial items to fit. Fonts stay
+readable and all data stays in the report.
+
+Overflow or missing Chromium fails
+with a clear error. See `packages/newsletter/README.md` for the notes schema and
+exact trimming order. This package does not send messages or schedule delivery.
+
+
+### Enrich and deliver with the Executor
+
+Invoke `/aiur-newsletter` to preprocess the daily report, add checked Executor
+findings as a notes file, and compile the PDF. The skill checks operator decisions
+in tracker items, open Commands and the latest handoff.
+
+Its `blockers` entries use short `{label, action}` pairs without issue numbers.
+A checked empty list displays
+“Nothing blocked on you today”; missing blocker evidence remains `unavailable`.
+
+The Executor attaches the PDF with Claude's `SendUserFile` and sends a one-line
+Claude app push notification, checking each result. This requires those tools in
+the Executor session; a local PDF alone is not delivery.
+
+A delivery receipt avoids duplicate sends on repeated wakes.
+Ask for a **dry-run** to produce and inspect the
+PDF without sending it or notifying. The skill installs no scheduler or email path.

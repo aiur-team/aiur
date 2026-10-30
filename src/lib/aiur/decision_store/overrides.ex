@@ -2,6 +2,7 @@ defmodule Aiur.DecisionStore.Overrides do
   @moduledoc false
 
   alias Aiur.Commands.OverrideRoute
+  alias Aiur.Commands.Overrides, as: CommandOverrides
   alias Aiur.Decision
 
   @spec metadata(keyword()) :: map()
@@ -22,7 +23,9 @@ defmodule Aiur.DecisionStore.Overrides do
   def dispatchable?(decision) do
     case Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id)) do
       %{state: :superseded} -> false
-      _observed_route -> true
+      %{route: :corrective_ticket, corrective_ticket: nil} -> false
+      %{route: :corrective_ticket} = record -> is_map(Map.get(record, :corrective_ticket))
+      _observed_route -> is_nil(CommandOverrides.resume_request(decision))
     end
   end
 end

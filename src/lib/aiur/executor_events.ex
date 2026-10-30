@@ -302,9 +302,13 @@ defmodule Aiur.ExecutorEvents do
   end
 
   @doc false
+  @spec journaled_topic?(String.t()) :: boolean()
+  def journaled_topic?(topic), do: topic == "system.newsletter.ready" or String.starts_with?(topic, "executor.")
+
+  @doc false
   @spec validate_publish_topic(String.t()) :: :ok | {:error, :invalid_topic}
   def validate_publish_topic(topic) do
-    with :ok <- validate_syntax(topic), true <- String.starts_with?(topic, "executor.") do
+    with :ok <- validate_syntax(topic), true <- journaled_topic?(topic) do
       :ok
     else
       false -> {:error, :invalid_topic}

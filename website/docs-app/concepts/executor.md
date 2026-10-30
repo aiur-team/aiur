@@ -69,3 +69,102 @@ Worker transcripts can contain secrets and remain on disk until deleted.
 The Executor journal identity follows the same storage contract when integrated.
 See [Conversations](/concepts/conversations) for storage paths, retention,
 masking limits and deletion steps.
+
+### Attached-session lifecycle hooks
+
+`POST /api/v1/executor/hook?harness=claude|codex` accepts lifecycle events for an
+explicitly attached Executor session. It requires a loopback connection (IPv4
+or IPv6) and the instance's dedicated hook bearer credential; dashboard login
+and dashboard write permissions do not grant hook access.
+
+The endpoint remains
+available with a read-only dashboard.
+
+Authenticated POSTs return `202` before
+asynchronous validation and binding updates; a `202` does not mean an event was
+accepted. Other authenticated methods return `405`.
+
+`POST /api/v1/executor/hook/deliver?harness=claude|codex` uses the same
+credential and normalizer to deliver pending Executor messages at a hook boundary.
+Only the attached provider session and harness can receive a batch.
+
+A `200`
+contains the JSON envelope to print verbatim to hook stdout; every other status
+prints nothing (`204` means no delivery). Non-loopback delivery requests return
+`403`; missing or incorrect credentials return `401`.
+
+Sync delivers at `Stop` or the next `UserPromptSubmit`; steer also delivers at
+`PostToolUse`. Async messages remain pull-only. `SessionStart`, subagent hooks,
+and `Stop` with `stop_hook_active: true` never claim messages.
+
+Batches preserve arrival order, with at most 50 messages and a 64 KiB rendered frame. Oversized
+first bodies are truncated.
+
+A claim records harness queueing, not consumption; failed rendering, expired deadlines, and failed HTTP writes leave messages
+pending for retry. The request budget is 1.5 seconds. An idle session waits for
+the next prompt; this endpoint does not wake it.
+
+The loopback `remote_ip` check is defence in depth, not the boundary: a local
+tunnel or reverse proxy that forwards remote traffic to `127.0.0.1` passes it.
+The hook token is the boundary.
+
+The daemon's `Aiur.Executor.HookToken.ensure/0` creates an instance-scoped
+`.executor.hook-token` and `.executor.hook-headers` pair in its Executor state
+directory, with mode `0600` (directory `0700`).
+
+Hook commands use
+`curl -H @<headers-file>` to keep the bearer out of command arguments.
+`rotate/0` revokes the previous credential; `ensure/0` repairs the header file
+from the current token.
+
+Each file replacement is atomic; rotation of the pair
+can briefly reject a concurrent hook.
+
+The harness is read only from the URL query. Unknown payload fields are dropped,
+strings are bounded, and transcript paths must identify an owned regular file
+under `~/.claude/projects/` or `~/.codex/sessions/` with the matching session
+filename; symlinks and traversal are refused.
+
+Claude subagents require `<session_id>/subagents/agent-<agent_id>.jsonl`.
+The Codex agent filename rule remains provisional until a real CLI capture
+confirms it.
+Rejected paths become `nil`. Unattached sessions, foreign sessions and events
+beyond 50 per second per binding are dropped.
+
+A nil or rejected path preserves an existing locator for the same session;
+a new session never inherits it.
+
+Accepted events publish on the
+internal `executor_hook` topic; rejection counts use
+`[:aiur, :executor, :hook]` telemetry without recording payload content.
+
+### Generated hook settings
+
+The Executor hook generator installs Claude hooks in the repository's
+`.claude/settings.local.json`. It preserves existing settings and hook order,
+backs up changed files to
+`<repo>/.claude/settings.local.json.aiur-bak-<timestamp>`, and refuses invalid
+JSON or hook structures. Written settings and backups have mode `0600`.
+
+Before installing, ignore `.claude/settings.local.json*` in `.gitignore` or
+the repository's local `.git/info/exclude`. Settings and backups may contain
+environment values, permissions and absolute hook paths; file permissions do
+not prevent Git from committing them.
+
+Removing the integration removes only commands
+starting with `AIUR_EXECUTOR_HOOK=1`; backups remain available.
+
+An existing marked lifecycle command is preserved, including its paths.
+Uninstall and reinstall the hooks to point them at another instance.
+
+Codex configuration is printed for merging into `<repo>/.codex/hooks.json`.
+Review and trust those hooks in Codex's `/hooks` dialog before using them;
+the generator does not edit Codex settings or grant trust.
+
+Generated commands read the instance's private `.executor.hook-url` file on each
+invocation. The daemon rewrites that file after an HTTP bind, so a changed
+port does not require reinstalling hooks.
+
+Commands send input to the loopback
+endpoint with the separate header file, suppress output, bound curl to two
+seconds, and exit successfully even when the daemon is unavailable.

@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.AgentLifecycle do
   @moduledoc false
 
+  alias Aiur.Commands.Overrides
   alias Aiur.Decision
   alias Aiur.DecisionEvent
   alias Aiur.DecisionStore.Answers
@@ -55,10 +56,11 @@ defmodule Aiur.DecisionStore.AgentLifecycle do
 
   defp validate_agent_lifecycle_target(decision, context) do
     active_answer = Decision.active_answer(decision)
+    target = Overrides.target_ticket(decision, context.data.action_id).identifier
 
     cond do
-      decision.ticket.identifier != context.ticket_identifier ->
-        {:error, {:conflict, {:ticket_mismatch, context.ticket_identifier, decision.ticket.identifier}}}
+      target != context.ticket_identifier ->
+        {:error, {:conflict, {:ticket_mismatch, context.ticket_identifier, target}}}
 
       is_nil(active_answer) ->
         {:error, {:invalid_transition, :answer_missing}}
@@ -90,7 +92,8 @@ defmodule Aiur.DecisionStore.AgentLifecycle do
   end
 
   defp delivered_once?(decision) do
-    Enum.any?(Decision.active_dispatch_attempts(decision), &(not is_nil(&1.delivered_at)))
+    match?(%{delivered_at: %DateTime{}}, Overrides.pending(decision)) or
+      Enum.any?(Decision.active_dispatch_attempts(decision), &(not is_nil(&1.delivered_at)))
   end
 
   defp compare_lifecycle_replay(fact, data, conflict) do

@@ -129,6 +129,8 @@ defmodule Aiur.Application.Children do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      # Channels and browser mounts need cached settings before HTTP starts.
+      AiurWeb.Streamdeck.Deck.SettingsSnapshot,
       Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
       Aiur.DecisionDispatchTasks,
@@ -323,7 +325,8 @@ defmodule Aiur.Application.Children do
         Aiur.VoiceConversation.child_specs() ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
-        BuildOrders.child_specs(:label_backfill, opts)
+        BuildOrders.child_specs(:label_backfill, opts) ++
+        List.wrap(if(recording?, do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest]))
     )
   end
 

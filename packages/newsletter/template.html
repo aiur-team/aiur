@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>The Aiur Daily</title>
+<style>$styles</style></head><body>
+<header class="mast"><div class="name"><img src="$logo" alt="Aiur logo"><h1>The Aiur <span>Daily</span></h1></div></header>
+<div class="rules"></div>
+<div class="dateline"><b>$date</b><span>Window end $window_end</span><span>PC + NUC combined</span></div><div class="rule1"></div>
+<main class="newspaper">
+<div class="main-column" data-column="main"><section class="lead-story"><span class="kick">Feature share of merges · goal 95%</span>
+<div class="hero">$gauge<div class="facts"><div class="fact"><b>$feature_count<i>/$merged</i></b><span>feature merges</span></div><div class="merge-trend">$trend</div></div></div>
+$focus</section>
+<section class="card outcomes">$funnel</section>
+<section class="program"><div class="board">$program</div>$states</section>
+<section class="features"><div class="sec-h"><h3>Feature progress</h3></div>
+<div class="legend2"><span class="lg"><i class="accent"></i>done before</span><span class="lg"><i class="today"></i>done in window</span></div>
+<div class="board" data-lane-board="main">$lanes</div></section>
+</div>
+<aside class="right-column" data-column="side">
+<section class="byou"><header>$hand<h3>Blocked by you</h3><span class="count">$blocker_count</span></header><ul data-editorial-list="blockers" data-total="$blocker_count">$blockers</ul></section>
+<section class="card scope"><span class="kick">Scope changes</span>$scope</section>
+<section class="card"><span class="kick">Shipped today</span><ul class="ship" data-editorial-list="shipped" data-total="$shipped_count">$shipped</ul></section>
+<section class="features"><div class="sec-h"><h3>Feature progress</h3><span class="kick">continued</span></div><div class="board" data-lane-board="side"></div></section>
+$patterns$notes
+</aside></main>
+<section class="bns" aria-label="Bottlenecks" data-editorial-list="bottlenecks" data-total="$bottleneck_count">$bottlenecks</section>
+<p class="omitted">$omitted</p>
+<footer class="foot">Sources: $sources. Feature share = feature/merged PRs. Live = running build; verified = Executor-confirmed features. Bars: before/today/left. Scope: transitions. Missing: unavailable.</footer>
+</body></html>

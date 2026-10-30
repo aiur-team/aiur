@@ -1,0 +1,20 @@
+import { expect, it, vi } from "vitest";
+import { createInstanceSettings } from "../src/instance-settings.js";
+it("follows saved settings once and honors a browser's later explicit return selection", () => {
+  const select = vi.fn();
+  const settings = createInstanceSettings(select);
+  settings({ instance: "remote", instance_selection_id: "old" });
+  expect(select).toHaveBeenLastCalledWith("remote", false);
+  settings({ instance: "remote", instance_selection_id: "old" });
+  settings({ instance: "local" });
+  settings({ instance: "remote", instance_selection_id: "old" });
+  expect(select).toHaveBeenCalledTimes(1);
+  settings({ instance: "local", instance_selection_id: "operator-selection" });
+  expect(select).toHaveBeenLastCalledWith("local", true);
+  settings({ instance: "local", instance_selection_id: "operator-selection" });
+  expect(select).toHaveBeenCalledTimes(2);
+  const noPreference = createInstanceSettings(select);
+  noPreference({ instance: null });
+  noPreference({ instance: null, instance_selection_id: "changed" });
+  expect(select).toHaveBeenCalledTimes(2);
+});

@@ -271,6 +271,7 @@ defmodule Aiur.Decision do
 
   def delivered?(%__MODULE__{} = decision) do
     not is_nil(decision.requester_notified_at) or map_size(decision.acknowledgements) > 0 or
+      Enum.any?(decision.overrides, &(not is_nil(&1.delivered_at))) or
       Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
   end
 

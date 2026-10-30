@@ -20,7 +20,7 @@ defmodule Aiur.AiurSkillSurfaceTest do
   )
   @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-experiment aiur-intro aiur-monitor aiur-run design-import land)
   # Executor-only skills are not installed into issue workers or exposed to Codex.
-  @claude_executor_only_skills ~w(aiur-handoff aiur-meta release)
+  @claude_executor_only_skills ~w(aiur-handoff aiur-meta aiur-newsletter release)
 
   test "Codex backend surface: prompt-referenced skills resolve through symlinks" do
     for skill <- ~w(aiur-agent) do

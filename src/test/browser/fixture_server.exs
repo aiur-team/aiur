@@ -12,10 +12,9 @@ Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/streamdeck_transcript.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
-Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live fixture_live ticket_context_live units_live_data units_live voice_input_live
+      route_shell_live fixture_live ticket_context_live voice_input_live voice_fixture_data voice_fixture_live executor_voice_control
       support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
@@ -61,6 +60,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/executor-voice-control/:mode", Aiur.BrowserHarness.ExecutorVoiceControl, :configure)
     get("/build-fixture/index-live", Aiur.BrowserHarness.IndexLiveFixture, :configure)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
@@ -83,13 +83,10 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
       live("/palette-probe", Aiur.BrowserHarness.PaletteProbeLive, :index)
     end
 
+    live("/voice-fixture", Aiur.BrowserHarness.VoiceFixtureLive, :index)
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
-    live("/units-fixture", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
-    live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
-    live("/models-panel", Aiur.BrowserHarness.ModelsPanelLive, :index)
-    live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/route-shell", Aiur.BrowserHarness.RouteShellLive, :build)
     live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
@@ -216,6 +213,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
           {Task.Supervisor, name: Aiur.TaskSupervisor},
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
+          AiurWeb.Streamdeck.Deck.SettingsSnapshot,
           {AiurWeb.Endpoint, []},
           AiurWeb.FinancialDataAccess.Generation,
           AiurWeb.VoiceSessionLimiter
@@ -457,6 +455,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
+        streamdeck_settings_path: Path.join(System.get_env("AIUR_BROWSER_ARTIFACT_DIR") || System.tmp_dir!(), "deck-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}.json"),
         streamdeck_build_source: Aiur.BrowserHarness.StreamdeckTicket,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(streamdeck_snapshot()) end,

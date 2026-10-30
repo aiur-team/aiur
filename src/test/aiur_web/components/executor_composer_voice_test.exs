@@ -26,6 +26,15 @@ defmodule AiurWeb.ExecutorComposerVoiceTest do
     assert Floki.find(render(%{listener: %{effective: nil}}), "textarea[disabled]") != []
   end
 
+  test "worker composer shows canonical async and mute copy while retaining its message form" do
+    for {mode, copy} <- [async: "Async · pings only", mute: "Mute · silent"] do
+      html = render(%{target: %{ticket: "123"}, listener: %{effective: mode}})
+      assert Floki.text(Floki.find(html, ".conversation-mode")) =~ copy
+      assert Floki.find(html, "form#conversation-composer textarea:not([disabled])") != []
+      refute Floki.text(html) =~ "mode unknown"
+    end
+  end
+
   # Existing behavior guard, not coverage of the Executor addition.
   test "future regression guard: worker composers keep their existing controls" do
     html = render(%{target: %{ticket: "123"}})

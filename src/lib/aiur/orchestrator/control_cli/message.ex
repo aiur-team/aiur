@@ -86,7 +86,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
         report_message_outcome(status, request_id, await_message_delivery(request_id))
 
         case Aiur.Listener.receipt(request_id) do
-          {:ok, %{listener_mode: mode}} when mode in [:steer, :sync, :async] -> IO.puts("aiur: accepted under #{mode} listener mode")
+          {:ok, %{listener_mode: mode}} when mode in [:steer, :sync, :async, :mute] -> IO.puts("aiur: accepted under #{mode} listener mode")
           _ -> :ok
         end
 

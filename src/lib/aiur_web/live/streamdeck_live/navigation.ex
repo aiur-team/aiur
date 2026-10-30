@@ -4,17 +4,18 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.FrameUpdates
-  alias AiurWeb.StreamdeckLive.ChatFocus
+  alias AiurWeb.StreamdeckLive.{ChatFocus, Settings}
   alias Phoenix.LiveView.Socket
 
   @spec route(Socket.t(), String.t(), map()) :: Socket.t()
   def route(socket, event, params) do
-    sections = Deck.navigation(socket.assigns.grid)
+    grid = socket.assigns |> Settings.refresh_assigns() |> Map.fetch!(:grid) |> FrameUpdates.prepare_grid()
+    sections = Deck.navigation(grid)
     nav = key_nav(socket.assigns.deck_nav, event, params, sections)
     socket = assign(socket, :deck_nav, nav)
     frame = frame(socket, event, params, sections)
 
-    case FrameUpdates.transition(nav, frame, socket.assigns.grid) do
+    case FrameUpdates.transition(nav, frame, grid) do
       {:ok, nav, effects} ->
         socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
         # Keep explicit legacy command events available while device input opens turn keys.

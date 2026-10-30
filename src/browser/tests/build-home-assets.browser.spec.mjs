@@ -136,13 +136,16 @@ test('ordered stylesheet imports preserve source order and Safari blur fallbacks
 
 test('home.css does not change other pages', async ({ page }) => {
   test.setTimeout(120_000)
+  // Margins come from the Typed OM: Chromium sometimes reports a laid-out flex item's auto margin as 0px (#7187).
   const snapshot = () => JSON.stringify([...document.body.querySelectorAll('*')].map(e => {
     const style = getComputedStyle(e)
-    return [e.tagName, [...style].filter(p => !p.startsWith('--')).map(p => style.getPropertyValue(p))]
+    const computed = e.computedStyleMap()
+    return [e.tagName, [...style].filter(p => !p.startsWith('--'))
+      .map(p => p.startsWith('margin') ? String(computed.get(p)) : style.getPropertyValue(p))]
   }))
   let buttons = 0
   let anchors = 0
-  for (const route of ['/route-shell', '/commands', '/units-fixture', '/ticket-context', '/provider-meters', '/meter-row', '/quota-panel', '/fixture']) {
+  for (const route of ['/route-shell', '/commands', '/ticket-context', '/provider-meters', '/fixture']) {
     const snapshots = []
     for (const empty of [true, false]) {
       if (empty) await page.route('**/build-home/home.css', r => r.fulfill({ contentType: 'text/css', body: '' }))
@@ -152,16 +155,12 @@ test('home.css does not change other pages', async ({ page }) => {
       await page.addInitScript(() => { localStorage.setItem('aiur-theme', 'dark'); localStorage.setItem('aiur-palette', 'gruvbox') })
       await page.goto(route)
       await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
-      if (route === '/units-fixture') {
-        await page.getByRole('button', { name: 'Select no filters' }).click()
-        await expect(page.getByRole('button', { name: 'Reset Units filters' })).toBeVisible()
-      }
       await page.evaluate(() => document.fonts.ready)
       await page.evaluate(() => { document.getAnimations().forEach(a => { if (a instanceof CSSTransition) a.finish(); else { a.pause(); a.currentTime = 0 } }) })
       snapshots.push(JSON.parse(await page.evaluate(snapshot)))
     }
     expect(snapshots[1], `stylesheet affected ${route}`).toEqual(snapshots[0])
-    buttons += await page.locator('.btn').count()
+    buttons += await page.getByRole('button').count()
     anchors += await page.locator('a').count()
   }
   expect(buttons, 'no button target').toBeGreaterThan(0)

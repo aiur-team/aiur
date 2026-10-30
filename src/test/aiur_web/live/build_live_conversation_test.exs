@@ -70,7 +70,8 @@ defmodule AiurWeb.BuildLiveConversationTest do
       identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "example", repository: "aiur", provider_id: "I_issue_#{id}", identifier: id}
 
       with {:ok, row} <- FixtureSource.ticket(id, dataset: "live") do
-        {:ok, Map.merge(row, %{"identity" => identity, "running" => %{identifier: id, tracker_identity: identity}})}
+        atom_row = Map.new(row, fn {key, value} -> {String.to_existing_atom(key), value} end)
+        {:ok, Map.merge(atom_row, %{identity: identity, running: %{identifier: id, tracker_identity: identity}})}
       end
     end
   end
@@ -128,6 +129,20 @@ defmodule AiurWeb.BuildLiveConversationTest do
     assert_reply(view, %{"kind" => "conversation", "id" => ^id, "state" => "live"})
     assert_received {:prepare, ^id}
     assert_received {:identity, %TrackerIdentity{status: :joinable}, %TrackerIdentity{status: :joinable}}
+    assert :sys.get_state(view.pid).socket.assigns.conversation_ref.running.tracker_identity.status == :joinable
+  end
+
+  test "conversation page accepts atom-keyed IndexSource ticket rows" do
+    previous = Application.get_env(:aiur, :build_data_source)
+    Application.put_env(:aiur, :build_data_source, {TicketSource, []})
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_data_source, previous), else: Application.delete_env(:aiur, :build_data_source) end)
+
+    view = view()
+    id = hd(rows())["id"]
+    render_hook(view, "conversation-page", %{id: id})
+
+    assert_reply(view, %{"kind" => "conversation", "id" => ^id, "entries" => [%{"text" => "Ticket " <> ^id}]})
+    assert :sys.get_state(view.pid).socket.assigns.conversation_ref.identity.status == :joinable
     assert :sys.get_state(view.pid).socket.assigns.conversation_ref.running.tracker_identity.status == :joinable
   end
 

@@ -1,3 +1,4 @@
+import type { DeckDevices, DeckSettings } from "./deck-settings.js";
 import type { DeckFrame } from "./frame.js";
 import type { RawInput } from "./frame-input.js";
 interface BuildProgressInput {
@@ -175,6 +176,8 @@ export type StreamDeckCommandAnswerError =
   | { readonly reason: "stale" };
 
 export interface StreamDeckChannelEvents {
+  alert?(payload: Readonly<Record<string, unknown>>): void;
+  settings?(settings: DeckSettings): void;
   frame?(frame: DeckFrame): void;
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
@@ -235,6 +238,9 @@ export interface StreamDeckChannelOptions {
 }
 
 export interface StreamDeckChannel {
+  voiceStatus(text: string): void;
+  devices(devices: DeckDevices): void;
+  settingsSet(patch: Partial<DeckSettings>): void;
   input(input: RawInput): void;
   priority(identifier: string, direction: "up" | "down"): void;
   focus(identifier: string): void;

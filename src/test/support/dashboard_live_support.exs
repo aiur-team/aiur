@@ -32,13 +32,10 @@ defmodule AiurWeb.DashboardLiveSupport do
       # to seed every assign mount/3 seeds — including the server-owned sidebar
       # collapse state the shell reads.
       nav_collapsed: false,
-      agent_log_modal: nil,
-      drafts: %{},
-      chat_errors: %{},
       decision_actions: %{},
       global_pause_error: Keyword.get(opts, :global_pause_error),
       writable: Keyword.get(opts, :writable, false),
-      live_action: Keyword.get(opts, :live_action, :index),
+      live_action: Keyword.get(opts, :live_action, :decisions),
       decision_filter: :all,
       selected_decision_id: selected_decision_id,
       selected_decision: selected_decision,

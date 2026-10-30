@@ -1,8 +1,8 @@
 /**
  * The settings surface's pure view model: which microphone sits on which key.
  *
- * Six of the eight physical keys are microphones, so a machine with more than
- * six sources has to page. Paging is a *device* offset rather than a page
+ * Seven of the eight physical keys are microphones, so a machine with more than
+ * seven sources has to page. Paging is a *device* offset rather than a page
  * number so a caller can move by one device if a later surface ever wants to,
  * but every function here snaps the offset to a page boundary — a half-scrolled
  * page would put a device on a different key each time the list is re-read, and
@@ -17,20 +17,11 @@ import type { AudioDevice } from "./audio/index.js";
 /** Every physical key on the settings surface. */
 const SETTINGS_KEY_COUNT = 8;
 
-/**
- * The key TestMic sits on.
- *
- * Deliberately the same index the command surface paints Mic on, so the
- * press-and-hold gesture is under the same finger on both surfaces. Moving it
- * here is why the microphone keys are no longer a plain 0..5 run.
- */
-export const SETTINGS_TEST_MIC_KEY = 2;
-
 /** The key that pages the microphone list. */
 export const SETTINGS_NEXT_PAGE_KEY = 7;
 
 /**
- * The key index of each microphone slot, in slot order: `[0, 1, 3, 4, 5, 6]`.
+ * The key index of each microphone slot, in slot order: `[0, 1, 2, 3, 4, 5, 6]`.
  *
  * This is the single mapping between "slot n of the current page" and "key n on
  * the deck". Both the face painter (`descriptorSettings`) and the press handler
@@ -40,14 +31,13 @@ export const SETTINGS_NEXT_PAGE_KEY = 7;
 export const MIC_KEY_INDICES: readonly number[] = Array.from(
   { length: SETTINGS_KEY_COUNT },
   (_, key) => key,
-).filter((key) => key !== SETTINGS_TEST_MIC_KEY && key !== SETTINGS_NEXT_PAGE_KEY);
+).filter((key) => key !== SETTINGS_NEXT_PAGE_KEY);
 
-/** Microphone keys on the settings surface; the other two are TestMic and paging. */
-export const MICS_PER_PAGE = 6;
+/** Microphone keys on the settings surface; the last key pages. */
+export const MICS_PER_PAGE = 7;
 
 /**
- * The microphone slot a settings key holds, or `undefined` for TestMic and
- * paging. The inverse of {@link MIC_KEY_INDICES}.
+ * The microphone slot a settings key holds, or `undefined` for paging. The inverse of {@link MIC_KEY_INDICES}.
  */
 export function micSlotForKey(key: number): number | undefined {
   const slot = MIC_KEY_INDICES.indexOf(key);
@@ -88,11 +78,11 @@ const pageStart = (offset: number, count: number): number => {
 };
 
 /**
- * The six microphone keys for one page.
+ * The seven microphone keys for one page.
  *
  * An empty device list is a legitimate state — a headless box has no
  * microphone, and `listMicrophones` returns `[]` on every failure path — so it
- * produces six empty slots rather than an error. The panel beside these keys is
+ * produces seven empty slots rather than an error. The panel beside these keys is
  * what says "No microphones"; the keys themselves simply have nothing on them.
  */
 export function settingsView(
