@@ -23,5 +23,4 @@ Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
-AiurWeb.StreamdeckOverrideTest	explicit override selector accepts a delivered answer through the channel	#7242	2026-11-13
 AiurWeb.UsageAccountsApiControllerTest	*	#7217	2026-11-13

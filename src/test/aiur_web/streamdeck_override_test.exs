@@ -6,8 +6,9 @@ defmodule AiurWeb.StreamdeckOverrideTest do
   alias AiurWeb.StreamdeckChannel.CommandAnswers
 
   setup do
+    # The default corrective reconciler calls GitHub after the override; without a token it marks the override failed.
     dir = Aiur.TestSupport.tmp_root!("streamdeck-override")
-    store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000, answer_comment_publisher: fn _ -> :ok end})
+    store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000, answer_comment_publisher: fn _ -> :ok end, corrective_override_reconciler: fn _, _ -> {:ok, []} end})
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     EndpointStubs.put(decision_store: store)
 
