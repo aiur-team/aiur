@@ -156,6 +156,8 @@ defmodule Aiur.Commands.OverrideRecoveryReadTest do
     pending = apply_request(state, ctx, opts)
     receive_barrier({:fresh_started, worker})
     on_exit(fn -> Process.exit(worker, :kill) end)
+    # A delayed receipt changes Command metadata without changing the override action.
+    assert {:ok, _} = Commands.record_command_fact(ctx.decision.decision_id, :executor_acknowledged, %{executor_id: "executor", via: :explicit, at: DateTime.utc_now()}, server: ctx.store)
     pending = apply_request(pending, ctx, opts)
     [ref] = Map.keys(pending.tracker_tasks)
     send(worker, :release)
