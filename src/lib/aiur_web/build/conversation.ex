@@ -112,7 +112,7 @@ defmodule AiurWeb.Build.Conversation do
          true <- eligible?(row),
          :ok <- Payload.validate(Payload.ticket(public_ticket_row(row), socket.assigns.build_epoch, socket.assigns.build_generation)) do
       socket = clear(socket)
-      ref = %{id: id, identity: row["identity"], running: row["running"], closed?: row["sec"] == "hist", row: row}
+      ref = %{id: id, identity: row_value(row, :identity), running: row_value(row, :running), closed?: row_value(row, :sec) == "hist", row: row}
 
       case prepare(socket, ref) do
         {:ok, ref} ->
@@ -135,9 +135,11 @@ defmodule AiurWeb.Build.Conversation do
     end
   end
 
-  defp public_ticket_row(row), do: Map.drop(row, ["identity", "running"])
+  defp public_ticket_row(row), do: Map.drop(row, [:identity, :running, "identity", "running"])
 
-  defp eligible?(row), do: is_map(row["agent"]) and row["start"] != nil
+  defp eligible?(row), do: is_map(row_value(row, :agent)) and row_value(row, :start) != nil
+
+  defp row_value(row, key), do: Map.get(row, key, Map.get(row, Atom.to_string(key)))
 
   defp open(socket, ref) do
     with {:ok, view} <- call(socket, :tail, [ref, nil]),
