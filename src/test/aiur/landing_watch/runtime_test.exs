@@ -40,6 +40,7 @@ defmodule Aiur.LandingWatch.RuntimeTest do
                      if attempt == 0, do: failure, else: {:ok, []}
                    end,
                    queue_reconcile_fun: fn _, _ -> :ok end,
+                   runner_queue_fun: fn _, _ -> :ok end,
                    local_hold_sleep_fun: fn _ms -> flunk("an expired hold must retry without sleeping") end
                  )
       end)

@@ -166,7 +166,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
   end
 
   test "supervision is recording-gated and follows registry and History" do
-    specs = AiurApp.child_specs(recording?: true, interactive_cli?: false, headless?: true, dashboard?: false)
+    specs = AiurApp.child_specs(recording?: true, interactive_cli?: false, headless?: true, dashboard?: false, repository_services?: true)
 
     mods =
       Enum.map(specs, fn
