@@ -380,3 +380,6 @@
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+.override-timeline li { display: flex; flex-wrap: wrap; gap: 8px; overflow-wrap: anywhere; }
+.override-timeline .chip, .override-badge, .fleet-override-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }

@@ -220,18 +220,36 @@ Enabling the relay gate raises an info alert. Every relay also raises an info al
 
 <span id="who-can-replace-an-answer"></span>
 
-## Answering and replacing
+## Overriding an answer
 
 The first accepted answer wins. If another responder answers first, the conflict
 shows the accepted answer and its delivery state instead of overwriting it.
 
-Use **Replace** before delivery, or **Send correction** after delivery. Both
-record an override of the original Command.
+Use **Send correction** on an answered Command to record an override, even after
+delivery or merge. The original answer remains in the audit history.
 
-Before delivery the new answer
-replaces the pending answer; after delivery it sends corrective direction to the
+Before delivery the new answer replaces the pending answer; after delivery it sends corrective direction to the
 active worker on unmerged work. If the PR has merged, it creates a corrective
 ticket for a new worker and PR. It cannot retract earlier effects.
+
+| State when the override arrives | Routing |
+| --- | --- |
+| Unmerged, worker active | Deliver to that worker and update the existing work. |
+| Unmerged, worker parked | Resume the worker when capacity permits. |
+| Unmerged, capacity full | Keep queued; deliver first on resume without exceeding the cap. |
+| PR merged | Create a corrective ticket, worker and PR. |
+| Worker unrecoverable | Recover or replace it without competing duplicate work. |
+| PR merges during routing | Reconcile implementation evidence or create corrective work. |
+
+The **Overrides** timeline links each override to its original Command, ticket,
+PR and corrective ticket when known. Text chips distinguish queued (including
+slot and resume waits), delivered, implemented and superseded states. Delivery
+alone does not establish implementation. A worker-attested push reads “Implemented
+in PR #N (awaiting merge)”; the durable state remains delivered until merge
+evidence confirms it. Inbox badges remain until implementation
+or supersession. The Build fleet overview also lists pending overrides with
+ticket numbers and links to their Commands; `aiur commands` includes the same state and links in its override
+column. The Stream Deck status reads “override queued” or “override delivered”.
 
 Both revise and supersede use the current active answer's precedence:
 **direct operator > operator relayed by an Executor > Executor or supervisor**.
