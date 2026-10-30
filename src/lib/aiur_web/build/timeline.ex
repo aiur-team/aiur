@@ -87,6 +87,17 @@ defmodule AiurWeb.Build.Timeline do
     end)
   end
 
+  defp event_items(base, %{status: :merge_group_failure, checks: [_ | _] = checks}) do
+    Enum.map(checks, fn check ->
+      action = if String.contains?(base.label, "removed from the merge queue"), do: " · removed from queue", else: ""
+
+      base
+      |> Map.put(:label, "Merge group · #{check.name} failed#{action}")
+      |> Map.put(:status, :merge_group_failure)
+      |> Map.put(:run_url, check[:url])
+    end)
+  end
+
   defp event_items(base, extra), do: [Map.merge(base, extra)]
 
   defp actor(%{actor: actor}) when actor in ["Executor", "CI", "Aiur agent", "Aiur daemon"], do: actor
@@ -105,7 +116,7 @@ defmodule AiurWeb.Build.Timeline do
       [_id, "agent." <> _] -> "Aiur agent"
       [_id, "ci." <> _] -> "CI"
       [_id, suffix] when suffix in ["pr.merged", "pr.review_comment", "issue.commented"] -> "Executor"
-      [_id, suffix] when suffix in ["issue.label.added.agent.human-review", "issue.label.added.agent.rework", "issue.label.added.agent.ci-wait"] -> "Executor"
+      [_id, suffix] when suffix in ["issue.label.added.agent.human-review", "issue.label.added.agent.rework", "issue.label.added.agent.ci-wait"] -> "Aiur daemon"
       [_id, suffix] when suffix in ["pr.opened", "pr.ready_for_review"] -> "Aiur agent"
       _ -> "Aiur daemon"
     end
@@ -145,12 +156,13 @@ defmodule AiurWeb.Build.Timeline do
   end
 
   defp ci_class(suffix, event) do
-    if String.starts_with?(suffix, "ci.") and ci_failure?(event), do: {:ok, :emit, %{status: :ci_failure, checks: event[:ci_checks] || []}}
+    if String.starts_with?(suffix, "ci.") and not String.contains?(suffix, "merge_group") and ci_failure?(event), do: {:ok, :emit, %{status: :ci_failure, checks: event[:ci_checks] || []}}
   end
 
   defp failure_class(suffix, event) do
     cond do
-      String.contains?(suffix, "merge_group") and failure?(event) -> {:ok, :emit, %{status: :merge_group_failure, run_url: event[:run_url] || event[:url]}}
+      String.ends_with?(suffix, "ci.merge_group.requeued") -> {:ok, :emit, %{status: :merge_group_requeue}}
+      String.contains?(suffix, "merge_group") and failure?(event) -> {:ok, :emit, %{status: :merge_group_failure, checks: event[:ci_checks] || []}}
       String.contains?(suffix, "retry_exhausted") or String.contains?(suffix, "error-retry_exhausted") -> {:ok, :emit, %{status: :retry_exhausted}}
       String.contains?(suffix, "paused") -> {:ok, :emit, %{status: :pause}}
       true -> nil
@@ -233,6 +245,7 @@ defmodule AiurWeb.Build.Timeline do
   defp progress(items) do
     items
     |> Enum.filter(&(Map.get(&1, :status) == :progress))
+    |> Enum.filter(&is_integer(Map.get(&1, :percent)))
     |> Enum.map(fn item ->
       item
     end)

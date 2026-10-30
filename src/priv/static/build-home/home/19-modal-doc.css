@@ -47,9 +47,9 @@
 .bm-timeprogress { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; margin: .6rem 0 0; padding: .5rem 0 0; border-top: 1px solid var(--line); }
 .bm-timeprogress li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem; max-width: 100%; padding: .2rem .35rem; border: 1px solid var(--line); border-radius: 5px; color: var(--accent); font: .6rem "JetBrains Mono", monospace; }
 .bm-timeprogress time { color: var(--muted); }
-.bm-timegaps { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; margin: .35rem 0; padding: 0; color: var(--muted); font: .58rem/1.4 "JetBrains Mono", monospace; }
+.bm-doc .bm-body .bm-timegaps { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; margin: .35rem 0; padding: 0; color: var(--muted); font: .58rem/1.4 "JetBrains Mono", monospace; }
 .bm-timegaps li { overflow-wrap: anywhere; }
-.bm-timeitem { display: grid; grid-template-columns: minmax(88px, 120px) minmax(0, 1fr); gap: .65rem; padding: .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.bm-timeitem { display: grid; grid-template-columns: minmax(88px, 120px) minmax(0, 1fr); gap: .65rem; padding: .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); content-visibility: auto; contain-intrinsic-size: auto 80px; }
 .bm-timeitem time, .bm-timeitem small, .bm-timeitem code { color: var(--muted); font: .62rem/1.4 "JetBrains Mono", monospace; }
 .bm-timeitem span { display: grid; gap: .2rem; min-width: 0; }
 .bm-timeitem b { font-size: .78rem; font-weight: 550; overflow-wrap: anywhere; }

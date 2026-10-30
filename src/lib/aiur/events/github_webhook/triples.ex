@@ -153,6 +153,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
     {topic, payload,
      [
        issue_number: target,
+       identity: trusted_identity(target),
        dedup_key: dedup_key,
        resource: resource,
        resource_version: GithubReviewThreadIdentity.resource_version(resource_version(comment), generation),

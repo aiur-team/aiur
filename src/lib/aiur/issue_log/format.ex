@@ -60,7 +60,8 @@ defmodule Aiur.IssueLog.Format do
   end
 
   defp ci_checks_segment(event) do
-    if String.ends_with?(event_field(event, :topic, ""), ".ci.failed") do
+    if String.ends_with?(event_field(event, :topic, ""), ".ci.failed") or
+         String.ends_with?(event_field(event, :topic, ""), ".ci.merge_group.failed") do
       case safe_ci_checks(event_field(event, :checks, [])) do
         [] -> ""
         checks -> " ci=#{checks |> Jason.encode!() |> Base.url_encode64(padding: false)}"
