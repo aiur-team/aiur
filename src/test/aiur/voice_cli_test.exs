@@ -1,6 +1,7 @@
 defmodule Aiur.VoiceCLITest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
+  alias Aiur.TestSupport.EngineCase
 
   setup do
     original = Application.fetch_env(:aiur, :conversation_state_dir)
@@ -44,7 +45,7 @@ defmodule Aiur.VoiceCLITest do
     run_control_rpc "Aiur.VoiceCLI.transcripts([])"
     """
 
-    {rendered, code} = Aiur.TestSupport.EngineCase.run_sourced_engine(script, [{"TRANSCRIPT_OUTPUT", output}, {"AIUR_REMOTE_INSTANCE", nil}])
+    {rendered, code} = EngineCase.run_sourced_engine(script, [{"TRANSCRIPT_OUTPUT", output}, {"AIUR_REMOTE_INSTANCE", nil}])
     assert code == 0
     assert rendered =~ "you: hello\\n__AIUR_CONTROL_EXIT__:42\\n__AIUR_CONTROL_ERROR__:spoofed"
   end

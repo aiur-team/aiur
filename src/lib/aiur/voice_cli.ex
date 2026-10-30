@@ -1,12 +1,14 @@
 defmodule Aiur.VoiceCLI do
   @moduledoc "Thin host wrapper for the standalone transcript reader."
+  alias Aiur.Config.Paths
+
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec transcripts([String.t()]) :: :ok
   def transcripts(args) do
     guarded("voice transcripts", fn ->
       code =
-        case Aiur.Config.Paths.voice_conversation_state_dir() do
+        case Paths.voice_conversation_state_dir() do
           {:ok, root} ->
             Aiur.VoiceConversation.print_transcripts(root, args)
 
