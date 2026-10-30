@@ -5,10 +5,26 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
   import AiurWeb.DashboardLiveSupport
   import AiurWeb.DashboardLiveSupport.DecisionFixtures
 
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.ControlCenterPresenter
   alias AiurWeb.OperatorControlCenter.Overview
+  alias AiurWeb.OperatorControlCenter.PayloadLoader
 
   @endpoint AiurWeb.Endpoint
+
+  test "unpublished dashboard payload uses the isolated startup clock" do
+    orchestrator_name = {:global, make_ref()}
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      SnapshotStore.forget(orchestrator_name)
+    end)
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
+
+    assert %{units: %{status: :loading}} = PayloadLoader.load(:fresh)
+  end
 
   test "an unpublished snapshot raises no notice while an unreachable orchestrator does" do
     # The post-restart moment before the first snapshot is expected, and the
