@@ -8,8 +8,12 @@
     "src/lib/aiur/listener/capability_provider.ex",
     "src/lib/aiur/listener/delivery_target.ex",
     "src/lib/aiur/listener/effective.ex",
+    "src/lib/aiur/listener/hook_envelope.ex",
+    "src/lib/aiur/listener/hook_frame.ex",
     "src/lib/aiur/listener/mode_store.ex",
     "src/lib/aiur/listener/receipt.ex",
+    "src/lib/aiur/listener/spec.ex",
+    "src/lib/aiur/listener/spec/**",
     "src/lib/aiur/listener/spec_status.ex"
   ],
   "facades": [
@@ -42,7 +46,7 @@
     "AiurWeb.Router"
   ],
   "dependency_kind": "required",
-  "summary": "Routes messages to agents using steer, synchronous or asynchronous delivery.",
+  "summary": "Routes conversation messages by listener mode, defaulting to sync delivery after the active turn ends.",
   "status": "experimental",
   "install": {
     "type": "included"

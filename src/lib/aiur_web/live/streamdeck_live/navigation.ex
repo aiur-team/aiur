@@ -61,13 +61,6 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
     %{"kind" => "dial_turn", "index" => 3, "ticks" => max(-32, min(32, ticks))}
   end
 
-  defp frame(_socket, "logs-scroll", params, _sections),
-    do: %{
-      "kind" => "dial_turn",
-      "index" => if(params["axis"] == "events", do: 3, else: 0),
-      "ticks" => integer(params["delta"], 0)
-    }
-
   defp frame(socket, "key-press", params, sections) do
     nav = socket.assigns.deck_nav
     index = Enum.find_index(sections.ticket, &(&1.id == params["identifier"]))

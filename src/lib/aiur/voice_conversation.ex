@@ -22,7 +22,7 @@ defmodule Aiur.VoiceConversation do
   @spec child_specs() :: [Supervisor.child_spec() | {module(), term()}]
   def child_specs do
     case config() do
-      {:ok, config} -> [Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, config}]
+      {:ok, config} -> [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, config}]
       {:error, reason} -> raise ArgumentError, "invalid voice conversation configuration: #{inspect(reason)}"
     end
   end

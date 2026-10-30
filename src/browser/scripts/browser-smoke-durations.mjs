@@ -13,7 +13,6 @@ export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
   // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
-  'test:browser-suite -- build-home-executor-voice-comparison': 30,
   // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
   'test:conversation-view': 36,
   // Governed functional run (2026-10-23), including startup: 57.170 seconds.
@@ -39,6 +38,7 @@ export const recordedSeconds = {
   'test:build-home-chains-unit': 1,
   // Job 118131038618 (shard 8/9): 132.3s.
   'test:build-home-chains': 133,
+  'test:browser-suite -- build-home-dictation-lifecycle': 11.1,
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
@@ -88,17 +88,14 @@ export const recordedSeconds = {
   'test:command-history': 15,
   'test:build-order': 6,
   'test:experiments': 15,
-  'test:interaction': 26,
   'test:time-brush': 8,
-  'test:performance': 18,
-  'test:responsive': 16,
   'test:layout': 24,
   'test:ticket-context': 17,
-  'test:units': 38,
+  'test:browser-suite -- build-home-executor-voice-comparison': 30,
+  'test:voice-input': 38,
+  // Local governed run (2026-10-29): 39s whole command; 14 Node + 13 browser cases (19.5s).
+  'test:voice-drawer': 40,
   'test:provider-meters': 14,
-  'test:meter-row': 15,
-  'test:models-panel': 9,
-  'test:quota-panel': 8,
   'test:streamdeck': 59,
   'test:streamdeck-flow': 13,
   'test:palette': 16,

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
-  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame}
-  alias AiurWeb.Streamdeck.Render.{Fleet, Settings, Svg, ViewStrip}
+  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame, Nav}
+  alias AiurWeb.Streamdeck.Render.{Fleet, MeterDetail, Settings, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
   @glyphs %{
@@ -18,6 +18,10 @@ defmodule AiurWeb.Streamdeck.Render.Views do
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
 
   @spec compose(map()) :: {[map() | nil], [map()]}
+  def compose(%{surface: :grid, nav: %{stack: [{:meter_detail, provider} | _]} = nav, grid: grid}) do
+    MeterDetail.compose(grid.meter_detail, Map.get(grid.meter_usage, provider, %{}), grid.meter_now_ms, Nav.page(nav))
+  end
+
   def compose(%{nav: %{chat: chat, surface: :chat}} = model) when is_map(chat) do
     turns = ChatNavigation.visible(chat)
 
@@ -75,31 +79,6 @@ defmodule AiurWeb.Streamdeck.Render.Views do
 
       key ->
         card(key.label, key.label, key.sub, glyph: @glyphs[key.icon], command: key.command, state: key.state, disabled: key.disabled?, hold: key.mic?, icon: key.icon, url: Map.get(key, :url))
-    end)
-  end
-
-  defp keys("logs", context) do
-    context
-    |> field(:logs, %{})
-    |> field(:event_keys_visible, [])
-    |> Enum.map(fn
-      %{kind: :empty} ->
-        nil
-
-      %{kind: :live} = key ->
-        card("LIVE", "LIVE", "",
-          event_index: key.index,
-          live: true,
-          selected: key.index == field(field(context, :logs), :selected_event_index)
-        )
-
-      key ->
-        card(key.text, "#{key.badge}: #{key.text}, #{key.time}", key.time,
-          badge: key.badge,
-          event_index: key.index,
-          glyph: key.badge,
-          selected: key.index == field(field(context, :logs), :selected_event_index)
-        )
     end)
   end
 

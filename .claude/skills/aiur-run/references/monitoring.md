@@ -61,7 +61,7 @@ decision and its ticket. You see that alert in the `ACTIONABLE` section of
 Read the Command's full payload with:
 
 ```bash
-"$AIUR_CMD" commands <decision-id>
+"$AIUR_CMD" command <decision-id>
 ```
 
 Confirm the listener is live with `aiur status`. It names every live default;

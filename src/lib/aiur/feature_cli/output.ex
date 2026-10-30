@@ -11,6 +11,20 @@ defmodule Aiur.FeatureCLI.Output do
   end
 
   @spec show(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def show(%{unconfirmed: true} = args, snapshot, context) do
+    owners = Map.filter(snapshot.owners, fn {_id, owner} -> not owner.confirmed end)
+    filtered = %{snapshot | owners: owners}
+
+    if args[:slug] do
+      with {:ok, result} <- show(Map.delete(args, :unconfirmed), filtered, context),
+           do: {:ok, Map.put(result, :unconfirmed_count, length(result.members))}
+    else
+      labels = label_states(Map.keys(owners), context)
+      members = for {id, owner} <- Enum.sort(owners), do: Map.merge(owner, %{id: id, label: labels[id]})
+      {:ok, %{schema_version: 1, observed_at: Keyword.get(context, :clock, &DateTime.utc_now/0).(), members: members, unconfirmed_count: length(members)}}
+    end
+  end
+
   def show(args, snapshot, context) do
     envelope = %{schema_version: 1, observed_at: Keyword.get(context, :clock, &DateTime.utc_now/0).()}
 
@@ -57,24 +71,44 @@ defmodule Aiur.FeatureCLI.Output do
   end
 
   @spec render(map()) :: String.t()
+  def render(%{feature: _feature, unconfirmed_count: count} = result) do
+    render_detail(result, "unconfirmed") <> "\n#{count} unconfirmed"
+  end
+
+  def render(%{members: members, unconfirmed_count: count}) do
+    rows = Enum.map(members, &"##{&1.id}  #{&1.feature}  #{&1.epic}  #{&1.source}  #{&1.actor}  unconfirmed  #{time(&1.joined_at)}")
+    Enum.join(rows ++ ["#{count} unconfirmed"], "\n")
+  end
+
+  def render(%{command: "feature confirm"} = result) do
+    rows =
+      Enum.map_join(result.results, ", ", fn row ->
+        if row.outcome == :unchanged, do: "##{row.id} unchanged (already confirmed)", else: "##{row.id} #{row.epic} (was #{row.previous.source})"
+      end)
+
+    "confirmed #{result.feature}: #{rows}"
+  end
+
   def render(%{features: features}) do
     if features == [], do: "no features", else: Enum.map_join(features, "\n", &"#{&1.key}  #{&1.label}  #{&1.members} members  #{state(&1.to)}")
   end
 
-  def render(%{members: members, feature: feature} = result) do
-    rows = Enum.map_join(members, "", &"\n##{&1.id} epic #{&1.epic} #{&1.source} by #{&1.actor} joined #{time(&1.joined_at)} confirmed #{&1.confirmed} label #{&1.label}")
-    base = if feature.baseline, do: baseline_text(feature.baseline), else: "no baseline: all #{length(members)} members count as original"
-    labels = if result.labels, do: "labels: #{result.labels.pending} pending, #{result.labels.failed} failed", else: "label status unknown"
-
-    "#{feature.key}  #{feature.label}  #{state(feature.to)} hue #{feature.hue}\nfrom #{time(feature.from)} to #{time(feature.to)}\nepics #{Enum.map_join(feature.epics, ", ", &(&1.key <> "=" <> &1.label))}\n#{base}\n#{labels}" <>
-      rows <> "\nalso affects: #{Enum.join(result.also, ", ")}"
-  end
+  def render(%{members: _members, feature: _feature} = result), do: render_detail(result, nil)
 
   def render(result) do
     rows = Enum.map_join(result.results, ", ", fn row -> "##{row.id} #{row.outcome}" <> if(row[:label], do: " label #{row.label}", else: "") end)
     outcome = if result[:outcome], do: " #{result.outcome}", else: ""
     previous = if result[:previous_baseline], do: "\nreplaced #{baseline_text(result.previous_baseline)} (#{time(result.previous_baseline.at)})", else: ""
     "#{result.command} #{result.feature}#{outcome}: #{rows}" <> previous
+  end
+
+  defp render_detail(%{members: members, feature: feature} = result, confirmation) do
+    rows = Enum.map_join(members, "", &"\n##{&1.id} epic #{&1.epic} #{&1.source} by #{&1.actor} joined #{time(&1.joined_at)} #{confirmation || "confirmed #{&1.confirmed}"} label #{&1.label}")
+    base = if feature.baseline, do: baseline_text(feature.baseline), else: "no baseline: all #{length(members)} members count as original"
+    labels = if result.labels, do: "labels: #{result.labels.pending} pending, #{result.labels.failed} failed", else: "label status unknown"
+
+    "#{feature.key}  #{feature.label}  #{state(feature.to)} hue #{feature.hue}\nfrom #{time(feature.from)} to #{time(feature.to)}\nepics #{Enum.map_join(feature.epics, ", ", &(&1.key <> "=" <> &1.label))}\n#{base}\n#{labels}" <>
+      rows <> "\nalso affects: #{Enum.join(result.also, ", ")}"
   end
 
   @spec error(term()) :: String.t()

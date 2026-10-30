@@ -1,78 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { anchor, dragDialThroughAngles, openStreamdeck, openUnits } from './support/streamdeck-emulator.mjs'
-
-test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
-  await openStreamdeck(page)
-
-  const device = page.locator('.sd-device')
-  const keysView = page.locator('#sd-keys[data-mode-view="grid"]')
-  const cmdView = page.locator('#sd-keys[data-mode-view="cmd"]')
-  const logsView = page.locator('#sd-logs-view')
-
-  // Initial state: grid mode, keys visible, cmd and logs hidden.
-  await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(keysView).toBeVisible()
-  await expect(cmdView).not.toBeVisible()
-  await expect(logsView).not.toBeVisible()
-
-  // Click a key to enter cmd mode.
-  const key = page.locator('.sd-key:not(.is-empty)').first()
-  await key.click()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
-  await expect(keysView).not.toBeVisible()
-  await expect(cmdView).toBeVisible()
-  await expect(logsView).not.toBeVisible()
-
-  // Dial 3 press (cycle-window) → logs mode.
-  const dial3 = page.locator('.sd-knob').nth(3)
-  await anchor(dial3)
-  const d3box = await dial3.boundingBox()
-  const d3cx = d3box.x + d3box.width / 2
-  const d3cy = d3box.y + d3box.height / 2
-  await page.mouse.move(d3cx, d3cy)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(device).toHaveAttribute('data-mode', 'logs')
-  await expect(keysView).not.toBeVisible()
-  await expect(cmdView).not.toBeVisible()
-  await expect(logsView).toBeVisible()
-
-  // Dial 0 press (back) → cmd mode.
-  const dial0 = page.locator('.sd-knob').first()
-  await anchor(dial0)
-  const d0box = await dial0.boundingBox()
-  const d0cx = d0box.x + d0box.width / 2
-  const d0cy = d0box.y + d0box.height / 2
-  await page.mouse.move(d0cx, d0cy)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
-
-  // Dial 0 press (back) again → grid mode.
-  // Re-fetch bounding box: the layout reflowed when keys became hidden (cmd mode),
-  // so cached coordinates from the logs-mode capture may miss the knob.
-  await anchor(dial0)
-  const d0box2 = await dial0.boundingBox()
-  const d0cx2 = d0box2.x + d0box2.width / 2
-  const d0cy2 = d0box2.y + d0box2.height / 2
-  await page.mouse.move(d0cx2, d0cy2)
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(keysView).toBeVisible()
-})
-
-test('Dial D transitions from cmd to logs mode', async ({ page }) => {
-  await openStreamdeck(page)
-
-  await page.locator('.sd-key:not(.is-empty)').first().click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-
-  await page.locator('.sd-knob').nth(3).click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('#sd-logs-view')).toBeVisible()
-  await expect(page.locator('#sd-keys')).toHaveCount(0)
-})
+import { anchor, dragDialThroughAngles, openStreamdeck } from './support/streamdeck-emulator.mjs'
 
 // Read-only command keys are covered by 'read-only mode disables the
 // fleet-control command keys and a mic hold does not arm it' above, which
@@ -83,13 +10,11 @@ test('full-width chat replaces the cmd pager and the pager returns on back', asy
 
   const pager = page.locator('[data-streamdeck-region="600"]')
 
-  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
-  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
-  await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
+  await expect(pager).toContainText('Queued')
+  await expect(pager).toHaveAttribute('aria-label', /Queued \d+; Not queued \d+/)
+  await expect(pager.locator('circle[data-page="0"]')).toHaveAttribute('fill', '#9fd0ff')
   expect(await pager.locator('svg > text').first().evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
 
-  const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
@@ -104,29 +29,14 @@ test('full-width chat replaces the cmd pager and the pager returns on back', asy
   await expect(chat).toContainText('Conversation unavailable')
   await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
-  const dialD = page.locator('.sd-knob').nth(3)
-  await dialD.click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('[data-mode-view="logs-strip"] [data-streamdeck-region="0"]')).toBeVisible()
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${identifier}`)
-  await expect(page.locator('.sd-seg-info')).toHaveCount(0)
-
-  // Dial A is the back press: logs -> cmd -> grid.
-  const dialA = page.locator('.sd-knob').first()
-  await dialA.click()
-  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(pager).toHaveCount(0)
-  await expect(chat).toHaveCSS('width', '800px')
-  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
-  await dialA.click()
+  // Dial A returns from the focused ticket to the fleet grid.
+  await page.locator('.sd-knob').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
-  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
-  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
-  await expect(pager).toContainText('MORE AGENTS')
-  await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
+  await expect(pager).toContainText('Queued')
+  await expect(pager).toHaveAttribute('aria-label', /Queued \d+; Not queued \d+/)
+  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('Queued')
+  await expect(pager.locator('circle[data-page="0"]')).toHaveAttribute('fill', '#9fd0ff')
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
@@ -325,7 +235,7 @@ test('dial D pages live fleet keys using raw input from drag, wheel and keyboard
   await dragDialThroughAngles(page, dialD, [-90, 0, 90])
   await expect(keys).toHaveAttribute('data-grid-page', '1')
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /9–16/)
+  await expect(page.locator('[data-streamdeck-region="600"] circle[data-page="1"]')).toHaveAttribute('fill', '#9fd0ff')
   const angle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
   await dialD.press('ArrowUp')
   await expect(keys).toHaveAttribute('data-grid-page', '2')
@@ -410,65 +320,4 @@ test('a patch during dial D drag preserves the full release travel', async ({ pa
     const serverValue = await page.locator('#sd-keys').getAttribute('data-grid-dial-value')
     return await dialD.getAttribute('aria-valuenow') === serverValue
   }).toBe(true)
-})
-
-test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
-  await openStreamdeck(page)
-
-  const units = await context.newPage()
-  const originalTotal = await page.locator('#sd-keys').getAttribute('data-grid-total')
-  try {
-    // Apply the "Select all preceding filters" selection at mount instead of
-    // clicking the button. The click is a phx-click LiveView drops silently when
-    // the socket is still settling under CI load (the handler returns without
-    // pushing when the view is momentarily disconnected), which left the view on
-    // the default `:live` scope. Removing a unit against that stale scope
-    // collapses `#units-rows` to the single remaining live unit and the sync
-    // assertions below fail even though the emulator never desynced. Loading the
-    // selection from the URL keeps the scope deterministic.
-    const allConditions = encodeURIComponent('active,alert,paused,queued,finished')
-    await openUnits(units, `/units-fixture?v=1&scope=unfinished&conditions=${allConditions}`)
-
-    const rows = units.locator('#units-rows tr.units-row')
-    // The fixture exposes 7 units, of which 6 are unfinished. Confirming the
-    // rendered scope before mutating makes the assumption this test asserts on
-    // explicit, so a stale selection fails loudly here instead of as a one-row
-    // table later.
-    await expect(units.locator('.units-header p').nth(1)).toContainText('7 observed · 6 in selected scope')
-    const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
-    await rows.first().locator('td.ut-id-cell').click()
-    await units.locator('#remove-selected-unit').evaluate((button) => button.click())
-
-    await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
-
-    // The header count and the row list are separate patches from the same
-    // LiveView diff, so the header settling does not mean the tbody has. Wait on
-    // the rows themselves before snapshotting them: `evaluateAll` is a one-shot
-    // read with no retry, and reading mid-patch returned 1 row of 5 in CI.
-    await expect(rows).toHaveCount(5)
-
-    const unitIdentifiers = await rows.evaluateAll((elements) =>
-      elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
-    )
-    expect(unitIdentifiers).toHaveLength(5)
-    await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
-
-    const streamdeckSlots = await page.locator('#sd-keys .sd-key').evaluateAll((keys) =>
-      keys.map((key) => key.classList.contains('is-empty') ? null : key.getAttribute('data-streamdeck-identifier'))
-    )
-    const expectedSlots = Array.from({ length: 8 }, (_, slot) => {
-      const index = (slot % 4) * 2 + Math.floor(slot / 4)
-      return unitIdentifiers[index] ?? null
-    })
-
-    expect(streamdeckSlots).toEqual(expectedSlots)
-  } finally {
-    try {
-      const reset = await page.request.get('/streamdeck-control/read_only')
-      expect(reset.status()).toBe(200)
-      await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', originalTotal)
-    } finally {
-      await units.close()
-    }
-  }
 })

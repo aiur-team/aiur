@@ -15,7 +15,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
     :sys.get_state(socket.channel_pid)
     assert_push("frame", _initial)
     assert_reply(deck_input(socket, %{"kind" => "dial_press", "index" => 3}), :ok, reply)
-    assert reply == %{"view" => "feature", "page" => 0}
+    assert reply == %{"view" => "feature", "page" => 0, "chip_offset" => 0}
     frame = flush_frame(socket)
     assert hd(frame.keys).svg =~ ">60%</text>"
     assert hd(frame.strip).svg =~ "age 2m"

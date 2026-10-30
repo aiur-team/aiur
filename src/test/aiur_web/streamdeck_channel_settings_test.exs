@@ -23,7 +23,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     input(socket, "input", %{"kind" => "dial_turn", "index" => 0, "ticks" => 1})
     ref = push(socket, "input", %{"kind" => "dial_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0} = navigation, 1_000)
-    assert Map.keys(navigation) |> Enum.sort() == ["page", "view"]
+    assert Map.keys(navigation) |> Enum.sort() == ["chip_offset", "page", "view"]
     assert Enum.any?(pushed_frame(socket).keys, &(&1 && &1.label == "Second · Selected"))
     assert {:ok, saved} = Settings.read(path)
     assert saved["mic_id"] == "second"

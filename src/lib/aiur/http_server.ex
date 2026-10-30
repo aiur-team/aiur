@@ -43,7 +43,7 @@ defmodule Aiur.HttpServer do
   end
 
   defp start_on_port(opts, port) do
-    host = Keyword.get(opts, :host, Config.server_host())
+    host = Keyword.get(opts, :host, test_run_host(Config.server_host()))
     dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
 
     with {:ok, ip} <- parse_host(host),
@@ -72,6 +72,8 @@ defmodule Aiur.HttpServer do
       other -> other
     end
   end
+
+  defp test_run_host(configured_host), do: if(Config.test_run?(), do: "127.0.0.1", else: configured_host)
 
   defp restore_endpoint_env(endpoint_config, dashboard_pages) do
     restore_env(:aiur, Endpoint, endpoint_config)

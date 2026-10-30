@@ -9,7 +9,7 @@ defmodule Aiur.Commands.EventData do
   @routing_types FactData.types()
 
   @spec fact_types() :: [atom()]
-  def fact_types, do: [:request_attributed, :native_released, :requester_notified] ++ @routing_types
+  def fact_types, do: [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_resume_state, :override_prompt_delivered] ++ @routing_types
 
   @spec normalize(atom(), term()) :: {:ok, map()} | {:error, term()}
   def normalize(:request_attributed, raw) when is_map(raw) do
@@ -30,6 +30,35 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
+  def normalize(:override_resume_state, raw) when is_map(raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
+         {:ok, route} <- enum(Validation.get(raw, :route), [:resume_pending, :capacity_wait], :route),
+         {:ok, reason} <- enum(Validation.get(raw, :reason), [:capacity, :operator_pause, :eligible], :reason) do
+      {:ok, %{action_id: action_id, route: route, reason: reason}}
+    end
+  end
+
+  def normalize(:override_prompt_delivered, raw) when is_map(raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
+         {:ok, at} <- release_timestamp(Validation.get(raw, :at)) do
+      {:ok, parsed, _} = DateTime.from_iso8601(at)
+      {:ok, %{action_id: action_id, at: parsed}}
+    end
+  end
+
+  def normalize(:override_implemented, raw) when is_map(raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
+         {:ok, head_sha} <- Validation.map_required_string(raw, :head_sha, 128),
+         {:ok, timestamp} <- release_timestamp(Validation.get(raw, :at)),
+         {:ok, at, _offset} <- DateTime.from_iso8601(timestamp),
+         pr_number when is_integer(pr_number) and pr_number > 0 <- Validation.get(raw, :pr_number) do
+      {:ok, %{action_id: action_id, head_sha: head_sha, at: at, pr_number: pr_number}}
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, {:override_implemented, :invalid}}
+    end
+  end
+
   def normalize(:requester_notified, raw) when is_map(raw), do: ExecutorDelivery.normalize(raw)
 
   def normalize(type, raw) when type in @routing_types and is_map(raw), do: FactData.normalize(type, raw)
@@ -37,6 +66,8 @@ defmodule Aiur.Commands.EventData do
   def normalize(_type, _raw), do: {:error, {:event_data, :invalid}}
 
   @spec to_json_safe(atom(), map()) :: map()
+  def to_json_safe(type, data) when type in [:override_resume_state, :override_prompt_delivered], do: Aiur.JSONSafe.normalize(data)
+  def to_json_safe(:override_implemented, data), do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:requester_notified, data), do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(type, data) when type in @routing_types, do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:native_released, data), do: json_safe(data)

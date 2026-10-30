@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     DispatchPolicy,
     EnvelopeResume,
     GlobalPauseStore,
+    OperatorMessages.PendingStore,
     OrphanedWorkers,
     PauseResume,
     RemoteControlMode,
@@ -156,7 +157,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
         |> Map.put(:parked_ready_alerts, nil),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
-      control_lifecycle: control_lifecycle
+      control_lifecycle: control_lifecycle,
+      queue_store: PendingStore.load()
     }
 
     :ok =

@@ -132,9 +132,7 @@
   overflow: hidden;
 }
 
-.bo-catalog-progress.is-unknown .bo-catalog-progress-track {
-  background: var(--line-strong);
-}
+
 
 .bo-catalog-progress-track > i {
   display: block;

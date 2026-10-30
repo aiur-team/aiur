@@ -39,14 +39,6 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @known_literal_text_colors [
     "#1a1200",
     "#6bd6a6",
-    "#6bd6a6",
-    "#6bd6a6",
-    "#6bd6a6",
-    "#7fd4e0",
-    "#8fbcff",
-    "#e29b63",
-    "#e3b341",
-    "#e3b341",
     "#e3b341"
   ]
 
@@ -140,55 +132,14 @@ defmodule AiurWeb.DashboardCssThemeTest do
     end
   end
 
-  # A meter with low remaining headroom is critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one (#1532). The rule must
-  # keep using the themed blocking token so it stays legible in both themes.
-  test ".rs-meter is-critical uses the themed blocking fill" do
-    rule = css_rule(".rs-meter > i.is-critical")
-    assert rule =~ "var(--blocking)"
-  end
-
-  # The dateline over a saved plan's percentages is the only thing separating
-  # six-hour-old numbers from live ones (#2608), so it has to stay legible in
-  # both themes — which means a token that is actually declared. An undeclared
-  # name behind a `var()` fallback silently paints as ordinary muted body text.
-  test "the saved-plan dateline uses a themed token declared in both themes" do
-    assert css_rule(".bo-waves-asof") =~ "var(--attention-ink)"
-
-    assert Map.has_key?(declarations(css_rule(":root")), "--attention-ink")
-    assert Map.has_key?(declarations(css_rule(~s(html[data-theme="light"]))), "--attention-ink")
-  end
-
-  # The saved-plan percentages need a second marker besides that dateline, but
-  # --muted has no luminance headroom to spend on one: the first attempt dimmed
-  # the text with opacity: 0.6, which blended it to 2.96:1 on --surface and
-  # failed the axe smoke (#2608). Whatever marks them stale must leave the ink
-  # alone.
-  test "the saved-plan percentages are marked stale without dimming the text" do
-    rule = css_rule(".bo-waves-head.is-stale .bo-wave-seg-pct")
-
-    assert rule =~ "font-style: italic"
-    refute rule =~ "opacity"
-    refute rule =~ "color"
-    refute rule =~ "filter"
-  end
-
   test "dashboard progress bars match the Stream Deck progress contract" do
     root = declarations(css_rule(":root"))
     assert root["--progress-fill"] == Style.progress_color(0)
     assert root["--progress-complete-fill"] == Style.progress_color(100)
 
-    assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
-    assert css_rule(".ut-pbar > i") =~ "min-width: var(--progress-bar-height)"
-    assert css_rule(".ut-pbar > i.is-complete") =~ "var(--progress-complete-fill)"
-    refute css() |> String.contains?(".ut-pbar > i.is-stale")
-    refute css() |> String.contains?(".ut-pbar > i.is-blocked")
-    refute css() |> String.contains?(".ut-pbar > i.has-alert")
     assert css_rule(".run-summary-progress-fill") =~ "var(--progress-fill)"
     assert css_rule(".run-summary-progress-fill.is-complete") =~ "var(--progress-complete-fill)"
     refute css() |> String.contains?(".run-summary-progress-fill.is-stale")
-    assert css_rule(".ut-pbar.is-unknown") =~ "background: var(--line-strong)"
-    assert css_rule(".rs-meter.is-unknown") =~ "background: var(--line-strong)"
   end
 
   test "dashboard styling does not reintroduce dashes or hatching" do

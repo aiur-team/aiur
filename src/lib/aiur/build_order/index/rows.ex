@@ -4,6 +4,7 @@ defmodule Aiur.BuildOrder.Index.Rows do
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
   alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
   alias Aiur.Config.Schema.GeneralEpic
+  alias Aiur.GitHub.Issues
   alias Aiur.StartTrigger.ProgressStore
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
@@ -103,6 +104,8 @@ defmodule Aiur.BuildOrder.Index.Rows do
       was: nil,
       num: producer.num,
       title: if(is_binary(row.title), do: row.title, else: ""),
+      lane: nullable_lane(Metadata.parse(row.labels).lane),
+      priority: priority(row.labels),
       type: type(row.labels),
       epic: resolution.key,
       general_epics: Enum.filter(context.general, &GeneralEpic.matches?(&1, row.labels)) |> Enum.map(& &1.key),
@@ -147,6 +150,18 @@ defmodule Aiur.BuildOrder.Index.Rows do
         {feature, Map.get(registry.also, number, []), baseline != :none and not MapSet.member?(baseline.members, number)}
     end
   end
+
+  defp nullable_lane(:unassigned), do: nil
+  defp nullable_lane(lane), do: lane
+
+  defp priority(labels) when is_list(labels) do
+    case Issues.extract_priority(labels) do
+      priority when is_integer(priority) and priority > 0 -> priority
+      _unknown -> nil
+    end
+  end
+
+  defp priority(_labels), do: nil
 
   defp type(labels) when is_list(labels) do
     cond do

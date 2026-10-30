@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render, SettingsUpdates}
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, Settings, SettingsMenu, SettingsSnapshot}
+  alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput, Settings, SettingsMenu, SettingsSnapshot}
   alias AiurWeb.Streamdeck.Render.Chat, as: ChatRender
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
@@ -17,8 +17,11 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
         {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
         case SettingsUpdates.effects(socket, effects) do
-          {:ok, socket} -> PriorityInput.reply(socket, navigation(socket.assigns.deck_nav), effects)
-          {:error, reason, socket} -> {:reply, {:error, %{reason: reason}}, socket}
+          {:ok, socket} ->
+            navigation_reply(socket, effects)
+
+          {:error, reason, socket} ->
+            {:reply, {:error, %{reason: reason}}, socket}
         end
 
       :noop ->
@@ -29,7 +32,16 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     end
   end
 
-  defp navigation(nav), do: %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}
+  defp navigation_reply(socket, effects) do
+    navigation = navigation(socket.assigns.deck_nav)
+
+    case PriorityInput.reply(socket, navigation, effects) do
+      {:reply, {:ok, _result}, socket} -> {:reply, {:ok, navigation}, socket}
+      error -> error
+    end
+  end
+
+  defp navigation(nav), do: %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "chip_offset" => nav.chip_offset}
 
   @doc "Apply raw deck input to channel or browser navigation using the same mapping."
   @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
@@ -51,7 +63,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     nav = SettingsMenu.clamp(previous, snapshot)
 
     case SettingsMenu.reduce(nav, input, snapshot) do
-      :pass -> Input.reduce(nav, input, Deck.navigation(grid))
+      :pass -> Input.reduce(nav, input, MeterPage.sections(grid, nav))
       result -> result
     end
   end
@@ -68,7 +80,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   defp focused_key(_nav, _raw, input), do: input
 
   defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
-    if nav.surface in [:logs, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
+    if nav.surface in [:settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
   end
 
   defp focus_effects(_nav, %{"kind" => kind, "index" => 3}, effects) when kind in ["dial_press", "dial_long_press", "dial_turn"], do: [:close_ticket | effects]
@@ -105,6 +117,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     nav = SettingsMenu.clamp(nav, snapshot)
     settings_context = settings_context(nav, snapshot)
     context = Map.update(context, :view_context, %{settings: settings_context}, &Map.put(&1, :settings, settings_context))
+    {nav, grid} = MeterPage.prepare(grid, nav, usage)
     sections = Deck.navigation(grid)
     nav = Nav.clamp(nav, Input.sizes(nav, sections))
     agents = visible_items(nav, sections, grid.agents)
@@ -117,6 +130,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
           usage: usage,
           page: Nav.page(nav),
           provider_offset: nav.scroll,
+          chip_offset: nav.chip_offset,
           surface: nav.surface
         },
         context
@@ -139,7 +153,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   end
 
   defp grid(socket) do
-    grid = socket.assigns[:deck_grid] || StreamdeckProjection.grid()
+    grid = Map.put(socket.assigns[:deck_grid] || StreamdeckProjection.grid(), :meter_usage, socket.assigns[:deck_usage] || %{})
     SettingsSnapshot.attach(grid, socket.assigns[:deck_settings_path] || Settings.path())
   end
 

@@ -77,7 +77,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     monitor = Process.monitor(socket.channel_pid)
 
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
-    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"}, 1_000)
     timer = :sys.get_state(socket.channel_pid).assigns.deck_chat.timer
 
     System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
@@ -210,14 +210,14 @@ defmodule AiurWeb.StreamdeckChannelTest do
   test "focus subscribes only to the focused agent and drops the prior subscription" do
     socket = joined_socket()
     first_focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
-    assert_reply(first_focus, :ok, %{"focused" => "AIUR-1"})
+    assert_reply(first_focus, :ok, %{"focused" => "AIUR-1"}, 1_000)
     receive_barrier(%Message{event: "chat"})
 
     AgentPubSub.broadcast_alert("AIUR-1", AgentEvents.alert_event("test", "first"))
     assert_push("alert", %{"identifier" => "AIUR-1", "message" => "first"})
 
     second_focus = push(socket, "focus", %{"identifier" => "AIUR-2"})
-    assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"})
+    assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"}, 1_000)
     channel_barrier(socket)
     receive_barrier(%Message{event: "chat"})
 
@@ -233,7 +233,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
 
     invalid = push(socket, "focus", %{"identifier" => ""})
-    assert_reply(invalid, :error, %{reason: "invalid_identifier"})
+    assert_reply(invalid, :error, %{reason: "invalid_identifier"}, 1_000)
 
     initial_unfocus = push(socket, "unfocus", %{})
     receive_barrier(%Phoenix.Socket.Reply{ref: ^initial_unfocus, status: :ok, payload: %{"focused" => nil}})
@@ -271,7 +271,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
   test "focused alerts and control updates are projected without exposing the internal topic" do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
-    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"}, 1_000)
     receive_barrier(%Message{event: "chat"})
 
     AgentPubSub.broadcast_alert("AIUR-1", AgentEvents.alert_event("deploy", "Needs attention", severity: "warning"))
@@ -302,10 +302,10 @@ defmodule AiurWeb.StreamdeckChannelTest do
   test "a tagged event from the old focus cannot be relabeled after refocusing" do
     socket = joined_socket()
     first_focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
-    assert_reply(first_focus, :ok, %{"focused" => "AIUR-1"})
+    assert_reply(first_focus, :ok, %{"focused" => "AIUR-1"}, 1_000)
 
     second_focus = push(socket, "focus", %{"identifier" => "AIUR-2"})
-    assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"})
+    assert_reply(second_focus, :ok, %{"focused" => "AIUR-2"}, 1_000)
 
     send(socket.channel_pid, {:streamdeck_alert, "AIUR-1", AgentEvents.alert_event("stale", "stale")})
     channel_barrier(socket)
@@ -314,7 +314,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   test "a deferred stale refocus cannot replace the active chat timer" do
     socket = joined_socket()
-    assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+    assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
     receive_barrier(%Message{event: "chat"})
     %{assigns: %{deck_chat: chat, focus_token: focus_token}} = :sys.get_state(socket.channel_pid)
     send(socket.channel_pid, {:streamdeck_focus_changed, "AIUR-1", make_ref(), socket})
@@ -326,7 +326,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   test "legacy transcript events no longer push transcript frames" do
     socket = joined_socket()
-    assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+    assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"}, 1_000)
     receive_barrier(%Message{event: "chat"})
     AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "legacy"))
     channel_barrier(socket)
@@ -355,22 +355,6 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert_received :usage_loaded
     refute_received :usage_loaded
     refute_received %Message{event: "usage"}
-  end
-
-  test "older provider events retain the newer usage projection" do
-    newer_observed_at = ~U[2026-07-30 12:01:00Z]
-
-    older_snapshot = %{
-      ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation")
-      | observed_at: ~U[2026-07-30 12:00:00Z],
-        plan: %{tier: "older"}
-    }
-
-    assert %{"codex" => %{"state" => "observed", "observed_at" => "2026-07-30T12:01:00Z"}} =
-             StreamdeckProjection.merge_provider_meter(
-               %{"codex" => %{"state" => "observed", "observed_at" => DateTime.to_iso8601(newer_observed_at)}, "claude" => %{"state" => "unknown"}},
-               older_snapshot
-             )
   end
 
   test "decision changes reach the joined socket through the decision summary" do

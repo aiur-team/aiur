@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Render.Parts do
   @moduledoc false
 
-  alias AiurWeb.Streamdeck.Render.Svg
+  alias AiurWeb.Streamdeck.Render.{StripBand, Svg}
   import Svg, only: [element: 2, element: 3, text: 4, text: 5, field: 2, field: 3]
 
   @spec bar(term(), term(), number(), number(), number()) :: iodata()
@@ -111,6 +111,8 @@ defmodule AiurWeb.Streamdeck.Render.Parts do
       "count_row" -> count_row(part, width)
       "text_line" -> text_line(part, width)
       "pager" -> pager(part, width)
+      "category_chips" -> StripBand.chips(field(part, :model))
+      "backlog" -> StripBand.backlog(part)
     end
   end
 

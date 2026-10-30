@@ -7,7 +7,7 @@ defmodule Aiur.Events.Catalog.Entries do
 
   # aiur/decision_store/{requests,persistence,audit}.ex
   @decision_slugs ~w(requested request-attributed native-released routed escalated human-needed executor-acknowledged requester-notified answered pending-for-session session-started answer-comment-published expired mooted dismissed
-    deferred executor-escalated authority-reclassified enriched revision-recorded queued dispatch-outcome-unknown revision-dispatched
+    deferred executor-escalated authority-reclassified enriched override-implemented override-resume-state override-prompt-delivered revision-recorded queued dispatch-outcome-unknown revision-dispatched
     revision-no-longer-applicable revision-follow-up-required revision-follow-up-handled handed-off delivered restored consumed failed acknowledged resolved)
   # aiur/executor_wake_projection.ex
   @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)

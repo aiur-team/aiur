@@ -3,7 +3,7 @@ pageClass: cli-reference
 ---
 # CLI
 
-Choose a topic below. Existing section links lead to the same reference content.
+Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `aiur commands` and the explicit answer verbs remain supported for compatibility. Existing section links lead to the same reference content.
 
 - [CLI launch and setup](./cli-launch)
 - [CLI operations](./cli-operations)
@@ -38,7 +38,7 @@ Choose a topic below. Existing section links lead to the same reference content.
 
 ## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
 
-[Read this section](./cli-operations#build-history-commands-—-feature-epic-and-history-export-commands).
+[Read this section](./cli-operations#build-history-commands-—-feature-epic-and-history-export-commands), including [confirming unconfirmed classifications](./build-history-commands#review-unconfirmed-classifications).
 
 ## Dashboard page commands
 

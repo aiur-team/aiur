@@ -6,7 +6,7 @@ defmodule Aiur.ExecutorWakeProjectionTest do
   alias Aiur.ExecutorWakeProjection
   alias Aiur.GitHub.CodeOwners
 
-  @allowed ~w(wake_id topic topic_class event_id ticket pr_number head_sha last_review_sha action draft author_trusted? author_id ci_conclusion needs_attention count first_seen_at last_seen_at)
+  @allowed ~w(wake_id topic topic_class event_id ticket pr_number head_sha last_review_sha action draft author_trusted? author_id ci_conclusion needs_attention observed_state observed_updated_at count first_seen_at last_seen_at)
 
   property "arbitrary extra keys and values never survive projection" do
     check all(
@@ -148,6 +148,18 @@ defmodule Aiur.ExecutorWakeProjectionTest do
     assert record["pr_number"] == 3019
     assert record["head_sha"] == sha
     assert record["action"] == "human_review"
+  end
+
+  test "projects the issue state and version observed by a human-review handoff" do
+    event = %{
+      topic: "ticket.42.agent.handoff.human_review",
+      observed_state: "human-review",
+      observed_updated_at: "2026-10-28T12:00:00Z"
+    }
+
+    assert {:ok, record} = ExecutorWakeProjection.project(event)
+    assert record["observed_state"] == "human-review"
+    assert record["observed_updated_at"] == "2026-10-28T12:00:00Z"
   end
 
   test "projects the handoff action from its topic when the event omits it" do

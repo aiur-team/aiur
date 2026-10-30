@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`. Queue restore failures recover to an empty queue so they cannot prevent daemon boot."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.ControlLifecycle
 
@@ -86,6 +86,10 @@ defmodule Aiur.Orchestrator.State do
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             optional(:broker_fast_retry_pending?) => boolean(),
+            optional(:ci_wait_draft_since) => %{optional(String.t()) => integer()},
+            optional(:ci_wait_draft_alerts | :ci_wait_draft_recovered | :ci_wait_draft_comments) => MapSet.t(),
+            optional(:ci_wait_draft_pending_alerts) => map(),
+            optional(:draft_stall_alerts) => MapSet.t(),
             approved_heads: map(),
             passed_heads: map(),
             test_failure_heads: map(),
@@ -272,6 +276,7 @@ defmodule Aiur.Orchestrator.State do
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
+    # Lifecycle.init/2 rehydrates durable next-worker messages before dispatch.
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     terminal_verification_attempts: %{},

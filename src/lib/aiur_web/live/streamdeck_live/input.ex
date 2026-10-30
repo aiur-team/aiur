@@ -2,7 +2,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
   @moduledoc "Route device-shaped input to the emulator's existing focused controls."
   import Phoenix.Component, only: [assign: 2]
   alias AiurWeb.Streamdeck.{Deck, FrameUpdates}
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{MeterPage, Nav}
   alias AiurWeb.StreamdeckLive
   alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Settings, Surface}
 
@@ -15,24 +15,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
 
   defp route(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
        when index in 0..3 and is_integer(delta) and delta in -32..32 do
-    case {socket.assigns.sd_mode, index} do
-      {:logs, 0} ->
-        StreamdeckLive.handle_event(
-          "logs-scroll",
-          %{"axis" => "transcript", "delta" => delta},
-          socket
-        )
-
-      {:logs, 3} ->
-        StreamdeckLive.handle_event(
-          "logs-scroll",
-          %{"axis" => "events", "delta" => delta},
-          socket
-        )
-
-      _ ->
-        StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
-    end
+    StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
   end
 
   defp route(%{"kind" => "dial", "index" => 0, "action" => "press"}, socket),
@@ -57,12 +40,13 @@ defmodule AiurWeb.StreamdeckLive.Input do
   @spec reduce(map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def reduce(raw, socket) do
     socket = Settings.refresh(socket)
-    grid = FrameUpdates.prepare_grid(socket.assigns.grid)
+    grid = socket.assigns.grid |> Map.put(:meter_usage, socket.assigns.usage) |> FrameUpdates.prepare_grid()
 
     case FrameUpdates.transition(socket.assigns.deck_nav, raw, grid) do
       {:ok, nav, effects} ->
         socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
-        sizes = Deck.Input.sizes(nav, Deck.navigation(grid))
+        sections = MeterPage.sections(grid, nav)
+        sizes = Deck.Input.sizes(nav, sections)
         total = if nav.stack == [], do: sizes[nav.view], else: sizes.drill
         dial_value = Surface.dial_value_from_offset(Nav.page(nav) * 4, total)
         socket = Grid.assign_grid(socket, grid, 0, socket.assigns.usage, dial_value)

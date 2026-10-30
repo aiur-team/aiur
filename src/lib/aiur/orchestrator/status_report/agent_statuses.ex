@@ -192,6 +192,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # Read it once per snapshot.
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase, decision_counts) do
     max_dispatches = Config.agent_max_dispatches_per_ticket()
+    terminal_states = DispatchPolicy.terminal_state_set()
 
     idle_issues =
       Enum.reject(visible_polled_issues(state), fn {issue_id, _issue} ->
@@ -211,7 +212,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         prewarm_phase,
         max_dispatches,
         Map.get(latch_statuses, issue_id, :none),
-        decision_counts
+        decision_counts,
+        terminal_states
       )
     end)
   end
@@ -222,7 +224,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
          prewarm_phase,
          max_dispatches,
          latch_status,
-         decision_counts
+         decision_counts,
+         terminal_states
        ) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
 
@@ -242,7 +245,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         issue,
         latch_status,
         open_decision_count,
-        System.monotonic_time(:millisecond)
+        System.monotonic_time(:millisecond),
+        terminal_states
       )
 
     waiting_reason = idle_evidence_waiting_reason(idle_evidence, release)
@@ -350,8 +354,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   defp idle_reason(_waiting_reason, _identifier, fallback), do: fallback.()
 
   @doc false
-  @spec idle_evidence(State.t(), map(), term(), non_neg_integer(), integer()) :: map()
-  def idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms) do
+  @spec idle_evidence(State.t(), map(), term(), non_neg_integer(), integer(), MapSet.t()) :: map()
+  def idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms, terminal_states) do
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), now_ms)
     dispatch_hold_reason = Map.get(state.dispatch_hold || %{}, :reason)
     capacity_hold_active? = capacity_hold_active?(state)
@@ -364,7 +368,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       waiting_reason:
         WaitingReason.for_idle(
           Map.get(issue, :state),
-          DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
+          DispatchPolicy.issue_held_by_dependency?(issue, terminal_states),
           open_decision_count,
           queue_set_order?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :queue_set_order,
           optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,

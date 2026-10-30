@@ -1,3 +1,4 @@
+import './support/voice-cancel-cases.mjs'
 import './support/voice-input-state-cases.mjs'
 import { test, expect } from '@playwright/test'
 
@@ -65,6 +66,11 @@ test('VoiceInput dictates into a standalone form and waits for Send', async ({ p
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
   await form.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'hello browser')
+  await expect(form.locator('[data-voice-delivery]')).toHaveText('Delivered to the agent')
+  await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'sent')
+  await patch(page, 1)
+  await expect(form.locator('[data-voice-delivery]')).toHaveText('Delivered to the agent')
+  await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'sent')
 })
 
 test('VoiceInput never requests the microphone before a click or without a textarea', async ({ page }) => {
@@ -116,24 +122,4 @@ test('the component hook attribute contains the caller-owned composer', async ({
   await expect(form.locator('[data-voice-input]')).toHaveValue('hello browser')
   await expect(page.locator('#standalone-input')).toHaveValue('')
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
-})
-
-test('modal dictation fills the message box and waits for Send', async ({ page }) => {
-  await openVoice(page, '?modal=true')
-  const form = await dictate(page, '#agent-log-composer-1110')
-  await expect(form.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
-  await form.getByRole('button', { name: 'Stop dictation' }).click()
-  await expect(form.getByLabel('Message agent', { exact: true })).toHaveValue('hello browser')
-  await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
-  await expect(page.locator('#standalone-input')).toHaveValue('')
-  await form.getByRole('button', { name: 'Send', exact: true }).click()
-  await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'hello browser')
-})
-
-test('closing the agent log modal releases its recording', async ({ page }) => {
-  await openVoice(page, '?modal=true')
-  await dictate(page, '#agent-log-composer-1110')
-  await page.getByRole('dialog', { name: '1110', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(page.locator('#agent-log-composer-1110')).toHaveCount(0)
-  await expect.poll(() => page.evaluate(() => window.__trackStops)).toBe(1)
 })

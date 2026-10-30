@@ -94,15 +94,15 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
     assert_grid_images(view, html)
   end
 
-  test "existing focused controls, logs, settings and Commands use the common frame" do
+  test "existing focused controls, settings and Commands use the common frame" do
     EndpointStubs.put(dashboard_writable: false)
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_grid_images(view, html)
     assert has_element?(view, "button[data-streamdeck-command='priority_up'] > svg")
 
-    for mode <- [:logs, :settings, :commands] do
-      html = if mode == :logs, do: render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "press"}), else: render_click(view, "command-press", %{"command" => to_string(mode)})
+    for mode <- [:settings, :commands] do
+      html = render_click(view, "command-press", %{"command" => to_string(mode)})
       assert :sys.get_state(view.pid).socket.assigns.deck_nav.surface == mode
       assert_grid_images(view, html)
 

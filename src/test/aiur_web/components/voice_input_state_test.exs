@@ -3,6 +3,13 @@ defmodule AiurWeb.Components.VoiceInputStateTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
   alias AiurWeb.Components.VoiceInput
 
+  test "a surface can omit Converse while retaining Dictate" do
+    html = render_component(&VoiceInput.voice_input/1, %{id: "command-voice", converse: false, capabilities: %{"voice.conversation" => %{state: :available}, "voice.stt" => %{state: :available}}})
+    document = Floki.parse_fragment!(html)
+    assert Floki.find(document, "[data-voice-mode=converse]") == []
+    assert Floki.attribute(Floki.find(document, "[data-voice-mode=dictate]"), "aria-disabled") == ["false"]
+  end
+
   test "unavailable is server-rendered with the actual reason and configuration link" do
     for {reason, copy} <- [
           {:not_configured, "Voice input is not configured."},

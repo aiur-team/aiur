@@ -13,6 +13,7 @@ export async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await anchor(page.locator('.sd-device'))
 }
 
@@ -35,15 +36,6 @@ export async function anchor(locator) {
   })
 }
 
-export async function openUnits(page, path = '/units-fixture') {
-  await page.goto('/auth/read_only')
-  await page.goto(path)
-  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
-  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
-  // The socket connects before the view joins. A row click before the connected
-  // render is dropped, so the later remove has no selection and changes nothing.
-  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
-}
 
 export async function dragDialThroughAngles(page, dial, angles) {
   // Re-anchor before every drag: a mode change re-lays the deck out.

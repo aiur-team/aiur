@@ -34,8 +34,8 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
     end
   end
 
-  test "queued footers distinguish blocked and ready dependencies" do
-    for {ready, label, color} <- [{false, "Blocked", "#ff9a90"}, {true, "Unblocked", "#88e0a6"}] do
+  test "queued footers distinguish blocked, ready and unknown dependencies" do
+    for {ready, label, color} <- [{false, "Blocked", "#ff9a90"}, {true, "Unblocked", "#88e0a6"}, {nil, "Readiness unknown", "#9096a4"}] do
       image = Render.key(face(%{bucket: :queued, dependency_ready: ready}))
       xml = parse(image.svg)
       assert xpath(xml, ~s|//text[@y="112"]/text()|) == [label]

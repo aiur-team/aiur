@@ -1,6 +1,6 @@
 defmodule AiurWeb.StreamdeckLive.Modes do
   @moduledoc """
-  Mode transitions for the Stream Deck emulator: grid to command row to logs,
+  Mode transitions for the Stream Deck emulator: grid to command row,
   settings or Commands and back, the Commands page's selection and paging, and
   the pause/resume control calls. Socket in, socket out; the write gate
   (`dashboard_writable?`) stays with the event handlers in `StreamdeckLive`.
@@ -8,7 +8,7 @@ defmodule AiurWeb.StreamdeckLive.Modes do
 
   import Phoenix.Component, only: [assign: 3]
   import AiurWeb.StreamdeckLive.Env, only: [endpoint_config: 1, safe_call: 2]
-  import AiurWeb.StreamdeckLive.Grid, only: [assign_grid: 5, focus_logs: 3, refresh_knobs: 1]
+  import AiurWeb.StreamdeckLive.Grid, only: [assign_grid: 5, focus_agent: 3, refresh_knobs: 1]
 
   alias Aiur.AgentChat
   alias AiurWeb.Streamdeck.Deck.TicketPage
@@ -29,7 +29,7 @@ defmodule AiurWeb.StreamdeckLive.Modes do
         socket
         |> assign(:selected_identifier, identifier)
         |> maybe_assign_active(agent)
-        |> focus_logs(previous_identifier, identifier)
+        |> focus_agent(previous_identifier, identifier)
     end
   end
 
@@ -47,13 +47,6 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   end
 
   def enter_cmd(socket, _params), do: socket
-
-  @spec enter_logs(Socket.t()) :: Socket.t()
-  def enter_logs(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket)
-      when not is_nil(active),
-      do: socket |> assign_mode(:logs) |> refresh_knobs()
-
-  def enter_logs(socket), do: socket
 
   @spec enter_settings(Socket.t()) :: Socket.t()
   def enter_settings(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket)
@@ -159,7 +152,7 @@ defmodule AiurWeb.StreamdeckLive.Modes do
   def page_commands(socket), do: socket
 
   @spec back(Socket.t()) :: Socket.t()
-  def back(%{assigns: %{sd_mode: mode}} = socket) when mode in [:logs, :settings, :commands],
+  def back(%{assigns: %{sd_mode: mode}} = socket) when mode in [:settings, :commands],
     do: socket |> assign_mode(:cmd) |> refresh_knobs()
 
   def back(%{assigns: %{sd_mode: :cmd}} = socket) do
@@ -174,14 +167,14 @@ defmodule AiurWeb.StreamdeckLive.Modes do
       nil,
       socket.assigns.grid_dial_value
     )
-    |> focus_logs(previous_identifier, socket.assigns.selected_identifier)
+    |> focus_agent(previous_identifier, socket.assigns.selected_identifier)
   end
 
   def back(socket), do: socket
 
   # The focused agent's Command history for the emulator's Commands surface. A
-  # `streamdeck_commands_fun` seam exists only for tests, mirroring
-  # `streamdeck_logs_fun`; the production path reads the retained decision store
+  # `streamdeck_commands_fun` seam exists only for tests; the production path
+  # reads the retained decision store
   # through the same projection the physical channel uses.
   defp load_commands(identifier) do
     case commands_page(identifier, nil) do

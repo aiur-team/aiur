@@ -1,10 +1,12 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same view state. Focused ticket frames show conversation turns from the desktop modal’s source.
+Open `/streamdeck` in the [GUI](/guide/gui) for the emulator, or install the physical Stream Deck + sidecar. Both show the same daemon-rendered images. Ticket frames and the desktop modal read masked journal entries that survive restarts and workspace removal, falling back to workspace logs only without a journal. The browser retains Settings and Commands.
+
+Conversation dictation follows the ticket’s listener mode: default Sync waits for turn end; Steer delivers mid-turn when supported; Async holds messages for agent pull. If a turn is stuck, use the existing operator interrupt control.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
-The Claude provider meter shows the account closest to its limit using the Build page's readings: the lowest remaining percentage across session and weekly limits. It names the account with “closest of N”, or the observed account count when readings are partial. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
+The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
 The physical deck uses server-rendered Ticket, Feature, Epic and Fleet views.
 Dial 4 cycles views, turns page by eight keys, and a 500 ms hold goes back or
@@ -12,22 +14,53 @@ opens Settings at the root. Dial 1 scrolls and dial 2 changes ticket priority.
 
 After selecting a ticket, hold dial 3 for 500 ms to dictate; release stops
 capture, and a short tap sends the settled transcript. Choose instances in Settings.
-The browser grid dial D turns pages and presses to cycle Ticket, Feature, Epic and Fleet; dial A scrolls the shared provider panel.
+The grid dial D turns pages and presses to cycle Ticket, Feature, Epic and Fleet; dial B scrolls the category chips.
 
-## Drive the deck modes
+## Read provider accounts
+
+On the physical deck, turn dial 4 past the eight Fleet categories
+to reach the provider meter keys. Press a meter to open one key per
+account, sorted by name, with 5h and weekly remaining percentages and reset
+countdowns. Missing windows show “—” with a hatched bar. Stale values stay
+visible, dimmed and labelled “stale”.
+
+The touch strip names the provider and
+its summary account; hold dial 4 to return. Account keys are read-only.
+
+## Drive the deck
 
 Settings uses the same sections and choices on both surfaces; PC device choices need sidecar inventory.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents, queued tickets, build progress and provider meters | A: browser provider panel. B: physical provider panel. D: turn to page; press to cycle views. |
-| **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel while dictating | Latest masked conversation entry across the strip; voice panel while dictating | A: Grid. C: physical dictation. D: Logs. |
-| **Ticket conversation** | Press a ticket key | Seven conversation turns plus LIVE | Selected turn, or the latest entry at LIVE | A: scroll text; press for Grid. B: priority. C: physical dictation. D: older/newer turns; press to leave the ticket. |
-| **Settings** | Hold dial 4 at the root or press Settings | Mic, Speaker, View, Sort, Brightness, Sleep, Instance, Alerts | Current section, choice, save errors and inventory availability | Dial 1: scroll/press select. Hold dial 4: back. |
-| **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. D: scroll event keys. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold for Settings at root. |
+| **Ticket conversation** | Press a ticket key | Seven conversation turns plus LIVE | Selected turn, or the latest entry at LIVE | A: scroll text; press for Grid. B: priority. C: physical dictation. D: turn for older/newer turns; press to leave the ticket. |
+| **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical dictation. D: conversation navigation. |
+| **Settings** | Hold dial 4 at root or press Settings | Mic, Speaker, View, Sort, Brightness, Sleep, Instance, Alerts | Current section, choice, save errors and inventory availability | Dial 1: scroll/press select. Hold dial 4: back. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
+The server-rendered Ticket strip uses three bands: build progress at the left
+(200 px), category chips across the middle (400 px), and `Queued M` / `Not queued K`
+with pager dots at the right (200 px).
+
+Chips show a state glyph and count, ordered
+error, command, retrying, active, waiting for CI, usage limited, parked, paused,
+then other Build states alphabetically and unknown last.
+
+Zero counts are hidden;
+missing counts read `Counts unavailable`, never zero. A dimmed band marked `stale`
+retains the last counts.
+
+More than eight categories show seven chips and `+N more`;
+dial B (zero-based dial 1) moves that window one category per detent. On a selected
+ticket, dial B retains the priority action.
+
+Physical display and raw dial routing
+require the server-image sidecar update (SD-103).
+
 Physical and emulator ticket frames show the same masked turn keys and full-width conversation strip.
+Ticket-key priority stars, lane icons and progress freshness come from the shared Build rows.
+Queued keys use the shared prerequisite verdict: Blocked, Unblocked, or Readiness unknown when facts are missing.
 
 ### Feature view
 
@@ -46,9 +79,9 @@ The strip names closed/total, unpublished count and
 observation age in minutes for the first visible feature (the selected feature while drilled in).
 
 The browser emulator and physical deck use the same SVG frames, pushed through the
-shared frame updates. Input acknowledgements carry navigation; images arrive in frame events.
+shared frame updates.
 
-The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
+Input acknowledgements carry navigation; images arrive in frame events.
 
 The legacy browser modes retain their own controls.
 
@@ -56,7 +89,7 @@ The legacy browser modes retain their own controls.
 | --- | --- |
 | Pause | The label reflects the selected agent's current state. |
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
-| Read-only Dashboard | Pause, priority and Mic are disabled; Commands, links, Logs and Settings stay available because they change what you see, not what the fleet does. |
+| Read-only Dashboard | Pause, priority and Mic are disabled; Commands, links and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
 | Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. The strip reports `Queued #k`. The orchestrator priority star is separate. |
 
@@ -111,7 +144,7 @@ clears loaded pages and reloads the tail, so history never silently skips a gap.
 Missing history says “Conversation not retained”; read failures say
 “Conversation unavailable”; stale conversations show their age.
 
-The legacy browser Logs surface remains separate from the ticket turn keys.
+
 
 ### Progress bars
 
@@ -162,7 +195,7 @@ forwards raw input, and shows **Aiur offline** with blank keys when the channel
 is down. On reconnect, the daemon sends a full frame and resets navigation.
 
 The physical entry point shows the server grid; selecting a ticket opens its shared conversation strip. The legacy local
-voice, Commands, browser links, demo and instance-picker views await server migrations;
+voice, Commands and browser links await server migrations;
 use the dashboard for those controls.
 
 The control and voice sections below
@@ -258,7 +291,7 @@ Shared ticket frames use conversation keys; these slots describe the legacy brow
 | Send | Fifth, once dictation has text | Delivers the accumulated text to the agent. |
 | Cancel | Sixth, once dictation has text | Discards the accumulated text. |
 
-In the legacy Command layout, dial D opens Logs. A missing PR disables Open PR. Link keys accept only HTTP(S) URLs.
+A missing PR disables Open PR. Link keys accept only HTTP(S) URLs.
 
 The browser shares Settings and its reported PC inventory; microphone capture runs on the sidecar.
 
@@ -307,7 +340,7 @@ sidecar inventory; disconnects and failed device discovery show “Unavailable�
 Agent replies are not spoken; only alert chimes use the chosen speaker. Dictation
 needs the `Speech to Text` and `User` permissions.
 
-The Dashboard [agent conversation](/concepts/units#agent-conversation-and-voice) uses the same server-held credential for interactive spoken replies when `Text to Speech` permission and `elevenlabs.voice_id` are configured.
+The Build ticket modal retains dictation. Worker conversation voice and the Executor prototype remain available from Home’s **Settings → Talk to Executor** (`/voice`).
 
 ### Configure it
 
@@ -334,14 +367,14 @@ Prefer the environment reference over a literal key. See [Configuration](/refere
 
 | State | What the operator can expect |
 | --- | --- |
-| Key configured | Held microphone audio goes to Aiur, then to ElevenLabs; returned text goes to the selected agent. |
+| Key configured | Held microphone audio goes to Aiur, then to ElevenLabs; returned text waits in the deck buffer for Send. |
 | Voice input declined (`enabled: false`) | Device selection, waveform, and level meters work; transcription and ElevenLabs metering are disabled; no audio leaves the machine. |
 | Enabled, key absent | Device selection, waveform, and level meters work; transcription does not; no audio leaves the machine. |
 | Capture released | Audio capture stops; there is no always-on listener or wake word. |
-| Transcript returned | Text stays in memory until sent or discarded; nothing writes it to disk. |
+| Transcript returned | Unsent text stays in memory until sent or discarded; sent text follows ordinary message retention. |
 | Coding agent launched | `ELEVENLABS_API_KEY` is removed from its environment and never logged. |
 
-When voice input is enabled, the Units meter reads the ElevenLabs credit quota as percentage remaining and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures). Declining voice input disables this provider meter.
+When voice input is enabled, the Units meter shows the ElevenLabs credit quota as percentage used; it omits invoice amounts and speech-to-text audio-minute spend. See [ElevenLabs metering](/apis/elevenlabs#what-the-usage-meter-measures). Declining voice input disables this provider meter.
 
 ### Without a key
 
@@ -357,7 +390,7 @@ The key is optional and its absence is not an error; unlike an absent key, `elev
 
 See [voice responsibilities and cloud processing](/apis/elevenlabs#who-does-what) for capture, transport, transcription, delivery and retention.
 
-This is the one part of Aiur that sends operator data to a third party.
+Voice transcription sends operator audio to a cloud provider.
 
 **Aiur holds the credential and Aiur performs the ElevenLabs call. The sidecar never sees the key.**
 
@@ -380,8 +413,8 @@ This is the one part of Aiur that sends operator data to a third party.
 | Key configured | Microphone audio reaches ElevenLabs and the transcribed text comes back; both leave your machine. |
 | Key absent | No audio leaves your machine and no ElevenLabs connection is opened. |
 | Mic released | Capture stops; there is no always-on listening and no wake word. |
-| Waveform and level meter | Computed on the sidecar, so "is my microphone working" is answered locally; only transcribed text makes the trip. |
-| Transcripts | Held in memory until sent or discarded; nothing writes them to disk. |
+| Waveform and level meter | Computed on the sidecar, so "is my microphone working" is answered locally; audio still travels through Aiur to ElevenLabs for transcription. |
+| Transcripts | Unsent text stays in memory; submitted text follows ordinary message or Command retention. |
 
 ### Key handling
 
@@ -449,3 +482,13 @@ A plugged-in deck can keep requesting channel tokens while its configured creden
 A stolen or unattended deck carries the write authority of its configured token, so treat it like a logged-in session. Answers remain version-checked regardless: the deck answers the exact Command version it read, and a stale press is rejected as a conflict — never recorded as a second decision.
 
 Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.
+
+The channel's `answer_command` operation also accepts `override: true` with a
+nonblank `rationale` (up to 4,000 characters) to override an existing answer,
+including after delivery. Ordinary answer submissions retain first-answer-wins
+semantics.
+
+The override record and routing state are visible in
+`aiur commands --json`. Resumable workers wait for capacity; explicit parked or
+paused labels require operator resume. Terminal tickets raise a follow-up.
+Physical override controls are separate from this transport operation.

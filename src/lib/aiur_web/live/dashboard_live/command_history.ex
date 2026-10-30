@@ -173,6 +173,10 @@ defmodule AiurWeb.DashboardLive.CommandHistory do
     if Enum.any?(history_rows, &(&1.decision_id == decision_id)), do: decision_id
   end
 
+  def history_expanded_id(%{decision_id: decision_id, revisions: [_ | _]}, history_rows) do
+    if Enum.any?(history_rows, &(&1.decision_id == decision_id)), do: decision_id
+  end
+
   def history_expanded_id(_selected, _history_rows), do: nil
 
   @doc false

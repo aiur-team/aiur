@@ -5,6 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   import AiurWeb.Components.VoiceInput
 
   alias Aiur.Commands.Answering
+  alias AiurWeb.Components.VoiceDelivery
   alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionQuestionsForm, DecisionReplacement}
 
   attr(:decision, :map, required: true)
@@ -16,6 +17,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
+    assigns = assign(assigns, :voice_delivery, VoiceDelivery.command(assigns.decision, assigns.state))
     form = Map.get(assigns.state, :form, %{})
     choice = Map.get(form, "choice") || default_choice(assigns.decision)
 
@@ -64,6 +66,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
       </p>
 
       <DecisionReplacement.decision_replacement decision={@decision} state={@state} writable={@writable} live_connected={@live_connected} />
+
+      <.delivery_status :if={!@answerable?} delivery={@voice_delivery} />
 
       <form
         :if={@writable and @answerable?}
@@ -126,11 +130,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           >{Map.get(@form, "custom_response", "")}</textarea>
         </label>
 
-        <.voice_input
+        <.voice_input delivery={@voice_delivery}
           :if={@questions == [] and answerable?(@decision) and not @disabled? and @live_connected}
           id={"decision-answer-voice-#{@decision.decision_id}"}
           capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_response})}
-          legacy_conversation={false}
+          legacy_conversation={false} converse={false}
           surface="command_response"
           target={%{kind: "command", decision_id: @decision.decision_id, expected_version: @decision.version}}
           status_copy="Choose Dictate to speak a custom response. Review the text, then record your answer."
