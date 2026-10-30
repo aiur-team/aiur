@@ -2,8 +2,8 @@ defmodule Aiur.AgentRunner.OverrideFreshSessionTest do
   use Aiur.DispatcherTestSupport
   alias Aiur.AgentRunner.SessionOptions
   alias Aiur.Issue
-  alias Aiur.Workspace.Context
   alias Aiur.Orchestrator.OverrideRecovery
+  alias Aiur.Workspace.Context
 
   test "replacement ignores a supplied stale thread and preserves the ticket workspace" do
     issue = %Issue{id: "6911", identifier: "6911", selected_backend: "codex", continuation_head_ref: "original-branch"}
