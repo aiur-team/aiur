@@ -247,12 +247,16 @@ exact trimming order. This package does not send messages or schedule delivery.
 
 Invoke `/aiur-newsletter` to preprocess the daily report, add checked Executor
 findings as a notes file, and compile the PDF. The skill checks operator decisions
-in tracker items, open Commands and the latest handoff. Its `blockers` entries use
-short `{label, action}` pairs without issue numbers. A checked empty list displays
+in tracker items, open Commands and the latest handoff.
+
+Its `blockers` entries use short `{label, action}` pairs without issue numbers.
+A checked empty list displays
 “Nothing blocked on you today”; missing blocker evidence remains `unavailable`.
 
 The Executor attaches the PDF with Claude's `SendUserFile` and sends a one-line
 Claude app push notification, checking each result. This requires those tools in
-the Executor session; a local PDF alone is not delivery. A delivery receipt avoids
-duplicate sends on repeated wakes. Ask for a **dry-run** to produce and inspect the
+the Executor session; a local PDF alone is not delivery.
+
+A delivery receipt avoids duplicate sends on repeated wakes.
+Ask for a **dry-run** to produce and inspect the
 PDF without sending it or notifying. The skill installs no scheduler or email path.
