@@ -13,7 +13,7 @@ defmodule AiurWeb.Build.OverrideSummary do
   def summary(assigns) do
     ~H"""
     <section :if={@state != {:ok, []}} id="fleet-overrides" class="fleet-overrides" aria-label="Fleet overrides">
-      <details phx-click-away={JS.remove_attribute("open", to: "#fleet-overrides details")}
+      <details id="fleet-overrides-disclosure" phx-mounted={JS.ignore_attributes(["open"])} phx-click-away={JS.remove_attribute("open", to: "#fleet-overrides details")}
         phx-window-keydown={JS.remove_attribute("open", to: "#fleet-overrides details")} phx-key="Escape">
         <summary class="chip attention" title={if @state == :unavailable, do: "Override status unavailable", else: "Pending overrides"}>
           Overrides: {if @state == :unavailable, do: "?", else: length(elem(@state, 1))}

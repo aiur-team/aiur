@@ -249,6 +249,7 @@ test('override timeline and form fit desktop and mobile after an answer', async 
   // Reuse the harness's existing control to share this retained store with Build.
   await page.goto('/voice-input-fixture?command=true')
   await page.goto('/')
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await expect(page.getByRole('region', { name: 'Fleet overrides' })).toContainText('Override failed')
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
