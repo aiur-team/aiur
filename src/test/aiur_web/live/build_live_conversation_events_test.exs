@@ -13,8 +13,18 @@ defmodule AiurWeb.BuildLiveConversationEventsTest do
 
     def prepare(ref, _opts), do: {:ok, Map.merge(ref, %{handle: nil, path: nil, running: nil})}
 
-    def tail(ref, _cursor, _opts),
-      do: {:ok, %{state: :live, entries: [%{id: "t:" <> ref.id, k: "say", at: 1_791_407_600_000, text: "hi"}], before: "t:0", last: "t:0", more?: true, live?: true, observed_at: nil}}
+    def tail(ref, _cursor, opts),
+      do:
+        {:ok,
+         %{
+           state: :live,
+           entries: [%{id: "t:" <> ref.id, k: "say", at: 1_791_407_600_000, text: "hi"}],
+           before: "t:0",
+           last: "t:0",
+           more?: Agent.get(opts[:control], &Map.get(&1, :more?, true)),
+           live?: true,
+           observed_at: nil
+         }}
 
     def page(_ref, _cursor, _opts), do: {:ok, %{entries: [], before: nil, more?: false}}
     def subscribe(_ref, opts), do: if(Agent.get(opts[:control], & &1[:subscribe_fail]), do: {:error, :down}, else: :ok)
@@ -25,6 +35,33 @@ defmodule AiurWeb.BuildLiveConversationEventsTest do
 
     def identity(id),
       do: %TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "owner", repository: "repo", provider_id: "I-" <> id, identifier: id, reason: nil}
+  end
+
+  defmodule AtomTicketSource do
+    @moduledoc false
+    @behaviour AiurWeb.Build.DataSource
+    alias Aiur.TestSupport.BuildHome.ProtocolCase
+
+    @impl true
+    def ticket(id, opts) do
+      with {:ok, row} <- ProtocolCase.Spy.ticket(id, opts) do
+        overrides = Keyword.get(opts, :atom_row_overrides, %{})
+        {:ok, row |> atomize_keys() |> Map.merge(Map.get(overrides, id, %{}))}
+      end
+    end
+
+    @impl true
+    def snapshot(opts), do: ProtocolCase.Spy.snapshot(opts)
+
+    @impl true
+    def subscribe(opts), do: ProtocolCase.Spy.subscribe(opts)
+
+    @impl true
+    def earlier(before, zone, opts), do: ProtocolCase.Spy.earlier(before, zone, opts)
+
+    defp atomize_keys(map) when is_map(map), do: Map.new(map, fn {key, value} -> {String.to_atom(key), atomize_keys(value)} end)
+    defp atomize_keys(list) when is_list(list), do: Enum.map(list, &atomize_keys/1)
+    defp atomize_keys(value), do: value
   end
 
   setup do
@@ -82,6 +119,26 @@ defmodule AiurWeb.BuildLiveConversationEventsTest do
     send(view.pid, {:conversation_events_refresh, id})
     render(view)
     refute_push_event(view, "build-conversation", %{"kind" => "conversation-append"})
+  end
+
+  test "atom-keyed live rows show their dependency and PR without an orphan merge", %{control: control} do
+    [ticket, dependency | _] = rows()
+    id = ticket["id"]
+    dependency_id = dependency["id"]
+    overrides = %{id => %{deps: [dependency_id], dep_states: %{dependency_id => "unknown"}, pr: %{num: 88, state: "open"}}}
+    Application.put_env(:aiur, :build_data_source, {AtomTicketSource, [test_pid: self(), dataset: "live", atom_row_overrides: overrides]})
+    orphan_merge = %{ticket_id: nil, repository: "owner/repo", number: 7193, merged_at: ~U[2026-10-07 21:13:20Z]}
+    Agent.update(control, &%{&1 | merges: [orphan_merge], repository: "owner/repo"})
+    Agent.update(control, &Map.put(&1, :more?, false))
+
+    log = ExUnit.CaptureLog.capture_log(fn -> send(self(), {:reply, open(view(), id)}) end)
+    assert_receive {:reply, reply}
+    assert is_list(reply["entries"]), "#{inspect(reply)} #{log}"
+    ids = event_ids(reply)
+
+    assert "ev:dep:#{dependency_id}" in ids
+    assert "ev:pr:88" in ids
+    refute Enum.any?(reply["entries"], &(&1["label"] == "Merged PR #7193"))
   end
 
   test "E18/E19 an append is sent once, a first view repeats its window, a late lower id is still found", %{control: control} do
