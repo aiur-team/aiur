@@ -149,10 +149,14 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
     Aiur.TestSupport.start_owned_endpoint!()
     previous = AiurWeb.Endpoint.config(:dashboard_writable)
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, false)
-    on_exit(fn -> Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous) end)
-    id = enqueue("executor", "read-only dashboard")
-    assert request(context, payload(), remote_ip: {0, 0, 0, 0, 0, 0, 0, 1}).status == 200
-    assert item(id).status == :delivered
+
+    try do
+      id = enqueue("executor", "read-only dashboard")
+      assert request(context, payload(), remote_ip: {0, 0, 0, 0, 0, 0, 0, 1}).status == 200
+      assert item(id).status == :delivered
+    after
+      Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous)
+    end
   end
 
   test "batch preserves arrival order and claims at most the rendered count", context do
