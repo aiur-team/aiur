@@ -49,6 +49,12 @@ def call_end(source: str, opening: int) -> int:
 
 def violations(source: str) -> list[tuple[int, str]]:
     found = []
+    helper_names = re.findall(r"defp?\s+(\w+)\s*\([^)]*\)\s+do\b([\s\S]{0,500}?)\n\s*end", source)
+    guarded_helpers = {
+        name
+        for name, body in helper_names
+        if ALIVE.search(body) and (STOP.search(body) or HELPER_STOP.search(body))
+    }
     for callback in ON_EXIT.finditer(source):
         opening = source.find("(", callback.start())
         end = call_end(source, opening)
@@ -64,8 +70,9 @@ def violations(source: str) -> list[tuple[int, str]]:
                 guard_prefix + guard_sep + r"[\s\S]{0,240}?(?:safe_stop_genserver|safe_stop_supervisor|safe_stop|stop_store)\s*\(",
                 body,
             )
+            helper_call = any(re.search(rf"\b{re.escape(name)}\s*\(", body) for name in guarded_helpers)
             guarded_stop = bool(alive_guard and not any(re.search(rf"\b{re.escape(pid)}\b", body[stop.start():stop.end() + 30]) for pid in unlinked))
-            if guarded_stop or helper_guard:
+            if guarded_stop or helper_guard or helper_call:
                 line = source.count("\n", 0, callback.start()) + 1
                 found.append((line, source.splitlines()[line - 1].strip()))
                 break

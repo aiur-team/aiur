@@ -10,7 +10,12 @@ cat > "$tmpdir/fixtures/cleanup_test.exs" <<'EOF'
 defmodule CleanupTest do
   use ExUnit.Case
 
+  defp stop_store(pid) do
+    if Process.alive?(pid), do: GenServer.stop(pid)
+  end
+
   setup do
+    on_exit(fn -> stop_store(pid) end)
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     on_exit(fn -> if Process.alive?(pid), do: Supervisor.stop(pid) end)
     on_exit(fn ->
@@ -33,10 +38,11 @@ if python3 "$repo_root/scripts/check-on-exit-alive-stop.py" "$tmpdir/fixtures" >
   echo "checker accepted alive?-then-stop cleanup" >&2
   exit 1
 fi
-grep -q 'cleanup_test.exs:5' "$tmpdir/checker.out"
-grep -q 'cleanup_test.exs:6' "$tmpdir/checker.out"
-grep -q 'cleanup_test.exs:7' "$tmpdir/checker.out"
-if [ "$(grep -c 'cleanup_test.exs:' "$tmpdir/checker.out")" != 3 ]; then
+grep -q 'cleanup_test.exs:9' "$tmpdir/checker.out"
+grep -q 'cleanup_test.exs:10' "$tmpdir/checker.out"
+grep -q 'cleanup_test.exs:11' "$tmpdir/checker.out"
+grep -q 'cleanup_test.exs:12' "$tmpdir/checker.out"
+if [ "$(grep -c 'cleanup_test.exs:' "$tmpdir/checker.out")" != 4 ]; then
   cat "$tmpdir/checker.out" >&2
   echo "checker reported a non-stop teardown" >&2
   exit 1
