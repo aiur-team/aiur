@@ -2,9 +2,9 @@
 
 ## API budgets
 
-With `AIUR_LEASE_DATABASE_URL`, daemons share admissions, holds, quota snapshots and account-scoped provider readings. During outages, each divides ceilings by the persisted last roster; if unknown, it reserves at least half. Agent `gh` ledgers stay host-local; agents never receive the URL.
+With `AIUR_LEASE_DATABASE_URL`, local agents send governed `gh` budget commands to their daemon over an instance-local Unix socket. Instances using the shared store draw from one credential budget. If the socket is unreachable, the guard reports its per-host ledger fallback. Agents never receive the database URL. Remote agents keep their host-local ledger.
 
-`aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls are per-host and excluded. Without `AIUR_LEASE_DATABASE_URL`, sharing is off.
+`aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls use separate per-workspace ceilings within the shared credential budget. Without `AIUR_LEASE_DATABASE_URL`, shared admission is off.
 
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
@@ -129,7 +129,9 @@ A monitoring loop sampling the API on the same credential *is itself* unattribut
 **Agent `gh` calls do not bill the daemon's credential.**
 
 Agents hold the bot PAT; the daemon under App auth holds an installation token.
-Separate budgets, separate windows.
+Those credentials have separate GitHub windows. Agent calls from local instances
+sharing the bot PAT now share that credential's budget through the daemon broker;
+the daemon's App pool remains separate.
 
 An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and never spends the App pool. Agent activity correlating with App-pool spend means something else scales with the fleet.
 
@@ -221,3 +223,15 @@ still exhausts it, just later.
 
 The pool total is also a ceiling rather than a balance, because the credentials'
 windows reset at different moments. Pooling buys margin while the burn itself is reduced.
+
+## History label writes
+
+[Optional history label writes](/reference/build-history-commands#optional-history-label-writes) spend one Core `POST /issues/:n/labels` per label on confirmed, closed historical tickets, using the daemon credential.
+
+Label creation and label POSTs share a persisted rolling window: at most `build_queue.max_writes_per_minute` requests per minute (default 20) and 60 requests/h by default, capped at half the effective agent Core ceiling (125 when disabled). Restarting preserves both limits.
+
+Ledger callers `history_label_backfill_ensure` and `history_label_backfill_post` distinguish label creation from issue-label writes and from normal feature projection.
+
+The minute ceiling applies to this job; the build queue and feature projection retain their own ceilings.
+
+The job makes no remote reads or idle requests. Budget holds and rate limits defer writes durably until reset. Plan output includes label creation requests and names code-derived cost as unmeasured; it claims no saving.

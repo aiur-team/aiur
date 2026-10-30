@@ -2,13 +2,13 @@
 """Fail when a config key has no entry in the published configuration reference.
 
 This is the mechanical half of the "docs ship with the change" rule in
-AGENTS.md. It covers only config keys, because they are the one surface with a
-machine-readable definition; CLI flags, dashboard pages, and behavior changes
-are review expectations, not checks.
+AGENTS.md. It covers workflow and machine settings; CLI flags have a separate
+checker, while dashboard pages and behavior changes remain review expectations.
 
 The check resolves each key to its full dotted path by walking `embeds_one`
-from the root `Aiur.Config.Schema`, then requires that exact path to appear in
-the reference. Structured map fields listed in KNOWN_MAP_SUBKEYS expand into
+from `Aiur.Config.Schema` and `Aiur.Machine.Settings.Schema`, then requires
+that exact path in the reference. Machine paths carry the `machine:` prefix.
+Structured map fields listed in KNOWN_MAP_SUBKEYS expand into
 canonical paths containing placeholders such as `<backend>`. Matching bare
 field names would be worthless: `command`, `enabled`, and `model` each appear
 in several sections, so any new field reusing one of those names would pass
@@ -25,10 +25,21 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEMA_DIR = REPO_ROOT / "src/lib/aiur/config/schema"
-ROOT_SCHEMA = REPO_ROOT / "src/lib/aiur/config/schema.ex"
+
+
+class Root(NamedTuple):
+    root_file: Path
+    module: str
+    prefix: str = ""
+
+
+ROOTS = [
+    Root(REPO_ROOT / "src/lib/aiur/config/schema.ex", "Aiur.Config.Schema"),
+    Root(REPO_ROOT / "src/lib/aiur/machine/settings/schema.ex", "Aiur.Machine.Settings.Schema", "machine:"),
+]
 REFERENCE_DIR = REPO_ROOT / "website/docs-app/reference"
 # A key may be documented on any of these pages, exactly one of which is needed.
 REFERENCES = [
@@ -39,7 +50,6 @@ REFERENCES = [
     REFERENCE_DIR / "merge-policy.md",
 ]
 
-ROOT_MODULE = "Aiur.Config.Schema"
 
 # Dotted keys that are deliberately undocumented. Add a one-line reason with
 # each entry; "it is new" is not a reason.
@@ -84,21 +94,21 @@ def die(message: str, code: int = 2) -> None:
     sys.exit(code)
 
 
-def module_name(short: str) -> str:
+def module_name(short: str, root: Root) -> str:
     """Resolve a module reference as written in an alias-using schema file."""
     if short.startswith("Aiur."):
         return short
-    return f"{ROOT_MODULE}.{short}"
+    return f"{root.module}.{short}"
 
 
-def load_modules(root: Path | None = None) -> dict[str, str]:
+def load_modules(root: Root) -> dict[str, str]:
     """Map fully-qualified module name -> that module's source slice.
 
     A single file may define several schema modules (`agent.ex` defines the
     Agent section alongside Claude and Codex), so slice the file at each
     top-level `defmodule` rather than assuming one module per file.
     """
-    root_schema = root / "src/lib/aiur/config/schema.ex" if root else ROOT_SCHEMA
+    root_schema = root.root_file
     schema_dir = root_schema.with_suffix("")
     paths = [root_schema, *sorted(schema_dir.glob("*.ex"))]
     modules: dict[str, str] = {}
@@ -115,7 +125,7 @@ def load_modules(root: Path | None = None) -> dict[str, str]:
     return modules
 
 
-def collect(modules: dict[str, str], module: str, prefix: str, seen: set[str], keys: dict[str, str]) -> None:
+def collect(modules: dict[str, str], module: str, prefix: str, seen: set[str], keys: dict[str, str], root: Root) -> None:
     """Walk embeds_one from `module`, recording every reachable dotted key."""
     if module in seen:
         return
@@ -134,7 +144,7 @@ def collect(modules: dict[str, str], module: str, prefix: str, seen: set[str], k
             keys[f"{key}.{subkey}"] = f"{module} (known map shape)"
 
     for section, short in EMBEDS_RE.findall(source):
-        collect(modules, module_name(short), f"{prefix}{section}.", seen, keys)
+        collect(modules, module_name(short, root), f"{prefix}{section}.", seen, keys, root)
 
 
 def main() -> int:
@@ -142,17 +152,20 @@ def main() -> int:
         if not page.exists():
             die(f"expected path is missing: {page}\ncheck-config-docs: update this script if the layout moved.")
 
-    modules = load_modules()
-    if ROOT_MODULE not in modules:
-        die(f"could not find {ROOT_MODULE} in {ROOT_SCHEMA}; the matcher is broken, not the schema")
-
     keys: dict[str, str] = {}
-    collect(modules, ROOT_MODULE, "", set(), keys)
+    for root in ROOTS:
+        modules = load_modules(root)
+        if root.module not in modules:
+            die(f"could not find {root.module} in {root.root_file}; the matcher is broken, not the schema")
 
-    if not keys:
-        die("found no config keys; that is a broken matcher, not an empty schema")
+        root_keys: dict[str, str] = {}
+        collect(modules, root.module, root.prefix, set(), root_keys, root)
+        if not root_keys:
+            die(f"found no config keys in {root.root_file}; that is a broken matcher, not an empty schema")
+        keys.update(root_keys)
 
-    reference = "\n".join(page.read_text(encoding="utf-8") for page in REFERENCES)
+    references = sorted(set(REFERENCES) | set(REFERENCE_DIR.glob("configuration-*.md")))
+    reference = "\n".join(page.read_text(encoding="utf-8") for page in references)
     documented = set(INLINE_CODE_RE.findall(reference))
     missing = sorted(key for key in keys if key not in EXEMPT and key not in documented)
 
@@ -163,7 +176,7 @@ def main() -> int:
         print(
             "\nDocumentation ships in the same PR as the change (AGENTS.md, \"Docs ship\n"
             "with the change\"). Add a row for each key to\n"
-            "website/docs-app/reference/configuration*.md under its section, giving the\n"
+            "the topic linked from website/docs-app/reference/configuration.md, giving the\n"
             "type, the default, and what an operator changes it for. Keep it to one\n"
             "line; a wrong entry is worse than a missing one.\n\n"
             "If a key is genuinely internal and no operator would ever set it, add it\n"

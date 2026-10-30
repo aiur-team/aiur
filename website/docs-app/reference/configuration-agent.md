@@ -181,6 +181,8 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 
 Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
 
+Muse listener `steer` mode uses MSP `turn/steer` to target the running turn without cancelling it. Support is experimental pending a real Muse smoke test. Rejected or unacknowledged input returns to the next turn's queue. If Muse accepts input but its receipt is lost, that boundary retry can deliver the input twice.
+
 Local Muse sessions retain a native session handle across Aiur restarts. Aiur starts a fresh session only when Muse explicitly reports that the stored session was not found. Other resume errors, including a busy session, timeout, or mismatched session identity, remain failures to preserve conversation continuity.
 
 Remote workers and Claude Remote Control are unsupported for Muse.
@@ -223,6 +225,8 @@ Malformed compounds and command strings that could hide a Mix build fail with st
 
 Fleet admission uses CPU PSI and configured reserves, falling back to load when PSI is unavailable, and fails open on missing reserve measurements.
 
+Daemon releases default to `+sbwt none +sbwtdcpu none +sbwtdio none` to lower idle CPU on shared hosts and avoid triggering CPU-PSI dispatch holds with scheduler spinning; operators can override the release VM args with `RELEASE_VM_ARGS`.
+
 | Signal | Admission behavior |
 | --- | --- |
 | CPU pressure and AIMD | `agent.max_cpu_pressure` is the hard Linux CPU PSI `some avg60` ceiling and always uses raw host pressure. The soft `agent.target_cpu_pressure` AIMD signal discounts measured CPU from niced processes outside the daemon and registered fleet-agent process trees, such as Executor review work. Detached agent relays are included through the process reaper registry, so their niced build descendants remain counted. After 3 fresh overload samples and `agent.load_cooldown_seconds`, AIMD floors its reduction at half occupied slots or the recorded safe level, capped at the current envelope; it adds `agent.load_ramp_step` only below 80% of target. |
@@ -243,7 +247,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-04 -->
 | --- | --- | --- | --- |
-| `agent.claude.command` | string | `aiur-claude` | Command launching the Claude backend. |
+| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0. |
 | `agent.claude.model` | string or nil | nil | Optional Claude model override. |
 | `agent.claude.permission_mode` | string | `bypassPermissions` | Claude permission mode. |
 

@@ -47,6 +47,7 @@ defmodule Aiur.FeatureCLI do
     if kind == :usage, do: 64, else: 1
   end
 
+  defp error_envelope({:not_member, ids}, message), do: %{schema_version: 1, ok: false, error: message, refused: Enum.map(ids, &%{id: &1, reason: :not_member})}
   defp error_envelope(%{state: _} = health, _message), do: %{schema_version: 1, ok: false, health: health}
   defp error_envelope(_reason, message), do: %{schema_version: 1, ok: false, error: message}
 end

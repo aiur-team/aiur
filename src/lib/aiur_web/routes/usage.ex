@@ -5,7 +5,7 @@ defmodule AiurWeb.Routes.Usage do
   defmacro mutations do
     quote do
       scope "/" do
-        pipe_through([:dashboard_auth, :api_write, :require_writable])
+        pipe_through([:client_token_write, :api_write, :require_writable])
 
         put("/api/v1/:issue_identifier/spend-cap", AiurWeb.Api.SpendCapController, :put)
         delete("/api/v1/:issue_identifier/spend-cap", AiurWeb.Api.SpendCapController, :delete)
@@ -16,7 +16,7 @@ defmodule AiurWeb.Routes.Usage do
   defmacro reads do
     quote do
       scope "/" do
-        pipe_through(:dashboard_auth)
+        pipe_through(:client_token_read)
 
         get("/api/v1/:issue_identifier/usage", AiurWeb.Api.UsageController, :show)
         match(:*, "/api/v1/:issue_identifier/usage", AiurWeb.Api.UsageController, :method_not_allowed)

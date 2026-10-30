@@ -21,6 +21,7 @@
     "AIUR_BUILD_NICE": "10",
     "AIUR_BUILD_START_STAGGER_SECONDS": "0",
     "AIUR_CI_READINESS_TOKEN": false,
+    "AIUR_CLIENT_TOKEN": false,
     "AIUR_CLAUDE_USAGE_TTL_MS": "300000",
     "AIUR_CONTAINER": false,
     "AIUR_GITHUB_BUDGET_BROKER": "<workspace>/.aiur-runtime/bin/aiur-github-budget",
@@ -31,6 +32,7 @@
     "AIUR_GITHUB_CORE_LIMIT_PER_HOUR": "250",
     "AIUR_GITHUB_CREDENTIAL_FILE": "<budget>/agent-token",
     "AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR": "600",
+    "AIUR_GITHUB_FIXER_LABEL": "main-fix",
     "AIUR_GITHUB_LABEL_PREFIX": "team",
     "AIUR_GITHUB_MAX_INFLIGHT": "4",
     "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT": "2",
@@ -78,6 +80,7 @@
     "MISE_TRUSTED_CONFIG_PATHS": "<workspace>",
     "MIX_HOME": "<root>/repo/owner/name/.aiur-mix",
     "MOONSHOT_API_KEY": false,
+    "NETLIFY_AUTH_TOKEN": false,
     "OPENAI_API_KEY": false,
     "OPENROUTER_API_KEY": false,
     "OPENROUTER_MANAGEMENT_KEY": false,
@@ -89,7 +92,8 @@
     "TMPDIR": "<workspace>/.aiur-runtime/tmp",
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
     "ZDOTDIR": "/dev/null",
-    "npm_config_cache": "<root>/repo/owner/name/.aiur-npm-cache"
+    "npm_config_cache": "<root>/repo/owner/name/.aiur-npm-cache",
+    "AIUR_GITHUB_BUDGET_SOCKET": false
   },
   "github_shell": {
     "AIUR_AGENT_BIN": "<workspace>/.aiur-runtime/bin",
@@ -104,6 +108,7 @@
     "AIUR_GITHUB_CORE_LIMIT_PER_HOUR": "250",
     "AIUR_GITHUB_CREDENTIAL_FILE": "<home>/.aiur/github-budget/agent-token",
     "AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR": "600",
+    "AIUR_GITHUB_FIXER_LABEL": "main-fix",
     "AIUR_GITHUB_LABEL_PREFIX": "team",
     "AIUR_GITHUB_MAX_INFLIGHT": "4",
     "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT": "2",
@@ -150,6 +155,7 @@
     "AIUR_BUILD_NICE": "10",
     "AIUR_BUILD_START_STAGGER_SECONDS": "0",
     "AIUR_CI_READINESS_TOKEN": false,
+    "AIUR_CLIENT_TOKEN": false,
     "AIUR_CLAUDE_USAGE_TTL_MS": "300000",
     "AIUR_CONTAINER": false,
     "AIUR_GITHUB_BUDGET_BROKER": "<workspace>/.aiur-runtime/bin/aiur-github-budget",
@@ -160,6 +166,7 @@
     "AIUR_GITHUB_CORE_LIMIT_PER_HOUR": "250",
     "AIUR_GITHUB_CREDENTIAL_FILE": "<budget>/agent-token",
     "AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR": "600",
+    "AIUR_GITHUB_FIXER_LABEL": "main-fix",
     "AIUR_GITHUB_LABEL_PREFIX": "team",
     "AIUR_GITHUB_MAX_INFLIGHT": "4",
     "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT": "2",
@@ -207,6 +214,7 @@
     "MISE_TRUSTED_CONFIG_PATHS": "<workspace>",
     "MIX_HOME": "<root>/repo/aiur-team/aiur/.aiur-mix",
     "MOONSHOT_API_KEY": false,
+    "NETLIFY_AUTH_TOKEN": false,
     "OPENAI_API_KEY": false,
     "OPENROUTER_API_KEY": false,
     "OPENROUTER_MANAGEMENT_KEY": false,
@@ -218,7 +226,8 @@
     "TMPDIR": "<workspace>/.aiur-runtime/tmp",
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
     "ZDOTDIR": "/dev/null",
-    "npm_config_cache": "<root>/repo/aiur-team/aiur/.aiur-npm-cache"
+    "npm_config_cache": "<root>/repo/aiur-team/aiur/.aiur-npm-cache",
+    "AIUR_GITHUB_BUDGET_SOCKET": false
   },
   "linear_shell": {
     "AIUR_AGENT_BIN": "<workspace>/.aiur-runtime/bin",
@@ -233,6 +242,7 @@
     "AIUR_GITHUB_CORE_LIMIT_PER_HOUR": "250",
     "AIUR_GITHUB_CREDENTIAL_FILE": "<home>/.aiur/github-budget/agent-token",
     "AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR": "600",
+    "AIUR_GITHUB_FIXER_LABEL": "main-fix",
     "AIUR_GITHUB_LABEL_PREFIX": "team",
     "AIUR_GITHUB_MAX_INFLIGHT": "4",
     "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT": "2",

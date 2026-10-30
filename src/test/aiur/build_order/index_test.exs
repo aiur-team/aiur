@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.IndexTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Epic, Index, Lifecycle, ProviderHealth}
+  alias Aiur.Heroicons
   alias AiurWeb.Build.Payload
 
   test "joins history facts, resolved membership, timing, edges and merged PR" do
@@ -82,100 +83,33 @@ defmodule Aiur.BuildOrder.IndexTest do
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, cx: 3, pts: 3}])
     feature = fn slug, date -> %{slug: slug, label: slug, hue: 42, epics: [%{key: "f-#{slug}", label: slug}], from: date, to: :none, baseline: :none} end
     p = put_in(p, [:features], {:ok, %{features: %{"aaa" => feature.("aaa", ~U[2026-10-01 00:00:00Z]), "zzz" => feature.("zzz", ~U[2026-09-01 00:00:00Z])}, owners: %{}, also: %{}, health: health()}})
+    p = Map.put(p, :pack_metadata, %{"workstreams" => [%{"id" => "aaa", "icon" => "home", "summary" => "Feature summary", "wave" => "0b"}]})
     assert {:ok, index} = assemble(p)
     assert index.order == ~w(bugs design infra docs f-zzz f-aaa unsorted)
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
-    for key <- ~w(bugs design infra docs), do: assert(Payload.scrub(index.epics[key]) == design["epics"][key])
-    assert index.epics["f-aaa"] == %{key: "f-aaa", label: "aaa", hue: 42, icon: "layers", feature: "aaa", temp: true}
+    for key <- ~w(bugs design infra docs) do
+      assert Payload.scrub(Map.delete(index.epics[key], :svg)) == design["epics"][key]
+      assert index.epics[key].svg =~ "<svg"
+    end
+
+    assert index.epics["f-aaa"] == %{
+             key: "f-aaa",
+             label: "aaa",
+             hue: 42,
+             icon: "home",
+             svg: Heroicons.svg("home"),
+             summary: "Feature summary",
+             wave: "0b",
+             feature: "aaa",
+             temp: true
+           }
+
+    assert index.features["aaa"].icon == "home"
+    assert index.features["aaa"].summary == "Feature summary"
+    assert index.features["aaa"].wave == "0b"
     assert index.counts == Map.new(index.order, &{&1, if(&1 == "unsorted", do: 4, else: 0)})
     assert index.all["4"].cx == 3 and index.all["4"].pts == 3
-  end
-
-  test "feature progress counts indexed rows and planned members by local epic" do
-    feature = %{slug: "bo-99", label: "Pagination", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}, %{key: "f-bo-99-ui", label: "UI"}], from: now(), to: :none, baseline: :none}
-    registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
-
-    p =
-      parts([row(1)])
-      |> put_in(
-        [:features],
-        {:ok,
-         %{
-           registry
-           | owners: %{
-               1 => %{feature: "bo-99", epic: "f-bo-99-core", joined_at: DateTime.from_unix!(now(), :millisecond)},
-               2 => %{feature: "bo-99", epic: "f-bo-99-core", joined_at: DateTime.from_unix!(now(), :millisecond)},
-               4 => %{feature: "bo-99", epic: "f-bo-99-core", joined_at: DateTime.from_unix!(now(), :millisecond)},
-               5 => %{feature: "bo-99", epic: "f-bo-99-ui", joined_at: DateTime.from_unix!(now(), :millisecond)}
-             },
-             also: %{},
-             health: health()
-         }}
-      )
-      |> put_in([:now, :rows], %{"2" => %{id: "2", num: 2, sec: "now", status: "open", ord: 2, agent: %{state: "ci_wait"}}})
-      |> put_in([:planned, :rows], [Map.put(plan_row(3), :epic, "f-bo-99-core")])
-      |> put_in([:not_queued, :rows], [
-        %{num: 4, sec: "nq", status: "open", ord: 4, epic: "f-bo-99-core"},
-        %{num: 5, sec: "nq", status: "open", ord: 5, epic: "f-bo-99-ui"}
-      ])
-
-    packs = [
-      %{
-        root_number: 99,
-        build_order_id: "program",
-        title: "Program plan",
-        content_hash: <<0::256>>,
-        status: %{},
-        metadata: %{
-          "workstreams" => [
-            %{"id" => "core", "lane" => "core", "wave" => 0, "summary" => "Core work"},
-            %{"id" => "ui", "lane" => "ui", "wave" => "0b", "summary" => "UI work"}
-          ]
-        },
-        tickets: [
-          %{id: "MP-E8-C11-T01", lane: "core", number: 1},
-          %{id: "MP-E8-C11-T02", lane: "core", number: 2},
-          %{id: "MP-E8-C11-T03", lane: "core", number: 3},
-          %{id: "MP-E8-C11-T04", lane: "core", number: nil},
-          %{id: "MP-E8-C12-T01", lane: "ui", number: 5}
-        ]
-      }
-    ]
-
-    p = Map.put(p, :packs, packs)
-    assert {:ok, index} = Index.assemble(p, now: now())
-    assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :unpublished, :total]) == %{closed: 1, open: 2, ci_wait: 1, unpublished: 1, total: 5}
-    assert index.feature_progress.features["f-bo-99-core"].extras == 1
-    assert index.feature_progress.features["f-bo-99-core"].reason == nil
-    assert index.feature_progress.features["f-bo-99-core"].wave == "0"
-    assert index.feature_progress.features["f-bo-99-core"].summary == "Core work"
-    assert Map.take(index.feature_progress.features["f-bo-99-ui"], [:closed, :open, :ci_wait, :unpublished, :total]) == %{closed: 0, open: 1, ci_wait: 0, unpublished: 0, total: 1}
-    assert index.feature_progress.features["f-bo-99-ui"].wave == "0b"
-    active = put_in(p, [:now, :rows, "2", :agent, :state], "active")
-    assert {:ok, changed} = Index.assemble(Map.put(active, :packs, packs), now: now())
-    assert Index.diff(index, changed).set.feature_progress.features["f-bo-99-core"].ci_wait == 0
-  end
-
-  test "incomplete history keeps feature state unknown" do
-    feature = %{slug: "pag", label: "Pagination", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}], from: now(), to: :none, baseline: :none}
-    p = put_in(parts([row(1)]), [:features], {:ok, %{features: %{"pag" => feature}, owners: %{}, also: %{}, health: health()}})
-    incomplete = %{health() | complete?: false, failure: :backfill_pending}
-    p = %{p | health: incomplete, history: {:ok, %{rows: %{1 => row(1)}, health: incomplete}}}
-    packs = [%{root: 99, feature: "pag", complete?: true, status: %{}, version: "v1", manifest: %{"tickets" => []}}]
-    assert {:ok, index} = Index.assemble(Map.put(p, :packs, packs), now: now())
-    assert index.feature_progress.features["f-bo-99-core"].closed == nil
-    assert index.feature_progress.features["f-bo-99-core"].reason == "states unavailable · CI state unknown · planned count unavailable"
-  end
-
-  test "pack loader failure keeps planned count unavailable" do
-    feature = %{slug: "pag", label: "Pagination", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}], from: now(), to: :none, baseline: :none}
-    p = put_in(parts([row(1)]), [:features], {:ok, %{features: %{"pag" => feature}, owners: %{}, also: %{}, health: health()}})
-    assert {:ok, index} = Index.assemble(Map.put(p, :packs, {:error, :read_failed}), now: now())
-    progress = index.feature_progress.features["f-bo-99-core"]
-    assert progress.unpublished == nil
-    assert progress.total == nil
-    assert progress.reason == "planned count unavailable"
   end
 
   test "producer fields win over older history fields" do

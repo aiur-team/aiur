@@ -31,8 +31,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
            send(owner, {:stopped, stopped, end_state, checkpoint})
            :ok
          end,
-         event_fun: fn topic, payload, event_id ->
-           send(owner, {:event, topic, payload, event_id})
+         event_fun: fn topic, payload, event_id, event_identity ->
+           send(owner, {:event, topic, payload, event_id, event_identity})
            {:ok, event_id, 1}
          end,
          transition_fun: fn identifier, state ->
@@ -52,7 +52,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
     assert_receive {:stopped, ^identity, :budget_exhausted, checkpoint}, 1_000
     assert Jason.decode!(checkpoint)["records"] |> hd() |> Map.fetch!("state") == "budget_exhausted"
 
-    assert_receive {:event, "ticket.5693.usage.spend_cap_reached", event, 42}, 1_000
+    assert_receive {:event, "ticket.5693.usage.spend_cap_reached", event, 42, ^identity}, 1_000
     assert event["contract"] == "aiur.ticket_spend_cap_reached"
     assert event["contract_version"] == 1
     assert event["end_state"] == "budget_exhausted"
@@ -70,11 +70,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
   test "usage aggregate updates enforce a cap that was configured below the threshold", %{dir: dir} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, spend} = Agent.start_link(fn -> "0.50" end)
-
-    on_exit(fn ->
-      if Process.alive?(spend), do: Agent.stop(spend)
-    end)
+    spend = start_supervised!({Agent, fn -> "0.50" end}, id: make_ref())
 
     {:ok, store} =
       start_supervised(
@@ -84,6 +80,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
          state_dir: dir,
          repository: "its-everdred/aiur",
          subscribe_fun: fn -> :ok end,
+         running_subscribe_fun: fn -> :ok end,
+         filesystem_sync_fun: fn -> :ok end,
          usage_fun: fn ^identity -> usage(Agent.get(spend, & &1)) end,
          snapshot_fun: fn -> %{spend: Agent.get(spend, & &1)} end,
          project_fun: fn %{spend: amount}, ^identity -> usage(amount) end,
@@ -293,8 +291,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
   test "a failed stop blocks later effects until the stop retry succeeds", %{dir: dir} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
 
     {:ok, store} =
       start_supervised(

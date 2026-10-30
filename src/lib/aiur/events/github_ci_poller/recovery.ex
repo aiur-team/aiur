@@ -3,7 +3,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   require Logger
   alias Aiur.{AlertFeed, Config, Signal}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
-  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause}
+  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause, FailureObservation, RepoWideFailure}
   alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
@@ -34,8 +34,11 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     target = to_string(issue.identifier || issue.id)
 
     case Store.read(target, number, opts) do
-      {:ok, entry} -> issue |> recover_current(result, entry, opts) |> base_gate(issue, entry, opts)
-      {:error, reason} -> issue |> attention(result, "evidence_unavailable", reason, opts) |> base_gate(issue, %{}, opts)
+      {:ok, entry} ->
+        result |> FailureObservation.route(entry, &recover_current(issue, &1, entry, opts)) |> base_gate(issue, entry, opts)
+
+      {:error, reason} ->
+        issue |> attention(result, "evidence_unavailable", reason, opts) |> base_gate(issue, %{}, opts)
     end
   end
 
@@ -47,14 +50,9 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     target = to_string(issue.identifier || issue.id)
 
     case Store.read(target, number, opts) do
-      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} ->
-        hold_result(result, hold)
-
-      {:ok, entry} ->
-        recover_cancelled_entry(issue, result, entry, sha, opts)
-
-      {:error, reason} ->
-        attention(issue, result, "evidence_unavailable", reason, opts)
+      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} -> hold_result(result, hold)
+      {:ok, entry} -> recover_cancelled_entry(issue, result, entry, sha, opts)
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
     end
   end
 
@@ -402,7 +400,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   @spec record_failure(map(), map(), keyword()) :: :ok | {:error, term()}
   def record_failure(issue, result, opts) do
-    token = result.head_sha <> ":" <> to_string(issue.updated_at)
+    token = FailureObservation.signature(result.head_sha, result.failures)
 
     case update(issue, result, &count_cycle(&1, token), opts) do
       {:ok, entry} ->
@@ -451,22 +449,28 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp base_gate(%{decision: :failed, head_sha: sha} = result, issue, entry, opts) do
-    case BaseCause.classify(result, opts) do
-      :caused_by_pr ->
-        result
-
-      cause ->
-        kind = "base_#{cause}"
-
-        case entry do
-          %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
-          %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
-          _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
-        end
+    case RepoWideFailure.hold(result, opts) do
+      :no_match -> base_cause(result, issue, entry, opts, sha)
+      held -> held
     end
   end
 
   defp base_gate(result, _issue, _entry, _opts), do: result
+
+  defp base_cause(result, issue, entry, opts, sha) do
+    case BaseCause.classify(result, opts) do
+      :caused_by_pr -> result
+      cause -> hold_base_cause(result, issue, entry, opts, sha, "base_#{cause}")
+    end
+  end
+
+  defp hold_base_cause(result, issue, entry, opts, sha, kind) do
+    case entry do
+      %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
+      %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
+      _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
+    end
+  end
 
   # A cancelled push or expired history can hide the base, so unknown holds one main CI run.
   defp unknown_base(result, hold, opts),

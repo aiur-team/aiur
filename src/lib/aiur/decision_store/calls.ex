@@ -6,9 +6,11 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Audit
+  alias Aiur.DecisionStore.CommandFacts
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Enrichment
   alias Aiur.DecisionStore.Index
+  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
@@ -16,6 +18,7 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Revisions
   alias Aiur.DecisionStore.Transport
   alias Aiur.DecisionStore.Withdrawals
+  alias Aiur.DecisionStore.WorkerHandoffs
 
   @spec handle_call(term(), term(), term()) :: term()
   def handle_call(
@@ -42,6 +45,20 @@ defmodule Aiur.DecisionStore.Calls do
       when operation in [:project_attention, :enrich_attention] do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
+
+  def handle_call({:command_fact, _id, _type, _data, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, :store_read_only}, state}
+  end
+
+  def handle_call({:command_fact, id, type, data, opts}, _from, state) do
+    CommandFacts.record(state, id, type, data, opts)
+  end
+
+  def handle_call({:override_handoff_candidates, identifier}, _from, state),
+    do: {:reply, {:ok, WorkerHandoffs.snapshots(state, identifier)}, state}
+
+  def handle_call({:record_override_handoff, identifier, snapshots, receipt}, _from, state),
+    do: WorkerHandoffs.apply(state, identifier, snapshots, receipt)
 
   def handle_call({:request, payload, opts}, _from, state) do
     Requests.handle_request(payload, opts, state)
@@ -131,6 +148,12 @@ defmodule Aiur.DecisionStore.Calls do
     Withdrawals.handle_moot(decision_id, payload, opts, state)
   end
 
+  def handle_call({:override, _id, _payload, _opts}, _from, %{writable?: false} = state),
+    do: {:reply, {:error, {:store_unavailable, state.health}}, state}
+
+  def handle_call({:override, id, payload, opts}, _from, state),
+    do: Revisions.handle_override(id, payload, opts, state)
+
   def handle_call({:supersede, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -188,6 +211,18 @@ defmodule Aiur.DecisionStore.Calls do
         %{writable?: false} = state
       ) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:recheck_override_delivery, _id, _action}, _from, %{writable?: false} = state),
+    do: {:reply, {:error, :store_unavailable}, state}
+
+  def handle_call({:recheck_override_delivery, id, action}, _from, state) do
+    item = %{action_id: action, correlation: %{decision_id: id}}
+
+    case OverrideMerges.before_delivery(state, item) do
+      {:merged, next} -> {:reply, {:error, :pr_merged}, next}
+      {:ok, next} -> {:reply, :ok, next}
+    end
   end
 
   def handle_call({:validate_delivery, _item}, _from, %{writable?: false} = state) do

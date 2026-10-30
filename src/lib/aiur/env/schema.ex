@@ -45,6 +45,7 @@ defmodule Aiur.Env.Schema do
       required: "Required",
       github_app: "Optional - GitHub App auth. Gives the daemon its own rate-limit budget and a bot identity.",
       webhook: "Optional - Webhooks. Cuts API polling; needs a public URL reaching this daemon.",
+      outbound_events: "Optional - Outbound events. Signs webhook POSTs sent to an external consumer.",
       linear: "Optional - Linear tracker. Use Linear instead of GitHub as the issue tracker.",
       voice: "Optional - Voice. Mic input and spoken replies on dashboard and Stream Deck.",
       dashboard: "Optional - Aiur dashboard. Web UI at :4000; CLI and TUI work without it.",
@@ -161,6 +162,11 @@ defmodule Aiur.Env.Schema do
     # --- Webhooks ---
     {"AIUR_GITHUB_WEBHOOK_SECRET",
      type: :secret, group: :webhook, purpose: "Secret GitHub signs webhook deliveries with; unset rejects every delivery.", fetch: "openssl rand -hex 32 -> paste into repo webhook"},
+    {"AIUR_OUTBOUND_WEBHOOK_SECRET",
+     type: :secret,
+     group: :outbound_events,
+     purpose: "Standard Webhooks secret used to sign outbound event POSTs; required when events.export.enabled is true.",
+     fetch: "openssl rand -base64 32 -> prefix with whsec_"},
 
     # --- Linear tracker ---
     {"LINEAR_API_KEY", type: :secret, group: :linear, purpose: "Linear API key when the tracker is Linear.", fetch: "linear.app/settings/api -> personal API key"},
@@ -190,9 +196,11 @@ defmodule Aiur.Env.Schema do
     {"MOONSHOT_API_KEY", type: :secret, group: :provider_keys, purpose: "Moonshot backend key; used when a backend config names this env var."},
     {"OPENROUTER_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter backend key; used when a backend config names this env var.", fetch: "openrouter.ai -> Keys -> Create key"},
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},
+    {"NETLIFY_AUTH_TOKEN", type: :secret, group: :provider_keys, purpose: "Netlify read-only usage API credential; never logged or sent to agents."},
     {"CLAUDE_CODE_OAUTH_TOKEN",
      type: :secret, group: :provider_keys, purpose: "Claude Code subscription token for an operator deployment; pass only to Claude workers and never configure on a consumer instance."},
     {"ANTHROPIC_API_KEY", type: :secret, group: :provider_keys, purpose: "Anthropic API key for Claude API billing; consumer deployments require this instead of subscription auth."},
+    {"GEMINI_API_KEY", type: :secret, group: :provider_keys, purpose: "Gemini conversation and cascade API key; held only by the daemon."},
     {"OPENAI_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenAI API key for Codex API billing or a consumer deployment."},
 
     # --- Runtime (launcher-managed) ---
@@ -205,6 +213,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},
     {"AIUR_TMUX_SESSION", type: :string, group: :runtime, purpose: "tmux session name the launcher uses."},
     {"AIUR_TMUX_SOCKET", type: :string, group: :runtime, purpose: "tmux socket name the launcher uses."},
+    {"AIUR_CLIENT_TOKEN", type: :secret, example: false, group: :runtime, purpose: "Optional per-client bearer token for Stream Deck and pane-control machine requests."},
     {"AIUR_AGENT_TMUX_SOCKET", type: :string, validate: false, example: false, group: :runtime, purpose: "Dedicated agent tmux socket; set by the launcher."},
     {"AIUR_TMUX_CONF", type: :path, validate: false, example: false, group: :runtime, purpose: "Shared tmux configuration file; set by the launcher."},
     {"AIUR_ERLANG_COOKIE",
@@ -213,6 +222,7 @@ defmodule Aiur.Env.Schema do
      purpose: "BEAM distribution cookie; container launches use this or AIUR_COOKIE_FILE and fail if neither exists, while other launches generate one if unset.",
      fetch: "openssl rand -hex 32"},
     {"AIUR_INSTANCE_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance key hashing the project root; set by the launcher."},
+    {"AIUR_PROJECT_ROOT", type: :path, validate: false, example: false, group: :runtime, purpose: "Canonical project root resolved and exported by the launcher."},
     {"AIUR_RELEASE_NODE", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance daemon node name used by CLI control calls; set by the launcher."},
     {"AIUR_NOFILE_SOFT_LIMIT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Effective open-file soft limit; exported by the launcher."},
     {"AIUR_AGENT_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent-queue tempfile path; set by the launcher."},

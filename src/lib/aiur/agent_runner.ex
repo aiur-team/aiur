@@ -142,12 +142,13 @@ defmodule Aiur.AgentRunner do
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
-  def transient_run_error?(:port_closed), do: true
   def transient_run_error?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
   def transient_run_error?(_reason), do: false
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
+  def transient_run_error?(:port_closed, _backend), do: false
+
   def transient_run_error?(reason, backend) do
     CodingAgent.recoverable_session_error?(backend, reason) or
       shared_transient_run_error?(reason) or github_transport_transient?(reason)
@@ -469,11 +470,13 @@ defmodule Aiur.AgentRunner do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
-  defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
+  @doc false
+  @spec maybe_attach_issue_log(term()) :: :ok
+  def maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
+  def maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
   # No bare-map clause: `run/3` calls `CodingAgent.backend_for/1` first, which
   # constrains the argument to `%Issue{}`, so a plain map never reaches here.
-  defp maybe_attach_issue_log(_), do: :ok
+  def maybe_attach_issue_log(_), do: :ok
 
   @doc false
   @spec write_pause_log(Path.t() | nil, worker_host()) :: :ok

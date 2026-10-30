@@ -12,6 +12,8 @@ defmodule Aiur.AgentQueueItem do
           sequence: integer(),
           target_issue_identifier: String.t(),
           source: atom(),
+          origin: atom() | nil,
+          actor: String.t() | nil,
           category: category(),
           event_type: atom(),
           body: map(),
@@ -29,10 +31,12 @@ defmodule Aiur.AgentQueueItem do
           delivered_at: DateTime.t() | nil,
           provider_delivered_at: DateTime.t() | nil,
           provider_turn_id: String.t() | nil,
+          read_at: DateTime.t() | nil,
           consumed_at: DateTime.t() | nil,
           failed_at: DateTime.t() | nil,
           superseded_at: DateTime.t() | nil,
-          failure_reason: term() | nil
+          failure_reason: term() | nil,
+          persist_across_restart?: boolean()
         }
 
   defstruct [
@@ -40,6 +44,8 @@ defmodule Aiur.AgentQueueItem do
     :sequence,
     :target_issue_identifier,
     :source,
+    :origin,
+    :actor,
     :category,
     :event_type,
     :body,
@@ -58,8 +64,10 @@ defmodule Aiur.AgentQueueItem do
     :provider_delivered_at,
     :provider_turn_id,
     :consumed_at,
+    :read_at,
     :failed_at,
     :superseded_at,
-    :failure_reason
+    :failure_reason,
+    {:persist_across_restart?, false}
   ]
 end

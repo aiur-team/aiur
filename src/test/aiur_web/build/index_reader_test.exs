@@ -35,6 +35,14 @@ defmodule AiurWeb.Build.IndexReaderTest do
     def handle_call(:snapshot, _from, snapshot), do: {:reply, snapshot, snapshot}
   end
 
+  test "index reader includes configured workstream metadata for catalogue projection" do
+    metadata = %{"workstreams" => [%{"id" => "queue", "title" => "Build queue", "icon" => "queue-list", "summary" => "Queue work", "wave" => 1}]}
+    read = IndexReader.read(:all, parts(), pack_metadata_fun: fn -> metadata end)
+
+    assert read.pack_metadata == metadata
+    assert read.pack_metadata["workstreams"] |> hd() |> Map.fetch!("wave") == 1
+  end
+
   test "first cold index read projects an adopted running agent from the orchestrator snapshot" do
     {:ok, identity} =
       Aiur.TrackerIdentity.from_github(%{"node_id" => "I_kwDOExample12", "number" => 12}, {"aiur-team", "aiur"}, {"aiur-team", "aiur"})
@@ -188,10 +196,10 @@ defmodule AiurWeb.Build.IndexReaderTest do
       )
 
     assert_receive :packs_loaded, 100
-    assert read.packs == packs
+    assert read.feature_packs == packs
 
     cached = IndexReader.read(MapSet.new([:now]), read, pack_loader: fn -> flunk("unrelated diff reread packs") end)
-    assert cached.packs == packs
+    assert cached.feature_packs == packs
   end
 
   test "pack manifest reader failure is isolated as unavailable" do
@@ -207,7 +215,7 @@ defmodule AiurWeb.Build.IndexReaderTest do
             end
           )
 
-        assert read.packs == {:error, :read_failed}
+        assert read.feature_packs == {:error, :read_failed}
       end)
 
     assert_receive :pack_read, 100

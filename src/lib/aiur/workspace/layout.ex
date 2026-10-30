@@ -57,7 +57,7 @@ defmodule Aiur.Workspace.Layout do
     expanded_root_prefix = expanded_root <> "/"
 
     with {:ok, canonical_workspace} <- PathSafety.canonicalize(expanded_workspace),
-         {:ok, canonical_root} <- PathSafety.canonicalize(expanded_root) do
+         {:ok, canonical_root} <- PathSafety.canonical_root(expanded_root) do
       canonical_root_prefix = canonical_root <> "/"
 
       cond do

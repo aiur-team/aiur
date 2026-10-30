@@ -46,6 +46,25 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineFlowTest do
     refute_received {:quarantine_pr, _, _}
   end
 
+  test "already quarantined recorder result claims a clean skip instead of retrying", %{journal: journal} do
+    parent = self()
+    first = group_run(39_136_853_814, "pr-4995-aaa", 30)
+    second = group_run(39_139_000_001, "pr-5108-bbb", 10)
+
+    opts =
+      opts(journal, parent)
+      |> Keyword.put(:flake_recorder, fn _failure, _run, _passed, recorder_opts ->
+        recorder_opts[:issue_recorded_fun].(:already_quarantined)
+      end)
+      |> Keyword.put(:quarantine_pr_fun, fn _, _, _ -> flunk("already quarantined test must not open another quarantine PR") end)
+
+    assert :ok = MergeGroupQuarantine.process_completed([first, second], [], "main", opts)
+    assert {:ok, state} = Journal.state(opts)
+    assert Enum.any?(Map.keys(state["flakes"]), &String.starts_with?(&1, "quarantine-skip :: "))
+    assert Map.get(state, "quarantine_retries", %{}) == %{}
+    refute_received {:quarantine_pr, _, _}
+  end
+
   test "one shard attempt failing in two modules records one cascade ticket and opens no quarantine", %{journal: journal} do
     parent = self()
 

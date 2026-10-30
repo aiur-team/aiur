@@ -128,9 +128,21 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
 
     metadata(provider)
 
-    assert audio_frame() == "first"
-    assert audio_frame() == "second"
-    assert audio_frame() == "third"
+    assert audio_frame("first")
+    assert audio_frame("second")
+    assert audio_frame("third")
+  end
+
+  test "audio after metadata uses the documented user audio chunk frame" do
+    {:ok, provider} = ElevenLabsAgents.open(spec())
+    assert_receive {:transport, :connect, @signed_url, []}
+    assert_initiation_frame()
+    metadata(provider)
+    assert_receive {:voice_conversation, ^provider, %Events.ProviderConversationId{}}
+
+    :ok = ElevenLabsAgents.push_audio(provider, "immediate")
+
+    assert audio_frame("immediate")
   end
 
   test "ping is answered with pong" do
@@ -352,10 +364,9 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
     frame
   end
 
-  defp audio_frame do
+  defp audio_frame(expected_audio) do
     assert_receive {:transport, :send, text}
     frame = Jason.decode!(text)
-    assert frame["type"] == "user_audio_chunk"
-    frame["audio_base_64"]
+    assert frame == %{"user_audio_chunk" => expected_audio}
   end
 end

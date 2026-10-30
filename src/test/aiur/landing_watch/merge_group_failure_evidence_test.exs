@@ -67,6 +67,14 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidenceTest do
              MergeGroupFailureEvidence.test_identities(log)
   end
 
+  test "browser failure annotation keys the failing test by spec, title, and line" do
+    log = "new-failure :: BrowserSpec :: src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs :: an active dial drag commits its final value after a LiveView patch :: 187"
+
+    assert [
+             "BrowserSpec :: src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs :: an active dial drag commits its final value after a LiveView patch :: 187"
+           ] = MergeGroupFailureEvidence.test_identities(log)
+  end
+
   test "raw Playwright failure lines identify browser specs without annotations" do
     log = """
       1) [chromium] › tests/settings/toolbar.spec.mjs:30:27 › toolbar parity

@@ -33,12 +33,14 @@
     "Aiur.GitHub.BlockerProgress",
     "Aiur.GitHub.BotIdentity",
     "Aiur.GitHub.CIPollBatch",
+    "Aiur.GitHub.CIPollBatchTerminal",
     "Aiur.GitHub.CIRecovery",
     "Aiur.GitHub.CIRecoveryStore",
     "Aiur.GitHub.CiReadiness",
     "Aiur.GitHub.Client",
     "Aiur.GitHub.CodeOwners",
     "Aiur.GitHub.CommentPollBatch",
+    "Aiur.GitHub.Comments",
     "Aiur.GitHub.Config",
     "Aiur.GitHub.FailureEvidence",
     "Aiur.GitHub.HoldPressure",
@@ -54,6 +56,7 @@
     "Aiur.GitHub.OpenIssueListing",
     "Aiur.GitHub.OpenIssueSnapshot",
     "Aiur.GitHub.PollSnapshots",
+    "Aiur.GitHub.PullRequestHeadUpdate",
     "Aiur.GitHub.PullRequests",
     "Aiur.GitHub.PullRequests.CommitCiStatus",
     "Aiur.GitHub.ReviewThreads",
@@ -111,5 +114,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "facade_pending": null
+  "facade_pending": null,
+  "goal": "run-agents"
 }

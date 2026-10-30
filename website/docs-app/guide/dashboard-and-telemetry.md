@@ -24,6 +24,20 @@ The Live band ETA sums planned hours and divides by the observed runtime agent c
 
 Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, epic, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
 
+## Ticket timeline
+
+In ticket detail, choose **Timeline** to see the recorded event history. Items use observed timestamps; the tab updates as new ticket events arrive. Journal read failures are shown as unavailable without blocking the description.
+
+Ticket event journal rows retain the event ID, observed timestamp, topic, kind,
+safe summary and actor when supplied. Progress rows store `pct`; command rows
+store a redacted `cmd`. CI and merge-group failures store bounded check names
+and safe GitHub Actions run links. Successful merge-group requeues store the
+run, PR and cause.
+
+GitHub review and label transitions use the trusted ticket identity. Comment
+summaries are sanitized and bounded; full comment bodies and command output
+are not stored in marker rows.
+
 Missing tickets show “Ticket not found”; failed reads show “Ticket unavailable”. Escape, the close button or the backdrop closes the modal and clears the ticket from the URL.
 
 Content-addressed layout vendor files remain on their verified router paths; vendor manifests, provenance, sources, and licenses are not exposed.
@@ -38,6 +52,34 @@ The Units summary keeps progress useful while member weight facts catch up. If
 some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
+
+### Build ticket conversation
+
+Open a running ticket in Build to watch its loaded conversation. New entries
+follow the bottom while you are within 60 pixels of it. Scroll up to read
+without moving; **New activity** returns to the latest entries, fetching the
+tail again if paging older history displaced it. The view keeps at most 500 entries.
+
+The right minimap previews loaded rows. Drag it to scroll, or select an event
+tick to jump and highlight that event; hover for its label and time. Focus the
+conversation to scroll with the keyboard. The working indicator appears only
+for an active agent with live conversation state and a live dashboard link.
+
+### Conversation event navigation
+
+At `/conversations/:id`, use the Events rail to jump to progress, pushes,
+PRs and Commands. Kind filters follow the catalogue defaults and are remembered
+in this browser when local storage is available. CI and review comments start
+hidden. On phones the rail sits above the transcript.
+
+Selecting an event opens `?pos=N`, loads the surrounding entries and brings
+that position into view. Observed events appear after an entry with an
+“approximate position” marker. Events without an anchor say “Not linked to a
+position” and have no jump.
+
+Command requests also link to their Command page;
+resolved Commands say “answered”. A missing position shows “Position not found”
+and the latest entries, with one retry after the next journal append.
 
 ### Build timeline filters
 
@@ -72,6 +114,12 @@ planned feature total. Unavailable counts show `—` with a reason; incomplete
 history does not appear as zero progress. Each row opens the existing feature
 focus in Tickets view.
 
+Epics counts matching general epics, including feature-owned tickets, so totals
+overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
+tickets. Planned pack tickets without area labels are excluded; incomplete
+history or labels stay unknown. With no matches, see
+[`general_epics`](../reference/configuration-build-order.md#general-epics).
+
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
 button to open the Dependency tree overlay.
@@ -89,6 +137,12 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
+With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
+It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
+actual use varies. Missing anchors are unavailable. Read it with
+`aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`; set
+`NETLIFY_AUTH_TOKEN` and `netlify.account_id` to enable polling.
 
 ### Shared GitHub quota
 
@@ -400,3 +454,34 @@ usable cgroup v2 memory limit, dispatch uses the host memory floor.
 ### Post-deploy checks
 
 The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy check: <exact steps>` under `## Local tests`; name required operators, such as `(operator: physical Stream Deck)`. Checks stay pending until an Executor marks them done. Run them after rebuilding the runtime.
+
+## Feature supply attention
+
+`system.feature_supply_low` wakes the Executor when free worker slots exceed
+ready feature tickets for 30 continuous minutes. Feature classification uses
+telemetry's `work_kind`; readiness uses the dispatch candidate decision before
+workers are started.
+
+The attention includes free slots, ready features,
+feature todo decline counts, and the five blockers holding the most features,
+with cached PR numbers and states. Missing PR evidence is `unknown`.
+
+Land the blocker PRs through normal review, then promote or publish feature
+work in goal order. Avoid filling the slots with non-feature work. One
+attention opens per episode and resolves after 10 continuous minutes of
+sufficient supply.
+
+Paused or unavailable tracker passes interrupt the timers
+and interval coverage. Restarts restart timers while retaining open attention.
+
+`analytics/run-summary --json` exposes `feature_supply_daily` by UTC date.
+Each row includes `feature_starved_slot_minutes` (elapsed minutes times
+`max(0, free - feature_ready)`), `non_feature_during_starvation_minutes`
+(elapsed minutes with at least one active non-feature turn during starvation),
+and `observed_minutes`.
+
+Text reports print the same totals. Sum rows across
+boots for a daily report. No observations means unavailable, not zero.
+
+The daemon records intervals between successful dispatch observations;
+transitions between polls have poll-cadence precision.

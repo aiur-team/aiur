@@ -61,6 +61,7 @@ defmodule AiurWeb.BuildLiveDocTest do
     assert first == :subscribe
     assert_received {:doc_action, second, ^expected}
     assert second == :request
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => _})
     expected
   end
 
@@ -79,6 +80,7 @@ defmodule AiurWeb.BuildLiveDocTest do
     second_id = row(1)["id"]
     render_hook(view, "ticket-doc", %{id: second_id})
     assert_reply(view, %{"id" => ^second_id, "state" => "available"})
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^second_id, "timeline" => _})
     second = identity(second_id)
     assert_received {:doc_action, action, selected}
     assert {action, selected} == {:unsubscribe, first}
@@ -124,6 +126,16 @@ defmodule AiurWeb.BuildLiveDocTest do
     render(view)
     refute_received {:doc_action, :request, _}
     refute_push_event(view, "build-ticket-doc", _)
+  end
+
+  test "ticket history updates push the cached timeline to the open modal" do
+    view = open_view()
+    id = row()["id"]
+    open_doc(view, id)
+
+    send(view.pid, {:ticket_history_updated, %{generation: 2}})
+
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => %{"items" => []}})
   end
 
   test "invalid ids leave the open doc unchanged without reading the source" do

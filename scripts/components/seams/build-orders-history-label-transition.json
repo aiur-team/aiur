@@ -1,0 +1,8 @@
+{
+  "from": "build-orders",
+  "to_module": "Aiur.Orchestrator.TicketTransition",
+  "kind": "reference",
+  "only_paths": ["src/lib/aiur/build_order/history/label_backfill/writer.ex"],
+  "allow_forbidden": true,
+  "reason": "#3182 optional historical classification writes use the existing label-write owner and retain writer attribution"
+}

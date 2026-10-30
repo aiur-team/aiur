@@ -16,6 +16,10 @@ defmodule Aiur.AgentPubSub do
   @pubsub Aiur.PubSub
   @fleet_refresh_topic "agents:fleet_refresh"
 
+  @doc false
+  @spec dispatch([{pid(), term()}], pid() | :none, term()) :: :ok
+  defdelegate dispatch(entries, from, message), to: FleetRefresh
+
   @spec subscribe_agent(AgentEvents.agent_identifier()) :: :ok | {:error, term()}
   def subscribe_agent(identifier) when is_binary(identifier) do
     topic = AgentEvents.agent_topic(identifier)
@@ -40,6 +44,14 @@ defmodule Aiur.AgentPubSub do
   def unsubscribe_agent(identifier) when is_binary(identifier) do
     Phoenix.PubSub.unsubscribe(@pubsub, AgentEvents.agent_topic(identifier))
   end
+
+  @spec subscribe_listen_mode(AgentEvents.agent_identifier()) :: :ok | {:error, term()}
+  def subscribe_listen_mode(identifier) when is_binary(identifier),
+    do: Phoenix.PubSub.subscribe(@pubsub, AgentEvents.listen_mode_topic(identifier))
+
+  @spec broadcast_listen_mode(AgentEvents.agent_identifier(), map()) :: :ok
+  def broadcast_listen_mode(identifier, payload) when is_binary(identifier) and is_map(payload),
+    do: do_broadcast(AgentEvents.listen_mode_topic(identifier), {:listen_mode_changed, identifier, payload})
 
   @spec subscribe_running() :: :ok | {:error, term()}
   defdelegate subscribe_running(), to: Aiur.AgentPubSub.FleetSubscriptions

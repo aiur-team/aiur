@@ -1,5 +1,7 @@
 # How a ticket flows
 
+For a visual happy-path timeline, see [Ticket lifecycle timeline](/concepts/lifecycle). This page remains the label and lifecycle reference.
+
 A ticket moves from being filed, to a labelled queue, to an isolated agent run,
 to a draft PR, through CI and review, and finally to a merge that closes the
 issue. This page is the full end-to-end lifecycle: what the operator does at
@@ -159,7 +161,10 @@ agent or scheduled claim is re-queued and alerted.
 
 Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
-marks an unconfirmed guess. See [epic commands](../reference/cli.md#build-history-epic-commands).
+marks an unconfirmed guess.
+
+`aiur_history_export` gives only `history-backfill`
+tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [epic commands](../reference/cli.md#build-history-epic-commands).
 
 ### Model labels
 

@@ -8,6 +8,10 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
     metrics_path = Path.join(AgentGitHubGuard.bin_dir(context.workspace), "github_budget_metrics.py")
     assert File.regular?(metrics_path)
     assert File.read!(metrics_path) =~ "def receive_requests"
+
+    socket_client = Path.join(AgentGitHubGuard.bin_dir(context.workspace), "aiur-github-budget-socket")
+    assert File.regular?(socket_client)
+    assert File.read!(socket_client) =~ "socket.AF_UNIX"
   end
 
   test "a re-install replaces a stale workspace broker and logs the refresh", context do

@@ -8,7 +8,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   import Aiur.Orchestrator.OperatorMessages.Enqueue, only: [enqueue_event_digest_item: 4, enqueue_event_digest_item: 5, enqueue_operator_message: 4, enqueue_operator_message: 5]
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, Commands, OperatorWaitLog, Signal, TrackerIdentity}
+  alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{AutoSubscriptions, DigestCoalescer, LifecycleFence, State}
+  alias Aiur.Orchestrator.OperatorMessages.PendingStore
+  alias Aiur.Orchestrator.OperatorMessages.Unread
 
   @spec enqueue_event_digest_call(State.t(), String.t(), map(), keyword()) ::
           {:reply, :ok, State.t()}
@@ -31,6 +34,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
         %{kind: :text, body: body} = payload
       )
       when is_binary(issue_identifier) and is_binary(body) do
+    issue_identifier = canonical_idle_identifier(state, issue_identifier)
     {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
     {:reply, reply, next_state}
   end
@@ -44,6 +48,22 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
 
   def send_operator_message_call(%State{} = state, _issue_identifier, _payload) do
     {:reply, {:error, :invalid_message}, state}
+  end
+
+  defp canonical_idle_identifier(state, identifier) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{identifier: canonical} when is_binary(canonical) ->
+        canonical
+
+      _not_running ->
+        state.last_polled_issues
+        |> Map.values()
+        |> Enum.find(&Aiur.Issue.identifier_matches?(&1.id, &1.identifier, identifier))
+        |> case do
+          %{identifier: canonical} when is_binary(canonical) -> canonical
+          _not_found -> identifier
+        end
+    end
   end
 
   @spec send_correlated_operator_message_call(State.t(), String.t(), map()) ::
@@ -112,10 +132,20 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
       AgentQueueStore.claim_next_deliverable_matching(
         state.queue_store,
         issue_identifier,
-        fn item -> item.delivery[:interrupt_requested] != true end
+        fn item -> item.delivery[:interrupt_requested] != true and item.delivery[:listener_mode_at_claim] != :sync and item.event_type != :listener_ping end
       )
 
     queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_next_steer_queue_item_call(State.t(), String.t()) :: tuple()
+  def claim_next_steer_queue_item_call(%State{} = state, identifier) do
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn item ->
+        item.category in [:operator_message, :system_notice] and item.delivery[:steer_requested] == true
+      end)
+
+    queue_claim_reply(state, store, item)
   end
 
   @spec claim_blocker_critical_events_digest_call(State.t(), String.t()) ::
@@ -138,14 +168,28 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
           {:reply, :empty | {:ok, map()}, State.t()}
   def claim_next_operator_queue_item_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
+    active_turn? = ActiveTurns.active_turn_ids(issue_identifier) != []
+
     {queue_store, item} =
       AgentQueueStore.claim_next_deliverable_matching(
         state.queue_store,
         issue_identifier,
-        &match?(%{category: :operator_message}, &1)
+        fn item -> item.category in [:operator_message, :system_notice] and not (active_turn? and item.delivery[:listener_mode_at_claim] == :sync) end
       )
 
     queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_native_reply_item_call(State.t(), String.t(), [String.t()]) :: tuple()
+  def claim_native_reply_item_call(state, identifier, refs) do
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn item ->
+        correlation = item.correlation || %{}
+        ref = Map.get(correlation, :native_ref, Map.get(correlation, "native_ref"))
+        item.category == :operator_message and is_binary(ref) and ref in refs
+      end)
+
+    queue_claim_reply(state, store, item)
   end
 
   @spec claim_operator_response_call(State.t(), String.t(), String.t()) :: tuple()
@@ -245,13 +289,21 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
         provider_metadata
       )
 
-    next_state = %{state | queue_store: queue_store}
+    persist? = match?(%{persist_across_restart?: true}, previous_item)
 
-    if newly_provider_delivered?(previous_item, item) do
-      record_provider_delivery_evidence(item)
-      {:reply, :ok, LifecycleFence.acknowledge_provider_delivery(next_state, item)}
-    else
-      {:reply, :ok, next_state}
+    case if(persist?, do: persist_queue(state, queue_store), else: :ok) do
+      :ok ->
+        next_state = %{state | queue_store: queue_store}
+
+        if newly_provider_delivered?(previous_item, item) do
+          record_provider_delivery_evidence(item)
+          {:reply, :ok, LifecycleFence.acknowledge_provider_delivery(next_state, item)}
+        else
+          {:reply, :ok, next_state}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, {:persistence_failed, reason}}, state}
     end
   end
 
@@ -294,16 +346,43 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
     do: {queue_store, item}
 
   defp queue_claim_reply(state, queue_store, item) do
-    reply = if is_nil(item), do: :empty, else: {:ok, item}
-    {:reply, reply, %{state | queue_store: queue_store}}
+    if item && item.persist_across_restart? do
+      persist_queue_change(state, queue_store, {:ok, item})
+    else
+      reply = if is_nil(item), do: :empty, else: {:ok, item}
+      {:reply, reply, %{state | queue_store: queue_store}}
+    end
   end
 
   defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
     {queue_store, items} = update.(state.queue_store)
-    Commands.record_transport_batch_async(transition, List.wrap(items), reason)
-    next_state = %{state | queue_store: queue_store}
-    maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
-    {:reply, :ok, next_state}
+    persist? = Enum.any?(List.wrap(items), & &1.persist_across_restart?)
+
+    case if(persist?, do: persist_queue(state, queue_store), else: :ok) do
+      :ok ->
+        Commands.record_transport_batch_async(transition, List.wrap(items), reason)
+
+        for id <- items |> List.wrap() |> Enum.map(& &1.target_issue_identifier) |> Enum.uniq(),
+            do: Unread.broadcast_change(state.queue_store, queue_store, id)
+
+        next_state = %{state | queue_store: queue_store}
+        maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
+        {:reply, :ok, next_state}
+
+      {:error, persist_reason} ->
+        {:reply, {:error, {:persistence_failed, persist_reason}}, state}
+    end
+  end
+
+  defp persist_queue_change(state, queue_store, reply) do
+    case persist_queue(state, queue_store) do
+      :ok -> {:reply, reply, %{state | queue_store: queue_store}}
+      {:error, reason} -> {:reply, {:error, {:persistence_failed, reason}}, state}
+    end
+  end
+
+  defp persist_queue(_state, queue_store) do
+    PendingStore.save(queue_store)
   end
 
   defp newly_provider_delivered?(

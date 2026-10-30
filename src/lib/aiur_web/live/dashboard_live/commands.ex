@@ -2,18 +2,14 @@ defmodule AiurWeb.DashboardLive.Commands do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [connected?: 1, push_patch: 2]
+  import Phoenix.LiveView, only: [push_patch: 2]
 
   alias AiurWeb.DashboardLive.CommandHistory
-  alias AiurWeb.DashboardLive.Controls
-  alias AiurWeb.DashboardLive.Conversation
-  alias AiurWeb.DashboardLive.TicketContext
   alias AiurWeb.DashboardLive.UnitsPanel
-  alias AiurWeb.OperatorControlCenter.AgentLogModal
   alias AiurWeb.OperatorControlCenter.DecisionPath
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
-  @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
+  @decision_filters [:needs_you, :with_executor, :from_executor, :all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
 
   @doc false
   @spec reload_payload(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
@@ -24,12 +20,7 @@ defmodule AiurWeb.DashboardLive.Commands do
     |> assign(:payload, payload)
     |> assign(:retained_counts, Map.get(payload, :retained_counts, unavailable_retained_counts()))
     |> assign(:now, DateTime.utc_now())
-    |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
     |> UnitsPanel.assign_units_view()
-    |> Controls.sync_unit_control_subscriptions(connected?(socket))
-    |> Controls.reconcile_unit_controls()
-    |> TicketContext.refresh_ticket_context_row()
-    |> Conversation.refresh_conversation_row()
     |> reload_decision_page()
     |> CommandHistory.load_history(:head)
     |> assign_selected_decision(socket.assigns.selected_decision_id)
@@ -111,6 +102,10 @@ defmodule AiurWeb.DashboardLive.Commands do
   @spec unavailable_retained_counts() :: term()
   def unavailable_retained_counts do
     %{
+      needs_you: nil,
+      needs_you_blocking: nil,
+      with_executor: nil,
+      from_executor: nil,
       open: nil,
       blocking: nil,
       total: nil,
@@ -144,9 +139,13 @@ defmodule AiurWeb.DashboardLive.Commands do
         do_assign_decision_page(socket, filter, params)
 
       :decision ->
-        socket
-        |> assign(:decision_page, fallback_decision_page(socket.assigns.payload))
-        |> assign(:decision_query, decision_query(filter, params))
+        if params["requester"] == "executor" do
+          do_assign_decision_page(socket, filter, params)
+        else
+          socket
+          |> assign(:decision_page, fallback_decision_page(socket.assigns.payload))
+          |> assign(:decision_query, decision_query(filter, params))
+        end
 
       _action ->
         socket
@@ -169,9 +168,16 @@ defmodule AiurWeb.DashboardLive.Commands do
 
   defp reload_decision_page(socket) do
     case Map.get(socket.assigns, :live_action) do
-      :decisions -> do_reload_decision_page(socket)
-      :decision -> assign(socket, :decision_page, fallback_decision_page(socket.assigns.payload))
-      _action -> socket
+      :decisions ->
+        do_reload_decision_page(socket)
+
+      :decision ->
+        if socket.assigns.decision_query[:requester] == "executor",
+          do: do_reload_decision_page(socket),
+          else: assign(socket, :decision_page, fallback_decision_page(socket.assigns.payload))
+
+      _action ->
+        socket
     end
   end
 
@@ -188,16 +194,11 @@ defmodule AiurWeb.DashboardLive.Commands do
     assign(socket, :decision_page, page)
   end
 
-  defp decision_query(:all, params) do
+  defp decision_query(_filter, params) do
     %{}
     |> maybe_put_query(:ticket, params["ticket"])
     |> maybe_put_query(:search, params["search"])
-    |> maybe_put_query(:cursor, params["cursor"])
-    |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
-  end
-
-  defp decision_query(_filter, params) do
-    %{}
+    |> maybe_put_query(:requester, if(params["requester"] == "executor", do: "executor"))
     |> maybe_put_query(:cursor, params["cursor"])
     |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
   end
@@ -211,6 +212,9 @@ defmodule AiurWeb.DashboardLive.Commands do
 
   # The inbox lists outstanding Commands, including work deferred to the
   # Executor. Only completed or retired Commands move into history.
+  defp put_filter_query(query, filter) when filter in [:needs_you, :with_executor, :from_executor],
+    do: query |> Map.put("lifecycle", "open") |> Map.put("route", Atom.to_string(filter))
+
   defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "open")
 
   defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)
@@ -275,6 +279,6 @@ defmodule AiurWeb.DashboardLive.Commands do
         search -> %{search: String.slice(search, 0, 200)}
       end
 
-    {:noreply, push_patch(socket, to: DecisionPath.inbox(:all, query))}
+    {:noreply, push_patch(socket, to: DecisionPath.inbox(:all, Map.merge(Map.take(socket.assigns.decision_query, [:requester]), query)))}
   end
 end

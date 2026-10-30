@@ -42,6 +42,35 @@ defmodule Aiur.EpicEngineTest do
     assert help =~ "epic list [--json]"
   end
 
+  test "confirm encodes guarded epic, actor and deduplicated IDs; show accepts the filter" do
+    assert shell("cmd_epic confirm 12 '#14' 12 --epic infra --as kevin --json") ==
+             {"Aiur.AgentControlCLI.epic([action: :confirm, ids: [12, 14], expect_epic: Base.decode64!(\"aW5mcmE=\"), who: Base.decode64!(\"a2V2aW4=\"), json: true])\n", 0}
+
+    assert shell("cmd_epic show --unconfirmed --json") ==
+             {"Aiur.AgentControlCLI.epic([action: :show, unconfirmed: true, json: true])\n", 0}
+  end
+
+  @tag :future_regression
+  test "future regression guard: confirm rejects invalid arguments before dispatch" do
+    for args <- [
+          "confirm",
+          "confirm 0",
+          "confirm 12 --epic 'X;rm'",
+          "confirm 12 --epic Infra",
+          "confirm 12 --as 'a b'",
+          "confirm 12 --source backfill-agent",
+          "confirm 12 --unconfirmed",
+          "confirm 12 --epic",
+          "confirm " <> Enum.join(1..201, " ")
+        ] do
+      assert {output, 64} = shell("cmd_epic " <> args, [{"USER", "tester"}])
+      refute output =~ "Aiur.AgentControlCLI"
+    end
+
+    assert {output, 64} = shell("cmd_epic confirm 12", [{"USER", ""}])
+    refute output =~ "Aiur.AgentControlCLI"
+  end
+
   test "V-26 all usage failures exit 64 before RPC" do
     for args <- [
           "set",

@@ -27,7 +27,12 @@
   ],
   "facades": [
     "Aiur.Commands",
+    "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.NativeCapture",
+    "Aiur.Commands.NativeCapture.Claude",
+    "Aiur.Commands.NativeCapture.Codex",
+    "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",
@@ -40,9 +45,11 @@
   "requires": [
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel",
     "signal",
+    "tracker",
     "web-kit"
   ],
   "optional": [],
@@ -79,5 +86,6 @@
     "AIUR_CI_READINESS_TOKEN",
     "AIUR_SUPERVISOR_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

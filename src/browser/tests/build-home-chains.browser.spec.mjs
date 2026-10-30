@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { card, tree, tray, open, reveal, lock, whole } from './support/build-home-chains.mjs'
-import { installFitObserver } from './support/build-home-chains-parity.mjs'
+import { installFitObserver } from './support/build-home-chains-fit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 async function diff(page, name) {

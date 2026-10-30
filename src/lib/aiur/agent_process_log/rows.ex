@@ -17,7 +17,7 @@ defmodule Aiur.AgentProcessLog.Rows do
   def observe_tree(state) do
     roots = state.roots_fun.()
     tickets = Map.new(roots, fn {root_pid, ticket} -> {root_pid, ticket} end)
-    all = state.processes_fun.()
+    all = if roots == [], do: %{}, else: state.processes_fun.()
     index = children_index(all)
 
     {tree, _claimed} =

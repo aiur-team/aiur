@@ -69,6 +69,22 @@ test('card open, header identity, notices, focus trap and all close paths', asyn
   ]).flat())
 })
 
+test('epic icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
+  await open(page)
+  const t = await row(page)
+  await display(page, t)
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport)
+    const icon = page.locator('#tk-head .bm-ep svg')
+    await expect(icon).toHaveCount(1)
+    await expect.poll(() => icon.evaluate(el => {
+      const { width, height } = el.getBoundingClientRect()
+      return [width, height]
+    })).toEqual([17, 17])
+  }
+})
+
 test('focused cards open once with Enter and Space through the mounted hook', async ({ page }) => {
   await open(page); await installSpy(page)
   const t = await row(page), card = page.locator('.bd-card[data-id="' + t.id + '"]').first()
@@ -285,10 +301,10 @@ test('unknown header values, real links, PR absence, pack safety and hostile tex
   await display(page, { ...base, pr: null }); await expect(page.locator('.bm-pr')).toHaveCount(0)
   await page.evaluate(async () => { (await import('/build-home/state.js')).ctx.D.repo = null })
   await display(page, hostile); await expect(page.locator('.bm-links a')).toHaveCount(0)
-  await page.evaluate(async t => (await import('/build-home/modal/frame.js')).openModal({ ...t, id: 'pack:test/item', num: null, sec: 'plan' }), base)
+  await page.evaluate(async t => (await import('/build-home/modal/frame.js')).openModal({ ...t, id: 'pack:test/item', num: null, sec: 'plan', src: {kind:'pack',path:'docs/plan.md',wave:1} }), base)
   await expect(page.locator('.bm-num')).toHaveText('—')
   await expect(page.locator('[data-a="none"]')).toHaveAttribute('aria-disabled', 'true')
-  await expect(page).not.toHaveURL(/ticket=/)
+  await expect.poll(() => new URL(page.url()).searchParams.get('ticket')).toBe('pack:test/item')
 })
 
 test('copy success, fallback and failure reflect the actual clipboard outcome', async ({ page }) => {

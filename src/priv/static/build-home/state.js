@@ -20,7 +20,7 @@ export function resetState(urlState = {}) {
     root: null, vp: null, content: null, lanesEl: null, guidesEl: null,
     svg: null, bandEl: null, secs: {}, R: new Map(), RL: new Map(),
     laneEls: new Map(), guideEls: new Map(), cols: [], colMap: {}, bandMap: {},
-    a11y: { focusId: null }, lockId: null, hoverId: null, inited: false, D: null, L: null, snap: null,
+    a11y: { focusId: null, roving: null, focusHoverId: null }, lockId: null, hoverId: null, inited: false, D: null, L: null, snap: null,
     proto: { epoch: null, generation: null, inFlight: false }, resyncSeq: 0,
     socket: 'up', offline: false, urlPending: false, life: null, push: null, reload: null,
   });
@@ -58,6 +58,6 @@ export const fx = {
   initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {},
-  appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, wireLive() {}, onConversation() {}, reconnectConversation() {},
+  appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, disposeLive() {}, conversationApplied() {}, updateTyping() {}, onConversation() {}, reconnectConversation() {},
   renderCommand() {}, placeCommand() {},
 };

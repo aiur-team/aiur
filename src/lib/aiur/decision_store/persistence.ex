@@ -4,6 +4,8 @@ defmodule Aiur.DecisionStore.Persistence do
   require Logger
 
   alias Aiur.Boot
+  alias Aiur.Commands.RequestAttributes
+  alias Aiur.Commands.Topics
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionEvent
@@ -16,18 +18,18 @@ defmodule Aiur.DecisionStore.Persistence do
   alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
-  alias Aiur.Events
   alias Aiur.Journal
   alias Aiur.Signal
 
   @spec repair_projection(term()) :: term()
   def repair_projection(state), do: ProjectionRecovery.repair(state, &notify_projection_event/3)
 
+  defp notify_projection_event(_decision, %{type: :request_attributed}, _state), do: :ok
   defp notify_projection_event(decision, %{type: :requested} = event, state), do: Audit.notify(decision, ProjectionRecovery.cursor_id(event), state)
   defp notify_projection_event(decision, event, _state), do: notify_lifecycle(decision, event, ProjectionRecovery.cursor_id(event))
 
   @spec persist_and_notify(term(), term(), term()) :: term()
-  def persist_and_notify(decision, event_id, state) do
+  def persist_and_notify({decision, attrs}, event_id, state) do
     with {:ok, event} <-
            DecisionEvent.new(:requested, decision.decision_id, decision.version, decision,
              event_id: event_id,
@@ -57,7 +59,13 @@ defmodule Aiur.DecisionStore.Persistence do
             audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
             recent_audit: Audit.remember_recent_audit(state.recent_audit, event)
         }
+
+      {new_state, current, last_event_id} = RequestAttributes.append(new_state, current, attrs, event.event_id)
+
+      new_state =
+        new_state
         |> ProjectionRecovery.enqueue(current, event)
+        |> Map.put(:last_event_id, last_event_id)
         |> repair_projection()
 
       {:reply, {:ok, %{status: :accepted, decision: current}}, new_state}
@@ -192,6 +200,9 @@ defmodule Aiur.DecisionStore.Persistence do
     repair_projection(next_state)
   end
 
+  @command_fact_types Aiur.Commands.EventData.fact_types()
+  defp lifecycle_version(type, decision, _data) when type in @command_fact_types, do: decision.version
+
   defp lifecycle_version(_type, _decision, %DecisionAnswer{decision_version: version}), do: version
   defp lifecycle_version(_type, _decision, %DecisionRevision{decision_version: version}), do: version
 
@@ -219,11 +230,15 @@ defmodule Aiur.DecisionStore.Persistence do
     end
   end
 
-  defp notify_lifecycle(decision, event, cursor_event_id) do
-    topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{Requests.lifecycle_slug(event.type)}"
+  defp lifecycle_payload(%{type: :human_needed} = event) do
+    Map.merge(DecisionEvent.to_json_safe(event), Aiur.JSONSafe.normalize(event.data))
+  end
 
+  defp lifecycle_payload(event), do: DecisionEvent.to_json_safe(event)
+
+  defp notify_lifecycle(decision, event, cursor_event_id) do
     try do
-      Events.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id, digest_source: :orchestrator)
+      Topics.publish(decision, Requests.lifecycle_slug(event.type), lifecycle_payload(event), cursor_event_id)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end

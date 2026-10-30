@@ -4,6 +4,19 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    notify_override_merge: {Aiur.DecisionStore.OverrideMerges, :notify},
+    override_successor: {Aiur.Commands.CorrectiveTicket, :successor},
+    override_target_ticket: {Aiur.Commands.Overrides, :target_ticket},
+    pending_override: {Aiur.Commands.Overrides, :pending},
+    pending_resume_override: {Aiur.Commands.Overrides, :resume_request},
+    prepare_override_prompt: {Aiur.Commands.OverridePrompt, :prepare},
+    render_pending_overrides: {Aiur.Commands.OverridePrompt, :render},
+    record_override_prompt_receipt: {Aiur.Commands.OverridePrompt, :received},
+    override_dispatchable?: {Aiur.DecisionStore.Overrides, :dispatchable?},
+    requester_notified: {Aiur.Commands.ExecutorDelivery, :on_enqueued},
+    public_v2: {Aiur.Commands.Projection, :public_v2},
+    needs_you?: {Aiur.Commands.Routing.Policy, :needs_you?},
+    matches_route?: {Aiur.Commands.Routing.Policy, :matches_route?},
     capability_ids: {Aiur.DecisionStore.CapabilityProvider, :capability_ids},
     capabilities: {Aiur.DecisionStore.CapabilityProvider, :capabilities},
     query_list: {Aiur.DecisionQuery, :list},

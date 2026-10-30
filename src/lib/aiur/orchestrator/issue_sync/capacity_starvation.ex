@@ -3,8 +3,8 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
   Preserves per-constraint starvation ages and alert lifecycles.
   """
 
-  alias Aiur.AlertFeed
   alias Aiur.Issue
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
@@ -146,7 +146,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
   defp clear_capacity_starvation(%State{} = state) do
     active? =
       Map.get(state.capacity_starvation, :alert_active, false) or
-        AlertFeed.active_system_attention?("system.dispatch.capacity_starved")
+        AttentionSnapshot.active_system_attention?("system.dispatch.capacity_starved")
 
     if active? do
       case Signal.alert("system.dispatch.capacity_starved.resolved",

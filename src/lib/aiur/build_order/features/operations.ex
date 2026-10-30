@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.Features.Operations do
   @moduledoc false
   alias Aiur.BuildOrder.Features.FeatureData
 
-  @spec events(atom(), term(), term(), keyword(), map(), map()) :: {:ok, list()} | {:error, term()}
+  @spec events(atom(), term(), term(), keyword(), map(), map()) :: {:ok, list()} | {:ok, list(), [pos_integer()]} | {:error, term()}
   def events(op, slug, input, metadata, projection, context) do
     with :ok <- check(FeatureData.slug?(slug), :invalid_slug),
          {:ok, meta} <- meta(metadata, context.now) do
@@ -64,10 +64,24 @@ defmodule Aiur.BuildOrder.Features.Operations do
   defp change(:add, feature, input, meta, projection, _context) do
     epic = Map.get(meta, :epic, hd(feature.epics).key)
 
-    with {:ok, numbers} <- numbers(input),
+    with :ok <- check(not (meta.source == "backfill-agent" and Map.get(meta, :move, false)), :backfill_cannot_move),
+         {:ok, numbers} <- numbers(input),
          :ok <- check(Enum.any?(feature.epics, &(&1.key == epic)), {:unknown_epic, epic}),
          :ok <- ownership(numbers, feature.slug, meta, projection.owners) do
-      {:ok, Enum.flat_map(numbers, &add_events(&1, feature.slug, epic, meta, projection))}
+      kept = if meta.source == "backfill-agent", do: Enum.filter(numbers, &backfill_kept?(&1, feature.slug, projection.owners)), else: []
+      events = Enum.flat_map(numbers -- kept, &add_events(&1, feature.slug, epic, meta, projection))
+      {:ok, events, kept}
+    end
+  end
+
+  defp change(:confirm, feature, input, meta, projection, _context) do
+    with :ok <- check(meta.source != "backfill-agent" and meta.confirmed, :invalid_confirmation),
+         {:ok, numbers} <- numbers(input) do
+      nonmembers = Enum.reject(numbers, &match?(%{feature: slug} when slug == feature.slug, projection.owners[&1]))
+
+      with :ok <- check(nonmembers == [], {:not_member, nonmembers}) do
+        {:ok, confirmation_events(numbers, feature.slug, meta, projection.owners)}
+      end
     end
   end
 
@@ -107,6 +121,13 @@ defmodule Aiur.BuildOrder.Features.Operations do
   end
 
   defp change(_, _, _, _, _, _), do: {:error, :invalid_operation}
+
+  defp confirmation_events(numbers, slug, meta, owners) do
+    for number <- numbers,
+        owner = owners[number],
+        not owner.confirmed,
+        do: member_event("member.added", slug, number, meta.at, %{epic: owner.epic, confirmed: true, at_basis: owner.at_basis})
+  end
 
   defp create_events(feature, general, projection) do
     case projection.features[feature.slug] do
@@ -159,6 +180,15 @@ defmodule Aiur.BuildOrder.Features.Operations do
     join = if same?, do: [], else: [member_event("member.added", slug, number, meta.at, %{epic: epic, confirmed: confirmed, at_basis: meta.at_basis})]
     leave ++ unlink ++ join
   end
+
+  defp backfill_kept?(number, slug, owners) do
+    case owners[number] do
+      nil -> false
+      owner -> owner.feature != slug or owner.source != "backfill-agent"
+    end
+  end
+
+  defp ownership(_numbers, _slug, %{source: "backfill-agent"}, _owners), do: :ok
 
   defp ownership(numbers, slug, meta, owners) do
     conflicts =

@@ -9,10 +9,12 @@ defmodule Aiur.Orchestrator.Dispatcher.AnsweredDecisions do
   def for_ticket(nil, _store, _timeout), do: []
 
   def for_ticket(identifier, store, timeout) when is_binary(identifier) do
+    # Queued answers already have a transport item for the next worker.
+    # Injecting them into the prompt as well would deliver the same action twice.
     Commands.list_decisions(store, timeout)
     |> Enum.filter(fn decision ->
-      decision.ticket.identifier == identifier and decision.decision_status == :decided and not is_nil(decision.answer) and
-        decision.delivery_status not in [:delivered, :consumed]
+      Commands.override_target_ticket(decision).identifier == identifier and decision.decision_status == :decided and not is_nil(decision.answer) and
+        decision.delivery_status not in [:delivered, :consumed, :queued] and Commands.override_dispatchable?(decision)
     end)
     |> Enum.map(fn decision ->
       answer = Decision.active_answer(decision)

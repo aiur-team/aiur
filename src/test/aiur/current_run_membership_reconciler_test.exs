@@ -142,6 +142,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
+        stored_lifecycles_fun: fn -> %{} end,
         snapshot_fun: fn -> snapshot end,
         observe_fun: fn identity, lifecycle ->
           send(parent, {:reconciled, identity.provider_id, lifecycle})
@@ -189,6 +190,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
+        stored_lifecycles_fun: fn -> %{} end,
         snapshot_fun: fn -> Agent.get(snapshot, & &1) end,
         observe_fun: fn identity, lifecycle ->
           result = Store.observe(identity, lifecycle, server: current_store)
@@ -230,6 +232,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       start_supervised!(
         {Reconciler,
          name: reconciler_name,
+         stored_lifecycles_fun: fn -> %{} end,
          snapshot_fun: fn -> Agent.get(snapshot, & &1) end,
          observe_fun: fn identity, lifecycle ->
            send(parent, {:observed, identity.provider_id, lifecycle})
@@ -262,7 +265,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     refute_receive {:observed, _, _}, 100
   end
 
-  test "the periodic reconcile tick re-observes unchanged rows with a full snapshot" do
+  test "the periodic reconcile tick restores rows missing from the store" do
     parent = self()
     reconciler_name = Module.concat(__MODULE__, "PeriodicFull#{System.unique_integer([:positive])}")
     ids = Enum.map(1..3, &"I-periodic-#{&1}")
@@ -273,6 +276,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
+        stored_lifecycles_fun: fn -> %{} end,
         snapshot_fun: fn -> Agent.get(snapshot, & &1) end,
         observe_fun: fn identity, lifecycle ->
           send(parent, {:observed, identity.provider_id, lifecycle})
@@ -306,6 +310,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
+        stored_lifecycles_fun: fn -> %{} end,
         snapshot_fun: fn -> :unavailable end,
         terminal_states_fun: &MapSet.new/0,
         subscribe_fun: fn -> :ok end,
@@ -331,6 +336,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     {:ok, reconciler} =
       Reconciler.start_link(
         name: reconciler_name,
+        stored_lifecycles_fun: fn -> %{} end,
         snapshot_fun: fn -> snapshot end,
         observe_fun: fn _identity, _lifecycle -> {:error, :membership_unavailable} end,
         terminal_states_fun: &MapSet.new/0,

@@ -3,6 +3,11 @@ defmodule Aiur.DecisionStore.Answers do
 
   require Logger
 
+  alias Aiur.Commands.ActorSource
+  alias Aiur.Commands.NativeAnswer
+  alias Aiur.Commands.Overrides
+  alias Aiur.Commands.Requester
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -43,7 +48,7 @@ defmodule Aiur.DecisionStore.Answers do
 
     state.current
     |> Map.values()
-    |> Enum.filter(&(&1.ticket.identifier == ticket_identifier and &1.pending_for_session? and MapSet.member?(action_ids, &1.active_action_id)))
+    |> Enum.filter(&(Overrides.target_ticket(&1).identifier == ticket_identifier and &1.pending_for_session? and MapSet.member?(action_ids, &1.active_action_id)))
     |> Enum.reduce(state, fn decision, acc ->
       case Persistence.build_and_persist_event(:session_started, decision, %{action_id: decision.active_action_id, session_id: session_id}, DateTime.utc_now(), acc) do
         {:ok, next_state, _updated} -> next_state
@@ -93,7 +98,7 @@ defmodule Aiur.DecisionStore.Answers do
   # still be waiting on its answer, so expiry must not remove that path.
   def require_answerable(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: :ok
 
-  def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved],
+  def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved, :dismissed],
     do: {:error, {:conflict, status}}
 
   def require_answerable(%Decision{}), do: :ok
@@ -101,12 +106,22 @@ defmodule Aiur.DecisionStore.Answers do
   @spec fetch_actor(term()) :: term()
   def fetch_actor(opts) do
     case Keyword.fetch(opts, :actor) do
-      {:ok, actor} when is_map(actor) -> {:ok, actor}
-      _other -> {:error, {:answer_invalid, {:actor, :missing}}}
+      {:ok, actor} when is_map(actor) ->
+        actor = Map.put(actor, :source, ActorSource.from_opts(opts))
+
+        case DecisionAnswer.normalize_actor(actor) do
+          {:ok, normalized} -> {:ok, normalized}
+          {:error, reason} -> {:error, {:answer_invalid, reason}}
+        end
+
+      _other ->
+        {:error, {:answer_invalid, {:actor, :missing}}}
     end
   end
 
   defp accept_answer(decision, payload, actor, opts, state) do
+    opts = Keyword.put(opts, :allow_reversible_human_required, delegated_human_required?(decision, state))
+
     case normalize_answer(payload, decision, decision.version, decision.options, actor, opts) do
       {:ok, answer} -> persist_answer(decision, answer, state)
       {:error, reason} -> {:reply, {:error, answer_error(reason)}, state}
@@ -116,6 +131,7 @@ defmodule Aiur.DecisionStore.Answers do
   defp replay_answer(decision, payload, actor, opts, state) do
     accepted = decision.answer
     addressed = request_version(state, decision.decision_id, accepted.decision_version) || decision
+    opts = Keyword.put(opts, :allow_reversible_human_required, delegated_human_required?(addressed, state))
 
     case normalize_answer(payload, addressed, accepted.decision_version, addressed.options, actor, opts) do
       {:ok, replayed} -> evaluate_answer_replay(decision, accepted, replayed, state)
@@ -135,7 +151,9 @@ defmodule Aiur.DecisionStore.Answers do
              ticket_comment_pending?: true,
              now: Keyword.get(opts, :now, DateTime.utc_now())
            ),
-         :ok <- validate_answer_policy_context(answer, request) do
+         :ok <- NativeAnswer.validate(request, answer),
+         :ok <- validate_requester_actor(actor, request),
+         :ok <- validate_answer_policy_context(answer, request, opts) do
       {:ok, answer}
     end
   end
@@ -145,7 +163,8 @@ defmodule Aiur.DecisionStore.Answers do
            actor: %{kind: :supervisor},
            supervisor_basis: %{policy_basis: policy_basis}
          },
-         %Decision{} = request
+         %Decision{} = request,
+         _opts
        ) do
     request_kind = request.kind && String.downcase(String.trim(request.kind))
 
@@ -157,32 +176,60 @@ defmodule Aiur.DecisionStore.Answers do
     end
   end
 
-  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}),
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}, _opts),
     do: {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}
 
-  # The Executor may answer a Command directly, but "obvious" needs a floor the
-  # code enforces rather than one the Executor's prompt is trusted to observe.
-  # The Command's own author declares how consequential it is, so that
-  # declaration is the gate: only an already-delegable authority and a fully
-  # reversible outcome may be auto-answered. Everything else — human_required,
-  # irreversible or partially reversible work, and any unrecognized or missing
-  # value — is refused here so the Executor must escalate it to the operator
-  # instead. This mirrors the supervisor basis check directly above: both bind
-  # a non-operator answer to the Decision's own declared policy fields.
-  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, %Decision{} = request) do
-    cond do
-      not DecisionAuthority.executor_authority_answerable?(request) ->
-        {:error, {:answer_invalid, {:executor_scope, {:authority, request.authority}}}}
-
-      not DecisionAuthority.executor_reversibility_answerable?(request) ->
-        {:error, {:answer_invalid, {:executor_scope, {:reversibility, request.reversibility}}}}
-
-      true ->
-        :ok
-    end
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, request, opts) do
+    if Policy.executor_may_answer?(request) or delegated_human_required?(request, opts), do: :ok, else: executor_scope_error(request)
   end
 
-  defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}), do: :ok
+  defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}, _opts), do: :ok
+
+  defp delegated_human_required?(%{authority: :human_required, reversibility: :reversible, context: context}, opts) when is_list(opts) do
+    Keyword.get(opts, :allow_reversible_human_required) == true and delegated_basis_allowed?(context)
+  end
+
+  defp delegated_human_required?(%{authority: :human_required, reversibility: :reversible, context: context}, %{allow_reversible_human_required: true}) do
+    delegated_basis_allowed?(context)
+  end
+
+  defp delegated_human_required?(%{authority: :human_required, reversibility: :reversible, context: context}, state) do
+    enabled = is_function(Map.get(state, :allow_reversible_human_required_answers)) and state.allow_reversible_human_required_answers.() == true
+    enabled and delegated_basis_allowed?(context)
+  end
+
+  defp delegated_human_required?(_decision, _state), do: false
+
+  defp delegated_basis_allowed?(context) do
+    Map.get(context || %{}, :authority_basis, Map.get(context || %{}, "authority_basis")) not in [
+      :product,
+      :spend,
+      :external_publication,
+      :security,
+      "product",
+      "spend",
+      "external_publication",
+      "security"
+    ]
+  end
+
+  @doc false
+  @spec validate_requester_actor(map(), Decision.t()) :: :ok | {:error, term()}
+  def validate_requester_actor(%{kind: :executor}, request) do
+    if Requester.executor?(request), do: {:error, {:answer_invalid, {:executor_scope, :executor_originated}}}, else: :ok
+  end
+
+  def validate_requester_actor(%{kind: :operator_relayed}, request) do
+    if Requester.executor?(request), do: {:error, {:answer_invalid, :relay_on_executor_command}}, else: :ok
+  end
+
+  def validate_requester_actor(_actor, _request), do: :ok
+
+  defp executor_scope_error(request) do
+    if DecisionAuthority.executor_authority_answerable?(request),
+      do: {:error, {:answer_invalid, {:executor_scope, {:reversibility, request.reversibility}}}},
+      else: {:error, {:answer_invalid, {:executor_scope, {:authority, request.authority}}}}
+  end
 
   defp answer_error({:answer_invalid, {:stale_version, expected, current}}),
     do: {:conflict, {:stale_version, expected, current}}
@@ -194,7 +241,15 @@ defmodule Aiur.DecisionStore.Answers do
     state.history
     |> Map.get(decision_id, [])
     |> Enum.find(&(&1.version == version))
+    |> restore_request_attributes(Map.get(state.current, decision_id))
   end
+
+  # Attribution is an append-only fact at the same request version, outside v1 history.
+  defp restore_request_attributes(nil, _current), do: nil
+  defp restore_request_attributes(request, nil), do: request
+
+  defp restore_request_attributes(request, current),
+    do: Map.merge(request, Map.take(current, [:native, :questions, :requester, :origin, :short_label]))
 
   defp evaluate_answer_replay(decision, accepted, replayed, state) do
     cond do
@@ -245,7 +300,9 @@ defmodule Aiur.DecisionStore.Answers do
   end
 
   @doc false
-  @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term())) :: :ok
+  @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term()) | nil) :: :ok
+  def schedule_ticket_comment(_decision, nil), do: :ok
+
   def schedule_ticket_comment(decision, publisher) do
     start_ticket_comment_task(decision, publisher, self())
     :ok

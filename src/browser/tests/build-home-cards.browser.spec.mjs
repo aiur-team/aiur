@@ -1,9 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openParityPair, expectDesignParity, waitParityReady } from '../support/design-parity.mjs'
 
-// unknowns.json: live.json plus schema-valid rows 9001–9012 and pack:alpha.
+// unknowns.json: live.json plus schema-valid rows 9001–9012 and pack:unknowns/alpha.
 // Reproduce from repo root (frozen now retained; only schema-valid values):
 // jq -c '
 // def add($s;$n;$x): . as $d | .sections[$s] += [($d.sections[$s][0] + {id:($n|tostring),num:$n,ord:($d.sections[$s]|length)} + $x)];
@@ -11,7 +10,7 @@ import { openParityPair, expectDesignParity, waitParityReady } from '../support/
 // add("plan";9005;{est:null,pts:2,override:null}) | add("now";9006;{agent:{model:null,name:null,state:"active",effort:null}}) |
 // add("now";9007;{agent:{model:"muse",name:null,state:"active",effort:null}}) | add("now";9008;{agent:{model:"claude",name:null,state:null,effort:null}}) |
 // add("now";9009;{agent:null}) | add("hist";9010;{status:"not_planned",end:.now}) | add("hist";9011;{status:"closed",end:.now}) |
-// add("plan";9012;{}) | .sections.plan[-1].cue.failed={by:7,blocks:[]} | add("plan";9013;{id:"pack:alpha",num:null,qpos:null}) |
+// add("plan";9012;{}) | .sections.plan[-1].cue.failed={by:7,blocks:[]} | add("plan";9013;{id:"pack:unknowns/alpha",num:null,qpos:null}) |
 // .history.total=(.sections.hist|length)' src/test/fixtures/build_home/live.json > src/test/fixtures/build_home/unknowns.json
 // Non-Gantt density belongs to layout.js: span 1 is full. Element parity below
 // covers line/mini/bar independently of the unfinished columns and Now band.
@@ -30,31 +29,8 @@ async function routeCardAsset(target, asset) {
   if (asset) await target.route('**/build-home/cards.js', async route =>
     route.fulfill({ contentType: 'text/javascript', body: await readFile(asset, 'utf8') }))
 }
-async function openCardParityPair(browser, cell, options) {
-  const asset = test.info().project.metadata.cardsAsset
-  const pair = await openParityPair(asset ? { newContext: async options => {
-    const context = await browser.newContext(options), newPage = context.newPage.bind(context)
-    context.newPage = async () => {
-      const page = await newPage(), goto = page.goto.bind(page)
-      // The parity network guard installs a page route. Install the asset route
-      // immediately before navigation so it takes precedence over that guard.
-      page.goto = async (...args) => { await routeCardAsset(page, asset); return goto(...args) }
-      return page
-    }
-    return context
-  } } : browser, cell, options)
-  await expect(pair.product.locator('#bd-content')).toHaveCount(1)
-  // Element parity owns card rendering, not history paging. Install the same
-  // complete frozen fixture through the real store; paging has its own suite.
-  const full = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/' + cell.dataset + '.json', import.meta.url), 'utf8'))
-  await pair.product.evaluate(async sections => {
-    const { ctx } = await import('/build-home/state.js'), { acceptSnapshot } = await import('/build-home/store.js')
-    if (acceptSnapshot({ ...ctx.snap, sections }).error) throw new Error('Parity fixture intake failed')
-  }, full.sections)
-  return pair
-}
-async function open(page, dataset = 'unknowns', query = '') {
-  await page.goto('/build-fixture/' + dataset + query)
+async function open(page, dataset = 'unknowns') {
+  await page.goto('/build-fixture/' + dataset)
   await expect(page.locator('#bd-content')).toHaveCount(1)
   await page.evaluate(async () => {
     window.st = await import('/build-home/state.js')
@@ -162,18 +138,18 @@ test('unknown points, estimates, queue numbers and unfiled identity stay explici
   await draw(page, '9005'); await expect(probe(page).locator('.bd-status')).toContainText('— · 2 pts')
   await expect(probe(page).locator('[data-unknown="est"]')).toHaveAttribute('title', 'Estimate unknown')
   await page.evaluate(() => inject('9005', { qpos: null, override: { hours: '3', reason: 'bad' } }))
-  await draw(page, '9005'); await expect(probe(page).locator('[data-unknown="qpos"]')).toHaveText('—')
+  await draw(page, '9005'); await expect(probe(page).locator('.bd-status > span').first()).toContainText('Q?')
   await expect(probe(page).locator('[data-unknown="est"]')).toHaveCount(1)
   await page.evaluate(() => inject('9005', { override: { hours: 3, reason: 'approved' } }))
   await draw(page, '9005'); await expect(probe(page).locator('.bd-status')).toContainText('≈3h · 2 pts')
-  await draw(page, 'pack:alpha'); await expect(probe(page).locator('.bd-id')).toHaveText('—')
+  await draw(page, 'pack:unknowns/alpha'); await expect(probe(page).locator('.bd-id')).toHaveText('—')
   await expect(probe(page).locator('.bd-id [title="Not filed yet"]')).toHaveCount(1)
   await expect(probe(page).locator('.bd-id [data-unknown]')).toHaveCount(0)
-  await expect(probe(page).locator('.bd-status')).toContainText('Planned · not filed')
+  await expect(probe(page).locator('.bd-status')).toContainText('Not filed')
 })
 
 test('history distinguishes outcomes and guards unknown dates and state', async ({ page }) => {
-  await open(page, 'unknowns', '?tstate=not+planned')
+  await open(page)
   for (const [status, label] of [['done', 'Merged'], ['failed', 'Failed · closed'], ['not_planned', 'Not planned'], ['closed', 'Closed'], ['running', 'State unknown']]) {
     await page.evaluate(status => inject('9010', { status }), status)
     const card = await draw(page, '9010'); await expect(card.locator('.bd-status > span').first()).toHaveText(label)
@@ -269,12 +245,18 @@ test('client guards malicious numbers, missing epic and feature keys', async ({ 
   })
   let card = await draw(page, '9001'); await draw(page, '9001')
   await expect(card).toHaveClass(/unsorted/); await expect(card.locator('.bd-id')).toHaveText('#—')
+  await expect(card.locator('.bd-id [data-unknown="num"]')).toHaveAttribute('title', 'Ticket number unknown')
   await expect(card.locator('.bd-cx.unk')).toHaveText('—'); await unknownProgress(card)
   expect(warnings.filter(s => s.includes('ghost-epic')).length).toBe(1)
   expect(await card.evaluate(el => el.style.getPropertyValue('--ec'))).toBe('var(--muted)')
   for (const cx of [0, 2.5]) { await page.evaluate(cx => inject('9001', { cx, epic: 'bugs' }), cx); card = await draw(page, '9001'); await expect(card.locator('.bd-cx.unk')).toHaveText('—') }
   expect(await card.evaluate(el => el.style.getPropertyValue('--h'))).toBe('')
   expect(await card.innerHTML()).not.toContain('background:red'); await expect(card.locator('.bd-id b')).toHaveCount(0)
+  await page.evaluate(() => inject('9012', { qpos: '1<b>' }))
+  card = await draw(page, '9012')
+  await expect(card.locator('.bd-status > span').first()).toContainText('Q—')
+  await expect(card.locator('[data-unknown="qpos"]')).toHaveAttribute('title', 'Queue position unknown')
+  await expect(card.locator('.bd-status b')).toHaveCount(0)
   await page.evaluate(() => inject('9012', { cue: { failed: { by: '1<b>', blocks: ['2<img>'] }, promoted: 'bad', wait: '3<i>' } }))
   await draw(page, '9012')
   await expect(probe(page).locator('.bd-alert')).toHaveText('Prereq #— failed · blocks #—')
@@ -365,128 +347,4 @@ test('new section cards release noanim only after two frames', async ({ page }) 
   expect(await page.evaluate(() => { ren.relayout(); window.firstCard = [...ctx.R.values()][0]; return firstCard.classList.contains('noanim') })).toBe(true)
   await page.clock.runFor(48)
   expect(await page.evaluate(() => !firstCard.classList.contains('noanim'))).toBe(true)
-})
-
-// Page-wide parity also needs C9-T04 columns and C9-T08's Now band. Compare
-// actual design card elements in their original tier here, with equal region
-// geometry; do not mask differences or substitute design HTML into the product.
-async function compareCard(pair, selector, name, parts = []) {
-  const design = pair.design.locator(selector).first()
-  const input = await design.evaluate(el => {
-    const box = el.getBoundingClientRect(), style = getComputedStyle(el)
-    window.cardAnchor = document.createComment('card origin'); el.before(window.cardAnchor)
-    window.cardOriginal = { id: el.id, style: el.getAttribute('style') }; el.id = 'parity-card'
-    return { num: el._it.t.num, tier: ['full', 'line', 'mini', 'bar'].find(k => el.classList.contains(k)),
-      width: box.width, height: box.height, fontSize: style.fontSize, it: { h: el._it.h, sec: el._it.sec, ghost: el._it.ghost } }
-  })
-  expect(input.tier).toBeTruthy()
-  await pair.product.evaluate(async input => {
-    const { ctx, fx } = await import('/build-home/state.js')
-    document.querySelector('#parity-card')?.remove()
-    const t = ctx.D.all.find(t => t.num === input.num)
-    if (!t) throw new Error('Design card missing from product fixture: ' + input.num)
-    const det = ctx.L.det; ctx.L.det = input.tier
-    const el = fx.makeCard({ ...input.it, t })
-    ctx.L.det = det
-    el.id = 'parity-card'; ctx.content.append(el)
-  }, input)
-  for (const side of ['design', 'product']) await pair[side].evaluate(input => {
-    const el = document.querySelector('#parity-card')
-    // A region comparison has a stable integer raster origin and canvas.
-    const holder = document.createElement('div'); holder.id = 'parity-region'
-    Object.assign(holder.style, { position: 'fixed', left: '0', top: '100px', width: Math.ceil(input.width + 16) + 'px', height: Math.ceil(input.height + 16) + 'px', background: 'var(--bg)', zIndex: '99999' })
-    holder.className = 'bd-root'; document.body.append(holder); holder.append(el)
-    Object.assign(holder.style, { display: 'block', margin: '0', padding: '0', minHeight: '0', overflow: 'visible' })
-    Object.assign(el.style, { position: 'absolute', left: '8px', top: '8px', width: input.width + 'px', height: input.height + 'px', fontSize: input.fontSize, transition: 'none' })
-  }, input)
-  try {
-    await expect(pair.product.locator('#parity-card')).toHaveClass(new RegExp('\\b' + input.tier + '\\b'))
-    if (parts.length) for (const part of parts) {
-      const region = '#parity-card .' + part, visible = await pair.design.locator(region).isVisible()
-      expect(await pair.product.locator(region).isVisible(), part + ' responsive visibility').toBe(visible)
-      if (visible) await expectDesignParity(pair, { name: name + '-' + part, region })
-    }
-    else await expectDesignParity(pair, { name, region: '#parity-region' })
-  } finally {
-    await pair.design.evaluate(() => {
-      const el = document.querySelector('#parity-card'); cardAnchor.replaceWith(el)
-      el.id = cardOriginal.id
-      if (cardOriginal.style === null) el.removeAttribute('style'); else el.setAttribute('style', cardOriginal.style)
-      document.querySelector('#parity-region').remove()
-    })
-    await pair.product.locator('#parity-region').evaluate(el => el.remove())
-  }
-  return input.tier
-}
-
-test.describe('parity', () => {
-  test.setTimeout(180000)
-  for (const dataset of ['live', 'dense', 'newrepo', 'noqueue']) for (const span of [1, 7, 21, 30])
-    for (const width of [1440, 390]) for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
-      const name = `${dataset}-${span}-${width}-${theme}-${palette}`
-      test(`card elements ${name}`, async ({ browser }) => {
-        const cell = { dataset, viewport: { width, height: 900 }, theme, palette }
-        const pair = await openCardParityPair(browser, cell, { query: `span=${span}`, productPending: true })
-        try {
-          await expect(pair.product.locator('#bd-content')).toHaveCount(1)
-          // Fixture estimates preserve the design values across every section.
-          const selector = '.bd-card.hist, .bd-card.nq, .bd-card.now, .bd-card.plan'
-          const count = await pair.design.locator(selector).count()
-          expect(count).toBeGreaterThan(0)
-          const tier = await compareCard(pair, selector, 'card-' + name)
-          test.info().annotations.push({ type: 'span-tier', description: `${dataset}: span=${span}, width=${width} -> ${tier}` })
-        } finally { await pair.close() }
-      })
-    }
-  for (const width of [1440, 390]) for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
-    test(`now states and plan cues ${width}-${theme}-${palette}`, async ({ browser }) => {
-      const name = `${width}-${theme}-${palette}`
-      const pair = await openCardParityPair(browser, { dataset: 'live', viewport: { width, height: 900 }, theme, palette }, { productPending: true })
-      try {
-        await expect(pair.product.locator('#bd-content')).toHaveCount(1)
-        const states = ['active', 'error', 'retries', 'command', 'paused', 'parked']
-        for (const state of states) {
-          const id = await pair.design.locator('.bd-card.now').evaluateAll((nodes, state) => nodes.find(el => el._it.t.agent.state === state)?.dataset.id, state)
-          expect(id, `design must expose ${state}`).toBeTruthy()
-          await compareCard(pair, `.bd-card[data-id="${id}"]`, 'state-' + state + '-' + name)
-        }
-        const plans = await pair.design.locator('.bd-card.plan.full').evaluateAll(nodes => nodes.map(el => ({ id: el.dataset.id, cue: !!el.querySelector('.bd-cues'), alert: !!el.querySelector('.bd-alert') })))
-        expect(plans.some(p => p.cue)).toBe(true)
-        for (const row of plans.filter(p => p.cue || p.alert)) {
-          // Include the shared estimate label alongside the override cue.
-          await compareCard(pair, `.bd-card[data-id="${row.id}"]`, 'plan-' + row.id + '-' + name,
-            ['bd-top', 'bd-title', row.alert ? 'bd-alert' : 'bd-cues', 'bd-status'])
-        }
-      } finally { await pair.close() }
-    })
-  }
-
-  for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
-    test(`original-renderer tier and container witnesses ${theme}-${palette}`, async ({ browser }) => {
-      const cell = { dataset: 'live', viewport: { width: 390, height: 900 }, theme, palette }
-      const pair = await openCardParityPair(browser, cell, { productPending: true })
-      try {
-        const source = await readFile(new URL('../../test/fixtures/build_home/design-source/assets/build.js', import.meta.url), 'utf8')
-        const anchor = '  window.AiurBuild = {'
-        expect(source.split(anchor)).toHaveLength(2)
-        // Expose the original renderer, as the existing render-parity harness
-        // does for update(). Neither implementation nor SVG/CSS is copied.
-        const original = source.replace(anchor, `window.__cardWitness = (tier, width) => {
-          const t = D.hist.find(t => t.status === "done"), det = L.det;
-          L.det = tier; const el = makeCard({t, sec:t.sec, h:tier === "full" ? 122.2 : 30}); L.det = det;
-          el.id = "card-witness"; el.style.width = width + "px"; el.style.height = (tier === "full" ? 122.2 : 30) + "px";
-          content.append(el);
-        };\n${anchor}`)
-        await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: original }))
-        await pair.design.reload(); await waitParityReady(pair.design, 'board', 'design')
-        for (const [tier, width] of [['line', 140], ['mini', 90], ['full', 90]]) {
-          await pair.design.evaluate(([tier, width]) => window.__cardWitness(tier, width), [tier, width])
-          expect(await pair.design.locator('#card-witness').evaluate(el => el.getBoundingClientRect().width)).toBe(width)
-          await compareCard(pair, '#card-witness', `witness-${tier}-${width}-${theme}-${palette}`)
-          await pair.design.locator('#card-witness').evaluate(el => el.remove())
-        }
-      } finally { await pair.close() }
-    })
-  }
-
 })

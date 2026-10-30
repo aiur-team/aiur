@@ -23,26 +23,9 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
              :streamdeck
            ]
 
-    units = RouteRegistry.current_route(:index)
     assert RouteRegistry.route(:units, analytics) == :error
     assert RouteRegistry.route(:build_order, analytics) == :error
-
-    assert units == %{
-             id: :units,
-             label: "Units",
-             icon: "◫",
-             description: "",
-             path: "/units",
-             type: :live,
-             owner: :dashboard,
-             availability: :available,
-             active_actions: [:index]
-           }
-
-    assert RouteRegistry.live?(units)
-    assert RouteRegistry.available?(units)
-    assert RouteRegistry.active?(units, :index)
-    refute RouteRegistry.active?(units, :decisions)
+    assert RouteRegistry.current_route(:index).id == :build
 
     assert {:ok, analytics_route} = RouteRegistry.route(:analytics, analytics)
     assert RouteRegistry.live?(analytics_route)
@@ -62,6 +45,14 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert route.description == "Live run utilization."
   end
 
+  test "registers the shared instance roster route" do
+    assert {:ok, route} = RouteRegistry.route(:instances, %{})
+    assert route.path == "/instances"
+    assert route.owner == :instances
+    refute route in RouteRegistry.routes(%{})
+    assert RouteRegistry.current_route(:instances) == route
+  end
+
   test "keeps direct Decision URLs inside the Commands route" do
     assert {:ok, %{path: "/commands"}} = RouteRegistry.route(:commands, %{})
     assert %{id: :commands} = RouteRegistry.current_route(:decisions)
@@ -75,7 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     {:ok, commands} = RouteRegistry.route(:commands, analytics)
     {:ok, analytics_route} = RouteRegistry.route(:analytics, analytics)
 
-    assert RouteRegistry.navigation_mode(units, commands) == :patch
+    assert RouteRegistry.navigation_mode(units, commands) == :navigate
     assert RouteRegistry.navigation_mode(analytics_route, analytics_route) == :patch
     assert RouteRegistry.navigation_mode(units, analytics_route) == :navigate
     assert RouteRegistry.navigation_mode(analytics_route, units) == :navigate
@@ -92,7 +83,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert route.active_actions == [:experiments, :experiment]
     assert RouteRegistry.current_route(:experiments).id == :experiments
     assert RouteRegistry.current_route(:experiment).id == :experiments
-    assert RouteRegistry.current_route(:index).id == :units
+    assert RouteRegistry.current_route(:index).id == :build
     assert RouteRegistry.navigation_mode(RouteRegistry.current_route(:analytics), route) == :navigate
     assert RouteRegistry.navigation_mode(route, route) == :patch
   end

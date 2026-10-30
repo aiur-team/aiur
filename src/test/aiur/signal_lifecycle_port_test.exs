@@ -1,9 +1,8 @@
 defmodule Aiur.SignalLifecyclePortTest do
   use Aiur.TestSupport
 
-  import ExUnit.CaptureLog
-
   alias Aiur.Signal
+  alias Aiur.TestSupport.Isolation
 
   defmodule Sink do
     def enabled?(opts) do
@@ -71,16 +70,18 @@ defmodule Aiur.SignalLifecyclePortTest do
     for config <- [:absent, [], [lifecycle_sink: nil]] do
       if config == :absent, do: Application.delete_env(:aiur, :signal), else: Application.put_env(:aiur, :signal, config)
 
-      assert capture_log(fn ->
-               assert false == Signal.lifecycle_enabled?()
-               assert false == Signal.lifecycle_enabled?(recorder: fn _, _, _ -> flunk("no sink") end)
-               assert :skip = Signal.decode_codex_operation(%{})
-               assert :skip = Signal.decode_claude_operation(%{})
-               assert :skip = Signal.external_anchor(%{})
-               assert :ok = Signal.terminal_capture(%{}, :cancelled)
-               assert :ok = Signal.lifecycle("42", nil, :dispatch, :point)
-               assert :ok = Signal.backend_message("42", nil, "codex", %{})
-             end) == ""
+      # Only this process's logs: capture_log/1 also sees unrelated app processes (#7250).
+      assert {"", :ok} =
+               Isolation.capture_owned_log!([self()], fn ->
+                 assert false == Signal.lifecycle_enabled?()
+                 assert false == Signal.lifecycle_enabled?(recorder: fn _, _, _ -> flunk("no sink") end)
+                 assert :skip = Signal.decode_codex_operation(%{})
+                 assert :skip = Signal.decode_claude_operation(%{})
+                 assert :skip = Signal.external_anchor(%{})
+                 assert :ok = Signal.terminal_capture(%{}, :cancelled)
+                 assert :ok = Signal.lifecycle("42", nil, :dispatch, :point)
+                 assert :ok = Signal.backend_message("42", nil, "codex", %{})
+               end)
     end
   end
 

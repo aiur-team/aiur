@@ -20,9 +20,11 @@ defmodule Aiur.BuildOrder.ComponentTest do
     recording?: true,
     executor_mode?: false,
     ls_remote_ticker?: true,
-    build_index?: true
+    build_index?: true,
+    repository_services?: true
   ]
 
+  # Conversation journals now precede producers, with the resolver bound immediately after Exchange.
   # Future regression guard: captured before extraction at d7fad40553019032df0a50354e1a9b559dd7540b, including options.
   @foreground [
     Aiur.Webhooks.ModeTable,
@@ -46,6 +48,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Registry, [keys: :unique, name: Aiur.Workspace.Ownership.Registry]},
     Aiur.Workspace.Ownership.Reconciler,
     {Task.Supervisor, [name: Aiur.TaskSupervisor]},
+    AiurWeb.Streamdeck.Deck.SettingsSnapshot,
     Aiur.AlertFeed.Backfill,
     Aiur.CoordinationTasks,
     Aiur.DecisionDispatchTasks,
@@ -66,7 +69,11 @@ defmodule Aiur.BuildOrder.ComponentTest do
        floor_files: &Aiur.IdFloorSources.floor_files/0,
        legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0
      ]},
+    Aiur.Conversation.HeadTable,
+    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     {Aiur.Events.Exchange, [name: Aiur.Events.Exchange]},
+    Aiur.Conversation.ResolverSupervisor,
     Aiur.PostDeployChecklist,
     Aiur.Events.BranchRefStore,
     Aiur.GitHub.OpenIssueSnapshot,
@@ -125,6 +132,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
+    Aiur.Commands.Routing,
     Aiur.DecisionExpiry,
     Aiur.CurrentRunMembership.Reconciler,
     {Aiur.CurrentRunProjections, [idle_without_subscribers?: true]},
@@ -172,8 +180,10 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.AnalystTrigger,
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    Aiur.BuildOrder.TicketTimelineCache,
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
+    Aiur.Netlify.Usage,
     AiurWeb.DashboardAuth.ChallengeStore,
     AiurWeb.DashboardAuthRateLimit.Store,
     Aiur.BuildOrder.Estimates,
@@ -196,15 +206,24 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    assert Aiur.Application.child_specs(@opts) == @foreground
+    {early, final} = Enum.split_while(@foreground, &(&1 != AiurWeb.DashboardAuth.ChallengeStore))
+    assert {:ok, voice_config} = Aiur.VoiceConversation.config()
+
+    expected =
+      early ++
+        [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
+        final ++ [Aiur.BuildOrder.History.LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest]
+
+    assert Aiur.Application.child_specs(@opts) == expected
 
     without_dashboard =
-      @foreground
+      expected
       |> Enum.reject(
         &(&1 in [
             AiurWeb.ControlCenterCache,
             Aiur.RunTelemetry.RetainedCache,
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+            Aiur.BuildOrder.TicketTimelineCache,
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.DashboardAuth.ChallengeStore,
             AiurWeb.DashboardAuthRateLimit.Store,

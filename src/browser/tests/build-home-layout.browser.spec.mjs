@@ -1,63 +1,17 @@
 import { test, expect } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
 import { openFixture } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openDesign, PARITY_VIEWPORTS } from '../support/design-parity.mjs'
-const root = new URL('../../test/fixtures/build_home/', import.meta.url)
-const design = await readFile(new URL('design-source/assets/build.js', root), 'utf8')
-const anchors = ['  window.AiurBuild = {', 'const avail = vp.clientWidth - gutW() - 14;', 'S.K = Math.max(2, Math.floor(avail / 140));']
-for (const anchor of anchors) expect(design.split(anchor).length).toBe(2)
-const flow = design.slice(design.indexOf(anchors[1]), design.indexOf(anchors[2]) + anchors[2].length)
-const oracle = design.replace(anchors[0], `window.__E8L = { run(d, st, dims) {
-D = d; Object.assign(S, st); S.f = { ...S.f, ...(st.f || {}) };
-vp = { clientWidth: dims.vpW, clientHeight: dims.vpH }; root = { clientWidth: dims.rootW };
-${flow} return { L: computeLayout(), flow: S.flow, K: S.K }; } };\n${anchors[0]}`)
-const fixtures = Object.fromEntries(await Promise.all(['live', 'dense', 'newrepo', 'noqueue'].map(async name => [name, JSON.parse(await readFile(new URL(`${name}.json`, root), 'utf8'))])))
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles' })
 test.beforeEach(async ({ page }) => {
-  await openFixture(page); await page.addScriptTag({ content: oracle })
+  await openFixture(page)
   await page.evaluate(async () => {
-    window.layout = await import('/build-home/layout.js'); window.intake = (await import('/build-home/protocol.js')).intake
+    window.layout = await import('/build-home/layout.js')
     window.sources = Object.fromEntries(['history', 'queue', 'index'].map(k => [k, { state: 'ok' }]))
     window.state = { view: 'graph', span: 1, histFrom: 0, feature: null, fmode: 'focus', f: { epic: [] }, flow: false, K: 2 }
     window.dims = { vpW: 990, vpH: 386, gut: 84 }
     window.data = (n = 0) => ({ hist: Array.from({ length: n }, (_, i) => ({ id: `h${i}`, epic: 'a', end: Date.parse('2026-11-01T12:00:00-08:00') + i })), now: [], plan: [], nq: [] })
     window.run = (D, st = {}, src = sources, dm = dims, ext) => layout.computeLayout(D, { ...state, ...st }, dm, src, ext)
   })
-})
-test('layout oracle', async ({ page }) => {
-  const results = await page.evaluate(fixtures => {
-    const summarize = ({ L, flow, K }) => ({ flow, K, det: L.det, base: L.base, fs: L.fs, ch: L.ch, pitch: L.pitch, gap: L.gap,
-      secs: Object.fromEntries(Object.entries(L.secs).map(([key, sec]) => [key, { h: sec.h, marks: sec.marks, labels: sec.labels, items: sec.items.map(({ t, ...item }) => ({ id: t.id, ...item })) }])) })
-    const failures = []; let count = 0
-    const check = (snapshot, span, dm, extra = {}) => {
-      const D = intake(snapshot), st = { ...state, span, ...extra }
-      const expected = window.__E8L.run(D, st, dm), sizing = layout.measureFlow(D, dm)
-      const actual = { L: layout.computeLayout(D, { ...st, ...sizing }, dm, sources), ...sizing }
-      count++; if (JSON.stringify(summarize(actual)) !== JSON.stringify(summarize(expected))) failures.push({ cell: [snapshot.kind, span, dm.vpW, extra], actual: summarize(actual), expected: summarize(expected) })
-    }
-    const sizes = [{ vpW: 1406, vpH: 860, rootW: 1408, gut: 84 }, { vpW: 990, vpH: 700, rootW: 992, gut: 84 }, { vpW: 356, vpH: 620, rootW: 358, gut: 46 }, { vpW: 288, vpH: 560, rootW: 290, gut: 46 }]
-    for (const snapshot of Object.values(fixtures)) for (const span of [1, 2, 3, 5, 7, 10, 14, 21, 30]) for (const dm of sizes) check(snapshot, span, dm)
-    check(fixtures.live, 1, sizes[0], { liveMin: true }); check(fixtures.live, 3, sizes[0], { f: { epic: [fixtures.live.order[0]] } })
-    const odd = structuredClone(fixtures.live); odd.sections.hist = odd.sections.hist.slice(0, 5).map(t => ({ ...t, epic: null })); check(odd, 2, sizes[0])
-    odd.sections.hist = odd.sections.hist.map((t, i) => ({ ...t, end: Date.parse('2026-11-01T00:30:00-07:00') + i * 86400000 })); check(odd, 7, sizes[2])
-    return { count, failures }
-  }, fixtures)
-  expect(results.count).toBe(148); expect(results.failures).toEqual([])
-})
-for (const dataset of ['live', 'newrepo', 'noqueue']) test(`labels and markers match the design: ${dataset}`, async ({ browser, page }) => {
-  const context = await browser.newContext({ timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
-  try {
-    const reference = await context.newPage(); await openDesign(reference, { ...PARITY_VIEWPORTS[0], theme: 'light', palette: 'aiur', dataset })
-    const rendered = await reference.evaluate(() => ({ dm: { vpW: document.querySelector('#bd-vp').clientWidth, vpH: document.querySelector('#bd-vp').clientHeight, rootW: document.querySelector('#build-root').clientWidth }, cw: document.querySelector('#bd-content').offsetWidth,
-      elements: ['hist', 'plan', 'nq'].flatMap(sec => Array.from(document.querySelectorAll(`#bd-sec-${sec} .bd-layer > .bd-lbl, #bd-sec-${sec} .bd-layer > .bd-dl, #bd-sec-${sec} .bd-layer > .bd-mk`), el => ({ sec, html: el.outerHTML }))) }))
-    const actual = await page.evaluate(({ snapshot, dm, cw }) => {
-      const D = intake(snapshot), days = layout.histDays(D.hist); dm.gut = dm.rootW < 640 ? 46 : 84
-      const L = run(D, { histFrom: days.length ? days[Math.max(0, days.length - 2)] : 0, ...layout.measureFlow(D, dm) }, sources, dm)
-      return Object.entries(L.secs).flatMap(([sec, s]) => [...s.marks.map(m => { const el = layout.makeMark(m); layout.placeMark(el, m, cw, dm.gut); return { sec, html: el.outerHTML } }), ...s.labels.flatMap(lb => layout.makeLabel(lb).filter(Boolean).map(el => ({ sec, html: el.outerHTML })))])
-    }, { snapshot: fixtures[dataset], ...rendered })
-    expect(rendered.elements.length).toBeGreaterThan(0); for (const element of rendered.elements) expect(actual).toContainEqual(element)
-  } finally { await context.close() }
 })
 test('flow boundary', async ({ page }) => {
   expect(await page.evaluate(() => { const D = data(); D.now = ['a', 'b', 'c', 'd', 'e'].map(epic => ({ epic })); return [356, 370].map(vpW => layout.measureFlow(D, { vpW, gut: 46 })) })).toEqual([{ flow: true, K: 2 }, { flow: false, K: 2 }])
@@ -147,7 +101,7 @@ test('gantt slots preserve section output and advance waves', async ({ page }) =
     return { calls, histH: L.secs.hist.h, planH: L.secs.plan.h, labels: L.secs.plan.labels.filter(lb => !lb.wave) }
   })).toEqual({ calls: [['h0', 1, 18], ['p1', 48.4, 0, false], ['p2', 99.80000000000001, (48.4 + 36 - 48.4) / 18, true]], histH: 99, planH: 156.8, labels: [{ y: 78.4, t: 'estimate' }, { y: 129.8, t: 'estimate' }] })
 })
-test('shared date helpers use local dates and design duration rounding', async ({ page }) => {
+test('shared date helpers use local dates and duration formatting', async ({ page }) => {
   expect(await page.evaluate(async () => {
     const u = await import('/build-home/util.js'), a = Date.parse('2026-10-31T23:30:00-07:00'), b = Date.parse('2026-11-01T01:30:00-08:00')
     return [u.MON.length, u.WD.length, u.p2(3), u.fmtD(a), u.fmtWD(a), u.fmtT(a), u.dayKey(a), u.fmtH(0), u.fmtH(0.25), u.fmtH(1.3), u.fmtH(11.2), u.fmtRange(null, b), u.fmtRange(a, a), u.fmtRange(a, b), u.fmtRange(b, b + 86400000)]

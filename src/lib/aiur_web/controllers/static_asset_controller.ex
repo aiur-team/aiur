@@ -14,11 +14,11 @@ defmodule AiurWeb.StaticAssetController do
   @spec ticket_context_dialog_hook(Conn.t(), map()) :: Conn.t()
   def ticket_context_dialog_hook(conn, _params), do: serve(conn, "/ticket-context-dialog-hook.js", revalidate?: true)
 
-  @spec build_order_grid_hook(Conn.t(), map()) :: Conn.t()
-  def build_order_grid_hook(conn, _params), do: serve(conn, "/build-order-grid-hook.js", revalidate?: true)
-
   @spec time_brush_hook(Conn.t(), map()) :: Conn.t()
   def time_brush_hook(conn, _params), do: serve(conn, "/time-brush-hook.js", revalidate?: true)
+
+  @spec decision_questions_validation(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def decision_questions_validation(conn, _params), do: serve(conn, "/decision-questions-validation.js", revalidate?: true)
 
   @spec sortable_table_hook(Conn.t(), map()) :: Conn.t()
   def sortable_table_hook(conn, _params), do: serve(conn, "/sortable-table-hook.js", revalidate?: true)
@@ -39,7 +39,7 @@ defmodule AiurWeb.StaticAssetController do
   def dom_svg_layout_loader(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-loader.js", revalidate?: true)
 
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
-  def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
+  def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png", charset: nil)
 
   @spec github_mark(Conn.t(), map()) :: Conn.t()
   def github_mark(conn, _params), do: serve(conn, "/images/github-mark.svg", revalidate?: true)
@@ -69,7 +69,7 @@ defmodule AiurWeb.StaticAssetController do
     case StaticAssets.fetch(path) do
       {:ok, content_type, body} ->
         conn
-        |> put_resp_content_type(content_type)
+        |> put_resp_content_type(content_type, Keyword.get(options, :charset, "utf-8"))
         |> put_resp_header("cache-control", cache_control(options))
         |> send_resp(200, body)
 

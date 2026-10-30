@@ -2,6 +2,7 @@
 python3 scripts/check-pr-body.py --pr-json <PR_JSON> --base <BASE_SHA>
 python3 scripts/check-agent-scratch.py --base <BASE_SHA>
 python3 scripts/check-on-exit-rm-rf.py
+python3 scripts/check-on-exit-alive-stop.py
 python3 scripts/check-bare-assert-receive.py
 node scripts/check-browser-smoke-shards.mjs
 python3 scripts/check-hot-list-format.py

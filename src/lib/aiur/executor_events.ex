@@ -75,6 +75,10 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
+  @doc false
+  @spec requested_payload(Decision.t()) :: map()
+  defdelegate requested_payload(decision), to: Requested, as: :payload
+
   @spec subscribe(String.t()) :: :ok | {:error, term()}
   def subscribe(topic) when is_binary(topic) do
     with :ok <- validate_binding_topic(topic) do
@@ -205,9 +209,11 @@ defmodule Aiur.ExecutorEvents do
   # Executor session, run the Sanitizer's instruction-carrier strip pass over
   # those fields and name them in a top-level "untrusted_fields" key so the
   # consumer treats them as data, not instructions.
-  @command_topics ~w(executor.decision.requested executor.decision.deferred)
+  @command_topics ~w(executor.decision.requested executor.decision.deferred executor.decision.answered)
   @untrusted_command_fields ~w(title options context recommendation consequence_of_delay)
   @untrusted_command_field_keys [
+    :data,
+    "data",
     :title,
     :options,
     :context,
@@ -228,7 +234,7 @@ defmodule Aiur.ExecutorEvents do
     if topic in @command_topics do
       event
       |> scrub_command_fields()
-      |> Map.put("untrusted_fields", @untrusted_command_fields)
+      |> Map.put("untrusted_fields", if(topic == "executor.decision.answered", do: @untrusted_command_fields ++ ["data"], else: @untrusted_command_fields))
     else
       event
     end
@@ -296,9 +302,13 @@ defmodule Aiur.ExecutorEvents do
   end
 
   @doc false
+  @spec journaled_topic?(String.t()) :: boolean()
+  def journaled_topic?(topic), do: topic == "system.newsletter.ready" or String.starts_with?(topic, "executor.")
+
+  @doc false
   @spec validate_publish_topic(String.t()) :: :ok | {:error, :invalid_topic}
   def validate_publish_topic(topic) do
-    with :ok <- validate_syntax(topic), true <- String.starts_with?(topic, "executor.") do
+    with :ok <- validate_syntax(topic), true <- journaled_topic?(topic) do
       :ok
     else
       false -> {:error, :invalid_topic}

@@ -110,6 +110,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
     # Work that Aiur saved before it recreated this workspace (#2743) is
     # announced at the top of the next turn, with the restore commands.
     # The notice stays pending until a turn that carried it completes.
+    opts = Aiur.Commands.prepare_override_prompt(issue.identifier, opts)
+    turn_context = %{turn_context | opts: opts}
     {prompt, wip_notices} = Handoff.turn_prompt(turn_context)
 
     # The prompt is a no-op witness: two consecutive
@@ -166,6 +168,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
           handoff_orchestrator: orchestrator,
           on_message: message_handler,
           on_safe_checkpoint: callbacks.on_safe_checkpoint,
+          on_native_reply: callbacks.on_native_reply,
+          on_steer_claim: callbacks.on_steer_claim,
           on_operator_message: callbacks.on_operator_message,
           on_operator_response: callbacks.on_operator_response,
           tool_executor:

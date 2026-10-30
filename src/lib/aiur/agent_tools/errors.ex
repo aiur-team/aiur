@@ -3,10 +3,12 @@ defmodule Aiur.AgentTools.Errors do
   Error payload catalog for dynamic tool failures.
   """
 
-  alias Aiur.AgentTools.AgentLifecycleErrors
+  alias Aiur.AgentTools.{AgentLifecycleErrors, HistoryExportErrors}
   alias Aiur.AgentTools.Response
 
   @spec payload(term()) :: map()
+  def payload({:history_export, reason}), do: HistoryExportErrors.payload(reason)
+
   def payload(:invalid_epic_arguments),
     do: %{
       "error" => %{
@@ -459,6 +461,7 @@ defmodule Aiur.AgentTools.Errors do
              :stale_pr_body_evidence,
              :rework_findings_unaddressed,
              :pull_request_conflicting,
+             :override_handoff_unconfirmed,
              :status_note_invalid
            ] and is_binary(message) do
     %{"error" => %{"message" => message, "reason" => Atom.to_string(reason)}}

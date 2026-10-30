@@ -10,15 +10,15 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlCapabilitiesProfilesTest do
   @states [:working_active, :working_idle, :sleeping, :paused, :self_paused, :self_paused_pending, :working_pending]
   @fixture Path.expand("../../../fixtures/harness_frames/control_capabilities_profiles.exs", __DIR__)
 
-  # Future regression guard: frozen on the merge base, before harness_delivery existed.
-  test "issue_control_capabilities is byte-identical for every C1 matrix profile" do
+  # Listener defaults add checkpoint support to REPL; other control fields stay unchanged.
+  test "control fields match every C1 matrix profile with listener defaults" do
     {expected, _} = Code.eval_file(@fixture)
 
     actual =
       for harness <- @harnesses, entry_state <- @states, into: %{} do
         row = %{harness: harness, entry_state: entry_state}
         state = state_for(row, "42")
-        {{harness, entry_state}, Capabilities.issue_control_capabilities(state, "42")}
+        {{harness, entry_state}, Capabilities.issue_control_capabilities(state, "42") |> Map.delete(:listener)}
       end
 
     assert actual == expected

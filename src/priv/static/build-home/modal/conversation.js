@@ -6,6 +6,7 @@ import { MS, registerBody, bodyRenderer, onModalClose } from './frame.js';
 import { itemEl } from './conversation-items.js';
 import { footer, notRetainedCue } from './conversation-footer.js';
 import { timed } from '../perf.js';
+import { teardownComposer } from './composer.js';
 export const prependEntries = timed('convPage', prependEntriesImpl);
 export { itemEl, notRetainedCue };
 export const MAX_DOM = 500;
@@ -33,8 +34,7 @@ export function appendEntries(entries) {
   for (const entry of entries) {
     const el = itemEl(entry, ref.model); if (!el) continue;
     const existing = find(entry.id) || (entry.k === 'op' ? fx.claimLocalOp(entry) : null);
-    if (existing) existing.replaceWith(el); else log.append(el);
-    added.push(el);
+    if (existing) existing.replaceWith(el); else { log.append(el); added.push(el); }
   }
   if (rows().length > MAX_DOM) trim('top');
   if (rows().length) log.querySelector('[data-empty]')?.remove();
@@ -62,10 +62,12 @@ function state(msg) {
     const row = document.createElement('div'); row.className = 'cv-end'; row.dataset.empty = ''; row.textContent = 'No messages yet'; log.append(row);
   } else if (msg.state !== 'known_empty') log.querySelector('[data-empty]')?.remove();
   fx.composerState(open.msg);
+  fx.conversationApplied({ ...open.msg, kind: 'conversation-state' });
 }
 export function renderConversation(msg, t = open?.ticket, model = open?.model) {
   if (!open || !t) return;
-  const body = $('#tk-body'); open.renderOff?.();
+  const body = $('#tk-body'); open.renderOff?.(); fx.disposeLive();
+  teardownComposer();
   if (msg.state === 'not_retained') {
     const doc = bodyRenderer('doc');
     if (doc) doc(t, body, { note: 'Conversation not retained' }); else body.innerHTML = notRetainedCue();
@@ -85,7 +87,7 @@ export function renderConversation(msg, t = open?.ticket, model = open?.model) {
     if (current(ref) && $('#cv-log').scrollTop <= 120 && ref.more && !ref.pending && !ref.failed) older();
   }, { passive: true });
   ref.life.frame('conversation-bottom', () => { if (current(ref) && $('#cv-log')) $('#cv-log').scrollTop = $('#cv-log').scrollHeight; });
-  fx.wireLive(t, model); fx.placeCommand();
+  fx.conversationApplied(msg); fx.placeCommand();
 }
 async function request(ref, before) {
   const serial = ++ref.serial;
@@ -108,7 +110,7 @@ async function older() {
   const ref = open; if (!ref || ref.pending || !ref.more) return;
   ref.pending = true; ref.failed = false;
   const row = document.createElement('div'); row.className = 'cv-end'; row.setAttribute('role', 'status'); row.textContent = 'Loading earlier…';
-  ref.loadingRow?.remove(); ref.loadingRow = row; $('#cv-log').prepend(row);
+  ref.loadingRow?.remove(); ref.loadingRow = row; $('#cv-log').prepend(row); fx.scheduleMap();
   const reply = await request(ref, ref.before);
   if (!current(ref)) return;
   ref.pending = false;
@@ -118,13 +120,13 @@ async function older() {
   else {
     ref.failed = true; row.textContent = 'Could not load earlier entries ';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Retry';
-    ref.offs.push(ref.life.on(button, 'click', older)); row.append(button);
+    ref.offs.push(ref.life.on(button, 'click', older)); row.append(button); fx.scheduleMap();
   }
 }
 export function receiveConversation(msg) {
   if (!open || !current(open) || msg?.v !== 1 || msg.id !== open.id) return;
   if (msg.kind === 'conversation') renderConversation(msg);
-  else if (msg.kind === 'conversation-append') { fx.appendEntries(msg.entries); if (msg.entries.length) state({ entries: msg.entries }); }
+  else if (msg.kind === 'conversation-append') { (fx.appendLive ?? appendEntries)(msg.entries); if (msg.entries.length) state({ entries: msg.entries }); }
   else if (msg.kind === 'conversation-state') {
     if (msg.state === 'not_retained') renderConversation({ ...open.msg, ...msg, entries: [] }); else state(msg);
   }

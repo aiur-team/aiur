@@ -4,17 +4,37 @@
   "layer": 4,
   "kind": "in-app",
   "paths": [
+    "src/lib/aiur/control_call/audit.ex",
     "src/lib/aiur/http_server.ex",
     "src/lib/aiur/http_server/**",
     "src/lib/aiur/tailscale_funnel.ex",
+    "src/lib/aiur_web/control_body_limit.ex",
+    "src/lib/aiur_web/control_body_reader.ex",
+    "src/lib/aiur_web/control_token_auth.ex",
     "src/lib/aiur_web/controllers/*api*.ex",
+    "src/lib/aiur_web/controllers/control_controller.ex",
+    "src/lib/aiur_web/controllers/events_controller.ex",
+    "src/lib/aiur_web/controllers/events_session_controller.ex",
+    "src/lib/aiur_web/controllers/executor_hook_controller.ex",
+    "src/lib/aiur_web/controllers/executor_hook_delivery_controller.ex",
+    "src/lib/aiur_web/controllers/listen_mode_controller.ex",
     "src/lib/aiur_web/controllers/observability*.ex",
     "src/lib/aiur_web/endpoint.ex",
     "src/lib/aiur_web/endpoint_config.ex",
+    "src/lib/aiur_web/events_auth.ex",
+    "src/lib/aiur_web/events_channel.ex",
+    "src/lib/aiur_web/events_query.ex",
+    "src/lib/aiur_web/events_socket.ex",
+    "src/lib/aiur_web/executor_hook_auth.ex",
     "src/lib/aiur_web/financial_data_access.ex",
     "src/lib/aiur_web/router.ex",
     "src/lib/aiur_web/routes/api.ex",
-    "src/lib/aiur_web/supervisor_auth.ex"
+    "src/lib/aiur_web/routes/control.ex",
+    "src/lib/aiur_web/routes/events.ex",
+    "src/lib/aiur_web/sockets/events.ex",
+    "src/lib/aiur_web/sockets/voice.ex",
+    "src/lib/aiur_web/supervisor_auth.ex",
+    "src/lib/aiur_web/voice_socket.ex"
   ],
   "facades": [
     "*"
@@ -22,7 +42,9 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "config",
+    "event-bus",
     "identity",
+    "listener-modes",
     "projections",
     "signal",
     "web-kit"
@@ -33,10 +55,13 @@
     "commands",
     "conversations",
     "dashboard-ui",
+    "executor-attention",
     "experiments-page",
     "github-listeners",
+    "orchestration",
     "pairing-discovery",
     "streamdeck-server",
+    "voice-conversation",
     "voice-stt"
   ],
   "owns": {
@@ -79,5 +104,6 @@
     "AIUR_GOOGLE_CLIENT_SECRET",
     "AIUR_SECRET_KEY_BASE"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

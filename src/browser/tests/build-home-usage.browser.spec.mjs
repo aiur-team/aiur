@@ -77,6 +77,70 @@ test('API meters show remaining labels and widths while unknown stays unfilled',
   await expect(meters.nth(5).locator('.ax-seg i')).toHaveCount(0)
   await expect(meters.nth(1)).toHaveAttribute('data-tip', /2,500 of 5,000 left.*50% left/)
 })
+
+test('meter percentage labels stay inside their rows at desktop and phone widths', async ({ page }) => {
+  const u = fixture('n2')
+  u.apis[0].lines[0].acc = [57]
+  u.apis[0].lines[1].acc = [7]
+  u.apis[1].lines[0].acc = [100]
+  u.providers[0].session.acc = [8]
+  u.providers[0].weekly.acc = [8]
+
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    await paint(page, u)
+
+    for (const card of ['.api', '.mdl']) {
+      const rows = await page.locator(`${card} .ax-ln`).evaluateAll((elements) => elements.map((row) => {
+        const rowBox = row.getBoundingClientRect()
+        const cells = [...row.children].map((cell) => {
+          const box = cell.getBoundingClientRect()
+          return {
+            kind: cell.classList.contains('ax-tg') ? 'tag' : cell.classList.contains('ax-pc') ? 'percent' :
+              cell.classList.contains('ax-bar') ? 'bar' : 'reset',
+            text: cell.textContent.trim(), x: box.x, y: box.y, right: box.right, bottom: box.bottom,
+            width: box.width, scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth
+          }
+        })
+        return { text: row.innerText.replace(/\s+/g, ' ').trim(), x: rowBox.x, y: rowBox.y,
+          right: rowBox.right, bottom: rowBox.bottom, cells,
+          tip: row.getAttribute('data-tip') }
+      }))
+
+      expect(rows.length, `${card} rows should render at ${width}×${height}`).toBeGreaterThan(1)
+      for (const row of rows) {
+        expect(row.cells.every((cell) => cell.y >= row.y && cell.bottom <= row.bottom),
+          `${card} ${row.text} cells stay inside their row at ${width}×${height}`).toBe(true)
+        expect(row.cells.find((cell) => cell.kind === 'bar').width,
+          `${card} ${row.text} bar remains visible at ${width}×${height}`).toBeGreaterThan(0)
+        for (const cell of row.cells) {
+          if (cell.kind === 'tag' || cell.kind === 'percent' || cell.kind === 'reset') {
+            expect(cell.scrollWidth, `${card} ${cell.kind} text is not clipped at ${width}×${height}`)
+              .toBeLessThanOrEqual(cell.clientWidth)
+          }
+        }
+        for (let index = 1; index < row.cells.length; index++) {
+          expect(row.cells[index - 1].right, `${card} ${row.cells[index - 1].kind} and ${row.cells[index].kind} do not overlap at ${width}×${height}`)
+            .toBeLessThanOrEqual(row.cells[index].x)
+        }
+      }
+
+      if (card === '.mdl') {
+        expect(rows.some((row) => row.tip?.includes('Session')),
+          `model session details remain available in their tooltip at ${width}×${height}`).toBe(true)
+        expect(rows.some((row) => row.tip?.includes('Weekly')),
+          `model weekly details remain available in their tooltip at ${width}×${height}`).toBe(true)
+      }
+    }
+
+    await expect(page.locator('.api .ax-pc').nth(0)).toHaveText('57% left')
+    await expect(page.locator('.api .ax-pc').nth(1)).toHaveText('7% left')
+    await expect(page.locator('.api .ax-tg').nth(2)).toHaveText('credits')
+    await expect(page.locator('.mdl .ax-pc').first()).toHaveText('8% left')
+    await expect(page.locator('.mdl .ax-pc').nth(1)).toHaveText('8% left')
+  }
+})
+
 test('unknown and ended resets, stale ages, holds and notes are truthful', async ({ page }) => {
   await paint(page, fixture('unknown'))
   await expect(page.locator('.mdl .ax-rs')).toHaveText('reset unknown')
@@ -185,6 +249,24 @@ test('hidden ticks wait for visibility and remount owns one popover', async ({ p
     state.ctx.snap={usage:{state:'authorized',apis:[],providers:[]}};usage.renderUsage()
   })
   await expect(page.locator('body > .ax-pop')).toHaveCount(1)
+})
+
+// Moved from the removed usage design-parity spec (#6061).
+test('model count classes, bd container, popover transitions and light-theme grain', async ({ page }) => {
+  await page.clock.resume()
+  await expect(page.locator('.ax-usage')).toHaveClass(/\bn4\b/)
+  for (const count of [2, 7]) {
+    expect((await page.request.get(`/build-control/usage?name=n${count}`)).status()).toBe(200)
+    await expect(page.locator('.ax-usage')).toHaveClass(new RegExp(`\\bn${count}\\b`))
+  }
+  expect(await page.locator('#build-root').evaluate(el => getComputedStyle(el).containerName)).toBe('bd')
+  await page.locator('.mdl .ax-ln').first().dispatchEvent('mouseover')
+  const transitions = await page.locator('body > .ax-pop').evaluate(el => getComputedStyle(el).transitionProperty.split(', '))
+  expect(transitions).toEqual(expect.arrayContaining(['opacity', 'transform']))
+  const grain = () => page.locator('.ax-uc').first().evaluate(el => getComputedStyle(el, '::after').display)
+  expect(await grain()).toBe('none')
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark' })
+  expect(await grain()).toBe('block')
 })
 
 test('edge state screenshots for S-50 owner sign-off', async ({ page }, info) => {

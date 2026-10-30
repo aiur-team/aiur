@@ -49,7 +49,16 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_sweep, 1, &__MODULE__.sweep_scope/1, [:keyword], %{apply: :boolean, json: :boolean}},
     {:commands, 0, :read, [], %{}},
     {:commands, 1, :read, [:keyword],
-     %{filter: {:enum, [:all, :open, :blocking, :resolved]}, blocking: :boolean, json: :boolean, limit: :positive, decision_id: :string, ticket: :string, search: :string, cursor: :string}},
+     %{
+       filter: {:enum, [:all, :open, :blocking, :resolved, :"needs-you", :"with-executor", :"from-executor"]},
+       blocking: :boolean,
+       json: :boolean,
+       limit: :positive,
+       decision_id: :string,
+       ticket: :string,
+       search: :string,
+       cursor: :string
+     }},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},
@@ -78,6 +87,8 @@ defmodule Aiur.ControlCall.Allowlist do
      }},
     {:analytics, 0, :read, [], %{}},
     {:analytics, 1, :read, [:keyword], %{range: {:enum, [:run, :full]}, since: :string, until: :string, build_order: {:regex, ~r/^\d+$/}, json: :boolean}},
+    {:history_label_writes, 1, &__MODULE__.history_label_scope/1, [:keyword],
+     %{action: {:enum, [:plan, :start, :pause, :resume, :status]}, expect: :non_negative, per_hour: :non_negative, epic_labels: :boolean, json: :boolean}},
     {:github_cost, 0, :read, [], %{}},
     {:github_cost, 1, :read, [:keyword], %{budget: {:enum, ["graphql", "core", "all"]}, format: {:enum, [:auto, :table, :records]}, json: :boolean}},
     {:experiments, 0, &__MODULE__.experiment_scope/1, [],
@@ -99,8 +110,24 @@ defmodule Aiur.ControlCall.Allowlist do
        quote: :non_empty_string,
        relayed_by: :non_empty_string,
        idempotency_key: :non_empty_string,
+       auto_current: :boolean,
        supersede: :boolean
      }},
+    {:command_request, 1, :write, [:keyword],
+     %{
+       question: :non_empty_string,
+       options: :string_list,
+       recommend: :non_empty_string,
+       blocking: :boolean,
+       urgency: {:enum, ["low", "normal", "high", "critical"]},
+       ticket: :non_empty_string,
+       long_context_markdown: :string,
+       short_summary: :string,
+       executor_id: :non_empty_string,
+       idempotency_key: :non_empty_string,
+       json: :boolean
+     }},
+    {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
@@ -131,6 +158,9 @@ defmodule Aiur.ControlCall.Allowlist do
        env: :executor_env
      }},
     {:executor_wait, 0, :write, [], %{}},
+    {:executor_attach, 1, :deny, [:keyword], %{harness: {:enum, ["claude", "codex"]}, takeover?: :boolean, print_config: :boolean, repo_root: :non_empty_string}},
+    {:executor_detach, 1, :deny, [:keyword], %{repo_root: :non_empty_string}},
+    {:executor_session, 1, :read, [:keyword], %{json: :boolean}},
     {:executor_roster, 0, :read, [], %{}},
     {:executor_roster, 1, :read, [:keyword], %{json: :boolean}},
     {:executor_fast_forward, 1, :write, [:positive], %{}},
@@ -183,12 +213,15 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @test_rows (if Mix.env() == :test do
                 test_probe = [:Aiur, :ControlCallTestProbe]
+                controller_probe = [:Aiur, :ControlControllerTestProbe]
 
                 [
                   {{test_probe, :actor, 0}, %{class: :read, positional: [], options: %{}}},
                   {{test_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
                   {{test_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
-                  {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}}
+                  {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}},
+                  {{controller_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
+                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
                 ]
               else
                 []
@@ -196,6 +229,7 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @rows Enum.map(@agent_rows, fn {function, arity, class, positional, options} -> {{@agent, function, arity}, %{class: class, positional: positional, options: options}} end) ++
           [
+            {{[:Aiur, :ListenModeCli], :run, 2}, %{class: &__MODULE__.listen_mode_scope/1, positional: [:non_empty_string, :string_list], options: %{}}},
             {{@handoff, :report, 0}, %{class: :read, positional: [], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :report, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
@@ -209,6 +243,15 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@pr_merge, :publish, 1}, %{class: :deny, positional: [:string], options: %{}}}
           ] ++ @test_rows
   @table Map.new(@rows)
+  @spec history_label_scope(list()) :: :read | :write | :deny
+  def history_label_scope([opts]) do
+    case Keyword.get(opts, :action, :status) do
+      action when action in [:plan, :status] -> :read
+      :pause -> :write
+      _ -> :deny
+    end
+  end
+
   @spec fetch([atom()], atom(), non_neg_integer()) :: {:ok, map()} | :error
   def fetch(segments, function, arity), do: Map.fetch(@table, {segments, function, arity})
 
@@ -217,6 +260,9 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @spec facade_functions() :: [{atom(), non_neg_integer()}]
   def facade_functions, do: Facade.functions()
+
+  @spec listen_mode_scope(list()) :: :read | :write
+  def listen_mode_scope([_ticket, argv]), do: if(argv in [[], ["--json"]], do: :read, else: :write)
 
   @spec watch_scope(list()) :: :read | :write
   def watch_scope(args), do: if(option(args, :mode) == :full, do: :read, else: :write)

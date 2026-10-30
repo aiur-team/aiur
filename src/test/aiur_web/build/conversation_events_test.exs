@@ -7,7 +7,7 @@ defmodule AiurWeb.Build.ConversationEventsTest do
   alias AiurWeb.Build.ConversationEvents, as: Events
 
   @ts "2026-10-07T21:13:20.000000Z"
-  @at 1_791_407_600_000
+  @at @ts |> DateTime.from_iso8601() |> elem(1) |> DateTime.to_unix(:millisecond)
   @repo "aiur-team/aiur"
 
   defp line(id, suffix, summary \\ "", opts \\ []),
@@ -105,6 +105,31 @@ defmodule AiurWeb.Build.ConversationEventsTest do
     test "E11 a merge of another repository with the same ticket id is ignored" do
       merge = %{ticket_id: "12", repository: "other/repo", number: 8, merged_at: ~U[2026-10-07 21:13:20Z]}
       assert tail(row(%{}), facts(%{merges: [merge]})) == []
+    end
+
+    test "atom-keyed live ticket rows show dependencies and PR without matching an unowned merge" do
+      row = %{id: "12", num: 12, title: "Ticket twelve", deps: ["1"], pr: %{num: 8, state: "open"}, status: "running", agent: %{state: "active"}}
+      dep = %{"id" => "1", "num" => 1, "title" => "Dependency", "status" => "open"}
+      orphan_merge = %{ticket_id: nil, repository: @repo, number: 7193, merged_at: ~U[2026-10-07 21:13:20Z]}
+
+      current = Events.current_facts(row, facts(%{deps: %{"1" => dep}, merges: [orphan_merge]}))
+
+      assert [%{label: "Dependency #1 open", go: "1"}] = current.deps
+      assert [%{ev: "pr", label: "Opened PR #8"}] = current.tail
+      refute Enum.any?(current.tail, &(&1.ev == "merge"))
+    end
+
+    test "a missing ticket id never matches a merge with no ticket id" do
+      row = %{pr: nil, status: "running", agent: %{state: "active"}}
+      orphan_merge = %{ticket_id: nil, repository: @repo, number: 7193, merged_at: ~U[2026-10-07 21:13:20Z]}
+
+      assert tail(row, facts(%{merges: [orphan_merge]})) == []
+    end
+
+    test "atom-keyed failed ticket state and closed PR render the failure rows" do
+      row = %{id: "12", num: 12, title: "Ticket twelve", pr: %{num: 8, state: "closed"}, status: "failed", agent: %{state: "error"}}
+
+      assert [%{ev: "fail", label: "PR #8 closed"}, %{ev: "fail", label: "Error"}] = tail(row)
     end
 
     test "E22 an open PR reads like the design and has no invented time; a failed closed PR is a fail row" do

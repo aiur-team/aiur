@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# @cli-reference aiur executor-attach --harness claude|Required: explicitly select claude or codex.|aiur executor-attach --harness claude
+# @cli-reference aiur executor-attach --harness claude --print-config|Prints hooks instead of installing them; Codex always prints.|aiur executor-attach --harness claude --print-config
+# @cli-reference aiur executor-attach --harness claude --takeover|Replaces a live binding; off by default.|aiur executor-attach --harness claude --takeover
 #
 # Shared aiur launcher engine.
 #
@@ -61,7 +64,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -75,6 +78,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur --instance <name|all> <command>  run a supported control command against one or every remote instance
        aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]  explicit launch form
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
+       aiur token create <name> [--scope read|write] | list | revoke <name>  manage machine credentials
        aiur usage [<provider>] [--json]  show shared usage or one provider
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
        aiur accounts [<harness>] [--json]  list registered accounts
@@ -84,8 +88,11 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur restart [--keep-agents] [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
-       aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur command [<decision-id> [--option id|--custom-response text [--relayed --quote words]]]  list open, show, or answer a Command
+       aiur command request <question> [--option id=label]… [--recommend id] [--blocking] [--urgency low|normal|high|critical] [--ticket n] [--context-file path] [--short-summary text] [--executor-id id] [--idempotency-key key] [--json]
+       aiur commands [<decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
+       aiur executor-ack <decision-id> [--executor-id <id>]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -94,11 +101,12 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
-       aiur history export [--unsorted] [--after <n>] [--limit <k>] [--json]  local ticket history for classification
+       aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur epic clear <ids...> [--as <who>] [--json]
-       aiur epic show [<ids...>] [--json]
+       aiur epic confirm <ids...> [--epic <key>] [--as <who>] [--json]
+       aiur epic show [<ids...>] [--unconfirmed] [--json]
        aiur epic list [--json]
        aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]... [--as <who>] [--json]
        aiur feature add <slug> <ids...> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]
@@ -106,7 +114,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature also <slug> <ids...> [--remove] [--as <who>] [--json]
        aiur feature baseline <slug> [--replace] [--as <who>] [--json]
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
-       aiur feature show [<slug>] [--json]
+       aiur feature confirm <slug> <ids...> [--as <who>] [--json]
+       aiur feature show [<slug>] [--unconfirmed] [--json]
+       aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
@@ -128,7 +138,10 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
        aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
-       aiur executor-roster [--json]  list Executor consumers; executor-session [--json] reads the live Executor harness session
+       aiur executor-roster [--json]  list Executor consumers
+       aiur executor-session [--json]  show Executor binding, hook age and harness handle
+       aiur executor-attach --harness claude|codex [--takeover] [--print-config]
+       aiur executor-detach  detach the Executor and revoke its hook token
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
@@ -138,6 +151,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
+       aiur listen-mode <id> [steer|sync|async|mute] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur message --status <request-id>          inspect a queued message
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
@@ -230,6 +244,11 @@ aiur_engine_main() {
     login)
       run_account_login "$@"
       ;;
+    token)
+      shift
+      aiur_resolve_identity
+      run_local_cli token "$@"
+      ;;
     accounts) shift; usage_alias accounts "$@" ;;
     logout)
       run_local_cli "$@"
@@ -247,9 +266,8 @@ aiur_engine_main() {
     findings)
       run_findings "$@"
       ;;
-    ask | asks)
-      run_asks "$@"
-      ;;
+    ask) run_ask "$@" ;;
+    asks) run_asks "$@" ;;
     # @cli-reference aiur --bg | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | aiur --bg
     --bg)
       dispatch_run "$@"
@@ -271,6 +289,20 @@ aiur_engine_main() {
       shift
       cmd_agents "$@"
       ;;
+    # @cli-reference aiur command | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | aiur command
+    # @cli-reference aiur command --filter open | Applies the existing Command filters through the canonical singular command. | aiur command --filter open
+    # @cli-reference aiur command DECISION-ID | Shows question, options, recommendation, context, status and delivery. | aiur command dec_123
+    # @cli-reference aiur command DECISION-ID --option ID | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | aiur command dec_123 --option keep
+    # @cli-reference aiur command DECISION-ID --custom-response TEXT | Records a local operator's bounded text answer after interactive confirmation. | aiur command dec_123 --custom-response 'Wait for a fresh build'
+    # @cli-reference aiur command DECISION-ID --option ID --relayed --quote TEXT [--idempotency-key KEY] | Relays an operator's already-given answer with the current version and a generated idempotency key unless one is supplied. Reuse a supplied key to safely retry after an unknown outcome; requires the relay config gate. | aiur command dec_123 --option keep --relayed --quote 'Keep them' --idempotency-key relay-1
+    # @cli-reference aiur command request <question> --context-file PATH | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | aiur command request 'Ship?' --context-file release.md
+    # @cli-reference aiur command request <question> --recommend ID | Moves the named supplied option first; omitted by default. | aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes
+    # @cli-reference aiur command request <question> --short-summary TEXT | Adds a concise Command title; omitted by default. | aiur command request 'Ship?' --short-summary 'Beta release'
+    # @cli-reference aiur command request <question> | Creates an Executor-originated Command for the human; requires a running daemon. | aiur command request 'Ship today?' --option yes=Ship --option no=Wait
+    command)
+      shift
+      cmd_command "$@"
+      ;;
     commands)
       shift
       cmd_commands "$@"
@@ -279,6 +311,10 @@ aiur_engine_main() {
     operator-relay-answer)
       shift
       cmd_operator_relay_answer "$@"
+      ;;
+    executor-ack)
+      shift
+      cmd_executor_ack "$@"
       ;;
     executor-answer)
       shift
@@ -316,6 +352,7 @@ aiur_engine_main() {
       cmd_build_orders "$@"
       ;;
     history) shift; cmd_history "$@" ;;
+    voice) shift; cmd_voice "$@" ;;
     analytics) shift; cmd_analytics "$@" ;;
     github-cost) shift; usage_alias github-cost "$@" ;;
     experiments) shift; cmd_experiments "$@" ;;
@@ -341,6 +378,10 @@ aiur_engine_main() {
       ;;
     executor-wait)
       shift
+      if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+        run_remote_all_executor_wait "$@"
+        return $?
+      fi
       cmd_executor_wait "$@"
       ;;
     executor-emit)
@@ -355,7 +396,7 @@ aiur_engine_main() {
       shift
       cmd_executor_subscriptions "$@"
       ;;
-    executor-roster | executor-session)
+    executor-roster | executor-session | executor-attach | executor-detach)
       shift; "cmd_${cmd//-/_}" "$@" ;;
     executor-fast-forward)
       shift
@@ -395,6 +436,10 @@ aiur_engine_main() {
     workspace-recover)
       shift
       cmd_workspace_recover "$@"
+      ;;
+    listen-mode)
+      shift
+      cmd_listen_mode "$@"
       ;;
     message)
       shift

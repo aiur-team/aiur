@@ -115,7 +115,7 @@ defmodule Aiur.Orchestrator.TicketTransition do
   @spec runtime_labels(term(), [term()], String.t()) :: [String.t()]
   def runtime_labels(labels, causes, prefix), do: Labels.runtime_labels(labels, causes, prefix)
 
-  @doc "Removes transient runtime reasons, preserving the dependency blocker marker."
+  @doc "Removes transient runtime reasons while preserving blocker and body-fix markers."
   @spec clear_transient_reason_modifiers(String.t(), keyword()) :: :ok | {:error, term()}
   def clear_transient_reason_modifiers(issue_id, opts) do
     retained = ["blocked", "body-fix"]
@@ -193,7 +193,9 @@ defmodule Aiur.Orchestrator.TicketTransition do
     result
   end
 
-  defp with_writer(writer, fun) do
+  @doc "Attributes a tracker operation to its owning writer, restoring the previous scope afterward."
+  @spec with_writer(atom(), (-> result)) :: result when result: term()
+  def with_writer(writer, fun) do
     previous = Process.get(:aiur_ticket_writer)
     Process.put(:aiur_ticket_writer, writer)
 

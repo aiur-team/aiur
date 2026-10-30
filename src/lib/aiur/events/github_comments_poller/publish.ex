@@ -57,6 +57,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
+      identity: trusted_identity(target),
       dedup_key: dedup_key,
       resource: resource,
       resource_version: GithubReviewThreadIdentity.resource_version(resource_version(comment), generation)
@@ -75,10 +76,17 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       %{issue_number: target, comment: review, pull_request: review_context},
       actor,
       issue_number: target,
+      identity: trusted_identity(target),
       dedup_key: dedup_key,
       resource: Access.key_for_repo(:pr_review, repo, review_id),
       resource_version: resource_version(review)
     )
+  end
+
+  defp trusted_identity(target) do
+    Aiur.Orchestrator.tracker_identity(target)
+  catch
+    :exit, _ -> nil
   end
 
   # The resource is the *thread* when the comment carries a thread id, matching

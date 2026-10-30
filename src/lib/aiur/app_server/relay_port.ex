@@ -27,7 +27,8 @@ defmodule Aiur.AppServer.RelayPort do
     end
   end
 
-  @spec attach(Path.t(), pos_integer(), non_neg_integer(), keyword()) :: {:ok, pid()} | {:error, term()}
+  @spec attach(Path.t(), pos_integer(), non_neg_integer(), keyword()) ::
+          {:ok, pid()} | {:error, term()}
   def attach(directory, generation, offset, actor_meta \\ []) do
     GenServer.start(__MODULE__, {:attach, self(), directory, generation, offset, actor_meta})
   end
@@ -57,7 +58,12 @@ defmodule Aiur.AppServer.RelayPort do
   defp mint_generation(root, key) do
     File.mkdir_p!(root)
     path = Path.join(root, "generation")
-    previous = if File.exists?(path), do: path |> File.read!() |> String.trim() |> String.to_integer(), else: 0
+
+    previous =
+      if File.exists?(path),
+        do: path |> File.read!() |> String.trim() |> String.to_integer(),
+        else: 0
+
     value = previous + 1
     File.write!(path <> ".next", Integer.to_string(value), [:sync])
     File.rename!(path <> ".next", path)
@@ -88,7 +94,8 @@ defmodule Aiur.AppServer.RelayPort do
     end
   end
 
-  def init({:attach, owner, directory, generation, offset, actor_meta}), do: connect(owner, directory, generation, offset, actor_meta)
+  def init({:attach, owner, directory, generation, offset, actor_meta}),
+    do: connect(owner, directory, generation, offset, actor_meta)
 
   defp launch(root, workspace, command, env, opts) do
     nonce = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
@@ -154,14 +161,34 @@ defmodule Aiur.AppServer.RelayPort do
          :ok <- send_json(socket, %{op: "attach", generation: generation, from_offset: offset}),
          {:ok, %{"op" => "attached"}} <- receive_json(socket) do
       metadata =
-        Map.new(~w(relay_pid provider_pid pgid relay_id spawn_nonce journal_end acked_offset)a, fn key ->
-          {key, Map.fetch!(hello, Atom.to_string(key))}
-        end)
+        Map.new(
+          ~w(relay_pid provider_pid pgid relay_id spawn_nonce journal_end acked_offset)a,
+          fn key ->
+            {key, Map.fetch!(hello, Atom.to_string(key))}
+          end
+        )
         |> Map.merge(%{directory: directory, generation: generation})
 
-      ProcessReaper.register(:agent, {:os_pid, metadata.relay_pid}, [comm: "agent_relay.py"] ++ actor_meta)
+      ProcessReaper.register(
+        :agent,
+        {:os_pid, metadata.relay_pid},
+        [comm: "agent_relay.py"] ++ actor_meta
+      )
+
       :ok = :inet.setopts(socket, packet: :raw, active: :once)
-      {:ok, %{owner: owner, monitor: Process.monitor(owner), socket: socket, metadata: metadata, exited: false, closing: nil, pending: "", pending_offset: nil, manual_ack?: false}}
+
+      {:ok,
+       %{
+         owner: owner,
+         monitor: Process.monitor(owner),
+         socket: socket,
+         metadata: metadata,
+         exited: false,
+         closing: nil,
+         pending: "",
+         pending_offset: nil,
+         manual_ack?: false
+       }}
     else
       error ->
         {:stop, {:relay_connect_failed, error}}
@@ -199,7 +226,15 @@ defmodule Aiur.AppServer.RelayPort do
     address = socket_address(path)
 
     result =
-      if byte_size(address) > 100, do: {:error, :enoent}, else: :gen_tcp.connect({:local, String.to_charlist(address)}, 0, [:binary, packet: :line, packet_size: 134_217_728, active: false], 1_000)
+      if byte_size(address) > 100,
+        do: {:error, :enoent},
+        else:
+          :gen_tcp.connect(
+            {:local, String.to_charlist(address)},
+            0,
+            [:binary, packet: :line, packet_size: 134_217_728, active: false],
+            1_000
+          )
 
     case result do
       {:error, reason} when reason in [:enoent, :enametoolong] ->
@@ -245,12 +280,19 @@ defmodule Aiur.AppServer.RelayPort do
   @impl true
   def handle_call(:metadata, _from, state), do: {:reply, state.metadata, state}
 
-  def handle_call(:manual_acknowledgements, _from, state), do: {:reply, :ok, %{state | manual_ack?: true}}
+  def handle_call(:manual_acknowledgements, _from, state),
+    do: {:reply, :ok, %{state | manual_ack?: true}}
 
-  def handle_call(:acknowledge, _from, %{pending_offset: offset} = state) when is_integer(offset) do
-    state = acknowledge_pending(state)
-    if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
-    {:reply, :ok, state}
+  def handle_call(:acknowledge, _from, %{pending_offset: offset} = state)
+      when is_integer(offset) do
+    case acknowledge_pending(state) do
+      {:ok, state} ->
+        if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
+        {:reply, :ok, state}
+
+      {:error, reason, state} ->
+        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, {:error, reason}, state}
+    end
   end
 
   def handle_call(:acknowledge, _from, state), do: {:reply, :ok, state}
@@ -263,14 +305,33 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   def handle_call(:detach, _from, state) do
-    state = acknowledge_pending(state)
-    :ok = send_json(state.socket, %{op: "detach"})
-    :gen_tcp.close(state.socket)
-    {:stop, :normal, state.metadata, state}
+    case acknowledge_pending(state) do
+      {:ok, state} ->
+        case send_json(state.socket, %{op: "detach"}) do
+          :ok ->
+            :gen_tcp.close(state.socket)
+            {:stop, :normal, state.metadata, state}
+
+          {:error, reason} ->
+            {:stop, {:shutdown, {:relay_send_failed, :detach, reason}}, {:error, reason}, state}
+        end
+
+      {:error, reason, state} ->
+        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, {:error, reason}, state}
+    end
   end
 
   def handle_call(:close, from, state) do
-    state = acknowledge_pending(state)
+    case acknowledge_pending(state) do
+      {:ok, state} ->
+        close_after_ack(from, state)
+
+      {:error, _reason, state} ->
+        {:stop, :normal, true, state}
+    end
+  end
+
+  defp close_after_ack(from, state) do
     if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
 
     case send_json(state.socket, %{op: "stop", grace_ms: 10_000}) do
@@ -292,9 +353,17 @@ defmodule Aiur.AppServer.RelayPort do
   @impl true
   def handle_info({:tcp, socket, line}, %{socket: socket} = state) do
     state = consume(state.pending <> line, %{state | pending: ""})
-    state = if state.manual_ack? and is_nil(state.closing), do: state, else: acknowledge_pending(state)
-    if is_nil(state.pending_offset), do: :inet.setopts(socket, active: :once)
-    {:noreply, state}
+
+    case acknowledge_incoming(state) do
+      {:ok, state} ->
+        rearm_socket(state, socket)
+        {:noreply, state}
+
+      {:error, reason, state} ->
+        Logger.warning("relay acknowledgement failed: #{inspect({:relay_send_failed, :ack, reason})}")
+
+        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, state}
+    end
   end
 
   def handle_info({:tcp_closed, _socket}, state) do
@@ -308,7 +377,8 @@ defmodule Aiur.AppServer.RelayPort do
     end
   end
 
-  def handle_info({:tcp_error, socket, _reason}, state), do: handle_info({:tcp_closed, socket}, state)
+  def handle_info({:tcp_error, socket, _reason}, state),
+    do: handle_info({:tcp_closed, socket}, state)
 
   def handle_info({:DOWN, monitor, :process, _owner, _reason}, %{monitor: monitor} = state) do
     send_json(state.socket, %{op: "stop", grace_ms: 1_000})
@@ -325,7 +395,10 @@ defmodule Aiur.AppServer.RelayPort do
     case :binary.split(data, "\n") do
       [line, rest] ->
         state = deliver(Jason.decode!(line), state)
-        if is_integer(state.pending_offset), do: %{state | pending: rest}, else: consume(rest, state)
+
+        if is_integer(state.pending_offset),
+          do: %{state | pending: rest},
+          else: consume(rest, state)
 
       [pending] ->
         %{state | pending: pending}
@@ -333,15 +406,33 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   defp acknowledge_pending(%{pending_offset: offset} = state) when is_integer(offset) do
-    :ok = send_json(state.socket, %{op: "ack", offset: offset})
-    state = %{state | pending_offset: nil, metadata: Map.put(state.metadata, :acked_offset, offset)}
-    consume(state.pending, %{state | pending: ""})
+    case send_json(state.socket, %{op: "ack", offset: offset}) do
+      :ok ->
+        state = %{
+          state
+          | pending_offset: nil,
+            metadata: Map.put(state.metadata, :acked_offset, offset)
+        }
+
+        {:ok, consume(state.pending, %{state | pending: ""})}
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
   end
 
-  defp acknowledge_pending(state), do: state
+  defp acknowledge_pending(state), do: {:ok, state}
+
+  defp acknowledge_incoming(%{manual_ack?: true, closing: nil} = state), do: {:ok, state}
+  defp acknowledge_incoming(state), do: acknowledge_pending(state)
+
+  defp rearm_socket(%{pending_offset: nil}, socket), do: :inet.setopts(socket, active: :once)
+  defp rearm_socket(_state, _socket), do: :ok
 
   defp deliver(%{"op" => "frame", "offset" => offset, "line" => text} = frame, state) do
-    line = if Map.has_key?(frame, "line_base64"), do: Base.decode64!(frame["line_base64"]), else: text
+    line =
+      if Map.has_key?(frame, "line_base64"), do: Base.decode64!(frame["line_base64"]), else: text
+
     deliver_line(state.owner, line)
     %{state | pending_offset: offset}
   end

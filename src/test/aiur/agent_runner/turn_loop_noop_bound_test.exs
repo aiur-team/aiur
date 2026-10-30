@@ -471,7 +471,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
     )
 
     Aiur.WorkflowStore.force_reload()
-    Application.put_env(:aiur, :memory_tracker_recipient, recipient)
+    Process.put(:memory_tracker_recipient, recipient)
   end
 
   defp run_loop(ctx, opts) do

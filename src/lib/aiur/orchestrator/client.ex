@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.Client do
   @moduledoc "Client forwarding for the Orchestrator RPC facade, with the original server defaults."
+  alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{Cancellation, GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -188,6 +189,11 @@ defmodule Aiur.Orchestrator.Client do
   def claim_next_checkpoint_queue_item(server, identifier),
     do: OM.claim_next_checkpoint_queue_item(server, identifier)
 
+  @spec claim_next_steer_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_steer_queue_item(server, identifier),
+    do: OM.claim_next_steer_queue_item(server, identifier)
+
   @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_blocker_critical_events_digest(server, identifier),
@@ -197,6 +203,9 @@ defmodule Aiur.Orchestrator.Client do
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_operator_queue_item(server, identifier),
     do: OM.claim_next_operator_queue_item(server, identifier)
+
+  @spec claim_native_reply_item(GenServer.server(), String.t(), [String.t()]) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_native_reply_item(server, identifier, refs), do: OM.claim_native_reply_item(server, identifier, refs)
 
   @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_operator_response(server, identifier, command), do: OM.claim_operator_response(server, identifier, command)
@@ -275,4 +284,31 @@ defmodule Aiur.Orchestrator.Client do
   """
   @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
   def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
+
+  @doc false
+  @spec listener_prompt_context(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def listener_prompt_context(identifier, opts) do
+    if Scheduler.routing(opts) == :listener do
+      server = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
+      reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context(&1, server))
+      reader.(identifier)
+    else
+      {:error, :listener_mode_unavailable}
+    end
+  end
+
+  defp read_listener_prompt_context(identifier, server) do
+    with {:ok, %{effective: :async}} <- GenServer.call(server, {:listener_get_mode, identifier}, 5_000) do
+      count =
+        case control_capabilities(server, identifier) do
+          {:ok, %{listener: %{unread_count: count}}} -> count
+          _unavailable -> nil
+        end
+
+      {:ok, %{effective: :async, unread_count: count}}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
 end

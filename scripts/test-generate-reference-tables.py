@@ -7,6 +7,7 @@ import importlib.util
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).with_name("generate-reference-tables.py")
 SPEC = importlib.util.spec_from_file_location("generate_reference_tables", SCRIPT)
@@ -119,6 +120,52 @@ def check_reference_files_use_union_merge() -> None:
         assert "| `branch_a`" in merged and "| `branch_b`" in merged
 
 
+def check_main_finds_split_tables_and_rejects_missing_or_duplicate_markers() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        reference = root / "website/docs-app/reference"
+        reference.mkdir(parents=True)
+        for name in ("configuration", "configuration-agent", "configuration-build-order", "configuration-voice", "merge-policy", "cli", "cli-options"):
+            (reference / f"{name}.md").write_text("# Reference\n")
+        table_id = "config-configuration-00"
+        row = "| `alpha` | string | nil | Alpha. |"
+        marker = f"| Key | Type | Default | Controls | <!-- generated-reference:{table_id} -->\n| --- | --- | --- | --- |\n"
+        topic = reference / "configuration-daemon.md"
+        topic.write_text(marker)
+        cli_topic = reference / "cli-launch.md"
+        cli_row = "| `--alpha` | Select alpha. | `aiur --alpha` |"
+        cli_topic.write_text("| Syntax | Controls | Example | <!-- generated-reference:cli-run-options -->\n| --- | --- | --- |\n")
+
+        with patch.object(GENERATOR, "ROOT", root), patch.object(GENERATOR, "rendered_tables", return_value={table_id: [row], "cli-run-options": [cli_row]}):
+            with patch("sys.argv", [str(SCRIPT), "--check"]):
+                assert GENERATOR.main() == 1
+            assert row not in topic.read_text()
+            with patch("sys.argv", [str(SCRIPT)]):
+                assert GENERATOR.main() == 0
+            assert row in topic.read_text() and cli_row in cli_topic.read_text()
+            assert (reference / "configuration.md").read_text() == "# Reference\n"
+            with patch("sys.argv", [str(SCRIPT), "--check"]):
+                assert GENERATOR.main() == 0
+            cli_topic.write_text(cli_topic.read_text().replace(cli_row, ""))
+            with patch("sys.argv", [str(SCRIPT)]):
+                for invalid_page, expected in [(topic, "missing generated-reference markers"), (reference / "configuration-tracker.md", "duplicate generated-reference markers across pages")]:
+                    original = invalid_page.read_text() if invalid_page.exists() else None
+                    invalid_page.write_text("# No table\n" if invalid_page == topic else topic.read_text())
+                    before = {page: page.read_text() for page in reference.glob("*.md")}
+                    try:
+                        GENERATOR.main()
+                    except SystemExit as error:
+                        assert expected in str(error), str(error)
+                    else:
+                        raise AssertionError(f"split table inventory violation accepted: {expected}")
+                    assert {page: page.read_text() for page in reference.glob("*.md")} == before
+                    if original is None:
+                        invalid_page.unlink()
+                    else:
+                        invalid_page.write_text(original)
+    print("split reference generator check/write and inventory guards passed")
+
+
 if __name__ == "__main__":
     check_rows_are_added_and_idempotent()
     check_split_config_annotations_pair_across_comments()
@@ -127,4 +174,5 @@ if __name__ == "__main__":
     check_unannotated_generated_marker_fails()
     check_sibling_rows_union_after_merge()
     check_reference_files_use_union_merge()
+    check_main_finds_split_tables_and_rejects_missing_or_duplicate_markers()
     print("reference generator tests passed")

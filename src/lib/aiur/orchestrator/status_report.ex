@@ -189,6 +189,8 @@ defmodule Aiur.Orchestrator.StatusReport do
   @doc false
   @spec snapshot_input(State.t()) :: State.t()
   def snapshot_input(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+
     state
     |> Map.take([
       :orphaned_agent_reap_count,
@@ -232,17 +234,16 @@ defmodule Aiur.Orchestrator.StatusReport do
     ])
     |> then(&struct!(State, &1))
     |> SnapshotStore.without_issue_descriptions()
-    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
+    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state, identifiers))
     |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
-    |> Map.put(:queue_store, snapshot_queue_store(state))
+    |> Map.put(:queue_store, snapshot_queue_store(state, identifiers))
     |> Map.put(:status_observed_at, DateTime.utc_now())
   end
 
   # The asynchronous projection needs only the cached result for rows it can
   # render. Keeping the rest of this lifecycle map out of the cast prevents
   # historical CI data from being copied along with every dashboard refresh.
-  defp snapshot_ci_lifecycle(%State{} = state) do
-    identifiers = snapshot_identifiers(state)
+  defp snapshot_ci_lifecycle(%State{} = state, identifiers) do
     cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
     waiting = Map.filter(cache, fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end)
     poll_cache = Map.merge(Map.take(cache, identifiers), waiting)
@@ -278,9 +279,10 @@ defmodule Aiur.Orchestrator.StatusReport do
   # Queue depth and visible operator messages are dashboard contract fields.
   # Copy only the queue entries for rows this snapshot can render so an
   # unrelated queue backlog cannot inflate the projection cast.
-  defp snapshot_queue_store(%State{} = state) do
-    identifiers = snapshot_identifiers(state)
+  defp snapshot_queue_store(%State{queue_store: %AgentQueueStore{items: items}}, _identifiers) when map_size(items) == 0,
+    do: %AgentQueueStore{}
 
+  defp snapshot_queue_store(%State{} = state, identifiers) do
     {items, pending_ids_by_target, item_ids_by_target} =
       Enum.reduce(identifiers, {%{}, %{}, %{}}, fn identifier, {items, pending_ids_by_target, item_ids_by_target} ->
         pending = AgentQueueStore.list_pending(state.queue_store, identifier)

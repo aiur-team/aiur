@@ -4,9 +4,9 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
   alias Aiur.AgentTools.Dispatch
   alias Aiur.BuildOrder.Estimates
   @root Path.expand("../../..", __DIR__)
-  @filing ~w(aiur-agent/conventions.md aiur-run/SKILL.md aiur-run/references/executor.md aiur-meta/SKILL.md aiur-build/SKILL.md aiur-build/references/planning-contract.md)
+  @filing ~w(aiur-agent/conventions.md aiur-run/references/run-contract.md aiur-run/references/executor.md aiur-meta/SKILL.md aiur-build/SKILL.md aiur-build/references/planning-contract.md)
   @full ~w(aiur-agent/conventions.md aiur-run/references/executor.md)
-  @planning ~w(aiur-build/SKILL.md aiur-run/SKILL.md)
+  @planning ~w(aiur-build/SKILL.md aiur-run/references/run-contract.md)
   @fill %{"<epic>" => "infra", "<ids…>" => "101 102", "<id>" => "101", "<slug>" => "docs-site", "<hours>" => "7", "<cause>" => "needs review", "<old>" => "2", "<new>" => "7", "<why>" => "review done"}
 
   test "every filing doc states the home-page epic rule" do
@@ -46,7 +46,7 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
   end
 
   test "Executor entry skills link to the full category rule concisely" do
-    for {path, link} <- [{"aiur-run/SKILL.md", "references/executor.md"}, {"aiur-meta/SKILL.md", "../aiur-run/references/executor.md"}] do
+    for {path, link} <- [{"aiur-run/references/run-contract.md", "executor.md"}, {"aiur-meta/SKILL.md", "../aiur-run/references/executor.md"}] do
       text = blocks(path, "home-page epic")
       assert String.length(text) <= 500
       assert text =~ link

@@ -3,7 +3,20 @@
   "name": "Agent listener modes",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/listener.ex",
+    "src/lib/aiur/listener/capability_provider.ex",
+    "src/lib/aiur/listener/delivery_target.ex",
+    "src/lib/aiur/listener/effective.ex",
+    "src/lib/aiur/listener/hook_envelope.ex",
+    "src/lib/aiur/listener/hook_frame.ex",
+    "src/lib/aiur/listener/mode_copy.ex",
+    "src/lib/aiur/listener/mode_store.ex",
+    "src/lib/aiur/listener/receipt.ex",
+    "src/lib/aiur/listener/spec.ex",
+    "src/lib/aiur/listener/spec/**",
+    "src/lib/aiur/listener/spec_status.ex"
+  ],
   "facades": [
     "*"
   ],
@@ -12,14 +25,19 @@
     "config",
     "event-bus",
     "harness-adapters",
-    "identity"
+    "identity",
+    "kernel"
   ],
   "optional": [],
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
-    "capabilities": []
+    "state": [
+      "file: <runtime_state_dir>/listen-modes/*.json"
+    ],
+    "capabilities": [
+      "listener_modes"
+    ]
   },
   "prior": [],
   "forbid": [
@@ -29,14 +47,17 @@
     "AiurWeb.Router"
   ],
   "dependency_kind": "required",
-  "summary": "Routes messages to agents using steer, synchronous or asynchronous delivery.",
-  "status": "planned",
+  "summary": "Controls steer, sync, async ping and mute delivery, defaulting to sync after the active turn ends.",
+  "status": "experimental",
   "install": {
     "type": "included"
   },
   "docs": [],
   "config": [],
   "env": [],
-  "capabilities": [],
-  "added_by": "MP-E7"
+  "capabilities": [
+    "listener_modes"
+  ],
+  "added_by": "MP-E7",
+  "goal": "voice"
 }

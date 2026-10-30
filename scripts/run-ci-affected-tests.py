@@ -44,7 +44,7 @@ def defer_to_merge_group(notice):
 
 def changed_test_files(base):
     paths = subprocess.check_output(
-        ['git', 'diff', '--name-only', base, 'HEAD', '--', 'src/test'], text=True
+        ['git', 'diff', '--name-only', base, 'HEAD', '--', 'test'], text=True
     ).splitlines()
     return [path.removeprefix('src/') for path in paths if path.endswith('_test.exs')]
 

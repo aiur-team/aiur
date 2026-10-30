@@ -1,0 +1,454 @@
+defmodule Aiur.Listener.ListenerDeliveryTest do
+  use ExUnit.Case, async: false
+  alias Aiur.{AgentQueue, AgentQueueStore, Issue, Orchestrator, TrackerIdentity}
+  alias Aiur.AgentRunner.QueueTurn
+  alias Aiur.Listener.ModeStore
+  alias Aiur.Opencode.ActiveTurns
+  alias Aiur.Orchestrator.{ControlLifecycle, ListenerModes, OperatorMessages, State}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Enqueue, HeldReads, Unread}
+
+  setup_all do
+    # The optional build artifact is the external boundary; exercise the real scheduler.
+    spec = Module.concat([Aiur, Listener, Spec])
+
+    unless Code.ensure_loaded?(spec) do
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(spec) do
+            @spec status() :: :ok
+            def status, do: :ok
+          end
+        end
+      )
+
+      on_exit(fn ->
+        :code.purge(spec)
+        :code.delete(spec)
+      end)
+    end
+
+    :ok
+  end
+
+  setup do
+    dir = Aiur.TestSupport.tmp_root!("listener-delivery")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    Aiur.TestSupport.put_runtime_state_dir!(dir)
+
+    id = "listener-#{System.unique_integer([:positive])}"
+    entry = %{identifier: id, issue: %Issue{id: id, identifier: id}, pid: self(), session_execution: %{backend: "codex"}, control: %{status: :working, can_interrupt: true}}
+    %{id: id, entry: entry, state: %State{running: %{id => entry}, queue_store: AgentQueueStore.new()}}
+  end
+
+  test "addressed async messages each wake once without exposing or reading their bodies", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, %{effective: :async}}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    cursor = ModeStore.get(id)[:last_read_sequence]
+    payload = %{kind: :text, body: "private message one", delivery_policy: :listener, origin: :http, message_id: "ping-one"}
+    assert {:reply, {:ok, first}, state} = OperatorMessages.send_operator_message_call(state, id, payload)
+    assert {:reply, {:ok, ^first}, state} = OperatorMessages.send_operator_message_call(state, id, payload)
+    assert {:reply, {:ok, second}, state} = OperatorMessages.send_operator_message_call(state, id, %{payload | body: "private message two", message_id: "ping-two"})
+
+    final =
+      Enum.reduce(1..2, state, fn _, current ->
+        assert {:reply, {:ok, nudge}, after_claim} = OperatorMessages.claim_next_queue_item_call(current, id)
+        assert nudge.event_type == :listener_ping
+        assert_received {:agent_queue_updated, ^id, nudge_id, true}
+        assert nudge.id == nudge_id
+        text = QueueTurn.queue_item_text(nudge)
+        assert text =~ "aiur_read_messages"
+        refute text =~ "private message"
+        assert Unread.queue_summary(after_claim.queue_store, id).listener.unread_count == 2
+        assert ModeStore.get(id)[:last_read_sequence] == cursor
+        assert AgentQueueStore.get(after_claim.queue_store, first).body.text == "private message one"
+        assert AgentQueueStore.get(after_claim.queue_store, second).status == :pending
+        after_claim
+      end)
+
+    assert {:reply, :empty, ^final} = OperatorMessages.claim_next_queue_item_call(final, id)
+    refute_received {:agent_queue_updated, _, _, _}
+  end
+
+  test "async nudge waits for Stop while an addressed agent is busy", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, %{effective: :async}}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    :ok = ActiveTurns.put(id, "busy")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "busy", :test_cleanup) end)
+    assert {:reply, {:ok, _}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "private", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, _, false}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_checkpoint_queue_item_call(queued, id)
+    ActiveTurns.mark_closed(id, "busy", :completed)
+    assert {:reply, {:ok, %{event_type: :listener_ping}}, _} = OperatorMessages.claim_next_queue_item_call(queued, id)
+  end
+
+  test "entering mute cancels pending async nudges without acknowledging the message", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "held", delivery_policy: :listener, origin: :http})
+    assert_received {:agent_queue_updated, ^id, _, true}
+    assert {:reply, {:ok, %{effective: :mute}}, muted} = ListenerModes.set_mode(queued, id, :mute, expected_version: 1)
+    refute_received {:agent_queue_updated, ^id, _, true}
+    assert {:reply, :empty, ^muted} = OperatorMessages.claim_next_queue_item_call(muted, id)
+    assert AgentQueueStore.get(muted.queue_store, request).status == :pending
+    assert Unread.queue_summary(muted.queue_store, id).listener.unread_count == 1
+    assert Enum.map(AgentQueueStore.list_pending(muted.queue_store, id), & &1.id) == [request]
+  end
+
+  test "mute cancels an unclaimed backlog notice after leaving async", %{id: id, entry: entry, state: state} do
+    state = put_in(state.running[id], put_in(entry.session_execution[:pull_tool_installed], true))
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    assert {:reply, {:ok, request}, state} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "held", delivery_policy: :listener, origin: :http})
+    assert_received {:agent_queue_updated, ^id, _, true}
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :sync, expected_version: 1)
+    notice = Enum.find(AgentQueueStore.list_pending(state.queue_store, id), &(&1.event_type == :async_backlog_notice))
+    assert notice
+    notice_id = notice.id
+    assert_received {:agent_queue_updated, ^id, ^notice_id, true}
+    assert {:reply, {:ok, %{effective: :mute}}, muted} = ListenerModes.set_mode(state, id, :mute, expected_version: 2)
+    assert {:reply, :empty, ^muted} = OperatorMessages.claim_next_queue_item_call(muted, id)
+    assert Enum.map(AgentQueueStore.list_pending(muted.queue_store, id), & &1.id) == [request]
+    assert Unread.queue_summary(muted.queue_store, id).listener.unread_count == 1
+    refute_received {:agent_queue_updated, ^id, _, true}
+  end
+
+  test "mute never restarts deactivated or completed agents", %{id: id, entry: entry, state: state} do
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :mute, expected_version: 0)
+
+    for status <- [:deactivated, :completed] do
+      parked = entry |> put_in([:control, :status], status) |> Map.put(:pid, nil) |> Map.put(:completed_provenance, status == :completed)
+      state = %{state | running: %{id => parked}, max_concurrent_agents: 0}
+      assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "silent", delivery_policy: :listener, origin: :http})
+      assert queued.running[id].control.status == status
+      assert AgentQueueStore.get(queued.queue_store, request).delivery.consume_at == :pull
+      refute_received {:agent_queue_updated, _, _, _}
+    end
+  end
+
+  test "mute retains messages without a nudge or automatic claim", %{id: id, state: state} do
+    assert {:reply, {:ok, %{effective: :mute}}, state} = ListenerModes.set_mode(state, id, :mute, expected_version: 0)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "silent", delivery_policy: :listener, origin: :http})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_queue_item_call(queued, id)
+    assert AgentQueueStore.get(queued.queue_store, request).body.text == "silent"
+    assert length(AgentQueueStore.list_pending(queued.queue_store, id)) == 1
+  end
+
+  test "REPL listener sync accepts checkpoint and holds until turn boundary", %{id: id, entry: entry, state: state} do
+    entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
+    state = %{state | running: %{id => entry}}
+    assert Capabilities.issue_control_capabilities(state, id).accepted_delivery_policies == [:immediate, :checkpoint]
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "after Stop", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_checkpoint_queue_item_call(queued, id)
+    ActiveTurns.mark_closed(id, "active", :completed)
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert claimed.id == request
+    assert claimed.body.text == "after Stop"
+  end
+
+  test "urgent event wake cannot claim held REPL sync input before Stop", %{id: id, entry: entry, state: state} do
+    entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
+    state = %{state | running: %{id => entry}}
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "after Stop", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    opts = DeliveryPolicy.event_digest_delivery_opts(entry, [], true)
+    {store, digest} = AgentQueueStore.enqueue(queued.queue_store, AgentQueue.coordination_event(id, :events_digest, %{events: []}, opts))
+    queued = %{queued | queue_store: store}
+    DeliveryPolicy.notify_running_queue_update(queued, entry, digest)
+    digest_id = digest.id
+    assert_received {:agent_queue_updated, ^id, ^digest_id, true}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert AgentQueueStore.get(queued.queue_store, request).status == :pending
+    ActiveTurns.mark_closed(id, "active", :completed)
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert claimed.id == request
+  end
+
+  test "REPL native steer wakes the active session", %{id: id, entry: entry, state: state} do
+    entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
+    state = %{state | running: %{id => entry}}
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, view}, state} = ListenerModes.set_mode(state, id, :steer, expected_version: 0)
+    assert view.effective == :steer
+    assert view.support.steer.carrier == :native
+    {store, held} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held sync", listener_mode: :sync))
+    state = %{state | queue_store: store}
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "now", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, ^request, :steer}
+    assert {:reply, {:ok, claimed}, after_steer} = OperatorMessages.claim_next_steer_queue_item_call(queued, id)
+    assert claimed.id == request
+    assert AgentQueueStore.get(after_steer.queue_store, held.id).status == :pending
+  end
+
+  test "native steer enqueue wakes active turn and stays sync-safe on unsupported harness", %{id: id, entry: entry, state: state} do
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :steer, expected_version: 0)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "steer", delivery_policy: :listener, origin: :agent_chat})
+    assert_received {:agent_queue_updated, ^id, ^request, :steer}
+    item = AgentQueueStore.get(queued.queue_store, request)
+    assert item.delivery.steer_requested
+    refute item.delivery.interrupt_requested
+
+    for backend <- ["claude", "unknown-harness"] do
+      unsupported = put_in(entry.session_execution.backend, backend)
+      DeliveryPolicy.notify_running_queue_update(queued, unsupported, item)
+      assert_received {:agent_queue_updated, ^id, ^request, false}
+    end
+
+    paused = entry |> put_in([:control, :status], :paused) |> Map.put(:paused_reason, :operator)
+    DeliveryPolicy.notify_running_queue_update(queued, paused, item)
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    assert {:reply, {:ok, %{effective: :sync}}, sync_state} = ListenerModes.set_mode(queued, id, :sync, expected_version: 1)
+    refute AgentQueueStore.get(sync_state.queue_store, request).delivery[:steer_requested]
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    ActiveTurns.mark_closed(id, "active", :completed)
+    DeliveryPolicy.notify_running_queue_update(queued, entry, item)
+    assert_received {:agent_queue_updated, ^id, ^request, true}
+  end
+
+  test "sync enqueue never interrupts or claims at a tool checkpoint, then drains at turn boundary", %{id: id, state: state} do
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "next turn", delivery_policy: :listener, origin: :agent_chat})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    item = AgentQueueStore.get(queued.queue_store, request)
+    assert item.delivery.listener_mode_at_claim == :sync
+    refute item.delivery.interrupt_requested
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_checkpoint_queue_item_call(queued, id)
+    ActiveTurns.mark_closed(id, "active", :completed)
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert claimed.id == request
+  end
+
+  test "listener input to a deactivated entry obeys the reactivation capacity gate", %{id: id, entry: entry, state: state} do
+    parked = entry |> put_in([:control, :status], :deactivated) |> Map.put(:pid, nil)
+    occupied = %{entry | identifier: "occupied", issue: %Issue{id: "occupied", identifier: "occupied"}}
+    state = %{state | running: %{id => parked, "occupied" => occupied}, max_concurrent_agents: 1}
+
+    assert {:reply, {:error, :max_concurrent_agents_reached}, ^state} =
+             OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "restart", delivery_policy: :listener, origin: :http})
+
+    assert AgentQueueStore.list_pending(state.queue_store, id) == []
+    refute_received {:agent_queue_updated, _, _, _}
+  end
+
+  test "unavailable effective mode refuses enqueue without changing the queue", %{id: id, state: state} do
+    state = put_in(state.running[id].session_execution.backend, "unknown-harness")
+    assert {:reply, {:error, :listener_mode_unavailable}, ^state} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "hello", delivery_policy: :listener, origin: :http})
+  end
+
+  test "held async bodies never wake directly, including cooperative self-pause", %{id: id, entry: entry, state: state} do
+    item = AgentQueue.operator_message(id, "held", listener_mode: :async)
+
+    for {status, reason} <- [{:working, nil}, {:sleeping, nil}, {:paused, :agent_pause_request}, {:paused, :operator}, {:working, :agent_pause_request}] do
+      entry = entry |> put_in([:control, :status], status) |> Map.put(:paused_reason, reason)
+      assert :ok = DeliveryPolicy.notify_running_queue_update(state, entry, Map.put(item, :id, 55))
+      assert_received {:agent_queue_updated, ^id, 55, false}
+    end
+  end
+
+  test "operator pause never wakes; sync and steer can wake cooperative self-pause", %{id: id, entry: entry, state: state} do
+    for {mode, expected} <- [{:sync, false}, {:steer, true}, {:async, false}], reason <- [:operator, :agent_pause_request] do
+      entry = entry |> put_in([:control, :status], :paused) |> Map.put(:paused_reason, reason)
+      item = AgentQueue.operator_message(id, "hello", listener_mode: mode, steer_carrier: :emulated_interrupt) |> Map.put(:id, 56)
+      DeliveryPolicy.notify_running_queue_update(state, entry, item)
+      wake = reason == :agent_pause_request and expected
+      assert_received {:agent_queue_updated, ^id, 56, ^wake}
+    end
+  end
+
+  test "mode-view changes restamp pending items once, preserving claimed and legacy rows", %{id: id, state: state} do
+    {store, claimed} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "claimed", listener_mode: :sync))
+    {store, _} = AgentQueueStore.claim_next_deliverable(store, id)
+    {store, pending} = AgentQueueStore.enqueue(store, AgentQueue.operator_message(id, "pending", listener_mode: :sync))
+    {store, legacy} = AgentQueueStore.enqueue(store, AgentQueue.operator_message(id, "legacy"))
+    state = %{state | queue_store: store}
+    view = %{effective: :steer, support: %{steer: %{carrier: :emulated_interrupt}}}
+    next = ListenerModes.mode_view_changed(state, id, view)
+    pending_id = pending.id
+    assert_received {:agent_queue_updated, ^id, ^pending_id, true}
+    assert AgentQueueStore.get(next.queue_store, pending.id).delivery.listener_mode_at_claim == :steer
+    assert AgentQueueStore.get(next.queue_store, pending.id).delivery.interrupt_requested
+    assert AgentQueueStore.get(next.queue_store, claimed.id).delivery == claimed.delivery
+    assert AgentQueueStore.get(next.queue_store, legacy.id).delivery == legacy.delivery
+    assert ListenerModes.mode_view_changed(next, id, view) == next
+    refute_received {:agent_queue_updated, _, _, _}
+  end
+
+  test "session execution refresh delivers held bodies when the pull tool is unavailable", %{id: id, state: state} do
+    previous = %{state.running[id] | session_execution: %{backend: "unknown-harness"}}
+    {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
+    state = %{state | queue_store: store}
+    next = ListenerModes.on_session_execution(state, id, previous)
+    assert next.running[id].listener_effective.effective == :sync
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
+    assert Capabilities.issue_control_capabilities(next, id).listener.unread_count == 0
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(next, id)
+    assert claimed.id == item.id
+    assert claimed.body.text == "held"
+    assert ListenerModes.on_session_execution(next, id, next.running[id]) == next
+    refute_received {:agent_queue_updated, _, _, _}
+  end
+
+  test "set_mode delivers a previously held row when async support is unavailable", %{id: id, state: state} do
+    {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
+    state = %{state | queue_store: store}
+    assert {:reply, {:ok, %{effective: :sync}}, next} = ListenerModes.set_mode(state, id, :sync, expected_version: 0)
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
+    assert Capabilities.issue_control_capabilities(next, id).listener.unread_count == 0
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(next, id)
+    assert claimed.id == item.id
+    assert claimed.body.text == "held"
+  end
+
+  test "listener enqueue preserves an operator pause instead of auto-resuming", %{id: id, state: state} do
+    state = state |> put_in([Access.key(:running), id, :control, :status], :paused) |> put_in([Access.key(:running), id, :paused_reason], :operator)
+    assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "wait", delivery_policy: :listener, origin: :http})
+    assert next.running[id].control.status == :paused
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+  end
+
+  test "keyed retry returns the first item after pending mode restamp", %{id: id, state: state} do
+    payload = %{kind: :text, body: "once", delivery_policy: :listener, origin: :http, message_id: "retry"}
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, payload)
+    queued = ListenerModes.mode_view_changed(queued, id, %{effective: :async})
+    assert {:reply, {:ok, ^request}, ^queued} = OperatorMessages.send_operator_message_call(queued, id, payload)
+    assert [%{id: ^request, delivery: %{listener_mode_at_claim: :async}}] = AgentQueueStore.list_pending(queued.queue_store, id)
+  end
+
+  test "regression guard: Command answers retain explicit interrupt under listener routing", %{id: id, state: state} do
+    payload = %{
+      kind: :text,
+      body: "Proceed",
+      delivery_policy: :interrupt,
+      fallback: :queue_next,
+      action_id: "act-answer",
+      correlation: %{decision_id: "dec-answer", action_id: "act-answer", attempt_id: "try-answer"}
+    }
+
+    assert {:reply, {:ok, %{item: item}}, _next} = OperatorMessages.send_correlated_operator_message_call(state, id, payload)
+    assert item.delivery.interrupt_requested
+    refute Map.has_key?(item.delivery, :listener_mode_at_claim)
+  end
+
+  test "legacy regression guard: unstamped checkpoint rows still claim mid-turn", %{id: id, state: state} do
+    {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "legacy"))
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_checkpoint_queue_item_call(%{state | queue_store: store}, id)
+    assert claimed.id == item.id
+  end
+
+  test "async listener input cannot lift a cooperative self-pause", %{id: id, state: state} do
+    state = state |> put_in([Access.key(:running), id, :control, :status], :paused) |> put_in([Access.key(:running), id, :paused_reason], :agent_pause_request)
+    entry = state.running[id]
+    # Until the pull tool is installed, Effective cannot emit async; constrain
+    # the pause decision used by enqueue before that later rollout enables it.
+    refute Enqueue.listener_resumes_pause?(state, entry, %{effective: :async})
+    assert Enqueue.listener_resumes_pause?(state, entry, %{effective: :sync})
+  end
+
+  test "sync listener input lifts a cooperative self-pause through the enqueue path", %{id: id, state: state} do
+    state = state |> put_in([Access.key(:running), id, :control, :status], :paused) |> put_in([Access.key(:running), id, :paused_reason], :agent_pause_request)
+    assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "continue", delivery_policy: :listener, origin: :http})
+    assert next.running[id].control.status == :working
+    assert Map.get(next.running[id], :paused_reason) == nil
+    assert next.running[id].resume_input_id == request
+  end
+
+  test "listener input leaves a pending operator Decision pause intact", %{id: id, state: state} do
+    identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "org", repository: "repo", provider_id: id, identifier: "42", reason: nil}
+    attrs = %{request_id: "pause-decision", issue_id: id, tracker_identity: identity, action: :pause, generation: "listener", expected_status: :working, expected_version: 0, requester: :automatic}
+    {:ok, _, lifecycle} = ControlLifecycle.request(state.control_lifecycle, attrs)
+    entry = state.running[id]
+    entry = %{entry | issue: %{entry.issue | tracker_identity: identity}, control: Map.merge(entry.control, %{generation: "listener", version: 0, application_confirmation: :request_only})}
+    entry = Map.put(entry, :pending_pause_reason, %{request_id: "pause-decision", reason: :input_required})
+    state = %{state | control_lifecycle: lifecycle, running: %{id => entry}}
+    assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "chat", delivery_policy: :listener, origin: :http})
+    assert next.control_lifecycle == lifecycle
+    refute Map.has_key?(next.running[id], :resume_input_id)
+    refute_received {:resume_agent, _}
+    refute_received {:resume_agent, _, _}
+    assert next.running[id].pending_pause_reason.reason == :input_required
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+  end
+
+  test "mode-change signals for a removed issue leave the state intact" do
+    state = %State{queue_store: AgentQueueStore.new()}
+    assert {:noreply, ^state} = Orchestrator.handle_info({:listen_mode_changed, "removed-issue", %{}}, state)
+  end
+
+  test "mode-change signals re-read the current view and deliver held messages without a pull tool", %{id: id, state: state} do
+    {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
+    state = %{state | queue_store: store}
+    assert {:noreply, next} = Orchestrator.handle_info({:listen_mode_changed, id, %{effective: :async}}, state)
+    assert {:reply, {:ok, %{effective: :sync}}, _} = ListenerModes.get_mode(next, id)
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
+    assert Capabilities.issue_control_capabilities(next, id).listener.unread_count == 0
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(next, id)
+    assert claimed.id == item.id
+    assert claimed.body.text == "held"
+  end
+
+  test "held enqueue, retry, partial read and restamp emit current unread counts", %{id: id, state: state} do
+    :ok = Aiur.AgentPubSub.subscribe_agent(id)
+    state = put_in(state.running[id].session_execution, %{backend: "codex", pull_tool_installed: true})
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    request = %{kind: :text, body: "first", delivery_policy: :listener, origin: :http, message_id: "unread-first"}
+    assert {:reply, {:ok, first}, state} = OperatorMessages.send_operator_message_call(state, id, request)
+    assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 1, oldest_unread_at: oldest}}}}
+    assert oldest == AgentQueueStore.get(state.queue_store, first).inserted_at
+    assert {:reply, {:ok, ^first}, ^state} = OperatorMessages.send_operator_message_call(state, id, request)
+    refute_received {:transcript_event, %{payload: %{listener: _}}}
+    assert {:reply, {:ok, second}, state} = OperatorMessages.send_operator_message_call(state, id, %{request | body: "second", message_id: "unread-second"})
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 2}}}}
+    assert {:reply, {:ok, %{remaining: 1}}, state} = HeldReads.handle_call(state, id, 1)
+    assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 1, oldest_unread_at: remaining_at}}}}
+    assert remaining_at == AgentQueueStore.get(state.queue_store, second).inserted_at
+    view = %{effective: :sync, support: %{async: %{status: :proven}}}
+    state = ListenerModes.mode_view_changed(state, id, view)
+    assert AgentQueueStore.get(state.queue_store, second).delivery.consume_at == :pull
+    assert Capabilities.issue_control_capabilities(state, id).listener.unread_count == 1
+    assert ListenerModes.mode_view_changed(state, id, view) == state
+    refute_received {:transcript_event, %{payload: %{listener: _}}}
+  end
+
+  test "losing the installed pull tool clears unread and delivers the held body", %{id: id, state: state} do
+    :ok = Aiur.AgentPubSub.subscribe_agent(id)
+    state = put_in(state.running[id].session_execution, %{backend: "codex", pull_tool_installed: true})
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    assert {:reply, {:ok, item_id}, state} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "read me", delivery_policy: :listener, origin: :http})
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 1}}}}
+    assert {:noreply, state} = State.handle_session_execution_info(state, id, %{backend: "codex", pull_tool_installed: false})
+    assert state.running[id].listener_effective.effective_reason == :pull_tool_unavailable
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
+    assert Capabilities.issue_control_capabilities(state, id).listener.unread_count == 0
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(state, id)
+    assert claimed.id == item_id
+    assert claimed.body.text == "read me"
+  end
+
+  test "correlated holds emit count once and failure clears it", %{id: id, state: state} do
+    :ok = Aiur.AgentPubSub.subscribe_agent(id)
+    state = put_in(state.running[id].session_execution, %{backend: "codex", pull_tool_installed: true})
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    payload = %{delivery_policy: :listener, origin: :http, action_id: "held-correlated", correlation: %{action_id: "held-correlated"}}
+    assert {{:ok, %{item: item}}, state} = Enqueue.enqueue_operator_message(state, id, "held", payload, :correlated)
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 1}}}}
+    assert {{:ok, %{status: :duplicate}}, ^state} = Enqueue.enqueue_operator_message(state, id, "held", payload, :correlated)
+    refute_received {:transcript_event, %{payload: %{listener: _}}}
+    assert {:reply, :ok, state} = OperatorMessages.mark_queue_item_failed_call(state, item.id, :failed)
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
+    assert Capabilities.issue_control_capabilities(state, id).listener.unread_count == 0
+  end
+end

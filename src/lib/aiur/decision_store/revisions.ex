@@ -1,6 +1,9 @@
 defmodule Aiur.DecisionStore.Revisions do
   @moduledoc false
 
+  alias Aiur.Commands.Answering
+  alias Aiur.Commands.ConflictSummary
+  alias Aiur.Commands.Overrides, as: CommandOverrides
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionRevision
@@ -9,6 +12,7 @@ defmodule Aiur.DecisionStore.Revisions do
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Settlement
   alias Aiur.DecisionStore.Withdrawals
@@ -19,6 +23,8 @@ defmodule Aiur.DecisionStore.Revisions do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
          {:ok, actor} <- Answers.fetch_actor(opts),
+         :ok <- Answers.validate_requester_actor(actor, decision),
+         :ok <- require_new_actor_may_replace(decision, payload, actor),
          :ok <- Answers.require_relay_enabled(actor, state),
          :ok <- require_relay_may_replace(decision, actor) do
       case find_revision_replay(decision, payload) do
@@ -29,6 +35,53 @@ defmodule Aiur.DecisionStore.Revisions do
       nil -> {:reply, {:error, :answer_missing}, state}
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
+  end
+
+  @spec handle_override(String.t(), map(), keyword(), map()) :: term()
+  def handle_override(id, payload, opts, state) do
+    with {:ok, decision} <- Answers.fetch_decision(state, id),
+         %DecisionAnswer{} <- Decision.active_answer(decision),
+         {:ok, actor} <- Answers.fetch_actor(opts) do
+      case find_revision_replay(decision, payload) do
+        %DecisionRevision{} = accepted ->
+          correlated = correlate_override(payload, accepted.prior_action_id, accepted.sequence - 1)
+          handle_revision(id, correlated, Keyword.put(opts, :override, accepted.override), state)
+
+        nil ->
+          accept_override(decision, payload, actor, opts, state)
+      end
+    else
+      nil -> {:reply, {:error, :answer_missing}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp accept_override(decision, payload, actor, opts, state) do
+    target = CommandOverrides.target_ticket(decision).identifier
+
+    if Keyword.get(opts, :override_target_identifier, target) == target,
+      do: accept_target_override(decision, payload, actor, opts, state),
+      else: {:reply, {:error, {:conflict, :override_target_changed}}, state}
+  end
+
+  defp accept_target_override(decision, payload, actor, opts, state) do
+    opts = Keyword.put(opts, :override, Overrides.metadata(opts))
+    correlated = correlate_override(payload, decision.active_action_id, decision.revision_sequence)
+    replaceable? = ConflictSummary.for(decision, actor).replaceable
+
+    current? =
+      AgentLifecycle.payload_value(correlated, :expected_action_id) == decision.active_action_id and
+        AgentLifecycle.payload_value(correlated, :expected_revision_sequence) == decision.revision_sequence
+
+    if replaceable? and current?,
+      do: handle_supersede(decision.decision_id, correlated, opts, state),
+      else: handle_revision(decision.decision_id, correlated, opts, state)
+  end
+
+  defp correlate_override(payload, action_id, sequence) do
+    payload
+    |> Map.put_new("expected_action_id", AgentLifecycle.payload_value(payload, :expected_action_id) || action_id)
+    |> Map.put_new("expected_revision_sequence", AgentLifecycle.payload_value(payload, :expected_revision_sequence) || sequence)
   end
 
   # A relayed quote must not override an answer recorded directly by the operator.
@@ -50,6 +103,14 @@ defmodule Aiur.DecisionStore.Revisions do
   defp accept_revision_unless_moot(decision, payload, actor, opts, state),
     do: accept_revision(decision, payload, actor, opts, state)
 
+  # An exact replay returns its recorded revision and never replaces the active answer.
+  defp require_new_actor_may_replace(decision, payload, actor) do
+    case find_revision_replay(decision, payload) do
+      nil -> Answering.require_actor_may_replace(actor, Decision.active_answer(decision))
+      %DecisionRevision{} -> :ok
+    end
+  end
+
   # Supersede is the Executor's way to replace a decided answer that no agent
   # has received (#2711). It reuses the revision record, so the replaced answer
   # stays in the audit trail and only the newest action is dispatched. The
@@ -59,14 +120,14 @@ defmodule Aiur.DecisionStore.Revisions do
   @spec handle_supersede(term(), term(), term(), term()) :: term()
   def handle_supersede(decision_id, payload, opts, state) do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
-         {:ok, _actor} <- Answers.fetch_actor(opts) do
+         {:ok, actor} <- Answers.fetch_actor(opts) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted ->
           correlated = supersede_payload(payload, accepted.prior_action_id, accepted.sequence - 1)
-          handle_revision(decision_id, correlated, opts, state)
+          handle_revision(decision_id, correlated, Keyword.put(opts, :actor, actor), state)
 
         nil ->
-          supersede_current(decision, payload, opts, state)
+          supersede_current(decision, payload, Keyword.put(opts, :actor, actor), state)
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
@@ -189,7 +250,12 @@ defmodule Aiur.DecisionStore.Revisions do
     options = if addressed, do: addressed.options, else: decision.options
     now = Keyword.get(opts, :now, DateTime.utc_now())
     request = addressed || decision
-    normalization_opts = Keyword.put(opts, :now, now)
+
+    allow_delegated_human_required? =
+      is_function(Map.get(state, :allow_reversible_human_required_answers)) and
+        state.allow_reversible_human_required_answers.() == true
+
+    normalization_opts = opts |> Keyword.put(:now, now) |> Keyword.put(:allow_reversible_human_required, allow_delegated_human_required?)
 
     answer_normalizer = fn answer_payload, _revision_opts ->
       Answers.normalize_answer(answer_payload, request, decision_version, options, actor, normalization_opts)
@@ -202,7 +268,8 @@ defmodule Aiur.DecisionStore.Revisions do
       current_revision_sequence: current_revision_sequence,
       actor: actor,
       now: now,
-      answer_normalizer: answer_normalizer
+      answer_normalizer: answer_normalizer,
+      override: Keyword.get(opts, :override)
     )
   end
 
@@ -220,6 +287,7 @@ defmodule Aiur.DecisionStore.Revisions do
   defp persist_revision(decision, revision, state) do
     case Persistence.build_and_persist_event(:revision_recorded, decision, revision, revision.recorded_at, state) do
       {:ok, next_state, updated} ->
+        send(self(), :reconcile_corrective_overrides)
         Answers.notify_operator_relay(revision.answer, updated, next_state)
         next_state = Settlement.ensure_superseded_revision_follow_ups(next_state, updated)
         current = Map.fetch!(next_state.current, updated.decision_id)

@@ -1,28 +1,12 @@
 defmodule Aiur.Config.Paths do
   @moduledoc """
-  Canonical path-resolution helpers shared across modules that persist
-  per-issue or repo-scoped state.
-
-  Single source of truth for:
-
-    * `log_root_dir/0` — the per-launch directory under which
-      `<repo>.<id>.log` and other run logs live. Respects
-      `Application.get_env(:aiur, :log_file)` (set by the `--logs-root` CLI
-      flag), falls back to `<cwd>/log`. The launcher makes a new one on every
-      daemon launch, so state that must survive a restart belongs in
-      `runtime_state_dir/0` or `decision_state_dir/0` instead.
-    * `repo_name/0` — the sanitized identifier used to prefix per-issue
-      files. Comes from the configured project identity source; failure-safe.
-    * `sanitize/1` — replaces shell/path-unsafe characters with `_` so
-      values from external sources (label slugs, repo names) can't escape
-      filesystem boundaries.
-
-  Consumers: `Aiur.IssueLog`, `Aiur.LogFile`, and the durable stores that
-  adopt their per-launch files through `Aiur.LaunchStateAdoption`.
+  Canonical path helpers for per-issue and repo-scoped state. Persistent state
+  belongs under runtime_state_dir/0 or decision_state_dir/0; log_root_dir/0
+  belongs to one launch. repo_name/0 and sanitize/1 keep tracker identifiers
+  within filesystem boundaries.
   """
 
-  alias Aiur.PathSafety
-
+  alias Aiur.{Config.VoiceConversationPaths, PathSafety}
   @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
   @doc false
@@ -31,10 +15,13 @@ defmodule Aiur.Config.Paths do
     Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
   end
 
-  @doc """
-  Returns the per-launch log directory. Defaults to `<cwd>/log` when no
-  `--logs-root` was set. It does not survive a daemon restart.
-  """
+  @doc "Per-instance Stream Deck preferences; independent of the current launch."
+  @spec streamdeck_settings_path(String.t()) :: Path.t()
+  def streamdeck_settings_path(instance_key) do
+    Path.join([dashboard_secret_root(), "instances", sanitize(instance_key), "streamdeck-settings.json"])
+  end
+
+  @doc "Returns the per-launch log directory, defaulting to `<cwd>/log`; it does not survive a restart."
   @spec log_root_dir() :: Path.t()
   def log_root_dir do
     case Application.get_env(:aiur, :log_file) do
@@ -73,6 +60,17 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @doc "Resolves owner-only conversations beneath the decision state root; :conversation_state_dir overrides it."
+  @spec conversation_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def conversation_state_dir do
+    case Application.get_env(:aiur, :conversation_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "conversations")}
+    end
+  end
+
+  @spec voice_conversation_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def voice_conversation_state_dir, do: VoiceConversationPaths.voice_conversation_state_dir()
   @doc "Resolves the build queue directory beneath the instance- and project-qualified state root."
   @spec build_queue_dir() :: {:ok, Path.t()} | {:error, atom()}
   def build_queue_dir do
@@ -102,15 +100,16 @@ defmodule Aiur.Config.Paths do
     end
   end
 
-  @doc """
-  Resolves the daemon-private retained-progress state directory.
+  @doc "Resolves the daemon-private outbound event delivery queue directory."
+  @spec outbound_events_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def outbound_events_state_dir do
+    case Application.get_env(:aiur, :outbound_events_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "outbound-events")}
+    end
+  end
 
-  Retained progress is the durable last-known progress reading per ticket
-  (`Aiur.ProgressRetention`); it survives projection and daemon restarts so the
-  fleet never re-enters `unknown` for a ticket that already reported. It owns
-  its own leaf so it can never be mistaken for, or replayed as, decision or
-  membership state.
-  """
+  @doc "Resolves daemon-private retained-progress state beneath the decision root."
   @spec progress_retention_state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def progress_retention_state_dir do
     case Application.get_env(:aiur, :progress_retention_state_dir) do
@@ -121,6 +120,14 @@ defmodule Aiur.Config.Paths do
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "progress-retention")}
         end
+    end
+  end
+
+  @spec history_backfill_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def history_backfill_state_dir do
+    case Application.get_env(:aiur, :history_backfill_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "history-backfill")}
     end
   end
 
@@ -318,11 +325,7 @@ defmodule Aiur.Config.Paths do
     end
   end
 
-  @doc """
-  Returns the sanitized last segment of the tracker's project identity,
-  or `"aiur"` if no identity is available. Safe to use as a filename
-  prefix.
-  """
+  @doc "Returns a filename-safe project identity leaf, or `aiur` if unavailable."
   @spec repo_name() :: String.t()
   def repo_name do
     case safe_project_identity() do

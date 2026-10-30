@@ -37,6 +37,8 @@ defmodule Aiur.AgentQueueStore do
           required(:category) => AgentQueueItem.category(),
           required(:event_type) => atom(),
           required(:body) => map(),
+          optional(:origin) => atom(),
+          optional(:actor) => String.t(),
           optional(:delivery) => map(),
           optional(:action_id) => String.t(),
           optional(:correlation) => map(),
@@ -44,7 +46,8 @@ defmodule Aiur.AgentQueueStore do
           optional(:dedupe_key) => String.t(),
           optional(:causal_refs) => [String.t()],
           optional(:turn_id) => String.t(),
-          optional(:subscription) => map()
+          optional(:subscription) => map(),
+          optional(:persist_across_restart?) => boolean()
         }
 
   @spec new() :: t()
@@ -61,6 +64,8 @@ defmodule Aiur.AgentQueueStore do
       sequence: store.next_sequence,
       target_issue_identifier: target_issue_identifier,
       source: Map.fetch!(attrs, :source),
+      origin: Map.get(attrs, :origin),
+      actor: Map.get(attrs, :actor),
       category: Map.fetch!(attrs, :category),
       event_type: Map.fetch!(attrs, :event_type),
       body: Map.fetch!(attrs, :body),
@@ -74,7 +79,8 @@ defmodule Aiur.AgentQueueStore do
       subscription: Map.get(attrs, :subscription),
       status: :pending,
       delivery_attempts: 0,
-      inserted_at: now
+      inserted_at: now,
+      persist_across_restart?: Map.get(attrs, :persist_across_restart?, false)
     }
 
     store =
@@ -215,6 +221,18 @@ defmodule Aiur.AgentQueueStore do
     end
   end
 
+  @doc false
+  @spec restore_persisted_items(t(), [AgentQueueItem.t()]) :: t()
+  def restore_persisted_items(%__MODULE__{} = store, items) when is_list(items) do
+    Enum.reduce(items, store, fn %AgentQueueItem{} = item, acc ->
+      acc = acc |> Items.put_item(item) |> TargetIndex.add_item(item)
+      acc = if item.status == :pending, do: Items.append_pending_id(acc, item.target_issue_identifier, item.id), else: acc
+      acc = if is_binary(item.action_id), do: %{acc | item_id_by_action: Map.put(acc.item_id_by_action, Correlation.delivery_key(item.action_id, item.correlation), item.id)}, else: acc
+      acc = if is_binary(item.message_id), do: %{acc | item_id_by_message_id: Map.put(acc.item_id_by_message_id, item.message_id, item.id)}, else: acc
+      %{acc | next_id: max(acc.next_id, item.id + 1), next_sequence: max(acc.next_sequence, item.sequence + 1)}
+    end)
+  end
+
   @spec mark_failed(t(), integer(), term()) :: {t(), AgentQueueItem.t() | nil}
   def mark_failed(%__MODULE__{} = store, item_id, reason) when is_integer(item_id) do
     Items.update_item(store, item_id, fn item ->
@@ -312,6 +330,22 @@ defmodule Aiur.AgentQueueStore do
     |> sort_items()
   end
 
+  @doc "Replace delivery only for pending operator messages stamped with a listener mode."
+  @spec update_pending_delivery(t(), String.t(), (map() -> map())) :: t()
+  def update_pending_delivery(%__MODULE__{} = store, target, fun)
+      when is_binary(target) and is_function(fun, 1) do
+    store
+    |> TargetIndex.items_for(target)
+    |> Enum.reduce(store, fn
+      %AgentQueueItem{status: :pending, category: category, delivery: %{listener_mode_at_claim: _}} = item, acc
+      when category == :operator_message or (category == :system_notice and item.event_type == :async_backlog_notice) ->
+        Items.put_item(acc, %{item | delivery: fun.(item.delivery)})
+
+      _item, acc ->
+        acc
+    end)
+  end
+
   @spec list_visible_operator_messages(t(), String.t()) :: [AgentQueueItem.t()]
   def list_visible_operator_messages(%__MODULE__{} = store, target_issue_identifier)
       when is_binary(target_issue_identifier) do
@@ -388,7 +422,7 @@ defmodule Aiur.AgentQueueStore do
     pending_ids
     |> Enum.map(&Map.get(store.items, &1))
     |> Enum.reject(&is_nil/1)
-    |> Enum.filter(&(&1.status == :pending))
+    |> Enum.filter(&(&1.status == :pending and not pull_held?(&1)))
     |> sort_items()
     |> List.first()
   end
@@ -396,10 +430,12 @@ defmodule Aiur.AgentQueueStore do
   defp next_pending_item_matching(store, pending_ids, matcher) do
     pending_ids
     |> Enum.map(&Map.get(store.items, &1))
-    |> Enum.filter(&(match?(%AgentQueueItem{status: :pending}, &1) and matcher.(&1)))
+    |> Enum.filter(&(match?(%AgentQueueItem{status: :pending}, &1) and not pull_held?(&1) and matcher.(&1)))
     |> sort_items()
     |> List.first()
   end
+
+  defp pull_held?(item), do: item.delivery[:consume_at] == :pull
 
   defp sort_items(items) do
     Enum.sort_by(items, fn item -> {priority_rank(item.delivery[:priority]), item.sequence} end)

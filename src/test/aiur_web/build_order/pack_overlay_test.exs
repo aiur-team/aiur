@@ -1,14 +1,13 @@
 defmodule AiurWeb.BuildOrder.PackOverlayTest do
   use ExUnit.Case, async: false
 
-  import Phoenix.LiveViewTest
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.{DataSource, PackOverlay}
   alias AiurWeb.BuildOrderPresenter
-  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderGridModel}
+  alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
   defmodule Projection do
     def catalog, do: Process.get(:live_catalog)
@@ -26,7 +25,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
       "repository" => "acme/widgets",
       "root_number" => 99,
       "title" => "Full program",
-      "workstreams" => [%{"id" => "core", "title" => "Kernel epic"}],
+      "workstreams" => [%{"id" => "core", "title" => "Kernel epic", "icon" => "cpu-chip", "summary" => "Kernel feature", "wave" => "0b"}],
       "phases" => [%{"phase" => 0, "title" => "Foundation phase"}],
       "external_gates" => [%{"id" => "DESIGN", "title" => "Owner design", "owner" => "Owner", "blocks" => 2}],
       "tickets" => [ticket("T1", 10), Map.put(ticket("T2", nil), "depends_on", ["T1"])]
@@ -76,14 +75,6 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     model = BuildOrderPresenter.present(selected, :unavailable, :unavailable)
     assert model.status == :ready
     assert length(model.edges) == 1
-    html = render_graph(selected, model)
-    assert html =~ "Live promoted title"
-    assert html =~ "Draft T2"
-    assert html =~ "Kernel epic"
-    assert html =~ "Foundation phase"
-    assert html =~ "Owner design"
-    refute html =~ "Phase label is invalid"
-    assert length(Floki.find(Floki.parse_fragment!(html), "[data-bo-card]")) == 2
   end
 
   test "a cold production pack demands the live read even while drafts render", %{selected: selected, root: root} do
@@ -106,14 +97,9 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     assert length(combined.data.members) == 2
   end
 
-  test "collapsed epic removes its cards while retaining counts and phase labels", %{root: root} do
+  test "planning model retains nodes for the CLI after graph rendering is retired", %{root: root} do
     {:ok, selected} = DataSource.selected(root.identity, graph_projection: Projection)
     model = BuildOrderPresenter.present(selected, :unavailable, :unavailable)
-    html = render_graph(selected, model, ["core"])
-    assert html =~ "Expand Kernel epic"
-    assert html =~ "aria-expanded=\"false\""
-    assert html =~ "Foundation phase"
-    assert Floki.find(Floki.parse_fragment!(html), "[data-bo-card]") == []
     assert length(model.nodes) == 2
   end
 
@@ -125,9 +111,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     assert length(model.nodes) == 650
     grid = BuildOrderGridModel.build(model, nil)
     assert Enum.map(grid.waves, & &1.phase) == [0]
-    html = render_graph(selected, model)
-    assert length(Floki.find(Floki.parse_fragment!(html), "[data-bo-card]")) == 650
-    assert Floki.find(Floki.parse_fragment!(render_graph(selected, model, ["core"])), "[data-bo-card]") == []
+    assert length(grid.cards) == 650
   end
 
   test "pack removal refreshes catalog and selected drafts without waiting for a GitHub generation", %{path: path, root: root} do
@@ -171,18 +155,6 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     [merged] = snapshot.data.entries
     assert merged.member_count == 2
     assert {merged.github_member_count, merged.member_read_count} == {501, 100}
-  end
-
-  defp render_graph(snapshot, model, collapsed \\ []) do
-    render_component(&BuildOrderGraph.build_order_graph/1,
-      id: "program",
-      root_id: "99",
-      provider_generation: 1,
-      dom_generation: 1,
-      model: model,
-      pack_metadata: snapshot.data.pack_metadata,
-      collapsed_epics: collapsed
-    )
   end
 
   defp ticket(id, number), do: %{"id" => id, "title" => "Draft #{id}", "ticket" => number, "doc" => "tickets/#{id}.md", "phase" => 0, "lane" => "core", "complexity" => 3, "depends_on" => []}

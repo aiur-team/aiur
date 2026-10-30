@@ -1,19 +1,30 @@
-import { failedSpecAnnotationLines } from './github-failure-annotations.mjs'
+import { failedSpecAnnotationLines } from "./github-failure-annotations.mjs";
 
 export default class GitHubFailureReporter {
-  #failures = []
+  #failures = [];
 
   constructor(_config, write = (line) => process.stdout.write(`${line}\n`)) {
-    this.write = write
+    this.write = write;
   }
 
   onTestEnd(test, result) {
-    this.#failures.push({ file: test.location?.file, status: result.status })
+    this.#failures.push({
+      file: test.location?.file,
+      line: test.location?.line,
+      title: test.title,
+      titlePath: typeof test.titlePath === "function" ? test.titlePath() : [],
+      status: result.status,
+    });
   }
 
   onEnd() {
     // An expected-failure run (verify-failure-artifacts.mjs) writes no failure annotation.
-    if (process.env.GITHUB_ACTIONS !== 'true' || process.env.AIUR_BROWSER_EXPECT_FAILURE === '1') return
-    for (const line of failedSpecAnnotationLines(this.#failures)) this.write(line)
+    if (
+      process.env.GITHUB_ACTIONS !== "true" ||
+      process.env.AIUR_BROWSER_EXPECT_FAILURE === "1"
+    )
+      return;
+    for (const line of failedSpecAnnotationLines(this.#failures))
+      this.write(line);
   }
 }

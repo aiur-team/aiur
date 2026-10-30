@@ -8,6 +8,7 @@ defmodule Aiur.CurrentRunMembership.Reconciler do
   alias Aiur.AgentPubSub
   alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunMembership.Reconciler.Snapshot
+  alias Aiur.CurrentRunMembership.Store
   alias Aiur.Orchestrator, as: Orchestrator
   alias Aiur.Orchestrator.{DispatchPolicy, SnapshotStore}
   alias Aiur.TrackerIdentity
@@ -36,7 +37,8 @@ defmodule Aiur.CurrentRunMembership.Reconciler do
   def init(opts) do
     state = %{
       snapshot_fun: Keyword.get(opts, :snapshot_fun, &current_snapshot/0),
-      observe_fun: Keyword.get(opts, :observe_fun, &CurrentRunMembership.observe/2),
+      observe_fun: Keyword.get(opts, :observe_fun, &Store.observe_many/1),
+      stored_lifecycles_fun: Keyword.get(opts, :stored_lifecycles_fun, &Store.lifecycles/0),
       terminal_states_fun: Keyword.get(opts, :terminal_states_fun, &DispatchPolicy.terminal_state_set/0),
       subscribe_fun: Keyword.get(opts, :subscribe_fun, &AgentPubSub.subscribe_running/0),
       membership_subscribe_fun: Keyword.get(opts, :membership_subscribe_fun, &CurrentRunMembership.subscribe/0),
@@ -198,9 +200,17 @@ defmodule Aiur.CurrentRunMembership.Reconciler do
   end
 
   defp reconcile_available(state, snapshot, terminal_states, _kind) do
-    results = Snapshot.reconcile(snapshot, state.observe_fun, terminal_states)
-    status = reconciliation_status(results)
-    {remember_lifecycles(state, status, Snapshot.lifecycle_map(snapshot, terminal_states)), status}
+    # Compare against the actual store so periodic repair still fixes missed events
+    # and store restarts without constructing duplicate events for every member.
+    case state.stored_lifecycles_fun.() do
+      stored when is_map(stored) ->
+        {results, current} = Snapshot.reconcile_changes(snapshot, stored, state.observe_fun, terminal_states)
+        status = reconciliation_status(results)
+        {remember_lifecycles(state, status, current), status}
+
+      _unavailable ->
+        {%{state | last_lifecycles: nil}, :unavailable}
+    end
   end
 
   defp remember_lifecycles(state, :fresh, lifecycles), do: %{state | last_lifecycles: lifecycles}

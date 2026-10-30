@@ -5,6 +5,9 @@ defmodule Aiur.DecisionStore.Info do
 
   alias Aiur.Decision
   alias Aiur.DecisionPubSub
+  alias Aiur.DecisionStore.CorrectiveOverrides
+  alias Aiur.DecisionStore.OverrideMerges
+  alias Aiur.DecisionStore.OverridePushes
 
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
@@ -16,6 +19,39 @@ defmodule Aiur.DecisionStore.Info do
   alias Aiur.DecisionStore.Settlement
 
   @spec handle_info(term(), term()) :: term()
+  def handle_info(:reconcile_override_pushes, state) do
+    if state.writable?, do: OverridePushes.reconcile(state)
+    state = CorrectiveOverrides.reconcile(state)
+    timer = Process.send_after(self(), :reconcile_override_pushes, 30_000)
+    {:noreply, %{state | override_reconcile_timer: timer}}
+  end
+
+  def handle_info(:reconcile_corrective_overrides, state),
+    do: {:noreply, CorrectiveOverrides.reconcile(state)}
+
+  def handle_info({:corrective_override_result, correlation, result}, state),
+    do: {:noreply, CorrectiveOverrides.settle(state, correlation, result)}
+
+  def handle_info({:event, event}, state) do
+    if state.writable?, do: {:noreply, OverridePushes.ingest(state, event)}, else: {:noreply, state}
+  end
+
+  def handle_info({:override_ticket_merged, identifier}, state) do
+    if state.writable?, do: {:noreply, CorrectiveOverrides.merge_observed(state, identifier)}, else: {:noreply, state}
+  end
+
+  def handle_info({:override_merge_observed, candidates, pr}, state) do
+    if state.writable?,
+      do: {:noreply, OverrideMerges.settle(state, candidates, pr)},
+      else: {:noreply, state}
+  end
+
+  def handle_info({:override_push_observed, candidates, sha, ref, at, pr}, state) do
+    if state.writable?,
+      do: {:noreply, OverridePushes.settle(state, candidates, sha, ref, at, pr)},
+      else: {:noreply, state}
+  end
+
   def handle_info(:repair_decision_projection, state) do
     if state.projection_retry, do: Process.cancel_timer(state.projection_retry)
     {:noreply, Persistence.repair_projection(%{state | projection_retry: nil})}
@@ -93,8 +129,12 @@ defmodule Aiur.DecisionStore.Info do
       ) do
     case Dispatch.take_matching_dispatch(state, correlation) do
       {:ok, state} ->
-        state = Settlement.settle_dispatch(state, decision_id, action_id, attempt_id, result)
-        {:noreply, Dispatch.maybe_schedule_superseding_dispatch(state, decision_id, action_id)}
+        if Dispatch.target_current?(state, correlation) do
+          state = Settlement.settle_dispatch(state, decision_id, action_id, attempt_id, result)
+          {:noreply, Dispatch.maybe_schedule_superseding_dispatch(state, decision_id, action_id)}
+        else
+          {:noreply, Dispatch.maybe_schedule_current(state, decision_id)}
+        end
 
       :stale ->
         {:noreply, state}
@@ -111,6 +151,7 @@ defmodule Aiur.DecisionStore.Info do
       state
       |> Map.merge(%{
         dispatching: %{},
+        corrective_override_jobs: %{},
         decision_dispatch_monitor_pid: nil,
         decision_dispatch_monitor_ref: nil,
         decision_dispatch_monitor_reconcile?: true

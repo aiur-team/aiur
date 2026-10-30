@@ -52,8 +52,10 @@
   "optional": [
     "accounting",
     "build-queue",
+    "conversations",
     "executor-attention",
     "github",
+    "github-access",
     "github-listeners"
   ],
   "owns": {
@@ -102,5 +104,6 @@
   "capabilities": [],
   "forbid": [
     "Aiur.GitHub.Listeners.*"
-  ]
+  ],
+  "goal": "run-agents"
 }

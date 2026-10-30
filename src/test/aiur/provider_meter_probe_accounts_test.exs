@@ -7,7 +7,6 @@ defmodule Aiur.ProviderMeterProbeAccountsTest do
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.{CLI, Events}
   alias Aiur.ProviderMeterSnapshot
-  alias AiurWeb.StreamdeckProjection
 
   defmodule MultiWindowUsageApi do
     @moduledoc false
@@ -76,9 +75,6 @@ defmodule Aiur.ProviderMeterProbeAccountsTest do
     view = ProviderMeterProjection.provider_view(ctx.projection, :claude)
     assert view.summary_label == "worst of 2 accounts · max"
     assert view.windows["seven_day"].used_percent == 94
-    deck = StreamdeckProjection.provider_meters(%{claude: view}, snapshot.observed_at)
-    assert deck["claude"]["summary_label"] == "worst of 2 accounts · max"
-    assert deck["claude"]["windows"]["weekly"]["used_percent"] == 94
     output = ExUnit.CaptureIO.capture_io(fn -> CLI.print({:claude, view}) end)
     assert output =~ "94%"
     assert output =~ "worst of 2 accounts · max"

@@ -3,11 +3,13 @@ defmodule Aiur.Application.Children do
   The one boot-order authority: the supervision child list for a run shape.
   """
 
+  alias Aiur.Application.ExportChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
+  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
 
   @doc """
   Build the supervision children for the given run shape.
@@ -48,8 +50,10 @@ defmodule Aiur.Application.Children do
 
     instance_role = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0)
 
+    # The shared unit-test app turns repository services off: they poll GitHub and log into other tests' captures (#6474).
     github_tracker? =
-      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
+      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end) and
+        Keyword.get(opts, :repository_services?, Application.get_env(:aiur, :repository_services?, true))
 
     main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
 
@@ -127,6 +131,8 @@ defmodule Aiur.Application.Children do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      # Channels and browser mounts need cached settings before HTTP starts.
+      AiurWeb.Streamdeck.Deck.SettingsSnapshot,
       Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
       Aiur.DecisionDispatchTasks,
@@ -163,7 +169,11 @@ defmodule Aiur.Application.Children do
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
       {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
+      Aiur.Conversation.HeadTable,
+      {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      Aiur.Conversation.ResolverSupervisor,
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
       Aiur.PostDeployChecklist,
@@ -255,6 +265,7 @@ defmodule Aiur.Application.Children do
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
+      Aiur.Commands.Routing,
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.
@@ -310,19 +321,25 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_projection, opts) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        dashboard_cache_children(dashboard?) ++
+        dashboard_cache_children(dashboard?, opts) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
-        dashboard_final_children(dashboard?, opts)
+        [Aiur.Netlify.Usage] ++
+        Aiur.VoiceConversation.child_specs() ++
+        dashboard_final_children(dashboard?, opts) ++
+        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
+        BuildOrders.child_specs(:label_backfill, opts) ++
+        List.wrap(if(recording?, do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest]))
     )
   end
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
+      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
 
-  defp dashboard_cache_children(dashboard?) do
+  defp dashboard_cache_children(dashboard?, opts) do
     List.wrap(
       if(dashboard?,
         do: [
@@ -330,11 +347,14 @@ defmodule Aiur.Application.Children do
           {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
         ]
       )
-    )
+    ) ++ if(dashboard?, do: BuildOrders.child_specs(:timeline_cache, opts), else: [])
   end
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
-    store_children = if LeaseStore.configured?(), do: [LeaseStore, Heartbeat], else: []
+    store_children =
+      if LeaseStore.configured?(),
+        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
+        else: []
 
     services =
       []

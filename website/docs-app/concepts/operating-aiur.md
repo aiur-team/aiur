@@ -11,6 +11,99 @@
 
 [Capabilities](/concepts/capabilities) describes how clients discover available instance features.
 
+## Listener modes
+
+Listener modes control when a conversation message reaches an agent's session.
+
+| Mode | Meaning |
+| --- | --- |
+| **Steer · interrupts** (`steer`) | Deliver at the earliest supported safe boundary inside the active turn; if idle, start a turn. |
+| **Sync · next turn** (`sync`) | Hold during active work, then deliver at the turn boundary; if idle, start a turn unless an agent sent the input unaddressed. |
+| **Async · pings only** (`async`) | Hold the body for agent pull; an addressed message sends a content-free nudge. |
+| **Mute · silent** (`mute`) | Hold input silently, without waking the agent. |
+
+Workers default to `sync`. Dashboard, Stream Deck, CLI, HTTP, voice, and TUI
+conversation sends follow the effective mode. In Sync, dictation during active
+work waits until the turn ends. Use the separate interrupt control for stuck
+work; changing a mode does not change admission, trust, approval, or capacity.
+
+Operator-paused workers stay paused until resumed. Sync and Steer input can
+resume a worker that paused itself for input. In Sync, unaddressed agent
+broadcasts wait for the next turn; actionable signals from declared blockers
+still wake the agent.
+
+Read or change a worker's preference with
+[`aiur listen-mode`](/reference/cli-operations#inspect-and-operate-a-running-daemon):
+
+```sh
+aiur listen-mode 142 --json
+aiur listen-mode 142 async --expected-version 0
+```
+
+Use the version returned by the read. A stale write returns the current record
+and exits 3. Humans and the Executor may change worker modes; changes record
+the actor. The preference belongs to the ticket run and survives respawn and
+daemon restart. There is no global default-mode configuration key in v1.
+
+The [dashboard drawer](/guide/gui) shows the selector and both requested and
+effective modes when they differ. The [TUI](/guide/tui) has a read-only listener
+column with the unread count; use the CLI to change its mode.
+
+### Requested and effective mode
+
+`requested` is the stored preference. `effective` follows the running harness
+and installed tools: use the requested mode when supported, otherwise try
+`sync`, then `async`, or report no effective mode. Mute remains mute.
+An unusable listener specification refuses conversation sends.
+
+Current harness support determines the projection.
+
+| Running harness | Sync | Steer | Async |
+| --- | --- | --- | --- |
+| `codex` | Proven | Experimental native `turn/steer` | Proven with read tool installed |
+| `claude` (headless) | Proven | Unsupported (`steer_not_wired`); falls back to Sync | Proven with read tool installed |
+| `claude-repl` | Experimental | Experimental native pane input | Unsupported (`pull_tool_unavailable`); falls back to Sync |
+| `muse` | Proven | Experimental native MSP steering | Proven with read tool installed |
+| `kimi`, `deepseek`, `openrouter` | Proven | Unsupported (`no_interrupt`); falls back to Sync | Proven with read tool installed |
+
+Support follows the running transport, including fallback from `claude-repl`
+to headless `claude`. An older resumed Codex session can lack the read tool
+even when a fresh session supports it.
+
+`effective_reason` explains a downgrade. `not_running` or `harness_unknown`
+means no effective mode is known; `pending_session_start` marks a projection
+from dispatch facts before session startup. A native steer rejection can defer
+the message to the next turn rather than cancel the active turn.
+
+The interrupt carrier, when enabled, is labelled
+**steer (interrupts current turn)**: it cancels the active turn and starts a new
+one with the message. Current worker mode projection does not enable that
+carrier. Explicit interrupt controls, including chat `Ctrl+C`, remain separate.
+
+### Message scope and async reads
+
+Conversation messages obey the mode. Command answers, orchestrator event
+digests (reviews, CI, blockers), and pause, resume, interrupt, and stop controls
+keep their own delivery policies.
+
+With async effective, call `aiur_read_messages` after a nudge, at natural pauses,
+and before yielding or finishing. It **consumes and acknowledges** held messages,
+oldest first; it is not a preview. Check `remaining` and read further batches.
+A lost reply after acknowledgement cannot be replayed.
+
+See [held async and mute messages](/concepts/message-bus#held-async-and-mute-messages) for limits
+and queue-lifetime details. Leaving Async or Mute for Sync or Steer sends a
+notice while earlier bodies stay pull-only if async support remains usable.
+If the pull tool becomes unavailable, held bodies follow the effective mode.
+
+[`aiur executor-attach`](/reference/cli-decisions#decisions-executor-events-and-findings)
+adds delivery hooks at prompt, tool, and Stop boundaries for the external
+Executor session.
+
+Claude installs them while preserving user hooks; Codex
+prints configuration for an explicit merge and trust review, as described in
+[generated hook settings](/concepts/executor#generated-hook-settings).
+
 ## Hosted execution safety
 
 Set `instance.mode: hosted` only when every dispatchable backend has explicit,
@@ -179,6 +272,18 @@ Executor attention and retains the claim until intervention or a new daemon boot
 | Chat pane | Sends Executor text into the live session. |
 
 Remote control is opt-in per agent and local-only in v1.
+
+## Remote control calls
+
+POST `/api/v1/control` runs allowlisted literal calls with a `Bearer` token and
+returns local `aiur` output. Writes need a `write` token and `max_scope: write`;
+results include instance and build identity. The body limit is 65,536 bytes;
+the daemon records writes and refusals in `control-audit.ndjson`.
+
+A `write` token grants close to full control of that instance. It can message
+agents, and an agent with a shell can turn a message into code execution. Keep
+write tokens in an environment variable outside agent workspaces. Read tokens
+may be stored in files readable only by their owner (`0600`).
 
 
 ## Capability report

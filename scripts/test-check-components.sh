@@ -3,8 +3,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo_root" "$@" <<'PY'
-import json
-import os
+import json, os
 from pathlib import Path
 import shutil
 import subprocess
@@ -131,8 +130,8 @@ if with_node:
         if any(file.startswith('src/lib/') for file in files):
             components.append(component('daemon', ['src/lib/**']))
         check(name, components, files, code, messages, rules='all', links=links)
-
     imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('self_reference_passes', 'import "a";')
     imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
             ('R-client', 'src/lib/foo.js'))
     imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),
@@ -169,6 +168,7 @@ if with_node:
     imports('relative_symlink_into_src_fails', 'import "./leak/index.js";', 1, ('R-client', 'src/lib/leak/index.js'),
             extra={'src/lib/leak/index.js': ''}, links={'packages/a/src/leak': 'src/lib/leak'})
     imports('non_js_package_dir_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': ''})
+    imports('mix_package_static_js_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': '', 'packages/elixir/voice_converse/priv/static/client.js': ''})
     imports('missing_package_json_exits_2', '', 2, ('package.json',), extra={'packages/b/src/x.ts': ''})
     imports('external_resource_into_packages_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
@@ -190,14 +190,13 @@ if with_node:
             extra={'src/lib/foo.ex': '@external_resource(\n  "../../packages/a/x.json"\n)'})
     imports('resource_alias_chain_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@path "../../packages/a/x.json"\n@resource @path\n@external_resource @resource'})
-    imports('streamdeck_external_resource_into_package_rejected', '', 1, ('R-reverse-resource', 'packages/streamdeck/src/key-face-contract.json'),
-            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
-                   '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',
+    imports('streamdeck_external_resource_into_package_rejected', '', 1, ('R-reverse-resource', 'packages/streamdeck/src/resource-fixture.json'),
+            extra={'src/lib/aiur_web/streamdeck_resource_fixture.ex':
+                   '@contract_path Path.expand("../../../packages/streamdeck/src/resource-fixture.json", __DIR__)\n@external_resource @contract_path',
                    'packages/streamdeck/package.json': '{"name":"streamdeck"}'})
     imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
-            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
+            extra={'src/lib/aiur_web/streamdeck_resource_fixture.ex':
                    '@external_resource "../../../packages/a/other.json"'})
-
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
     'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',
@@ -299,11 +298,11 @@ else:
         shipped = next(c for c in read_manifest(repo)['components'] if c['id'] == 'experiments')
         manifest['components'][0]['forbid'] = shipped['forbid']
         (root / 'components.json').write_text(json.dumps(manifest))
-
     reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1,
                     ('R-forbid experiments -> Aiur.Orchestrator',), change=use_experiments_contract)
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
     from components.github_access_fixtures import run as access_checks; access_checks(reference_check)
+    from components.package_reference_fixtures import run as package_checks; package_checks(reference_check)
     reference_check('declared_facade_passes', 'declared_facade_passes')
     # Future-regression guard: component routes import the kit, never the shell.
     reference_check('component_route_kit_passes', 'component_routes', messages=('R-down: 0',))
@@ -497,4 +496,5 @@ if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
   python3 "$repo_root/scripts/test-github-components.py"
 fi
+python3 "$repo_root/scripts/test-component-goals.py"
 printf '%s\n' 'check-components guard: all selected cases passed'

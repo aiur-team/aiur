@@ -23,6 +23,8 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"reset budget", "cmd_reset_budget 123 456", :write, []},
     {"todo", "run_todo --todo 123 456", :write, []},
     {"workspace recover", "cmd_workspace_recover ENG-123 7", :write, []},
+    {"listen mode read", "cmd_listen_mode 123 --json", :read, []},
+    {"listen mode write", "cmd_listen_mode 123 async --expected-version 0", :write, []},
     {"message", "cmd_message 123 hello from operator", :write, []},
     {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
     {"message status", "cmd_message --status 7", :read, []},
@@ -55,6 +57,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"experiments stats", "cmd_experiments stats 123", :read, []},
     {"experiments freeze", "cmd_experiments freeze", :write, []},
     {"operator relay answer", "cmd_operator_relay_answer decision --expected-version 1 --option yes --quote approved --relayed-by executor --idempotency-key key", :write, []},
+    {"executor ack", "cmd_executor_ack dec_0123456789abcdef --executor-id worker", :write, []},
     {"executor answer", "cmd_executor_answer decision --expected-version 1 --option yes --rationale approved --idempotency-key key", :write, []},
     {"executor escalate", "cmd_executor_escalate decision --expected-version 1 --reason help", :write, []},
     {"executor reclassify", "cmd_executor_reclassify decision --expected-version 1 --rationale update", :write, []},
@@ -107,6 +110,14 @@ defmodule Aiur.ControlCall.EngineCensusTest do
       assert {:ok, %{scope: :read}} = ControlCall.parse(expression, remote: true, max_scope: :read),
              "#{Enum.join(argv, " ")} is not a server-approved read: #{expression}"
     end
+  end
+
+  test "the fleet executor wait fixture is accepted by the remote control parser" do
+    path = Path.expand("../../../../packaging/npm/aiur-cli/test/fixtures/control-read-commands.json", __DIR__)
+    fixture = path |> File.read!() |> Jason.decode!()
+    command = hd(fixture["remote_write_commands"])
+
+    assert {:ok, %{scope: :write}} = ControlCall.parse(command["expression"], remote: true)
   end
 
   test "real engine wrappers emit allowlisted expressions with their expected scope" do

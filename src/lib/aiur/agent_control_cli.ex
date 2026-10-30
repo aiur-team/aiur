@@ -22,7 +22,12 @@ defmodule Aiur.AgentControlCLI do
   defdelegate alerts(opts \\ []), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_sweep(opts), to: Aiur.ExecutorSweep.CLI, as: :rpc
   defdelegate commands(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  @spec command_request(keyword()) :: :ok
+  defdelegate command_request(opts), to: Aiur.ControlCLI.EntryPoints
+
   defdelegate operator_relay_answer(opts), to: Aiur.ControlCLI.EntryPoints
+  @spec executor_ack(keyword()) :: :ok
+  defdelegate executor_ack(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_answer(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate operator_answer(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate operator_answer_preview(opts), to: Aiur.ControlCLI.EntryPoints
@@ -36,6 +41,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate queue(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate analytics(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  @spec history_label_writes(keyword()) :: :ok
+  defdelegate history_label_writes(opts), to: Aiur.HistoryLabelWritesCLI, as: :rpc
   defdelegate github_cost(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate experiments(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate capabilities(opts \\ []), to: Aiur.ControlCLI.EntryPoints
@@ -50,6 +57,12 @@ defmodule Aiur.AgentControlCLI do
   defdelegate executor_wait(opts), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_fast_forward(wake_id), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_fast_forward(wake_id, opts), to: Aiur.ExecutorAttention.CLI
+  @spec executor_attach(keyword()) :: :ok
+  defdelegate executor_attach(opts), to: Aiur.ControlCLI.ExecutorAttach, as: :attach
+  @spec executor_detach(keyword()) :: :ok
+  defdelegate executor_detach(opts), to: Aiur.Executor.AttachCLI, as: :detach
+  @spec executor_session(keyword()) :: :ok
+  defdelegate executor_session(opts), to: Aiur.Executor.SessionCLI, as: :rpc
   defdelegate executor_roster(), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_roster(opts), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_claim(), to: Aiur.ExecutorAttention.CLI

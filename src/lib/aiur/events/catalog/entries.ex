@@ -1,0 +1,78 @@
+defmodule Aiur.Events.Catalog.Entries do
+  @moduledoc false
+
+  # aiur:event-bus-boundary-member
+
+  alias Aiur.Events.Catalog.{AttentionEntries, Entry, GithubSystemEntries, LegacyEntries, PlannedEntries, SystemEntries, TicketEntries}
+
+  # aiur/decision_store/{requests,persistence,audit}.ex
+  @decision_slugs ~w(requested request-attributed native-released routed escalated human-needed executor-acknowledged requester-notified answered pending-for-session session-started answer-comment-published expired mooted dismissed
+    deferred executor-escalated authority-reclassified enriched override-successor-ticket override-corrective-ticket override-corrective-implemented override-corrective-failed override-corrective-recovered override-corrective-closed override-implemented override-worker-handoff override-merge-settled override-resume-state override-prompt-delivered revision-recorded queued dispatch-outcome-unknown revision-dispatched
+    revision-no-longer-applicable revision-follow-up-required revision-follow-up-handled handed-off delivered restored consumed failed acknowledged resolved)
+  # aiur/executor_wake_projection.ex
+  @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)
+
+  @core [
+    # application/export_children.ex; never export the feed's own failure.
+    %Entry{pattern: "system.events.export_unavailable", class: :ledgered, owner: "event-bus"},
+    Entry.alert("system.events.export_backlog", "event-bus"),
+    Entry.alert("system.events.export_backlog.resolved", "event-bus"),
+    # aiur/agent_runner/tool_executor.ex; aiur/agent_tools/emit_event.ex
+    %Entry{pattern: "ticket.*.agent.#", class: :logged, owner: "harness-adapters"},
+    %Entry{pattern: "ticket.*.agent.custom.#", class: :logged, owner: "harness-adapters"},
+    # aiur/decision_store/{audit,persistence}.ex
+    %Entry{pattern: "ticket.*.agent.decision.#", class: :journaled, export?: true, refs: [:ticket, :decision_id, :decision_version], attrs: [slug: {:enum, @decision_slugs}], owner: "commands"},
+    # aiur/executor_events.ex — private to the Executor principal.
+    %Entry{pattern: "executor.#", class: :journaled, owner: "executor-attention"},
+    %Entry{pattern: "executor.newsletter.failed", class: :journaled, owner: "newsletter"},
+    %Entry{pattern: "system.newsletter.ready", class: :journaled, owner: "newsletter"},
+    # aiur/voice_conversation/handoff.ex — transcript and summary remain private.
+    %Entry{pattern: "executor.voice.session_ended", class: :journaled, owner: "voice-conversation"},
+    # aiur/alerts.ex; aiur/agent_runner/tool_executor.ex
+    Entry.alert("ticket.*.agent.attention.#", "harness-adapters", export?: true),
+    Entry.alert("system.#", "signal", export?: true)
+  ]
+
+  # aiur/events/github_firehose/pull_request.ex; aiur/orchestrator/ready_for_review_transitions.ex
+  @pull_requests (for verb <- ~w(opened ready_for_review merged) do
+                    %Entry{pattern: "ticket.*.pr.#{verb}", class: :live, export?: true, refs: [:ticket, :pr_number, :head_sha], owner: "github-listeners"}
+                  end)
+
+  # aiur/orchestrator/ci_lifecycle/terminal_event.ex
+  @ci (for outcome <- ~w(passed failed) do
+         %Entry{pattern: "ticket.*.ci.#{outcome}", class: :live, export?: true, refs: [:ticket, :pr_number, :head_sha], attrs: [ci_conclusion: {:enum, @ci_conclusions}], owner: "orchestration"}
+       end)
+
+  @merge_group_failure %Entry{pattern: "ticket.*.ci.merge_group.failed", class: :live, export?: true, refs: [:ticket, :pr_number, :run_id], owner: "orchestration"}
+  @merge_group_requeue %Entry{pattern: "ticket.*.ci.merge_group.requeued", class: :live, export?: true, refs: [:ticket, :pr_number, :run_id], owner: "orchestration"}
+
+  # aiur/events/github_comments_poller/publish.ex; aiur/events/github_webhook/triples.ex
+  @comments (for suffix <- ~w(issue.commented pr.review_comment) do
+               %Entry{pattern: "ticket.*.#{suffix}", class: :live, export?: true, refs: [:ticket, :pr_number], attrs: [author_trusted?: :boolean], owner: "github-listeners"}
+             end)
+
+  # aiur/agent_tools/emit_event.ex; aiur/agent_runner/tool_executor.ex
+  @progress (for suffix <- ~w(progress progress.checkin progress.phase) do
+               %Entry{
+                 pattern: "ticket.*.agent.#{suffix}",
+                 class: :logged,
+                 export?: true,
+                 refs: [:ticket, :job_id],
+                 attrs: [percent: :integer, progress_source: {:enum, ~w(progress progress.checkin progress.phase)}],
+                 owner: "harness-adapters"
+               }
+             end)
+
+  @agent_command %Entry{pattern: "ticket.*.agent.command", class: :logged, export?: true, refs: [:ticket], owner: "harness-adapters"}
+
+  @entries @core ++
+             @pull_requests ++
+             @ci ++
+             @comments ++
+             [@merge_group_failure, @merge_group_requeue, @agent_command] ++
+             @progress ++
+             PlannedEntries.entries() ++ SystemEntries.entries() ++ GithubSystemEntries.entries() ++ TicketEntries.entries() ++ AttentionEntries.entries() ++ LegacyEntries.entries()
+
+  @spec entries() :: [Entry.t()]
+  def entries, do: @entries
+end

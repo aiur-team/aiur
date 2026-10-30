@@ -8,7 +8,7 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 | --- | --- | --- | --- |
 | `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
 | `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
-| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
+| `build_order.general_epics.icon` | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
 | `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
 | `build_order.general_epics.label` | string | required | Column header text, without control characters. |
 | `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
@@ -40,6 +40,8 @@ build_order:
 A configured list replaces all four defaults and keeps its order. Matchers within an entry are normalized; sharing a matcher across entries is a config error. For a ticket carrying different matched labels, config order defines which general epic wins. `enhancement` has no default matcher; add it to an epic if your repository uses it for that work.
 
 These settings define the epic catalogue for the build history home page; its resolver and rendering are delivered separately.
+
+History rows are visible in memory immediately. Durable history writes coalesce for up to 30 seconds; explicit flushes and orderly shutdown flush immediately. Each atomic snapshot reuses the JSON for unchanged rows, and retains the existing history file format. A process crash can lose changes since the last flush.
 
 ### Two removed keys
 

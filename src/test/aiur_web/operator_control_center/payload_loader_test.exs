@@ -38,6 +38,32 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoaderTest do
     %{cache: cache}
   end
 
+  test "payload loads keep the Units catalog without reading the retired Tickets panel" do
+    test = self()
+
+    EndpointStubs.put(
+      control_center_cache: false,
+      orchestrator: __MODULE__.MissingOrchestrator,
+      units_fleet_fun: fn -> %{running: [], retrying: [], idle: [], counts: %{}} end,
+      units_membership_fun: fn ->
+        send(test, :units_membership_read)
+        %{members: []}
+      end,
+      units_activity_fun: fn -> %{} end,
+      open_tickets_fun: fn ->
+        send(test, :retired_tickets_read)
+        %{}
+      end
+    )
+
+    payload = PayloadLoader.load(:fresh)
+
+    assert_received :units_membership_read
+    assert %{snapshot: %{rows: []}} = payload.units
+    refute Map.has_key?(payload, :tickets)
+    refute_received :retired_tickets_read
+  end
+
   @tag missing_cache: true
   test "cache exit returns an unavailable dashboard without uncached provider reads" do
     for mode <- [:cached, {:event, MapSet.new([:change])}] do

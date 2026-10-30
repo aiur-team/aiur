@@ -10,8 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
   attr(:title, :string, default: nil)
-  attr(:back_path, :string, default: nil)
-  attr(:back_label, :string, default: "Back")
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -39,7 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <div class="ax-frame aiur-shell aiur-shell--dashboard" id="ax-frame">
       <header class="ax-top aiur-shell__topbar">
         <div class="ax-brand aiur-shell__brand">
-          <img class="brand-logo aiur-shell__logo" src="/aiur-logo.png" alt="Aiur" />
+          <img class="brand-logo aiur-shell__logo" src="/aiur-style/assets/aiur-logo.png" alt="Aiur" />
           <span class="wm aiur-shell__wordmark">aiur</span>
           <div class="ax-set aiur-shell__settings" id="ax-set" phx-hook="AxMenu"
             phx-mounted={JS.ignore_attributes(["class"]) |> JS.ignore_attributes(["aria-expanded"], to: "#ax-cog") |> JS.ignore_attributes(["inert"], to: "#ax-menu")}>
@@ -49,13 +47,11 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               <.pause_item globally_paused={@pause_state.globally_paused} writable={@pause_state.writable} />
               <.theme_item />
               <.palette_button />
+              <a href="/voice" class="ax-mi aiur-shell__menu-item" role="menuitem"><span>Talk to Executor</span></a>
             </div>
           </div>
         </div>
         <div class="ax-title aiur-page__header" id="ax-title">
-          <.link :if={@back_path} patch={@back_path} class="ax-back aiur-page__back" aria-label={@back_label}>
-            <span aria-hidden="true">{nav_icon(@route.id)}</span>
-          </.link>
           <b id="route-title" role="heading" aria-level="1">{@title || @route.label}</b>
           <span class="status-badge status-badge-offline brand-live"><span class="status-badge-dot"></span>Offline</span>
         </div>

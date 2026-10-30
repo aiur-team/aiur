@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions: { contents: read }
+    env: { AIUR_CI_FULL_CI: "${{ needs.changes.outputs.full_ci }}", AIUR_PRE_HANDOFF_EVIDENCE_NOTE: "deferred to the parallel coverage and dialyzer jobs" }
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,6 +43,7 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - { name: Set up Bun for lockfile verification, uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76, with: { bun-version: "1.4.2" } } # v2.0.2
       - uses: ./.github/actions/pre-handoff
   workflow-security:
     needs: [changes, pre-handoff]
@@ -58,11 +60,13 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/workflow-security
-      - run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh
+      - run: bash scripts/test-workflow-security.sh && bash scripts/test-retry-mix-deps-get.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && bash scripts/test-pre-handoff-ci-routing.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh scripts/retry-mix-deps-get.sh
+      - name: Test newsletter snapshots
+        run: python3 scripts/test-newsletter-collect.py && python3 scripts/test-newsletter-metrics.py && python3 scripts/test-newsletter-allocation.py && python3 scripts/test-newsletter-collector-allocation.py && python3 scripts/test-newsletter-render.py && python3 scripts/test-newsletter-skill.py && bash scripts/test-newsletter-run-daily.sh && bash .claude/skills/aiur-meta/scripts/feature-share.sh --self-test
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs && node --test packages/nightly-release/test/lib.test.mjs
-      - name: Test human-only merge ruleset verifier
-        run: bash scripts/test-human-only-merge-ruleset.sh
+      - name: Test merge ruleset and standalone GitHub wrapper
+        run: bash scripts/test-human-only-merge-ruleset.sh && make -C packages/gh-access test
       - name: Test human-only merge ruleset drift check
         run: bash scripts/test-human-only-merge-ruleset-live.sh
       - name: Test pull request merge-gate diagnostics
@@ -78,7 +82,7 @@ jobs:
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test CI change classifier
-        run: bash scripts/test-classify-ci-changes.sh && node --test scripts/test-build-home-band-runner.mjs scripts/test-home-parity-signoff.mjs
+        run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
         run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-ci-soak-browser.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
@@ -93,11 +97,11 @@ jobs:
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
-        run: bash scripts/test-check-test-shard-parity.sh
+        run: bash scripts/test-check-test-shard-parity.sh && bash scripts/test-check-listener-spec.sh
       - name: Test bare assert_receive and on_exit rm_rf guards
-        run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh && test "${{ needs['pre-handoff'].result }}" = success
+        run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh && bash scripts/test-check-on-exit-alive-stop.sh && test "${{ needs['pre-handoff'].result }}" = success
       - name: Test hourly retrospective visual check
-        run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
+        run: for test in .claude/skills/aiur-run/scripts/tests/executor-retrospective*_test.sh; do bash "$test"; done
       - name: Test hourly dashboard analyzer
         run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
       - name: Test hourly retrospective CLI check
@@ -147,6 +151,10 @@ jobs:
       - name: Repository lint guards
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/lint-guards
+      - name: Guard shared style ownership
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: node scripts/check-aiur-style-duplicates.mjs --self-test && node scripts/check-aiur-style-duplicates.mjs
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     needs: changes
@@ -300,24 +308,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/run-quarantine
-  home-css:
-    container: {image: mcr.microsoft.com/playwright:v1.61.1-noble}
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
-    steps:
-      - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Verify home CSS
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/verify-home-css
-        with: {shard: "${{ matrix.shard }}"}
   analytics:
     needs: changes
     if: ${{ needs.changes.outputs.full_ci == 'true' }}
@@ -460,7 +450,7 @@ jobs:
     uses: ./.github/workflows/soak.yml
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -485,7 +475,7 @@ jobs:
         run: python3 scripts/check-ci-gate.py
   nightly-trigger:
     name: nightly trigger
-    needs: [ci-gate, changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    needs: [ci-gate, changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
     if: ${{ !cancelled() && github.repository == 'aiur-team/aiur' && github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2

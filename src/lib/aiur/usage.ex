@@ -8,7 +8,8 @@ defmodule Aiur.Usage do
     codex: Aiur.Usage.Provider.Codex,
     github: Aiur.Usage.Provider.GitHub,
     broker: Aiur.Usage.Provider.Broker,
-    ticket: Aiur.Usage.Provider.Ticket
+    ticket: Aiur.Usage.Provider.Ticket,
+    netlify: Aiur.Usage.Provider.Netlify
   }
 
   @doc "Provider names served by this release. Add a provider adapter here."

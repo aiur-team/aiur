@@ -127,8 +127,9 @@ defmodule Aiur.AgentRunner.Handoff do
       WipPreservation.with_pending_notices(
         context.workspace,
         context.issue.identifier,
-        TurnLoop.build_turn_prompt(context.issue, context.workspace, context.opts, context.turn_number, context.max_turns)
+        TurnLoop.build_turn_prompt(context.issue, context.workspace, Keyword.delete(context.opts, :pending_overrides), context.turn_number, context.max_turns)
       )
+      |> then(fn {prompt, notices} -> {Aiur.Commands.render_pending_overrides(context.opts) <> prompt, notices} end)
     end
   end
 
@@ -267,6 +268,7 @@ defmodule Aiur.AgentRunner.Handoff do
 
     with {:ok, lease} <- Adoption.adopt(issue.identifier, workspace, ownership_opts),
          {:ok, session} <- attach(record, generation) do
+      :ok = Aiur.AgentRunner.maybe_attach_issue_log(issue)
       session = AppHandoff.restore_session(session, issue)
       opts = Keyword.merge(Enum.reject(context.opts || [], fn {_key, value} -> is_nil(value) end), opts)
       opts = Keyword.put(opts, :workspace_ownership, lease)

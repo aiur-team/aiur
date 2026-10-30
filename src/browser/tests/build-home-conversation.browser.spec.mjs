@@ -1,41 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
+import { mountConversation, scenario, states } from './support/build-conversation.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
-const states = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/conversations/states.json', import.meta.url), 'utf8'))
 test.use({ httpCredentials: dashboardCredentials, viewport: { width: 1440, height: 900 }, timezoneId: 'America/Los_Angeles' })
-test.beforeEach(async ({ page }, info) => {
-  page.on('pageerror', error => { throw error })
-  const root = info.project.metadata.agentAssets
-  if (root) await page.route('**/build-home/**/*.js', async route => {
-    const relative = new URL(route.request().url()).pathname.replace('/build-home/', '')
-    try { await route.fulfill({ body: await readFile(root + '/' + relative, 'utf8'), contentType: 'text/javascript' }) }
-    catch { await route.continue() }
-  })
-  await page.goto('/build-fixture/live')
-  await expect.poll(() => page.evaluate(async () => !!(await import('/build-home/state.js')).ctx.D?.now.length)).toBe(true)
-})
-async function scenario(page, name, opts = {}) {
-  await page.evaluate(async ({ fixture, opts }) => {
-    const { ctx } = await import('/build-home/state.js'), { openModal } = await import('/build-home/modal/frame.js')
-    const original = ctx.push
-    window.conversationCalls = []; window.olderFailures = opts.failures || 0; window.olderHolds = opts.hold || 0
-    const entries = fixture.entries
-    ctx.push = async (event, payload) => {
-      window.conversationCalls.push({ event, payload })
-      if (event !== 'conversation-page') return original(event, payload)
-      const before = payload.before
-      if (before != null && window.olderHolds-- > 0) await new Promise(resolve => { window.releaseOlder = resolve })
-      if (before != null && opts.delay) await new Promise(resolve => setTimeout(resolve, opts.delay))
-      if (before != null && window.olderFailures-- > 0) return { v: 1, kind: 'error', reason: 'unavailable' }
-      const end = before == null ? entries.length : Number(before.split(':')[1]), start = Math.max(0, end - 100)
-      return { v: 1, kind: before == null ? 'conversation' : 'conversation-earlier', id: payload.id, ...fixture, ...opts.reply,
-        entries: entries.slice(start, end), before: 'fx:' + start, more: start > 0 }
-    }
-    const t = { ...ctx.D.now[0], ...(opts.ticket || {}) }
-    openModal(t)
-  }, { fixture: states[name], opts })
-}
+test.beforeEach(async ({ page }, info) => mountConversation(page, info))
 const proof = async (page, name) => test.info().attach(name, { body: await page.locator('#tk-modal').screenshot({ animations: 'disabled', path: test.info().outputPath(name + '.png') }), contentType: 'image/png' })
 const messageCount = page => page.locator('#cv-log [data-k]')
 const top = page => page.locator('#cv-log').evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
@@ -57,6 +25,21 @@ test('mounted body requests the real exported conversation and closes its subscr
   await expect(messageCount(page)).not.toHaveCount(0)
   await page.locator('#bd-tk-close').click()
   expect(await page.evaluate(id => window.conversationCalls.filter(c => c.event === 'conversation-close' && c.payload.id === id).length, id)).toBe(1)
+})
+
+test('conversation opens scrolled to its newest message', async ({ page }) => {
+  // Deliberately exceed the viewport so scrollTop=0 cannot also be the bottom.
+  const entries = Array.from({ length: 48 }, (_, index) => ({
+    ...states.kinds.entries[index % states.kinds.entries.length],
+    id: `tail:${index}`,
+    text: `Conversation message ${index + 1}`,
+    at: states.kinds.entries[0].at + index,
+  }))
+  await scenario(page, 'kinds', { entries })
+  await expect.poll(() => page.locator('#cv-log').evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect.poll(() => page.locator('#cv-log').evaluate(el =>
+    Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) <= 1
+  )).toBe(true)
 })
 
 test('all six item branches render; hostile text stays text and unknown times/models stay unknown', async ({ page }) => {
