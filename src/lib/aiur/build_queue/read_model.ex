@@ -2,6 +2,7 @@ defmodule Aiur.BuildQueue.ReadModel do
   @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
   alias Aiur.BuildQueue.Model.Edge
   alias Aiur.BuildQueue.{Progress, Readiness, SetSummary, Settings}
+  alias Aiur.BuildQueue.ReadModel.Eligibility
   alias Aiur.BuildQueue.Sources.{BuildOrder, ProjectionRead}
 
   @spec build(map()) :: map()
@@ -104,7 +105,7 @@ defmodule Aiur.BuildQueue.ReadModel do
     observations = Map.get(state, :observations, %{})
     settings = Map.get(state, :settings)
 
-    startable = Enum.filter(focus_members, &focus_startable?(&1, members, observations, settings, state))
+    startable = Enum.filter(focus_members, &Eligibility.focus_startable?(&1, members, observations, settings, state))
 
     lower_claimed? =
       queues
@@ -125,20 +126,6 @@ defmodule Aiur.BuildQueue.ReadModel do
         projection = projection_by_id[id],
         not is_nil(projection),
         do: projection
-  end
-
-  defp blocked_by_github?(native_blockers, id) do
-    case Map.get(native_blockers, id) do
-      {:ok, blockers} -> Enum.any?(blockers, & &1.open?)
-      {:unknown, _reason} -> true
-      _ -> false
-    end
-  end
-
-  defp focus_startable?(projection, members, observations, settings, state) do
-    projection.state in [:ready, :promoted, :overridden] and projection.verdict == :ready and
-      not stale_manual_override?(members[projection.issue_id], observations[projection.issue_id], settings) and
-      not blocked_by_github?(Map.get(state, :native_blockers) || %{}, projection.issue_id)
   end
 
   defp order_summary(queues, state) do
@@ -375,7 +362,8 @@ defmodule Aiur.BuildQueue.ReadModel do
     prerequisites = prerequisites(member.issue_id, context) ++ native_prerequisites(member.issue_id, context)
 
     {state, verdict, reason} =
-      if projection.state != :unknown and stale_manual_override?(member, context.observations[member.issue_id], context.state.settings) do
+      if projection.state != :unknown and
+           Eligibility.stale_manual_override?(member, context.observations[member.issue_id], context.state.settings) do
         {:held, verdict(projection.verdict), :parked_marker}
       else
         native_readiness(projection, prerequisites)
@@ -405,18 +393,6 @@ defmodule Aiur.BuildQueue.ReadModel do
 
   defp waiting_state(:ready), do: :waiting
   defp waiting_state(state), do: state
-
-  defp stale_manual_override?(
-         %{override: :manual_promotion},
-         %{labels: labels},
-         %{tracker: %{github: %{label_prefix: prefix}}}
-       )
-       when is_list(labels) do
-    "#{prefix}:todo" not in labels or
-      Enum.any?(labels, &(&1 in ["#{prefix}:parked", "#{prefix}:paused"]))
-  end
-
-  defp stale_manual_override?(_member, _observation, _settings), do: false
 
   defp native_prerequisites(id, context) do
     case Map.get(Map.get(context.state, :native_blockers, %{}), id) do
