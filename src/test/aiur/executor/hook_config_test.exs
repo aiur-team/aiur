@@ -80,6 +80,37 @@ defmodule Aiur.Executor.HookConfigTest do
     assert File.exists?(backup)
   end
 
+  # Future-regression guard: scope preservation already works; this is not coverage for a production change in this rework.
+  test "install and uninstall preserve user, shared-project and outside settings byte-for-byte", %{root: root} do
+    home = Path.join(root, "home")
+    project = Path.join(root, "project")
+    previous_home = System.get_env("HOME")
+    System.put_env("HOME", home)
+    on_exit(fn -> if previous_home, do: System.put_env("HOME", previous_home), else: System.delete_env("HOME") end)
+
+    untouched = [
+      {Path.join([home, ".claude", "settings.json"]), "{ \"env\" : {\"USER_SETTING\":\"keep\"} }\n\n"},
+      {Path.join([project, ".claude", "settings.json"]), "{\n  \"permissions\" : { \"allow\" : [\"Read\"] }\n}\n"},
+      {Path.join(root, "outside.json"), "{\"outside\" : true}\n "}
+    ]
+
+    for {path, original} <- untouched do
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, original)
+    end
+
+    assert :ok = HookConfig.install(:claude, repo_root: project)
+    local_path = Path.join([project, ".claude", "settings.local.json"])
+    installed = Jason.decode!(File.read!(local_path))
+    command = get_in(installed, ["hooks", "SessionStart", Access.at(0), "hooks", Access.at(0), "command"])
+    assert String.starts_with?(command, "AIUR_EXECUTOR_HOOK=1")
+    for {path, original} <- untouched, do: assert(File.read!(path) == original)
+
+    assert :ok = HookConfig.uninstall(repo_root: project)
+    assert Jason.decode!(File.read!(local_path)) == %{}
+    for {path, original} <- untouched, do: assert(File.read!(path) == original)
+  end
+
   test "uninstall removes individual marked commands while retaining mixed user groups", %{path: path, root: root} do
     user = %{"type" => "command", "command" => "echo AIUR_EXECUTOR_HOOK=1"}
     group = %{"matcher" => "*", "hooks" => [user, %{"command" => "AIUR_EXECUTOR_HOOK=1 sh -c true"}]}
