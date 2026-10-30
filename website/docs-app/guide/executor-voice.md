@@ -24,6 +24,27 @@ prototype below remains separately available.
 The shared composer’s dictation path does not replace the prototype’s provider
 comparison, ratings or delivery receipts. Those remain on `/voice` for acceptance.
 
+## Conversation transport
+
+The authenticated dashboard socket `/voice` also accepts `voice:converse`.
+Join with `v: 1`, `mode: "converse"`, `surface: "conversation_panel"`, a worker
+or Executor `target`, and a client-chosen `client_session_id`. The panel UI
+ships separately; this topic does not start capture by itself.
+
+Clients send PCM16 mono 16 kHz `audio` chunks (`data`, base64), `client_text`,
+`playback_state` (`playing` or `stopped`), `confirm_draft`, `discard_draft`, and
+`end`. Only an authenticated client confirmation can deliver a draft.
+The daemon relays `state`, `transcript`, `assistant_text`, `audio`,
+`interrupted`, `draft`, `delivery`, `error`, and `ended`. Audio chunks preserve
+the provider's format and contain at most 131,072 decoded bytes; `audio_done`
+marks the end of the session's audio stream. Client chunks above 256 KiB are refused.
+
+A reconnect with the same authenticated connection, target and
+`client_session_id` reattaches within ten seconds. The session retains its
+capacity lease through that grace period. After grace expires it ends with
+`transport_lost`; authentication changes end it with `auth_changed`.
+The core retains its configured duration, idle and daily limits.
+
 ## Voice prototype
 
 On `/voice`, choose **ElevenLabs** or **OpenAI**, enter its model,

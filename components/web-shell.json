@@ -34,6 +34,8 @@
     "src/lib/aiur_web/sockets/events.ex",
     "src/lib/aiur_web/sockets/voice.ex",
     "src/lib/aiur_web/supervisor_auth.ex",
+    "src/lib/aiur_web/voice_converse/**",
+    "src/lib/aiur_web/voice_converse_channel.ex",
     "src/lib/aiur_web/voice_socket.ex"
   ],
   "facades": [
@@ -62,6 +64,7 @@
     "pairing-discovery",
     "streamdeck-server",
     "voice-conversation",
+    "voice-conversation-core",
     "voice-stt"
   ],
   "owns": {

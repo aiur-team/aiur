@@ -45,6 +45,26 @@ defmodule VoiceConverse do
     end
   end
 
+  @doc "Sends a bounded client transcription to the conversation provider."
+  @spec push_text(module(), String.t(), String.t()) :: :ok | {:error, atom()}
+  def push_text(instance, id, text) when is_binary(text) and byte_size(text) in 1..16_384 do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, id) do
+      GenServer.cast(pid, {:client_text, text})
+    end
+  end
+
+  def push_text(_instance, _id, _text), do: {:error, :invalid_payload}
+
+  @doc "Reports client playback state for interruption context."
+  @spec playback_state(module(), String.t(), String.t()) :: :ok | {:error, atom()}
+  def playback_state(instance, id, state) when state in ["playing", "stopped"] do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, id) do
+      GenServer.cast(pid, {:playback_state, state})
+    end
+  end
+
+  def playback_state(_, _, _), do: {:error, :invalid_payload}
+
   @doc "Ends a live conversation with one stable end reason."
   @spec end_session(module(), String.t(), atom()) :: :ok | {:error, :not_found}
   def end_session(instance, conversation_id, reason \\ :user_end) do

@@ -11,6 +11,7 @@ defmodule VoiceConverse.Session.Start do
     with {:ok, config} <- Config.validate(config),
          :ok <- Config.check_session_start(config),
          :ok <- target_alive?(config, target),
+         :ok <- VoiceConverse.SessionRegistry.register_client(config.name, opts, id, target),
          {:ok, descriptor} <- describe_target(config, target),
          {:ok, provider, provider_opts} <- provider(config, opts),
          :ok <- preflight(provider, Runtime.preflight_spec(config, target, provider, provider_opts)),
@@ -70,6 +71,7 @@ defmodule VoiceConverse.Session.Start do
     %{
       config
       | llm: Keyword.get(opts, :llm, config.llm),
+        allowed_tools: Keyword.get(opts, :allowed_tools, config.allowed_tools),
         providers:
           if(Keyword.has_key?(opts, :provider),
             do: %{config.providers | on_missing_credential: :refuse},
