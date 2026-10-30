@@ -49,15 +49,22 @@ defmodule Aiur.Commands.CorrectiveFacts do
   def apply(decision, %{type: type, data: data} = event) do
     case Enum.find(decision.overrides, &(&1.action_id == data.action_id)) do
       record when is_map(record) ->
-        if (type == :override_successor_ticket and record.pr_merged == false) or record.route in [:corrective_ticket, :replacement] or is_map(Map.get(record, :corrective_ticket)) or
-             Map.get(record, :pr_merged) == :unknown,
-           do: update(decision, record, type, data, event),
-           else: {:error, :corrective_override_missing}
+        if eligible?(decision, record, type),
+          do: update(decision, record, type, data, event),
+          else: {:error, :corrective_override_missing}
 
       _missing ->
         {:error, :corrective_override_missing}
     end
   end
+
+  defp eligible?(decision, record, type) when type in [:override_corrective_failed, :override_corrective_recovered],
+    do: record.action_id == decision.active_action_id or corrective?(record)
+
+  defp eligible?(_decision, record, :override_successor_ticket), do: record.pr_merged == false or corrective?(record)
+  defp eligible?(_decision, record, _type), do: corrective?(record)
+
+  defp corrective?(record), do: record.route in [:corrective_ticket, :replacement] or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown
 
   defp update(decision, record, :override_corrective_closed, _data, event),
     do: {:ok, replace(decision, Map.put(record, :closed_without_merged_pr_at, event.occurred_at))}
@@ -67,6 +74,7 @@ defmodule Aiur.Commands.CorrectiveFacts do
 
     if type == :override_successor_ticket or is_nil(linked) or linked == data.ticket do
       updated = record |> Map.put(:corrective_ticket, data.ticket) |> Map.put(:route, if(is_nil(linked), do: :corrective_ticket, else: record.route))
+      updated = if Map.has_key?(record, :merge_reason), do: Map.put(updated, :merge_reason, "PR merged before the change; corrective ticket ##{data.ticket.identifier}"), else: updated
       updated = if type == :override_successor_ticket, do: Map.put(updated, :recovery_path, :successor), else: updated
       decision = replace(decision, updated)
       prior = if type == :override_successor_ticket, do: %{record | corrective_ticket: nil, ticket: linked || record.ticket}, else: record
@@ -97,11 +105,21 @@ defmodule Aiur.Commands.CorrectiveFacts do
        when action_id == decision.active_action_id and prior.identifier != ticket.identifier and state not in [:superseded, :implemented] do
     outcome = %{result: :recorded, reason_class: nil, occurred_at: event.occurred_at, event_id: Map.get(event, :event_id), run_id: Map.get(event, :run_id)}
     record = Enum.find(decision.overrides, &(&1.action_id == action_id))
-    record = %{record | state: :queued, delivered_at: nil, implemented_at: nil, evidence: nil}
+    {previous, current} = Enum.split_with(decision.dispatch_attempts, &(&1.action_id == action_id))
+    record = record |> Map.put(:prior_dispatch_attempts, previous) |> Map.merge(%{state: :queued, delivered_at: nil, implemented_at: nil, evidence: nil})
 
     decision
     |> replace(record)
-    |> Map.merge(%{revision_result: :recorded, revision_outcomes: Map.put(decision.revision_outcomes, action_id, outcome), delivery_status: :pending, pending_for_session?: false})
+    |> Map.merge(%{
+      dispatch_attempts: current,
+      decision_status: :decided,
+      acknowledgement: nil,
+      resolution: nil,
+      revision_result: :recorded,
+      revision_outcomes: Map.put(decision.revision_outcomes, action_id, outcome),
+      delivery_status: :pending,
+      pending_for_session?: false
+    })
   end
 
   defp retarget(decision, _record, _ticket, _event), do: decision

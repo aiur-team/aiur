@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   block `done`: an abandoned draft must not pin its ticket out of its terminal
   state. A failed open-PR lookup never closes the ticket.
   """
+  alias Aiur.Commands
   alias Aiur.{Issue, RecentMerge, RecentMergeStore, Signal}
 
   alias Aiur.Orchestrator.{
@@ -102,6 +103,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   defp reconcile_merged_ticket(state, %Issue{} = issue, merge, opts, retained) do
+    Commands.notify_override_merge(issue.identifier)
+
     unless NonClosingMerge.reference_only?(issue, merge, opts) do
       close_ledger = Keyword.get(opts, :close_optimistic_ledger_fun, &OptimisticLedger.close/3)
       close_ledger.(issue.identifier, :merged, System.system_time(:millisecond))

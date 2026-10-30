@@ -27,7 +27,9 @@ defmodule Aiur.Commands.RollbackTest do
       override_corrective_recovered: %{action_id: "action-1"},
       override_resume_state: %{action_id: "action-1", route: :capacity_wait, reason: :capacity},
       override_prompt_delivered: %{action_id: "action-1", at: at},
+      override_worker_handoff: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
       override_implemented: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
+      override_merge_settled: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, expected_version: 1, committed_at: at},
       requester_notified: %{action_id: "action-1", at: at, channel: :wake_inbox},
       executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}
     }

@@ -75,6 +75,9 @@ defmodule Aiur.CodeHost do
   @spec update_pull_request_body(integer(), String.t()) :: {:ok, map()} | {:error, term()}
   def update_pull_request_body(number, body), do: optimistic_call(:update_pull_request_body, [number, body])
 
+  @spec override_merge_head(map()) :: {:ok, map()} | {:error, term()}
+  def override_merge_head(pr), do: optimistic_call(:override_merge_head, [pr])
+
   @spec override_pull_request(pos_integer()) :: {:ok, map()} | {:error, term()}
   def override_pull_request(number), do: optimistic_call(:override_pull_request, [number])
 

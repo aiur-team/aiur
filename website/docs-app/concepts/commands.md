@@ -250,13 +250,20 @@ A newer override supersedes the previous one; stale queued messages cannot deliv
 Records survive daemon restart.
 
 Active-worker overrides progress from `queued` to `delivered` after confirmed
-delivery, then `implemented` when the worker acknowledges the override or a later
-branch push is confirmed as a changed head on the same PR. The record names the
-evidence.
+delivery. Acknowledgement and push evidence do not prove implementation: the
+merged PR head must contain a worker-attested commit made after delivery.
+
+The worker attests its pushed checkout head at handoff; repository push notifications alone do not attest work.
+An update-branch, main merge or rebase without that worker receipt cannot mark it implemented.
+
+If the PR merges first,
+Aiur automatically routes the override to a corrective ticket and records
+“PR merged before the change; corrective ticket #M”. A late worker push cannot
+reverse this outcome. Overrides delivered while a PR is queued for merge follow
+the same rule; Aiur does not dequeue the PR.
 
 Push evidence needs a verified PR head-update timestamp later than
-delivery; unknown or same-second chronology stays unproven until acknowledgement
-or a later proven push. Queue acceptance alone does not mean implementation.
+delivery; unknown or same-second chronology stays unproven. Queue acceptance alone does not mean implementation.
 
 When the PR has merged, the override creates one corrective ticket, with the
 question, old and new answers, original PR and merge SHA. Its `corrective_ticket`
