@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# @cli-reference aiur executor-attach --harness claude|Required: explicitly select claude or codex.|aiur executor-attach --harness claude
+# @cli-reference aiur executor-attach --harness claude --print-config|Prints hooks instead of installing them; Codex always prints.|aiur executor-attach --harness claude --print-config
+# @cli-reference aiur executor-attach --harness claude --takeover|Replaces a live binding; off by default.|aiur executor-attach --harness claude --takeover
 #
 # Shared aiur launcher engine.
 #
