@@ -116,6 +116,28 @@ defmodule Aiur.Executor.SessionTest do
     assert Enum.any?(sessions(dir), &(&1["type"] == "end" and &1["end_reason"] == "clear"))
   end
 
+  test "a clear end from another or unidentified process cannot arm a rebind" do
+    binding = bound()
+    clear_end = %{event: "SessionEnd", harness: "claude", session_id: "one", reason: "clear", pid: "other"}
+
+    for clear_hook <- [clear_end, %{clear_end | pid: nil}] do
+      assert {:error, :foreign_session} = Session.prepare_clear_rebind(binding.binding_id, clear_hook)
+      assert {:error, :foreign_session} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{source: "clear", pid: clear_hook.pid}))
+      assert {:ok, current} = Session.current()
+      refute Map.has_key?(current, :clear_rebind_pid)
+    end
+  end
+
+  test "clear rebind expires after thirty seconds", %{control: control} do
+    binding = bound()
+    clear_end = %{event: "SessionEnd", harness: "claude", session_id: "one", reason: "clear", pid: "123"}
+    assert {:ok, _} = Session.prepare_clear_rebind(binding.binding_id, clear_end)
+    Agent.update(control, &Map.update!(&1, :now, fn now -> DateTime.add(now, 30_001, :millisecond) end))
+
+    assert {:error, :foreign_session} =
+             Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{source: "clear", pid: "123"}))
+  end
+
   test "restart restores binding identity offset and private mode", %{clock: clock} do
     binding = bound()
     assert {:ok, saved} = Session.record_offset(binding.binding_id, 99)

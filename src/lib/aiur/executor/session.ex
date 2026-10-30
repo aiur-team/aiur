@@ -6,7 +6,9 @@ defmodule Aiur.Executor.Session do
   Journal sessions open on the first transcript append; `start_reason` is
   carried for that producer. Claude clear/compact rebinding is limited to the
   attached Claude harness and rejects a supplied pid that differs from the
-  original process.
+  original process. A clear rebind requires a matching SessionEnd hook and is
+  available for 30 seconds; if that hook is lost, the binding recovers after
+  its normal session TTL.
   """
   use GenServer
   alias Aiur.Conversation.{Ingest, Ref}

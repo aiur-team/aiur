@@ -98,6 +98,7 @@ defmodule Aiur.Executor.SessionIngestTest do
       |> File.read!()
       |> Jason.decode!()
       |> Map.put("reason", "clear")
+      |> Map.put("pid", "123")
 
     SessionIngest.dispatch(clear_end, "claude")
     assert_receive {:executor_hook, %{event: "SessionEnd", reason: "clear"}}, 1000
