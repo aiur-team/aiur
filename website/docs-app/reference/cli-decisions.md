@@ -70,7 +70,7 @@ its default is blocking.
 Successful Executor answers, escalations, moots, and supersedes also record an acknowledgement. A failed acknowledgement write is logged without changing the action’s result. Reading a Command or receiving an Executor wake does not acknowledge it. Acknowledging after escalation remains audit evidence and does not change routing.
 
 Human rows show `ID`, `ROUTE`, `AGE`, `WHY` (latest escalation cause), `ASKS`
-(short label), and `TICKET|EXECUTOR`. Simultaneous routing reads `Needs you and Executor`;
+(short label), `TICKET|EXECUTOR`, and `OVERRIDE` (state and links). Simultaneous routing reads `Needs you and Executor`;
 unknown routes show `?`. `WHY` shows `-` for an empty escalation history and `?` for
 missing or malformed escalation data.
 

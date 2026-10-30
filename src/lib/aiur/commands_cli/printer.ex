@@ -21,14 +21,21 @@ defmodule Aiur.CommandsCLI.Printer do
   defp print_rows([], _captured_at), do: IO.puts("No Commands match this filter.")
 
   defp print_rows(rows, _captured_at) do
-    IO.puts("ID  ROUTE  AGE  WHY  ASKS  TICKET|EXECUTOR")
+    IO.puts("ID  ROUTE  AGE  WHY  ASKS  TICKET|EXECUTOR  OVERRIDE")
     Enum.each(rows, &print_row/1)
   end
 
   defp print_row(row) do
-    IO.puts("#{row["decision_id"]}  #{route(row["route_state"])}  #{duration(row["age_ms"])}  #{cause(row)}  #{row["short_label"] || row["question"]}  #{requester(row)}")
+    IO.puts("#{row["decision_id"]}  #{route(row["route_state"])}  #{duration(row["age_ms"])}  #{cause(row)}  #{row["short_label"] || row["question"]}  #{requester(row)}  #{override_column(row)}")
     if row["needs_you_ms"], do: IO.puts("  Needs you since: #{duration(row["needs_you_ms"])} ago")
     IO.puts("  Freshness: #{row["freshness"]}; observed: #{row["observed_at"]}")
+  end
+
+  defp override_column(row) do
+    case Aiur.Commands.override_rows(row) |> List.last() do
+      nil -> "-"
+      override -> override.label <> " · " <> Enum.map_join(override.links, " · ", &(&1.label <> ": " <> &1.href))
+    end
   end
 
   defp route("with_executor"), do: "With Executor"
@@ -62,6 +69,7 @@ defmodule Aiur.CommandsCLI.Printer do
     )
 
     IO.puts(decision["question"])
+    IO.puts("Override: #{override_column(decision)}")
     IO.puts("Route: #{route(decision["route_state"])}; Why: #{cause(decision)}")
     if decision["needs_you_ms"], do: IO.puts("Needs you since: #{duration(decision["needs_you_ms"])} ago")
     IO.puts("Freshness: #{decision["freshness"]}; observed: #{decision["observed_at"]}")

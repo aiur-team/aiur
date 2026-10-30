@@ -13,6 +13,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   @type reload_fun :: (Socket.t() -> Socket.t())
 
+  @doc "Pending overrides for the current fleet overview, including unavailable reads."
+  @spec pending_overrides(keyword()) :: {:ok, [map()]} | :unavailable
+  defdelegate pending_overrides(opts \\ []), to: AiurWeb.OperatorControlCenter.PendingOverrides, as: :load
+
+  @spec pending_override_rows([map()]) :: [map()]
+  defdelegate pending_override_rows(decisions), to: AiurWeb.OperatorControlCenter.PendingOverrides, as: :rows
+
   @spec change(Socket.t(), String.t(), map()) :: Socket.t()
   defdelegate change(socket, decision_id, form), to: DecisionAnswerCommands
 

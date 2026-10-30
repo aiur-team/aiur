@@ -20,10 +20,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionOutcomes do
   end
 
   def outcome_notice(%{status: :too_late, reason: :answer_in_flight}),
-    do: {:error, "Delivery is in progress. Send a follow-up message instead.", [:follow_up]}
+    do: {:error, "Delivery is in progress. Use Send correction to override this answer.", []}
 
   def outcome_notice(%{status: :too_late} = outcome),
-    do: {:error, "Already delivered at #{time(Map.get(outcome, :delivered_at))}. Send a follow-up message instead.", [:follow_up]}
+    do: {:error, "Already delivered at #{time(Map.get(outcome, :delivered_at))}. Use Send correction to override this answer.", []}
 
   def outcome_notice(%{status: :withdrawn, reason: reason}), do: {:error, "No longer needed: #{reason}", []}
   def outcome_notice(%{status: :stale}), do: {:error, "This Command changed. Refresh to see the latest.", [:refresh]}
