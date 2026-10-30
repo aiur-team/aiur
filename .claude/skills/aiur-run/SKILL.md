@@ -186,8 +186,9 @@ Offer Executor conversation attachment as a separate opt-in; never attach the
 user's session merely because you operate the run. Before using
 `aiur executor-attach --harness claude` or `--harness codex`, explain that Aiur
 may read that session's transcript and retain a local, owner-only journal until
-deleted, and that paired phones and watches can read it by default under D19
-pairing with no separate toggle. Claude installs marked project-local hooks;
+deleted. Device pairing is not available yet; when it ships, pairing a phone or
+watch will grant full access, including the Executor transcript, with no separate
+transcript toggle. Claude installs marked project-local hooks;
 Codex prints configuration for manual merge and `/hooks` trust. Explain
 `aiur executor-detach` and that existing recordings remain. Attachment alone
 does not enable dashboard chat in attach-only builds. See

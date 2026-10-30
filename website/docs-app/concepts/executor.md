@@ -103,10 +103,10 @@ Transcripts can contain
 secrets; masking and collapsed or hidden content are not a privacy boundary.
 There is no automatic pruning: retained entries stay until you delete them.
 
-**Phone visibility:** paired phones and watches may read the Executor transcript
-by default. D19 pairing grants full access; there is no separate Executor
-transcript visibility toggle. Treat pairing a device as granting access to this
-conversation, including sensitive content.
+**Phone visibility:** device pairing is not available yet. When it ships,
+pairing a phone or watch will grant full access, including the Executor transcript,
+with no separate transcript visibility toggle. Treat pairing a device as granting
+access to this conversation, including sensitive content.
 
 Attachment alone does not guarantee a dashboard transcript or message delivery.
 Attach-only builds still report the Executor conversation as unavailable; the
