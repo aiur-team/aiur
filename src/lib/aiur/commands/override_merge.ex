@@ -39,7 +39,7 @@ defmodule Aiur.Commands.OverrideMerge do
     end
   end
 
-  defp implemented?(%{state: :delivered, evidence: %{kind: :push, head_sha: pushed, at: pushed_at}} = record, data) do
+  defp implemented?(%{state: :delivered, evidence: %{kind: :push, worker_reported: true, head_sha: pushed, at: pushed_at}} = record, data) do
     is_binary(data.head_sha) and Map.get(data, :worker_head_sha) == pushed and
       Map.get(data, :head_contains_worker_push) == true and is_struct(pushed_at, DateTime) and
       DateTime.compare(pushed_at, record.delivered_at) == :gt
@@ -57,7 +57,7 @@ defmodule Aiur.Commands.OverrideMerge do
       (is_nil(record.pr_number) or record.pr_number == data.pr_number)
   end
 
-  defp worker_head(%{evidence: %{kind: :push, head_sha: sha}}), do: sha
+  defp worker_head(%{evidence: %{kind: :push, worker_reported: true, head_sha: sha}}), do: sha
   defp worker_head(_record), do: nil
 
   defp disposition(record, true, at), do: %{record | state: :implemented, implemented_at: at}

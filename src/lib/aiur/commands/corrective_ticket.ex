@@ -50,7 +50,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
 
     worker_head =
       case record.evidence do
-        %{kind: :push, head_sha: sha} -> sha
+        %{kind: :push, worker_reported: true, head_sha: sha} -> sha
         _ -> nil
       end
 

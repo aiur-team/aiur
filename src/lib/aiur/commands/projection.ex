@@ -106,6 +106,11 @@ defmodule Aiur.Commands.Projection do
          do: OverrideMerge.apply(decision, event)
   end
 
+  def apply(decision, %{type: :override_worker_handoff} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         do: Overrides.worker_handoff(decision, event)
+  end
+
   def apply(decision, %{type: :override_implemented} = event) do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
          do: Overrides.implemented(decision, event)

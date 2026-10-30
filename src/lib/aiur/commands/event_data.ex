@@ -14,7 +14,7 @@ defmodule Aiur.Commands.EventData do
   @spec fact_types() :: [atom()]
   def fact_types,
     do:
-      [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_merge_settled, :override_resume_state, :override_prompt_delivered] ++
+      [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_worker_handoff, :override_merge_settled, :override_resume_state, :override_prompt_delivered] ++
         @routing_types ++ @corrective_types
 
   @spec normalize(atom(), term()) :: {:ok, map()} | {:error, term()}
@@ -64,7 +64,7 @@ defmodule Aiur.Commands.EventData do
 
   def normalize(:override_merge_settled, raw) when is_map(raw), do: OverrideMerge.normalize(raw)
 
-  def normalize(:override_implemented, raw) when is_map(raw) do
+  def normalize(type, raw) when type in [:override_implemented, :override_worker_handoff] and is_map(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
          {:ok, head_sha} <- Validation.map_required_string(raw, :head_sha, 128),
          {:ok, timestamp} <- release_timestamp(Validation.get(raw, :at)),
@@ -89,7 +89,7 @@ defmodule Aiur.Commands.EventData do
   def to_json_safe(type, data) when type in @corrective_types, do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(type, data) when type in [:override_resume_state, :override_prompt_delivered], do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:override_merge_settled, data), do: Aiur.JSONSafe.normalize(data)
-  def to_json_safe(:override_implemented, data), do: Aiur.JSONSafe.normalize(data)
+  def to_json_safe(type, data) when type in [:override_implemented, :override_worker_handoff], do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:requester_notified, data), do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(type, data) when type in @routing_types, do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:native_released, data), do: json_safe(data)

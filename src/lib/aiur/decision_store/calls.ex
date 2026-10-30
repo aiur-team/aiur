@@ -18,6 +18,7 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Revisions
   alias Aiur.DecisionStore.Transport
   alias Aiur.DecisionStore.Withdrawals
+  alias Aiur.DecisionStore.WorkerHandoffs
 
   @spec handle_call(term(), term(), term()) :: term()
   def handle_call(
@@ -52,6 +53,12 @@ defmodule Aiur.DecisionStore.Calls do
   def handle_call({:command_fact, id, type, data, opts}, _from, state) do
     CommandFacts.record(state, id, type, data, opts)
   end
+
+  def handle_call({:override_handoff_candidates, identifier}, _from, state),
+    do: {:reply, {:ok, WorkerHandoffs.snapshots(state, identifier)}, state}
+
+  def handle_call({:record_override_handoff, identifier, snapshots, receipt}, _from, state),
+    do: WorkerHandoffs.apply(state, identifier, snapshots, receipt)
 
   def handle_call({:request, payload, opts}, _from, state) do
     Requests.handle_request(payload, opts, state)

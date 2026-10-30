@@ -1,5 +1,6 @@
 defmodule Aiur.DecisionOverrideMergeTest do
   use Aiur.TestSupport
+  alias Aiur.AgentRunner.OverrideHandoff
   alias Aiur.{Commands, DecisionStore}
   alias Aiur.Commands.{CorrectiveTicket, OverridePrompt}
   alias Aiur.DecisionStore.Retry
@@ -52,8 +53,8 @@ defmodule Aiur.DecisionOverrideMergeTest do
     Agent.update(ctx.observations, &%{&1 | merged?: true})
     assert {:error, {:answer_withdrawn, :pr_merged}} = DecisionStore.validate_delivery(item(ctx.override), ctx.store)
     action = ctx.override.active_action_id
-    assert_receive {:corrective_requested, ^action}, 2_000
     wait_for(ctx, fn record -> is_map(record.corrective_ticket) end)
+    assert_received {:corrective_requested, ^action}
     {:ok, decision} = DecisionStore.get(ctx.override.decision_id, ctx.store)
     assert [%{state: :queued, corrective_ticket: %{identifier: "9000"}, merge_reason: "PR merged before the change; corrective ticket #9000"}] = decision.overrides
     assert Commands.override_target_ticket(decision).identifier == "9000"
@@ -247,6 +248,12 @@ defmodule Aiur.DecisionOverrideMergeTest do
     Agent.update(ctx.observations, &Map.merge(&1, %{head_sha: head, head_updated_at: at}))
     send(ctx.store, {:event, %{topic: "ticket.6912.branch.push", source: :system, payload: %{sha: head, ref: "refs/heads/work"}}})
     wait_for(ctx, &match?(%{kind: :push, head_sha: ^head}, &1.evidence))
+
+    assert :ok =
+             OverrideHandoff.record("6912", "ci-wait", %{head_sha: head, number: 77}, "/worker", nil,
+               decision_store: ctx.store,
+               override_handoff_head_reader: fn _, _ -> {:ok, %{head_sha: head, upstream_sha: head, committed_at: at}} end
+             )
   end
 
   defp deliver(ctx) do

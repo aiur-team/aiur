@@ -121,11 +121,20 @@ defmodule Aiur.Commands.Overrides do
   defp apply_resume_fact(record, _event), do: record
 
   @spec implemented(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
-  def implemented(decision, %{data: data}) do
+  def implemented(decision, event), do: record_push(decision, event, false)
+
+  @spec worker_handoff(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
+  def worker_handoff(decision, event), do: record_push(decision, event, true)
+
+  defp record_push(decision, %{data: data}, reported) do
     record = Enum.find(decision.overrides, &(&1.action_id == data.action_id))
 
     if valid_push?(record, decision, data) do
-      {:ok, update(decision, data.action_id, &%{&1 | evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number, at: data.at}})}
+      if match?(%{worker_reported: true}, record.evidence) and not reported do
+        {:ok, decision}
+      else
+        {:ok, update(decision, data.action_id, &%{&1 | evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number, at: data.at, worker_reported: reported}})}
+      end
     else
       {:error, :override_push_mismatch}
     end

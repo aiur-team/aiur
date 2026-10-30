@@ -102,7 +102,7 @@ defmodule Aiur.Commands.OverrideMergeTest do
 
     worker =
       case record.evidence do
-        %{kind: :push, head_sha: sha} -> sha
+        %{kind: :push, worker_reported: true, head_sha: sha} -> sha
         _ -> nil
       end
 
@@ -112,5 +112,5 @@ defmodule Aiur.Commands.OverrideMergeTest do
     })
   end
 
-  defp push(decision), do: Overrides.implemented(decision, %{data: %{action_id: "override", at: DateTime.add(@at, 1), head_sha: "after", pr_number: 77}})
+  defp push(decision), do: Overrides.worker_handoff(decision, %{data: %{action_id: "override", at: DateTime.add(@at, 1), head_sha: "after", pr_number: 77}})
 end

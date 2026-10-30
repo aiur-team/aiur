@@ -387,6 +387,7 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:override_resume_state), do: "override-resume-state"
   def lifecycle_slug(:override_prompt_delivered), do: "override-prompt-delivered"
   def lifecycle_slug(:override_merge_settled), do: "override-merge-settled"
+  def lifecycle_slug(:override_worker_handoff), do: "override-worker-handoff"
   def lifecycle_slug(:override_implemented), do: "override-implemented"
   def lifecycle_slug(:resolved), do: "resolved"
 end

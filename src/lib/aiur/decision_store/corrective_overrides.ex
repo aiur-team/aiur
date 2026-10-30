@@ -78,7 +78,10 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
     end
   end
 
-  defp scope(record), do: {record.action_id, record.route, Map.get(record, :merge_version, 1), get_in(record, [:corrective_ticket, :identifier])}
+  defp scope(record), do: {record.action_id, record.route, Map.get(record, :merge_version, 1), get_in(record, [:corrective_ticket, :identifier]), worker_head(record)}
+
+  defp worker_head(%{evidence: %{worker_reported: true, head_sha: sha}}), do: sha
+  defp worker_head(_record), do: nil
 
   defp candidate?(_state, %{closed_without_merged_pr_at: %DateTime{}}), do: false
 

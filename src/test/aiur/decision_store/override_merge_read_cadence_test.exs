@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.OverrideMergeReadCadenceTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.OverrideHandoff
   alias Aiur.{Commands, DecisionStore}
   alias Aiur.Commands.CorrectiveTicket
   alias Aiur.DecisionStore.OverridePushes
@@ -54,8 +55,7 @@ defmodule Aiur.DecisionStore.OverrideMergeReadCadenceTest do
     ctx = fixture(@open)
     assert {:ok, _} = Commands.record_command_fact(ctx.id, :override_prompt_delivered, %{action_id: ctx.action, at: DateTime.utc_now()}, server: ctx.store)
     assert {:ok, %{overrides: [%{delivered_at: delivered_at}]}} = DecisionStore.get(ctx.id, ctx.store)
-    push = %{action_id: ctx.action, head_sha: "worker", pr_number: 77, at: DateTime.add(delivered_at, 1)}
-    assert {:ok, _} = Commands.record_command_fact(ctx.id, :override_implemented, push, server: ctx.store)
+    attest(ctx, "worker", DateTime.add(delivered_at, 1))
     Agent.update(ctx.pr, &Map.merge(&1, %{merged?: true, merge_commit_sha: "merged"}))
     send(ctx.store, {:override_ticket_merged, "50"})
     await(ctx, 1)
@@ -104,6 +104,7 @@ defmodule Aiur.DecisionStore.OverrideMergeReadCadenceTest do
     ctx = fixture(@open, :contains_worker)
     assert {:ok, _} = Commands.record_command_fact(ctx.id, :override_prompt_delivered, %{action_id: ctx.action, at: DateTime.utc_now()}, server: ctx.store)
     assert {:ok, %{overrides: [%{delivered_at: delivered_at}]}} = DecisionStore.get(ctx.id, ctx.store)
+    attest(ctx, "worker", DateTime.add(delivered_at, 1))
     Agent.update(ctx.gate, fn _ -> :sample end)
     send(ctx.store, {:event, %{topic: "ticket.50.branch.push", source: :system, sha: "worker", ref: "refs/heads/work"}})
     assert_receive {:cache_sampled, _, @open}, 2_000
@@ -113,7 +114,7 @@ defmodule Aiur.DecisionStore.OverrideMergeReadCadenceTest do
     send(ctx.store, :reconcile_override_pushes)
     assert_receive {:lookup_blocked, lookup}, 2_000
     drain(ctx.store)
-    assert {:ok, %{overrides: [%{route: :active_worker, evidence: nil}]}} = DecisionStore.get(ctx.id, ctx.store)
+    assert {:ok, %{overrides: [%{route: :active_worker, evidence: %{worker_reported: true}}]}} = DecisionStore.get(ctx.id, ctx.store)
     assert Agent.get(ctx.counts, & &1.evidence) == 0
     send(lookup, :release_lookup)
 
@@ -124,6 +125,14 @@ defmodule Aiur.DecisionStore.OverrideMergeReadCadenceTest do
 
     assert Agent.get(ctx.counts, & &1.evidence) == 1
     refute_receive :unexpected_corrective_create, 20
+  end
+
+  defp attest(ctx, head, at) do
+    assert :ok =
+             OverrideHandoff.record("50", "ci-wait", %{head_sha: head, number: 77}, "/worker", nil,
+               decision_store: ctx.store,
+               override_handoff_head_reader: fn _, _ -> {:ok, %{head_sha: head, upstream_sha: head, committed_at: at}} end
+             )
   end
 
   defp fixture(pr_context \\ :unknown, outcome \\ {:error, :lookup_failed}) do
