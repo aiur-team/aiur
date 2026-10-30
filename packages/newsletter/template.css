@@ -184,3 +184,26 @@ body{padding-top:16px;padding-bottom:12px}
 .main-column,.right-column{gap:4px}
 .newspaper{margin-bottom:8px}
 .outcomes .unav{font:inherit}
+.main-column .main-features .frow,.main-column .side-features .frow{min-height:14px}
+.focus.unavailable-focus{display:flex;align-items:baseline;gap:8px;margin:4px 0 0}
+.focus.unavailable-focus .kick{margin:0;white-space:nowrap}
+.allocation-unavailable{font-size:12px;line-height:16px}
+.focus.compact-focus{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 8px;margin:4px 0 0}
+.focus.compact-focus .kick{margin:0;white-space:nowrap}
+.focus.compact-focus .pbar{display:none}
+.focus.compact-focus .lg{margin:0 4px 0 0}
+.focus.compact-focus p{display:inline;margin:0 4px 0 0}
+.byou li{grid-template-columns:minmax(0,50%) minmax(0,1fr);align-items:baseline;column-gap:6px}
+.byou li b+span+span{white-space:normal}
+.byou li b{font-size:12px;line-height:14px}
+.byou li b+span+span{font-size:10px;line-height:12px}
+.ship{gap:0}
+.ship li{font-size:12px;line-height:14px;min-height:14px}
+.bn{gap:2px;padding:6px}
+.bn h4{font-size:14px;line-height:18px}
+.bl{font-size:10px;line-height:12px;grid-template-columns:36px 1fr;gap:4px}
+.bl b{font-size:11px;line-height:14px}
+.main-column .main-features .frow,.main-column .side-features .frow{min-height:12px;font-size:10px;line-height:12px}
+.main-column .main-features .frow .fnum,.main-column .side-features .frow .fnum{font-size:10px;line-height:12px}
+.main-column .main-features .frow .chip,.main-column .side-features .frow .chip{font-size:9px;line-height:10px}
+.main-column .main-features .board,.main-column .side-features .board{gap:0}

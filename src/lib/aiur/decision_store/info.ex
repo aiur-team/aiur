@@ -6,6 +6,7 @@ defmodule Aiur.DecisionStore.Info do
   alias Aiur.Decision
   alias Aiur.DecisionPubSub
   alias Aiur.DecisionStore.CorrectiveOverrides
+  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.DecisionStore.OverridePushes
 
   alias Aiur.DecisionStore.Answers
@@ -32,8 +33,17 @@ defmodule Aiur.DecisionStore.Info do
     do: {:noreply, CorrectiveOverrides.settle(state, correlation, result)}
 
   def handle_info({:event, event}, state) do
-    if state.writable?, do: OverridePushes.observe(state, event)
-    {:noreply, state}
+    if state.writable?, do: {:noreply, OverridePushes.ingest(state, event)}, else: {:noreply, state}
+  end
+
+  def handle_info({:override_ticket_merged, identifier}, state) do
+    if state.writable?, do: {:noreply, CorrectiveOverrides.merge_observed(state, identifier)}, else: {:noreply, state}
+  end
+
+  def handle_info({:override_merge_observed, candidates, pr}, state) do
+    if state.writable?,
+      do: {:noreply, OverrideMerges.settle(state, candidates, pr)},
+      else: {:noreply, state}
   end
 
   def handle_info({:override_push_observed, candidates, sha, ref, at, pr}, state) do

@@ -413,6 +413,9 @@ defmodule Aiur.GitHub.Tracker do
     Application.get_env(:aiur, :github_client_module, Client)
   end
 
+  @spec override_merge_head(map()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_merge_head(pr), to: Aiur.GitHub.OverrideMergeEvidence, as: :read
+
   @spec override_pull_request(pos_integer()) :: {:ok, map()} | {:error, term()}
   defdelegate override_pull_request(number), to: Aiur.GitHub.OverrideRecovery, as: :pull_request
 
