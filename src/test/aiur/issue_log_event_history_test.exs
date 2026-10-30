@@ -362,7 +362,13 @@ defmodule Aiur.IssueLogEventHistoryTest do
     on_exit(fn -> TrackedSet.reset([]) end)
     _ = TrackedSet.refresh(%State{running: %{identity.identifier => %{identifier: identity.identifier, issue: issue}}})
 
-    review = %{"id" => 991, "state" => "CHANGES_REQUESTED", "body" => "Request changes at deadbeef", "submitted_at" => "2026-10-30T08:00:00Z"}
+    review = %{
+      "id" => System.unique_integer([:positive]),
+      "state" => "CHANGES_REQUESTED",
+      "body" => "Request changes at deadbeef",
+      "submitted_at" => "2026-10-30T08:00:00Z"
+    }
+
     assert {:publish, [{review_topic, review_payload, review_opts}]} = Triples.review_submission_triple(webhook_payload, review, "owner/repo")
     assert {:ok, _id, _subscribers} = Aiur.Events.publish(review_topic, review_payload, review_opts)
 
