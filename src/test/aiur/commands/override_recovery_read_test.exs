@@ -2,7 +2,7 @@ defmodule Aiur.Commands.OverrideRecoveryReadTest do
   use Aiur.TestSupport
 
   alias Aiur.{Commands, DecisionStore, Issue}
-  alias Aiur.Orchestrator.{OverrideResume, OverrideSuccessor, State}
+  alias Aiur.Orchestrator.{OverrideResume, OverrideSuccessor, State, TrackerTasks}
   alias Aiur.TestSupport.Isolation
 
   setup do
@@ -138,6 +138,57 @@ defmodule Aiur.Commands.OverrideRecoveryReadTest do
     assert next.running[ctx.issue.id].control.status == :working
     {:ok, decision} = DecisionStore.get(ctx.decision.decision_id, store)
     assert [%{state: :queued, read_attempts: 0, read_retry_at: 241_000}] = decision.overrides
+  end
+
+  test "polls during one pending lookup count one failed read", ctx do
+    parent = self()
+
+    opts =
+      options(ctx,
+        now_ms: 1_000,
+        recovery_read_fun: fn _ ->
+          send(parent, {:fresh_started, self()})
+          receive do: (:release -> {:error, :rate_limited})
+        end
+      )
+
+    state = %State{snapshot_key: self(), max_concurrent_agents: 1, running: %{ctx.issue.id => entry(ctx.issue, :unrecoverable)}}
+    pending = apply_request(state, ctx, opts)
+    receive_barrier({:fresh_started, worker})
+    on_exit(fn -> Process.exit(worker, :kill) end)
+    pending = apply_request(pending, ctx, opts)
+    [ref] = Map.keys(pending.tracker_tasks)
+    send(worker, :release)
+    receive_barrier({^ref, result})
+    assert {:handled, _} = TrackerTasks.result(pending, ref, result)
+    {:ok, decision} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
+    assert [%{read_attempts: 1, read_retry_at: 61_000}] = decision.overrides
+  end
+
+  test "a pending lookup cannot overwrite an override delivered by a resumed worker", ctx do
+    parent = self()
+
+    opts =
+      options(ctx,
+        now_ms: 1_000,
+        recovery_read_fun: fn _ ->
+          send(parent, {:fresh_started, self()})
+          receive do: (:release -> {:error, :rate_limited})
+        end
+      )
+
+    state = %State{snapshot_key: self(), max_concurrent_agents: 1, running: %{ctx.issue.id => entry(ctx.issue, :unrecoverable)}}
+    pending = apply_request(state, ctx, opts)
+    receive_barrier({:fresh_started, worker})
+    on_exit(fn -> Process.exit(worker, :kill) end)
+    assert {:ok, _} = Commands.record_command_fact(ctx.decision.decision_id, :override_prompt_delivered, %{action_id: ctx.decision.active_action_id, at: DateTime.utc_now()}, server: ctx.store)
+    [ref] = Map.keys(pending.tracker_tasks)
+    send(worker, :release)
+    receive_barrier({^ref, result})
+    assert {:handled, _} = TrackerTasks.result(pending, ref, result)
+    {:ok, decision} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
+    assert [%{state: :delivered}] = decision.overrides
+    refute Map.has_key?(hd(decision.overrides), :read_attempts)
   end
 
   test "successful recovery observations also wait before another fresh read", ctx do

@@ -10,8 +10,10 @@ defmodule Aiur.Orchestrator.OverrideRecoveryRead do
     record = Commands.pending_override(decision)
     now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
 
-    if now >= (Map.get(record, :read_retry_at) || 0) do
-      TrackerTasks.run(state, {:override_recovery_read, issue.id}, fn -> read(record, issue, opts) end, fn current, result ->
+    key = {:override_recovery_read, issue.id}
+
+    if now >= (Map.get(record, :read_retry_at) || 0) and not TrackerTasks.running?(state, key) do
+      TrackerTasks.run(state, key, fn -> read(record, issue, opts) end, fn current, result ->
         settle(current, decision, result, opts, apply_result)
       end)
     else
@@ -36,7 +38,8 @@ defmodule Aiur.Orchestrator.OverrideRecoveryRead do
     store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     with {:ok, %{decision: current}} <- Commands.get(snapshot.decision_id, store: store),
-         true <- current.active_action_id == snapshot.active_action_id do
+         true <- current.active_action_id == snapshot.active_action_id,
+         %{state: :queued} <- Commands.pending_resume_override(current) do
       settle_current(state, current, result, opts, apply_result)
     else
       _ -> state
