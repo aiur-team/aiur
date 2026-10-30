@@ -65,7 +65,7 @@ defmodule Aiur.RecentMergeLegacyReplayTest do
     old_hash =
       merge
       |> Map.from_struct()
-      |> Map.drop([:commit_messages, :content_hash, :reconciled_ticket_ids])
+      |> Map.drop([:commit_messages, :content_hash, :reconciled_ticket_ids, :issue_references])
       |> :erlang.term_to_binary([:deterministic])
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)

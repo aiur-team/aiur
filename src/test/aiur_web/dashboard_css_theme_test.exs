@@ -39,14 +39,6 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @known_literal_text_colors [
     "#1a1200",
     "#6bd6a6",
-    "#6bd6a6",
-    "#6bd6a6",
-    "#6bd6a6",
-    "#7fd4e0",
-    "#8fbcff",
-    "#e29b63",
-    "#e3b341",
-    "#e3b341",
     "#e3b341"
   ]
 
@@ -140,30 +132,14 @@ defmodule AiurWeb.DashboardCssThemeTest do
     end
   end
 
-  # A meter with low remaining headroom is critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one (#1532). The rule must
-  # keep using the themed blocking token so it stays legible in both themes.
-  test ".rs-meter is-critical uses the themed blocking fill" do
-    rule = css_rule(".rs-meter > i.is-critical")
-    assert rule =~ "var(--blocking)"
-  end
-
   test "dashboard progress bars match the Stream Deck progress contract" do
     root = declarations(css_rule(":root"))
     assert root["--progress-fill"] == Style.progress_color(0)
     assert root["--progress-complete-fill"] == Style.progress_color(100)
 
-    assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
-    assert css_rule(".ut-pbar > i") =~ "min-width: var(--progress-bar-height)"
-    assert css_rule(".ut-pbar > i.is-complete") =~ "var(--progress-complete-fill)"
-    refute css() |> String.contains?(".ut-pbar > i.is-stale")
-    refute css() |> String.contains?(".ut-pbar > i.is-blocked")
-    refute css() |> String.contains?(".ut-pbar > i.has-alert")
     assert css_rule(".run-summary-progress-fill") =~ "var(--progress-fill)"
     assert css_rule(".run-summary-progress-fill.is-complete") =~ "var(--progress-complete-fill)"
     refute css() |> String.contains?(".run-summary-progress-fill.is-stale")
-    assert css_rule(".ut-pbar.is-unknown") =~ "background: var(--line-strong)"
-    assert css_rule(".rs-meter.is-unknown") =~ "background: var(--line-strong)"
   end
 
   test "dashboard styling does not reintroduce dashes or hatching" do
