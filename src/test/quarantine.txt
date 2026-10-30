@@ -14,7 +14,6 @@ Aiur.LandingWatch.LocalHoldTest	an expired observation hold retries without logg
 Aiur.LandingWatch.UnlinkedPrTest	unlinked approved PR is skipped while linked PRs route and the watcher stays running	#6474	2026-12-31
 Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
 Aiur.Orchestrator.NonblockingQuestionTest	a non-blocking Command records the question without pausing the worker	#6571	2027-01-25
-Aiur.Orchestrator.NonblockingQuestionTest	only an open blocking Command holds waiting_for_human, even with a stale attention	#6574	2027-01-25
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31

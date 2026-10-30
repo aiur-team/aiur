@@ -72,7 +72,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp find_or_create(decision, record, pr, opts) do
-    earliest = Enum.min_by(decision.revisions, & &1.recorded_at, DateTime).recorded_at
+    earliest = decision.revisions |> Enum.map(& &1.recorded_at) |> Enum.min(DateTime)
     lookup_opts = [caller: "command_override_reconcile", since: DateTime.to_iso8601(DateTime.add(earliest, -300))]
 
     with {:ok, existing} <- find_existing(decision, record, lookup_opts, opts) do
@@ -110,13 +110,25 @@ defmodule Aiur.Commands.CorrectiveTicket do
     end
   end
 
-  defp reuse_candidate(%{action_id: id}, %{action_id: id}, ticket, _opts), do: {:halt, {:ok, ticket}}
+  defp reuse_candidate(%{action_id: id}, %{action_id: id}, ticket, _opts) do
+    {:halt, {:ok, ticket}}
+  end
 
   defp reuse_candidate(_candidate, _current, ticket, opts) do
     case CorrectivePullRequest.read(ticket.identifier, opts) do
-      {:ok, %{merged?: true}} -> {:cont, {:ok, nil}}
-      {:ok, _unmerged} -> {:halt, {:ok, ticket}}
-      {:error, _reason} = error -> {:halt, error}
+      {:ok, %{merged?: true}} ->
+        {:cont, {:ok, nil}}
+
+      {:ok, _unmerged} ->
+        case Keyword.get(opts, :issue_closure, &Tracker.issue_closure/2).(ticket.identifier, 300_000) do
+          {:ok, %{open?: true}} -> {:halt, {:ok, ticket}}
+          {:ok, %{open?: false}} -> {:cont, {:ok, nil}}
+          {:error, :unsupported} -> {:halt, {:error, :corrective_ticket_state_unavailable}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+
+      {:error, _reason} = error ->
+        {:halt, error}
     end
   end
 

@@ -26,9 +26,10 @@ defmodule Aiur.Commands.CorrectiveTicketTest do
       find: fn marker, _opts -> {:ok, Agent.get(storage, &Enum.find(&1.tickets, fn ticket -> String.contains?(ticket["body"], marker) end))} end,
       create: fn attrs, opts ->
         assert opts[:caller] == "command_override_create"
-        ticket = %{"number" => 70, "url" => "https://example.test/70", "body" => attrs.body, "labels" => attrs.labels, "title" => attrs.title}
 
         Agent.get_and_update(storage, fn state ->
+          number = 70 + state.creates
+          ticket = %{"number" => number, "url" => "https://example.test/#{number}", "body" => attrs.body, "labels" => attrs.labels, "title" => attrs.title}
           result = if state.timeout, do: {:error, :outcome_unknown}, else: {:ok, ticket}
           {result, %{state | tickets: [ticket | state.tickets], creates: state.creates + 1}}
         end)
@@ -64,10 +65,69 @@ defmodule Aiur.Commands.CorrectiveTicketTest do
     assert Agent.get(ctx.storage, &Enum.map(&1.comments, fn {_target, comments} -> length(comments) end)) == [1, 1]
   end
 
+  test "closed not-planned corrective ticket is not reused for a later override", ctx do
+    assert {:ok, _first} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, ctx.opts)
+    first = hd(ctx.decision.revisions)
+    second = %{first | action_id: "override-2", prior_action_id: first.action_id, recorded_at: DateTime.add(first.recorded_at, 3_600)}
+    record = %{ctx.record | action_id: second.action_id}
+    decision = %{ctx.decision | revisions: [first, second], overrides: [ctx.record, record]}
+    issue_closure = ctx.opts[:issue_closure]
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:issue_closure, fn
+        "70", _freshness -> {:ok, %{open?: false, state_reason: "not_planned"}}
+        identifier, freshness -> issue_closure.(identifier, freshness)
+      end)
+      |> Keyword.put(:resolve_pull_request, fn _identifier, _opts -> {:ok, %{state: :closed, merged?: false}} end)
+
+    assert {:ok, [{:override_corrective_ticket, %{action_id: "override-2", ticket: %{identifier: "71"}}}]} =
+             CorrectiveTicket.reconcile(decision, record, opts)
+
+    assert Agent.get(ctx.storage, & &1.creates) == 2
+  end
+
   test "unknown create outcome is reconciled by marker before another create", ctx do
     Agent.update(ctx.storage, &%{&1 | timeout: true})
     assert {:error, :outcome_unknown} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, ctx.opts)
     assert {:ok, [{:override_corrective_ticket, %{ticket: %{identifier: "70"}}}]} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, ctx.opts)
+    assert Agent.get(ctx.storage, & &1.creates) == 1
+  end
+
+  test "closed own corrective ticket is reused after an unknown create outcome", ctx do
+    Agent.update(ctx.storage, &%{&1 | timeout: true})
+    assert {:error, :outcome_unknown} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, ctx.opts)
+    Agent.update(ctx.storage, &%{&1 | timeout: false})
+    issue_closure = Keyword.fetch!(ctx.opts, :issue_closure)
+
+    opts =
+      Keyword.put(ctx.opts, :issue_closure, fn
+        "70", _ -> {:ok, %{open?: false, state_reason: "not_planned"}}
+        id, freshness -> issue_closure.(id, freshness)
+      end)
+
+    assert {:ok, [{:override_corrective_ticket, %{ticket: %{identifier: "70"}}}]} =
+             CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
+
+    assert Agent.get(ctx.storage, & &1.creates) == 1
+  end
+
+  test "closure lookup errors are returned during prior corrective ticket recovery", ctx do
+    assert {:ok, _first} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, ctx.opts)
+    first = hd(ctx.decision.revisions)
+    second = %{first | action_id: "override-2", prior_action_id: first.action_id, recorded_at: DateTime.add(first.recorded_at, 3_600)}
+    record = %{ctx.record | action_id: second.action_id}
+    decision = %{ctx.decision | revisions: [first, second], overrides: [ctx.record, record]}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:pull_request, fn
+        "50" -> {:ok, %{merged?: true, number: 60, merge_commit_sha: "source-merge"}}
+        "70" -> {:ok, %{merged?: false}}
+      end)
+      |> Keyword.put(:issue_closure, fn "70", _ -> {:error, :timeout} end)
+
+    assert {:error, :timeout} = CorrectiveTicket.reconcile(decision, record, opts)
     assert Agent.get(ctx.storage, & &1.creates) == 1
   end
 

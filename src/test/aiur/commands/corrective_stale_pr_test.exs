@@ -92,7 +92,10 @@ defmodule Aiur.Commands.CorrectiveStalePrTest do
 
   defp options(storage) do
     [
-      issue_closure: fn "50", _ -> {:ok, %{open?: false}} end,
+      issue_closure: fn
+        "50", _ -> {:ok, %{open?: false, state_reason: nil}}
+        "70", _ -> {:ok, %{open?: true, state_reason: nil}}
+      end,
       issues: fn ["50"] -> {:ok, [%Issue{state: "Closed", labels: ["feature:colour"]}]} end,
       resolve_pull_request: fn "50", _opts ->
         Tracker.resolve_ticket_pull_request("50",
