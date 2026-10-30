@@ -31,13 +31,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   @spec latest(map(), DateTime.t() | nil) :: map()
   def latest(row, now) when is_map(row) do
     %{
-      text: native_hold_text(row, now) || latest_text(row),
+      text: native_hold_text(row, now) || running_text(row) || latest_text(row),
       progress: progress_label(row),
       runtime: runtime_label(row, now)
     }
   end
 
   def latest(_row, now), do: latest(%{}, now)
+
+  defp running_text(%{runtime: %{bucket: :running, work_state: state}} = row) when state in [:starting, :allocated, :working],
+    do: "Running · #{latest_text(row)}"
+
+  defp running_text(_row), do: nil
 
   defp native_hold_text(%{reasons: %{native_hold: %{decision_id: id} = hold}}, now) when is_binary(id) and id != "",
     do: "Waiting for your answer · #{native_hold_age(hold, now)} · /commands/#{URI.encode_www_form(id)}"

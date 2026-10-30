@@ -5,7 +5,7 @@ defmodule AiurWeb.Build.NativeHoldTest do
   alias Aiur.TrackerIdentity
   import Aiur.TestSupport.BuildHome.IndexParts
   alias AiurWeb.Build.{IndexReader, NowRows, Payload, URLState}
-  alias AiurWeb.Streamdeck.Deck.{Counts, TicketActions, Tickets}
+  alias AiurWeb.Streamdeck.Deck.{Counts, Fleet, TicketActions, Tickets}
   alias AiurWeb.Streamdeck.Render
   alias AiurWeb.StreamdeckLive.CommandKeys
 
@@ -31,6 +31,10 @@ defmodule AiurWeb.Build.NativeHoldTest do
     counts = Counts.read(window: {:ok, %{sources: %{agents: %{state: "ok"}}, sections: %{now: [held], plan: [], nq: []}}})
     assert Counts.categories(counts).command == 1
     assert Counts.categories(counts).active == 0
+    fleet = Fleet.read(window: {:ok, %{sources: %{agents: %{state: "ok"}}, sections: %{now: [held], plan: [], nq: []}}}, global_pause: false)
+    needs_command = Enum.find(fleet.keys, &(&1.cat == :command))
+    assert needs_command.count == 1
+    assert Enum.map(needs_command.tickets, & &1.id) == ["77"]
     image = Render.key(key)
     assert image.label =~ "Waiting for your answer"
     assert image.svg =~ "for 7 min"

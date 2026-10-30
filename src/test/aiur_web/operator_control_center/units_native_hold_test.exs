@@ -48,6 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     refute UnitsPolicy.condition?(:waiting_on_you, row)
     assert UnitsPolicy.condition?(:active, row)
     output = capture_io(fn -> assert Aiur.UnitsCLI.run(payload_fun: fn -> %{units: catalog} end, now: now, format: :records) == 0 end)
+    assert output =~ "Latest: Running"
     refute output =~ "Waiting for your answer"
     refute output =~ "/commands/decision-held"
   end
