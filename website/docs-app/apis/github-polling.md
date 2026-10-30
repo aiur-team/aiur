@@ -216,8 +216,20 @@ For active and rework tickets, Aiur still denies incomplete evidence. This prese
 Either incomplete result retires the daemon's cached reads for that issue number, including the timeline body. A webhook backed repository's hour-long
 read TTL cannot replay the early snapshot.
 
-The invalidation covers one issue number and may add a timeline request on each retry until the event appears, with further requests if the timeline spans
-pages. No quota saving is claimed.
+For a `todo` ticket, a missing or malformed label-event result for the unchanged
+issue version is memoized for 60 seconds. This keeps rapid candidate polls from
+repeatedly fetching an incomplete timeline and caps the retry delay at one
+minute. Rate limits, budget holds and other transient fetch failures are not
+memoized; the next candidate poll retries them.
+
+A timeline page-limit result is different. The same unchanged timeline would
+exhaust its bounded page budget on every poll, so Aiur memoizes that deferral
+until the issue's `updated_at` changes.
+
+This allows a new issue version to be checked immediately without repeating
+the full page scan on every poll. Active and rework tickets continue to deny
+incomplete provenance evidence. Transport failures remain deferred rather than
+becoming authorization denials.
 
 **A validator belongs to the thing it describes.**
 
