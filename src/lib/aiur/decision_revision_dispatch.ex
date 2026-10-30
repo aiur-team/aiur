@@ -9,7 +9,7 @@ defmodule Aiur.DecisionRevisionDispatch do
   for a permanent outcome.
   """
 
-  alias Aiur.Commands.{DeliveryTarget, NativeAnswer}
+  alias Aiur.Commands.{DeliveryTarget, NativeAnswer, Overrides}
   alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
 
   @max_message_chars 7_800
@@ -37,7 +37,8 @@ defmodule Aiur.DecisionRevisionDispatch do
           {:ok, map()} | {:no_longer_applicable, term()} | {:error, term()}
   def dispatch(%Decision{} = decision, opts \\ []) when is_list(opts) do
     with %DecisionRevision{} = revision <- List.last(decision.revisions),
-         {:ok, %Issue{} = target} <- revalidate_target(decision, opts) do
+         ticket <- Overrides.target_ticket(decision),
+         {:ok, %Issue{} = target} <- revalidate_target(%{decision | ticket: ticket}, opts) do
       send_revision(decision, revision, target, opts)
     else
       nil -> {:error, :revision_missing}
@@ -83,7 +84,7 @@ defmodule Aiur.DecisionRevisionDispatch do
     answer = revision.answer
 
     header = """
-    Durable Decision revision for ticket #{decision.ticket.identifier}
+    Durable Decision revision for ticket #{Overrides.target_ticket(decision).identifier}
     Decision: #{decision.decision_id}
     Request version: #{revision.decision_version}
     Revision sequence: #{revision.sequence}

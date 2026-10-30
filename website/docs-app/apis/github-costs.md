@@ -124,3 +124,16 @@ GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-rep
 Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
 
 Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. The listing must have begun after the request's latest revision; its completion time cannot prove closure. Missing observation provenance also cannot prove closure. No quota saving is claimed.
+
+
+## Corrective Command tickets
+
+Post-merge Command overrides create corrective issues through the governed transport as `command_override_create`. Their marker lookup uses `command_override_reconcile`, paging the repository issue listing rather than GitHub search so reconciliation does not depend on search indexing.
+
+The lookup shares the creation-time window and incomplete-read refusal described under [Experiment analyst tickets](#experiment-analyst-tickets). A read failure never proves absence or authorizes another create.
+
+Missing or stale source PR evidence first checks issue closure through the conditional resource cache (`build_queue_observe`, five-minute freshness). Successful unresolved observations wait five minutes before another reconciliation; ordinary 30-second store ticks do not each trigger a remote read.
+
+For a closed source ticket, `command_override_merged_pr` performs one governed GraphQL read of closing PRs and merge SHAs, outside dispatch. It is bounded to 100 references and rejects incomplete results. A complete result with no merged PR in the configured repository records a final journal fact, retained across restart.
+
+Linked corrective tickets observe only the delivered PR cache, including when no PR exists yet. They do not fetch issue labels or closing PRs on each reconciliation. Errors retain durable exponential backoff capped at one hour. These are read-cadence contracts; no measured production saving is claimed.

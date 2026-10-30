@@ -490,5 +490,9 @@ semantics.
 
 The override record and routing state are visible in
 `aiur commands --json`. Resumable workers wait for capacity; explicit parked or
-paused labels require operator resume. Terminal tickets raise a follow-up.
+paused labels require operator resume.
+
+A merged PR creates a corrective ticket for a new worker and PR; later overrides
+reuse its open work. Implementation requires the corrective PR to merge.
+
 Physical override controls are separate from this transport operation.
