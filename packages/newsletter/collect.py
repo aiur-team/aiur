@@ -30,7 +30,7 @@ def ticket(node):
             "created_at": node["createdAt"], "closed_at": node.get("closedAt"), "lifecycle": None}
 
 
-def collect(repo, state_dir, now, github=None, run=command, instances=(), telemetry_root=None):
+def collect(repo, state_dir, now, github=None, run=command, instances=(), telemetry_root=None, aiur="aiur"):
     gh = github or GitHub(repo, run)
     start = now - timedelta(hours=24)
     captured = iso(now)
@@ -88,7 +88,7 @@ def collect(repo, state_dir, now, github=None, run=command, instances=(), teleme
     builds = {}
     for index, instance in enumerate([None, *instances]):
         key = "local" if instance is None else f"instance_{index}"
-        args = ["aiur"] + (["--instance", instance] if instance else [])
+        args = [aiur] + (["--instance", instance] if instance else [])
         data = read("units_" + key, lambda: json.loads(run(args + ["units", "--scope", "all", "--json"])))
         if data is not None:
             try:
