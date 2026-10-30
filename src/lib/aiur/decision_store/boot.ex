@@ -83,6 +83,7 @@ defmodule Aiur.DecisionStore.Boot do
         override_pr_reader: Keyword.get(opts, :override_pr_reader, &Aiur.Tracker.ticket_pull_request/1),
         override_merge_reader: Keyword.get(opts, :override_merge_reader, &CodeHost.override_merge_head/1),
         override_context_reader: Keyword.get(opts, :override_context_reader, &OverridePushes.context/1),
+        override_pending_pushes: %{},
         follow_up_append_retries: %{},
         held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),

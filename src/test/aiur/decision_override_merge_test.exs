@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionOverrideMergeTest do
   use Aiur.TestSupport
   alias Aiur.{Commands, DecisionStore}
-  alias Aiur.Commands.OverridePrompt
+  alias Aiur.Commands.{CorrectiveTicket, OverridePrompt}
   alias Aiur.DecisionStore.Retry
 
   @pr %{number: 77, merged?: false, head_sha: "before", head_ref: "work"}
@@ -22,9 +22,21 @@ defmodule Aiur.DecisionOverrideMergeTest do
       override_pr_reader: fn _ -> {:ok, Agent.get(observations, & &1)} end,
       override_context_reader: fn _ -> %{pr: Agent.get(observations, & &1)} end,
       override_merge_reader: fn pr -> {:ok, pr} end,
-      corrective_override_reconciler: fn _decision, record ->
-        send(owner, {:corrective_requested, record.action_id})
-        {:ok, [{:override_corrective_ticket, %{action_id: record.action_id, ticket: %{identifier: "9000", title: "Correction", url: nil}, pr_number: 77, merge_commit_sha: "merged"}}]}
+      corrective_override_reconciler: fn decision, record ->
+        cond do
+          is_map(record.corrective_ticket) ->
+            {:ok, []}
+
+          record.route == :corrective_ticket ->
+            send(owner, {:corrective_requested, record.action_id})
+            {:ok, [{:override_corrective_ticket, %{action_id: record.action_id, ticket: %{identifier: "9000", title: "Correction", url: nil}, pr_number: 77, merge_commit_sha: "merged"}}]}
+
+          true ->
+            CorrectiveTicket.reconcile(decision, record,
+              pull_request: fn _ -> {:ok, Agent.get(observations, & &1)} end,
+              merge_head: fn pr -> {:ok, Map.put(pr, :head_contains_worker_push, pr.worker_head_sha == pr.head_sha)} end
+            )
+        end
       end
     ]
 
@@ -114,10 +126,24 @@ defmodule Aiur.DecisionOverrideMergeTest do
     assert {:ok, %{overrides: [%{route: :corrective_ticket, corrective_ticket: %{identifier: "9000"}, merge_version: 2}]}} = DecisionStore.get(ctx.override.decision_id, store)
   end
 
-  test "merged head made after delivery implements even when merge is observed before push", ctx do
+  test "update-branch after delivery without a worker push creates one corrective ticket", ctx do
     deliver(ctx)
     {:ok, delivered} = DecisionStore.get(ctx.override.decision_id, ctx.store)
     [record] = delivered.overrides
+    merge(ctx, "merge-main-into-branch", DateTime.add(record.delivered_at, 60))
+    action = ctx.override.active_action_id
+    assert_receive {:corrective_requested, ^action}, 2_000
+    wait_for(ctx, &is_map(&1.corrective_ticket))
+    assert {:ok, %{overrides: [%{state: :queued, route: :corrective_ticket, implemented_at: nil}]}} = DecisionStore.get(ctx.override.decision_id, ctx.store)
+    send(ctx.store, {:override_ticket_merged, "6912"})
+    refute_receive {:corrective_requested, _}, 20
+  end
+
+  test "recorded worker push in the merged head implements without a corrective ticket", ctx do
+    deliver(ctx)
+    {:ok, delivered} = DecisionStore.get(ctx.override.decision_id, ctx.store)
+    [record] = delivered.overrides
+    push(ctx, "after", DateTime.add(record.delivered_at, 1))
     merge(ctx, "after", DateTime.add(record.delivered_at, 1))
     wait_for(ctx, &(&1.state == :implemented))
     {:ok, merged} = DecisionStore.get(ctx.override.decision_id, ctx.store)
@@ -170,7 +196,8 @@ defmodule Aiur.DecisionOverrideMergeTest do
     deliver(ctx)
     {:ok, delivered} = DecisionStore.get(ctx.override.decision_id, ctx.store)
     [record] = delivered.overrides
-    Agent.update(ctx.observations, &Map.merge(&1, %{merged?: true, head_sha: "after", committed_at: DateTime.add(record.delivered_at, 1)}))
+    push(ctx, "after", DateTime.add(record.delivered_at, 1))
+    Agent.update(ctx.observations, &Map.merge(&1, %{merged?: true, head_sha: "after", committed_at: DateTime.add(record.delivered_at, 1), merge_commit_sha: "merged"}))
     assert {:error, {:answer_withdrawn, :pr_merged}} = DecisionStore.validate_delivery(item(ctx.override), ctx.store)
     wait_for(ctx, &(&1.state == :implemented))
     refute_receive {:corrective_requested, _}, 20
@@ -191,9 +218,35 @@ defmodule Aiur.DecisionOverrideMergeTest do
     assert {:ok, %{overrides: [%{route: :corrective_ticket, merge_version: 2}]}} = DecisionStore.get(ctx.override.decision_id, ctx.store)
   end
 
+  test "late ancestry result for an older push cannot create corrective work", ctx do
+    deliver(ctx)
+    {:ok, delivered} = DecisionStore.get(ctx.override.decision_id, ctx.store)
+    push(ctx, "new-push", DateTime.add(hd(delivered.overrides).delivered_at, 1))
+
+    data = %{
+      action_id: ctx.override.active_action_id,
+      expected_version: 1,
+      head_sha: "merged",
+      pr_number: 77,
+      committed_at: DateTime.add(DateTime.utc_now(), 60),
+      worker_head_sha: "older-push",
+      head_contains_worker_push: true
+    }
+
+    assert {:error, {:invalid_transition, :stale}} = Commands.record_command_fact(ctx.override.decision_id, :override_merge_settled, data, server: ctx.store)
+    assert {:ok, %{overrides: [%{state: :delivered, route: :active_worker, corrective_ticket: nil}]}} = DecisionStore.get(ctx.override.decision_id, ctx.store)
+    refute_receive {:corrective_requested, _}, 20
+  end
+
   defp merge(ctx, head, at) do
-    Agent.update(ctx.observations, &Map.merge(&1, %{merged?: true, head_sha: head, committed_at: at}))
+    Agent.update(ctx.observations, &Map.merge(&1, %{merged?: true, head_sha: head, committed_at: at, merge_commit_sha: "merged"}))
     send(ctx.store, {:override_ticket_merged, "6912"})
+  end
+
+  defp push(ctx, head, at) do
+    Agent.update(ctx.observations, &Map.merge(&1, %{head_sha: head, head_updated_at: at}))
+    send(ctx.store, {:event, %{topic: "ticket.6912.branch.push", source: :system, payload: %{sha: head, ref: "refs/heads/work"}}})
+    wait_for(ctx, &match?(%{kind: :push, head_sha: ^head}, &1.evidence))
   end
 
   defp deliver(ctx) do

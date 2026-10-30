@@ -17,7 +17,15 @@ defmodule Aiur.DecisionStore.OverrideMerges do
   @spec settle(map(), list(), map()) :: map()
   def settle(state, candidates, %{merged?: true, number: number} = pr) do
     Enum.reduce(candidates, state, fn {id, action, version}, acc ->
-      data = %{action_id: action, expected_version: version, pr_number: number, head_sha: Map.get(pr, :head_sha), committed_at: Map.get(pr, :committed_at)}
+      data = %{
+        action_id: action,
+        expected_version: version,
+        pr_number: number,
+        head_sha: Map.get(pr, :head_sha),
+        committed_at: Map.get(pr, :committed_at),
+        worker_head_sha: Map.get(pr, :worker_head_sha),
+        head_contains_worker_push: Map.get(pr, :head_contains_worker_push, false)
+      }
 
       case CommandFacts.record(acc, id, :override_merge_settled, data, []) do
         {:reply, {:ok, _}, next} -> CorrectiveOverrides.reconcile(next)

@@ -49,15 +49,22 @@ defmodule Aiur.Commands.CorrectiveFacts do
   def apply(decision, %{type: type, data: data} = event) do
     case Enum.find(decision.overrides, &(&1.action_id == data.action_id)) do
       record when is_map(record) ->
-        if (type == :override_successor_ticket and record.pr_merged == false) or record.route in [:corrective_ticket, :replacement] or is_map(Map.get(record, :corrective_ticket)) or
-             Map.get(record, :pr_merged) == :unknown,
-           do: update(decision, record, type, data, event),
-           else: {:error, :corrective_override_missing}
+        if eligible?(decision, record, type),
+          do: update(decision, record, type, data, event),
+          else: {:error, :corrective_override_missing}
 
       _missing ->
         {:error, :corrective_override_missing}
     end
   end
+
+  defp eligible?(decision, record, type) when type in [:override_corrective_failed, :override_corrective_recovered],
+    do: record.action_id == decision.active_action_id or corrective?(record)
+
+  defp eligible?(_decision, record, :override_successor_ticket), do: record.pr_merged == false or corrective?(record)
+  defp eligible?(_decision, record, _type), do: corrective?(record)
+
+  defp corrective?(record), do: record.route in [:corrective_ticket, :replacement] or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown
 
   defp update(decision, record, :override_corrective_closed, _data, event),
     do: {:ok, replace(decision, Map.put(record, :closed_without_merged_pr_at, event.occurred_at))}

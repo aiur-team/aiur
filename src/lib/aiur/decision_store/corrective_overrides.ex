@@ -1,16 +1,21 @@
 defmodule Aiur.DecisionStore.CorrectiveOverrides do
   @moduledoc false
   require Logger
+  alias Aiur.CodeHost
   alias Aiur.Commands.{CorrectiveFailures, CorrectiveTicket}
   alias Aiur.DecisionDispatchTasks
-  alias Aiur.DecisionStore.{CommandFacts, CorrectiveFollowUp, Dispatch}
+  alias Aiur.DecisionStore.{CommandFacts, CorrectiveFollowUp, Dispatch, OverridePushes}
 
   @spec configure(map(), keyword()) :: map()
   def configure(state, opts) do
     Map.merge(state, %{
       corrective_override_jobs: %{},
       corrective_override_observations: %{},
-      corrective_override_reconciler: Keyword.get(opts, :corrective_override_reconciler, &CorrectiveTicket.reconcile/2),
+      corrective_override_merged_tickets: MapSet.new(),
+      corrective_override_reconciler:
+        Keyword.get(opts, :corrective_override_reconciler, fn decision, record ->
+          CorrectiveTicket.reconcile(decision, record, merge_head: Keyword.get(opts, :override_merge_reader, &CodeHost.override_merge_head/1))
+        end),
       corrective_override_now: Keyword.get(opts, :corrective_override_now, &DateTime.utc_now/0),
       corrective_override_alert: Keyword.get(opts, :corrective_override_alert, &Aiur.Signal.agent_alert/3)
     })
@@ -23,12 +28,25 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
 
   def reconcile(state), do: state
 
+  @spec merge_observed(map(), String.t()) :: map()
+  def merge_observed(state, identifier) do
+    if Enum.any?(state.current, fn {_id, decision} -> decision.ticket.identifier == identifier end) do
+      state
+      |> Map.update!(:corrective_override_merged_tickets, &MapSet.put(&1, identifier))
+      |> reconcile()
+    else
+      state
+    end
+  end
+
   defp reconcile_decision(%{writable?: true, health: :writable} = state, decision) do
     state = clear_inactive_failures(state, decision)
 
     case Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id)) do
       %{state: status} = record when status not in [:superseded, :implemented] ->
-        if candidate?(record) and observation_due?(state, decision, record) and CorrectiveFailures.due?(record, state.corrective_override_now.()), do: enqueue(state, decision, record), else: state
+        if candidate?(state, record) and observation_due?(state, decision, record) and CorrectiveFailures.due?(record, state.corrective_override_now.()),
+          do: enqueue(state, decision, record),
+          else: state
 
       _other ->
         state
@@ -58,8 +76,14 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
     end
   end
 
-  defp candidate?(%{closed_without_merged_pr_at: %DateTime{}}), do: false
-  defp candidate?(record), do: record.route == :corrective_ticket or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown
+  defp candidate?(_state, %{closed_without_merged_pr_at: %DateTime{}}), do: false
+
+  defp candidate?(state, record) do
+    not OverridePushes.pending?(state, record) and
+      (record.route == :corrective_ticket or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown or
+         MapSet.member?(state.corrective_override_merged_tickets, record.ticket.identifier) or
+         match?(%{pr: %{merged?: true}}, state.override_context_reader.(record.ticket.identifier)))
+  end
 
   defp enqueue(state, decision, record) do
     if Map.has_key?(state.corrective_override_jobs, decision.decision_id),

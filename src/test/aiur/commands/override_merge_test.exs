@@ -32,8 +32,8 @@ defmodule Aiur.Commands.OverrideMergeTest do
       head = if contains?, do: "after", else: "before"
       assert {:ok, winner} = merge(decision, head, DateTime.add(@at, 1))
       assert [%{state: state, route: route, merge_version: 2}] = winner.overrides
-      assert state == if(contains?, do: :implemented, else: :delivered)
-      assert route == if(contains?, do: :active_worker, else: :corrective_ticket)
+      assert state == if(contains? and order == :push_first, do: :implemented, else: :delivered)
+      assert route == if(contains? and order == :push_first, do: :active_worker, else: :corrective_ticket)
       assert {:error, :stale} = merge(winner, head, DateTime.add(@at, 1))
       assert {:error, :override_push_mismatch} = push(winner)
 
@@ -51,12 +51,43 @@ defmodule Aiur.Commands.OverrideMergeTest do
   end
 
   test "merge fact normalizes JSON and rejects malformed versions or dates" do
-    data = %{action_id: "override", expected_version: 1, pr_number: 77, head_sha: "after", committed_at: @at}
+    data = %{action_id: "override", expected_version: 1, pr_number: 77, head_sha: "after", committed_at: @at, worker_head_sha: nil, head_contains_worker_push: false}
     assert {:ok, ^data} = data |> Aiur.JSONSafe.normalize() |> OverrideMerge.normalize()
 
     for invalid <- [%{data | expected_version: 0}, %{data | committed_at: "bad"}] do
       assert {:error, :invalid_override_merge} = OverrideMerge.normalize(invalid)
     end
+  end
+
+  test "an update-branch or rebase after delivery without a recorded worker push creates corrective work" do
+    for head <- ["merge-main-into-branch", "rebased-head"] do
+      assert {:ok, updated} = merge(decision(true), head, DateTime.add(@at, 60))
+      assert [%{state: :delivered, route: :corrective_ticket, implemented_at: nil}] = updated.overrides
+    end
+  end
+
+  test "a recorded push absent from the merged head creates corrective work" do
+    {:ok, pushed} = push(decision(true))
+    fact = %{action_id: "override", expected_version: 1, pr_number: 77, head_sha: "descendant", committed_at: DateTime.add(@at, 60), worker_head_sha: "after", head_contains_worker_push: false}
+    assert {:ok, updated} = OverrideMerge.apply(pushed, %{occurred_at: @at, data: fact})
+    assert [%{state: :delivered, route: :corrective_ticket}] = updated.overrides
+  end
+
+  test "a comparison captured before a newer push cannot settle either merge disposition" do
+    {:ok, pushed} = push(decision(true))
+
+    for snapshot <- [nil, "older-push"], contains <- [true, false] do
+      fact = %{action_id: "override", expected_version: 1, pr_number: 77, head_sha: "descendant", committed_at: DateTime.add(@at, 60), worker_head_sha: snapshot, head_contains_worker_push: contains}
+      assert {:error, :stale} = OverrideMerge.apply(pushed, %{occurred_at: @at, data: fact})
+      assert [%{state: :delivered, route: :active_worker}] = pushed.overrides
+    end
+  end
+
+  test "future regression guard: only the expected version differs on an otherwise eligible override" do
+    # State and route remain eligible, so this constrains the version guard independently.
+    [record] = decision(true).overrides
+    decision = %{decision(true) | overrides: [Map.put(record, :merge_version, 2)]}
+    assert {:error, :stale} = merge(decision, "after", DateTime.add(@at, 60))
   end
 
   defp decision(delivered?) do
@@ -66,6 +97,20 @@ defmodule Aiur.Commands.OverrideMergeTest do
     if delivered?, do: Overrides.observe(decision, %{type: :delivered, data: %{action_id: "override"}, occurred_at: @at}), else: decision
   end
 
-  defp merge(decision, head, at), do: OverrideMerge.apply(decision, %{occurred_at: @at, data: %{action_id: "override", expected_version: 1, pr_number: 77, head_sha: head, committed_at: at}})
+  defp merge(decision, head, at) do
+    [record] = decision.overrides
+
+    worker =
+      case record.evidence do
+        %{kind: :push, head_sha: sha} -> sha
+        _ -> nil
+      end
+
+    OverrideMerge.apply(decision, %{
+      occurred_at: @at,
+      data: %{action_id: "override", expected_version: 1, pr_number: 77, head_sha: head, committed_at: at, worker_head_sha: worker, head_contains_worker_push: head != "before"}
+    })
+  end
+
   defp push(decision), do: Overrides.implemented(decision, %{data: %{action_id: "override", at: DateTime.add(@at, 1), head_sha: "after", pr_number: 77}})
 end

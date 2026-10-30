@@ -26,13 +26,13 @@ defmodule Aiur.Commands do
   defdelegate pending_override(decision), to: Aiur.Commands.Overrides, as: :pending
   @spec pending_resume_override(Aiur.Decision.t()) :: map() | nil
   defdelegate pending_resume_override(decision), to: Aiur.Commands.Overrides, as: :resume_request
+  @doc "Whether the current override may be dispatched to its effective worker."
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
   @spec notify_override_merge(String.t() | integer()) :: :ok
   defdelegate notify_override_merge(identifier), to: Aiur.DecisionStore.OverrideMerges, as: :notify
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
-
   @spec needs_you?(map()) :: boolean()
   defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
   @spec matches_route?(map(), atom() | nil) :: boolean()

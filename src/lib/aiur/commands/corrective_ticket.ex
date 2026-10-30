@@ -47,7 +47,15 @@ defmodule Aiur.Commands.CorrectiveTicket do
 
   defp settle_merge(record, pr, opts) do
     read = Keyword.get(opts, :merge_head, &CodeHost.override_merge_head/1)
-    result = if record.state == :delivered, do: read.(pr), else: {:ok, pr}
+
+    worker_head =
+      case record.evidence do
+        %{kind: :push, head_sha: sha} -> sha
+        _ -> nil
+      end
+
+    pr = Map.put(pr, :worker_head_sha, worker_head)
+    result = if record.state == :delivered and is_binary(worker_head), do: read.(pr), else: {:ok, pr}
 
     with {:ok, evidence} <- result do
       data = %{
@@ -55,6 +63,8 @@ defmodule Aiur.Commands.CorrectiveTicket do
         expected_version: Map.get(record, :merge_version, 1),
         pr_number: pr.number,
         head_sha: Map.get(evidence, :head_sha),
+        worker_head_sha: worker_head,
+        head_contains_worker_push: Map.get(evidence, :head_contains_worker_push, false),
         committed_at: Map.get(evidence, :committed_at)
       }
 

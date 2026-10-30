@@ -3,9 +3,8 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
   require Logger
 
-  alias Aiur.CodeHost
-  alias Aiur.Commands.CorrectivePullRequest
   alias Aiur.DecisionStore.CommandFacts
+  alias Aiur.Tracker
 
   @spec subscribe(GenServer.server()) :: :ok
   def subscribe(server \\ Aiur.Events.exchange_server()) do
@@ -18,56 +17,92 @@ defmodule Aiur.DecisionStore.OverridePushes do
       :ok
   end
 
-  @spec observe(map(), map()) :: :ok
-  def observe(state, %{topic: topic, source: :system}) do
+  @spec ingest(map(), map()) :: map()
+  def ingest(state, %{topic: topic, source: :system} = event) do
     case String.split(topic, ".") do
-      ["ticket", ticket, "branch", "push"] -> start_lookup(state, ticket)
-      ["ticket", ticket, "pr", "merged"] -> start_lookup(state, ticket)
-      _other -> :ok
+      ["ticket", ticket, "branch", "push"] ->
+        remember_push(state, ticket, Map.get(event, :payload, event))
+
+      ["ticket", ticket, "pr", "merged"] ->
+        send(self(), {:override_ticket_merged, ticket})
+        state
+
+      _other ->
+        state
     end
   end
 
-  def observe(_state, _event), do: :ok
+  def ingest(state, _event), do: state
 
-  @doc "Rechecks queued and delivered overrides; merged heads require immutable commit evidence."
+  @doc "A matching pending signal must be journaled before a merged snapshot can settle the override."
+  @spec pending?(map(), map()) :: boolean()
+  def pending?(state, %{state: :delivered, decision_id: id, action_id: action, delivered_at: %DateTime{} = delivered, ticket: ticket}) do
+    with %{sha: sha, ref: ref} <- get_in(state, [:override_pending_pushes, {id, action}]),
+         %{pr: %{head_sha: ^sha, head_ref: branch} = pr} <- state.override_context_reader.(ticket.identifier),
+         true <- is_binary(branch) and ref == "refs/heads/" <> branch,
+         %DateTime{} = pushed <- head_updated_at(pr) do
+      DateTime.compare(pushed, delivered) == :gt
+    else
+      _ -> false
+    end
+  end
+
+  def pending?(_state, _record), do: false
+
+  defp remember_push(state, ticket, %{sha: sha, ref: "refs/heads/" <> branch} = signal)
+       when is_binary(sha) and sha != "" and branch != "" do
+    pending = Map.get(state, :override_pending_pushes, %{})
+    pending = Enum.reduce(candidates(state, ticket), pending, fn {_ticket, candidate}, acc -> Map.put(acc, candidate_action(candidate), Map.take(signal, [:sha, :ref])) end)
+    state = Map.put(state, :override_pending_pushes, pending)
+    start_lookup(state, ticket)
+    state
+  end
+
+  defp remember_push(state, _ticket, _invalid), do: state
+
+  @doc "Rechecks held PR observations; remote merge evidence uses bounded corrective reconciliation."
   @spec reconcile(map()) :: :ok
   def reconcile(state), do: start_lookup(state, :all)
 
   defp start_lookup(state, ticket) do
-    candidates =
-      for {_id, decision} <- state.current,
-          ticket == :all or decision.ticket.identifier == ticket,
-          record <- decision.overrides,
-          record.state in [:queued, :delivered, :failed] and record.route in [:active_worker, :resume_pending, :capacity_wait, :replacement],
-          record.action_id == decision.active_action_id,
-          do: {decision.ticket.identifier, {decision.decision_id, record.action_id, Map.get(record, :merge_version, 1)}}
+    candidates = candidates(state, ticket)
 
     if candidates != [] do
       owner = self()
       reader = state.override_context_reader
-
-      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates, Map.get(state, :override_merge_reader, &CodeHost.override_merge_head/1)) end)
+      pending = Map.get(state, :override_pending_pushes, %{})
+      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates, pending) end)
     end
 
     :ok
   end
 
-  defp lookup_candidates(owner, reader, candidates, merge_reader) do
-    candidates
-    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Enum.each(fn {identifier, actions} -> send_lookup(owner, reader, identifier, actions, merge_reader) end)
+  defp candidates(state, ticket) do
+    for {_id, decision} <- state.current,
+        ticket == :all or decision.ticket.identifier == ticket,
+        record <- decision.overrides,
+        record.state in [:queued, :delivered, :failed] and record.route in [:active_worker, :resume_pending, :capacity_wait, :replacement],
+        is_nil(Map.get(record, :closed_without_merged_pr_at)),
+        record.action_id == decision.active_action_id,
+        do: {decision.ticket.identifier, {decision.decision_id, record.action_id, Map.get(record, :merge_version, 1)}}
   end
 
-  defp send_lookup(owner, reader, identifier, actions, merge_reader) do
-    case reader.(identifier) do
-      %{pr: %{merged?: true} = pr} ->
-        case merge_reader.(pr) do
-          {:ok, evidence} -> send(owner, {:override_merge_observed, actions, evidence})
-          {:error, reason} -> lookup_failed(identifier, reason)
-        end
+  defp lookup_candidates(owner, reader, candidates, pending) do
+    candidates
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.each(fn {identifier, actions} -> send_lookup(owner, reader, identifier, actions, pending) end)
+  end
 
+  defp send_lookup(owner, reader, identifier, actions, pending) do
+    case reader.(identifier) do
       %{pr: %{head_sha: sha, head_ref: branch} = pr} when is_binary(sha) and is_binary(branch) ->
-        send(owner, {:override_push_observed, actions, sha, "refs/heads/" <> branch, head_updated_at(pr), pr})
+        ref = "refs/heads/" <> branch
+        matching = Enum.filter(actions, &match?(%{sha: ^sha, ref: ^ref}, Map.get(pending, candidate_action(&1))))
+        if matching != [], do: send(owner, {:override_push_observed, matching, sha, ref, head_updated_at(pr), pr})
+        if Map.get(pr, :merged?) == true, do: send(owner, {:override_ticket_merged, identifier})
+
+      %{pr: %{merged?: true}} ->
+        send(owner, {:override_ticket_merged, identifier})
 
       _unknown ->
         :ok
@@ -86,7 +121,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
   @spec context(String.t()) :: map()
   def context(ticket) do
-    case CorrectivePullRequest.read(ticket, []) do
+    case Tracker.ticket_pull_request(ticket) do
       {:ok, pr} when is_map(pr) -> %{pr: pr}
       _ -> %{pr: :unknown}
     end
@@ -100,10 +135,11 @@ defmodule Aiur.DecisionStore.OverridePushes do
     if ref == "refs/heads/" <> branch and match?(%DateTime{}, at) do
       Enum.reduce(candidates, state, fn candidate, acc ->
         {id, action_id} = candidate_action(candidate)
-
         data = %{action_id: action_id, at: at, head_sha: sha, pr_number: number}
-        settle_candidate(acc, id, branch, data)
+
+        settle_candidate(acc, id, branch, data, ref)
       end)
+      |> clear_pending(candidates, sha, ref)
     else
       state
     end
@@ -111,11 +147,24 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
   def settle(state, _candidates, _sha, _ref, _at, _pr), do: state
 
+  defp clear_pending(%{writable?: false} = state, _candidates, _sha, _ref), do: state
+
+  defp clear_pending(state, candidates, sha, ref) do
+    pending =
+      Enum.reduce(candidates, Map.get(state, :override_pending_pushes, %{}), fn candidate, acc ->
+        key = candidate_action(candidate)
+        if Map.get(acc, key) == %{sha: sha, ref: ref}, do: Map.delete(acc, key), else: acc
+      end)
+
+    Map.put(state, :override_pending_pushes, pending)
+  end
+
   defp candidate_action({id, action, _version}), do: {id, action}
   defp candidate_action(pair), do: pair
 
-  defp settle_candidate(state, id, branch, data) do
-    if same_branch?(state, id, data.action_id, branch), do: record_push(state, id, data), else: state
+  defp settle_candidate(state, id, branch, data, ref) do
+    pending = get_in(state, [:override_pending_pushes, {id, data.action_id}])
+    if pending == %{sha: data.head_sha, ref: ref} and same_branch?(state, id, data.action_id, branch), do: record_push(state, id, data), else: state
   end
 
   defp same_branch?(state, id, action_id, branch) do

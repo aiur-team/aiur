@@ -125,7 +125,7 @@ defmodule Aiur.Commands.Overrides do
     record = Enum.find(decision.overrides, &(&1.action_id == data.action_id))
 
     if valid_push?(record, decision, data) do
-      {:ok, update(decision, data.action_id, &%{&1 | evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number}})}
+      {:ok, update(decision, data.action_id, &%{&1 | evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number, at: data.at}})}
     else
       {:error, :override_push_mismatch}
     end

@@ -296,11 +296,17 @@ reaches 50 points. Source failure still produces a snapshot with reported cost.
 See
 [Daily newsletter snapshots](/skills#daily-newsletter-snapshots).
 
-Command override merge reconciliation reuses held ticket-PR state on branch pushes,
-merge notifications and its 30-second journal reconciliation. A merged candidate
-reads `/commits/<merged-head-sha>` through caller `command_override_merge_head`
-to obtain the commit date; failed reads retain the override for retry.
+Command override push reconciliation reads only held ticket-PR state every 30 seconds.
+Only an explicit branch-push signal can supply push evidence; cache movement alone cannot.
 
-Provider
-handoff rechecks held PR state before delivering stale work. This adds evidence
-reads and claims no quota saving.
+It skips terminal closed-without-merge observations. Merge notifications wake the
+corrective reconciler, which bounds unresolved remote observations to five minutes
+and applies durable failure backoff to PR and ancestry read failures.
+
+A recorded post-delivery worker push implements the override only when its SHA is
+the merged PR head or an ancestor. A different merged head uses one governed
+`/compare/<worker-sha>...<merged-head-sha>` read as `command_override_merge_head`;
+an identical head needs no read. A later committer date alone proves nothing.
+
+Provider handoff rechecks held PR state before delivery. These evidence reads
+claim no quota saving.
