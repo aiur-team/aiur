@@ -18,10 +18,9 @@ defmodule Aiur.AppServer.RelayReaperTest do
     # Shutdown tests leave the daemon registry draining; own a fresh real registry.
     original = Process.whereis(ProcessReaper)
     if original, do: Process.unregister(ProcessReaper)
-    reaper = start_supervised!(ProcessReaper)
+    start_supervised!(ProcessReaper)
 
     on_exit(fn ->
-      if Process.alive?(reaper), do: GenServer.stop(reaper)
       if original && Process.alive?(original), do: Process.register(original, ProcessReaper)
     end)
 
@@ -124,7 +123,6 @@ defmodule Aiur.AppServer.RelayReaperTest do
       ProcessTree.graceful_kill_tree(metadata.relay_pid)
       ProcessTree.graceful_kill_process_group(metadata.pgid)
       for pid <- [metadata.relay_pid, metadata.provider_pid], do: ProcessReaper.unregister({:os_pid, pid})
-      if Process.alive?(relay), do: GenServer.stop(relay)
     end)
 
     {relay, metadata, child}

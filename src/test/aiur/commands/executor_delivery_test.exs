@@ -34,6 +34,9 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
     d
   end
 
+  defp store_spec(dir),
+    do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: make_ref(), restart: :temporary)
+
   defp listener(ctx) do
     start_supervised!(
       Supervisor.child_spec(
@@ -107,8 +110,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
     assert same["wake_id"] == wake["wake_id"]
     # Store replay must retain delivered evidence too.
     GenServer.stop(ctx.store)
-    replayed = start_store!(ctx.dir)
-    on_exit(fn -> if Process.alive?(replayed), do: GenServer.stop(replayed) end)
+    replayed = start_supervised!(store_spec(ctx.dir))
     assert {:ok, restored} = DecisionStore.get(d.decision_id, replayed)
     assert restored.requester_notified_at == current.requester_notified_at
     assert Decision.delivered?(restored)
@@ -241,8 +243,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
     assert enriched.requester_notified_at == notified.requester_notified_at
     assert Decision.delivered?(enriched)
     GenServer.stop(ctx.store)
-    replayed = start_store!(ctx.dir)
-    on_exit(fn -> if Process.alive?(replayed), do: GenServer.stop(replayed) end)
+    replayed = start_supervised!(store_spec(ctx.dir))
     assert {:ok, restored} = DecisionStore.get(d.decision_id, replayed)
     assert restored.requester_notified_at == notified.requester_notified_at
     assert Decision.delivered?(restored)

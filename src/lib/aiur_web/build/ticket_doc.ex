@@ -3,8 +3,9 @@ defmodule AiurWeb.Build.TicketDoc do
   import Phoenix.Component, only: [assign: 2]
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot, State}
   alias Aiur.BuildOrder.TicketDetailCoordinator
+  alias Aiur.BuildOrder.{TicketHistoryProvider, TicketTimelineProvider}
   alias Aiur.TrackerIdentity
-  alias AiurWeb.Build.{DataSource, Payload, Read, TicketDocIdentity}
+  alias AiurWeb.Build.{DataSource, Payload, Read, TicketDocIdentity, Timeline}
   alias AiurWeb.{EndpointConfig, Markdown}
 
   @failures ~w(auth permission rate_limited timeout transport not_found schema validation provider_identity_mismatch nonfetchable_repository configuration capacity evicted)
@@ -12,7 +13,7 @@ defmodule AiurWeb.Build.TicketDoc do
   @spec init(Phoenix.LiveView.Socket.t(), boolean()) :: Phoenix.LiveView.Socket.t()
   def init(socket, connected) do
     if connected, do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCoordinator.reset_topic())
-    assign(socket, doc_id: nil, doc_identity: nil)
+    assign(socket, doc_id: nil, doc_identity: nil, timeline: nil, timeline_cache: %{})
   end
 
   @spec present(String.t(), term()) :: map()
@@ -66,7 +67,8 @@ defmodule AiurWeb.Build.TicketDoc do
              do: request(identity)
 
       socket = assign(socket, doc_id: id, doc_identity: identity)
-      {:reply, Payload.scrub(present(id, validate_identity(result, identity))), socket}
+      socket = load_timeline(socket, identity)
+      {:reply, Payload.scrub(Map.put(present(id, validate_identity(result, identity)), :timeline, socket.assigns.timeline)), socket}
     else
       {:reply, Payload.scrub(present(id, {:error, :invalid_identity})), socket}
     end
@@ -76,8 +78,13 @@ defmodule AiurWeb.Build.TicketDoc do
 
   @spec close(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def close(socket) do
-    if identity = socket.assigns[:doc_identity], do: call(:ticket_detail_unsubscribe_fun, &unsubscribe/1, identity)
-    assign(socket, doc_id: nil, doc_identity: nil)
+    if identity = socket.assigns[:doc_identity] do
+      call(:ticket_detail_unsubscribe_fun, &unsubscribe/1, identity)
+      Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
+      Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.reset_topic())
+    end
+
+    assign(socket, doc_id: nil, doc_identity: nil, timeline: nil)
   end
 
   @spec update(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
@@ -88,12 +95,83 @@ defmodule AiurWeb.Build.TicketDoc do
   def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:ticket_detail_coordinator_reset, _epoch}),
     do: push(socket, validate_identity(request(identity), identity))
 
+  def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:ticket_timeline_updated, github_key}) do
+    if TrackerIdentity.github_key(identity) == github_key, do: schedule_timeline(socket, identity), else: socket
+  end
+
+  def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:ticket_history_updated, _payload}),
+    do: schedule_timeline(socket, identity)
+
+  def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:build_order_history_changed, _payload}),
+    do: schedule_timeline(socket, identity)
+
+  def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:build_order_ticket_history_reset, _epoch}),
+    do: schedule_timeline(socket, identity)
+
+  def update(%{assigns: %{doc_identity: %TrackerIdentity{} = identity}} = socket, {:ticket_timeline_loaded, key, cached, result}) do
+    if TrackerIdentity.github_key(identity) == key, do: socket |> accept_timeline(identity, cached, result) |> push_timeline(), else: socket
+  end
+
   def update(socket, _message), do: socket
 
   @spec live_identity(String.t(), keyword()) :: {:ok, TrackerIdentity.t()} | :no_identity | {:error, term()}
   defdelegate live_identity(id, opts), to: TicketDocIdentity
 
-  defp push(socket, result), do: Phoenix.LiveView.push_event(socket, "build-ticket-doc", Payload.scrub(present(socket.assigns.doc_id, result)))
+  defp push(socket, result), do: Phoenix.LiveView.push_event(socket, "build-ticket-doc", Payload.scrub(Map.put(present(socket.assigns.doc_id, result), :timeline, socket.assigns.timeline)))
+
+  defp push_timeline(socket) do
+    payload = %{v: 1, kind: "doc", id: socket.assigns.doc_id, timeline: socket.assigns.timeline}
+    Phoenix.LiveView.push_event(socket, "build-ticket-doc", Payload.scrub(payload))
+  end
+
+  defp load_timeline(socket, identity) do
+    socket = assign(socket, timeline: %{status: "loading", items: [], phases: [], progress: []})
+    _ = safely(fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity)) end)
+    _ = safely(fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.reset_topic()) end)
+    schedule_timeline(socket, identity)
+  end
+
+  defp schedule_timeline(socket, identity) do
+    key = TrackerIdentity.github_key(identity)
+    cached = Map.get(socket.assigns.timeline_cache, key)
+    owner = self()
+
+    _ =
+      Task.start(fn ->
+        cached = cached || safely(fn -> TicketTimelineProvider.cached(key) end) |> unwrap_cache() || %{high_water: 0, events: []}
+        result = safely(fn -> Timeline.read(identity, cached.high_water) end) |> unwrap_read()
+        send(owner, {:ticket_timeline_loaded, key, cached, result})
+      end)
+
+    socket
+  end
+
+  defp accept_timeline(socket, identity, cached, result) do
+    key = TrackerIdentity.github_key(identity)
+    cached = Map.get(socket.assigns.timeline_cache, key, cached)
+
+    case result do
+      {:ok, %{events: events, truncated: truncated}} ->
+        next_cache = Timeline.append_cache(cached, events)
+        timeline = Timeline.present(identity, next_cache.events)
+        timeline = Map.put(timeline, :truncated, truncated)
+        cache = Map.put(socket.assigns.timeline_cache, key, next_cache)
+        _ = safely(fn -> TicketTimelineProvider.cache(key, next_cache) end)
+        assign(socket, timeline: timeline, timeline_cache: cache)
+
+      {:error, _reason} ->
+        assign(socket, timeline: Map.put(Timeline.present(identity, cached.events), :status, "unavailable"))
+    end
+  end
+
+  defp unwrap_cache({:ok, cache}) when is_map(cache), do: cache
+  defp unwrap_cache(cache) when is_map(cache), do: cache
+  defp unwrap_cache(_), do: nil
+
+  defp unwrap_read({:ok, {:ok, result}}), do: {:ok, result}
+  defp unwrap_read({:ok, {:error, reason}}), do: {:error, reason}
+  defp unwrap_read(_), do: {:error, :unavailable}
+
   defp request(identity), do: call(:ticket_detail_request_fun, &TicketDetailCoordinator.request/1, identity)
   defp subscribe(identity), do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCoordinator.topic(identity))
   defp unsubscribe(identity), do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketDetailCoordinator.topic(identity))

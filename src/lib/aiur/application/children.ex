@@ -319,7 +319,7 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_projection, opts) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        dashboard_cache_children(dashboard?) ++
+        dashboard_cache_children(dashboard?, opts) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
@@ -337,7 +337,7 @@ defmodule Aiur.Application.Children do
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
 
-  defp dashboard_cache_children(dashboard?) do
+  defp dashboard_cache_children(dashboard?, opts) do
     List.wrap(
       if(dashboard?,
         do: [
@@ -345,7 +345,7 @@ defmodule Aiur.Application.Children do
           {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
         ]
       )
-    )
+    ) ++ if(dashboard?, do: BuildOrders.child_specs(:timeline_cache, opts), else: [])
   end
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do

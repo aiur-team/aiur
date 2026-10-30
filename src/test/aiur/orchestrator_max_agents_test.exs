@@ -79,9 +79,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       assert {:ok, %{max: 4}} = Orchestrator.set_max_concurrent_agents(name, 4)
       GenServer.stop(first)
 
-      {:ok, second} = Orchestrator.start_link(name: name, initial_poll?: false)
-      Process.unlink(second)
-      on_exit(fn -> if Process.alive?(second), do: GenServer.stop(second) end)
+      start_supervised!({Orchestrator, name: name, initial_poll?: false})
 
       assert %{max: 4, session_override?: true} = Orchestrator.max_concurrent_agents(name)
     end

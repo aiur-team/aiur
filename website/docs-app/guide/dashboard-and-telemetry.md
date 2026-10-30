@@ -24,6 +24,20 @@ The Live band ETA sums planned hours and divides by the observed runtime agent c
 
 Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, epic, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
 
+## Ticket timeline
+
+In ticket detail, choose **Timeline** to see the recorded event history. Items use observed timestamps; the tab updates as new ticket events arrive. Journal read failures are shown as unavailable without blocking the description.
+
+Ticket event journal rows retain the event ID, observed timestamp, topic, kind,
+safe summary and actor when supplied. Progress rows store `pct`; command rows
+store a redacted `cmd`. CI and merge-group failures store bounded check names
+and safe GitHub Actions run links. Successful merge-group requeues store the
+run, PR and cause.
+
+GitHub review and label transitions use the trusted ticket identity. Comment
+summaries are sanitized and bounded; full comment bodies and command output
+are not stored in marker rows.
+
 Missing tickets show “Ticket not found”; failed reads show “Ticket unavailable”. Escape, the close button or the backdrop closes the modal and clears the ticket from the URL.
 
 Content-addressed layout vendor files remain on their verified router paths; vendor manifests, provenance, sources, and licenses are not exposed.
