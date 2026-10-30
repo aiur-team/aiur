@@ -60,9 +60,9 @@ defmodule AiurWeb.DashboardLive.ConversationTest do
       end
     )
 
-    {:ok, view, html} = live(build_conn(), "/units")
-    assert html =~ "Open chat"
-    refute html =~ "units-conversation-drawer"
+    {:ok, view, html} = live(build_conn(), "/voice")
+    assert html =~ "Open conversation"
+    refute html =~ "voice-conversation-drawer"
 
     html =
       view
@@ -71,7 +71,7 @@ defmodule AiurWeb.DashboardLive.ConversationTest do
 
     assert_receive {:conversation_resolved, ^handle}, 1000
     assert_receive {:conversation_subscribed, ^handle}, 1000
-    assert html =~ ~s(id="units-conversation-drawer")
+    assert html =~ ~s(id="voice-conversation-drawer")
     assert html =~ "You can read this conversation here. Sending is not available."
     assert html =~ "Read-only dashboard — use the TUI to message or pause this agent."
     refute html =~ "Read-only mirror"
@@ -83,44 +83,9 @@ defmodule AiurWeb.DashboardLive.ConversationTest do
     refute html =~ handle
     refute html =~ "units-ticket-context"
 
-    view |> element(~s(#units-conversation-drawer button), "Close") |> render_click()
+    view |> element(~s(#voice-conversation-drawer button), "Close") |> render_click()
     assert_receive {:conversation_unsubscribed, ^handle}, 1000
-    refute has_element?(view, "#units-conversation-drawer")
-  end
-
-  test "ordinary row inspection opens ticket context, not the conversation drawer" do
-    identity = units_identity()
-    membership = units_membership(identity)
-    handle = conversation_handle_value("b")
-    orchestrator_name = Module.concat(__MODULE__, :ConversationRegressionOrchestrator)
-    orchestrator = start_counting_orchestrator(orchestrator_name)
-    test_pid = self()
-
-    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
-
-    start_test_endpoint(
-      orchestrator: orchestrator_name,
-      snapshot_timeout_ms: 100,
-      control_center_cache: false,
-      units_membership_fun: fn -> membership end,
-      units_activity_fun: fn -> units_activity(identity) end,
-      ticket_detail_request_fun: fn selected ->
-        {:ok, units_ticket_detail(selected, "Responsive Units interface")}
-      end,
-      ticket_history_request_fun: fn selected -> {:ok, units_ticket_history(selected)} end,
-      live_conversation_resolve_fun: fn _handle ->
-        send(test_pid, :unexpected_resolve)
-        {:ok, conversation_snapshot(handle)}
-      end
-    )
-
-    {:ok, view, _html} = live(build_conn(), "/units")
-
-    html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
-
-    assert html =~ ~s(id="units-ticket-context")
-    refute html =~ ~s(id="units-conversation-drawer")
-    refute_receive :unexpected_resolve, 100
+    refute has_element?(view, "#voice-conversation-drawer")
   end
 
   test "the conversation drawer replaces only the pinned generation and ignores other handles" do
@@ -143,7 +108,7 @@ defmodule AiurWeb.DashboardLive.ConversationTest do
       live_conversation_subscribe_fun: fn _handle -> :ok end
     )
 
-    {:ok, view, _html} = live(build_conn(), "/units")
+    {:ok, view, _html} = live(build_conn(), "/voice")
     view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
 
     send(
@@ -182,7 +147,7 @@ defmodule AiurWeb.DashboardLive.ConversationTest do
       live_conversation_subscribe_fun: fn _handle -> :ok end
     )
 
-    {:ok, view, _html} = live(build_conn(), "/units")
+    {:ok, view, _html} = live(build_conn(), "/voice")
     view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
 
     send(view.pid, {:live_conversation_restarted, "epoch-2", ~U[2026-07-17 13:00:00Z]})

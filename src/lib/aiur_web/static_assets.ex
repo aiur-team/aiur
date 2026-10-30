@@ -23,10 +23,11 @@ defmodule AiurWeb.StaticAssets do
     conversation-scroll-hook.js
     conversation-drawer-hook.js
     conversation-voice-controller.js
-    executor-voice-controller.js
     dashboard.css
     decision-questions-validation.js
     elevenlabs-symbol.svg
+    executor-voice-controller.js
+    executor-voice-hook.js
     sortable-table-hook.js
     streamdeck-emulator-hook.js
     streamdeck-emulator-knob.js

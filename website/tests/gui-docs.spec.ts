@@ -11,7 +11,6 @@ import { assertSyntheticContent, assertSyntheticMeters, assertSyntheticUsage, ex
 // duplicate of Concepts.
 const surfacePages = {
   'build': 'docs-app/concepts/build-history.md',
-  'units': 'docs-app/concepts/units.md',
   'commands': 'docs-app/concepts/commands.md',
   'streamdeck': 'docs-app/guide/stream-deck.md'
 } as const
@@ -110,7 +109,8 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(dashboard).toContain('| **Build** | `/`')
   expect(dashboard).toContain('[Continuous build history](/concepts/build-history)')
   expect(dashboard).not.toContain('| **Units** | `/`')
-  expect(dashboard).toContain('| **Units** (rollback) | `/units`')
+  expect(dashboard).not.toContain('| **Units** (rollback)')
+  expect(dashboard).toContain('| `/units` | Permanent redirect to /, preserving the query string. |')
   expect(dashboard).toContain('| **Commands** | `/commands`')
   expect(dashboard).toContain("Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`.")
   expect(dashboard).toContain('| **Analytics** | `/analytics`')

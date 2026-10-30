@@ -2,14 +2,10 @@ defmodule AiurWeb.DashboardLive.Commands do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [connected?: 1, push_patch: 2]
+  import Phoenix.LiveView, only: [push_patch: 2]
 
   alias AiurWeb.DashboardLive.CommandHistory
-  alias AiurWeb.DashboardLive.Controls
-  alias AiurWeb.DashboardLive.Conversation
-  alias AiurWeb.DashboardLive.TicketContext
   alias AiurWeb.DashboardLive.UnitsPanel
-  alias AiurWeb.OperatorControlCenter.AgentLogModal
   alias AiurWeb.OperatorControlCenter.DecisionPath
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
@@ -24,12 +20,7 @@ defmodule AiurWeb.DashboardLive.Commands do
     |> assign(:payload, payload)
     |> assign(:retained_counts, Map.get(payload, :retained_counts, unavailable_retained_counts()))
     |> assign(:now, DateTime.utc_now())
-    |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
     |> UnitsPanel.assign_units_view()
-    |> Controls.sync_unit_control_subscriptions(connected?(socket))
-    |> Controls.reconcile_unit_controls()
-    |> TicketContext.refresh_ticket_context_row()
-    |> Conversation.refresh_conversation_row()
     |> reload_decision_page()
     |> CommandHistory.load_history(:head)
     |> assign_selected_decision(socket.assigns.selected_decision_id)

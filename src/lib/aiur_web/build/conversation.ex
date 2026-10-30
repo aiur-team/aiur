@@ -110,20 +110,32 @@ defmodule AiurWeb.Build.Conversation do
   defp first(socket, id) do
     with {:ok, row} <- Read.safe_read(fn -> DataSource.call(socket.assigns.build_source, :ticket, [id, Read.source_opts(socket)]) end),
          true <- eligible?(row),
-         :ok <- Payload.validate(Payload.ticket(row, socket.assigns.build_epoch, socket.assigns.build_generation)) do
+         :ok <- Payload.validate(Payload.ticket(public_ticket_row(row), socket.assigns.build_epoch, socket.assigns.build_generation)) do
       socket = clear(socket)
-      ref = %{id: id, identity: row["identity"], running: nil, closed?: row["sec"] == "hist", row: row}
+      ref = %{id: id, identity: row["identity"], running: row["running"], closed?: row["sec"] == "hist", row: row}
 
       case prepare(socket, ref) do
-        {:ok, ref} -> open(socket, ref)
-        {:error, _reason} -> reply_error(socket, :unavailable)
+        {:ok, ref} ->
+          open(socket, ref)
+
+        {:error, reason} ->
+          Logger.warning("build conversation prepare unavailable ticket=#{id} reason=#{inspect(reason)}")
+          reply_error(socket, :unavailable)
       end
     else
-      {:error, :not_found} -> reply_error(socket, :invalid_params)
-      false -> reply_error(socket, :invalid_params)
-      _ -> reply_error(socket, :unavailable)
+      {:error, :not_found} ->
+        reply_error(socket, :invalid_params)
+
+      false ->
+        reply_error(socket, :invalid_params)
+
+      reason ->
+        Logger.warning("build conversation lookup unavailable ticket=#{id} reason=#{inspect(reason)}")
+        reply_error(socket, :unavailable)
     end
   end
+
+  defp public_ticket_row(row), do: Map.drop(row, ["identity", "running"])
 
   defp eligible?(row), do: is_map(row["agent"]) and row["start"] != nil
 
@@ -136,7 +148,9 @@ defmodule AiurWeb.Build.Conversation do
       socket = socket |> pin(ref, view) |> ConversationEventFeed.subscribe() |> schedule()
       {:reply, message, socket}
     else
-      _ -> reply_error(socket, :unavailable)
+      reason ->
+        Logger.warning("build conversation open unavailable ticket=#{ref.id} reason=#{inspect(reason)}")
+        reply_error(socket, :unavailable)
     end
   end
 
