@@ -10,7 +10,7 @@ import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "newsletter"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packages" / "newsletter"))
 from metrics import compute
 from local_sources import iso
 
@@ -98,6 +98,28 @@ class MetricsTest(unittest.TestCase):
         today["program"]["tickets"] = [ticket(3), ticket(4), ticket(5)] + [ticket(n) for n in range(10, 20)]
         scope = compute(today, yesterday)["program"]["scope"]
         self.assertEqual([value(scope[k]) for k in ("added", "removed", "completions")], [10, 2, 0])
+
+    def test_shelved_scope_counts_state_entries_instead_of_current_population(self):
+        cases = [
+            ("unchanged", ticket(1, mobile=True, paused=True), ticket(1, mobile=True, paused=True), 0, 1),
+            ("new member", None, ticket(1, mobile=True, paused=True), 1, 1),
+            ("newly paused", ticket(1, mobile=True), ticket(1, mobile=True, paused=True), 1, 1),
+            ("newly mobile", ticket(1, paused=True), ticket(1, mobile=True, paused=True), 1, 1),
+            ("completed", ticket(1), ticket(1, "closed", "COMPLETED", mobile=True, paused=True), 0, 0),
+            ("not planned", ticket(1), ticket(1, "closed", "NOT_PLANNED", mobile=True, paused=True), 0, 0),
+            ("reopened", ticket(1, "closed", "COMPLETED", mobile=True, paused=True),
+             ticket(1, mobile=True, paused=True), 1, 1),
+            ("unpaused", ticket(1, mobile=True, paused=True), ticket(1, mobile=True), 0, 0),
+        ]
+        for name, old, current, daily, population in cases:
+            with self.subTest(name=name):
+                today, yesterday = snapshot(), snapshot(-24)
+                yesterday["program"]["tickets"] = [] if old is None else [old]
+                today["program"]["tickets"] = [current]
+                report = compute(today, yesterday)["program"]
+                self.assertEqual(value(report["scope"]["shelved"]), daily)
+                self.assertEqual(value(report["states"]["shelved"]), population)
+                self.assertEqual(value(compute(today)["program"]["scope"]["shelved"]), "unavailable")
 
     def test_live_requires_ancestry_and_complete_negative_evidence(self):
         today = snapshot()

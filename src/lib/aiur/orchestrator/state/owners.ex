@@ -166,6 +166,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     pr_lifecycle: [
       Aiur.Orchestrator.CiLifecycle,
       Aiur.Orchestrator.DraftAlertLifecycle,
+      Aiur.Orchestrator.CiWaitDraftStall,
       Aiur.Orchestrator.CommentWake,
       Aiur.Orchestrator.ReworkGate,
       Aiur.Orchestrator.PRHealthScanner,

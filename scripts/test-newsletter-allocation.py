@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "newsletter"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packages" / "newsletter"))
 from local_sources import iso
 from metrics import compute
 from metric_supply import METRICS

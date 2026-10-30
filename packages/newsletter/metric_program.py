@@ -22,6 +22,11 @@ def opened(row):
     return row["state"].lower() == "open"
 
 
+def shelved(row):
+    return (not completed(row) and not not_planned(row)
+            and row.get("mobile", False) and row.get("paused", False))
+
+
 def counts(rows):
     if rows is None:
         return {key: UNAVAILABLE for key in ("total", "done")}
@@ -41,7 +46,8 @@ def transitions(now, before):
             for n, row in now.items()),
         "reopened": sum(not opened(before[n]) and opened(now[n]) for n in shared),
         "paused": sum(not before[n].get("paused", False) and now[n].get("paused", False) for n in shared),
-        "shelved": sum(r.get("mobile", False) and r.get("paused", False) for r in now.values())}
+        "shelved": sum(shelved(row) and (n not in before or not shelved(before[n]))
+                       for n, row in now.items())}
 
 
 def program(snapshot, yesterday):
@@ -54,6 +60,10 @@ def program(snapshot, yesterday):
                                   *("yesterday." + f for f in FIELDS)) for key, value in current.items()}
     report["scope"] = {key: metric(value, *FIELDS, "program.tickets[].paused", "program.tickets[].mobile",
                                   "yesterday.program.tickets") for key, value in transitions(now, before).items()}
+    report["done_in_window"] = metric(sum(completed(r) and r.get("closed_at") is not None and window(snapshot, r["closed_at"])
+                                         for r in now.values()) if now is not None else UNAVAILABLE, *FIELDS,
+                                     "program.tickets[].closed_at", "window_start", "window_end")
+    report["states"] = state_counts(now)
     report["lanes"] = lanes(snapshot, now, before)
     return report
 
@@ -75,5 +85,29 @@ def lanes(snapshot, now, before):
         result[name] = {**{k: metric(v, *fields) for k, v in current.items()},
                         "done_in_window": metric(done, *fields),
                         "percent": metric(percent(current["done"], current["total"]), *fields),
-                        "finished": metric(reached, *fields, "yesterday.program.tickets")}
+                        "finished": metric(reached, *fields, "yesterday.program.tickets"),
+                        "paused": metric(bool(rows) and all(r.get("paused", False) for r in rows.values()),
+                                         *fields, "program.tickets[].paused")}
     return result
+
+
+def state_counts(rows):
+    if rows is None:
+        return UNAVAILABLE
+    result = dict.fromkeys(("done", "active", "todo", "paused", "shelved", "removed"), 0)
+    for row in rows.values():
+        if not_planned(row):
+            state = "removed"
+        elif completed(row):
+            state = "done"
+        elif row.get("paused"):
+            state = "shelved" if row.get("mobile") else "paused"
+        elif row.get("lifecycle") in ("running", "allocated", "waiting", "retrying") or any(
+                label.split(':')[-1] in ("in-progress", "ci-wait", "human-review", "rework", "merging")
+                for label in row.get("labels", [])):
+            state = "active"
+        else:
+            state = "todo"
+        result[state] += 1
+    return {key: metric(value, *FIELDS, "program.tickets[].labels", "program.tickets[].lifecycle",
+                        "program.tickets[].paused", "program.tickets[].mobile") for key, value in result.items()}

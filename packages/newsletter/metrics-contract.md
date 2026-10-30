@@ -2,7 +2,7 @@
 
 `metrics.compute(today, yesterday_or_none)` consumes collector schema v1 and
 returns a JSON-serializable dictionary without I/O, mutation or wall-clock reads.
-Import it with `scripts/newsletter` on Python's module search path. No network,
+Import it with `packages/newsletter` on Python's module search path. No network,
 git process, local daemon, or dependency is required.
 
 The report separates `outcomes`, `allocation`, `program`, `bottlenecks`, `actions`
@@ -36,8 +36,11 @@ empty population. Percentages use 0–100; trends use percentage points.
   including completions, added, removed, reopened, paused and shelved, plus lanes.
   Completions require open yesterday and completed today, never new membership.
   Removed includes disappeared tickets and newly not-planned tickets. Closed
-  not-planned tickets leave the total, including lane totals. Shelved
-  is the current paused mobile/watch population (unavailable without yesterday).
+  not-planned tickets leave the total, including lane totals. Shelved counts
+  newly shelved tickets against yesterday, including new program members;
+  unchanged shelved tickets contribute zero. Completed and not-planned tickets
+  are not shelved, matching `program.states`. The current shelved population
+  remains in `program.states.shelved`; the daily count is unavailable without yesterday.
   Lanes count completed tickets with `closed_at` in the window; `finished` needs
   a previously incomplete lane, now complete. Scope removal can finish a lane
   while its window completion count stays zero.
@@ -148,3 +151,16 @@ starvation is a real zero; no recorded interval cannot prove that zero.
 Run `python3 scripts/test-newsletter-metrics.py`,
 `python3 scripts/test-newsletter-allocation.py` and
 `python3 scripts/test-newsletter-collect.py` for fixture-only contract tests.
+
+## Rendering fields
+
+`program.done_in_window` counts completed tickets whose closing timestamp is in
+the report window. `program.states` partitions deduplicated tickets into done,
+active, todo, paused, shelved and removed. Not-planned tickets are removed;
+paused mobile/watch tickets are shelved. Active means a running/allocated/
+waiting/retrying lifecycle or an in-progress/CI/review/rework/merging label.
+Other unfinished tickets are todo. Removed tickets remain outside program total.
+Lane `paused` is true only when every member is paused.
+`allocation.instant_context.running_by_class` carries the existing observed
+running counts by class, with source paths. None of these fields substitutes a
+baseline or changes the seven-day allocation headline.

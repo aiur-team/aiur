@@ -81,6 +81,7 @@
     "components/listener-spec.json",
     "components/machine-gateway.json",
     "components/mobile-app.json",
+    "components/newsletter.json",
     "components/notification-policy.json",
     "components/orchestration.json",
     "components/pairing-discovery.json",
