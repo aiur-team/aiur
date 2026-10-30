@@ -35,7 +35,9 @@ Clients send PCM16 mono 16 kHz `audio` chunks (`data`, base64), `client_text`,
 `playback_state` (`playing` or `stopped`), `confirm_draft`, `discard_draft`, and
 `end`. Only an authenticated client confirmation can deliver a draft.
 The daemon relays `state`, `transcript`, `assistant_text`, `audio`,
-`interrupted`, `draft`, `delivery`, `error`, and `ended`. Audio chunks preserve
+`interrupted`, `draft`, `delivery`, `error`, and `ended`.
+
+Audio chunks preserve
 the provider's format and contain at most 131,072 decoded bytes; `audio_done`
 marks the end of the session's audio stream. Client chunks above 256 KiB are refused.
 

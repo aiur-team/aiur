@@ -1,4 +1,5 @@
 defmodule AiurWeb.VoiceConverseChannelTest do
+  # Keep the channel lifecycle cases together: each owns an isolated core instance and endpoint overrides.
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
   alias Aiur.TestSupport.EndpointStubs
