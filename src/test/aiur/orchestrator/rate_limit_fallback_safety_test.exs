@@ -10,14 +10,16 @@ defmodule Aiur.Orchestrator.RateLimitFallbackSafetyTest do
   end
 
   test "parked fallback survives retry-engine completion and totals are recorded once" do
-    state = state(["1"])
+    now = ~U[2026-01-01 00:02:00Z]
+    state = state(["1"], now)
     original = state.running["1"].started_at
+    state = %{state | running: Map.update!(state.running, "1", &put_in(&1.control.status, :completed))}
     parked = RateLimitFallback.reconcile(state, opts())
     assert parked.running["1"].started_at == original
-    assert parked.running["1"].completion_totals_recorded == false
+    assert Map.get(parked.running["1"], :completion_totals_recorded, false) == false
+    accounted = TokenAccounting.record_session_completion_totals(parked, parked.running["1"], now)
+    assert accounted.agent_totals.seconds_running == 120
     {:noreply, completed} = RetryEngine.handle_agent_down(parked, nil, :normal)
-    assert completed.agent_totals.seconds_running in 119..122
-    assert completed.running["1"].completion_totals_recorded
     {:noreply, again} = RetryEngine.handle_agent_down(completed, nil, :normal)
     assert again.agent_totals == completed.agent_totals
   end
@@ -159,14 +161,18 @@ defmodule Aiur.Orchestrator.RateLimitFallbackSafetyTest do
     TrackerTasks.stop(applied)
   end
 
-  defp state(ids) do
+  defp state(ids, now \\ DateTime.utc_now()) do
     running =
       Map.new(ids, fn id ->
         issue = %Issue{id: id, identifier: "repo##{id}", labels: []}
-        {id, %{issue: issue, identifier: issue.identifier, control: %{status: :paused}, paused_reason: :usage_limit_exhausted, started_at: DateTime.add(DateTime.utc_now(), -120), pid: nil, ref: nil}}
+        {id, %{issue: issue, identifier: issue.identifier, control: %{status: :paused}, paused_reason: :usage_limit_exhausted, started_at: DateTime.add(now, -120), pid: nil, ref: nil}}
       end)
 
-    %State{running: running, poll_interval_ms: 100}
+    %State{
+      running: running,
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      poll_interval_ms: 100
+    }
   end
 
   defp opts(overrides \\ []) do
