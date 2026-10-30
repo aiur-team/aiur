@@ -91,7 +91,12 @@ The daemon opens the Agent
 websocket, sends microphone PCM and briefing context, handles client tools, and
 relays reply audio and transcripts to the authenticated browser.
 
-See [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
+From Home, open **Settings → Talk to Executor** (`/voice`) for the prototype’s
+provider comparison, minute meters, ratings and delivery receipts. Worker Dictate
+and Converse remain in the worker drawer on that page.
+
+See
+[Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
 for the Agent id, credential source, exact client tool names and schemas, and the
 `executor.voice.session_ended` handoff topic. The ElevenLabs key remains
 server-side; conversation audio and briefing text are processed by ElevenLabs.

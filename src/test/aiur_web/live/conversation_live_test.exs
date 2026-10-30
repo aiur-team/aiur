@@ -10,6 +10,11 @@ defmodule AiurWeb.ConversationLiveTest do
 
   defp open(ref), do: live(build_conn(), "/conversations/" <> Ref.conversation_id(ref))
 
+  test "back link returns to Build", %{ref: ref} do
+    {:ok, view, _html} = open(ref)
+    assert has_element?(view, ~s(a[href="/"]), "Build")
+  end
+
   test "loading then ordered tail, older pages and start to newer navigation", %{ref: ref} do
     Ingest.append(ref, source(), Enum.map(1..120, &event/1))
     assert :ok = flush(ref)

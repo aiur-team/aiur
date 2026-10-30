@@ -38,7 +38,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/ticket-context-dialog-hook.js"></script>
         <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script><script defer src="/voice-waveform.js"></script><script defer src="/voice-playback.js"></script><script defer src="/conversation-voice-controller.js"></script>
-        <script defer src="/executor-voice-controller.js"></script><script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/executor-voice-controller.js"></script><script defer src="/executor-voice-hook.js"></script><script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/conversation-scroll-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>
         <script defer src="/streamdeck-emulator-knob.js"></script>
@@ -56,52 +56,6 @@ defmodule AiurWeb.Layouts do
 
             var Hooks = {ConversationScroll: window.AiurConversationScrollHook};
 
-            Hooks.AgentLogPanel = {
-              mounted: function () {
-                this.threshold = 24;
-                this.liveButton = this.el
-                  .closest(".modal-panel")
-                  ?.querySelector("[data-agent-log-live]");
-
-                this.onScroll = this.updateLiveButton.bind(this);
-                this.onLiveClick = () => {
-                  this.scrollToBottom();
-                  this.updateLiveButton();
-                };
-
-                this.el.addEventListener("scroll", this.onScroll);
-                this.liveButton?.addEventListener("click", this.onLiveClick);
-
-                requestAnimationFrame(() => {
-                  this.scrollToBottom();
-                  this.updateLiveButton();
-                });
-              },
-              beforeUpdate: function () {
-                this.wasAtBottom = this.isAtBottom();
-              },
-              updated: function () {
-                if (this.wasAtBottom) this.scrollToBottom();
-                this.updateLiveButton();
-              },
-              destroyed: function () {
-                this.el.removeEventListener("scroll", this.onScroll);
-                this.liveButton?.removeEventListener("click", this.onLiveClick);
-              },
-              isAtBottom: function () {
-                return this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight <= this.threshold;
-              },
-              scrollToBottom: function () {
-                this.el.scrollTop = this.el.scrollHeight;
-              },
-              updateLiveButton: function () {
-                var live = this.isAtBottom();
-                if (!this.liveButton) return;
-
-                this.liveButton.dataset.live = live ? "true" : "false";
-                this.liveButton.setAttribute("aria-pressed", live ? "true" : "false");
-              }
-            };
             Hooks.NavToggle = {
               mounted: function () {
                 this.root = document.documentElement;
@@ -378,9 +332,8 @@ defmodule AiurWeb.Layouts do
             }
 
             if (window.AiurVoiceInputHook) Hooks.VoiceInput = window.AiurVoiceInputHook;
-            if (window.AiurConversationDrawerHook) {
-              Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
-            }
+            if (window.AiurExecutorVoiceHook) Hooks.ExecutorVoice = window.AiurExecutorVoiceHook;
+            if (window.AiurConversationDrawerHook) Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
             if (window.AiurDomSvgLayout) {
               Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
             }
