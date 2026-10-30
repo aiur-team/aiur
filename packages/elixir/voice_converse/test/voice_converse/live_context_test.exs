@@ -24,6 +24,11 @@ defmodule VoiceConverse.LiveContextTest do
   end
 
   defmodule Provider do
+    def send_context({observer, :unavailable}, text) do
+      send(observer, {:attempted, text})
+      {:error, :unavailable}
+    end
+
     def send_context({observer, store}, text) do
       {:ok, records, _} = TranscriptStore.read(Path.dirname(store.path), store.conversation_id)
       send(observer, {:sent, text, records})
@@ -109,6 +114,19 @@ defmodule VoiceConverse.LiveContextTest do
     assert_receive {:sent, "phase done\nrefreshed [REDACTED]", _}, 1_000
     assert_receive {:announced, "refreshed [REDACTED]", [when: :idle]}, 1_000
     assert state.live_context.pending == []
+  end
+
+  test "provider failures cannot turn an event burst into repeated immediate attempts", ctx do
+    {state, clock} = state(ctx)
+    state = %{state | provider_ref: {self(), :unavailable}}
+    {:noreply, state} = LiveContext.handle_info({:context_update, "first", []}, state)
+    assert_receive {:attempted, "first"}, 1_000
+    assert_receive {:scheduled, 5_000, {:live_context_flush, token}}, 1_000
+    {:noreply, state} = LiveContext.handle_info({:context_update, "second", []}, state)
+    refute_receive {:attempted, _}, 100
+    Agent.update(clock, &DateTime.add(&1, 5, :second))
+    {:noreply, _state} = LiveContext.handle_info({:live_context_flush, token}, state)
+    assert_receive {:attempted, "first\nsecond"}, 1_000
   end
 
   test "resolved Command stales proposed instructions durably but preserves sent drafts", ctx do

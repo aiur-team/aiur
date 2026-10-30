@@ -172,7 +172,7 @@ defmodule VoiceConverse.LiveContext do
           }
 
         _ ->
-          schedule(state, @interval_ms)
+          schedule(put_in(state.live_context.last_sent, state.clock.()), @interval_ms)
       end
     else
       schedule(state, @interval_ms - elapsed)
