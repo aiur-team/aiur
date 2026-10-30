@@ -86,7 +86,9 @@ accepted. Other authenticated methods return `405`.
 
 `POST /api/v1/executor/hook/deliver?harness=claude|codex` uses the same
 credential and normalizer to deliver pending Executor messages at a hook boundary.
-Only the attached provider session and harness can receive a batch. A `200`
+Only the attached provider session and harness can receive a batch.
+
+A `200`
 contains the JSON envelope to print verbatim to hook stdout; every other status
 prints nothing (`204` means no delivery). Non-loopback delivery requests return
 `403`; missing or incorrect credentials return `401`.
