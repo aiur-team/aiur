@@ -40,6 +40,13 @@ defmodule Aiur.Executor.DeliverHookCommandTest do
     assert_receive {:request, "/api/v1/executor/hook/deliver", "harness=claude", ["Bearer"], ~s({"event":"Stop"})}, 1_000
   end
 
+  test "token filename cannot terminate the authorization heredoc", %{token_path: path} do
+    path = path <> "\nAIUR_EXECUTOR_AUTH\n"
+    File.write!(path, "private-token")
+    assert run(DeliverHookCommand.command(:claude, server(200), path)) == {~s({"delivery":"hello"}), 0}
+    assert_receive {:request, "/api/v1/executor/hook/deliver", "harness=claude", ["Bearer private-token"], ~s({"event":"Stop"})}, 1_000
+  end
+
   test "runtime token is absent from curl arguments", %{token_path: path} do
     File.write!(path, "private-token")
     bin = Path.join(Path.dirname(path), "bin")
