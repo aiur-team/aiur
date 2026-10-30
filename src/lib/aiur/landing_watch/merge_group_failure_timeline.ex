@@ -12,7 +12,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureTimeline do
          ticket when is_binary(ticket) <- Aiur.TicketBranch.ticket_id(get_in(rest, ["head", "ref"])),
          identity when not is_nil(identity) <- identity_fun.(ticket) do
       checks = Enum.map(failure_identities(failure), &%{name: &1, url: safe_run_url(run["html_url"])})
-      message = "Merge-group run #{run["id"]} failed twice for PR ##{number}; PR was removed from the merge queue."
+      message = "Merge-group run #{run["id"]} failed for PR ##{number}; PR was removed from the merge queue."
 
       Events.publish("ticket.#{ticket}.ci.merge_group.failed", %{message: message, checks: checks, pr_number: number, run_id: run["id"]},
         issue_number: ticket,

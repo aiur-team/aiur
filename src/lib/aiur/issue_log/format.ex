@@ -56,7 +56,18 @@ defmodule Aiur.IssueLog.Format do
         do: append_flag([], "pct", event_field(event, :percent, nil)) |> Enum.join(" "),
         else: ""
 
-    flag_segment(event) <> actor_segment(event) <> if(progress == "", do: "", else: " " <> progress) <> ci_checks_segment(event)
+    flag_segment(event) <> actor_segment(event) <> if(progress == "", do: "", else: " " <> progress) <> review_state_segment(event) <> ci_checks_segment(event)
+  end
+
+  defp review_state_segment(event) do
+    topic = event_field(event, :topic, "")
+    comment = event_field(event, :comment, %{})
+    state = if is_map(comment), do: Map.get(comment, "state") || Map.get(comment, :state), else: nil
+    state = if is_binary(state), do: String.upcase(state), else: nil
+
+    if String.ends_with?(topic, ".pr.review_comment") and state in ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"],
+      do: " review=#{state}",
+      else: ""
   end
 
   defp ci_checks_segment(event) do

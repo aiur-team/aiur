@@ -71,8 +71,9 @@ defmodule AiurWeb.Build.TimelineTest do
     base = %{kind: "emit", ts: timestamp(), summary: ""}
 
     events = [
-      Map.merge(base, %{id: 1, topic: "ticket.12.pr.review_comment", summary: "Changes requested"}),
-      Map.merge(base, %{id: 2, topic: "ticket.12.pr.review_comment", summary: "Changes requested"}),
+      Map.merge(base, %{id: 1, topic: "ticket.12.pr.review_comment", review_state: "CHANGES_REQUESTED", summary: "Request changes at deadbeef"}),
+      Map.merge(base, %{id: 2, topic: "ticket.12.pr.review_comment", review_state: "CHANGES_REQUESTED", summary: "Executor: CI on this head is red"}),
+      Map.merge(base, %{id: 32, topic: "ticket.12.pr.review_comment", review_state: "APPROVED", summary: "The changes requested earlier are fixed"}),
       Map.merge(base, %{id: 3, topic: "ticket.12.ci.failed", summary: "test-linux failed"}),
       Map.merge(base, %{
         id: 30,
@@ -90,7 +91,8 @@ defmodule AiurWeb.Build.TimelineTest do
     ]
 
     items = Timeline.present(identity(), events).items
-    assert [%{kind: :emit, status: :rework, round: 1}, %{kind: :emit, status: :rework, round: 2}] = Enum.filter(items, &(&1.status == :rework))
+    assert [%{kind: :emit, status: :rework, round: 1}, %{kind: :emit, status: :rework, round: 2}] = Enum.filter(items, &(Map.get(&1, :status) == :rework))
+    assert Enum.any?(items, &(Map.get(&1, :review_state) == "APPROVED" and Map.get(&1, :status) != :rework and &1.label =~ "Review APPROVED"))
     assert Enum.any?(items, &(&1.status == :ci_failure and &1.label =~ "failed"))
     assert Enum.any?(items, &(&1.status == :merge_group_failure and &1.label =~ "compile" and &1.label =~ "removed from queue" and &1.run_url =~ "/actions/runs/123"))
     assert Enum.any?(items, &(&1.status == :merge_group_requeue and &1.label =~ "requeued"))

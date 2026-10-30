@@ -319,15 +319,14 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_projection, opts) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        dashboard_cache_children(dashboard?) ++
+        dashboard_cache_children(dashboard?, opts) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
         BuildOrders.child_specs(:label_backfill, opts) ++
-        List.wrap(if(recording?, do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest])) ++
-        BuildOrders.child_specs(:timeline_cache, opts)
+        List.wrap(if(recording?, do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest]))
     )
   end
 
@@ -338,7 +337,7 @@ defmodule Aiur.Application.Children do
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
 
-  defp dashboard_cache_children(dashboard?) do
+  defp dashboard_cache_children(dashboard?, opts) do
     List.wrap(
       if(dashboard?,
         do: [
@@ -346,7 +345,7 @@ defmodule Aiur.Application.Children do
           {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
         ]
       )
-    )
+    ) ++ if(dashboard?, do: BuildOrders.child_specs(:timeline_cache, opts), else: [])
   end
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do

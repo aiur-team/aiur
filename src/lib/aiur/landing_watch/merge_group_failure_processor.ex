@@ -280,7 +280,10 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     prs
     |> Enum.map(&Enum.find(observations, fn observation -> observation.number == &1 end))
     |> Enum.reject(&is_nil/1)
-    |> Enum.reduce(:ok, &rework_if_ok(&1, &2, failures, run_link, opts))
+    |> Enum.reduce(:ok, fn observation, result ->
+      MergeGroupFailureTimeline.publish(observation.number, observations, failure, run, opts)
+      rework_if_ok(observation, result, failures, run_link, opts)
+    end)
   end
 
   defp blamed_pr(%{log: log, blame_complete: true}, prs, opts) when is_binary(log) do
@@ -429,7 +432,6 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     Enum.each(prs, fn number ->
       message = "PR ##{number} was removed after the same head failed a merge-group run twice."
       emitter.("system.pr.landing.merge_group_repeat_failure", central: true, durable: true, needs_attention: true, message: message, reason: "same_head_failed_twice")
-      MergeGroupFailureTimeline.publish(number, observations, failure, run, opts)
     end)
 
     route_failed_prs(prs, observations, failure, run, opts)

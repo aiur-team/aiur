@@ -72,6 +72,7 @@ defmodule AiurWeb.Build.Timeline do
          {:ok, kind, extra} <- classify(event) do
       label = label(event)
       base = %{id: event.id, at: DateTime.to_unix(at, :millisecond), actor: actor, kind: kind, label: label, topic: event.topic}
+      base = if is_binary(event[:review_state]), do: Map.put(base, :review_state, event.review_state), else: base
       event_items(base, extra)
     else
       _ -> []
@@ -186,7 +187,7 @@ defmodule AiurWeb.Build.Timeline do
   defp label_transition?(suffix), do: String.starts_with?(suffix, "issue.label.")
   defp lifecycle_change?(suffix), do: String.ends_with?(suffix, "lifecycle.changed")
 
-  defp changes_requested?(event), do: String.contains?(String.downcase(event[:summary] || ""), "changes requested")
+  defp changes_requested?(event), do: event[:review_state] == "CHANGES_REQUESTED"
   defp ci_failure?(event), do: failure?(event) or String.ends_with?(event[:topic] || "", ".ci.failed")
   defp failure?(event), do: String.contains?(String.downcase(event[:summary] || ""), "fail")
 
@@ -221,6 +222,7 @@ defmodule AiurWeb.Build.Timeline do
   defp label(%{topic: topic, summary: summary} = event) do
     suffix = topic |> String.split(".") |> Enum.drop(2) |> Enum.join(".")
     summary = if is_integer(event[:percent]), do: "Progress #{event.percent}%", else: summary
+    summary = if String.ends_with?(topic, ".pr.review_comment") and is_binary(event[:review_state]), do: "Review #{event.review_state}", else: summary
     if is_binary(summary) and summary != "", do: "#{suffix}: #{summary}", else: suffix
   end
 

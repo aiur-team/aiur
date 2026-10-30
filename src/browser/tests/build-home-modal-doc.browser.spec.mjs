@@ -76,7 +76,8 @@ test('timeline tabs expose keyboard semantics and reflow from phone to ultrawide
   await expect(page.locator('.bm-timegaps')).toContainText('30 min')
   await expect(page.locator('.bm-timeprogress li')).toHaveCount(2)
   for (const colorScheme of ['light', 'dark']) {
-    await page.emulateMedia({ colorScheme })
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme }, colorScheme)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme)
     for (const [width, height] of [[320, 568], [390, 844], [844, 390], [768, 1024], [1024, 768], [1280, 800], [1920, 1080], [3440, 1440]]) {
       await page.setViewportSize({ width, height })
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)

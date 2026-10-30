@@ -12,8 +12,13 @@ defmodule Aiur.IssueLogEventHistoryTest do
   alias Aiur.AgentRunner.EventsDigest
   alias Aiur.IssueLog.{CommandRecorder, Paths}
 
+  alias Aiur.Events.GithubWebhook.Triples
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.{TicketObservation, TrackerIdentity}
+  alias Aiur.{Issue, TicketObservation, TrackerIdentity}
+  alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
+  alias Aiur.Orchestrator.IssueSync.TransitionAlerts
+  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TrackedSet
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
@@ -328,6 +333,49 @@ defmodule Aiur.IssueLogEventHistoryTest do
              Aiur.IssueLog.event_history_page(identity, after_id: 0)
 
     assert topic == "ticket.#{identity.identifier}.ci.failed"
+  end
+
+  test "real CI review and label producers preserve ticket identity in the durable timeline" do
+    identity = identity(identifier: Integer.to_string(System.unique_integer([:positive])))
+    :ok = Aiur.IssueLog.attach(identity)
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+    issue = %Issue{id: identity.identifier, identifier: identity.identifier, tracker_identity: identity}
+
+    _state =
+      TerminalEvent.publish_ci_terminal_event(
+        %State{},
+        issue,
+        %{head_sha: String.duplicate("a", 40), pr_number: 44, failures: [%{name: "test", result: "failure"}]},
+        :failed
+      )
+
+    webhook_payload = %{
+      "pull_request" => %{
+        "number" => 44,
+        "head" => %{"ref" => "aiur/#{identity.identifier}"},
+        "body" => "Closes #" <> identity.identifier
+      }
+    }
+
+    on_exit(fn -> TrackedSet.reset([]) end)
+    _ = TrackedSet.refresh(%State{running: %{identity.identifier => %{identifier: identity.identifier, issue: issue}}})
+
+    review = %{"id" => 991, "state" => "CHANGES_REQUESTED", "body" => "Request changes at deadbeef", "submitted_at" => "2026-10-30T08:00:00Z"}
+    assert {:publish, [{review_topic, review_payload, review_opts}]} = Triples.review_submission_triple(webhook_payload, review, "owner/repo")
+    assert {:ok, _id, _subscribers} = Aiur.Events.publish(review_topic, review_payload, review_opts)
+
+    previous = %{issue | state: "human-review"}
+    current = %{issue | state: "rework"}
+    _state = TransitionAlerts.emit_task_state_transition_alert(%State{}, previous, current)
+
+    _ = :sys.get_state(pid)
+
+    assert {:ok, %{events: events}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
+    assert Enum.any?(events, &(&1.topic == "ticket.#{identity.identifier}.ci.failed"))
+    assert Enum.any?(events, &(&1.topic == "ticket.#{identity.identifier}.pr.review_comment" and &1.review_state == "CHANGES_REQUESTED"))
+    assert Enum.any?(events, &(&1.topic == "ticket.#{identity.identifier}.issue.label.added.agent.rework"))
   end
 
   test "command records redact credentials before persisting the timeline marker" do

@@ -126,7 +126,8 @@ defmodule Aiur.IssueLog.EventHistory do
       digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source(),
       actor: Map.get(flags, "actor"),
       percent: safe_percent(Map.get(flags, "pct")),
-      ci_checks: safe_ci_checks(Map.get(flags, "ci"))
+      ci_checks: safe_ci_checks(Map.get(flags, "ci")),
+      review_state: safe_review_state(Map.get(flags, "review"))
     }
   end
 
@@ -164,6 +165,9 @@ defmodule Aiur.IssueLog.EventHistory do
   end
 
   defp safe_ci_checks(_value), do: []
+
+  defp safe_review_state(value) when value in ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"], do: value
+  defp safe_review_state(_value), do: nil
 
   defp parse_flags(flag_segment) when is_binary(flag_segment) do
     flag_segment

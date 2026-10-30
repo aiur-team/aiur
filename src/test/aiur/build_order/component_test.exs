@@ -179,6 +179,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.AnalystTrigger,
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    Aiur.BuildOrder.TicketTimelineCache,
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     Aiur.Netlify.Usage,
@@ -210,7 +211,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     expected =
       early ++
         [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
-        final ++ [Aiur.BuildOrder.History.LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest, Aiur.BuildOrder.TicketTimelineCache]
+        final ++ [Aiur.BuildOrder.History.LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest]
 
     assert Aiur.Application.child_specs(@opts) == expected
 
@@ -221,6 +222,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
             AiurWeb.ControlCenterCache,
             Aiur.RunTelemetry.RetainedCache,
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+            Aiur.BuildOrder.TicketTimelineCache,
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.DashboardAuth.ChallengeStore,
             AiurWeb.DashboardAuthRateLimit.Store,
