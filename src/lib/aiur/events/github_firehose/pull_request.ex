@@ -87,7 +87,10 @@ defmodule Aiur.Events.GithubFirehose.PullRequest do
     do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha, ticket)
 
   defp trusted_identity(id) do
-    Aiur.Orchestrator.tracker_identity(id)
+    case Aiur.Orchestrator.tracker_identity(id) do
+      %Aiur.TrackerIdentity{} = identity -> identity
+      _ -> nil
+    end
   catch
     :exit, _ -> nil
   end

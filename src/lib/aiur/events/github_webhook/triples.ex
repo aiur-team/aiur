@@ -349,7 +349,10 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   defp pr_topic(_target, _action, _merged), do: nil
 
   defp trusted_identity(ticket) do
-    Aiur.Orchestrator.tracker_identity(ticket)
+    case Aiur.Orchestrator.tracker_identity(ticket) do
+      %Aiur.TrackerIdentity{} = identity -> identity
+      _ -> nil
+    end
   catch
     :exit, _ -> nil
   end
