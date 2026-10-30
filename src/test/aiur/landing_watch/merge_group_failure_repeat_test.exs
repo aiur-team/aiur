@@ -13,11 +13,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     Application.put_env(:aiur, :log_file, Path.join(root, "log/aiur.log"))
     Application.put_env(:aiur, :runtime_state_dir, Path.join(root, "state"))
 
-    on_exit(fn ->
-      if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
-      if original_runtime_state_dir, do: Application.put_env(:aiur, :runtime_state_dir, original_runtime_state_dir), else: Application.delete_env(:aiur, :runtime_state_dir)
-      Aiur.TestCleanup.rm_rf!(root)
-    end)
+    on_exit(fn -> restore_test_environment(original_log_file, original_runtime_state_dir, root) end)
 
     unique = System.unique_integer([:positive])
     repository = {"owner", "repo-#{unique}"}
@@ -82,11 +78,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     Application.put_env(:aiur, :log_file, Path.join(root, "log/aiur.log"))
     Application.put_env(:aiur, :runtime_state_dir, Path.join(root, "state"))
 
-    on_exit(fn ->
-      if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
-      if original_runtime_state_dir, do: Application.put_env(:aiur, :runtime_state_dir, original_runtime_state_dir), else: Application.delete_env(:aiur, :runtime_state_dir)
-      Aiur.TestCleanup.rm_rf!(root)
-    end)
+    on_exit(fn -> restore_test_environment(original_log_file, original_runtime_state_dir, root) end)
 
     unique = System.unique_integer([:positive])
     repository = {"owner", "repo-#{unique}"}
@@ -495,9 +487,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     pid
   end
 
-  defp journal_path do
-    root = Aiur.TestSupport.tmp_root!("merge-group-repeat")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
-    Path.join(root, "journal.json")
-  end
+  defp journal_path,
+    do: Path.join(System.tmp_dir!(), "mgf-#{System.pid()}-#{System.unique_integer([:positive])}.json")
+
+  defp restore_test_environment(log_file, state_dir, root),
+    do:
+      Enum.each([{:log_file, log_file}, {:runtime_state_dir, state_dir}], fn
+        {key, nil} -> Application.delete_env(:aiur, key)
+        {key, value} -> Application.put_env(:aiur, key, value)
+      end) && Aiur.TestCleanup.rm_rf!(root)
 end
