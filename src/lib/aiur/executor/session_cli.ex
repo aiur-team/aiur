@@ -1,6 +1,6 @@
 defmodule Aiur.Executor.SessionCLI do
   @moduledoc false
-  alias Aiur.Executor.{HarnessSession, Session, SessionIngest}
+  alias Aiur.Executor.{HarnessSession, Session, SessionIngest, TranscriptIngest}
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec rpc(keyword()) :: :ok
@@ -38,7 +38,7 @@ defmodule Aiur.Executor.SessionCLI do
   end
 
   defp transcript_status do
-    Aiur.Executor.TranscriptIngest.status()
+    TranscriptIngest.status()
   catch
     :exit, {:noproc, _call} -> %{transcript_rejection: nil}
   end

@@ -2,9 +2,10 @@ Code.require_file("../conversation/journal_support.exs", __DIR__)
 
 defmodule Aiur.Executor.TranscriptIngestTest do
   use ExUnit.Case, async: false
+  import ExUnit.CaptureIO
   import Aiur.Conversation.TestSupport, only: [flush: 1, rows: 1, sessions: 1]
-  alias Aiur.Conversation.TestSupport
-  alias Aiur.Executor.{Session, TranscriptIngest}
+  alias Aiur.Conversation.{Ingest, TestSupport}
+  alias Aiur.Executor.{HookPayload, Session, SessionCLI, SessionIngest, TranscriptIngest}
 
   setup context do
     context = TestSupport.setup(context)
@@ -66,7 +67,7 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     assert {:ok, _} = Session.record_offset(first.binding_id, first.transcript_offset)
     stop_supervised!(Session)
     start_supervised!({Session, instance_key: "transcript-test"})
-    {:ok, writer} = Aiur.Conversation.Ingest.writer(context.ref)
+    {:ok, writer} = Ingest.writer(context.ref)
     DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, writer)
     Application.put_env(:aiur, :conversation_journal, Keyword.put(Application.fetch_env!(:aiur, :conversation_journal), :run_id, "run-two"))
     # A record before the stored cursor is deliberately changed to a new UUID;
@@ -137,12 +138,18 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     TranscriptIngest.poll()
     assert DynamicSupervisor.count_children(context.tail_supervisor).active == 0
     assert TranscriptIngest.status() == %{transcript_rejection: :not_regular}
+    opts = [json: true, path: Path.join(context.root, "claims.json")]
+    rendered = capture_io(fn -> SessionCLI.run(opts) end) |> Jason.decode!()
+    assert rendered["transcript_rejection"] == "not_regular"
+    assert capture_io(fn -> SessionCLI.run(Keyword.put(opts, :json, false)) end) =~ "transcript_rejection=not_regular"
     assert :ok = flush(context.ref)
     assert [gap] = rows(context.dir)
     assert {gap["kind"], gap["meta"]["reason"]} == {"gap", "source_unreadable"}
     assert {:ok, _} = Session.attach(%{harness: "codex", takeover?: true})
     TranscriptIngest.poll()
     assert TranscriptIngest.status() == %{transcript_rejection: nil}
+    rendered = capture_io(fn -> SessionCLI.run(opts) end) |> Jason.decode!()
+    assert Map.fetch!(rendered, "transcript_rejection") == nil
   end
 
   test "unattached, nil-path and foreign hooks never start capture", context do
@@ -226,7 +233,7 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     start_ingest(context, :temporary)
     TranscriptIngest.poll()
     assert {:ok, first} = Session.current()
-    {:ok, writer} = Aiur.Conversation.Ingest.writer(context.ref)
+    {:ok, writer} = Ingest.writer(context.ref)
     :sys.suspend(writer)
     append(path, [assistant("second", "second")])
     Agent.update(timer, fn _ -> 1000 end)
@@ -240,7 +247,6 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     assert catch_exit(TranscriptIngest.poll())
     assert {:ok, receipt} = Session.current()
     assert receipt.transcript_offset == first.transcript_offset
-    stop_supervised!(TranscriptIngest)
     start_ingest(context)
     TranscriptIngest.poll()
     assert :ok = flush(context.ref)
@@ -257,7 +263,6 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     monitor = Process.monitor(manager)
     Process.exit(manager, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^manager, :killed}, 1000
-    stop_supervised!(TranscriptIngest)
     start_ingest(context)
     TranscriptIngest.poll()
     assert :ok = flush(context.ref)
@@ -268,11 +273,11 @@ defmodule Aiur.Executor.TranscriptIngestTest do
   test "accepted hook alone starts capture through the subscribed topic", context do
     start_ingest(context)
     TranscriptIngest.poll()
-    start_supervised!({Aiur.Executor.SessionIngest, pubsub: context.pubsub})
+    start_supervised!({SessionIngest, pubsub: context.pubsub})
     assert {:ok, _} = Session.attach(%{harness: "claude"})
     path = transcript(context, "one", [assistant("hook", "hook")])
-    assert {:ok, event} = Aiur.Executor.HookPayload.normalize(%{"session_id" => "one", "hook_event_name" => "SessionStart", "transcript_path" => path}, "claude", home: context.home)
-    Aiur.Executor.SessionIngest.dispatch(event)
+    assert {:ok, event} = HookPayload.normalize(%{"session_id" => "one", "hook_event_name" => "SessionStart", "transcript_path" => path}, "claude", home: context.home)
+    SessionIngest.dispatch(event)
     assert_receive {:journal_batch, 1}, 5000
     assert :ok = flush(context.ref)
     assert Enum.map(rows(context.dir), & &1["body"]) == ["hook"]

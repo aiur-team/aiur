@@ -180,17 +180,21 @@ defmodule Aiur.Executor.TranscriptIngest do
             if Map.has_key?(binding, :clear_rebind_until), do: state, else: launch(state, binding)
 
           {:error, reason} ->
-            if state.error != reason or state.error_binding != identity(binding) do
-              now = DateTime.utc_now()
-              Ingest.gap(Ref.executor(), :source_unreadable, now, now)
-            end
-
-            %{state | error: reason, error_binding: identity(binding)}
+            reject_path(state, binding, reason)
         end
 
       _ ->
         %{state | error: nil, error_binding: nil}
     end
+  end
+
+  defp reject_path(state, binding, reason) do
+    if state.error != reason or state.error_binding != identity(binding) do
+      now = DateTime.utc_now()
+      Ingest.gap(Ref.executor(), :source_unreadable, now, now)
+    end
+
+    %{state | error: reason, error_binding: identity(binding)}
   end
 
   defp launch(state, binding) do
