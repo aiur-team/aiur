@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Calls do
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.OperatorMessages.Calls, as: MessageCalls
-  alias Aiur.Orchestrator.OperatorMessages.{HeldReads, Snapshot}
+  alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads, Snapshot}
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
   @spec handle_call(term(), GenServer.from(), Aiur.Orchestrator.State.t()) :: tuple()
@@ -20,6 +20,9 @@ defmodule Aiur.Orchestrator.Calls do
 
   def handle_call({:read_held_messages, identifier, max, deadline}, _from, state),
     do: HeldReads.handle_call(state, identifier, max, deadline: deadline)
+
+  def handle_call({:claim_executor_hook_batch, binding, boundary, opts}, _from, state),
+    do: Aiur.Handoff.claim_or_empty(state, fn -> ExecutorHookClaims.handle_call(state, binding, boundary, opts) end)
 
   def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
 
