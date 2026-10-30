@@ -4,6 +4,7 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
   use ExUnit.Case, async: false
   alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, TestSupport}
   alias Aiur.Events.{BranchRefStore, Exchange, GithubFirehose, GithubWebhook, LsRemoteTicker, Publisher}
+  alias Aiur.Events.GithubWebhook.Normalizer
   alias Aiur.Orchestrator.TrackedSet
   import TestSupport
 
@@ -147,6 +148,8 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
       command(ctx, ctx.worker, command_body, if(merged?, do: "Merged", else: "https://github.com/aiur-team/aiur/pull/#{pr_number}"), "command-#{action}")
       delivery = webhook_pr_delivery(ctx, action, merged?, pr_number)
       expected_topic = "ticket.6628.#{if(merged?, do: "pr.merged", else: "pr.opened")}"
+      assert {:publish, [{^expected_topic, _payload, producer_opts}]} = Normalizer.normalize("pull_request", delivery, repo: "aiur-team/aiur")
+      assert producer_opts[:identity] == ctx.identity
       test_pid = self()
 
       assert %{status: :published} =
