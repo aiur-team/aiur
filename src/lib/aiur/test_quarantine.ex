@@ -3,6 +3,10 @@ defmodule Aiur.TestQuarantine do
 
   @type entry :: %{module: String.t(), name: String.t(), ticket: String.t(), expires: Date.t()}
 
+  @module_pattern ~r/^\s*defmodule\s+([A-Za-z0-9_.]+)\s+do\b/
+  @describe_pattern ~r/^\s*describe\s+"((?:[^"\\]|\\.)*)"/
+  @test_pattern ~r/^\s*test\s+"((?:[^"\\]|\\.)*)"/
+
   @spec read(Path.t()) :: {:ok, [entry()]} | {:error, term()}
   def read(path), do: File.read(path) |> then(&parse_result/1)
 
@@ -27,10 +31,26 @@ defmodule Aiur.TestQuarantine do
           {String.t(), String.t()}
   def sort_key(%{module: module, name: name}), do: {module, name}
 
+  @doc false
+  @spec test_name_occurrences(String.t(), Path.t()) :: [{String.t(), Path.t(), pos_integer()}]
+  def test_name_occurrences(name, tests_root) do
+    tests_root
+    |> Path.join("**/*_test.exs")
+    |> Path.wildcard()
+    |> Enum.flat_map(&test_file_occurrences(&1, name))
+  end
+
   @doc "Inserts a quarantine row while preserving the validator's module/name ordering."
   @spec insert_sorted(String.t(), String.t()) :: String.t()
   def insert_sorted(contents, row) when is_binary(contents) and is_binary(row) do
-    rows = String.split(String.trim_trailing(contents), "\n", trim: true)
+    rows =
+      if contents == "" do
+        []
+      else
+        rows = String.split(contents, "\n", trim: false)
+        if String.ends_with?(contents, "\n"), do: Enum.drop(rows, -1), else: rows
+      end
+
     identity = row_identity(row)
 
     {before, after_rows} =
@@ -52,6 +72,80 @@ defmodule Aiur.TestQuarantine do
       _ -> nil
     end
   end
+
+  defp test_file_occurrences(path, requested_name) do
+    path
+    |> File.stream!()
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], []}, &scan_test_line(path, requested_name, &1, &2))
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp scan_test_line(path, requested_name, {line, line_number}, {stack, found}) do
+    if String.trim(line) == "" do
+      {stack, found}
+    else
+      indent = String.length(line) - String.length(String.trim_leading(line))
+      stack = pop_scopes(stack, indent)
+      context = %{indent: indent, stack: stack, module: scope_value(stack, :module)}
+      handle_test_line(classify_test_line(line), context, path, line_number, requested_name, found)
+    end
+  end
+
+  defp pop_scopes(stack, indent),
+    do: Enum.drop_while(stack, fn {depth, _kind, _value} -> indent <= depth end)
+
+  defp scope_value(stack, kind),
+    do: Enum.find_value(stack, fn {_depth, scope_kind, value} -> if scope_kind == kind, do: value end)
+
+  defp classify_test_line(line) do
+    case Regex.run(@module_pattern, line) do
+      [_, child] -> {:module, child}
+      _ -> classify_description_or_test(line)
+    end
+  end
+
+  defp classify_description_or_test(line) do
+    case Regex.run(@describe_pattern, line) do
+      [_, description] -> {:describe, description}
+      _ -> classify_test_name(line)
+    end
+  end
+
+  defp classify_test_name(line) do
+    case Regex.run(@test_pattern, line) do
+      [_, name] -> {:test, name}
+      _ -> :other
+    end
+  end
+
+  defp handle_test_line({:module, child}, context, _path, _line_number, _requested_name, found) do
+    full_name = qualify_module(context.module, child)
+    {[{context.indent, :module, full_name} | context.stack], found}
+  end
+
+  defp handle_test_line({:describe, raw_description}, context, _path, _line_number, _requested_name, found) do
+    description = Macro.unescape_string(raw_description)
+    {[{context.indent, :describe, description} | context.stack], found}
+  end
+
+  defp handle_test_line({:test, _raw_name}, %{module: nil} = context, _path, _line_number, _requested_name, found),
+    do: {context.stack, found}
+
+  defp handle_test_line({:test, raw_name}, context, path, line_number, requested_name, found) do
+    test_name = qualify_test_name(scope_value(context.stack, :describe), Macro.unescape_string(raw_name))
+    found = if test_name == requested_name, do: [{context.module, path, line_number} | found], else: found
+    {context.stack, found}
+  end
+
+  defp handle_test_line(:other, context, _path, _line_number, _requested_name, found), do: {context.stack, found}
+
+  defp qualify_module(nil, child), do: child
+  defp qualify_module(parent, child), do: parent <> "." <> child
+
+  defp qualify_test_name(nil, name), do: name
+  defp qualify_test_name(description, name), do: description <> " " <> name
 
   defp filter(%{module: module, name: "*"}), do: {:module, String.to_atom(module)}
   defp filter(%{name: name}), do: {:test, String.to_atom("test " <> name)}
@@ -83,7 +177,6 @@ defmodule Aiur.TestQuarantine do
   defp reverse_entries({:ok, entries}), do: {:ok, Enum.reverse(entries)}
   defp reverse_entries(error), do: error
 
-  defp valid_module?("*"), do: true
   defp valid_module?(module), do: Regex.match?(~r/^Aiur(?:Web)?(?:\.[A-Za-z0-9_]+)+$/, module)
   defp valid_ticket?(ticket), do: Regex.match?(~r/^#?[1-9][0-9]*$/, ticket)
 end
