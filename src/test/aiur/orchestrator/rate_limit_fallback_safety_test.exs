@@ -14,13 +14,15 @@ defmodule Aiur.Orchestrator.RateLimitFallbackSafetyTest do
     state = state(["1"], now)
     original = state.running["1"].started_at
     state = %{state | running: Map.update!(state.running, "1", &put_in(&1.control.status, :completed))}
+    ref = make_ref()
+    state = %{state | running: Map.update!(state.running, "1", &Map.put(&1, :ref, ref))}
     parked = RateLimitFallback.reconcile(state, opts())
     assert parked.running["1"].started_at == original
     assert Map.get(parked.running["1"], :completion_totals_recorded, false) == false
-    accounted = TokenAccounting.record_session_completion_totals(parked, parked.running["1"], now)
-    assert accounted.agent_totals.seconds_running == 120
-    {:noreply, completed} = RetryEngine.handle_agent_down(parked, nil, :normal)
-    {:noreply, again} = RetryEngine.handle_agent_down(completed, nil, :normal)
+    {:noreply, completed} = RetryEngine.handle_agent_down(parked, ref, :normal, now: now)
+    assert completed.agent_totals.seconds_running == 120
+    assert completed.running["1"].completion_totals_recorded
+    {:noreply, again} = RetryEngine.handle_agent_down(completed, ref, :normal, now: now)
     assert again.agent_totals == completed.agent_totals
   end
 
