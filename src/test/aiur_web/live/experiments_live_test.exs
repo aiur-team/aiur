@@ -2,6 +2,8 @@ defmodule AiurWeb.ExperimentsLiveTest do
   use Aiur.TestSupport
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
+  alias Aiur.Orchestrator.GlobalPause
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Endpoint
   @endpoint Endpoint
 
@@ -44,6 +46,24 @@ defmodule AiurWeb.ExperimentsLiveTest do
     assert html =~ "tagged feature epic merge"
     assert html =~ "analyst request"
     refute has_element?(view, "#exp-charts")
+  end
+
+  test "pause control toggles global pause without closing the experiments view" do
+    EndpointStubs.put(dashboard_writable: true, orchestrator: Orchestrator)
+    assert {:ok, _} = GlobalPause.set_global_pause(false)
+    on_exit(fn -> assert {:ok, _} = GlobalPause.set_global_pause(false) end)
+    {:ok, view, _html} = live(build_conn(), "/experiments")
+    assert has_element?(view, "#ax-pause[aria-checked=false]")
+
+    render_click(element(view, "#ax-pause"))
+    assert has_element?(view, "#ax-pause[aria-checked=true]", "Resume new starts")
+    assert has_element?(view, "#ax-paused.show", "New starts paused")
+    assert {:ok, %{globally_paused: true}} = GlobalPause.global_pause_status()
+
+    render_click(element(view, "#ax-pause"))
+    assert has_element?(view, "#ax-pause[aria-checked=false]", "Pause new starts")
+    refute has_element?(view, "#ax-paused.show")
+    assert {:ok, %{globally_paused: false}} = GlobalPause.global_pause_status()
   end
 
   test "disabled and unreadable stores remain distinct and never expose paths" do
