@@ -17,7 +17,8 @@ defmodule VoiceConverse.TranscriptIndex do
     with {:ok, limit} <- limit(opts, 100),
          {:ok, conversations} <- IndexFile.read_or_rebuild(root),
          {:ok, conversations} <- filter(conversations, Keyword.get(opts, :filter, %{})),
-         {:ok, page, cursor} <- page(conversations, Keyword.get(opts, :before), limit) do
+         {:ok, page, cursor} <- page(conversations, Keyword.get(opts, :before), limit),
+         {:ok, page} <- refresh_open(root, page) do
       {:ok, page, cursor}
     end
   end
@@ -60,6 +61,21 @@ defmodule VoiceConverse.TranscriptIndex do
       end)
 
     if is_integer(closed), do: ceil_minutes(closed + open), else: closed
+  end
+
+  defp refresh_open(root, page) do
+    Enum.reduce_while(page, {:ok, []}, fn item, {:ok, items} ->
+      result = if is_nil(item.ended_at), do: Transcripts.conversation(root, item.conversation_id), else: {:ok, item}
+
+      case result do
+        {:ok, current} -> {:cont, {:ok, [current | items]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, items} -> {:ok, Enum.reverse(items)}
+      error -> error
+    end
   end
 
   defp record_event(root, conversation_id, op) do

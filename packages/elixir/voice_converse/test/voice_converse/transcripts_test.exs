@@ -14,14 +14,14 @@ defmodule VoiceConverse.TranscriptsTest do
   test "lists sessions for a target and round trips index JSON", %{root: root} do
     write(root, @id, %{"id" => "executor", "kind" => "executor", "title" => "Executor"}, [
       %{type: "draft", draft_id: "vd_1", status: "proposed", text: "hello"},
-      %{type: "session_ended", reason: "user_end", duration_s: 60}
+      %{type: "user_turn", text: "hello"}
     ])
 
     write(root, @other, "4140", [])
     assert {:ok, output} = Transcripts.run(root, ["--target", "executor"])
     assert output =~ @id
     refute output =~ @other
-    assert output =~ "60s  user_end  0  0/1/0/0"
+    assert output =~ "unknown  unknown  1  0/1/0/0"
     assert {:ok, all} = Transcripts.run(root, [])
     assert all =~ "unknown  unknown  0  0/0/0/0"
     assert {:ok, json} = Transcripts.run(root, ["--target", "executor", "--json"])

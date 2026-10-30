@@ -98,7 +98,6 @@
     "telemetry",
     "tui",
     "voice-conversation",
-    "voice-conversation-core",
     "voice-stt",
     "watch-apps",
     "web-shell"

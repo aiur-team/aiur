@@ -8,7 +8,7 @@ defmodule Aiur.VoiceCLI do
       code =
         case Aiur.Config.Paths.voice_conversation_state_dir() do
           {:ok, root} ->
-            VoiceConverse.Transcripts.print(root, args)
+            Aiur.VoiceConversation.print_transcripts(root, args)
 
           {:error, reason} ->
             IO.puts(:stderr, "Cannot resolve voice transcript root: #{inspect(reason)}")
