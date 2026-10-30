@@ -383,3 +383,25 @@
 
 .override-timeline li { display: flex; flex-wrap: wrap; gap: 8px; overflow-wrap: anywhere; }
 .override-timeline .chip, .override-badge, .fleet-override-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+
+/* Override status must not change the Build board's grid or capture geometry. */
+.fleet-overrides {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(24rem, calc(100vw - 32px));
+  max-height: 40vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.fleet-overrides h2 { margin: 0 0 8px; font-size: 0.875rem; line-height: 1.25rem; }
+.fleet-overrides p { margin: 0; }
+@media (max-width: 767px) {
+  .fleet-overrides { bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
+}

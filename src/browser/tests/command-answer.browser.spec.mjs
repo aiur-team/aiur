@@ -250,6 +250,15 @@ test('override timeline and form fit desktop and mobile after an answer', async 
   await page.goto('/voice-input-fixture?command=true')
   await page.goto('/')
   await expect(page.getByRole('region', { name: 'Fleet overrides' })).toContainText('Override failed')
+  const geometry = await page.evaluate(() => {
+    const board = document.querySelector('#build-root'), summary = document.querySelector('#fleet-overrides')
+    const shown = board.getBoundingClientRect().toJSON()
+    summary.hidden = true
+    const hidden = board.getBoundingClientRect().toJSON()
+    summary.hidden = false
+    return { shown, hidden }
+  })
+  expect(geometry.shown, 'override summary must not shift or resize the Build board').toEqual(geometry.hidden)
   const badge = page.locator('.fleet-override-badge').first()
   await expect(badge).toHaveAttribute('href', /\/commands\/dec_/)
   await page.screenshot({ path: testInfo.outputPath('override-fleet-390.png'), fullPage: true })

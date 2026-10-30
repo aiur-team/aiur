@@ -253,8 +253,8 @@ in PR #N (awaiting merge)”; the durable state remains delivered until merge
 evidence confirms it. Inbox badges remain until implementation
 or supersession.
 
-The Build fleet overview also lists pending overrides with
-ticket numbers and links to their Commands; `aiur commands` includes the same state and links in its override
+The Build fleet overview shows a floating summary with ticket numbers and
+Command links, keeping the timeline in place; `aiur commands` includes the same state and links in its override
 column. The Stream Deck status reads “override queued” or “override delivered”.
 
 Both revise and supersede use the current active answer's precedence:

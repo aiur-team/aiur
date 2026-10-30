@@ -11,7 +11,7 @@ defmodule AiurWeb.Build.OverrideSummary do
   @spec summary(map()) :: Phoenix.LiveView.Rendered.t()
   def summary(assigns) do
     ~H"""
-    <section :if={@state != {:ok, []}} id="fleet-overrides" class="detail-block" aria-label="Fleet overrides">
+    <section :if={@state != {:ok, []}} id="fleet-overrides" class="detail-block fleet-overrides" aria-label="Fleet overrides">
       <h2>Pending overrides</h2>
       <p :if={@state == :unavailable}>Override status unavailable</p>
       <ul :if={is_tuple(@state)} class="decision-timeline">
