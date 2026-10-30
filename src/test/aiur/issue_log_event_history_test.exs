@@ -296,6 +296,21 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert {:ok, %{events: [%{id: 8}], high_water: 8}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
   end
 
+  test "command records redact credentials before persisting the timeline marker" do
+    identity = identity(identifier: Integer.to_string(System.unique_integer([:positive])))
+    token = "ghp_123456789012345678901234567890123456"
+
+    Aiur.IssueLog.CommandRecorder.record_command(identity, "GH_TOKEN=#{token} gh issue view 12", observed_at: DateTime.utc_now())
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+    _ = :sys.get_state(pid)
+
+    assert {:ok, %{events: [%{kind: "command", summary: "GH_TOKEN=[REDACTED:credential] gh issue view 12"}]}} =
+             Aiur.IssueLog.event_history_page(identity, after_id: 0, kinds: [:command])
+
+    refute File.read!(Aiur.IssueLog.Paths.timeline_event_log_path(identity)) =~ token
+  end
+
   test "lines without [event:*] tag are ignored", %{identifier: id} do
     write_log(id, [
       "2026-05-27T10:00:00Z [agent] (#99) some agent message",
