@@ -31,7 +31,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   @spec latest(map(), DateTime.t() | nil) :: map()
   def latest(row, now) when is_map(row) do
     %{
-      text: latest_text(row),
+      text: native_hold_text(row, now) || latest_text(row),
       progress: progress_label(row),
       runtime: runtime_label(row, now)
     }
@@ -39,9 +39,21 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
 
   def latest(_row, now), do: latest(%{}, now)
 
+  defp native_hold_text(%{reasons: %{native_hold: %{decision_id: id} = hold}}, now) when is_binary(id) and id != "",
+    do: "Waiting for your answer · #{native_hold_age(hold, now)} · /commands/#{URI.encode_www_form(id)}"
+
+  defp native_hold_text(_row, _now), do: nil
+
   @spec native_hold_age(map(), DateTime.t()) :: String.t()
   def native_hold_age(%{since: %DateTime{} = since}, %DateTime{} = now),
     do: "for #{div(max(DateTime.diff(now, since, :second), 0), 60)} min"
+
+  def native_hold_age(%{since: since}, now) when is_integer(since) do
+    case DateTime.from_unix(since, :millisecond) do
+      {:ok, datetime} -> native_hold_age(%{since: datetime}, now)
+      _invalid -> "duration unavailable"
+    end
+  end
 
   def native_hold_age(%{since: since}, now) when is_binary(since) do
     case DateTime.from_iso8601(since) do

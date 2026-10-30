@@ -33,7 +33,8 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
+  | agent.state | native_question, active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
+  | agent.native_hold | optional decision_id and nullable since (milliseconds); nil after release |
   | agent.pause | usage_limit_exhausted, ci_wait, or nil |
   | agent.resume_at | usage limit reset milliseconds or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |

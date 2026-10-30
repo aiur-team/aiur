@@ -1,6 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
   import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
 
   alias Aiur.Issue
@@ -19,6 +20,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     [row] = catalog.snapshot.rows
     assert row.reasons.native_hold == hold
     assert row.tracker_state == "in-progress"
+
+    output =
+      capture_io(fn ->
+        assert Aiur.UnitsCLI.run(payload_fun: fn -> %{units: catalog} end, now: now, format: :records) == 0
+      end)
+
+    assert output =~ "Latest: Waiting for your answer · for 7 min · /commands/decision-held"
+
     assert UnitsPolicy.condition?(:waiting_on_you, row)
     assert UnitsPolicy.condition?(:alert, row)
     refute UnitsPolicy.condition?(:active, row)
@@ -38,6 +47,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     [row] = catalog.snapshot.rows
     refute UnitsPolicy.condition?(:waiting_on_you, row)
     assert UnitsPolicy.condition?(:active, row)
+    output = capture_io(fn -> assert Aiur.UnitsCLI.run(payload_fun: fn -> %{units: catalog} end, now: now, format: :records) == 0 end)
+    refute output =~ "Waiting for your answer"
+    refute output =~ "/commands/decision-held"
   end
 
   test "future regression guard: unavailable status never invents a held question" do
