@@ -24,6 +24,12 @@ defmodule Aiur.Events.GithubMergeDedupTest do
     assert {:publish, [{"ticket.7209.pr.merged", _payload, webhook_opts}]} =
              Triples.pull_request_triple(webhook_payload, pr, "closed", "aiur-team/aiur")
 
+    sparse_pr = %{
+      "number" => 7209,
+      "body" => "Closes #7209",
+      "head" => %{"ref" => "aiur/7209"}
+    }
+
     firehose_event = %{
       "type" => "PullRequestEvent",
       "repo" => %{"name" => "aiur-team/aiur"},
@@ -31,7 +37,7 @@ defmodule Aiur.Events.GithubMergeDedupTest do
       "created_at" => "2026-10-29T12:00:00Z",
       "payload" => %{
         "action" => "merged",
-        "pull_request" => Map.put(pr, "body", "Closes #7209")
+        "pull_request" => sparse_pr
       }
     }
 
@@ -41,6 +47,6 @@ defmodule Aiur.Events.GithubMergeDedupTest do
     assert Keyword.fetch!(webhook_opts, :dedup_key) == Keyword.fetch!(firehose_opts, :dedup_key)
 
     assert Keyword.fetch!(webhook_opts, :dedup_key) ==
-             {"aiur-team/aiur", "pr:merged:7209:7209", "merge-sha-7209"}
+             {"aiur-team/aiur", "pr:merged:7209:7209", "merged"}
   end
 end

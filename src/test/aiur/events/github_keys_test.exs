@@ -39,17 +39,15 @@ defmodule Aiur.Events.GithubKeysTest do
     end
 
     test "builds a source-independent key for the same merged pull request" do
-      merge_sha = "merge-sha"
+      webhook_key = GithubKeys.merged_pr_dedup_key("owner/repo", 12, "42")
+      firehose_key = GithubKeys.merged_pr_dedup_key("owner/repo", 12, "42")
 
-      webhook_key = GithubKeys.merged_pr_dedup_key("owner/repo", 12, merge_sha, "42")
-      firehose_key = GithubKeys.merged_pr_dedup_key("owner/repo", 12, merge_sha, "42")
-
-      assert webhook_key == {"owner/repo", "pr:merged:12:42", "merge-sha"}
+      assert webhook_key == {"owner/repo", "pr:merged:12:42", "merged"}
       assert firehose_key == webhook_key
-      refute GithubKeys.merged_pr_dedup_key("owner/repo", 13, merge_sha, "42") == webhook_key
-      refute GithubKeys.merged_pr_dedup_key("owner/repo", 12, merge_sha, "43") == webhook_key
-      refute GithubKeys.merged_pr_dedup_key("other/repo", 12, merge_sha, "42") == webhook_key
-      assert GithubKeys.merged_pr_dedup_key("owner/repo", 12, "", "42") == nil
+      refute GithubKeys.merged_pr_dedup_key("owner/repo", 13, "42") == webhook_key
+      refute GithubKeys.merged_pr_dedup_key("owner/repo", 12, "43") == webhook_key
+      refute GithubKeys.merged_pr_dedup_key("other/repo", 12, "42") == webhook_key
+      assert GithubKeys.merged_pr_dedup_key("owner/repo", 0, "42") == nil
     end
 
     test "builds comment dedup keys" do

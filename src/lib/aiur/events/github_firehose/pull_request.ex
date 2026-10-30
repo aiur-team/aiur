@@ -29,7 +29,6 @@ defmodule Aiur.Events.GithubFirehose.PullRequest do
               pr_number,
               action,
               head_sha,
-              get_in(pr, ["merge_commit_sha"]),
               id,
               merged?
             )
@@ -89,11 +88,11 @@ defmodule Aiur.Events.GithubFirehose.PullRequest do
   defp pr_topic(id, "closed", false), do: "ticket.#{id}.pr.closed_unmerged"
   defp pr_topic(_id, _action, _merged), do: nil
 
-  defp pr_dedup_key(repo, pr_number, action, head_sha, _merge_sha, _ticket, false),
+  defp pr_dedup_key(repo, pr_number, action, head_sha, _ticket, false),
     do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha)
 
-  defp pr_dedup_key(repo, pr_number, _action, _head_sha, merge_sha, ticket, true),
-    do: GithubKeys.merged_pr_dedup_key(repo, pr_number, merge_sha, ticket)
+  defp pr_dedup_key(repo, pr_number, _action, _head_sha, ticket, true),
+    do: GithubKeys.merged_pr_dedup_key(repo, pr_number, ticket)
 
   defp trusted_identity(id) do
     Aiur.Orchestrator.tracker_identity(id)
