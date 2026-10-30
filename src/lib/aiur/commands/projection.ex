@@ -3,6 +3,7 @@ defmodule Aiur.Commands.Projection do
 
   alias Aiur.Commands.CorrectiveFacts
   alias Aiur.Commands.ExecutorDelivery
+  alias Aiur.Commands.OverrideMerge
   alias Aiur.Commands.Overrides
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Facts
@@ -98,6 +99,16 @@ defmodule Aiur.Commands.Projection do
   def apply(decision, %{type: type} = event) when type in [:override_resume_state, :override_prompt_delivered] do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
          do: Overrides.resume_fact(decision, event)
+  end
+
+  def apply(decision, %{type: :override_merge_settled} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         do: OverrideMerge.apply(decision, event)
+  end
+
+  def apply(decision, %{type: :override_worker_handoff} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         do: Overrides.worker_handoff(decision, event)
   end
 
   def apply(decision, %{type: :override_implemented} = event) do

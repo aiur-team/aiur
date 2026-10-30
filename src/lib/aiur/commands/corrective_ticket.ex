@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.CorrectiveTicket do
   @moduledoc false
 
+  alias Aiur.CodeHost
   alias Aiur.Commands.{CorrectivePullRequest, CorrectiveTicketBody}
   alias Aiur.{Config, Tracker}
 
@@ -19,15 +20,55 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp ensure(decision, record, opts) do
-    with {:ok, %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) <-
-           CorrectivePullRequest.read(record.ticket.identifier, opts),
-         {:ok, ticket} <- find_or_create(decision, record, pr, opts),
-         :ok <- link(decision.ticket.identifier, pr.number, record.action_id, ticket, opts) do
-      {:ok, link_facts(record, ticket, pr)}
-    else
-      {:error, _reason} = error -> error
-      {:ok, %{state: :closed, merged?: false}} -> {:ok, [{:override_corrective_closed, %{action_id: record.action_id}}]}
-      _unmerged_or_unknown -> if record.route == :corrective_ticket, do: {:error, :merged_pr_evidence_missing}, else: {:ok, []}
+    case CorrectivePullRequest.read(record.ticket.identifier, opts) do
+      {:ok, %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) ->
+        if record.route == :corrective_ticket do
+          create_and_link(decision, record, pr, opts)
+        else
+          settle_merge(record, pr, opts)
+        end
+
+      {:error, _reason} = error ->
+        error
+
+      {:ok, %{state: :closed, merged?: false}} ->
+        {:ok, [{:override_corrective_closed, %{action_id: record.action_id}}]}
+
+      _unmerged_or_unknown ->
+        if record.route == :corrective_ticket, do: {:error, :merged_pr_evidence_missing}, else: {:ok, []}
+    end
+  end
+
+  defp create_and_link(decision, record, pr, opts) do
+    with {:ok, ticket} <- find_or_create(decision, record, pr, opts),
+         :ok <- link(decision.ticket.identifier, pr.number, record.action_id, ticket, opts),
+         do: {:ok, link_facts(record, ticket, pr)}
+  end
+
+  defp settle_merge(record, pr, opts) do
+    read = Keyword.get(opts, :merge_head, &CodeHost.override_merge_head/1)
+
+    worker_head =
+      case record.evidence do
+        %{kind: :push, worker_reported: true, head_sha: sha} -> sha
+        _ -> nil
+      end
+
+    pr = Map.put(pr, :worker_head_sha, worker_head)
+    result = if record.state == :delivered and is_binary(worker_head), do: read.(pr), else: {:ok, pr}
+
+    with {:ok, evidence} <- result do
+      data = %{
+        action_id: record.action_id,
+        expected_version: Map.get(record, :merge_version, 1),
+        pr_number: pr.number,
+        head_sha: Map.get(evidence, :head_sha),
+        worker_head_sha: worker_head,
+        head_contains_worker_push: Map.get(evidence, :head_contains_worker_push, false),
+        committed_at: Map.get(evidence, :committed_at)
+      }
+
+      {:ok, [{:override_merge_settled, data}]}
     end
   end
 

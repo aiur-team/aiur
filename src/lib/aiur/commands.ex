@@ -26,13 +26,17 @@ defmodule Aiur.Commands do
   defdelegate pending_override(decision), to: Aiur.Commands.Overrides, as: :pending
   @spec pending_resume_override(Aiur.Decision.t()) :: map() | nil
   defdelegate pending_resume_override(decision), to: Aiur.Commands.Overrides, as: :resume_request
-
-  @doc "Whether the active override may use the existing delivery path."
+  @doc "Whether the current override may be dispatched to its effective worker."
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
+  @spec notify_override_merge(String.t() | integer()) :: :ok
+  defdelegate notify_override_merge(identifier), to: Aiur.DecisionStore.OverrideMerges, as: :notify
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
-
+  @spec override_handoff_candidates(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  defdelegate override_handoff_candidates(identifier, opts \\ []), to: Aiur.DecisionStore
+  @spec record_override_handoff(String.t(), [map()], map(), keyword()) :: :ok | {:error, term()}
+  defdelegate record_override_handoff(identifier, snapshots, receipt, opts \\ []), to: Aiur.DecisionStore
   @spec needs_you?(map()) :: boolean()
   defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
   @spec matches_route?(map(), atom() | nil) :: boolean()
@@ -47,10 +51,8 @@ defmodule Aiur.Commands do
   @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword(), GenServer.server()) ::
           {:ok, map()} | {:error, term()}
   defdelegate agent_lifecycle(type, payload, opts, server), to: Aiur.DecisionStore
-
   @spec all_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate all_asks(repo), to: Aiur.Asks, as: :all
-
   @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate get(decision_id, opts \\ []), to: Aiur.DecisionQuery
 
@@ -93,10 +95,8 @@ defmodule Aiur.Commands do
 
   @spec default_attention() :: module()
   defdelegate default_attention(), to: Aiur.Commands.Defaults
-
   @spec default_metrics() :: module()
   defdelegate default_metrics(), to: Aiur.Commands.Defaults
-
   @spec default_store() :: module()
   defdelegate default_store(), to: Aiur.DecisionQuery
 

@@ -461,6 +461,7 @@ defmodule Aiur.AgentTools.Errors do
              :stale_pr_body_evidence,
              :rework_findings_unaddressed,
              :pull_request_conflicting,
+             :override_handoff_unconfirmed,
              :status_note_invalid
            ] and is_binary(message) do
     %{"error" => %{"message" => message, "reason" => Atom.to_string(reason)}}
