@@ -61,7 +61,7 @@ defmodule Aiur.CommandsCLI do
   def build(_opts), do: {:error, "expects command options"}
 
   defp request(opts) do
-    filter = if Keyword.get(opts, :blocking, false), do: :blocking, else: Keyword.get(opts, :filter, :all)
+    filter = if Keyword.get(opts, :blocking, false), do: :blocking, else: Keyword.get(opts, :filter, :open)
     decision_id = Keyword.get(opts, :decision_id)
 
     with {:ok, filter} <- filter(filter),

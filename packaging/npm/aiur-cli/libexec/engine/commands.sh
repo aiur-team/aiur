@@ -223,7 +223,7 @@ cmd_agents() {
 # `aiur commands` — read the dashboard's retained Decision projection without
 # exposing any dispatch or answer mutation path.
 cmd_commands() {
-  local filter="all" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+  local filter="open" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
 
   while [ "$#" -gt 0 ]; do
     arg="$1"

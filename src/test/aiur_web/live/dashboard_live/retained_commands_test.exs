@@ -440,7 +440,6 @@ defmodule AiurWeb.DashboardLive.RetainedCommandsTest do
 
     assert {:ok, cli} =
              CommandsCLI.build(
-               filter: :open,
                decision_store: decision_store_name,
                decision_metrics: make_ref(),
                history_fun: fn -> [] end
