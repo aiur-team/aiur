@@ -4,6 +4,35 @@ import { mountConversation, scenario } from './support/build-conversation.mjs'
 
 test.use({ httpCredentials: dashboardCredentials, viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
 test.beforeEach(async ({ page }, info) => {
+  await page.addInitScript(() => {
+    const audit = window.liveAudit = { listeners: [], observers: [], frames: new Set() }
+    const tracked = el => el instanceof Element && /^cv-(log|map|new)$/.test(el.id)
+    const add = EventTarget.prototype.addEventListener, remove = EventTarget.prototype.removeEventListener
+    EventTarget.prototype.addEventListener = function (type, listener, options) {
+      if (!tracked(this) || !listener) return add.call(this, type, listener, options)
+      const record = { target: this, type, listener, capture: !!(typeof options === 'boolean' ? options : options?.capture), active: true, calls: 0 }
+      record.wrapper = function (event) { record.calls++; return typeof listener === 'function' ? listener.call(this, event) : listener.handleEvent(event) }
+      audit.listeners.push(record); return add.call(this, type, record.wrapper, options)
+    }
+    EventTarget.prototype.removeEventListener = function (type, listener, options) {
+      const capture = !!(typeof options === 'boolean' ? options : options?.capture)
+      const record = audit.listeners.find(r => r.active && r.target === this && r.type === type && r.listener === listener && r.capture === capture)
+      if (record) { record.active = false; return remove.call(this, type, record.wrapper, options) }
+      return remove.call(this, type, listener, options)
+    }
+    const NativeObserver = ResizeObserver
+    window.ResizeObserver = class extends NativeObserver {
+      constructor(callback) { super(callback); this.targets = new Set(); audit.observers.push(this) }
+      observe(target, options) { this.targets.add(target); super.observe(target, options) }
+      unobserve(target) { this.targets.delete(target); super.unobserve(target) }
+      disconnect() { this.targets.clear(); super.disconnect() }
+    }
+    const frame = requestAnimationFrame, cancel = cancelAnimationFrame
+    window.requestAnimationFrame = callback => {
+      const id = frame(time => { audit.frames.delete(id); callback(time) }); audit.frames.add(id); return id
+    }
+    window.cancelAnimationFrame = id => { audit.frames.delete(id); return cancel(id) }
+  })
   await mountConversation(page, info)
   await scenario(page, 'kinds', { entries: Array.from({ length: 600 }, (_, i) => ({
     id: 'row:' + i, k: i % 9 === 0 ? 'ev' : 'say', ev: 'progress', label: 'Progress ' + i,
@@ -23,6 +52,23 @@ async function push(page, entries, fields = {}) {
   }, { entries, fields })
 }
 const entry = id => ({ id, k: 'say', text: 'New live message ' + id, at: null })
+async function mapGeometry(page) {
+  return page.evaluate(() => {
+    const log = document.querySelector('#cv-log'), map = document.querySelector('#cv-map'), mm = document.querySelector('#cv-mm'), vw = document.querySelector('#cv-vw')
+    const s = Math.min(.14, map.clientHeight / Math.max(1, log.scrollHeight)), close = (a, b) => Math.abs(a - b) <= .15
+    const rows = [...log.children], items = [...mm.children]
+    return {
+      count: items.length === rows.filter(el => el.dataset.k).length,
+      height: close(parseFloat(mm.style.height), log.scrollHeight * s),
+      blocks: items.filter(el => el.classList.contains('mm-b')).every(block => {
+        const index = items.indexOf(block), row = rows.filter(el => el.dataset.k)[index]
+        return close(parseFloat(block.style.top), row.offsetTop * s) && close(parseFloat(block.style.height), Math.max(1.5, row.offsetHeight * s - 1.5))
+      }),
+      ticks: items.filter(el => el.classList.contains('mm-e')).every(tick => close(parseFloat(tick.style.top), rows[+tick.dataset.i].offsetTop * s)),
+      viewport: close(parseFloat(vw.style.top), log.scrollTop * s) && close(parseFloat(vw.style.height), Math.max(8, log.clientHeight * s)),
+    }
+  })
+}
 
 test('batch appends pin within 60px; older reading stays still and the pill returns to the bottom', async ({ page }) => {
   await expect(log(page).locator('.in')).toHaveCount(0)
@@ -53,7 +99,7 @@ test('replacement updates content without animation or activity notification', a
   await expect(page.locator('#cv-mm > *')).toHaveCount(100)
 })
 
-test('map matches design geometry, ignores status rows and supports ticks, hover and cancelled drags', async ({ page }) => {
+test('L16/L18: map geometry survives resize; ticks jump to their row and cancelled drags stop', async ({ page }) => {
   const geometry = await page.evaluate(() => {
     const log = document.querySelector('#cv-log'), map = document.querySelector('#cv-map'), mm = document.querySelector('#cv-mm')
     const s = Math.min(.14, map.clientHeight / log.scrollHeight)
@@ -68,6 +114,7 @@ test('map matches design geometry, ignores status rows and supports ticks, hover
   await expect(page.locator('#cv-tip time')).toHaveText('—')
   await tick.click()
   await expect(log(page).locator('[data-eid="row:504"]')).toHaveClass(/flash/)
+  await expect.poll(() => log(page).evaluate(el => el.scrollTop - Math.max(0, el.querySelector('[data-eid="row:504"]').offsetTop - 16))).toBeCloseTo(0, 0)
   await expect(tick).toHaveAttribute('tabindex', '-1')
   const map = page.locator('#cv-map'), box = await map.boundingBox()
   const emptyY = await map.evaluate(el => {
@@ -92,7 +139,7 @@ test('map matches design geometry, ignores status rows and supports ticks, hover
   await expect.poll(() => distance(page)).toBeLessThanOrEqual(1)
   await page.setViewportSize({ width: 390, height: 700 })
   await expect(map).toBeVisible()
-  await expect.poll(() => page.locator('#cv-vw').evaluate(el => parseFloat(el.style.height))).toBeGreaterThanOrEqual(8)
+  await expect.poll(() => mapGeometry(page)).toEqual({ count: true, height: true, blocks: true, ticks: true, viewport: true })
 })
 
 test('typing responds to real diff, conversation and socket facts, including unknown states', async ({ page }) => {
@@ -189,3 +236,104 @@ test('pending older page keeps event tick indices current and status rows out of
   await page.evaluate(() => window.releaseOlder())
   await expect(log(page).locator('[data-k]')).toHaveCount(200)
 })
+
+
+test('L9: reset removes retired listeners and observers; one scroll synchronizes the new viewport once', async ({ page }) => {
+  await page.evaluate(async () => {
+    window.retired = [...document.querySelectorAll('#cv-log, #cv-map, #cv-new')]
+    const { fx } = await import('/build-home/state.js'), { MS } = await import('/build-home/modal/frame.js')
+    fx.receiveConversation({ v: 1, kind: 'conversation', id: MS.t.id, reset: true, state: 'live', live: true, more: false, before: null,
+      entries: Array.from({ length: 60 }, (_, i) => ({ id: 'reset:' + i, k: 'say', text: 'Reset message ' + i, at: null })) })
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  })
+  await expect(page.getByRole('region', { name: 'Conversation', exact: true })).toHaveAttribute('tabindex', '0')
+  expect(await page.evaluate(() => {
+    const audit = window.liveAudit, retired = new Set(window.retired)
+    return { listeners: audit.listeners.filter(r => r.active && retired.has(r.target)).length,
+      observers: audit.observers.flatMap(o => [...o.targets]).filter(el => retired.has(el)).length }
+  })).toEqual({ listeners: 0, observers: 0 })
+  expect(await page.evaluate(() => {
+    const vw = document.querySelector('#cv-vw'); vw.style.top = '-1px'
+    window.retired.find(el => el.id === 'cv-log').dispatchEvent(new Event('scroll'))
+    return vw.style.top
+  })).toBe('-1px')
+  expect(await log(page).evaluate(el => {
+    const callbacks = window.liveAudit.listeners.filter(r => r.target === el && r.type === 'scroll' && r.active)
+    callbacks.forEach(r => { r.calls = 0 }); el.dispatchEvent(new Event('scroll'))
+    const s = Math.min(.14, document.querySelector('#cv-map').clientHeight / el.scrollHeight)
+    return { calls: callbacks.map(r => r.calls), viewport: Math.abs(parseFloat(document.querySelector('#cv-vw').style.top) - el.scrollTop * s) < .1 }
+  })).toEqual({ calls: [1, 1], viewport: true }) // Paging listener and viewport listener each execute once.
+})
+
+test('L23: three reopens retain one live registration set and one map rebuild for one appended child', async ({ page }) => {
+  const ticket = await page.evaluate(async () => (await import('/build-home/modal/frame.js')).MS.t)
+  for (let i = 0; i < 3; i++) {
+    await page.locator('#bd-tk-close').click()
+    await expect(page).toHaveURL(/\/build$/)
+    expect(await page.evaluate(() => ({
+      listeners: window.liveAudit.listeners.filter(r => r.active && !r.target.isConnected).length,
+      observers: window.liveAudit.observers.flatMap(o => [...o.targets]).filter(el => /^cv-/.test(el.id) && !el.isConnected).length,
+    }))).toEqual({ listeners: 0, observers: 0 })
+    await page.evaluate(async t => (await import('/build-home/modal/frame.js')).openModal(t), ticket)
+    await expect(log(page).locator('[data-k]')).toHaveCount(100)
+    await expect(page).toHaveURL(new RegExp('ticket=' + ticket.id + '$'))
+  }
+  await page.evaluate(async () => {
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    window.mapBuilds = 0
+    const mm = document.querySelector('#cv-mm')
+    window.mapWatch = new MutationObserver(records => { window.mapBuilds += records.filter(r => r.type === 'childList' && r.target === mm).length })
+    window.mapWatch.observe(mm, { childList: true })
+  })
+  await push(page, [entry('reopened')])
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await expect(log(page).locator('[data-k]')).toHaveCount(101)
+  await expect(log(page).locator('[data-eid=reopened]')).toHaveCount(1)
+  expect(await page.evaluate(() => window.mapBuilds)).toBe(1)
+})
+
+test('L7: close cancels the pending map frame and late server/local appends leave the conversation closed', async ({ page }) => {
+  expect(await page.evaluate(async () => {
+    const { fx } = await import('/build-home/state.js'), { MS, closeModal } = await import('/build-home/modal/frame.js')
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const before = new Set(window.liveAudit.frames), id = MS.t.id, oldLog = document.querySelector('#cv-log')
+    fx.appendItem({ id: 'before-close', k: 'say', text: 'Pending map frame', at: null })
+    const addedFrames = [...window.liveAudit.frames].filter(id => !before.has(id))
+    closeModal()
+    const cancelled = addedFrames.every(id => !window.liveAudit.frames.has(id))
+    fx.receiveConversation({ v: 1, id, kind: 'conversation-append', entries: [{ id: 'late-server', k: 'say', text: 'Late server row', at: null }] })
+    const local = fx.appendItem({ id: 'late-local', k: 'op', text: 'Late accepted row', at: null })
+    return { scheduled: addedFrames.length, cancelled, local, lateRows: oldLog.querySelectorAll('[data-eid^=late-]').length }
+  })).toEqual({ scheduled: 1, cancelled: true, local: [], lateRows: 0 })
+  await expect(page.locator('#cv-log')).toHaveCount(0)
+})
+
+for (const reducedMotion of ['reduce', 'no-preference']) {
+  test('L21: pill and tick use ' + (reducedMotion === 'reduce' ? 'same-frame auto' : 'scrollend smooth') + ' scrolling', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion })
+    await scrollUp(page, 300); await push(page, [entry('motion')])
+    await page.evaluate(() => {
+      const log = document.querySelector('#cv-log'), scrollTo = log.scrollTo.bind(log)
+      window.scrollCalls = []; window.scrollEnds = 0
+      log.addEventListener('scrollend', () => window.scrollEnds++)
+      log.scrollTo = options => {
+        const before = log.scrollTop; scrollTo(options)
+        window.scrollCalls.push({ ...options, before, immediate: log.scrollTop })
+      }
+    })
+    await page.locator('#cv-new').click()
+    await expect.poll(() => distance(page)).toBeLessThanOrEqual(1)
+    await expect(page.locator('#cv-new')).toBeHidden()
+    const pill = await page.evaluate(() => window.scrollCalls[0])
+    expect(pill.behavior).toBe(reducedMotion === 'reduce' ? 'auto' : 'smooth')
+    if (reducedMotion === 'reduce') expect(pill.immediate).toBeCloseTo(await log(page).evaluate(el => el.scrollHeight - el.clientHeight), 0)
+    else { expect(pill.immediate).toBe(pill.before); await expect.poll(() => page.evaluate(() => window.scrollEnds)).toBeGreaterThan(0) }
+    const ended = await page.evaluate(() => window.scrollEnds)
+    await page.locator('#cv-mm .mm-e').first().click()
+    await expect.poll(() => log(page).evaluate(el => el.scrollTop - Math.max(0, el.querySelector('[data-eid="row:504"]').offsetTop - 16))).toBeCloseTo(0, 0)
+    const tick = await page.evaluate(() => window.scrollCalls[1])
+    expect(tick.behavior).toBe(reducedMotion === 'reduce' ? 'auto' : 'smooth')
+    if (reducedMotion === 'reduce') expect(tick.immediate).toBeCloseTo(tick.top, 0)
+    else { expect(tick.immediate).toBe(tick.before); await expect.poll(() => page.evaluate(() => window.scrollEnds)).toBeGreaterThan(ended) }
+  })
+}

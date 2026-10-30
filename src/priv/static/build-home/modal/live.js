@@ -74,7 +74,7 @@ export function wireLive() {
   life = createLife(); detach = ctx.life.cleanup(disposeLive);
   V = { log, map, mm: $('#cv-mm'), vw: $('#cv-vw'), tip: $('#cv-tip'), s: 1 };
   const { tip } = V;
-  log.tabIndex = 0; log.setAttribute('aria-label', 'Conversation');
+  log.tabIndex = 0; log.setAttribute('role', 'region'); log.setAttribute('aria-label', 'Conversation');
   life.on(log, 'scroll', () => {
     syncView();
     if (!trimmedBottom() && log.scrollHeight - log.scrollTop - log.clientHeight < STICK) $('#cv-new').hidden = true;
