@@ -16,7 +16,7 @@ defmodule Aiur.IssueLog do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, TicketObservation, TrackerIdentity}
-  alias Aiur.IssueLog.{Encoding, EventHistory, Paths}
+  alias Aiur.IssueLog.{CommandRecorder, Encoding, EventHistory, Paths}
 
   import Aiur.IssueLog.Files
   import Aiur.IssueLog.Format
@@ -414,25 +414,7 @@ defmodule Aiur.IssueLog do
 
   @doc "Writes a sanitized command marker to the ticket event journal."
   @spec record_command(TrackerIdentity.t(), String.t(), keyword()) :: :ok
-  def record_command(%TrackerIdentity{} = identity, command, opts \\ []) when is_binary(command) do
-    command = String.slice(command, 0, 2_000)
-    identifier = identity.identifier
-    topic = "ticket.#{identifier}.agent.command"
-    observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
-    id = Keyword.get(opts, :id, Aiur.Events.next_id())
-    event = %{id: id, topic: topic, message: command, observed_at: observed_at, timestamp: observed_at, ticket_observation: nil}
-
-    :ok = attach(identity)
-
-    case writer_for_path(identifier, log_path(identity), writer_key(identity)) do
-      [{pid, _}] -> send(pid, {:aiur_event, :command, event})
-      [] -> :ok
-    end
-
-    :ok
-  rescue
-    _ -> :ok
-  end
+  defdelegate record_command(identity, command, opts \\ []), to: CommandRecorder
 
   defp event_identity(%{ticket_observation: %TicketObservation{} = observation}, identifier) do
     identity = observation.tracker_identity
