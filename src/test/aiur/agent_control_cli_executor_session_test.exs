@@ -156,6 +156,10 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     assert data["observed_at"] == DateTime.to_iso8601(now)
     assert data["age_ms"] == nil
     assert data["freshness"] == "unknown"
+
+    assert capture_io(fn -> SessionCLI.run(Keyword.put(read_opts, :json, false)) end) =~
+             "age_ms=unknown freshness=unknown"
+
     refute Map.has_key?(data, "transcript_path")
     {:ok, binding} = Session.current()
     assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "one"})
@@ -178,5 +182,8 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     stale = Jason.decode!(capture_io(fn -> SessionCLI.run(read_opts) end))
     assert stale["age_ms"] == 3_600_000
     assert stale["freshness"] == "stale"
+
+    assert capture_io(fn -> SessionCLI.run(Keyword.put(read_opts, :json, false)) end) =~
+             "age_ms=3600000 freshness=stale"
   end
 end
