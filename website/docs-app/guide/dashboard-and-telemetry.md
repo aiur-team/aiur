@@ -30,12 +30,13 @@ In ticket detail, choose **Timeline** to see the recorded event history. Items u
 
 Ticket event journal rows retain the event ID, observed timestamp, topic, kind,
 safe summary and actor when supplied. Progress rows store `pct`; command rows
-store a redacted `cmd`; CI failures and merge-group failures store bounded
-check names and safe GitHub Actions run links, while successful merge-group
-requeues store the run, PR and cause. GitHub review and label transitions are
-recorded against the trusted ticket identity. Comment summaries are sanitized
-and bounded; full comment bodies and command output are not stored in marker
-rows.
+store a redacted `cmd`. CI and merge-group failures store bounded check names
+and safe GitHub Actions run links. Successful merge-group requeues store the
+run, PR and cause.
+
+GitHub review and label transitions use the trusted ticket identity. Comment
+summaries are sanitized and bounded; full comment bodies and command output
+are not stored in marker rows.
 
 Missing tickets show “Ticket not found”; failed reads show “Ticket unavailable”. Escape, the close button or the backdrop closes the modal and clears the ticket from the URL.
 
