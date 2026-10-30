@@ -75,11 +75,38 @@ test('timeline tabs expose keyboard semantics and reflow from phone to ultrawide
   await expect(page.getByRole('link', { name: 'Open CI run' })).toHaveAttribute('href', 'https://github.com/aiur-team/aiur/actions/runs/123')
   await expect(page.locator('.bm-timegaps')).toContainText('30 min')
   await expect(page.locator('.bm-timeprogress li')).toHaveCount(2)
-  for (const [width, height] of [[320, 568], [390, 844], [844, 390], [768, 1024], [1024, 768], [3440, 1440]]) {
-    await page.setViewportSize({ width, height })
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-    await expect(page.locator('.bm-timeitem').last()).toBeVisible()
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme })
+    for (const [width, height] of [[320, 568], [390, 844], [844, 390], [768, 1024], [1024, 768], [1280, 800], [1920, 1080], [3440, 1440]]) {
+      await page.setViewportSize({ width, height })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+      await expect(page.locator('.bm-timeitem').last()).toBeVisible()
+      const boxes = await page.locator('.bm-timeitem').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()))
+      for (let i = 1; i < boxes.length; i++) expect(boxes[i].top).toBeGreaterThanOrEqual(boxes[i - 1].bottom - 1)
+      if (width === 390) expect(parseFloat(await page.locator('.bm-timegaps').evaluate(node => getComputedStyle(node).fontSize))).toBeLessThanOrEqual(10)
+    }
   }
+})
+
+test('first timeline tab render handles a 200 event history within 500 ms', async ({ page }) => {
+  const t = await display(page)
+  const start = Date.now() - 200 * 60_000
+  const items = Array.from({ length: 220 }, (_, i) => ({ id: i + 1, at: start + i * 60_000, actor: ['Executor', 'CI', 'Aiur agent', 'Aiur daemon'][i % 4], kind: i % 2 ? 'emit' : 'note', label: `History event ${i + 1}`, topic: `ticket.${t.id}.agent.progress` }))
+  await pushDoc(page, t.id, { state: 'available', timeline: { items, phases: [], progress: [], truncated: false } })
+  const elapsed = await page.evaluate(() => new Promise(resolve => {
+    const started = performance.now()
+    const observer = new MutationObserver(() => {
+      if (document.querySelectorAll('.bm-timeitem').length === 220) {
+        observer.disconnect()
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now() - started)))
+      }
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    document.querySelector('#bm-tab-timeline').click()
+  }))
+  await expect(page.locator('.bm-timeitem')).toHaveCount(220)
+  process.stdout.write(`Timeline tab 220-event render: ${Math.round(elapsed)} ms\n`)
+  expect(elapsed).toBeLessThan(500)
 })
 
 test('doc cues preserve order, hostile text, unknown facts, dependencies and note placement', async ({ page }) => {

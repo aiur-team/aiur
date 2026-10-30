@@ -52,14 +52,16 @@ defmodule AiurWeb.Build.TimelineTest do
   test "presentation uses real timestamps and retains actor, event kind and progress" do
     events = [
       %{id: 7, topic: "ticket.12.agent.progress", kind: "self", ts: timestamp(), summary: "Progress 60%"},
+      %{id: 10, topic: "ticket.12.agent.progress.checkin", kind: "self", ts: timestamp(120), summary: "status update"},
       %{id: 8, topic: "ticket.12.agent.phase.work.start", kind: "self", ts: timestamp(60), summary: ""},
       %{id: 9, topic: "ticket.12.agent.phase.work.start", kind: "consumed", ts: timestamp(60), summary: ""}
     ]
 
     timeline = Timeline.present(identity(), events)
-    assert timeline.high_water == 9
-    assert Enum.map(timeline.items, & &1.at) == Enum.map(events, &unix(&1.ts))
+    assert timeline.high_water == 10
+    assert Enum.map(timeline.items, & &1.at) == events |> Enum.map(&unix(&1.ts)) |> Enum.sort()
     assert [%{actor: "Aiur agent", kind: :emit, status: :progress, percent: 60} | _] = timeline.items
+    assert [%{percent: 60}] = timeline.progress
     assert Enum.any?(timeline.items, &(&1.actor == "Aiur daemon" and &1.kind == :consume))
     phase_start = Enum.at(timeline.items, 1).at
     assert [%{label: "Work", start: ^phase_start, finish: nil}] = timeline.phases
@@ -72,6 +74,13 @@ defmodule AiurWeb.Build.TimelineTest do
       Map.merge(base, %{id: 1, topic: "ticket.12.pr.review_comment", summary: "Changes requested"}),
       Map.merge(base, %{id: 2, topic: "ticket.12.pr.review_comment", summary: "Changes requested"}),
       Map.merge(base, %{id: 3, topic: "ticket.12.ci.failed", summary: "test-linux failed"}),
+      Map.merge(base, %{
+        id: 30,
+        topic: "ticket.12.ci.merge_group.failed",
+        summary: "Merge-group run failed; PR was removed from the merge queue",
+        ci_checks: [%{name: "compile", url: "https://github.com/owner/repo/actions/runs/123"}]
+      }),
+      Map.merge(base, %{id: 31, topic: "ticket.12.ci.merge_group.requeued", summary: "Merge-group run requeued PR #12"}),
       Map.merge(base, %{id: 4, topic: "ticket.12.agent.retry_exhausted", summary: "retry exhausted"}),
       Map.merge(base, %{id: 5, topic: "ticket.12.agent.paused", summary: "max_agent_duration"}),
       Map.merge(base, %{id: 6, topic: "ticket.12.agent.attention.dispatch-declined", summary: "capacity"}),
@@ -83,11 +92,14 @@ defmodule AiurWeb.Build.TimelineTest do
     items = Timeline.present(identity(), events).items
     assert [%{kind: :emit, status: :rework, round: 1}, %{kind: :emit, status: :rework, round: 2}] = Enum.filter(items, &(&1.status == :rework))
     assert Enum.any?(items, &(&1.status == :ci_failure and &1.label =~ "failed"))
+    assert Enum.any?(items, &(&1.status == :merge_group_failure and &1.label =~ "compile" and &1.label =~ "removed from queue" and &1.run_url =~ "/actions/runs/123"))
+    assert Enum.any?(items, &(&1.status == :merge_group_requeue and &1.label =~ "requeued"))
     assert Enum.any?(items, &(&1.status == :retry_exhausted))
     assert Enum.any?(items, &(&1.status == :pause))
     assert Enum.any?(items, &(&1.status == :dispatch_decline))
     assert Enum.any?(items, &(&1.status == :budget_hold))
     assert Enum.any?(items, &(&1.status == :label_transition))
+    assert Enum.any?(items, &(&1.status == :label_transition and &1.actor == "Aiur daemon"))
     assert Enum.any?(items, &(&1.status == :lifecycle))
   end
 

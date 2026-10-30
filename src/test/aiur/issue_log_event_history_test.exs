@@ -272,7 +272,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert {:ok, [%{id: 7}]} = Aiur.IssueLog.event_history(second_identity)
   end
 
-  test "ticket timeline markers survive writer restart" do
+  test "ticket timeline markers survive writer restart in a new launch directory", %{tmp: tmp} do
     number = Integer.to_string(System.unique_integer([:positive]))
     {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I#{number}", "number" => number}, {"owner", "repo"}, {"owner", "repo"})
     :ok = Aiur.IssueLog.attach(identity)
@@ -290,10 +290,43 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert {:ok, %{events: [%{id: 8}]}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
 
     :ok = Aiur.TestSupport.safe_stop(pid)
+    Application.put_env(:aiur, :log_file, Path.join([tmp, "next-launch", "log", "aiur.log"]))
     :ok = Aiur.IssueLog.attach(identity)
     restarted_pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
     on_exit(fn -> Aiur.TestSupport.safe_stop(restarted_pid) end)
     assert {:ok, %{events: [%{id: 8}], high_water: 8}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
+  end
+
+  test "published CI failures reach the durable ticket timeline through the event sink" do
+    identity = identity(identifier: Integer.to_string(System.unique_integer([:positive])))
+    :ok = Aiur.IssueLog.attach(identity)
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+    assert {:ok, _id, _subscribers} =
+             Aiur.Events.publish(
+               "ticket.#{identity.identifier}.ci.failed",
+               %{message: "test-linux failed", checks: [%{name: "test-linux", url: "https://github.com/owner/repo/actions/runs/123"}]},
+               issue_number: identity.identifier,
+               identity: identity,
+               bypass_contamination: true
+             )
+
+    _ = :sys.get_state(pid)
+
+    assert {:ok,
+            %{
+              events: [
+                %{
+                  topic: topic,
+                  summary: "test-linux failed",
+                  ci_checks: [%{name: "test-linux", url: "https://github.com/owner/repo/actions/runs/123"}]
+                }
+              ]
+            }} =
+             Aiur.IssueLog.event_history_page(identity, after_id: 0)
+
+    assert topic == "ticket.#{identity.identifier}.ci.failed"
   end
 
   test "command records redact credentials before persisting the timeline marker" do
