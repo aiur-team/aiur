@@ -4,6 +4,7 @@ defmodule Aiur.AlertFeed do
   """
 
   alias Aiur.AlertFeed.Projection
+  alias Aiur.AlertFeed.StrictRead
   alias Aiur.AlertLedger
   alias Aiur.Config
   alias Aiur.Config.Paths
@@ -294,7 +295,7 @@ defmodule Aiur.AlertFeed do
   end
 
   defp read_alerts(path, opts) do
-    reader = if Keyword.get(opts, :strict, false), do: &Aiur.AlertFeed.StrictRead.read/2, else: &AlertLedger.read/2
+    reader = if Keyword.get(opts, :strict, false), do: &StrictRead.read/2, else: &AlertLedger.read/2
 
     path
     |> reader.(opts)
