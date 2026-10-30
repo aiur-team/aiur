@@ -213,6 +213,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
           {Task.Supervisor, name: Aiur.TaskSupervisor},
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
+          AiurWeb.Streamdeck.Deck.SettingsSnapshot,
           {AiurWeb.Endpoint, []},
           AiurWeb.FinancialDataAccess.Generation,
           AiurWeb.VoiceSessionLimiter
@@ -454,6 +455,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
+        streamdeck_settings_path: Path.join(System.get_env("AIUR_BROWSER_ARTIFACT_DIR") || System.tmp_dir!(), "deck-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}.json"),
         streamdeck_build_source: Aiur.BrowserHarness.StreamdeckTicket,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(streamdeck_snapshot()) end,

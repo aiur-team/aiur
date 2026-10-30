@@ -210,6 +210,8 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       options.events.fleet(fleet.agents ?? []);
       if (fleet.grid !== undefined) options.events.grid(fleet.grid);
     }
+    else if (event === "alert") options.events.alert?.(payload as Readonly<Record<string, unknown>>);
+    else if (event === "settings") options.events.settings?.(payload as unknown as import("./deck-settings.js").DeckSettings);
     else if (event === "chat") options.events.chat?.(payload as StreamDeckChat);
     else if (event === "frame") options.events.frame?.(payload as import("./frame.js").DeckFrame);
     else if (event === "ticket") options.events.ticket?.(payload as StreamDeckTicket);
@@ -267,6 +269,9 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   socket.onclose = () => notifyClosed(new Error("Stream Deck channel closed"));
 
   return {
+    voiceStatus: (text) => send("voice_status", { text }),
+    devices: (devices) => send("devices", { ...devices }),
+    settingsSet: (patch) => send("settings_set", { ...patch }),
     input: (input) => { if (joined && !stopped) send("input", { ...input }); },
     focus: (identifier) => send("focus", { identifier }),
     priority: (identifier, direction) => send("priority", { identifier, direction }),

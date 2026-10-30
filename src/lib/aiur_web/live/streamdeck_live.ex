@@ -1,5 +1,5 @@
 defmodule AiurWeb.StreamdeckLive do
-  @moduledoc "Browser emulator using shared deck frames and owner-process conversation tails."
+  @moduledoc "Browser emulator over shared deck frames, settings and owner-process conversation tails."
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.Streamdeck.Deck.{Chat, Nav}
-  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Surface}
+  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Settings, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLive.TicketActions
 
@@ -69,6 +69,8 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> assign(:os, detect_os(user_agent(socket)))
       |> refresh_grid()
+
+    socket = Settings.mount(socket, connected?(socket))
 
     socket =
       if connected?(socket) do
@@ -165,6 +167,12 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", _params, socket), do: {:noreply, socket}
 
+  def handle_event(event, params, %{assigns: %{deck_nav: %{surface: :settings}}} = socket)
+      when event in ["dial-press", "dial-long-press", "dial-turn"],
+      do: Settings.event(event, params, socket)
+
+  def handle_event("dial-long-press", params, socket), do: Settings.event("dial-long-press", params, socket)
+
   def handle_event("dial-press", %{"action" => "back"} = params, socket),
     do: {:noreply, socket |> Navigation.route("dial-press", params) |> back()}
 
@@ -209,6 +217,11 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_info({:streamdeck_settings_changed, path}, socket) do
+    if socket.assigns.deck_settings_path == path, do: {:noreply, Settings.refresh(socket)}, else: {:noreply, socket}
+  end
 
   @impl true
   def handle_info({event, _fact}, socket)

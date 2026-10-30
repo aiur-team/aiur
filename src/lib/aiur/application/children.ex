@@ -129,6 +129,8 @@ defmodule Aiur.Application.Children do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      # Channels and browser mounts need cached settings before HTTP starts.
+      AiurWeb.Streamdeck.Deck.SettingsSnapshot,
       Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
       Aiur.DecisionDispatchTasks,

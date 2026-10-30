@@ -12,7 +12,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias AiurWeb.{EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckProjection}
   alias AiurWeb.Streamdeck.Deck.{Chat, ChatPage, Nav, PriorityInput, Signals, TicketUpdates}
 
-  alias AiurWeb.Streamdeck.{FrameUpdates, UsageUpdates}
+  alias AiurWeb.Streamdeck.{FrameUpdates, SettingsUpdates, UsageUpdates}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -61,13 +61,18 @@ defmodule AiurWeb.StreamdeckChannel do
        fleet_latch: latch,
        ticket_task: nil,
        ticket_pending: false
-     )}
+     )
+     |> SettingsUpdates.initialize()}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
   def handle_in("input", input, socket), do: FrameUpdates.input(input, socket)
+
+  def handle_in("devices", payload, socket), do: SettingsUpdates.devices(payload, socket)
+  def handle_in("settings_set", patch, socket), do: SettingsUpdates.set(patch, socket)
+  def handle_in("voice_status", payload, socket), do: SettingsUpdates.status(payload, socket)
 
   def handle_in("chat_page", %{"before" => before}, socket) do
     {page, socket} = ChatPage.page(socket, before)
@@ -268,8 +273,11 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info(:streamdeck_snapshot, socket) do
     snapshot = StreamdeckProjection.snapshot()
     push(socket, "snapshot", snapshot)
+    SettingsUpdates.push(socket)
     {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> assign(:deck_grid, snapshot["grid"]) |> FrameUpdates.push()}
   end
+
+  def handle_info({:streamdeck_settings_changed, path}, %{assigns: %{deck_settings_path: path}} = socket), do: SettingsUpdates.changed(socket)
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}
 

@@ -10,6 +10,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
 
   @views [:ticket, :feature, :epic, :fleet]
   defstruct surface: :grid,
+            settings: %{section: nil, cursor: 0, return_surface: :grid, notice: nil},
             view: :ticket,
             pages: %{ticket: 0, feature: 0, epic: 0, fleet: 0},
             stack: [],
@@ -23,6 +24,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
           surface: :grid | :chat | :cmd | :settings | :commands,
+          settings: map(),
           pages: map(),
           stack: [{atom(), String.t()}],
           drill_pages: [non_neg_integer()],
@@ -32,7 +34,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
           chip_offset: non_neg_integer(),
           meter_count: non_neg_integer()
         }
-  @type effect :: {:chat_page, String.t()} | :close_ticket | {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()}
+  @type effect :: {:chat_page, String.t()} | :close_ticket | {:open_ticket, String.t()} | {:priority, String.t(), :up | :down, pos_integer()} | {:settings_set, map()}
 
   @spec valid_input?(term()) :: boolean()
   def valid_input?(%{"kind" => "key_press", "index" => index}),

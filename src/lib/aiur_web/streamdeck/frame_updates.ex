@@ -1,24 +1,27 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
-  alias AiurWeb.Streamdeck.{Deck, Render}
-  alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput}
+  alias AiurWeb.Streamdeck.{Deck, Render, SettingsUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, PriorityInput, Settings, SettingsMenu, SettingsSnapshot}
   alias AiurWeb.Streamdeck.Render.Chat, as: ChatRender
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def input(raw, socket) do
+    socket = assign(socket, deck_effects: [])
+
     case transition(socket.assigns.deck_nav, raw, grid(socket)) do
       {:ok, nav, effects} ->
         dispatch(effects)
         socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
         {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
-        navigation = %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "chip_offset" => nav.chip_offset}
+        case SettingsUpdates.effects(socket, effects) do
+          {:ok, socket} ->
+            navigation_reply(socket, effects)
 
-        case PriorityInput.reply(socket, navigation, effects) do
-          {:reply, {:ok, _result}, socket} -> {:reply, {:ok, navigation}, socket}
-          error -> error
+          {:error, reason, socket} ->
+            {:reply, {:error, %{reason: reason}}, socket}
         end
 
       :noop ->
@@ -29,15 +32,25 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     end
   end
 
+  defp navigation_reply(socket, effects) do
+    navigation = navigation(socket.assigns.deck_nav)
+
+    case PriorityInput.reply(socket, navigation, effects) do
+      {:reply, {:ok, _result}, socket} -> {:reply, {:ok, navigation}, socket}
+      error -> error
+    end
+  end
+
+  defp navigation(nav), do: %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "chip_offset" => nav.chip_offset}
+
   @doc "Apply raw deck input to channel or browser navigation using the same mapping."
   @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
   def transition(previous, raw, grid) do
     with {:ok, input} <- normalize(raw),
          input = focused_key(previous, raw, input),
          true <- Nav.valid_input?(input),
-         {%Nav{} = nav, effects} <-
-           Input.reduce(previous, input, MeterPage.sections(normalize_grid(grid), previous)) do
-      effects = if previous.surface == :chat && previous.chat && input["index"] == 3 && input["kind"] == "dial_turn", do: effects, else: focus_effects(previous, input, effects)
+         {%Nav{} = nav, effects} <- reduce_navigation(previous, input, prepare_grid(grid)) do
+      effects = transition_effects(previous, nav, input, effects)
       {:ok, nav, effects}
     else
       :noop -> :noop
@@ -45,11 +58,29 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     end
   end
 
+  defp reduce_navigation(previous, input, grid) do
+    snapshot = Map.get(grid, :settings_snapshot, SettingsSnapshot.unavailable())
+    nav = SettingsMenu.clamp(previous, snapshot)
+
+    case SettingsMenu.reduce(nav, input, snapshot) do
+      :pass -> Input.reduce(nav, input, MeterPage.sections(grid, nav))
+      result -> result
+    end
+  end
+
+  defp transition_effects(%{surface: :settings}, nav, _input, effects) do
+    if nav.surface in [:cmd, :chat] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: effects
+  end
+
+  defp transition_effects(%{surface: :chat, chat: chat}, _nav, %{"kind" => "dial_turn", "index" => 3}, effects) when is_map(chat), do: effects
+
+  defp transition_effects(previous, _nav, input, effects), do: focus_effects(previous, input, effects)
+
   defp focused_key(%{chat: chat, surface: :chat}, %{"kind" => "key", "index" => index}, input) when is_map(chat), do: Map.put(input, "index", index)
   defp focused_key(_nav, _raw, input), do: input
 
   defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
-    if nav.surface in [:settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
+    if nav.surface == :commands and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
   end
 
   defp focus_effects(_nav, %{"kind" => kind, "index" => 3}, effects) when kind in ["dial_press", "dial_long_press", "dial_turn"], do: [:close_ticket | effects]
@@ -81,7 +112,12 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @doc "Compose the same frame model for a channel socket or the browser emulator."
   @spec frame(Nav.t(), map(), map(), (map() -> map()), map()) :: {Nav.t(), map(), map()}
   def frame(nav, grid, usage, renderer \\ &Render.frame/1, context \\ %{}) do
-    {nav, grid} = MeterPage.prepare(normalize_grid(grid), nav, usage)
+    grid = prepare_grid(grid)
+    snapshot = Map.get(grid, :settings_snapshot, SettingsSnapshot.unavailable())
+    nav = SettingsMenu.clamp(nav, snapshot)
+    settings_context = settings_context(nav, snapshot)
+    context = Map.update(context, :view_context, %{settings: settings_context}, &Map.put(&1, :settings, settings_context))
+    {nav, grid} = MeterPage.prepare(grid, nav, usage)
     sections = Deck.navigation(grid)
     nav = Nav.clamp(nav, Input.sizes(nav, sections))
     agents = visible_items(nav, sections, grid.agents)
@@ -116,7 +152,23 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
     end)
   end
 
-  defp grid(socket), do: Map.put(socket.assigns[:deck_grid] || StreamdeckProjection.grid(), :meter_usage, socket.assigns[:deck_usage] || %{})
+  defp grid(socket) do
+    grid = Map.put(socket.assigns[:deck_grid] || StreamdeckProjection.grid(), :meter_usage, socket.assigns[:deck_usage] || %{})
+    SettingsSnapshot.attach(grid, socket.assigns[:deck_settings_path] || Settings.path())
+  end
+
+  defp settings_context(nav, snapshot), do: %{menu: nav.settings, values: snapshot.settings, devices: snapshot.devices, status: snapshot.status}
+
+  @doc "Normalize and order retained grid data consistently for rendering and input."
+  @spec prepare_grid(map()) :: map()
+  def prepare_grid(grid) do
+    grid = normalize_grid(grid)
+
+    case Map.get(grid, :settings_snapshot) do
+      %{status: :ok, settings: settings} -> Map.update!(grid, :agents, &SettingsUpdates.sort(&1, settings))
+      _ -> grid
+    end
+  end
 
   defp normalize_grid(grid) do
     agents = Map.get(grid, :agents, Map.get(grid, "agents", []))

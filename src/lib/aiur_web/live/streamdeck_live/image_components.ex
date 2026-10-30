@@ -63,7 +63,9 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
           aria-current={if not is_nil(value(face, :chat_turn)) or value(face, :live), do: to_string(value(face, :selected, false))}
           data-command-key={value(face, :decision_id)} data-command-option={@commands_view == :detail && value(face, :option_index)}
           data-command-selected={value(face, :selected) && "true"}
-          phx-click={key_click(@mode, face, index)} phx-value-index={value(face, :option_index)} />
+          phx-click={key_click(@mode, face, index)}
+          phx-value-kind={@mode == :settings && "key"} phx-value-action={@mode == :settings && "down"}
+          phx-value-index={if @mode == :settings, do: index, else: value(face, :option_index)} />
       </div>
 
     </div>
@@ -72,6 +74,8 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
 
   defp key_click(:grid, _face, index),
     do: JS.push("input", value: %{kind: "key", index: index, action: "down"})
+
+  defp key_click(:settings, _face, _index), do: "input"
 
   defp key_click(_mode, face, _index),
     do: not is_nil(value(face, :option_index)) && "command-select"
