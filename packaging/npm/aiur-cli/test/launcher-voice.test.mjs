@@ -18,7 +18,7 @@ test("voice transcripts forwards validated list and show arguments", () => {
 test("voice transcripts rejects malformed and injection values before RPC", () => {
   const { launcher, releaseDir } = setupControlRpc();
   for (const args of [
-    ['vc_aaaaaaaaaaaaaaaaaaaaaa");System.halt();#'], ["../transcript"], ["--target", 'x");System.halt();#'],
+    ['vc_aaaaaaaaaaaaaaaaaaaaaa");System.halt();#'], ["../transcript"], [""], ["--target", 'x");System.halt();#'],
     ["--limit", "1);System.halt()"], ["--limit", "101"], ["--limit="], ["--target="], ["--target"], ["--other"], [id, id], [id, "--limit", "1"],
   ]) {
     rmSync(captureFile, { force: true });

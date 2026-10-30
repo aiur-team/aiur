@@ -15,7 +15,7 @@ cmd_voice() {
       --limit=*) limit="${arg#--limit=}"; limit_set=true ;;
       --json) json=true ;;
       -*) echo "aiur: unknown voice option: $arg" >&2; exit 64 ;;
-      *) [ -z "$id" ] || { echo 'aiur: expected one conversation id' >&2; exit 64; }; id="$arg" ;;
+      *) [ -n "$arg" ] || { echo 'aiur: invalid conversation id' >&2; exit 64; }; [ -z "$id" ] || { echo 'aiur: expected one conversation id' >&2; exit 64; }; id="$arg" ;;
     esac
     shift
   done
