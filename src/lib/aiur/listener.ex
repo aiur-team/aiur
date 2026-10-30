@@ -4,7 +4,7 @@ defmodule Aiur.Listener do
   alias Aiur.Listener.{Effective, ModeStore, Receipt, SpecStatus}
   alias Aiur.TrackerIdentity
 
-  @type target :: String.t() | TrackerIdentity.t() | %{v: 1, subject: :executor}
+  @type target :: String.t() | TrackerIdentity.t() | %{required(:v) => 1, required(:subject) => :executor, optional(:__struct__) => module()}
   @type result :: {:ok, Effective.view()} | {:error, term()}
 
   @doc false
