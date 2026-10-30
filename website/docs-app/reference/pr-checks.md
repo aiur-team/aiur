@@ -53,6 +53,7 @@ PR browser smoke stays at **nine shards**, including PRs selecting full CI.
 Browser smoke runs on **nine shards**. Shard balancing uses the recorded CI
 timings in `src/browser/scripts/browser-smoke-durations.mjs`, and
 `scripts/check-browser-smoke-shards.mjs` keeps each shard under 75% of its budget.
+
 When a browser shard fails, download its `browser-failure-traces` artifact from
 the GitHub Actions run. It contains sanitized Playwright traces and screenshots
 for failed tests and is retained for 14 days; passing shards add no such artifact.
