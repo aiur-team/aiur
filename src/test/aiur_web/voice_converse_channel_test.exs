@@ -167,8 +167,11 @@ defmodule AiurWeb.VoiceConverseChannelTest do
     start_core(ctx)
     assert {:ok, %{conversation_id: id}, joined} = subscribe_and_join(client(), "voice:converse", payload())
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(ctx.name, id)
+    # Phoenix replies to leave before terminate/2 unsubscribes from the session.
+    channel_monitor = Process.monitor(joined.channel_pid)
     ref = leave(joined)
     assert_reply(ref, :ok)
+    assert_receive {:DOWN, ^channel_monitor, :process, _, _}, 2_000
     state = :sys.get_state(session)
     assert map_size(state.subscribers) == 0
     assert is_reference(state.transport_token)
