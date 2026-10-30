@@ -294,6 +294,39 @@ test('B18 disconnect releases in-flight guard and ignores old reply', async ({ p
   })).toEqual({ calls: 2, inFlight: true, ignored: true, epoch: 'new-reply' })
 })
 
+test('a throttled restart snapshot retries once and applies the latest snapshot', async ({ page }) => {
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') })
+  await ready(page)
+  await page.clock.pauseAt(new Date('2030-01-02T00:00:00Z'))
+  expect(await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js'), { receive } = await import('/build-home/hook.js')
+    let rejectThrottle, resolveLatest, calls = 0
+    ctx.push = () => {
+      calls++
+      if (calls === 1) return new Promise(resolve => { rejectThrottle = resolve })
+      return new Promise(resolve => { resolveLatest = resolve })
+    }
+    const restart = { v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 2,
+      now: ctx.snap.now + 1, upsert: [], remove: [], set: {} }
+    receive(restart)
+    receive({ ...restart, generation: restart.generation + 2 })
+    rejectThrottle({ v: 1, kind: 'error', reason: 'throttled' })
+    await Promise.resolve()
+    window.resyncRetryProbe = { get calls() { return calls }, resolveLatest: value => resolveLatest(value),
+      latest: { ...ctx.snap, generation: ctx.proto.generation + 10, now: ctx.snap.now + 10_000 } }
+    return { afterRefusal: calls, pending: ctx.proto.retryPending }
+  })).toEqual({ afterRefusal: 1, pending: true })
+  await page.clock.runFor(2_100)
+  expect(await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js'), probe = window.resyncRetryProbe
+    const callsBeforeReply = probe.calls
+    probe.resolveLatest(probe.latest)
+    await Promise.resolve(); await Promise.resolve()
+    return { callsBeforeReply, calls: probe.calls, generation: ctx.proto.generation, now: ctx.snap.now, latestNow: probe.latest.now }
+  })).toMatchObject({ callsBeforeReply: 2, calls: 2, now: expect.any(Number), latestNow: expect.any(Number) })
+  expect(await page.evaluate(() => window.resyncRetryProbe.latest.now)).toBe(await page.evaluate(async () => (await import('/build-home/state.js')).ctx.snap.now))
+})
+
 test('B19 scrollbar geometry, track click, active timer and drag', async ({ page }) => {
   // Install before mount: a native sb-active timeout from a pre-install scroll can't be cleared by the fake clock.
   await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') })
