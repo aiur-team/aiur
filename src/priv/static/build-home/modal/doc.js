@@ -49,7 +49,7 @@ function timelineHTML(timeline) {
   if (!timeline || timeline.status === 'loading') return cue('Loading ticket timeline…');
   const items = timeline.items || [];
   if (!items.length) return cue(timeline.status === 'unavailable' ? 'Timeline is unavailable · retry when the ticket history service is available' : 'No recorded events for this ticket yet', timeline.status === 'unavailable' ? I.warn : I.docs, timeline.status === 'unavailable');
-  const start = items[0]?.at || Date.now(), end = items.at(-1)?.at || start + 1, span = Math.max(1, end - start);
+  const start = items[0]?.at ?? 0, end = items.at(-1)?.at ?? start + 1, span = Math.max(1, end - start);
   const actors = ['Executor', 'CI', 'Aiur agent', 'Aiur daemon'];
   const gaps = items.slice(1).flatMap((item, index) => {
     const previous = items[index]; const duration = item.at - previous.at;

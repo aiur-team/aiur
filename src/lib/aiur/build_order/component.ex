@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.Component do
 
   alias Aiur.BuildOrder.{AdHocSource, EpicOverrides, Estimates, Features, GraphProjection, History, PackStatus, ProgressObserver}
 
-  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final | :label_projection | :estimates | :label_backfill
+  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final | :label_projection | :estimates | :label_backfill | :timeline_cache
 
   @spec child_specs(phase(), keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
   def child_specs(phase, opts)
@@ -12,10 +12,12 @@ defmodule Aiur.BuildOrder.Component do
 
   def child_specs(:estimates, _opts), do: [Estimates]
 
+  def child_specs(:timeline_cache, _opts), do: [Aiur.BuildOrder.TicketTimelineCache]
+
   def child_specs(:early, _opts), do: [{GraphProjection, runtime_config?: true}]
 
   def child_specs(:history, _opts) do
-    [History, History.Feeder, {History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)}, Features, Aiur.BuildOrder.TicketTimelineCache]
+    [History, History.Feeder, {History.Backfill, enabled?: Application.get_env(:aiur, :build_history_backfill_enabled?, true)}, Features]
   end
 
   def child_specs(:late, _opts) do
