@@ -70,7 +70,7 @@ defmodule Aiur.Diagnostics.IdleBurstSamplerTest do
       Process.put({__MODULE__, :reads}, [{pid, key, time} | Process.get({__MODULE__, :reads})])
 
       case key do
-        :reductions -> if count = reductions.(pid, time), do: {:reductions, count}
+        :reductions -> reduction_info(reductions.(pid, time))
         :registered_name -> {:registered_name, []}
         :initial_call -> {:initial_call, {__MODULE__, :work, 0}}
         :current_stacktrace -> {:current_stacktrace, [{__MODULE__, :work, [pid, time], []}]}
@@ -80,6 +80,9 @@ defmodule Aiur.Diagnostics.IdleBurstSamplerTest do
     opts = [processes: fn -> pids end, info: info, clock: &clock/0, sleep: fn ms -> Process.put({__MODULE__, :time}, clock() + ms + delay) end]
     {opts, fn -> Process.get({__MODULE__, :reads}) end}
   end
+
+  defp reduction_info(nil), do: nil
+  defp reduction_info(count), do: {:reductions, count}
 
   defp clock, do: Process.get({__MODULE__, :time})
 end
