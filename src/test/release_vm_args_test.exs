@@ -18,7 +18,15 @@ defmodule Aiur.ReleaseVmArgsTest do
     end
     """)
 
-    env = [{"MIX_ENV", "prod"}, {"ELIXIR_ERL_OPTIONS", nil}, {"ERL_FLAGS", nil}, {"ERL_AFLAGS", nil}, {"ERL_ZFLAGS", nil}]
+    env = [
+      {"MIX_ENV", "prod"},
+      {"MIX_BUILD_PATH", nil},
+      {"MIX_DEPS_PATH", nil},
+      {"ELIXIR_ERL_OPTIONS", nil},
+      {"ERL_FLAGS", nil},
+      {"ERL_AFLAGS", nil},
+      {"ERL_ZFLAGS", nil}
+    ]
     {output, status} = System.cmd("mix", ["release"], cd: root, env: env, stderr_to_stdout: true)
     assert status == 0, output
 
