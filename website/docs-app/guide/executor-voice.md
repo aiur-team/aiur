@@ -82,6 +82,7 @@ for provider configuration, credentials and ElevenLabs client-tool setup.
 The reusable voice session receives worker status notes, Commands and phase/PR
 milestones while you talk. Updates enter context silently, coalesced over five
 seconds; agent answers and refreshed notes can be spoken at the next pause.
+
 Each event is redacted and saved before delivery. When a Command resolves elsewhere,
 unconfirmed instruction drafts become stale so you can review them against the new
 context. A missing live subscription is reported as a gap; tool calls still refresh

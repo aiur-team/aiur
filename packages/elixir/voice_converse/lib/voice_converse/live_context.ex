@@ -42,14 +42,17 @@ defmodule VoiceConverse.LiveContext do
 
     state = Map.put(state, :live_context, live)
 
-    if live.fallback? do
-      text = "Gaps: Live updates unavailable for one or more sources; refresh on tool calls"
-      record!(state, text)
-      %{state | context: state.context <> "\n" <> text}
-    else
-      # Catch a change between the opening read and the subscription being installed.
-      refresh_briefing(state)
-    end
+    state =
+      if live.fallback? do
+        text = "Gaps: Live updates unavailable for one or more sources; refresh on tool calls"
+        record!(state, text)
+        %{state | context: state.context <> "\n" <> text}
+      else
+        state
+      end
+
+    # Catch a change between the opening read and the subscription being installed.
+    refresh_briefing(state)
   end
 
   def refresh(%{live_context: %{fallback?: true}} = state), do: refresh_briefing(state)
