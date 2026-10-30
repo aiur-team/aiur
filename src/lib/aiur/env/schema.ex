@@ -200,6 +200,7 @@ defmodule Aiur.Env.Schema do
     {"CLAUDE_CODE_OAUTH_TOKEN",
      type: :secret, group: :provider_keys, purpose: "Claude Code subscription token for an operator deployment; pass only to Claude workers and never configure on a consumer instance."},
     {"ANTHROPIC_API_KEY", type: :secret, group: :provider_keys, purpose: "Anthropic API key for Claude API billing; consumer deployments require this instead of subscription auth."},
+    {"GEMINI_API_KEY", type: :secret, group: :provider_keys, purpose: "Gemini conversation and cascade API key; held only by the daemon."},
     {"OPENAI_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenAI API key for Codex API billing or a consumer deployment."},
 
     # --- Runtime (launcher-managed) ---

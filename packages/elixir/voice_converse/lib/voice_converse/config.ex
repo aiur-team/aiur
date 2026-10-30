@@ -29,6 +29,7 @@ defmodule VoiceConverse.Config do
             llm: nil,
             cloud_disclosure_accepted: nil,
             credentials: nil,
+            credential_names: %{},
             briefing_source: nil,
             agent_channel: nil,
             allowed_tools: nil,
