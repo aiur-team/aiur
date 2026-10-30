@@ -1,11 +1,10 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   @moduledoc "Classifies failed merge-group runs and routes each PR outcome."
   alias Aiur.Alerts
-  alias Aiur.Events
   alias Aiur.Config.TrackerSettings
   alias Aiur.GitHub.{Access, CIRecovery}
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupJournal, MergeGroupRequeue, QuarantineEvidence}
+  alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupFailureTimeline, MergeGroupJournal, MergeGroupRequeue, QuarantineEvidence}
 
   require Logger
 
@@ -430,43 +429,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     Enum.each(prs, fn number ->
       message = "PR ##{number} was removed after the same head failed a merge-group run twice."
       emitter.("system.pr.landing.merge_group_repeat_failure", central: true, durable: true, needs_attention: true, message: message, reason: "same_head_failed_twice")
-      publish_ticket_merge_group_failure(number, observations, failure, run, opts)
+      MergeGroupFailureTimeline.publish(number, observations, failure, run, opts)
     end)
 
     route_failed_prs(prs, observations, failure, run, opts)
   end
-
-  defp publish_ticket_merge_group_failure(number, observations, failure, run, opts) do
-    identity_fun = Keyword.get(opts, :ticket_identity_fun, &Aiur.Orchestrator.tracker_identity/1)
-
-    with %{rest: rest} when is_map(rest) <- Enum.find(observations, &(&1.number == number)),
-         ticket when is_binary(ticket) <- Aiur.TicketBranch.ticket_id(get_in(rest, ["head", "ref"])),
-         identity when not is_nil(identity) <- identity_fun.(ticket) do
-      checks = Enum.map(failure_identities(failure), &%{name: &1, url: safe_run_url(run["html_url"])})
-      message = "Merge-group run #{run["id"]} failed twice for PR ##{number}; PR was removed from the merge queue."
-
-      Events.publish("ticket.#{ticket}.ci.merge_group.failed", %{message: message, checks: checks, pr_number: number, run_id: run["id"]},
-        issue_number: ticket,
-        identity: identity,
-        bypass_contamination: true
-      )
-    else
-      _ -> :ok
-    end
-  catch
-    :exit, _ -> :ok
-  end
-
-  defp safe_run_url(url) when is_binary(url) do
-    uri = URI.parse(url)
-
-    if uri.scheme == "https" and uri.host == "github.com" and is_nil(uri.userinfo) and String.starts_with?(uri.path || "", "/") and String.contains?(uri.path || "", "/actions/runs/"),
-      do: URI.to_string(%{uri | query: nil, fragment: nil})
-  rescue
-    _ -> nil
-  end
-
-  defp safe_run_url(_), do: nil
 
   defp route_repeated_failures([], _observations, _failure, _run, _opts), do: :ok
 
