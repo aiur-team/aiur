@@ -89,6 +89,8 @@ Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label
 
 If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-budget` mutation in time, the command exits 124 and reports `outcome unknown`. The queued request may still apply after the command exits. Check the ticket status and log before retrying; a reset is confirmed by its completed dispatch-budget reset alert.
 
+See [listener modes](/concepts/operating-aiur#listener-modes) for mode semantics, support, and consuming async reads.
+
 Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. Conversation sends use the effective listener mode; new runs default to `sync`. An unavailable listener specification refuses conversation sends instead of interrupting.
 
 `aiur message` prints `accepted under <mode> listener mode` when its receipt carries the mode. Command answers and coordination digests keep their separate delivery policies.

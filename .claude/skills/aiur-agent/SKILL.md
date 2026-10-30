@@ -67,6 +67,15 @@ shared [dictated-input note](dictated-input.md).
   conflict resolution in `dev-loop.md`.
   A PR already in the merge queue is left alone: never dequeue it, or ask the
   Executor to, in order to update its branch.
+- **Async operator messages:** when `async` is effective and
+  `aiur_read_messages` is installed, call it after an addressed-message nudge, at natural pauses and before
+  yielding or finishing. It consumes and acknowledges your held messages,
+  oldest first (optional `max`: 1–50, default 50). Check `remaining` and read
+  further batches as needed. This is not a preview; a lost reply after
+  acknowledgement cannot be replayed. Leaving async keeps unread bodies
+  pull-only while async support remains usable; losing the pull tool routes
+  held bodies through the effective mode. Command answers and event digests
+  keep their existing delivery.
 - **Events:** `emit_event(name, message, payload?)` publishes to
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`;
   `optimistic.integrated` uses `ticket.<id>.optimistic.integrated`.
