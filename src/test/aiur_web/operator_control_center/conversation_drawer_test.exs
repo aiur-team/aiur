@@ -60,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
 
   defp render(view, opts \\ []) do
     render_component(&ConversationDrawer.conversation_drawer/1, %{
-      id: "units-conversation-drawer",
+      id: "voice-conversation-drawer",
       view: view,
       composer: Keyword.get(opts, :composer),
       writable: Keyword.get(opts, :writable, false),
@@ -76,10 +76,10 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
   test "renders a semantic modal dialog wired for accessible focus and close" do
     html = render(Presenter.present(row(), snapshot()))
 
-    assert html =~ ~s(id="units-conversation-drawer")
+    assert html =~ ~s(id="voice-conversation-drawer")
     assert html =~ ~s(role="dialog")
     assert html =~ ~s(aria-modal="true")
-    assert html =~ ~s(aria-labelledby="units-conversation-drawer-title")
+    assert html =~ ~s(aria-labelledby="voice-conversation-drawer-title")
     assert html =~ ~s(phx-hook="ConversationDrawer")
     assert html =~ ~s(data-close-event="close-conversation")
     assert html =~ ~s(data-focus-fallback-id="units-title")

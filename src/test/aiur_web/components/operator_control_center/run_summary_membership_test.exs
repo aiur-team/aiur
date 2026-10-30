@@ -1,10 +1,8 @@
 defmodule AiurWeb.OperatorControlCenter.RunSummaryMembershipTest do
   use ExUnit.Case, async: true
 
-  import Phoenix.LiveViewTest
-
   alias Aiur.CurrentRunSummary
-  alias AiurWeb.OperatorControlCenter.{RunSummaryPresenter, RunSummaryStrip}
+  alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
 
   @now ~U[2026-10-09 19:38:00Z]
 
@@ -22,15 +20,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryMembershipTest do
       assert view.progress.lower_bound_percent == nil
       assert view.progress.coverage_percent == nil
       assert RunSummaryPresenter.announcement(view) =~ "Progress coverage unknown"
-
-      html = render_summary(view)
-      assert html =~ "472 remain"
-      assert html =~ "Unavailable — the unit list is out of date"
-      assert html =~ ~s(aria-label="Progress unavailable")
-      assert html =~ "is-unknown"
-      refute html =~ "aria-valuenow"
-      refute html =~ "width:"
-      refute html =~ "100%"
     end
   end
 
@@ -40,9 +29,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryMembershipTest do
     assert view.progress.kind == :exact
     assert view.progress.percent == 100
     assert view.counts.remaining == 472
-    html = render_summary(view)
-    assert html =~ ~s(aria-valuenow="100")
-    assert html =~ ~s(style="width:100%")
   end
 
   test "a retained exact summary hides progress when the incoming membership is not fresh" do
@@ -55,20 +41,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryMembershipTest do
     assert view.progress.percent == nil
     assert view.progress.lower_bound_percent == nil
     assert RunSummaryPresenter.announcement(view) =~ "Progress coverage unknown"
-    html = render_summary(view)
-    assert html =~ ~s(aria-label="Progress unavailable")
-    refute html =~ "aria-valuenow"
-    refute html =~ "width:"
-  end
-
-  defp render_summary(view) do
-    render_component(&RunSummaryStrip.run_summary_compact/1, %{
-      run: view,
-      usage: %{state: :locked},
-      meters: %{state: :locked, cards: []},
-      configured_providers: [],
-      now: @now
-    })
   end
 
   defp snapshot(freshness, weight_health) do

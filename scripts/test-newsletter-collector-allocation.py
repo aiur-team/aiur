@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts" / "newsletter"))
+sys.path.insert(0, str(ROOT / "packages" / "newsletter"))
 import collect
 from metrics import compute
 from allocation_sources import allocation_evidence

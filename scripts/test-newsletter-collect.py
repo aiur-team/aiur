@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts" / "newsletter"))
+sys.path.insert(0, str(ROOT / "packages" / "newsletter"))
 import collect
 from classification import classify, main_fix
 from github import GitHub

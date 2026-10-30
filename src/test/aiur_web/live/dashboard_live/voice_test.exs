@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.Orchestrator
+  alias Aiur.TestSupport.EndpointStubs
 
   @endpoint AiurWeb.Endpoint
 
@@ -29,8 +30,10 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
       %{capabilities: %{"voice.stt" => stt, "voice.tts" => stt, "voice.conversation" => stt, "streamdeck" => %{state: :available}}}
     end
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, capabilities_report_fun: report_fun, voice_conversation_panel_module: InstalledPanel)
-    {:ok, view, _html} = live(build_conn(), "/units")
+    # Named providers need an explicit private override; atoms otherwise enter shared config.
+    start_test_endpoint(snapshot_timeout_ms: 5, capabilities_report_fun: report_fun)
+    EndpointStubs.put(orchestrator: orchestrator_name, voice_conversation_panel_module: InstalledPanel)
+    {:ok, view, _html} = live(build_conn(), "/commands")
     assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured, "voice.conversation" => unconfigured}
 
     Agent.update(reports, fn _ -> %{state: :available} end)
@@ -44,8 +47,9 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, capabilities_report_fun: fn -> raise "registry unavailable" end)
-    {:ok, view, _html} = live(build_conn(), "/units")
+    start_test_endpoint(snapshot_timeout_ms: 5, capabilities_report_fun: fn -> raise "registry unavailable" end)
+    EndpointStubs.put(orchestrator: orchestrator_name)
+    {:ok, view, _html} = live(build_conn(), "/commands")
     assert voice_capabilities(view) == %{}
   end
 

@@ -286,12 +286,12 @@ when the socket is open. It reads “Reconnecting…” while pending and return
 **Reconnect** after ten seconds if the page is still degraded. This control also
 works with read-only access.
 
-## What stays on the Units page
+## Retired Units board
 
-The Units page is the hidden rollback route `/units`, retained for one release.
-Orchestration turns, context occupancy, cumulative token usage, the Tickets
-panel and its routing preview stay there and in `aiur units`; see
-[Units](/concepts/units).
+The legacy `/units` URL redirects permanently to `/` with its query string.
+Use `aiur units` for fleet inspection, `aiur set max-agents <n>` for capacity,
+and `aiur --todo <ticket-id>` to queue work. The Units-only GUI controls and
+run-summary strip have been retired.
 
 ## Adding work
 
