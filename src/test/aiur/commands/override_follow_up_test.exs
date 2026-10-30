@@ -25,6 +25,7 @@ defmodule Aiur.Commands.OverrideFollowUpTest do
          reconcile_delay_ms: 60_000,
          dispatcher: dispatcher,
          answer_comment_publisher: fn _ -> :ok end,
+         corrective_override_reconciler: fn _, _ -> {:ok, []} end,
          revision_follow_up_projector: fn _, action ->
            send(parent, {:follow_up, action})
            :ok
@@ -70,11 +71,12 @@ defmodule Aiur.Commands.OverrideFollowUpTest do
     assert_no_resume(terminal, ctx.store)
   end
 
-  test "a merged override cannot be reclassified as a resume on missing-worker dispatch", ctx do
+  test "a merged override waits for corrective work instead of resuming its old worker", ctx do
     revised = override!(ctx.store, "unavailable", %{pr: %{merged?: true}, worker: :active, capacity: :full})
 
-    observational = wait_for_session(ctx.store, revised.decision_id)
+    assert {:ok, observational} = DecisionStore.get(revised.decision_id, ctx.store)
     assert [%{route: :corrective_ticket, pr_merged: true}] = observational.overrides
+    refute Commands.override_dispatchable?(observational)
     assert_no_resume(observational, ctx.store)
   end
 
@@ -89,17 +91,6 @@ defmodule Aiur.Commands.OverrideFollowUpTest do
     if decision.ticket.identifier == "unavailable",
       do: {:error, :no_running_agent},
       else: {:no_longer_applicable, :missing}
-  end
-
-  defp wait_for_session(store, id) do
-    {:ok, decision} = DecisionStore.get(id, store)
-
-    if decision.pending_for_session? do
-      decision
-    else
-      receive_barrier({:decision_changed, ^id, _version})
-      wait_for_session(store, id)
-    end
   end
 
   defp assert_no_resume(decision, store) do

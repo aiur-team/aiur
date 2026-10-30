@@ -40,7 +40,7 @@ defmodule Aiur.Commands.CorrectiveFacts do
     case Enum.find(decision.overrides, &(&1.action_id == data.action_id)) do
       record when is_map(record) ->
         if record.route == :corrective_ticket or is_map(Map.get(record, :corrective_ticket)) or Map.get(record, :pr_merged) == :unknown,
-          do: update(decision, record, type, data, event.occurred_at),
+          do: update(decision, record, type, data, event),
           else: {:error, :corrective_override_missing}
 
       _missing ->
@@ -48,20 +48,21 @@ defmodule Aiur.Commands.CorrectiveFacts do
     end
   end
 
-  defp update(decision, record, :override_corrective_ticket, data, _at) do
+  defp update(decision, record, :override_corrective_ticket, data, event) do
     linked = Map.get(record, :corrective_ticket)
 
     if is_nil(linked) or linked == data.ticket do
       updated = record |> Map.put(:corrective_ticket, data.ticket) |> Map.put(:route, if(is_nil(linked), do: :corrective_ticket, else: record.route))
-      {:ok, replace(decision, updated)}
+      decision = replace(decision, updated)
+      {:ok, retarget(decision, record, data.ticket, event)}
     else
       {:error, :corrective_ticket_mismatch}
     end
   end
 
-  defp update(decision, %{corrective_ticket: ticket, state: state} = record, :override_corrective_implemented, data, at)
+  defp update(decision, %{corrective_ticket: ticket, state: state} = record, :override_corrective_implemented, data, event)
        when is_map(ticket) and state != :superseded do
-    updated = %{record | state: :implemented, implemented_at: at, evidence: %{kind: :merge, pr_number: data.pr_number, merge_commit_sha: data.merge_commit_sha}}
+    updated = %{record | state: :implemented, implemented_at: event.occurred_at, evidence: %{kind: :merge, pr_number: data.pr_number, merge_commit_sha: data.merge_commit_sha}}
     {:ok, replace(decision, updated)}
   end
 
@@ -75,6 +76,19 @@ defmodule Aiur.Commands.CorrectiveFacts do
   end
 
   defp update(_decision, _record, _type, _data, _at), do: {:error, :corrective_ticket_missing}
+
+  defp retarget(decision, %{action_id: action_id, corrective_ticket: nil, ticket: prior, state: state}, ticket, event)
+       when action_id == decision.active_action_id and prior.identifier != ticket.identifier and state not in [:superseded, :implemented] do
+    outcome = %{result: :recorded, reason_class: nil, occurred_at: event.occurred_at, event_id: Map.get(event, :event_id), run_id: Map.get(event, :run_id)}
+    record = Enum.find(decision.overrides, &(&1.action_id == action_id))
+    record = %{record | state: :queued, delivered_at: nil, implemented_at: nil, evidence: nil}
+
+    decision
+    |> replace(record)
+    |> Map.merge(%{revision_result: :recorded, revision_outcomes: Map.put(decision.revision_outcomes, action_id, outcome), delivery_status: :pending, pending_for_session?: false})
+  end
+
+  defp retarget(decision, _record, _ticket, _event), do: decision
 
   defp replace(decision, record) do
     %{decision | overrides: Enum.map(decision.overrides, &if(&1.action_id == record.action_id, do: record, else: &1))}

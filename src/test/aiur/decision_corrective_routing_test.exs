@@ -191,6 +191,41 @@ defmodule Aiur.DecisionCorrectiveRoutingTest do
     refute Retry.dispatchable?(latest, false)
   end
 
+  test "a late terminal result for the original ticket cannot strand its newly linked corrective target", ctx do
+    owner = self()
+
+    dispatcher = fn decision, _opts ->
+      if Overrides.target_ticket(decision).identifier == "6910" do
+        send(owner, {:old_target_dispatch, self()})
+
+        receive do
+          :release -> {:no_longer_applicable, {:terminal, "Closed"}}
+        after
+          5_000 -> {:error, :test_release_timeout}
+        end
+      else
+        send(owner, {:new_target_dispatch, decision.active_action_id})
+        {:error, :no_running_agent}
+      end
+    end
+
+    stop_supervised!(DecisionStore)
+    opts = ctx.opts |> Keyword.put(:dispatcher, dispatcher) |> Keyword.put(:dispatch_delay_ms, 0)
+    store = start_supervised!({DecisionStore, opts})
+    ctx = %{ctx | store: store}
+    first = override!(ctx, "late terminal direction", %{pr: :unknown, worker: :active, capacity: :available})
+    assert_receive {:old_target_dispatch, worker}, 2_000
+    on_exit(fn -> if Process.alive?(worker), do: send(worker, :release) end)
+    link!(ctx, first)
+    send(worker, :release)
+    action = first.active_action_id
+    assert_receive {:new_target_dispatch, ^action}, 2_000
+    assert {:ok, current} = DecisionStore.get(ctx.id, store)
+    assert current.revision_result == :recorded
+    assert Overrides.target_ticket(current) == @corrective
+    refute Map.has_key?(current.revision_follow_ups, action)
+  end
+
   defp restore_target({:ok, target}), do: Application.put_env(:aiur, :commands_delivery_target, target)
   defp restore_target(:error), do: Application.delete_env(:aiur, :commands_delivery_target)
 

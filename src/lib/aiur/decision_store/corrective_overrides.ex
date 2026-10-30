@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
   require Logger
   alias Aiur.Commands.{CorrectiveFailures, CorrectiveTicket}
   alias Aiur.DecisionDispatchTasks
-  alias Aiur.DecisionStore.{CommandFacts, Dispatch}
+  alias Aiur.DecisionStore.{CommandFacts, CorrectiveFollowUp, Dispatch}
 
   @spec configure(map(), keyword()) :: map()
   def configure(state, opts) do
@@ -105,6 +105,7 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
           {:error, reason, next} -> {:halt, {:error, reason, next}}
         end
       end)
+      |> resolve_follow_up(decision.decision_id)
 
     case result do
       {:ok, next} ->
@@ -118,6 +119,9 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
         fail(next, updated, record, reason)
     end
   end
+
+  defp resolve_follow_up({:ok, state}, id), do: CorrectiveFollowUp.reconcile(state, Map.fetch!(state.current, id))
+  defp resolve_follow_up(failed, _id), do: failed
 
   defp record_fact(%{writable?: true, health: :writable} = state, id, {type, data}) do
     case CommandFacts.record(state, id, type, data, []) do

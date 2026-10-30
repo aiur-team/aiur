@@ -119,8 +119,12 @@ defmodule Aiur.DecisionStore.Info do
       ) do
     case Dispatch.take_matching_dispatch(state, correlation) do
       {:ok, state} ->
-        state = Settlement.settle_dispatch(state, decision_id, action_id, attempt_id, result)
-        {:noreply, Dispatch.maybe_schedule_superseding_dispatch(state, decision_id, action_id)}
+        if Dispatch.target_current?(state, correlation) do
+          state = Settlement.settle_dispatch(state, decision_id, action_id, attempt_id, result)
+          {:noreply, Dispatch.maybe_schedule_superseding_dispatch(state, decision_id, action_id)}
+        else
+          {:noreply, Dispatch.maybe_schedule_current(state, decision_id)}
+        end
 
       :stale ->
         {:noreply, state}

@@ -263,6 +263,9 @@ question, old and new answers, original PR and merge SHA. Its `corrective_ticket
 link survives restart, and comments link the original ticket and merged PR to it.
 Retries reconcile the override marker before creating a ticket.
 
+Linking a corrective ticket closes any follow-up about the old target.
+Delayed results from that target cannot cancel the corrective work.
+
 If the local PR observation is missing or stale, reconciliation checks a closed
 ticket's merged PR through GitHub before filing the correction. This runs outside
 worker dispatch.
