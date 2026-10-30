@@ -93,10 +93,12 @@ prints nothing (`204` means no delivery). Non-loopback delivery requests return
 
 Sync delivers at `Stop` or the next `UserPromptSubmit`; steer also delivers at
 `PostToolUse`. Async messages remain pull-only. `SessionStart`, subagent hooks,
-and `Stop` with `stop_hook_active: true` never claim messages. Batches preserve
-arrival order, with at most 50 messages and a 64 KiB rendered frame. Oversized
-first bodies are truncated. A claim records harness queueing, not consumption;
-failed rendering, expired deadlines, and failed HTTP writes leave messages
+and `Stop` with `stop_hook_active: true` never claim messages.
+
+Batches preserve arrival order, with at most 50 messages and a 64 KiB rendered frame. Oversized
+first bodies are truncated.
+
+A claim records harness queueing, not consumption; failed rendering, expired deadlines, and failed HTTP writes leave messages
 pending for retry. The request budget is 1.5 seconds. An idle session waits for
 the next prompt; this endpoint does not wake it.
 
