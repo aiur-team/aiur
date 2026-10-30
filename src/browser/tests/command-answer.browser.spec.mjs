@@ -250,18 +250,40 @@ test('override timeline and form fit desktop and mobile after an answer', async 
   await page.goto('/voice-input-fixture?command=true')
   await page.goto('/')
   await expect(page.getByRole('region', { name: 'Fleet overrides' })).toContainText('Override failed')
-  const geometry = await page.evaluate(() => {
-    const board = document.querySelector('#build-root'), summary = document.querySelector('#fleet-overrides')
-    const shown = board.getBoundingClientRect().toJSON()
-    summary.hidden = true
-    const hidden = board.getBoundingClientRect().toJSON()
-    summary.hidden = false
-    return { shown, hidden }
-  })
-  expect(geometry.shown, 'override summary must not shift or resize the Build board').toEqual(geometry.hidden)
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    const geometry = await page.evaluate(() => {
+      const board = document.querySelector('#build-root'), summary = document.querySelector('#fleet-overrides')
+      const shown = board.getBoundingClientRect().toJSON(), badge = summary.getBoundingClientRect().toJSON()
+      summary.hidden = true
+      const hidden = board.getBoundingClientRect().toJSON()
+      summary.hidden = false
+      const overlaps = badge.left < shown.right && badge.right > shown.left && badge.top < shown.bottom && badge.bottom > shown.top
+      return { shown, hidden, overlaps }
+    })
+    expect(geometry.shown, 'override summary must not shift or resize the Build board').toEqual(geometry.hidden)
+    expect(geometry.overlaps, `override badge must not cover the Build board at ${width}px`).toBe(false)
+  }
+  const disclosure = page.locator('#fleet-overrides details')
+  const toggle = disclosure.locator('summary')
+  const panel = disclosure.locator('.fleet-overrides-panel')
+  await expect(toggle).toHaveText('Overrides: 1')
+  await expect(panel).toBeHidden()
+  await expect(page.locator('.aiur-shell__topbar #fleet-overrides')).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('override-fleet-390.png'), fullPage: true })
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  await expect(panel).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(panel).toBeHidden()
+  await toggle.click()
+  await expect(panel).toBeVisible()
+  await page.locator('#route-title').click()
+  await expect(panel).toBeHidden()
+  await toggle.click()
   const badge = page.locator('.fleet-override-badge').first()
   await expect(badge).toHaveAttribute('href', /\/commands\/dec_/)
-  await page.screenshot({ path: testInfo.outputPath('override-fleet-390.png'), fullPage: true })
+  await expect(badge).toBeVisible()
   // A CSS-only reflow probe; routing and implementation evidence are tested separately.
   const text = await badge.textContent()
   await badge.evaluate(el => { el.textContent = 'Ticket #6913 · Implemented in PR #12345 (awaiting merge)' })

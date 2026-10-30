@@ -9,6 +9,9 @@ defmodule AiurWeb.Build.OverrideSummaryTest do
     rows = DecisionCommands.pending_override_rows(decisions)
     assert Enum.map(rows, & &1.label) == ["Delivered", "Queued — waiting for a slot"]
     html = render_component(&OverrideSummary.summary/1, state: {:ok, rows})
+    dom = Floki.parse_fragment!(html)
+    assert dom |> Floki.find("details > summary") |> Floki.text() =~ "Overrides: 2"
+    assert Floki.find(dom, "details[open]") == []
     links = html |> Floki.parse_fragment!() |> Floki.find(".fleet-override-badge")
     assert length(links) == 2
     assert Floki.attribute(links, "href") == ["/commands/cmd-delivered", "/commands/cmd-queued"]
@@ -19,6 +22,10 @@ defmodule AiurWeb.Build.OverrideSummaryTest do
     assert DecisionCommands.pending_overrides(store: :missing_override_summary_store) == :unavailable
     html = render_component(&OverrideSummary.summary/1, state: :unavailable)
     assert html =~ "Override status unavailable"
+    dom = Floki.parse_fragment!(html)
+    assert dom |> Floki.find("summary") |> Floki.text() =~ "Overrides: ?"
+    assert Floki.attribute(Floki.find(dom, "summary"), "title") == ["Override status unavailable"]
+    assert Floki.find(dom, "details[open]") == []
     refute html =~ "fleet-override-badge"
   end
 

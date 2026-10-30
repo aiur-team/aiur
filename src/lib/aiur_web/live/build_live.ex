@@ -224,7 +224,7 @@ defmodule AiurWeb.BuildLive do
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
       pause_state={DashboardShell.pause_state(assigns)}>
-      <:banner><OverrideSummary.summary state={@fleet_overrides} /></:banner>
+      <:status><OverrideSummary.summary state={@fleet_overrides} /></:status>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}
         data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>
