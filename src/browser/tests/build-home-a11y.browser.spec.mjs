@@ -19,6 +19,7 @@ async function open(page, dataset = 'live', view = 'graph', mode = 'read_only') 
     window.a11y = await import('/build-home/a11y.js')
     window.hook = await import('/build-home/hook.js')
     window.state = await import('/build-home/state.js')
+    window.boardHistory = await import('/build-home/history.js')
   })
 }
 
@@ -158,7 +159,8 @@ test('live detail-tier changes preserve an unchanged focused plan card', async (
     state.fx.scrollVP(ctx.secs.plan.el.offsetTop + item.y - 70, false)
     return item.t.id
   })
-  await page.waitForFunction(() => !state.ctx.snapping && !state.ctx.content.classList.contains('scrolling'))
+  await page.waitForFunction(() => !state.ctx.snapping && !state.ctx.content.classList.contains('scrolling') &&
+    !state.ctx.root.querySelector('.bd-sb.drag') && boardHistory.H.state !== 'loading')
   const result = await page.evaluate(id => {
     const { ctx } = state
     const focused = ctx.R.get('plan:' + id)
