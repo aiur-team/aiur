@@ -94,6 +94,43 @@ defmodule Aiur.Commands.CorrectiveTicketTest do
     assert Agent.get(ctx.storage, & &1.creates) == 1
   end
 
+  test "closed own corrective ticket is reused after an unknown create outcome", ctx do
+    Agent.update(ctx.storage, &%{&1 | timeout: true})
+    assert {:error, :outcome_unknown} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, ctx.opts)
+    Agent.update(ctx.storage, &%{&1 | timeout: false})
+    issue_closure = Keyword.fetch!(ctx.opts, :issue_closure)
+
+    opts =
+      Keyword.put(ctx.opts, :issue_closure, fn
+        "70", _ -> {:ok, %{open?: false, state_reason: "not_planned"}}
+        id, freshness -> issue_closure.(id, freshness)
+      end)
+
+    assert {:ok, [{:override_corrective_ticket, %{ticket: %{identifier: "70"}}}]} =
+             CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
+
+    assert Agent.get(ctx.storage, & &1.creates) == 1
+  end
+
+  test "closure lookup errors are returned during prior corrective ticket recovery", ctx do
+    assert {:ok, _first} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, ctx.opts)
+    first = hd(ctx.decision.revisions)
+    second = %{first | action_id: "override-2", prior_action_id: first.action_id, recorded_at: DateTime.add(first.recorded_at, 3_600)}
+    record = %{ctx.record | action_id: second.action_id}
+    decision = %{ctx.decision | revisions: [first, second], overrides: [ctx.record, record]}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:pull_request, fn
+        "50" -> {:ok, %{merged?: true, number: 60, merge_commit_sha: "source-merge"}}
+        "70" -> {:ok, %{merged?: false}}
+      end)
+      |> Keyword.put(:issue_closure, fn "70", _ -> {:error, :timeout} end)
+
+    assert {:error, :timeout} = CorrectiveTicket.reconcile(decision, record, opts)
+    assert Agent.get(ctx.storage, & &1.creates) == 1
+  end
+
   test "incomplete lookup never authorizes a new ticket", ctx do
     opts = Keyword.put(ctx.opts, :find, fn _, _ -> {:error, :incomplete_issue_lookup} end)
     assert {:error, :incomplete_issue_lookup} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)

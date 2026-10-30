@@ -73,13 +73,8 @@ defmodule Aiur.Commands.CorrectiveTicket do
     end
   end
 
-  defp reuse_candidate(%{action_id: id}, %{action_id: id}, ticket, opts) do
-    case Keyword.get(opts, :issue_closure, &Tracker.issue_closure/2).(ticket.identifier, 300_000) do
-      {:ok, %{open?: true}} -> {:halt, {:ok, ticket}}
-      {:ok, %{open?: false}} -> {:cont, {:ok, nil}}
-      {:error, :unsupported} -> {:halt, {:error, :corrective_ticket_state_unavailable}}
-      {:error, _reason} = error -> error
-    end
+  defp reuse_candidate(%{action_id: id}, %{action_id: id}, ticket, _opts) do
+    {:halt, {:ok, ticket}}
   end
 
   defp reuse_candidate(_candidate, _current, ticket, opts) do
@@ -92,7 +87,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
           {:ok, %{open?: true}} -> {:halt, {:ok, ticket}}
           {:ok, %{open?: false}} -> {:cont, {:ok, nil}}
           {:error, :unsupported} -> {:halt, {:error, :corrective_ticket_state_unavailable}}
-          {:error, _reason} = error -> error
+          {:error, _reason} = error -> {:halt, error}
         end
 
       {:error, _reason} = error ->
