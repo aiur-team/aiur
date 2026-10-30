@@ -20,7 +20,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     recording?: true,
     executor_mode?: false,
     ls_remote_ticker?: true,
-    build_index?: true
+    build_index?: true,
+    repository_services?: true
   ]
 
   # Conversation journals now precede producers, with the resolver bound immediately after Exchange.

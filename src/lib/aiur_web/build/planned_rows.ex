@@ -112,7 +112,8 @@ defmodule AiurWeb.Build.PlannedRows do
       ord: 0,
       qpos: 1,
       wave: graph.waves[item.number],
-      deps: Enum.map(item.prerequisites, &to_string(&1.number)),
+      # An unobserved GitHub blocker (number: nil) has no id; its :unknown verdict already nulls dependency_ready.
+      deps: for(%{number: number} when is_integer(number) <- item.prerequisites, do: to_string(number)),
       cue: cue
     }
   end

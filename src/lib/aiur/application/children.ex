@@ -50,8 +50,10 @@ defmodule Aiur.Application.Children do
 
     instance_role = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0)
 
+    # The shared unit-test app turns repository services off: they poll GitHub and log into other tests' captures (#6474).
     github_tracker? =
-      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
+      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end) and
+        Keyword.get(opts, :repository_services?, Application.get_env(:aiur, :repository_services?, true))
 
     main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
 
