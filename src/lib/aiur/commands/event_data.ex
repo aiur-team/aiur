@@ -1,9 +1,9 @@
 defmodule Aiur.Commands.EventData do
   @moduledoc "Closed, bounded data for additive Command facts outside the v1 request snapshot."
 
-  alias Aiur.Commands.OverrideMerge
   alias Aiur.Commands.CorrectiveFacts
   alias Aiur.Commands.ExecutorDelivery
+  alias Aiur.Commands.OverrideMerge
   alias Aiur.Commands.RequestContent
   alias Aiur.Commands.Routing.FactData
   alias Aiur.DecisionEvent.Validation

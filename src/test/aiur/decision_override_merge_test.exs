@@ -1,8 +1,8 @@
 defmodule Aiur.DecisionOverrideMergeTest do
   use Aiur.TestSupport
+  alias Aiur.{Commands, DecisionStore}
   alias Aiur.Commands.OverridePrompt
   alias Aiur.DecisionStore.Retry
-  alias Aiur.{Commands, DecisionStore}
 
   @pr %{number: 77, merged?: false, head_sha: "before", head_ref: "work"}
 

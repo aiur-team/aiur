@@ -1,7 +1,7 @@
 defmodule Aiur.Commands.CorrectiveTicket do
   @moduledoc false
 
-  alias Aiur.GitHub.OverrideMergeEvidence
+  alias Aiur.CodeHost
   alias Aiur.Commands.{CorrectivePullRequest, CorrectiveTicketBody}
   alias Aiur.{Config, Tracker}
 
@@ -46,7 +46,7 @@ defmodule Aiur.Commands.CorrectiveTicket do
   end
 
   defp settle_merge(record, pr, opts) do
-    read = Keyword.get(opts, :merge_head, &OverrideMergeEvidence.read/1)
+    read = Keyword.get(opts, :merge_head, &CodeHost.override_merge_head/1)
     result = if record.state == :delivered, do: read.(pr), else: {:ok, pr}
 
     with {:ok, evidence} <- result do

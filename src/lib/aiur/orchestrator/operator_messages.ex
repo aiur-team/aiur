@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.AgentQueueStore.Correlation
   alias Aiur.{AgentQueueStore, TrackerIdentity}
+  alias Aiur.AgentQueueStore.Correlation
 
   alias Aiur.Orchestrator.State
 

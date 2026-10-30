@@ -1,7 +1,6 @@
 defmodule Aiur.DecisionStore.Calls do
   @moduledoc false
 
-  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.DecisionStore.AgentLifecycle
   alias Aiur.DecisionStore.Answers
@@ -11,6 +10,7 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Enrichment
   alias Aiur.DecisionStore.Index
+  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot

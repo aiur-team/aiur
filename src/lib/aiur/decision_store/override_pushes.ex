@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
   require Logger
 
-  alias Aiur.GitHub.OverrideMergeEvidence
+  alias Aiur.CodeHost
   alias Aiur.Commands.CorrectivePullRequest
   alias Aiur.DecisionStore.CommandFacts
 
@@ -46,7 +46,7 @@ defmodule Aiur.DecisionStore.OverridePushes do
       owner = self()
       reader = state.override_context_reader
 
-      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates, Map.get(state, :override_merge_reader, &OverrideMergeEvidence.read/1)) end)
+      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates, Map.get(state, :override_merge_reader, &CodeHost.override_merge_head/1)) end)
     end
 
     :ok

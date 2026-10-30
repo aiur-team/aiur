@@ -28,8 +28,8 @@ defmodule Aiur.Commands do
   defdelegate pending_resume_override(decision), to: Aiur.Commands.Overrides, as: :resume_request
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
-  @spec recheck_override_delivery(String.t(), String.t(), GenServer.server()) :: :ok | {:error, term()}
-  defdelegate recheck_override_delivery(id, action, server), to: Aiur.DecisionStore
+  @spec notify_override_merge(String.t() | integer()) :: :ok
+  defdelegate notify_override_merge(identifier), to: Aiur.DecisionStore.OverrideMerges, as: :notify
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
 

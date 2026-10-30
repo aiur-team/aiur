@@ -6,6 +6,7 @@ defmodule Aiur.Commands.OverridePrompt do
   alias Aiur.Commands
   alias Aiur.Commands.Overrides
   alias Aiur.DecisionRevisionDispatch
+  alias Aiur.DecisionStore
 
   @spec prepare(String.t(), keyword()) :: keyword()
   def prepare(identifier, opts) do
@@ -18,7 +19,7 @@ defmodule Aiur.Commands.OverridePrompt do
         record = Overrides.resume_request(decision)
 
         Commands.override_target_ticket(decision).identifier == identifier and not is_nil(record) and
-          Commands.recheck_override_delivery(decision.decision_id, decision.active_action_id, store) == :ok
+          DecisionStore.recheck_override_delivery(decision.decision_id, decision.active_action_id, store) == :ok
       end)
 
     Keyword.put(opts, :pending_overrides, pending)

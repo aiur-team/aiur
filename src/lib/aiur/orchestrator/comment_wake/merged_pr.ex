@@ -3,8 +3,8 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   require Logger
 
-  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.Alerts
+  alias Aiur.Commands
   alias Aiur.CurrentRunMembership
   alias Aiur.GitHub.{Access, Config}
   alias Aiur.GitHub.Issues, as: GitHubIssues
@@ -36,7 +36,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   end
 
   defp mark_done(state, identifier, opts) do
-    OverrideMerges.notify(identifier)
+    Commands.notify_override_merge(identifier)
     if merged_pr_closes_ticket?(identifier, opts), do: OptimisticLedger.close(to_string(identifier), :merged, System.system_time(:millisecond))
 
     update_issue_state_fun = Keyword.get(opts, :update_issue_state_fun, &MergeStateWriter.write_if_current(&1, &2, Keyword.take(opts, [:tracker, :fetch_issue_states_fun])))
