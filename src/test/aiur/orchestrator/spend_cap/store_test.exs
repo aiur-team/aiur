@@ -84,6 +84,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
          state_dir: dir,
          repository: "its-everdred/aiur",
          subscribe_fun: fn -> :ok end,
+         running_subscribe_fun: fn -> :ok end,
+         filesystem_sync_fun: fn -> :ok end,
          usage_fun: fn ^identity -> usage(Agent.get(spend, & &1)) end,
          snapshot_fun: fn -> %{spend: Agent.get(spend, & &1)} end,
          project_fun: fn %{spend: amount}, ^identity -> usage(amount) end,
