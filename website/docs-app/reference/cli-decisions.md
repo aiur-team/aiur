@@ -146,6 +146,10 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
 
+The [Executor hook generator](/concepts/executor#generated-hook-settings) includes
+delivery hooks and preserves user handlers; Claude installs locally and Codex
+prints configuration for an explicit merge and trust review.
+
 ### `executor-wait` outcomes
 
 Executor-originated Command answers produce `executor.decision.answered` wakes
