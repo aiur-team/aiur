@@ -54,6 +54,7 @@ defmodule Aiur.Executor.HookConfigTest do
       args = File.read!(capture)
       assert args =~ "http://127.0.0.1:#{port}/api/v1/executor/hook?harness=claude"
       assert args =~ "@" <> HookToken.headers_path()
+      assert args =~ "X-Aiur-Executor-Pid: "
       assert args =~ "payload"
     end
   end

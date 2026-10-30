@@ -28,7 +28,7 @@ defmodule Aiur.Executor.HookPayloadTest do
       assert event.event == raw["hook_event_name"]
       assert event.session_id == raw["session_id"]
 
-      for field <- ~w(cwd source turn_id agent_id agent_type last_assistant_message notification_type tool_name pid model permission_mode)a,
+      for field <- ~w(cwd source reason turn_id agent_id agent_type last_assistant_message notification_type tool_name pid model permission_mode)a,
           do: assert(Map.fetch!(event, field) == raw[Atom.to_string(field)])
 
       assert event.stop_hook_active == raw["stop_hook_active"]
