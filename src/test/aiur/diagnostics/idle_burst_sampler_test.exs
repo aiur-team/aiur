@@ -1,5 +1,3 @@
-Code.require_file("../../../scripts/diagnostics/idle_burst_sampler.exs", __DIR__)
-
 defmodule Aiur.Diagnostics.IdleBurstSamplerTest do
   use ExUnit.Case, async: true
 

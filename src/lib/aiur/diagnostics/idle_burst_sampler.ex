@@ -1,7 +1,7 @@
 defmodule Aiur.Diagnostics.IdleBurstSampler do
   @moduledoc """
   Opt-in, finite reduction-triggered stack capture for an already-running daemon.
-  Load this file with the release's `rpc`, then call `run/1`. Nothing starts on load.
+  Call `run/1` through the release's `rpc`. Nothing runs automatically.
   It neither pauses dispatch nor changes VM flags, tracing, or application state.
   """
 

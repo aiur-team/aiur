@@ -13,15 +13,15 @@ or manufacture CPU load to reproduce this spike.
 
 Use the operator's existing release RPC connection to the intended daemon.
 `release_bin` below must be that release's absolute `bin/aiur` path, with its
-existing node/cookie environment. `sampler` is the absolute path to this
-checkout's `scripts/diagnostics/idle_burst_sampler.exs`. Use a fresh, private
-output file. Load and call the sampler **on the daemon**, not with `mix run`:
+existing node/cookie environment. Deploy a release containing the sampler
+first. Use a fresh, private output file. Call the sampler **on the daemon**,
+not with `mix run`:
 
 ```sh
-"$release_bin" rpc "Code.eval_file(\"$sampler\"); Aiur.Diagnostics.IdleBurstSampler.run() |> IO.inspect(limit: :infinity, printable_limit: :infinity)" > "$capture_file"
+"$release_bin" rpc "Aiur.Diagnostics.IdleBurstSampler.run() |> IO.inspect(limit: :infinity, printable_limit: :infinity)" > "$capture_file"
 ```
 
-Loading the file starts nothing. The explicit call runs synchronously in the
+The sampler has no supervised worker. The explicit call runs synchronously in the
 RPC evaluator, observes for at most ten minutes (apart from time spent in
 process-info calls or scheduler delays), and stops early after twenty bursts.
 Run one sampler at a time. It does not change dispatch or VM settings.
