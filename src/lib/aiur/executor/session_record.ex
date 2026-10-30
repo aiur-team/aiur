@@ -44,6 +44,7 @@ defmodule Aiur.Executor.SessionRecord do
       {:ok, :missing} -> nil
       {:ok, data} -> decode_or_quarantine(path, data)
       {:error, %Jason.DecodeError{}} -> quarantine(path)
+      # An unreadable binding may still own a live Executor; fail closed instead of overwriting it.
       {:error, reason} -> raise File.Error, reason: reason, action: "read Executor binding", path: path
     end
   end

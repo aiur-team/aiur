@@ -151,6 +151,39 @@ defmodule Aiur.Executor.SessionTest do
     assert Enum.any?(sessions(dir), &(&1["end_reason"] == "detached"))
   end
 
+  test "same session after TTL preserves the journal offset and start reason", %{control: control, ref: ref, dir: dir} do
+    binding = bound()
+    {:ok, binding} = Session.rebind_on_session_start(binding.binding_id, Map.put(hook("two"), :source, "clear"))
+    append(binding, ref)
+    assert {:ok, _} = Session.record_offset(binding.binding_id, 500)
+    Agent.update(control, &Map.update!(&1, :now, fn now -> DateTime.add(now, 600_001, :millisecond) end))
+
+    assert {:ok, refreshed} = Session.bind_provider_session(binding.binding_id, hook("two"))
+    assert refreshed.live?
+    assert refreshed.transcript_offset == 500
+    assert refreshed.start_reason == "clear"
+    assert :ok = flush(ref)
+    assert [session] = sessions(dir)
+    assert session["type"] == "start"
+    assert session["provider_session_id"] == "two"
+  end
+
+  test "same session can resume from a new pid after TTL and fences the old pid", %{control: control} do
+    binding = bound()
+    resumed_hook = Map.put(hook(), :pid, "456")
+    assert {:error, :foreign_session} = Session.bind_provider_session(binding.binding_id, resumed_hook)
+    Agent.update(control, &Map.update!(&1, :now, fn now -> DateTime.add(now, 600_001, :millisecond) end))
+
+    assert {:ok, resumed} = Session.bind_provider_session(binding.binding_id, resumed_hook)
+    assert resumed.live?
+    assert resumed.pid == "456"
+    assert {:ok, _} = Session.bind_provider_session(binding.binding_id, resumed_hook)
+    assert {:error, :foreign_session} = Session.bind_provider_session(binding.binding_id, hook())
+    assert {:ok, next} = Session.rebind_on_session_start(binding.binding_id, Map.merge(hook("two"), %{pid: "456", source: "resume"}))
+    assert next.provider_session_id == "two"
+    assert next.start_reason == "resume"
+  end
+
   test "touch coalesces file writes and eventually persists the last hook", %{now: now} do
     binding = bound()
     path = SessionRecord.path("instance-one")

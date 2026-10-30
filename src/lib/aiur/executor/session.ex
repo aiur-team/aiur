@@ -121,10 +121,10 @@ defmodule Aiur.Executor.Session do
     changed? = binding.provider_session_id != hook.session_id
     stale? = not live?(binding, state.clock.())
     reason = if rebind?, do: hook.source, else: "start"
-    if changed? or stale?, do: end_binding(binding, if(stale?, do: "detached", else: reason))
+    if changed?, do: end_binding(binding, if(stale?, do: "detached", else: reason))
 
     updated = provider_fields(binding, hook, state.clock.())
-    updated = if changed? or stale?, do: Map.merge(updated, %{start_reason: reason, transcript_offset: 0}), else: updated
+    updated = if changed?, do: Map.merge(updated, %{start_reason: reason, transcript_offset: 0}), else: updated
 
     if Map.drop(updated, [:last_hook_at]) == Map.drop(binding, [:last_hook_at]), do: reply_touched(%{state | binding: updated}), else: reply_saved(%{state | binding: updated})
   end
@@ -136,7 +136,7 @@ defmodule Aiur.Executor.Session do
       transcript_path: Map.get(hook, :transcript_path),
       locator_hash: locator_hash(Map.get(hook, :transcript_path)),
       cwd: Map.get(hook, :cwd),
-      pid: if(binding.provider_session_id != hook.session_id, do: Map.get(hook, :pid), else: binding.pid || Map.get(hook, :pid)),
+      pid: if(binding.provider_session_id != hook.session_id or not live?(binding, now), do: Map.get(hook, :pid), else: binding.pid || Map.get(hook, :pid)),
       last_hook_at: DateTime.to_iso8601(now),
       takeover_armed: false
     })
@@ -147,8 +147,8 @@ defmodule Aiur.Executor.Session do
   defp accept_session(binding, hook, rebind?, now) do
     cond do
       rebind? -> validate_rebind(binding, hook)
-      binding.provider_session_id in [nil, hook.session_id] -> same_process(binding, hook)
       binding.takeover_armed or not live?(binding, now) -> :ok
+      binding.provider_session_id in [nil, hook.session_id] -> same_process(binding, hook)
       true -> {:error, :foreign_session}
     end
   end
