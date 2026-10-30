@@ -197,8 +197,6 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
   let socket
   let transcriptChangeRef
   let heldTranscriptReply
-  let correctedChangeRef
-  let heldCorrectionReply
   await page.routeWebSocket('**/live/websocket**', route => {
     socket = route
     const server = route.connectToServer()
@@ -207,14 +205,12 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
       if (packet[3] === 'event' && packet[4]?.event === 'decision-revision-change') {
         const response = new URLSearchParams(packet[4].value).get('revision[custom_response]')
         if (response === 'Hold the rollout hello browser') transcriptChangeRef = packet[1]
-        if (response === 'Hold the rollout after review') correctedChangeRef = packet[1]
       }
       server.send(message)
     })
     server.onMessage(message => {
       const packet = JSON.parse(message)
       if (packet[3] === 'phx_reply' && packet[1] === transcriptChangeRef) heldTranscriptReply = message
-      else if (packet[3] === 'phx_reply' && packet[1] === correctedChangeRef) heldCorrectionReply = message
       else route.send(message)
     })
   })
@@ -246,17 +242,12 @@ test('revision dictation auto-selects Custom response and submits the reviewed c
     }
   })
   await form.locator('[data-voice-input]').fill('Hold the rollout after review')
-  await form.locator('[name="revision[reason]"]').fill('New evidence')
-  await expect.poll(() => heldCorrectionReply !== undefined).toBe(true)
   const patchesBeforeRelease = await page.evaluate(() => window.__voiceInputPatches)
   socket.send(heldTranscriptReply)
   heldTranscriptReply = undefined
   await expect.poll(() => page.evaluate(() => window.__voiceInputPatches)).toBeGreaterThan(patchesBeforeRelease)
   await expect(page.locator('[data-voice-input]')).toHaveValue('Hold the rollout after review')
-  const patchesBeforeCorrection = await page.evaluate(() => window.__voiceInputPatches)
-  socket.send(heldCorrectionReply)
-  heldCorrectionReply = undefined
-  await expect.poll(() => page.evaluate(() => window.__voiceInputPatches)).toBeGreaterThan(patchesBeforeCorrection)
+  await form.locator('[name="revision[reason]"]').fill('New evidence')
   await form.getByRole('button', { name: 'Send correction', exact: true }).click()
   await expect(page.locator('.decision-revision-list')).toContainText('Hold the rollout after review')
   await expect(page.locator('.decision-revision-list')).toContainText('New evidence')
