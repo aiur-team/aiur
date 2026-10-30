@@ -18,6 +18,7 @@ defmodule CleanupTest do
     on_exit(fn -> stop_store(pid) end)
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     on_exit(fn -> if Process.alive?(pid), do: Supervisor.stop(pid) end)
+    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
     on_exit(fn ->
       if Process.alive?(pid) do
         try do
@@ -30,6 +31,8 @@ defmodule CleanupTest do
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     on_exit(fn -> GenServer.stop(pid) end)
     on_exit(fn -> if Process.alive?(pid), do: send(pid, :stop) end)
+    {:ok, unlinked} = Agent.start(Foo, [])
+    on_exit(fn -> if Process.alive?(unlinked), do: Agent.stop(unlinked) end)
   end
 end
 EOF
@@ -42,7 +45,8 @@ grep -q 'cleanup_test.exs:9' "$tmpdir/checker.out"
 grep -q 'cleanup_test.exs:10' "$tmpdir/checker.out"
 grep -q 'cleanup_test.exs:11' "$tmpdir/checker.out"
 grep -q 'cleanup_test.exs:12' "$tmpdir/checker.out"
-if [ "$(grep -c 'cleanup_test.exs:' "$tmpdir/checker.out")" != 4 ]; then
+grep -q 'cleanup_test.exs:13' "$tmpdir/checker.out"
+if [ "$(grep -c 'cleanup_test.exs:' "$tmpdir/checker.out")" != 5 ]; then
   cat "$tmpdir/checker.out" >&2
   echo "checker reported a non-stop teardown" >&2
   exit 1

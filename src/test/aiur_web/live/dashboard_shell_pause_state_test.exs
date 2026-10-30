@@ -112,8 +112,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
   end
 
   test "a stale snapshot without pause state loads during startup without calling its publisher" do
-    {:ok, pid} = Agent.start_link(fn -> :unused end)
-    on_exit(fn -> if Process.alive?(pid), do: Agent.stop(pid) end)
+    pid = start_supervised!({Agent, fn -> :unused end}, id: make_ref())
     :ok = SnapshotStore.publish(pid, %{running: [], retrying: [], idle: []})
     cached = SnapshotCache.get(pid)
     SnapshotCache.put(pid, %{cached | observed_at_ms: System.monotonic_time(:millisecond) - SnapshotStore.stale_age_ceiling_ms()})

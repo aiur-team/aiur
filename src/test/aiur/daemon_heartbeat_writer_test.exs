@@ -10,7 +10,7 @@ defmodule Aiur.DaemonHeartbeatWriterTest do
     {:ok, pid: pid}
   end
 
-  defp start_writer!(opts), do: start_supervised!({DaemonHeartbeatWriter, opts}, id: make_ref())
+  defp start_writer!(opts), do: start_supervised!(Supervisor.child_spec({DaemonHeartbeatWriter, opts}, id: make_ref(), restart: :temporary))
 
   describe "start_link/1" do
     test "starts the worker with default name" do

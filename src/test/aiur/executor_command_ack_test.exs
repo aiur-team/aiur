@@ -12,7 +12,7 @@ defmodule Aiur.ExecutorCommandAckTest do
     Aiur.TestSupport.write_workflow_file!(workflow)
     Aiur.Workflow.set_workflow_file_path(workflow)
     on_exit(fn -> Aiur.Workflow.set_workflow_file_path(previous_workflow) end)
-    pid = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000})
+    pid = start_supervised_store!(dir, dispatch_delay_ms: 60_000)
     {:ok, %{decision: decision}} = request(pid, %{question: "Which scope?", blocking: false})
     %{pid: pid, decision: decision, at: DateTime.utc_now()}
   end

@@ -57,7 +57,7 @@ defmodule Aiur.Commands.RoutingTest do
   end
 
   defp store_spec(dir),
-    do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: make_ref())
+    do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: make_ref(), restart: :temporary)
 
   defp history(ctx, d) do
     {:ok, events} = DecisionStore.audit_history(d.decision_id, ctx.store)

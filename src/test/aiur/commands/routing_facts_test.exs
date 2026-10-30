@@ -24,7 +24,7 @@ defmodule Aiur.Commands.RoutingFactsTest do
   end
 
   defp fact(pid, decision, type, data), do: DecisionStore.record_command_fact(decision.decision_id, type, data, server: pid)
-  defp store_spec(dir), do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: make_ref())
+  defp store_spec(dir), do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: make_ref(), restart: :temporary)
   defp route(at, state \\ :with_executor), do: %{policy: :executor_first, state: state, cause: nil, at: at, actor: %{kind: :system, id: "routing"}}
   defp escalation(at), do: %{cause: :executor_ack_timeout, at: at, detail: "No acknowledgement", actor: %{kind: :system, id: "routing"}}
   defp human(at, requester \\ :worker), do: %{cause: :executor_ack_timeout, at: at, short_label: "Private summary", requester_kind: requester, blocking: false, urgency: :normal}

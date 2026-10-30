@@ -80,8 +80,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
   test "partial coverage stays active on known spend and raises one attention", %{root: root} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, coverage} = Agent.start_link(fn -> :partial end)
-    on_exit(fn -> if Process.alive?(coverage), do: Agent.stop(coverage) end)
+    coverage = start_supervised!({Agent, fn -> :partial end}, id: make_ref())
 
     usage_fun = fn ^identity -> usage("0.50", Agent.get(coverage, & &1)) end
 
@@ -115,8 +114,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
   test "unavailable usage closes dispatch but does not stop an already-running agent", %{root: root} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, projection} = Agent.start_link(fn -> usage("0.25") end)
-    on_exit(fn -> if Process.alive?(projection), do: Agent.stop(projection) end)
+    projection = start_supervised!({Agent, fn -> usage("0.25") end}, id: make_ref())
 
     {:ok, store} =
       start_store(root,
@@ -194,8 +192,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
   test "usage recovery re-admits an idle unavailable ticket", %{root: root} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, projection} = Agent.start_link(fn -> usage("0.25") end)
-    on_exit(fn -> if Process.alive?(projection), do: Agent.stop(projection) end)
+    projection = start_supervised!({Agent, fn -> usage("0.25") end}, id: make_ref())
 
     {:ok, store} =
       start_store(root,

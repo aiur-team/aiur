@@ -32,7 +32,7 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
       dispatch_delay_ms: 60_000
     ]
 
-    start_supervised!(Supervisor.child_spec({DecisionStore, Keyword.merge(defaults, opts)}, id: make_ref()))
+    start_supervised!(Supervisor.child_spec({DecisionStore, Keyword.merge(defaults, opts)}, id: make_ref(), restart: :temporary))
   end
 
   defp start_crash_store(dir, opts) do

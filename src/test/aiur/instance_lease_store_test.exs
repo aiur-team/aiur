@@ -111,8 +111,7 @@ defmodule Aiur.Instance.LeaseStoreTest do
     Process.unlink(store)
     on_exit(fn -> safe_stop_genserver(store) end)
 
-    {:ok, clock} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> if Process.alive?(clock), do: Agent.stop(clock) end)
+    clock = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
     parent = self()
 
     {worker, monitor} =

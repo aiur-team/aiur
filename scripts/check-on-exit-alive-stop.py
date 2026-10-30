@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TEST_DIR = ROOT / "src/test"
 ON_EXIT = re.compile(r"\bon_exit\s*\(")
 ALIVE = re.compile(r"\b(?:Process\.alive\?|:erlang\.is_process_alive)\s*\(")
-STOP = re.compile(r"\b(?:GenServer|Supervisor)\.stop\s*\(")
+STOP = re.compile(r"\b(?:Agent|GenServer|Supervisor)\.stop\s*\(")
 HELPER_STOP = re.compile(r"\b(?:safe_stop_genserver|safe_stop_supervisor|safe_stop|stop_store)\s*\(")
 
 
@@ -30,11 +30,6 @@ def call_end(source: str, opening: int) -> int:
         if quote:
             if char == quote:
                 quote = None
-            continue
-        if char == "#":
-            newline = source.find("\n", index)
-            if newline < 0:
-                return len(source)
             continue
         if char in ('"', "'"):
             quote = char
@@ -61,11 +56,14 @@ def violations(source: str) -> list[tuple[int, str]]:
         body = source[opening + 1 : end - 1]
         # Explicitly unlinked probes are outside the linked-process race.
         unlinked = set(re.findall(r"Process\.unlink\s*\(\s*(\w+)\s*\)", source))
+        unlinked.update(
+            re.findall(r"\{\s*:ok\s*,\s*(\w+)\s*\}\s*=\s*(?:GenServer|Agent|Supervisor)\.start\s*\(", source)
+        )
         for stop in list(STOP.finditer(body)) + list(HELPER_STOP.finditer(body)):
             prefix = body[: stop.start()]
             guard_prefix = r"if\s+(?:is_pid\([^)]*\)\s+and\s+)?(?:Process\.alive\?|:erlang\.is_process_alive)\([^)]*\)"
             guard_sep = r"\s*(?:,\s*do:\s*|\s+do\b)\s*"
-            alive_guard = re.search(guard_prefix + guard_sep + r"[\s\S]{0,240}?(?:GenServer|Supervisor)\.stop\s*\(", body)
+            alive_guard = re.search(guard_prefix + guard_sep + r"[\s\S]{0,240}?(?:Agent|GenServer|Supervisor)\.stop\s*\(", body)
             helper_guard = re.search(
                 guard_prefix + guard_sep + r"[\s\S]{0,240}?(?:safe_stop_genserver|safe_stop_supervisor|safe_stop|stop_store)\s*\(",
                 body,
