@@ -17,7 +17,8 @@ defmodule Aiur.Commands.OverridePrompt do
       |> Enum.filter(fn decision ->
         record = Overrides.resume_request(decision)
 
-        Commands.override_target_ticket(decision).identifier == identifier and not is_nil(record)
+        Commands.override_target_ticket(decision).identifier == identifier and not is_nil(record) and
+          Commands.recheck_override_delivery(decision.decision_id, decision.active_action_id, store) == :ok
       end)
 
     Keyword.put(opts, :pending_overrides, pending)

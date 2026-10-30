@@ -205,6 +205,18 @@ defmodule Aiur.DecisionStore.Calls do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
 
+  def handle_call({:recheck_override_delivery, _id, _action}, _from, %{writable?: false} = state),
+    do: {:reply, {:error, :store_unavailable}, state}
+
+  def handle_call({:recheck_override_delivery, id, action}, _from, state) do
+    item = %{action_id: action, correlation: %{decision_id: id}}
+
+    case Aiur.DecisionStore.OverrideMerges.before_delivery(state, item) do
+      {:merged, next} -> {:reply, {:error, :pr_merged}, next}
+      {:ok, next} -> {:reply, :ok, next}
+    end
+  end
+
   def handle_call({:validate_delivery, _item}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end

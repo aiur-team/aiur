@@ -14,10 +14,12 @@ defmodule Aiur.AgentQueueStore.Correlation do
           | {:error, term()}
   def enqueue_correlated(%AgentQueueStore{} = store, attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
     with {:ok, action_id} <- validate_correlation(attrs) do
-      case AgentQueueStore.find_by_action(store, action_id) do
+      key = delivery_key(action_id, Map.get(attrs, :correlation))
+
+      case AgentQueueStore.find_by_action(store, key) do
         nil ->
           {store, item} = AgentQueueStore.enqueue(store, attrs)
-          indexed_store = %{store | item_id_by_action: Map.put(store.item_id_by_action, action_id, item.id)}
+          indexed_store = %{store | item_id_by_action: Map.put(store.item_id_by_action, key, item.id)}
           {:ok, indexed_store, item, :accepted}
 
         %AgentQueueItem{} = existing ->
@@ -25,6 +27,17 @@ defmodule Aiur.AgentQueueStore.Correlation do
       end
     end
   end
+
+  @doc "Corrective targets get their own idempotent delivery while retaining the Command action."
+  @spec delivery_key(String.t() | nil, map() | nil) :: String.t() | nil
+  def delivery_key(action, correlation) when is_map(correlation) do
+    case Map.get(correlation, :corrective_target, Map.get(correlation, "corrective_target")) do
+      target when is_binary(target) -> "#{action}:corrective:#{target}"
+      _ -> action
+    end
+  end
+
+  def delivery_key(action, _), do: action
 
   defp validate_correlation(attrs) do
     action_id = Map.get(attrs, :action_id)
@@ -34,6 +47,7 @@ defmodule Aiur.AgentQueueStore.Correlation do
       not (is_binary(action_id) and action_id != "") -> {:error, :missing_action_id}
       not is_map(correlation) -> {:error, :missing_correlation}
       Map.get(correlation, :action_id, Map.get(correlation, "action_id")) != action_id -> {:error, :action_mismatch}
+      Map.get(correlation, :corrective_target, Map.get(correlation, "corrective_target")) not in [nil, attrs.target_issue_identifier] -> {:error, :target_mismatch}
       true -> {:ok, action_id}
     end
   end

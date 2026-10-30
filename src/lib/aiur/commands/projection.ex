@@ -100,6 +100,11 @@ defmodule Aiur.Commands.Projection do
          do: Overrides.resume_fact(decision, event)
   end
 
+  def apply(decision, %{type: :override_merge_settled} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         do: Aiur.Commands.OverrideMerge.apply(decision, event)
+  end
+
   def apply(decision, %{type: :override_implemented} = event) do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
          do: Overrides.implemented(decision, event)

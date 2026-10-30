@@ -49,6 +49,7 @@ defmodule Aiur.Commands.Overrides do
     record =
       Map.merge(metadata, %{
         override_id: revision.action_id,
+        merge_version: 1,
         decision_id: decision.decision_id,
         prior_action_id: revision.prior_action_id,
         action_id: revision.action_id,
@@ -69,16 +70,6 @@ defmodule Aiur.Commands.Overrides do
     update(decision, data.action_id, fn
       %{state: state} = record when state in [:queued, :failed] -> %{record | state: :delivered, delivered_at: at}
       record -> record
-    end)
-  end
-
-  def observe(decision, %{type: type, data: data, occurred_at: at}) when type in [:acknowledged, :resolved] do
-    update(decision, data.action_id, fn
-      %{state: state, route: route, corrective_ticket: nil} = record when state in [:queued, :delivered] and route in [:active_worker, :resume_pending, :capacity_wait, :replacement] ->
-        %{record | state: :implemented, implemented_at: at, evidence: :acknowledged}
-
-      record ->
-        record
     end)
   end
 
@@ -131,7 +122,7 @@ defmodule Aiur.Commands.Overrides do
     record = Enum.find(decision.overrides, &(&1.action_id == data.action_id))
 
     if valid_push?(record, decision, data) do
-      {:ok, update(decision, data.action_id, &%{&1 | state: :implemented, implemented_at: data.at, evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number}})}
+      {:ok, update(decision, data.action_id, &%{&1 | evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number}})}
     else
       {:error, :override_push_mismatch}
     end

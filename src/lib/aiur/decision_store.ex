@@ -333,6 +333,11 @@ defmodule Aiur.DecisionStore do
     GenServer.cast(server, {:deliver_pending_answers, ticket_identifier})
   end
 
+  @doc "Rechecks a pending override before including it in a worker prompt."
+  @spec recheck_override_delivery(String.t(), String.t(), GenServer.server()) :: :ok | {:error, term()}
+  def recheck_override_delivery(id, action, server \\ __MODULE__),
+    do: GenServer.call(server, {:recheck_override_delivery, id, action}, @request_timeout)
+
   @doc "Synchronously validate one correlated item before attempting provider delivery."
   @spec validate_delivery(map(), GenServer.server()) ::
           {:ok, :accepted | :ignored} | {:error, term()}

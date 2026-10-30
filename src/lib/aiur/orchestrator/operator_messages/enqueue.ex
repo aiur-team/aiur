@@ -147,7 +147,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
          %{mode: :correlated, action_id: action_id} = request
        )
        when is_binary(action_id) do
-    case AgentQueueStore.find_by_action(state.queue_store, action_id) do
+    case AgentQueueStore.find_by_action(state.queue_store, Aiur.AgentQueueStore.Correlation.delivery_key(action_id, request.correlation)) do
       nil ->
         :continue
 

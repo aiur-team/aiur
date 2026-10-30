@@ -36,6 +36,17 @@ defmodule Aiur.DecisionStore.Info do
     {:noreply, state}
   end
 
+  def handle_info({:override_ticket_merged, identifier}, state) do
+    if state.writable?, do: OverridePushes.observe(state, %{topic: "ticket.#{identifier}.pr.merged", source: :system})
+    {:noreply, state}
+  end
+
+  def handle_info({:override_merge_observed, candidates, pr}, state) do
+    if state.writable?,
+      do: {:noreply, Aiur.DecisionStore.OverrideMerges.settle(state, candidates, pr)},
+      else: {:noreply, state}
+  end
+
   def handle_info({:override_push_observed, candidates, sha, ref, at, pr}, state) do
     if state.writable?,
       do: {:noreply, OverridePushes.settle(state, candidates, sha, ref, at, pr)},

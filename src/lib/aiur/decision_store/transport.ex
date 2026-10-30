@@ -54,6 +54,13 @@ defmodule Aiur.DecisionStore.Transport do
   # the worker retries the item.
   @spec validate_and_hand_off(term(), term()) :: term()
   def validate_and_hand_off(state, item) do
+    case Aiur.DecisionStore.OverrideMerges.before_delivery(state, item) do
+      {:merged, next} -> {{:error, {:answer_withdrawn, :pr_merged}}, next}
+      {:ok, next} -> validate_current_and_hand_off(next, item)
+    end
+  end
+
+  defp validate_current_and_hand_off(state, item) do
     case validate_transport_delivery(state, item) do
       {:ok, :accepted} -> record_handoff(state, item)
       other -> {other, state}

@@ -79,6 +79,8 @@ defmodule Aiur.DecisionStore.Boot do
       Map.merge(state, %{
         file_ops: Keyword.get(opts, :file_ops, :file),
         override_reconcile_timer: Process.send_after(self(), :reconcile_override_pushes, Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms)),
+        override_pr_reader: Keyword.get(opts, :override_pr_reader, &Aiur.Tracker.ticket_pull_request/1),
+        override_merge_reader: Keyword.get(opts, :override_merge_reader, &Aiur.GitHub.OverrideMergeEvidence.read/1),
         override_context_reader: Keyword.get(opts, :override_context_reader, &OverridePushes.context/1),
         follow_up_append_retries: %{},
         held_journal_work: [],

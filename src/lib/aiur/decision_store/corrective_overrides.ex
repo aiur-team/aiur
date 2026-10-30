@@ -105,6 +105,9 @@ defmodule Aiur.DecisionStore.CorrectiveOverrides do
         state = %{state | corrective_override_observations: Map.put(state.corrective_override_observations, decision.decision_id, {record.action_id, retry_at})}
         settle_facts(state, decision, [])
 
+      {:ok, [{:override_merge_settled, _}] = facts} ->
+        state |> settle_facts(decision, facts) |> reconcile()
+
       {:ok, facts} when is_list(facts) ->
         settle_facts(state, decision, facts)
 

@@ -20,14 +20,39 @@ defmodule Aiur.Commands.CorrectiveTicket do
 
   defp ensure(decision, record, opts) do
     with {:ok, %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) <-
-           CorrectivePullRequest.read(record.ticket.identifier, opts),
-         {:ok, ticket} <- find_or_create(decision, record, pr, opts),
-         :ok <- link(decision.ticket.identifier, pr.number, record.action_id, ticket, opts) do
-      {:ok, link_facts(record, ticket, pr)}
+           CorrectivePullRequest.read(record.ticket.identifier, opts) do
+      if record.route == :corrective_ticket do
+        create_and_link(decision, record, pr, opts)
+      else
+        settle_merge(record, pr, opts)
+      end
     else
       {:error, _reason} = error -> error
       {:ok, %{state: :closed, merged?: false}} -> {:ok, [{:override_corrective_closed, %{action_id: record.action_id}}]}
       _unmerged_or_unknown -> if record.route == :corrective_ticket, do: {:error, :merged_pr_evidence_missing}, else: {:ok, []}
+    end
+  end
+
+  defp create_and_link(decision, record, pr, opts) do
+    with {:ok, ticket} <- find_or_create(decision, record, pr, opts),
+         :ok <- link(decision.ticket.identifier, pr.number, record.action_id, ticket, opts),
+         do: {:ok, link_facts(record, ticket, pr)}
+  end
+
+  defp settle_merge(record, pr, opts) do
+    read = Keyword.get(opts, :merge_head, &Aiur.GitHub.OverrideMergeEvidence.read/1)
+    result = if record.state == :delivered, do: read.(pr), else: {:ok, pr}
+
+    with {:ok, evidence} <- result do
+      data = %{
+        action_id: record.action_id,
+        expected_version: Map.get(record, :merge_version, 1),
+        pr_number: pr.number,
+        head_sha: Map.get(evidence, :head_sha),
+        committed_at: Map.get(evidence, :committed_at)
+      }
+
+      {:ok, [{:override_merge_settled, data}]}
     end
   end
 

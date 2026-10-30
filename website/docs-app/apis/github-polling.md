@@ -295,3 +295,10 @@ request until its reported cost is known, stopping before the next reservation
 reaches 50 points. Source failure still produces a snapshot with reported cost.
 See
 [Daily newsletter snapshots](/skills#daily-newsletter-snapshots).
+
+Command override merge reconciliation reuses held ticket-PR state on branch pushes,
+merge notifications and its 30-second journal reconciliation. A merged candidate
+reads `/commits/<merged-head-sha>` through caller `command_override_merge_head`
+to obtain the commit date; failed reads retain the override for retry. Provider
+handoff rechecks held PR state before delivering stale work. This adds evidence
+reads and claims no quota saving.

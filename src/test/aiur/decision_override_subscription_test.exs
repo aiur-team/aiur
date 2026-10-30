@@ -8,7 +8,7 @@ defmodule Aiur.DecisionOverrideSubscriptionTest do
   @exchange Module.concat(__MODULE__, MissingExchange)
   @pr %{number: 77, merged?: false, head_sha: "before", head_ref: "work"}
 
-  test "store starts without Exchange and periodic reconciliation implements a delivered override" do
+  test "store starts without Exchange and periodic reconciliation records push evidence for a delivered override" do
     dir = Aiur.TestSupport.tmp_root!("override-missing-exchange")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     owner = self()
@@ -62,11 +62,11 @@ defmodule Aiur.DecisionOverrideSubscriptionTest do
 
     Aiur.DispatcherTestSupport.wait_until(fn ->
       {:ok, decision} = DecisionStore.get(revised.decision_id, store)
-      match?([%{state: :implemented, evidence: %{head_sha: "after", pr_number: 77}}], decision.overrides)
+      match?([%{state: :delivered, evidence: %{head_sha: "after", pr_number: 77}}], decision.overrides)
     end)
 
     assert {:ok, implemented} = DecisionStore.get(revised.decision_id, store)
-    assert [%{state: :implemented, evidence: %{head_sha: "after", pr_number: 77}}] = implemented.overrides
+    assert [%{state: :delivered, evidence: %{head_sha: "after", pr_number: 77}}] = implemented.overrides
     timer = :sys.get_state(store).override_reconcile_timer
     assert Process.read_timer(timer) in 1..30_000
     assert Process.whereis(@exchange) == nil

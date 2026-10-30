@@ -26,10 +26,10 @@ defmodule Aiur.Commands do
   defdelegate pending_override(decision), to: Aiur.Commands.Overrides, as: :pending
   @spec pending_resume_override(Aiur.Decision.t()) :: map() | nil
   defdelegate pending_resume_override(decision), to: Aiur.Commands.Overrides, as: :resume_request
-
-  @doc "Whether the active override may use the existing delivery path."
   @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
   defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
+  @spec recheck_override_delivery(String.t(), String.t(), GenServer.server()) :: :ok | {:error, term()}
+  defdelegate recheck_override_delivery(id, action, server), to: Aiur.DecisionStore
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
 

@@ -122,6 +122,11 @@ defmodule Aiur.DecisionRevisionDispatch do
       answer_content_hash: revision.answer.content_hash
     }
 
+    correlation =
+      if target.identifier != decision.ticket.identifier,
+        do: Map.put(correlation, :corrective_target, target.identifier),
+        else: correlation
+
     payload = %{
       kind: :text,
       body: render(decision),

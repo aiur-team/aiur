@@ -3,12 +3,13 @@ defmodule Aiur.DecisionStore.OverridePushes do
 
   require Logger
 
-  alias Aiur.Commands.OverrideContext
+  alias Aiur.Commands.CorrectivePullRequest
   alias Aiur.DecisionStore.CommandFacts
 
   @spec subscribe(GenServer.server()) :: :ok
   def subscribe(server \\ Aiur.Events.exchange_server()) do
-    Aiur.Events.subscribe("ticket.*.branch.push", server)
+    with :ok <- Aiur.Events.subscribe("ticket.*.branch.push", server),
+         do: Aiur.Events.subscribe("ticket.*.pr.merged", server)
   catch
     :exit, reason ->
       detail = Aiur.SecretRedactor.redact(inspect(reason))
@@ -20,13 +21,14 @@ defmodule Aiur.DecisionStore.OverridePushes do
   def observe(state, %{topic: topic, source: :system}) do
     case String.split(topic, ".") do
       ["ticket", ticket, "branch", "push"] -> start_lookup(state, ticket)
+      ["ticket", ticket, "pr", "merged"] -> start_lookup(state, ticket)
       _other -> :ok
     end
   end
 
   def observe(_state, _event), do: :ok
 
-  @doc "Rechecks replayed delivery records against held PR evidence, without fetching GitHub."
+  @doc "Rechecks queued and delivered overrides; merged heads require immutable commit evidence."
   @spec reconcile(map()) :: :ok
   def reconcile(state), do: start_lookup(state, :all)
 
@@ -35,28 +37,34 @@ defmodule Aiur.DecisionStore.OverridePushes do
       for {_id, decision} <- state.current,
           ticket == :all or decision.ticket.identifier == ticket,
           record <- decision.overrides,
-          record.state == :delivered and record.route in [:active_worker, :resume_pending, :capacity_wait],
+          record.state in [:queued, :delivered] and record.route in [:active_worker, :resume_pending, :capacity_wait, :replacement],
           record.action_id == decision.active_action_id,
-          do: {decision.ticket.identifier, {decision.decision_id, record.action_id}}
+          do: {decision.ticket.identifier, {decision.decision_id, record.action_id, Map.get(record, :merge_version, 1)}}
 
     if candidates != [] do
       owner = self()
       reader = state.override_context_reader
 
-      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates) end)
+      {:ok, _pid} = Task.start(fn -> lookup_candidates(owner, reader, candidates, Map.get(state, :override_merge_reader, &Aiur.GitHub.OverrideMergeEvidence.read/1)) end)
     end
 
     :ok
   end
 
-  defp lookup_candidates(owner, reader, candidates) do
+  defp lookup_candidates(owner, reader, candidates, merge_reader) do
     candidates
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Enum.each(fn {identifier, actions} -> send_lookup(owner, reader, identifier, actions) end)
+    |> Enum.each(fn {identifier, actions} -> send_lookup(owner, reader, identifier, actions, merge_reader) end)
   end
 
-  defp send_lookup(owner, reader, identifier, actions) do
+  defp send_lookup(owner, reader, identifier, actions, merge_reader) do
     case reader.(identifier) do
+      %{pr: %{merged?: true} = pr} ->
+        case merge_reader.(pr) do
+          {:ok, evidence} -> send(owner, {:override_merge_observed, actions, evidence})
+          {:error, reason} -> lookup_failed(identifier, reason)
+        end
+
       %{pr: %{head_sha: sha, head_ref: branch} = pr} when is_binary(sha) and is_binary(branch) ->
         send(owner, {:override_push_observed, actions, sha, "refs/heads/" <> branch, head_updated_at(pr), pr})
 
@@ -76,7 +84,12 @@ defmodule Aiur.DecisionStore.OverridePushes do
   end
 
   @spec context(String.t()) :: map()
-  def context(ticket), do: ticket |> OverrideContext.options([]) |> Keyword.fetch!(:override_context)
+  def context(ticket) do
+    case CorrectivePullRequest.read(ticket, []) do
+      {:ok, pr} when is_map(pr) -> %{pr: pr}
+      _ -> %{pr: :unknown}
+    end
+  end
 
   @spec settle(map(), list(), String.t(), String.t(), term(), term()) :: map()
   def settle(state, candidates, sha, ref, _observed_at, %{head_sha: sha, head_ref: branch, number: number} = pr)
@@ -84,7 +97,13 @@ defmodule Aiur.DecisionStore.OverridePushes do
     at = head_updated_at(pr)
 
     if ref == "refs/heads/" <> branch and match?(%DateTime{}, at) do
-      Enum.reduce(candidates, state, fn {id, action_id}, acc ->
+      Enum.reduce(candidates, state, fn candidate, acc ->
+        {id, action_id} =
+          case candidate do
+            {id, action, _version} -> {id, action}
+            pair -> pair
+          end
+
         data = %{action_id: action_id, at: at, head_sha: sha, pr_number: number}
         settle_candidate(acc, id, branch, data)
       end)

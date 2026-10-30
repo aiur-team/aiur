@@ -23,7 +23,7 @@ defmodule Aiur.DecisionOverridePushReconciliationTest do
     %{store: store, answered: answered, opts: opts}
   end
 
-  test "delayed cache convergence implements a delivered override and survives replay", ctx do
+  test "delayed cache convergence records push evidence for a delivered override and survives replay", ctx do
     decision = override_and_deliver(ctx, @pr)
     assert :ok = reconcile(decision, :unknown)
     assert_receive {:cache_read, :unknown}, 2_000
@@ -34,18 +34,18 @@ defmodule Aiur.DecisionOverridePushReconciliationTest do
     assert {:ok, %{overrides: [%{state: :delivered}]} = replayed} = DecisionStore.get(decision.decision_id, restarted)
     pr = %{@pr | head_sha: "after"} |> Map.put(:head_updated_at, DateTime.to_iso8601(after_delivery(replayed)))
     reconcile_and_settle(restarted, replayed, pr)
-    assert {:ok, %{overrides: [%{state: :implemented, evidence: %{head_sha: "after"}}]}} = DecisionStore.get(decision.decision_id, restarted)
+    assert {:ok, %{overrides: [%{state: :delivered, evidence: %{head_sha: "after"}}]}} = DecisionStore.get(decision.decision_id, restarted)
 
     stop_supervised!(DecisionStore)
     replayed_again = start_supervised!({DecisionStore, ctx.opts})
-    assert {:ok, %{overrides: [%{state: :implemented, evidence: %{head_sha: "after"}}]}} = DecisionStore.get(decision.decision_id, replayed_again)
+    assert {:ok, %{overrides: [%{state: :delivered, evidence: %{head_sha: "after"}}]}} = DecisionStore.get(decision.decision_id, replayed_again)
   end
 
   test "a PR unknown at routing can be proven by a later head update on its ticket", ctx do
     decision = override_and_deliver(ctx, :unknown)
     pr = Map.put(@pr, :head_updated_at, after_delivery(decision))
     reconcile_and_settle(ctx.store, decision, pr)
-    assert {:ok, %{overrides: [%{state: :implemented, pr_number: nil, evidence: %{pr_number: 77}}]}} = DecisionStore.get(decision.decision_id, ctx.store)
+    assert {:ok, %{overrides: [%{state: :delivered, pr_number: nil, evidence: %{pr_number: 77}}]}} = DecisionStore.get(decision.decision_id, ctx.store)
   end
 
   test "late observation and later review updates cannot date a pre-delivery push", ctx do
