@@ -89,6 +89,15 @@ defmodule Aiur.Events.GithubKeys do
 
   def pr_dedup_key(_repo, _pr_number, _action, _head_sha, _ticket), do: nil
 
+  @doc "Returns a source-independent Publisher dedup key for one merged PR target."
+  @spec merged_pr_dedup_key(term(), term(), term(), term()) :: {String.t(), String.t(), String.t()} | nil
+  def merged_pr_dedup_key(repo, pr_number, merge_sha, ticket)
+      when is_binary(repo) and is_integer(pr_number) and pr_number > 0 and is_binary(merge_sha) and merge_sha != "" and
+             is_binary(ticket),
+      do: {repo, "pr:merged:#{pr_number}:#{ticket}", merge_sha}
+
+  def merged_pr_dedup_key(_repo, _pr_number, _merge_sha, _ticket), do: nil
+
   @doc """
   Returns the Publisher dedup key for issue and PR comment events.
   """
