@@ -60,6 +60,7 @@ defmodule Aiur.Executor.SessionCLIIngestTest do
     assert Process.whereis(SessionIngest) == nil
     status = status(opts)
     assert status["recording?"] == false
+    assert Map.fetch!(status, "transcript_rejection") == nil
     assert status["not_attached_count"] == nil
     assert status["foreign_session_count"] == nil
 
