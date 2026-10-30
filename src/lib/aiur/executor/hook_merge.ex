@@ -67,7 +67,7 @@ defmodule Aiur.Executor.HookMerge do
   defp deliver?(command) when is_binary(command) do
     (String.starts_with?(command, @marker) or String.starts_with?(command, "aiur_hook_token=$(cat ") or
        String.starts_with?(command, "curl -sS -f -m 3 ")) and
-      String.contains?(command, "curl -sS -f -m 3 ") and String.contains?(command, "/api/v1/executor/hook/deliver?")
+      String.contains?(command, "curl -sS -f -m 3 ") and Regex.match?(~r{/api/v1/executor/hook/deliver(?:\?|[\s'"]|$)}, command)
   end
 
   defp deliver?(_command), do: false

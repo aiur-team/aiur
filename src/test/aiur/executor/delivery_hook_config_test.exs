@@ -58,7 +58,8 @@ defmodule Aiur.Executor.DeliveryHookConfigTest do
   test "pure merge removes old-port delivery commands individually and keeps unrelated handlers" do
     user = %{"type" => "command", "command" => "echo curl -sS -f -m 3 /api/v1/executor/hook/deliver?"}
     old = %{"type" => "command", "command" => DeliverHookCommand.command(:claude, "http://127.0.0.1:1234", "/old/token")}
-    config = %{"other" => true, "hooks" => %{"Stop" => [%{"matcher" => "*", "hooks" => [old, user]}]}}
+    legacy = %{"command" => "curl -sS -f -m 3 http://127.0.0.1:9999/api/v1/executor/hook/deliver"}
+    config = %{"other" => true, "hooks" => %{"Stop" => [%{"matcher" => "*", "hooks" => [old, legacy, user]}]}}
     assert {:ok, result} = HookConfig.merge(config, :uninstall, HookConfig.entries(:claude))
     assert result == %{"other" => true, "hooks" => %{"Stop" => [%{"matcher" => "*", "hooks" => [user]}]}}
     assert {:ok, installed} = HookConfig.merge(result, :install, HookConfig.entries(:claude))
