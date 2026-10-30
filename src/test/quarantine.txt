@@ -8,7 +8,6 @@ Aiur.CodingAgentCheckpointTest	Codex adapter treats idle thread status as turn c
 Aiur.Commands.NativeCaptureTest	derived approval labels use the existing policy for every question	#6866	2026-11-10
 Aiur.Core.AgentRunnerPauseTest	agent runner interrupts an active turn and waits for the next operator message before resuming	#6070	2026-12-31
 Aiur.DaemonHeartbeatTest	*	#6054	2026-12-31
-Aiur.ElevenLabs.RealtimeTest	the session stops with its owner so a connection cannot outlive the hold	#5873	2026-11-13
 Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no copy of the bodies on the store's heap	#6124	2027-01-22
 Aiur.GitHub.ResourceStore.MergeTest	merging into a held body concurrent merges lose nothing and the body never goes backwards	#6609	2026-11-10
 Aiur.LandingWatch.LocalHoldTest	an expired observation hold retries without logging the poll as unavailable	#6474	2026-12-31
