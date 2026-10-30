@@ -33,6 +33,34 @@ executor_session_argument() {
 
 cmd_executor_session() {
   local json=false
+  if [ "$#" -gt 1 ]; then echo "aiur: executor-session accepts only --json" >&2; exit 64; fi
   case "${1:-}" in "") ;; --json) json=true ;; *) echo "aiur: executor-session accepts only --json" >&2; exit 64 ;; esac
-  run_control_rpc "Aiur.HarnessSessionCLI.rpc(json: $json)"
+  run_control_rpc "Aiur.AgentControlCLI.executor_session(json: $json)"
+}
+
+executor_project_root() {
+  git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$PWD"
+}
+
+cmd_executor_attach() {
+  local harness="" takeover=false print_config=false
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --harness)
+        [ "$#" -ge 2 ] || { echo "aiur: --harness requires claude or codex" >&2; exit 64; }
+        harness="$2"; shift ;;
+      --harness=*) harness="${1#*=}" ;;
+      --takeover) takeover=true ;;
+      --print-config) print_config=true ;;
+      *) echo "aiur: executor-attach: unknown argument $1" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  case "$harness" in claude|codex) ;; *) echo "aiur: executor-attach requires --harness claude or codex" >&2; exit 64 ;; esac
+  run_control_rpc "Aiur.AgentControlCLI.executor_attach(harness: \"$harness\", takeover?: $takeover, print_config: $print_config, repo_root: \"$(encode_control_value "$(executor_project_root)")\" |> Base.decode64!())"
+}
+
+cmd_executor_detach() {
+  [ "$#" -eq 0 ] || { echo "aiur: executor-detach accepts no arguments" >&2; exit 64; }
+  run_control_rpc "Aiur.AgentControlCLI.executor_detach(repo_root: \"$(encode_control_value "$(executor_project_root)")\" |> Base.decode64!())"
 }
