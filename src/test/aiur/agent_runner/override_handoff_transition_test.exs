@@ -85,6 +85,7 @@ defmodule Aiur.AgentRunner.OverrideHandoffTransitionTest do
     assert worker.("aiur_set_ticket_state", %{"state" => "ci-wait"})["success"]
   end
 
+  # Future regression guard: draft and ordinary transitions already skipped worker receipts.
   test "draft and non-handoff transitions never attest a worker head" do
     recorder = fn _, _, _, _, _, _ -> flunk("no worker receipt belongs to this transition") end
     draft = executor(%{"number" => 77, "draft" => true}, recorder, fn _, _ -> flunk("draft refused") end)
