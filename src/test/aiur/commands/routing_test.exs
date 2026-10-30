@@ -16,8 +16,8 @@ defmodule Aiur.Commands.RoutingTest do
     end)
 
     store = start_supervised_store!(dir)
-    {:ok, clock} = Agent.start_link(fn -> DateTime.utc_now() end)
-    {:ok, roster} = Agent.start_link(fn -> :active end)
+    clock = start_supervised!(Supervisor.child_spec({Agent, fn -> DateTime.utc_now() end}, id: make_ref()))
+    roster = start_supervised!(Supervisor.child_spec({Agent, fn -> :active end}, id: make_ref()))
     %{store: store, clock: clock, roster: roster}
   end
 
@@ -55,6 +55,9 @@ defmodule Aiur.Commands.RoutingTest do
     {:ok, value} = DecisionStore.get(d.decision_id, ctx.store)
     value
   end
+
+  defp store_spec(dir),
+    do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: make_ref(), restart: :temporary)
 
   defp history(ctx, d) do
     {:ok, events} = DecisionStore.audit_history(d.decision_id, ctx.store)
@@ -106,8 +109,7 @@ defmodule Aiur.Commands.RoutingTest do
     GenServer.stop(pid)
     GenServer.stop(ctx.store)
     advance(ctx, 1200)
-    restored = start_store!(ctx.dir)
-    on_exit(fn -> if Process.alive?(restored), do: GenServer.stop(restored) end)
+    restored = start_supervised!(store_spec(ctx.dir))
     ctx = %{ctx | store: restored}
     recovered = router(ctx)
     assert current(ctx, d).route_state == :with_human
@@ -116,8 +118,7 @@ defmodule Aiur.Commands.RoutingTest do
     assert count(ctx, d, :human_needed) == 1
     GenServer.stop(recovered)
     GenServer.stop(restored)
-    replayed = start_store!(ctx.dir)
-    on_exit(fn -> if Process.alive?(replayed), do: GenServer.stop(replayed) end)
+    replayed = start_supervised!(store_spec(ctx.dir))
     ctx = %{ctx | store: replayed}
     router(ctx)
     assert count(ctx, d, :escalated) == 1

@@ -99,7 +99,7 @@ jobs:
       - name: Test coverage-shard parity guard
         run: bash scripts/test-check-test-shard-parity.sh && bash scripts/test-check-listener-spec.sh
       - name: Test bare assert_receive and on_exit rm_rf guards
-        run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh && test "${{ needs['pre-handoff'].result }}" = success
+        run: bash scripts/test-check-bare-assert-receive.sh && bash scripts/test-check-on-exit-rm-rf.sh && bash scripts/test-check-on-exit-alive-stop.sh && test "${{ needs['pre-handoff'].result }}" = success
       - name: Test hourly retrospective visual check
         run: for test in .claude/skills/aiur-run/scripts/tests/executor-retrospective*_test.sh; do bash "$test"; done
       - name: Test hourly dashboard analyzer

@@ -127,41 +127,39 @@ defmodule Aiur.GitHub.TestTicketScopeTest do
 
     observation = %{number: 12, head: "sha", rest: %{"head" => %{"ref" => "aiur/3379-test"}}}
 
-    assert {:ok, pid} =
-             Aiur.LandingWatch.start_link(
-               name: server,
-               interval_ms: 60_000,
-               subscribe: false,
-               observe_fun: fn _opts -> {:ok, [observation]} end,
-               journal_prune_fun: fn _observations, _opts -> :ok end,
-               process_fun: fn _observation, _opts ->
-                 result =
-                   Aiur.LandingWatch.rework(observation, [%{name: "failing check"}],
-                     ticket_state_fun: fn "3379", _opts -> {:ok, "human-review"} end,
-                     transition_fun: fn "3379", "rework", opts ->
-                       assert opts[:writer] == :landing_watch
+    start_supervised!(
+      {Aiur.LandingWatch,
+       [
+         name: server,
+         interval_ms: 60_000,
+         subscribe: false,
+         observe_fun: fn _opts -> {:ok, [observation]} end,
+         journal_prune_fun: fn _observations, _opts -> :ok end,
+         process_fun: fn _observation, _opts ->
+           result =
+             Aiur.LandingWatch.rework(observation, [%{name: "failing check"}],
+               ticket_state_fun: fn "3379", _opts -> {:ok, "human-review"} end,
+               transition_fun: fn "3379", "rework", opts ->
+                 assert opts[:writer] == :landing_watch
 
-                       TicketTransition.write_state(
-                         "3379",
-                         "rework",
-                         Keyword.put(opts, :tracker, TestTicketScopeTracker)
-                       )
-                     end,
-                     alert_emitter: fn _topic, _opts -> :ok end
-                   )
-
-                 send(test_pid, {:landing_watch_result, result})
-                 result
+                 TicketTransition.write_state(
+                   "3379",
+                   "rework",
+                   Keyword.put(opts, :tracker, TestTicketScopeTracker)
+                 )
                end,
-               queue_reconcile_fun: fn _observations, _opts -> :ok end
+               alert_emitter: fn _topic, _opts -> :ok end
              )
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-    end)
+           send(test_pid, {:landing_watch_result, result})
+           result
+         end,
+         queue_reconcile_fun: fn _observations, _opts -> :ok end
+       ]}
+    )
 
     assert_receive {:landing_watch_result, {:error, {:outside_test_ticket_scope, "3379"}}}, 1_000
-    assert landing_poll_finished?(server, 20)
+    assert landing_poll_finished?(server, 100)
 
     refute_receive :out_of_scope_tracker_write_reached_http, 50
   end

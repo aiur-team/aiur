@@ -14,7 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
   # The cache reads this clock, so a retained payload's age is set, not slept for.
   defp start_endpoint(overrides, cache_opts \\ []) do
     previous = Application.fetch_env(:aiur, Endpoint)
-    {:ok, clock} = Agent.start_link(fn -> 0 end)
+    clock = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
     cache_opts = Keyword.merge([name: nil, clock: fn -> Agent.get(clock, & &1) end], cache_opts)
     cache = start_supervised!({ControlCenterCache, cache_opts})
 
@@ -79,12 +79,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
 
   test "an unpublished snapshot marks the loaded Units catalog as starting" do
     :ok = SnapshotStore.forget(@orchestrator)
-    {:ok, orchestrator} = Agent.start_link(fn -> :starting end, name: @orchestrator)
-
-    on_exit(fn ->
-      if Process.alive?(orchestrator), do: Agent.stop(orchestrator)
-      SnapshotStore.forget(@orchestrator)
-    end)
+    orchestrator = start_supervised!({Agent, fn -> :starting end}, id: make_ref())
+    Process.register(orchestrator, @orchestrator)
+    on_exit(fn -> SnapshotStore.forget(@orchestrator) end)
 
     start_endpoint([orchestrator: @orchestrator], boot_elapsed_ms: fn -> 0 end)
     payload = PayloadLoader.load(:fresh)
