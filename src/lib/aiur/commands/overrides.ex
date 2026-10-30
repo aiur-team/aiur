@@ -97,6 +97,9 @@ defmodule Aiur.Commands.Overrides do
   @spec resume_fact(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
   def resume_fact(decision, %{data: %{action_id: action_id}} = event) do
     case pending(decision) do
+      %{action_id: ^action_id, pr_merged: true} when event.type == :override_resume_state ->
+        {:error, :stale}
+
       %{action_id: ^action_id} ->
         updated = update(decision, action_id, &apply_resume_fact(&1, event))
         updated = if event.type == :override_prompt_delivered, do: %{updated | delivery_status: :delivered}, else: updated

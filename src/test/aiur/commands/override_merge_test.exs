@@ -36,6 +36,7 @@ defmodule Aiur.Commands.OverrideMergeTest do
       assert route == if(contains?, do: :active_worker, else: :corrective_ticket)
       assert {:error, :stale} = merge(winner, head, DateTime.add(@at, 1))
       assert {:error, :override_push_mismatch} = push(winner)
+      assert {:error, :stale} = Overrides.resume_fact(winner, %{type: :override_resume_state, data: %{action_id: "override", route: :resume_pending, reason: :resume_failed, attempts: 1}})
     end
   end
 
@@ -57,7 +58,7 @@ defmodule Aiur.Commands.OverrideMergeTest do
 
   defp decision(delivered?) do
     metadata = %{pr_number: 77, pr_merged: false, pr_head_sha: "before", pr_head_ref: "work", route: :active_worker}
-    decision = struct(Decision, decision_id: "command", active_action_id: "override", ticket: %{identifier: "6912"})
+    decision = struct(Decision, decision_status: :decided, decision_id: "command", active_action_id: "override", ticket: %{identifier: "6912"})
     decision = Overrides.observe(decision, %{type: :revision_recorded, occurred_at: @at, data: %{override: metadata, action_id: "override", prior_action_id: "original"}})
     if delivered?, do: Overrides.observe(decision, %{type: :delivered, data: %{action_id: "override"}, occurred_at: @at}), else: decision
   end

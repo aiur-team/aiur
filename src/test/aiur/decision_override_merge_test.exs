@@ -180,6 +180,13 @@ defmodule Aiur.DecisionOverrideMergeTest do
     results = 1..2 |> Enum.map(fn _ -> Task.async(fn -> Commands.record_command_fact(ctx.override.decision_id, :override_merge_settled, data, server: ctx.store) end) end) |> Enum.map(&Task.await/1)
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
     assert Enum.count(results, &match?({:error, {:invalid_transition, :stale}}, &1)) == 1
+
+    assert {:error, {:invalid_transition, :stale}} =
+             Commands.record_command_fact(ctx.override.decision_id, :override_resume_state, %{action_id: ctx.override.active_action_id, route: :resume_pending, reason: :resume_failed, attempts: 1},
+               server: ctx.store
+             )
+
+    assert {:ok, %{overrides: [%{route: :corrective_ticket, merge_version: 2}]}} = DecisionStore.get(ctx.override.decision_id, ctx.store)
   end
 
   defp merge(ctx, head, at) do
