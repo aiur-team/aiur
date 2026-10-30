@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator do
   use GenServer
 
   alias Aiur.Orchestrator.ListenerModes
-  alias Aiur.Orchestrator.OperatorMessages.HeldReads
+  alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads}
   require Logger
 
   alias Aiur.{Issue, Signal}
@@ -472,6 +472,9 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
+  def handle_cast({:restore_executor_hook_batch, attempt}, state),
+    do: ExecutorHookClaims.restore_call(state, attempt)
+
   def handle_cast({:mark_sleeping, identifier}, state) when is_binary(identifier) do
     {next, effects} = PushRouting.sleeping_effects(state, identifier)
     {:noreply, TicketTransition.apply_effects(next, effects)}
