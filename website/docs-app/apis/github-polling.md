@@ -222,12 +222,14 @@ repeatedly fetching an incomplete timeline and caps the retry delay at one
 minute. Rate limits, budget holds and other transient fetch failures are not
 memoized; the next candidate poll retries them.
 
-A timeline page-limit result is different: the same unchanged timeline would
-exhaust its bounded page budget on every poll, so that deferral is memoized until
-the issue's `updated_at` changes. This avoids repeating the full page scan while
-allowing a new issue version to be checked immediately. Active and rework
-tickets continue to deny incomplete provenance evidence immediately; transport
-failures remain deferred rather than becoming authorization denials.
+A timeline page-limit result is different. The same unchanged timeline would
+exhaust its bounded page budget on every poll, so Aiur memoizes that deferral
+until the issue's `updated_at` changes.
+
+This allows a new issue version to be checked immediately without repeating
+the full page scan on every poll. Active and rework tickets continue to deny
+incomplete provenance evidence. Transport failures remain deferred rather than
+becoming authorization denials.
 
 **A validator belongs to the thing it describes.**
 
