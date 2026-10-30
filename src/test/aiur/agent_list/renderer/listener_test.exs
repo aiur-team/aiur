@@ -2,6 +2,16 @@ defmodule Aiur.AgentList.Renderer.ListenerTest do
   use ExUnit.Case, async: true
   alias Aiur.AgentList.Renderer.{Layout, Listener, Table, Text}
 
+  for {mode, copy} <- [async: "Async · pings only", mute: "Mute · silent"] do
+    test "TUI listener row preserves #{mode} copy and unread count after Units retirement" do
+      summary = %{identifier: "42", title: "Working", listener: %{effective: unquote(mode), requested: unquote(mode), unread_count: 2}}
+      row = Table.render_row(summary, false, 160, Layout.compute([summary], 160), %{}) |> IO.iodata_to_binary()
+      assert row =~ unquote(copy) <> " / 2 unread"
+      assert Text.visual_width(Text.strip_ansi(row)) == 160
+      refute row =~ "Async · on demand"
+    end
+  end
+
   test "row shows effective mode and requested when different with unread count" do
     summary = %{identifier: "42", title: "Working", listener: %{effective: :sync, requested: :steer, unread_count: 2}}
     layout = Layout.compute([summary], 160)

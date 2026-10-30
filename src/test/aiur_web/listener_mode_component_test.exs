@@ -14,6 +14,22 @@ defmodule AiurWeb.ListenerModeComponentTest do
 
   defp render_badge(listener), do: render_component(&ListenerMode.listener_badge/1, listener: listener)
 
+  test "conversation drawer retains canonical selector copy and unread age after Units retirement" do
+    now = DateTime.utc_now()
+    listener = view(%{requested: :async, effective: :async, unread_count: 2, oldest_unread_at: DateTime.add(now, -120)})
+
+    for writable <- [false, true] do
+      html = render_mode(listener, writable: writable, now: now)
+      tree = Floki.parse_document!(html)
+      assert Floki.find(tree, "select option") |> Enum.map(&Floki.text/1) == ["Steer · interrupts", "Sync · next turn", "Async · pings only", "Mute · silent"]
+      assert Floki.attribute(tree, "select option[selected]", "value") == ["async"]
+      assert Floki.attribute(tree, "[data-requested-mode]", "data-requested-mode") == ["async"]
+      assert Floki.attribute(tree, "[data-unread-count]", "data-unread-count") == ["2"]
+      assert Floki.text(Floki.find(tree, "[data-unread-count]")) =~ "Unread 2 · oldest 120s ago"
+      assert Floki.find(tree, "select[disabled]") == [] == writable
+    end
+  end
+
   test "unavailable and loading never invent a sync mode" do
     for state <- [:unavailable, :loading] do
       html = render_mode(state)
