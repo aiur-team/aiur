@@ -20,12 +20,14 @@ def build(args, root, now):
         snapshot = json.loads(args.fixture.read_text())
         report = compute(snapshot)
         report['editorial'] = {}
-        write_snapshot(snapshot, root / 'newsletter/snapshots')
+        snapshot_path = write_snapshot(snapshot, root / 'newsletter/snapshots')
         report_path = root / 'newsletter' / now.date().isoformat() / 'report.json'
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, indent=2) + '\n')
     else:
         report_path = newsletter.preprocess(args.repo, root, now, args.instance)
+        snapshot_path = root / 'newsletter/snapshots' / (now.date().isoformat() + '.json')
+    shutil.copyfile(snapshot_path, report_path.with_name('snapshot.json'))
     report = json.loads(report_path.read_text())
     pdf = newsletter.publish(report_path, report, args.timezone)
     latest = root / 'newsletter/latest'

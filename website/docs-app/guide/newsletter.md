@@ -83,7 +83,7 @@ scripts/newsletter/run-daily.sh --repo owner/repo
 ```
 
 Outputs live in `~/.aiur/repo/<owner>/<repo>/newsletter/<UTC-date>/`:
-`report.json`, `newsletter.html`, `newsletter.pdf`, `run.log` and, after successful
+`snapshot.json`, `report.json`, `newsletter.html`, `newsletter.pdf`, `run.log` and, after successful
 publication, `wake-sent.json`. Snapshots live in `newsletter/snapshots/` and the
 latest automatic outputs in `newsletter/latest/`. The package verifies that
 the PDF has one page.

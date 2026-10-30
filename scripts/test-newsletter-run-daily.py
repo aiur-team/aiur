@@ -48,6 +48,8 @@ class DailyTest(unittest.TestCase):
         for name in ('report.json', 'newsletter.html', 'newsletter.pdf'):
             self.assertEqual((self.outputs() / name).read_bytes(),
                              (self.root / 'newsletter/latest' / name).read_bytes())
+        self.assertEqual(json.loads((self.outputs() / 'snapshot.json').read_text()),
+                         json.loads(self.fixture.read_text()))
         self.assertEqual(len(list((self.root / 'newsletter/snapshots').glob('*.json'))), 1)
         self.assertIn('Dry run; no wake published', (self.outputs() / 'run.log').read_text())
         self.assertFalse((self.outputs() / 'wake-sent.json').exists())

@@ -27,7 +27,7 @@ defmodule Aiur.NewsletterWakeTest do
     assert [%{"topic" => "system.newsletter.ready", "event_id" => ^id, "pdf_path" => pdf, "report_path" => report}] = records
     assert pdf == payload.pdf_path
     assert report == payload.report_path
-    assert File.read!(StatePaths.watermark_path()) =~ Integer.to_string(id)
+    assert Jason.decode!(File.read!(StatePaths.watermark_path())) == %{"last_seen_event_id" => id}
     # Redelivery cannot create another wake after a durable replay.
     send(listener, {:event, %{id: id, topic: "system.newsletter.ready", pdf_path: "wrong"}})
     :sys.get_state(listener)
