@@ -2,7 +2,7 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
   @moduledoc "Translates target-scoped Exchange events to portable voice context messages."
   use GenServer
 
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.VoiceConverse.Host.{BriefingSource, CommandSource, Worker}
   alias VoiceConverse.Briefing
 
@@ -16,11 +16,11 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
 
   @impl true
   def init({target, subscriber, kind, opts}) do
-    exchange = Keyword.get(opts, :exchange, Exchange)
+    exchange = Keyword.get(opts, :exchange, Events.exchange_server())
     monitor = Process.monitor(subscriber)
 
     try do
-      Enum.each(patterns(target), &Exchange.subscribe(&1, exchange))
+      Enum.each(patterns(target), &Events.subscribe(&1, exchange))
       subscribe_live(target, kind, opts)
       {:ok, %{target: target, subscriber: subscriber, monitor: monitor, kind: kind, opts: opts, exchange_monitor: Process.monitor(GenServer.whereis(exchange))}}
     catch
