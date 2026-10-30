@@ -29,11 +29,13 @@ defmodule Aiur.Executor.TranscriptPath do
   end
 
   defp regular_chain(path, root) do
-    with {:ok, %{type: :regular}} <- File.lstat(path) do
-      directories = Stream.iterate(Path.dirname(path), &Path.dirname/1) |> Enum.take_while(&(&1 != Path.dirname(Path.dirname(root))))
-      if Enum.all?(directories, &match?({:ok, %{type: :directory}}, File.lstat(&1))), do: :ok, else: {:error, :not_regular}
-    else
-      _ -> {:error, :not_regular}
+    case File.lstat(path) do
+      {:ok, %{type: :regular}} ->
+        directories = Stream.iterate(Path.dirname(path), &Path.dirname/1) |> Enum.take_while(&(&1 != Path.dirname(Path.dirname(root))))
+        if Enum.all?(directories, &match?({:ok, %{type: :directory}}, File.lstat(&1))), do: :ok, else: {:error, :not_regular}
+
+      _ ->
+        {:error, :not_regular}
     end
   end
 
