@@ -174,7 +174,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     state = state |> Adopter.adopt() |> OrphanedWorkers.stop_untracked_runners()
     state = WorkspaceCleanup.start_startup_workspace_cleanup(state, wake?: Keyword.get(opts, :initial_poll?, true))
     RemoteControlMode.cleanup_stray_remote_control_servers()
-    TrackedSet.reset(Enum.map(state.running, fn {_id, entry} -> entry.identifier end))
+    TrackedSet.refresh(state)
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)

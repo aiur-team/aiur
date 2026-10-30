@@ -25,6 +25,7 @@ defmodule Aiur.Executor.StatePaths do
     cursor: "executor.wakes.cursor.json",
     pending: "executor.wakes.pending.json",
     subscriptions: "executor.subscriptions.json",
+    tracker_identities: "tracker-identities.json",
     watermark: "executor.listener.watermark.json",
     control_lifecycle: "control-lifecycle.json"
   }
@@ -92,6 +93,9 @@ defmodule Aiur.Executor.StatePaths do
 
   @spec subscriptions_path() :: Path.t()
   def subscriptions_path, do: path_for(:subscriptions)
+
+  @spec tracker_identities_path() :: Path.t()
+  def tracker_identities_path, do: path_for(:tracker_identities)
 
   @spec wakes_path() :: Path.t()
   def wakes_path, do: path_for(:wakes)

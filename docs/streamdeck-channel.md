@@ -49,6 +49,7 @@ The channel and browser emulator use `FrameUpdates.frame/5` and
 The emulator inserts those trusted images into accessible key buttons and
 absolutely positioned strip regions; it has no separate face drawing code.
 Renderer-owned colours replace the deleted key-face parity contract and mirrors.
+Settings section and choice state live on `Nav`; `FrameUpdates.frame/5` builds their model for the shared `Render.Views` / `Render.compose` path.
 
 New dashboard, phone or watch surfaces should read `Aiur.DecisionStore`, the
 orchestrator snapshot or `Aiur.Conversation.Anchors` directly, rather than the
@@ -58,11 +59,12 @@ deck DTOs. Nothing in the dashboard needs the sidecar installed.
 
 Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 `fleet` and `usage` remain as compatibility data events;
-the physical sidecar consumes `frame` images only.
+the physical sidecar consumes `frame` images and applies daemon `settings`.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
 | `frame` | `{keys: [{svg, hash, label} or null] × 8, strip: [{x, width, svg, hash}]}` | Full physical image state on join and coalesced input/data changes (250 ms). Hashes skip unchanged images; regions tile 800×100. |
+| `settings` | `{mic_id, speaker_id, default_view, default_sort, brightness, dim_after_seconds, instance, alerts}` | Daemon-owned settings on join and after a successful save. Null brightness uses the sidecar environment default. |
 | `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
 | `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
 | `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, links, actions, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
@@ -74,6 +76,19 @@ the physical sidecar consumes `frame` images only.
 | `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
 | `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
 
+The sidecar sends `devices` on join and inventory changes with
+`{mics: [{id, label}], speakers: [{id, label}], instances: [name], availability?: {mics: boolean, speakers: boolean}, legacy_mic_id?}`.
+Only instance names cross this boundary; connection credentials stay on the PC.
+Inventory is retained while its reporting connection is alive; after disconnect, both surfaces show unavailable inventory instead of inventing an empty device count.
+Availability flags distinguish failed discovery from an observed empty device list; older senders without flags retain list-based availability.
+`legacy_mic_id` migrates the old sidecar preference when daemon settings are absent.
+The `settings_set` event carries a patch of the settings fields. The daemon
+validates it and atomically saves the per-instance private file before pushing
+`settings`. Failed writes reply with an error, retain the old settings and show
+“not saved”. Brightness is clamped to 0–100; a zero idle timeout never dims.
+Alert patches preserve omitted categories; files with omitted categories use their defaults.
+Successful instance selections include an optional `instance_selection_id` in pushed settings. This change marker lets an explicit selection revisit an instance without treating repeated settings or initial joins as new selections; it is not stored in the settings file.
+
 `grid.build_status` is `ok`, `none` (no lane with a positive total), or
 `unavailable` (queue model could not be read). `grid.build` is null unless
 status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
@@ -82,7 +97,7 @@ counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live
 
 `ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds. The conversation strip uses the shared conversation state and names stale age or unavailable history.
 
-`links` contains server-built `modal` and nullable `pr` URLs. `actions.pause`, `priority_up` and `priority_down` are `enabled` or `disabled`; queue edges, read-only dashboards and tickets outside editable list queues disable priority. Send `priority` with `{identifier, direction: "up" | "down"}` for the focused ticket; replies reuse the queue read-back/error shape. The physical client opens HTTP(S) URLs with injected `xdg-open`; the emulator uses links with `target="_blank"`.
+`links` contains server-built `modal` and nullable `pr` URLs. `actions.pause`, `priority_up` and `priority_down` are `enabled` or `disabled`; queue edges, read-only dashboards and tickets outside editable list queues disable priority. Send `priority` with `{identifier, direction: "up" | "down"}` for the focused ticket; replies acknowledge the mutation or return an error; feedback arrives as a coalesced frame push. The physical client opens HTTP(S) URLs with injected `xdg-open`; the emulator uses links with `target="_blank"`.
 
 Ticket reads run in one background task per channel, coalesce refreshes, and discard results from an old focus so Commands and unfocus stay responsive.
 
@@ -114,20 +129,20 @@ and chip offset). Refused effects reply with an error `reason`; feedback
 and queue position changes arrive in the coalesced pushed `frame`, never in
 the input reply. This includes Fleet categories and their state-filtered drills.
 
-Each connection starts at `ticket`, page 0 and chip offset 0; reconnects reset
-navigation.
+Connections use the saved default view at page 0 and chip offset 0; reconnects reset transient navigation.
 
 Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
 root pages and clearing drills and the selected ticket. Turning it moves one
-eight-key page per tick,
-clamped against the current list, including after a shrink.
+eight-key page per tick, clamped against the current list, including after a shrink.
 
 Holding it for 500 ms emits **one** `dial_long_press`; clients suppress the release press.
-That input pops the drill stack; at root it does nothing.
+That input pops the drill stack; at root it opens Settings. In Settings it
+returns from choices to sections, then closes Settings.
 
-Dial 1 scrolls and its press is reserved. Dial 2 (B) turns produce selected-ticket priority effects
-(negative = up); with no selection they scroll the category chips.
-Dial 3 has no navigation action in the reducer.
+Dial 1 scrolls Settings choices and its press selects the current choice.
+Dial 2 (B) turns produce selected-ticket priority effects (negative = up);
+with no selection they scroll the category chips. Dial 3 has no navigation
+action in the reducer.
 
 Keys resolve from server-owned sections:
 feature, epic and fleet keys drill into tickets; ticket keys select and produce
@@ -135,7 +150,6 @@ an open-ticket effect.
 
 Priority moves execute against editable list queues;
 fixed-order queues and unavailable reads return feedback without a write.
-Open-ticket execution belongs to SD-301.
 
 `Deck.Nav` is pure; `Deck.Input` resolves targets from ordered section items
 `%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
@@ -152,6 +166,11 @@ On a focused ticket, seven turn keys plus LIVE replace the grid. Turn keys selec
 The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
+
+On the physical sidecar, a 500 ms hold of dial 3 records from the selected
+microphone; release stops capture, and a short tap sends settled text via `say`.
+This uses the existing `voice_start`, `voice_audio` and `voice_stop` protocol;
+it adds no conversation or text-to-speech path.
 
 Send `focus` with `{identifier}` to watch one agent, or `unfocus` to stop. A
 channel subscribes to only that one `agent:<identifier>` source; it never fans
@@ -246,6 +265,7 @@ environment, or its configuration; there is no second place to configure it.
 | `voice_start` | `{}` | `{"session": id}` or `{"reason": r}` |
 | `voice_audio` | `{"session": id, "audio": base64}` | none |
 | `voice_stop` | `{"session": id}` | `{}` |
+| `voice_status` | `{"text": text}` (up to 200 bytes) | `{}`; renders dictation status on the strip |
 
 ### Aiur → device
 

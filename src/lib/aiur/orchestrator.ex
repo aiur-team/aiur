@@ -50,6 +50,10 @@ defmodule Aiur.Orchestrator do
   def has_live_owner?(identifier),
     do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
 
+  @doc false
+  @spec tracker_identity(String.t()) :: Aiur.TrackerIdentity.t() | nil
+  def tracker_identity(identifier), do: TrackedSet.tracker_identity(identifier)
+
   @impl true
   def terminate(reason, state), do: Lifecycle.terminate(reason, state)
 
@@ -425,6 +429,7 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_call({:listener_get_mode, id}, _from, state), do: ListenerModes.get_mode(state, id)
+
   def handle_call({:listener_set_mode, id, mode, opts}, _from, state), do: ListenerModes.set_mode(state, id, mode, opts)
   defdelegate handle_call(message, from, state), to: Aiur.Orchestrator.Calls
 

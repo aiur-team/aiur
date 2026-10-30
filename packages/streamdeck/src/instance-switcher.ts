@@ -22,6 +22,7 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
     const saved: unknown = JSON.parse(readFileSync(options.preferencePath, "utf8"));
     chosen = options.targets.find((target) => target.name === saved) ?? chosen;
   } catch { /* A missing/corrupt preference leaves local selected. */ }
+  let selectionChain = new Set([chosen.name]);
   let highlighted = options.targets.indexOf(chosen);
   let state: InstanceState = "unreachable";
   let message = "";
@@ -78,8 +79,22 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
       } catch (error) { failed(error); }
     });
   };
+  const remember = (target: InstanceTarget): void => {
+    if (chosen !== target) return;
+    try {
+      mkdirSync(path.dirname(options.preferencePath), { recursive: true });
+      writeFileSync(options.preferencePath, JSON.stringify(target.name), { mode: 0o600 });
+    } catch { message = "Cannot save instance preference"; options.changed(); }
+  };
   return {
     start: () => connect(chosen),
+    resetSelectionChain: () => { selectionChain = new Set([chosen.name]); },
+    select: (name: string, explicit = false) => {
+      if (explicit) selectionChain = new Set([chosen.name]);
+      if (selectionChain.has(name)) return;
+      const target = options.targets.find((item) => item.name === name);
+      if (target !== undefined && target !== chosen) { selectionChain.add(name); connect(target); remember(target); }
+    },
     turn: (ticks: number) => {
       highlighted = ((highlighted + ticks) % options.targets.length + options.targets.length) % options.targets.length;
       message = "";
@@ -88,11 +103,7 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
     press: () => {
       const target = options.targets[highlighted]!;
       connect(target);
-      if (chosen !== target) return;
-      try {
-        mkdirSync(path.dirname(options.preferencePath), { recursive: true });
-        writeFileSync(options.preferencePath, JSON.stringify(target.name), { mode: 0o600 });
-      } catch { message = "Cannot save instance preference"; options.changed(); }
+      remember(target);
     },
     label: () => `${chosen.name} · ${state}${message ? ` | ${message}` : ""}${options.targets[highlighted] !== chosen ? ` | ◀ ${options.targets[highlighted]!.name} ▶ · press to connect` : ""}`,
     idle: () => pending,

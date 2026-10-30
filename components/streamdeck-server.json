@@ -18,8 +18,10 @@
   "requires": [
     "accounting",
     "commands",
+    "config",
     "conversations",
     "identity",
+    "kernel",
     "projections",
     "web-kit"
   ],
@@ -32,7 +34,9 @@
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
+    "state": [
+      "streamdeck_settings_path"
+    ],
     "capabilities": [
       "streamdeck"
     ]
@@ -41,7 +45,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Renders shared Stream Deck frames with ticket states, PR checks, Commands, paged conversations, account windows and queue controls.",
+  "summary": "Renders shared deck frames, paged conversations, provider accounts, queue controls and per-instance settings.",
   "status": "optional",
   "install": {
     "type": "included"

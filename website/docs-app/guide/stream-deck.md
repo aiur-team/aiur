@@ -8,14 +8,13 @@ Conversation dictation follows the ticket’s listener mode: default Sync waits 
 
 The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
-The server also maintains independent Ticket, Feature, Epic and Fleet navigation
-for each connection. Dial 4 cycles views, turns page by eight keys, and a 500 ms
-hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
-Dial 3 is reserved for the sidecar's instance switch.
+The physical deck uses server-rendered Ticket, Feature, Epic and Fleet views.
+Dial 4 cycles views, turns page by eight keys, and a 500 ms hold goes back or
+opens Settings at the root. Dial 1 scrolls and dial 2 changes ticket priority.
 
-The browser retains the focused controls below. Its grid dial D turns pages
-and presses to cycle Ticket, Feature, Epic and Fleet; dial B scrolls the category chips.
-The current physical client uses the navigation controls described above.
+After selecting a ticket, hold dial 3 for 500 ms to dictate; release stops
+capture, and a short tap sends the settled transcript. Choose instances in Settings.
+The grid dial D turns pages and presses to cycle Ticket, Feature, Epic and Fleet; dial B scrolls the category chips.
 
 ## Read provider accounts
 
@@ -30,12 +29,14 @@ its summary account; hold dial 4 to return. Account keys are read-only.
 
 ## Drive the deck
 
+Settings uses the same sections and choices on both surfaces; PC device choices need sidecar inventory.
+
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold to go back. |
-| **Ticket conversation** | Press a ticket key | Seven conversation turns plus LIVE | Selected turn, or the latest entry at LIVE | A: scroll text; press for Grid. B: priority. C: physical instance switcher. D: turn for older/newer turns; press to leave the ticket. |
-| **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: conversation navigation. |
-| **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Build progress; agent category chips; separate queued and not-queued backlog with page dots | A: no action. B: scroll category chips. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold for Settings at root. |
+| **Ticket conversation** | Press a ticket key | Seven conversation turns plus LIVE | Selected turn, or the latest entry at LIVE | A: scroll text; press for Grid. B: priority. C: physical dictation. D: turn for older/newer turns; press to leave the ticket. |
+| **Legacy Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical dictation. D: conversation navigation. |
+| **Settings** | Hold dial 4 at root or press Settings | Mic, Speaker, View, Sort, Brightness, Sleep, Instance, Alerts | Current section, choice, save errors and inventory availability | Dial 1: scroll/press select. Hold dial 4: back. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 The server-rendered Ticket strip uses three bands: build progress at the left
@@ -218,7 +219,7 @@ The archive installs the sidecar, a systemd **user** service, and the udev rule 
 
 The supported deployment is Arch Linux on x64 glibc 2.28+.
 
-The service applies `STREAMDECK_BRIGHTNESS`, reconnects after device hotplug, suspend, or a dashboard disconnect, and keeps the keys and touch strip current with the live fleet.
+The service uses `STREAMDECK_BRIGHTNESS` until brightness is saved in Settings, reconnects after device hotplug, suspend, or a dashboard disconnect, and keeps the keys and touch strip current with the live fleet.
 
 | Setting | Where |
 | --- | --- |
@@ -226,7 +227,7 @@ The service applies `STREAMDECK_BRIGHTNESS`, reconnects after device hotplug, su
 | `AIUR_CLIENT_TOKEN` | `~/.config/aiur/streamdeck.env`; optional engine environment for pane control |
 | `AIUR_DASHBOARD_USERNAME` | `~/.config/aiur/streamdeck.env` |
 | `AIUR_DASHBOARD_PASSWORD` | `~/.config/aiur/streamdeck.env` |
-| `STREAMDECK_BRIGHTNESS` | Sidecar environment |
+| `STREAMDECK_BRIGHTNESS` | Sidecar environment; default brightness until a deck setting is saved |
 
 The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
 dashboard credentials to mint a short-lived channel token. Neither credential
@@ -262,12 +263,11 @@ Invalid URLs or credentials prevent that connection; the physical strip shows
 Tokens are resolved when connecting and never shown on the strip
 or in debug logs.
 
-The last activated name is remembered in `streamdeck-instance.json` next to
-`streamdeck-mic.json` under the sidecar's config directory (`$XDG_CONFIG_HOME/aiur`,
-or `~/.config/aiur`). Restart the sidecar after editing the registry.
+The sidecar remembers its last connection in `streamdeck-instance.json` under
+`$XDG_CONFIG_HOME/aiur` (or `~/.config/aiur`); the daemon's Settings page chooses
+which instance to follow. Restart the sidecar after editing the registry.
 
-The browser
-emulator shows its current instance name only; open the other dashboard's
+The browser emulator shows its current instance name only; open the other dashboard's
 `/streamdeck` page to change instances there.
 
 The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
@@ -276,18 +276,16 @@ The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/s
 
 Voice input captures speech from a microphone attached to the sidecar machine, transcribes it to English text, and sends that text to the selected agent as an operator message.
 
-### The keys
+### Legacy command keys
 
-Shared ticket frames use the conversation keys described above; these slots do not describe the physical frame keys.
-
-The legacy browser Command controls retain the voice layout below.
+Shared ticket frames use conversation keys; these slots describe the legacy browser Command controls, while physical dictation uses dial 3 after selecting a ticket.
 
 | Key | Slot | Behavior |
 | --- | --- | --- |
 | Pause/Play | First | Pauses or resumes the selected agent. |
 | Priority up/down | Second/third | Moves a ticket one place in a list queue; disabled at edges or outside a list queue. |
 | Mic | Seventh | Press-and-hold; live only while held. |
-| Settings | Eighth | Opens the microphone picker on the deck, or a text pane in the emulator; dial A backs out of either. |
+| Settings | Eighth | Opens shared Settings; hold dial 4 at the root to open it from the physical grid. |
 | Commands | Fourth | Opens the agent's Command history; always present, so its absence can never be mistaken for "no Commands". |
 | Open PR / Dashboard | Fifth/sixth | Opens the configured PR or Build ticket modal on the sidecar host; browser emulator uses a new tab. |
 | Send | Fifth, once dictation has text | Delivers the accumulated text to the agent. |
@@ -295,11 +293,16 @@ The legacy browser Command controls retain the voice layout below.
 
 A missing PR disables Open PR. Link keys accept only HTTP(S) URLs.
 
-The emulator shows a text pane because the microphones are attached to the machine running the sidecar, which a browser tab cannot see.
+The browser shares Settings and its reported PC inventory; microphone capture runs on the sidecar.
 
 ### Dictate to an agent
 
-In the legacy Command layout, hold Mic and speak.
+On the physical deck, select a ticket, hold dial 3 for 500 ms and speak. Release
+to stop capture; short-tap dial 3 to send the settled text to that ticket. This
+uses the microphone chosen in Settings and the Dashboard message path. It does
+not start a spoken conversation or play agent replies.
+
+In the legacy command layout, hold Mic and use Send/Cancel:
 
 | Step | What happens |
 | --- | --- |
@@ -312,24 +315,30 @@ In the legacy Command layout, hold Mic and speak.
 
 Your operator message appears as its own conversation turn; LIVE returns to the newest entry.
 
-### Choose a microphone
+### Settings
 
-Settings lists the microphones attached to the sidecar's machine, six to a page.
+Hold dial 4 at the root to open Settings.
 
-| Control or state | Behavior |
+| Setting or state | Behavior |
 | --- | --- |
-| Microphone key | Selects that device; the selected key is highlighted. |
-| Paging key | Eighth key; present when more than six devices are attached. |
-| TestMic | Seventh key; hold it to see the voice panel without delivering anything to an agent. |
-| Stored choice | `~/.config/aiur/streamdeck-mic.json`; survives a sidecar restart. |
-| Chosen device absent | Capture falls back to the first available device and keeps the stored preference. |
-| No microphone at all | The pane says so rather than showing an empty grid. |
+| Navigation | Press a section key, turn dial 1 to scroll, then press it or a choice key to select; hold dial 4 to return. |
+| Mic and Speaker | Choose devices attached to the sidecar's PC; inventory refreshes after device changes. |
+| View and Sort | Set the default deck view and ordering. |
+| Brightness | Save a value from 0 to 100; until saved, `STREAMDECK_BRIGHTNESS` supplies the default. |
+| Sleep | Dim after the chosen idle timeout; 0 disables dimming. Any input restores brightness. |
+| Instance | Choose which configured daemon instance the deck follows. |
+| Alerts | Choose flash/chime for `command`, `ci_red`, `error` and `usage_limited`; daemon alert routing stays unchanged. |
+| Stored choice | `~/.aiur/instances/<key>/streamdeck-settings.json`, private to the daemon instance; survives sidecar restarts. The old mic preference is migrated once. |
+| Chosen device absent | Shows “missing”, uses the first available device and keeps the saved id for reconnection. |
+| Save failure | Shows “not saved” and keeps the previous file and settings. |
 
-The waveform and level bar are computed on the sidecar, so they keep moving with no ElevenLabs key configured; the panel then shows the reason where the text would be.
+There is no standalone microphone-test key. The browser uses the daemon's latest
+sidecar inventory; disconnects and failed device discovery show “Unavailable” rather than an empty list.
 
 ### Voice replies are out of scope
 
-The deck transcribes and does not speak, so it needs only the `Speech to Text` and `User` permissions.
+Agent replies are not spoken; only alert chimes use the chosen speaker. Dictation
+needs the `Speech to Text` and `User` permissions.
 
 The Build ticket modal retains dictation. Worker conversation voice and the Executor prototype remain available from Home’s **Settings → Talk to Executor** (`/voice`).
 

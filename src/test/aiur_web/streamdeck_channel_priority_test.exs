@@ -5,10 +5,14 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
   alias AiurWeb.Streamdeck.{FrameUpdates, Render}
 
   setup do
+    root = Path.join(System.tmp_dir!(), "deck-priority-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     owner = self()
     queue = start_supervised!({Agent, fn -> model(3) end})
 
     put_endpoint_config(
+      streamdeck_settings_path: Path.join(root, "settings.json"),
       streamdeck_snapshot_fun: fn -> %{running: [], retrying: [], idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]} end,
       streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(%{idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]}) end,
       streamdeck_build_queue_fun: fn -> Agent.get(queue, & &1) end,
