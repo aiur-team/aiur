@@ -1,6 +1,6 @@
 defmodule Aiur.Executor.SessionCLI do
   @moduledoc false
-  alias Aiur.Executor.{HarnessSession, Session}
+  alias Aiur.Executor.{HarnessSession, Session, SessionIngest}
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec rpc(keyword()) :: :ok
@@ -16,9 +16,9 @@ defmodule Aiur.Executor.SessionCLI do
         {:ok, binding} -> Session.public(binding)
       end
 
-    counts = Session.rejected_counts()
     status = Map.merge(binding, age(binding, now))
-    status = Map.merge(status, %{observed_at: DateTime.to_iso8601(now), foreign_session_count: Map.get(counts, :foreign_session, 0), not_attached_count: Map.get(counts, :not_attached, 0)})
+    status = Map.merge(status, rejection_status())
+    status = Map.put(status, :observed_at, DateTime.to_iso8601(now))
     status = Map.put(status, :harness_session, HarnessSession.current(Keyword.take(opts, [:now, :path])))
     IO.puts(if Keyword.get(opts, :json, false), do: Jason.encode!(status), else: render(status))
     0
@@ -36,10 +36,18 @@ defmodule Aiur.Executor.SessionCLI do
     end
   end
 
+  defp rejection_status do
+    counts = SessionIngest.rejected_counts()
+    %{recording?: true, foreign_session_count: Map.get(counts, :foreign_session, 0), not_attached_count: Map.get(counts, :not_attached, 0)}
+  catch
+    :exit, {:noproc, _call} ->
+      %{recording?: false, foreign_session_count: nil, not_attached_count: nil}
+  end
+
   defp render(status) do
     "#{String.upcase(status.state)} binding=#{Map.get(status, :binding_id, "-")} harness=#{Map.get(status, :harness, "-")} live=#{status.live?}\n" <>
       "observed_at=#{status.observed_at} age_ms=#{status.age_ms || "unknown"} freshness=#{status.freshness}\n" <>
-      "foreign_session=#{status.foreign_session_count} not_attached=#{status.not_attached_count}\n" <>
+      "recording=#{status.recording?} foreign_session=#{status.foreign_session_count || "unknown"} not_attached=#{status.not_attached_count || "unknown"}\n" <>
       "harness_session=#{Jason.encode!(status.harness_session)}"
   end
 end

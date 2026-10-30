@@ -38,6 +38,10 @@ cmd_executor_session() {
   run_control_rpc "Aiur.AgentControlCLI.executor_session(json: $json)"
 }
 
+executor_project_root() {
+  git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$PWD"
+}
+
 cmd_executor_attach() {
   local harness="" takeover=false print_config=false
   while [ "$#" -gt 0 ]; do
@@ -53,10 +57,10 @@ cmd_executor_attach() {
     shift
   done
   case "$harness" in claude|codex) ;; *) echo "aiur: executor-attach requires --harness claude or codex" >&2; exit 64 ;; esac
-  run_control_rpc "Aiur.AgentControlCLI.executor_attach(harness: \"$harness\", takeover?: $takeover, print_config: $print_config, repo_root: \"$(encode_control_value "$PWD")\" |> Base.decode64!())"
+  run_control_rpc "Aiur.AgentControlCLI.executor_attach(harness: \"$harness\", takeover?: $takeover, print_config: $print_config, repo_root: \"$(encode_control_value "$(executor_project_root)")\" |> Base.decode64!())"
 }
 
 cmd_executor_detach() {
   [ "$#" -eq 0 ] || { echo "aiur: executor-detach accepts no arguments" >&2; exit 64; }
-  run_control_rpc "Aiur.AgentControlCLI.executor_detach(repo_root: \"$(encode_control_value "$PWD")\" |> Base.decode64!())"
+  run_control_rpc "Aiur.AgentControlCLI.executor_detach(repo_root: \"$(encode_control_value "$(executor_project_root)")\" |> Base.decode64!())"
 }

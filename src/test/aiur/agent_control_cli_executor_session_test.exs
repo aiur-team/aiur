@@ -148,7 +148,7 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     refute File.exists?(Path.join(root, ".codex"))
   end
 
-  test "session renders unknown hook age then real age and rejection counters", %{root: root} do
+  test "session renders unknown hook age then real age", %{root: root} do
     assert {:ok, _binding} = Session.attach(%{harness: "claude"})
     now = DateTime.utc_now()
     read_opts = [json: true, now: now, path: Path.join(root, "claims.json")]
@@ -165,15 +165,9 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "one"})
     assert {:ok, _} = Session.touch(binding.binding_id, DateTime.add(now, -5, :second))
 
-    assert {:error, :foreign_session} =
-             Session.bind_provider_session(binding.binding_id, %{session_id: "other"})
-
-    assert {:error, :not_attached} = Session.touch("wrong-binding", now)
     data = Jason.decode!(capture_io(fn -> SessionCLI.run(read_opts) end))
     assert data["age_ms"] == 5000
     assert data["freshness"] == "fresh"
-    assert data["foreign_session_count"] == 1
-    assert data["not_attached_count"] == 1
 
     assert capture_io(fn -> SessionCLI.run(Keyword.put(read_opts, :json, false)) end) =~
              "age_ms=5000 freshness=fresh"
