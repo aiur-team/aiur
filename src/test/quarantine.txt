@@ -6,6 +6,8 @@ Aiur.Claude.Repl.HookTurnTest	post_tool_use hook resets the deadline so the loop
 Aiur.Codex.StartupFailureTest	a process exiting before initialize persists its status and a redacted bounded diagnostic	#6212	2026-12-31
 Aiur.CodingAgentCheckpointTest	Codex adapter treats idle thread status as turn completion	#6356	2026-12-31
 Aiur.Commands.NativeCaptureTest	derived approval labels use the existing policy for every question	#6866	2026-11-10
+Aiur.Conversation.IngestTest	facade skips deltas, preserves explicit gap spans and never raises on invalid input	#7241	2026-11-13
+Aiur.Conversation.IngestTest	uncertain gap writes recover without repeating backpressure or explicit gaps	#7241	2026-11-13
 Aiur.Core.AgentRunnerPauseTest	agent runner interrupts an active turn and waits for the next operator message before resuming	#6070	2026-12-31
 Aiur.DaemonHeartbeatTest	*	#6054	2026-12-31
 Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no copy of the bodies on the store's heap	#6124	2027-01-22
@@ -18,6 +20,8 @@ Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
+Aiur.Regression.ProgressRendererBoundaryTest	Build Order presentation surfaces do not bypass the shared renderer	#7234	2026-11-13
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
+AiurWeb.StreamdeckOverrideTest	explicit override selector accepts a delivered answer through the channel	#7242	2026-11-13
 AiurWeb.UsageAccountsApiControllerTest	*	#7217	2026-11-13
