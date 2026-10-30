@@ -10,6 +10,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.EventsDigest
+  alias Aiur.IssueLog.{CommandRecorder, Paths}
 
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.{TicketObservation, TrackerIdentity}
@@ -333,7 +334,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
     identity = identity(identifier: Integer.to_string(System.unique_integer([:positive])))
     token = "ghp_123456789012345678901234567890123456"
 
-    Aiur.IssueLog.CommandRecorder.record_command(identity, "GH_TOKEN=#{token} gh issue view 12", observed_at: DateTime.utc_now())
+    CommandRecorder.record_command(identity, "GH_TOKEN=#{token} gh issue view 12", observed_at: DateTime.utc_now())
     pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
     _ = :sys.get_state(pid)
@@ -341,7 +342,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert {:ok, %{events: [%{kind: "command", summary: "GH_TOKEN=[REDACTED:credential] gh issue view 12"}]}} =
              Aiur.IssueLog.event_history_page(identity, after_id: 0, kinds: [:command])
 
-    refute File.read!(Aiur.IssueLog.Paths.timeline_event_log_path(identity)) =~ token
+    refute File.read!(Paths.timeline_event_log_path(identity)) =~ token
   end
 
   test "lines without [event:*] tag are ignored", %{identifier: id} do

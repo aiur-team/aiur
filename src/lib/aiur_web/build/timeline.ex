@@ -244,11 +244,7 @@ defmodule AiurWeb.Build.Timeline do
 
   defp progress(items) do
     items
-    |> Enum.filter(&(Map.get(&1, :status) == :progress))
-    |> Enum.filter(&is_integer(Map.get(&1, :percent)))
-    |> Enum.map(fn item ->
-      item
-    end)
+    |> Enum.filter(&(Map.get(&1, :status) == :progress and is_integer(Map.get(&1, :percent))))
   end
 
   defp event_id(%{id: id}) when is_integer(id), do: id

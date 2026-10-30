@@ -2,7 +2,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureTimeline do
   @moduledoc false
 
   alias Aiur.Events
+  alias Aiur.LandingWatch.MergeGroupFailureEvidence
 
+  @spec publish(pos_integer(), [map()], map(), map(), keyword()) :: term()
   def publish(number, observations, failure, run, opts) do
     identity_fun = Keyword.get(opts, :ticket_identity_fun, &Aiur.Orchestrator.tracker_identity/1)
 
@@ -25,7 +27,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureTimeline do
   end
 
   defp failure_identities(%{log: log, job: job}) do
-    case Aiur.LandingWatch.MergeGroupFailureEvidence.test_identities(log) do
+    case MergeGroupFailureEvidence.test_identities(log) do
       [_ | _] = identities -> Enum.sort(identities)
       [] -> [job["name"] || "unknown failing spec"]
     end

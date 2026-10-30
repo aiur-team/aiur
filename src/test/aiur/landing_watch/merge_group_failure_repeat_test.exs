@@ -2,6 +2,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
+  alias Aiur.IssueLog.Writers
   alias Aiur.LandingWatch.{Journal, MergeGroupFailureProcessor, MergeGroupRequeue}
   alias Aiur.TrackerIdentity
 
@@ -451,7 +452,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
   end
 
   defp writer_pid(identity) do
-    [{pid, _}] = Registry.lookup(Aiur.IssueLog.Registry, Aiur.IssueLog.Writers.writer_key(identity))
+    [{pid, _}] = Registry.lookup(Aiur.IssueLog.Registry, Writers.writer_key(identity))
     pid
   end
 
