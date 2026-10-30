@@ -74,7 +74,10 @@ defmodule Aiur.Executor.SessionIngest do
   defp bind(%{binding_id: id, provider_session_id: previous}, %{event: "SessionStart", source: source} = event) when not is_nil(previous) and source in ["resume", "clear", "compact", "fork"],
     do: Session.rebind_on_session_start(id, event)
 
+  defp bind(%{binding_id: id}, %{event: "SessionEnd", reason: "clear"} = event), do: Session.prepare_clear_rebind(id, event)
+
   defp bind(%{binding_id: id}, event), do: Session.bind_provider_session(id, event)
+  defp finish(_id, %{event: "SessionEnd", reason: "clear"}), do: {:ok, :pending_clear}
   defp finish(id, %{event: "SessionEnd"}), do: Session.detach(id, "stopped")
   defp finish(id, event), do: Session.touch(id, event.observed_at)
 

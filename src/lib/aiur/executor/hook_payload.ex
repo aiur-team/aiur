@@ -9,7 +9,7 @@ defmodule Aiur.Executor.HookPayload do
   Rejections emit `[:aiur, :executor, :hook]` telemetry with count 1 and reason.
   """
   alias Aiur.Executor.TranscriptPath
-  @fields ~w(cwd source turn_id agent_id agent_type last_assistant_message notification_type tool_name pid model permission_mode)a
+  @fields ~w(cwd source reason turn_id agent_id agent_type last_assistant_message notification_type tool_name pid model permission_mode)a
 
   @spec normalize(term(), term(), keyword()) :: {:ok, map()} | {:error, :invalid_payload}
   def normalize(raw, harness, opts \\ [])

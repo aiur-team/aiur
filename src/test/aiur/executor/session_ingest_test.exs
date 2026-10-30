@@ -48,7 +48,7 @@ defmodule Aiur.Executor.SessionIngestTest do
     refute_receive {:executor_hook, _event}, 0
   end
 
-  test "binds, touches, rebinds clear in the same process and ends stopped" do
+  test "binds, touches, rebinds compact in the same session and ends stopped" do
     assert {:ok, pending} = Session.attach(%{harness: "claude"})
     dispatch("SessionStart")
     SessionIngest.rejected_counts()
@@ -59,25 +59,64 @@ defmodule Aiur.Executor.SessionIngestTest do
     assert_receive {:executor_hook, %{event: "SessionStart", session_id: "one", observed_at: observed}}, 1000
     assert bound.last_hook_at == DateTime.to_iso8601(observed)
 
-    dispatch("SessionStart", "two", %{"source" => "clear"})
+    dispatch("SessionStart", "one", %{"source" => "compact", "pid" => nil})
     SessionIngest.rejected_counts()
     assert {:ok, rebound} = Session.current()
-    assert rebound.provider_session_id == "two"
-    assert rebound.start_reason == "clear"
-    assert_receive {:executor_hook, %{session_id: "two", source: "clear"}}, 1000
+    assert rebound.provider_session_id == "one"
+    assert rebound.start_reason == "start"
+    assert_receive {:executor_hook, %{session_id: "one", source: "compact"}}, 1000
 
-    dispatch("PostToolUse", "two")
+    dispatch("PostToolUse", "one")
     SessionIngest.rejected_counts()
     assert_receive {:executor_hook, %{event: "PostToolUse"}}, 1000
-    dispatch("SessionEnd", "two")
+    dispatch("SessionEnd", "one")
     SessionIngest.rejected_counts()
     assert {:ok, detached} = Session.current()
     assert detached.state == "detached"
     assert detached.end_reason == "stopped"
     assert_receive {:executor_hook, %{event: "SessionEnd"}}, 1000
-    dispatch("Stop", "two")
+    dispatch("Stop", "one")
     assert SessionIngest.rejected_counts()[:not_attached] == 1
     refute_receive {:executor_hook, _event}, 0
+  end
+
+  test "real Claude compact payload without pid and clear new-session payload with hook pid rebind safely", %{root: root} do
+    assert {:ok, _} = Session.attach(%{harness: "claude"})
+    initial = claude_fixture_payload(root, "session", "startup")
+    SessionIngest.dispatch(initial, "claude")
+    assert_receive {:executor_hook, %{session_id: "session"}}, 1000
+    assert {:ok, bound} = Session.current()
+    assert bound.provider_session_id == "session"
+
+    compact = claude_fixture_payload(root, "session", "compact") |> Map.delete("pid")
+    SessionIngest.dispatch(compact, "claude")
+    assert_receive {:executor_hook, %{event: "SessionStart", session_id: "session", source: "compact"}}, 1000
+
+    clear_end =
+      Path.join([__DIR__, "../../fixtures/executor_hooks/claude/SessionEnd.json"])
+      |> Path.expand()
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.put("reason", "clear")
+      |> Map.put("pid", "123")
+
+    SessionIngest.dispatch(clear_end, "claude")
+    assert_receive {:executor_hook, %{event: "SessionEnd", reason: "clear"}}, 1000
+
+    cleared = claude_fixture_payload(root, "session-new", "clear") |> Map.put("pid", "123")
+    SessionIngest.dispatch(cleared, "claude")
+    assert_receive {:executor_hook, %{event: "SessionStart", session_id: "session-new", source: "clear"}}, 1000
+    assert {:ok, rebound} = Session.current()
+    assert rebound.provider_session_id == "session-new"
+    assert rebound.start_reason == "clear"
+
+    foreign = claude_fixture_payload(root, "foreign", "clear") |> Map.put("pid", "different") |> Map.put("transcript_path", nil)
+    SessionIngest.dispatch(foreign, "claude")
+    SessionIngest.rejected_counts()
+    assert SessionIngest.rejected_counts()[:foreign_session] == 1
+    assert {:ok, current} = Session.current()
+    assert current.provider_session_id == "session-new"
+    refute_receive {:executor_hook, %{session_id: "foreign"}}, 0
   end
 
   test "nil and rejected hook paths retain the same session locator but never cross a rebind", %{root: root} do
@@ -99,12 +138,12 @@ defmodule Aiur.Executor.SessionIngestTest do
       assert current.locator_hash == initial.locator_hash
     end
 
-    dispatch("SessionStart", "two", %{"source" => "clear"})
+    dispatch("SessionStart", "one", %{"source" => "compact"})
     SessionIngest.rejected_counts()
     assert {:ok, rebound} = Session.current()
-    assert rebound.provider_session_id == "two"
-    assert rebound.transcript_path == nil
-    assert rebound.locator_hash == nil
+    assert rebound.provider_session_id == "one"
+    assert rebound.transcript_path == path
+    assert rebound.locator_hash == initial.locator_hash
   end
 
   test "first hook from an already resumed harness binds without an earlier process identity" do
@@ -151,4 +190,16 @@ defmodule Aiur.Executor.SessionIngestTest do
   end
 
   defp raw(event, id \\ "one"), do: %{"hook_event_name" => event, "session_id" => id, "pid" => "123", "source" => "startup"}
+
+  defp claude_fixture_payload(root, session_id, source) do
+    transcript = Path.join([root, ".claude", "projects", "fixture", session_id <> ".jsonl"])
+    File.mkdir_p!(Path.dirname(transcript))
+    File.write!(transcript, "{}\n")
+
+    Path.join([__DIR__, "../../fixtures/executor_hooks/claude/SessionStart.json"])
+    |> Path.expand()
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.merge(%{"session_id" => session_id, "source" => source, "transcript_path" => transcript})
+  end
 end

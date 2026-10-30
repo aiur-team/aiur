@@ -85,6 +85,8 @@ defmodule Aiur.Conversation.TestSupport do
   end
 
   def setup(context) do
+    # The app AnchorResolver can start a writer after an earlier test's on_exit; it would keep that test's config.
+    stop_writers()
     root = Aiur.TestSupport.tmp_root!("conversation-journal")
     previous = Map.new([:conversation_state_dir, :conversation_journal, :conversation_test_control], &{&1, Application.fetch_env(:aiur, &1)})
     {:ok, control} = Agent.start_link(fn -> %{owner: self()} end)
@@ -108,7 +110,7 @@ defmodule Aiur.Conversation.TestSupport do
     ref = Ref.executor()
     # The app supplies the production registry and supervisor. No provider is wired yet.
     ExUnit.Callbacks.on_exit(fn ->
-      for {_, pid, _, _} <- DynamicSupervisor.which_children(Aiur.Conversation.JournalSupervisor), is_pid(pid), do: DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+      stop_writers()
 
       Enum.each(previous, &restore_env/1)
 
@@ -118,6 +120,10 @@ defmodule Aiur.Conversation.TestSupport do
     end)
 
     Map.merge(context, %{root: root, ref: ref, now: now, control: control, pubsub: pubsub, dir: Path.join(root, Ref.conversation_id(ref))})
+  end
+
+  defp stop_writers do
+    for {_, pid, _, _} <- DynamicSupervisor.which_children(Aiur.Conversation.JournalSupervisor), is_pid(pid), do: DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
   end
 
   defp restore_env({key, {:ok, value}}), do: Application.put_env(:aiur, key, value)
