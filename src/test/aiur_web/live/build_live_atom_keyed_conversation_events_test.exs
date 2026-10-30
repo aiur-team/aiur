@@ -9,6 +9,9 @@ defmodule AiurWeb.BuildLiveAtomKeyedConversationEventsTest do
   defmodule Source do
     alias AiurWeb.Build.ConversationSource.Wave0bEvents
 
+    @ts "2026-10-07T21:13:20.000000Z"
+    @at @ts |> DateTime.from_iso8601() |> elem(1) |> DateTime.to_unix(:millisecond)
+
     def prepare(ref, _opts), do: {:ok, Map.merge(ref, %{handle: nil, path: nil, running: nil})}
 
     def tail(ref, _cursor, opts),
@@ -16,7 +19,7 @@ defmodule AiurWeb.BuildLiveAtomKeyedConversationEventsTest do
         {:ok,
          %{
            state: :live,
-           entries: [%{id: "t:" <> ref.id, k: "say", at: 1_791_407_600_000, text: "hi"}],
+           entries: [%{id: "t:" <> ref.id, k: "say", at: @at, text: "hi"}],
            before: "t:0",
            last: "t:0",
            more?: Agent.get(opts[:control], &Map.get(&1, :more?, true)),

@@ -7,7 +7,7 @@ defmodule AiurWeb.Build.ConversationEventsTest do
   alias AiurWeb.Build.ConversationEvents, as: Events
 
   @ts "2026-10-07T21:13:20.000000Z"
-  @at 1_791_407_600_000
+  @at @ts |> DateTime.from_iso8601() |> elem(1) |> DateTime.to_unix(:millisecond)
   @repo "aiur-team/aiur"
 
   defp line(id, suffix, summary \\ "", opts \\ []),
