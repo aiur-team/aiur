@@ -121,6 +121,7 @@ defmodule Aiur.AgentControlCLIExecutorSessionTest do
     opts: opts,
     root: root
   } do
+    File.mkdir_p!(root)
     File.write!(Path.join(root, ".claude"), "a file blocks the directory")
     output = capture_io(fn -> assert AttachCLI.run_attach(opts) == 73 end)
     assert output =~ Path.join(root, ".claude/settings.local.json")
