@@ -1,12 +1,14 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
   use ExUnit.Case, async: true
+  # Each test gets a fresh ExUnit tmp_dir: a /tmp path keyed only by unique_integer collides across VMs and with stale files.
+  @moduletag :tmp_dir
   import ExUnit.CaptureLog
 
   alias Aiur.LandingWatch.{Journal, MergeGroupFailureProcessor}
 
-  test "a second browser spec failure routes to rework and holds the head without enqueueing" do
+  test "a second browser spec failure routes to rework and holds the head without enqueueing", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
     identity = "BrowserSpec :: src/browser/tests/build-home-tools-parity.browser.spec.mjs"
 
     assert :ok = process_browser_failure(501, path, parent)
@@ -18,12 +20,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     refute_received {:enqueue, 17}
     assert {:ok, true} = Journal.merge_group_head_held?(17, "head-17", journal_path: path)
     assert {:ok, 1} = Journal.merge_group_failure_attempts(17, "head-17", identity, journal_path: path)
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a second failure of the same spec routes the PR to rework" do
+  test "a second failure of the same spec routes the PR to rework", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     assert :ok = process_failure(101, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent)
     assert_received {:enqueue, 17}
@@ -40,13 +41,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
                "test reports parity (Aiur.ParityTest) :: src/test/aiur/parity_test.exs",
                journal_path: path
              )
-
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a different failing spec gets its own re-enqueue" do
+  test "a different failing spec gets its own re-enqueue", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     assert :ok = process_failure(201, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent)
     assert_received {:enqueue, 17}
@@ -62,13 +61,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
                "test reports parity (Aiur.ParityTest) :: src/test/aiur/parity_test.exs",
                journal_path: path
              )
-
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "different tests in one file get independent repeat counters" do
+  test "different tests in one file get independent repeat counters", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     assert :ok = process_failure(221, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent)
     assert_received {:enqueue, 17}
@@ -77,12 +74,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
 
     assert_received {:enqueue, 17}
     refute_received {:rework, 17}
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a repeated spec among multiple failures routes the PR to rework" do
+  test "a repeated spec among multiple failures routes the PR to rework", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     assert :ok = process_failure(251, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent)
     assert_received {:enqueue, 17}
@@ -100,12 +96,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
 
     assert_received {:rework, 17}
     refute_received {:enqueue, 17}
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a prior multi-spec failure is detected when only one spec repeats" do
+  test "a prior multi-spec failure is detected when only one spec repeats", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     assert :ok =
              process_failure(
@@ -122,12 +117,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     assert :ok = process_failure(262, [{"reports other", "test/aiur/other_test.exs"}], path, parent)
     assert_received {:rework, 17}
     refute_received {:enqueue, 17}
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a repeated known non-PR failure with unknown blame routes to rework" do
+  test "a repeated known non-PR failure with unknown blame routes to rework", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
     tests = [{"reports parity", "test/aiur/parity_test.exs"}]
 
     extra_opts = [
@@ -152,12 +146,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     assert :ok = process_failure(402, tests, path, parent, extra_opts)
     assert_received {:rework, 17}
     refute_received {:enqueue, 17}
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a first unresolved PR-caused failure holds the head while routing to rework" do
+  test "a first unresolved PR-caused failure holds the head while routing to rework", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     assert :ok =
              process_failure(281, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent, recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end)
@@ -165,12 +158,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     assert_received {:rework, 17}
     refute_received {:enqueue, 17}
     assert {:ok, true} = Journal.merge_group_head_held?(17, "head-17", journal_path: path)
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "infrastructure and inherited failures requeue without consuming repeat attempts" do
+  test "infrastructure and inherited failures requeue without consuming repeat attempts", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
     tests = [{"reports parity", "test/aiur/parity_test.exs"}]
 
     for {run_id, log, identity} <- [
@@ -183,13 +175,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
       assert_received {:enqueue, 17}
       assert {:ok, 0} = Journal.merge_group_failure_attempts(17, "head-17", identity, journal_path: path)
     end
-
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a first quarantined failure re-enqueues and a repeated one routes to rework" do
+  test "a first quarantined failure re-enqueues and a repeated one routes to rework", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     assert :ok =
              process_failure(301, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent,
@@ -217,22 +207,19 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     assert_received {:rework, 17}
     refute_received {:enqueue, 17}
     assert {:ok, true} = Journal.merge_group_head_held?(17, "head-17", journal_path: path)
-
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "failure attempt journal is capped" do
-    path = journal_path()
+  test "failure attempt journal is capped", %{tmp_dir: tmp_dir} do
+    path = journal_path(tmp_dir)
     failures = for n <- 1..1_005, do: {n, "head-#{n}", ["spec-#{n}"]}
 
     assert {:ok, _counts} = Journal.record_merge_group_failure_attempts(failures, journal_path: path)
     assert {:ok, state} = Journal.state(journal_path: path)
     assert map_size(state["merge_group_failure_attempts"]) == 1_000
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "per-spec repeat counters are pruned to each PR's current head" do
-    path = journal_path()
+  test "per-spec repeat counters are pruned to each PR's current head", %{tmp_dir: tmp_dir} do
+    path = journal_path(tmp_dir)
     opts = [journal_path: path]
     identity = "test reports parity (Aiur.ParityTest) :: src/test/aiur/parity_test.exs"
     other_identity = "test reports other (Aiur.OtherTest) :: src/test/aiur/other_test.exs"
@@ -252,11 +239,10 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     assert {:ok, 1} = Journal.merge_group_failure_attempts(17, "head-17", identity, opts)
     assert {:ok, 0} = Journal.merge_group_failure_attempts(17, "old-head-17", old_identity, opts)
     assert {:ok, 0} = Journal.merge_group_failure_attempts(18, "head-18", other_identity, opts)
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "a cancelled merge-group run is ignored" do
-    path = journal_path()
+  test "a cancelled merge-group run is ignored", %{tmp_dir: tmp_dir} do
+    path = journal_path(tmp_dir)
     run = failed_run(401, "cancelled")
 
     assert :ok =
@@ -271,9 +257,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     refute File.exists?(path)
   end
 
-  test "the cancelled incident job shape is requeued without sending its PR to rework" do
+  test "the cancelled incident job shape is requeued without sending its PR to rework", %{tmp_dir: tmp_dir} do
     parent = self()
-    path = journal_path()
+    path = journal_path(tmp_dir)
 
     jobs =
       [%{"id" => 1, "name" => "changes", "conclusion" => "success"}, %{"id" => 2, "name" => "soak", "conclusion" => "skipped"}, %{"id" => 3, "name" => "quarantined tests", "conclusion" => "skipped"}] ++
@@ -285,7 +271,6 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
 
     assert_received {:enqueue, 17}
     refute_received {:rework, 17}
-    Aiur.TestCleanup.rm_rf!(path)
   end
 
   defp process_failure(run_id, tests, journal, parent, extra_opts \\ []) do
@@ -382,5 +367,5 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     }
   end
 
-  defp journal_path, do: Path.join(System.tmp_dir!(), "merge-group-repeat-#{System.unique_integer([:positive])}.json")
+  defp journal_path(tmp_dir), do: Path.join(tmp_dir, "journal.json")
 end
