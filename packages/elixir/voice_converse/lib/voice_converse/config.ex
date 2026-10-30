@@ -83,6 +83,7 @@ defmodule VoiceConverse.Config do
          :ok <- check_transcript_root(config),
          :ok <- check_session_settings(config),
          :ok <- check_limits(config),
+         :ok <- check_roles(config),
          :ok <- VoiceConverse.ProviderConfig.validate(config.providers),
          :ok <- VoiceConverse.ProviderPolicy.validate(config.privacy) do
       {:ok, config}
@@ -169,6 +170,22 @@ defmodule VoiceConverse.Config do
   end
 
   defp check_session_settings(_config), do: :ok
+
+  defp check_roles(config) do
+    cond do
+      not is_list(config.roles) ->
+        {:error, %{field: :roles, reason: :invalid}}
+
+      not (is_nil(config.roles_dir) or is_binary(config.roles_dir)) ->
+        {:error, %{field: :roles_dir, reason: :invalid}}
+
+      not (is_list(config.glossary) and Enum.all?(config.glossary, &is_binary/1)) ->
+        {:error, %{field: :glossary, reason: :invalid}}
+
+      true ->
+        :ok
+    end
+  end
 
   defp check_limits(%{limits: limits}) do
     case Enum.find(limits, fn {key, value} -> not valid_limit?(key, value) end) do

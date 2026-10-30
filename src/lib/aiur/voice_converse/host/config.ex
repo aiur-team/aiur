@@ -37,6 +37,8 @@ defmodule Aiur.VoiceConverse.Host.Config do
       transcript_root: transcript_root,
       llm: settings.llm,
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
+      roles: Aiur.VoiceConverse.Host.Roles.defaults(),
+      glossary: [Aiur.VoiceConverse.Host.Roles.glossary()],
       roles_dir: settings.roles_dir,
       redactor: &redact/1,
       limits: Map.take(settings, @limit_keys),

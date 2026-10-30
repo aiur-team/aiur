@@ -80,3 +80,21 @@ mix voice_converse.transcripts --root /path/to/transcripts vc_aaaaaaaaaaaaaaaaaa
 
 The root is explicit; list limits are 1–100 (default 100). JSON preserves index fields
 or raw complete transcript records. Text output reports torn tails and skipped records.
+
+## Role pre-context
+
+Supply `Config.roles` as a list of `%{id: "worker", title: "Ticket discussion",
+prompt: "Discuss the ticket"}` maps. Optional `targets` defaults to both
+`["worker", "executor"]`. `Config.roles_dir` adds Markdown files with YAML
+front matter (`id`, `title`, `targets`) and a nonempty prompt body; directory
+roles override inline ids. `Roles.load(config)` returns `%{roles: [...],
+warnings: [...]}`; invalid entries are skipped and duplicate ids warn.
+`Roles.list(config)` lists ids, titles and targets; `Roles.get(config, id)`
+returns a role with `prompt` and lowercase SHA-256 `hash`, or `{:error, :not_found}`.
+
+`Config.glossary` is a list of host-supplied strings appended with blank lines.
+The core ships no host roles or glossary. Sessions select the role matching the
+target's `worker`/`executor` kind by default, or accept `role_id:` explicitly.
+An unknown selection or incompatible target refuses startup. Hosts supplying no
+roles can continue using sessions without a role. The selected prompt is frozen
+for reconnects and its id/hash are recorded in `session_started`.
