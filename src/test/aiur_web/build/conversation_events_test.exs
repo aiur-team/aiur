@@ -146,6 +146,15 @@ defmodule AiurWeb.Build.ConversationEventsTest do
       assert [%{ev: "fail", label: "PR #8 closed", id: "ev:fail:pr:8"}] = tail(row(%{"pr" => %{"num" => 8, "state" => "closed"}, "status" => "failed"}))
     end
 
+    test "a logged PR-open event suppresses its duplicate current-fact row" do
+      logged = Events.from_log([line(7, "pr.opened", "PR #8")], "12", %{})
+      row = row(%{"pr" => %{"num" => 8, "state" => "open"}})
+      current = Events.current_facts(row, facts(%{logged_events: logged}))
+
+      opened = Enum.filter(logged ++ current.tail, &(&1.ev == "pr"))
+      assert [%{id: "ev:log:7", label: "Opened PR"}] = opened
+    end
+
     test "E12 state rows per agent state" do
       decision = %{id: "d1", ticket: %{identifier: "12", url: "https://github.com/aiur-team/aiur/issues/12"}, created_at: ~U[2026-10-07 21:13:20Z]}
 

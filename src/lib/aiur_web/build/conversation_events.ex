@@ -67,8 +67,8 @@ defmodule AiurWeb.Build.ConversationEvents do
   @doc """
   Current-fact rows (rows 6–16). `facts` carries `:deps` (dependency rows by id),
   `:merges` (a list, or `:unavailable`), `:decisions` (`{:ok, list}` or
-  `:unavailable`), `:pause` (the pause reason), `:by_you_at` and `:repository`
-  (`"owner/name"`).
+  `:unavailable`), `:logged_events` (mapped history rows), `:pause` (the pause
+  reason), `:by_you_at` and `:repository` (`"owner/name"`).
   """
   @spec current_facts(map(), map()) :: %{deps: [entry()], tail: [entry()]}
   def current_facts(row, facts) do
@@ -76,9 +76,14 @@ defmodule AiurWeb.Build.ConversationEvents do
     repo = facts[:repository]
     deps = facts[:deps] || %{}
     dep_rows = for id <- row_value(row, :deps) || [], dep = deps[id], is_map(dep), is_integer(dep["num"]), do: dep_event(dep, merge_for(merges, dep["id"], repo))
-    tail = List.wrap(pr_event(row, merge_for(merges, row_value(row, :id), repo))) ++ command_events(row, facts[:decisions], repo) ++ List.wrap(state_event(row, facts))
+    pr = pr_event(row, merge_for(merges, row_value(row, :id), repo))
+    pr_rows = if match?(%{ev: "pr"}, pr) and logged_pr_open?(facts[:logged_events]), do: [], else: List.wrap(pr)
+    tail = pr_rows ++ command_events(row, facts[:decisions], repo) ++ List.wrap(state_event(row, facts))
     %{deps: dep_rows, tail: tail}
   end
+
+  defp logged_pr_open?(events) when is_list(events), do: Enum.any?(events, &match?(%{ev: "pr", label: "Opened PR"}, &1))
+  defp logged_pr_open?(_events), do: false
 
   defp dep_event(dep, merge) do
     merged? = get_in(dep, ["pr", "state"]) == "merged"
