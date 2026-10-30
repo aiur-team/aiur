@@ -230,7 +230,9 @@ delivery or merge. The original answer remains in the audit history.
 
 Before delivery the new answer replaces the pending answer; after delivery it sends corrective direction to the
 active worker on unmerged work. If the PR has merged, it creates a corrective
-ticket for a new worker and PR. It cannot retract earlier effects.
+ticket for a new worker and PR.
+
+It cannot retract earlier effects.
 
 | State when the override arrives | Routing |
 | --- | --- |
@@ -244,10 +246,14 @@ ticket for a new worker and PR. It cannot retract earlier effects.
 The **Overrides** timeline links each override to its original Command, ticket,
 PR and corrective ticket when known. Text chips distinguish queued (including
 slot and resume waits), delivered, implemented and superseded states. Delivery
-alone does not establish implementation. A worker-attested push reads “Implemented
+alone does not establish implementation.
+
+A worker-attested push reads “Implemented
 in PR #N (awaiting merge)”; the durable state remains delivered until merge
 evidence confirms it. Inbox badges remain until implementation
-or supersession. The Build fleet overview also lists pending overrides with
+or supersession.
+
+The Build fleet overview also lists pending overrides with
 ticket numbers and links to their Commands; `aiur commands` includes the same state and links in its override
 column. The Stream Deck status reads “override queued” or “override delivered”.
 
