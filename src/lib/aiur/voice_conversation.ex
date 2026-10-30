@@ -7,6 +7,9 @@ defmodule Aiur.VoiceConversation do
 
   @instance Aiur.VoiceConversation.Instance
 
+  @spec print_transcripts(Path.t(), [String.t()]) :: 0 | 1 | 64
+  defdelegate print_transcripts(root, args), to: VoiceConverse.Transcripts, as: :print
+
   @spec instance() :: module()
   def instance, do: @instance
 
