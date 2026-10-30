@@ -398,10 +398,10 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     if Enum.any?(messages, &match?({:"$gen_call", _, :pause}, &1)), do: :ok, else: wait_for_pause(server, attempts - 1)
   end
 
-  test "supervision appends the optional writer after all existing children" do
+  test "supervision keeps the optional writer before the Executor binding" do
     opts = [interactive_cli?: false, headless?: true, dashboard?: false, tailscale_funnel?: false]
     enabled = Aiur.Application.child_specs([recording?: true] ++ opts)
-    assert Supervisor.child_spec(List.last(enabled), []).id == LabelBackfill
+    assert Enum.map(Enum.take(enabled, -2), &Supervisor.child_spec(&1, []).id) == [LabelBackfill, Aiur.Executor.Session]
     disabled = Aiur.Application.child_specs([recording?: false] ++ opts)
     refute Enum.any?(disabled, &(Supervisor.child_spec(&1, []).id == LabelBackfill))
   end
