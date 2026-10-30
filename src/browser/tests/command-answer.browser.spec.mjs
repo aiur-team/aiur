@@ -194,22 +194,57 @@ test('Command Cancel restores the existing response without deciding the Command
 })
 
 test('revision dictation auto-selects Custom response and submits the reviewed correction', async ({ page }) => {
+  let socket
+  let transcriptChangeRef
+  let heldTranscriptReply
+  await page.routeWebSocket('**/live/websocket**', route => {
+    socket = route
+    const server = route.connectToServer()
+    route.onMessage(message => {
+      const packet = JSON.parse(message)
+      if (packet[3] === 'event' && packet[4]?.event === 'decision-revision-change') {
+        const response = new URLSearchParams(packet[4].value).get('revision[custom_response]')
+        if (response === 'Hold the rollout hello browser') transcriptChangeRef = packet[1]
+      }
+      server.send(message)
+    })
+    server.onMessage(message => {
+      const packet = JSON.parse(message)
+      if (packet[3] === 'phx_reply' && packet[1] === transcriptChangeRef) heldTranscriptReply = message
+      else route.send(message)
+    })
+  })
   const answer = await openCommand(page)
   await answer.getByRole('button', { name: 'Decision', exact: true }).click()
   const form = page.locator('[id^="decision-revision-form-"]')
   await expect(form).toBeVisible()
   await expect(form.locator('[data-voice-input]')).toHaveCount(0)
   await start(form)
+  await page.evaluate(() => window.__voiceHandlers.transcript({ kind: 'final', text: 'Hold the rollout' }))
   await expect(form.getByRole('button', { name: 'Send correction', exact: true })).toBeDisabled()
   expect(await page.evaluate(() => window.__micRequests)).toEqual([{ field: true, custom: true }])
   expect(await page.evaluate(() => window.__voiceJoin)).toMatchObject({
     surface: 'command_revision', target: { kind: 'command', decision_id: new URL(page.url()).pathname.split('/').pop() }
   })
   await form.getByRole('button', { name: 'Stop dictation' }).click()
-  await expect(form.locator('[data-voice-input]')).toHaveValue('hello browser')
+  await expect(form.locator('[data-voice-input]')).toHaveValue('Hold the rollout hello browser')
   await expect(form.locator('[data-voice-status]')).toHaveText('Dictation ready. Review the text, then send your correction.')
   await expect(page.locator('.decision-revision-list')).toHaveCount(0)
+  await expect.poll(() => heldTranscriptReply !== undefined).toBe(true)
+  await page.evaluate(() => {
+    const callbacks = window.liveSocket.domCallbacks
+    const beforeUpdate = callbacks.onBeforeElUpdated
+    window.__voiceInputPatches = 0
+    callbacks.onBeforeElUpdated = (from, to) => {
+      if (from.matches('[data-voice-input]')) window.__voiceInputPatches += 1
+      beforeUpdate(from, to)
+    }
+  })
   await form.locator('[data-voice-input]').fill('Hold the rollout after review')
+  const patchesBeforeRelease = await page.evaluate(() => window.__voiceInputPatches)
+  socket.send(heldTranscriptReply)
+  heldTranscriptReply = undefined
+  await expect.poll(() => page.evaluate(() => window.__voiceInputPatches)).toBeGreaterThan(patchesBeforeRelease)
   await expect(page.locator('[data-voice-input]')).toHaveValue('Hold the rollout after review')
   await form.locator('[name="revision[reason]"]').fill('New evidence')
   await form.getByRole('button', { name: 'Send correction', exact: true }).click()
