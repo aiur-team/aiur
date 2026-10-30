@@ -84,6 +84,30 @@ Authenticated POSTs return `202` before
 asynchronous validation and binding updates; a `202` does not mean an event was
 accepted. Other authenticated methods return `405`.
 
+`POST /api/v1/executor/hook/deliver?harness=claude|codex` uses the same
+credential and normalizer to deliver pending Executor messages at a hook boundary.
+Only the attached provider session and harness can receive a batch.
+
+A `200`
+contains the JSON envelope to print verbatim to hook stdout; every other status
+prints nothing (`204` means no delivery). Non-loopback delivery requests return
+`403`; missing or incorrect credentials return `401`.
+
+Sync delivers at `Stop` or the next `UserPromptSubmit`; steer also delivers at
+`PostToolUse`. Async messages remain pull-only. `SessionStart`, subagent hooks,
+and `Stop` with `stop_hook_active: true` never claim messages.
+
+Batches preserve arrival order, with at most 50 messages and a 64 KiB rendered frame. Oversized
+first bodies are truncated.
+
+A claim records harness queueing, not consumption; failed rendering, expired deadlines, and failed HTTP writes leave messages
+pending for retry. The request budget is 1.5 seconds. An idle session waits for
+the next prompt; this endpoint does not wake it.
+
+The loopback `remote_ip` check is defence in depth, not the boundary: a local
+tunnel or reverse proxy that forwards remote traffic to `127.0.0.1` passes it.
+The hook token is the boundary.
+
 The daemon's `Aiur.Executor.HookToken.ensure/0` creates an instance-scoped
 `.executor.hook-token` and `.executor.hook-headers` pair in its Executor state
 directory, with mode `0600` (directory `0700`).

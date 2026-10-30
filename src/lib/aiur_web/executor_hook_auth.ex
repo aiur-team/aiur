@@ -7,14 +7,22 @@ defmodule AiurWeb.ExecutorHookAuth do
   @impl true
   def init(opts), do: opts
   @impl true
-  def call(conn, _opts) do
+  def call(conn, opts) do
     case HookToken.read() do
-      {:ok, token} -> authenticate(conn, token)
+      {:ok, token} -> authenticate(conn, token, opts)
       {:error, _} -> unauthorized(conn, "executor_hook_unconfigured")
     end
   end
 
-  defp authenticate(conn, token) do
+  defp authenticate(conn, token, opts) do
+    if conn.remote_ip not in [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}] and opts[:delivery] do
+      conn |> send_resp(403, "") |> halt()
+    else
+      authenticate_loopback(conn, token)
+    end
+  end
+
+  defp authenticate_loopback(conn, token) do
     if conn.remote_ip in [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}] and matches?(conn, token),
       do: assign(conn, :executor_hook_actor, %{kind: :executor_hook}),
       else: unauthorized(conn, "executor_hook_unauthorized")

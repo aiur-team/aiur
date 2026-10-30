@@ -2,7 +2,7 @@ defmodule Aiur.Listener.Scheduler do
   @moduledoc "Resolves conversation delivery from the effective listener mode."
 
   alias Aiur.{AgentQueue, AgentQueueStore}
-  alias Aiur.Listener.{ModeStore, SpecStatus}
+  alias Aiur.Listener.{ModeStore, Spec, SpecStatus}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
   @type origin :: :agent_chat | :voice_assistant | :http | :tui | :internal
@@ -33,6 +33,21 @@ defmodule Aiur.Listener.Scheduler do
     case routing(opts) do
       :unavailable -> {:error, :listener_mode_unavailable}
       :listener -> listener(view)
+    end
+  end
+
+  @doc "Decide an external hook boundary using the pinned table; prompt is the start of a user turn."
+  @spec hook_delivers?(String.t(), atom(), atom()) :: boolean()
+  def hook_delivers?(harness, mode, boundary) do
+    case Spec.scheduler_rows() do
+      rows when is_list(rows) ->
+        Enum.any?(rows, fn row ->
+          row["harness"] == harness and row["mode"] == to_string(mode) and row["event"] == to_string(boundary) and
+            row["busy"] == false and row["continuation"] == false and row["delivers"] == true
+        end)
+
+      _ ->
+        false
     end
   end
 
