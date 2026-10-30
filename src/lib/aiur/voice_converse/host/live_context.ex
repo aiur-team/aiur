@@ -67,22 +67,6 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
     if is_map(payload), do: notify(state, {:briefing, status_card(payload)})
   end
 
-  defp status_card(payload) do
-    now = DateTime.utc_now()
-    fields = [current_task: :doing, summary: :why, next_steps: :next, waiting_on: :waiting_on, questions: :asks]
-    Enum.reduce(fields, %Briefing{}, fn {key, source}, card -> put_field(card, key, value(payload, source), now) end)
-  end
-
-  defp put_field(card, key, text, now) when is_binary(text) do
-    Map.put(card, key, %{value: status_value(key, text), observed_at: now, max_age_s: 30})
-  end
-
-  defp put_field(card, _key, _other, _now), do: card
-
-  defp status_value(key, "") when key in [:questions, :next_steps], do: []
-  defp status_value(key, text) when key in [:questions, :next_steps], do: [text]
-  defp status_value(_key, text), do: text
-
   defp dispatch("agent.decision." <> action, event, %{kind: :commands} = state), do: command(action, event, state)
   defp dispatch("executor.decision." <> action, event, %{kind: :commands} = state), do: command(action, event, state)
 
@@ -116,6 +100,22 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
   end
 
   defp dispatch(_topic, _event, _state), do: :ok
+
+  defp status_card(payload) do
+    now = DateTime.utc_now()
+    fields = [current_task: :doing, summary: :why, next_steps: :next, waiting_on: :waiting_on, questions: :asks]
+    Enum.reduce(fields, %Briefing{}, fn {key, source}, card -> put_field(card, key, value(payload, source), now) end)
+  end
+
+  defp put_field(card, key, text, now) when is_binary(text) do
+    Map.put(card, key, %{value: status_value(key, text), observed_at: now, max_age_s: 30})
+  end
+
+  defp put_field(card, _key, _other, _now), do: card
+
+  defp status_value(key, "") when key in [:questions, :next_steps], do: []
+  defp status_value(key, text) when key in [:questions, :next_steps], do: [text]
+  defp status_value(_key, text), do: text
 
   defp command(action, event, state) when action in ["requested", "human-needed"] do
     id = value(event, :decision_id)
