@@ -1,65 +1,24 @@
 defmodule Aiur.Executor.HookSettingsFile do
   @moduledoc false
-  alias Aiur.Executor.HookSettingsBackup
+  alias Aiur.Executor.{HookMerge, HookSettingsBackup}
   alias Aiur.Fs
-  @marker "AIUR_EXECUTOR_HOOK=1"
 
-  @spec install(Path.t(), map(), String.t()) :: :ok | {:error, term()}
-  def install(root, additions, primary_command) do
-    update(root, &merge_settings(&1, additions, primary_command), true)
-  end
-
-  defp merge_settings(settings, additions, primary_command) do
-    hooks = Map.get(settings, "hooks", %{})
-
-    merged =
-      Enum.reduce(additions, hooks, fn {event, entries}, acc ->
-        Map.put(acc, event, append_missing(Map.get(acc, event, []), entries, primary_command))
-      end)
-
-    Map.put(settings, "hooks", merged)
-  end
-
-  defp append_missing(existing, entries, primary_command) do
-    # Compare commands individually so later extensions can add entries to an installed event.
-    commands = for group <- existing, hook <- group["hooks"], do: hook["command"]
-    marked? = Enum.any?(commands, &(is_binary(&1) and String.starts_with?(&1, @marker)))
-
-    missing =
-      Enum.reject(entries, fn group ->
-        Enum.all?(group["hooks"], fn hook -> hook["command"] in commands or (marked? and hook["command"] == primary_command) end)
-      end)
-
-    existing ++ missing
+  @spec install(Path.t(), map()) :: :ok | {:error, term()}
+  def install(root, additions) do
+    update(root, &HookMerge.merge(&1, :install, additions), true)
   end
 
   @spec uninstall(Path.t()) :: :ok | {:error, term()}
-  def uninstall(root), do: update(root, &remove_settings/1, false)
-
-  defp remove_settings(%{"hooks" => hooks} = settings) do
-    remaining = for {event, groups} <- hooks, kept = remove_owned(groups), kept != [], into: %{}, do: {event, kept}
-    if remaining == %{}, do: Map.delete(settings, "hooks"), else: Map.put(settings, "hooks", remaining)
-  end
-
-  defp remove_settings(settings), do: settings
-
-  defp remove_owned(groups) do
-    Enum.flat_map(groups, fn group ->
-      remaining = Enum.reject(group["hooks"], &owned?/1)
-      if remaining == [] and group["hooks"] != [], do: [], else: [Map.put(group, "hooks", remaining)]
-    end)
-  end
-
-  defp owned?(%{"command" => command}) when is_binary(command), do: String.starts_with?(command, @marker)
-  defp owned?(_hook), do: false
+  def uninstall(root), do: update(root, &HookMerge.merge(&1, :uninstall, %{}), false)
 
   defp update(root, transform, backup?) do
     path = Path.join([root, ".claude", "settings.local.json"])
 
     :global.trans({{__MODULE__, path}, self()}, fn ->
       with :ok <- HookSettingsBackup.migrate(root),
-           {:ok, original, settings} <- read(path) do
-        write_changed(path, original, settings, transform.(settings), backup?)
+           {:ok, original, settings} <- read(path),
+           {:ok, updated} <- transform.(settings) do
+        write_changed(path, original, settings, updated, backup?)
       end
     end)
   end
