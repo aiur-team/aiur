@@ -203,7 +203,7 @@ defmodule Aiur.DeliveryEntryPointsTest do
     on_exit(fn ->
       if Process.whereis(name) == fake, do: Process.unregister(name)
       if is_pid(original) and Process.alive?(original), do: Process.register(original, name)
-      if Process.alive?(fake), do: GenServer.stop(fake)
+      GenServer.stop(fake, :normal, 1_000)
     end)
   end
 end

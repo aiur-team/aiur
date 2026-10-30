@@ -16,7 +16,7 @@ defmodule Aiur.IssueLog do
   require Logger
 
   alias Aiur.{AgentEvents, AgentPubSub, TicketObservation, TrackerIdentity}
-  alias Aiur.IssueLog.{Encoding, EventHistory, Paths}
+  alias Aiur.IssueLog.{CommandRecorder, Encoding, EventHistory, Paths, TimelineEventStore}
 
   import Aiur.IssueLog.Files
   import Aiur.IssueLog.Format
@@ -54,6 +54,7 @@ defmodule Aiur.IssueLog do
         log_path(identity),
         event_log_path(identity),
         transcript_path(identity),
+        Paths.timeline_event_log_path(identity),
         writer_key(identity)
       )
     else
@@ -62,7 +63,7 @@ defmodule Aiur.IssueLog do
   end
 
   def attach(identifier) when is_binary(identifier) do
-    attach_writer(identifier, log_path(identifier), event_log_path(identifier), transcript_path(identifier), writer_key(identifier))
+    attach_writer(identifier, log_path(identifier), event_log_path(identifier), transcript_path(identifier), Paths.timeline_event_log_path(identifier), writer_key(identifier))
   end
 
   @doc """
@@ -170,6 +171,16 @@ defmodule Aiur.IssueLog do
     end
   end
 
+  @doc "Reads a bounded ascending page from the durable event marker log after an event id."
+  @spec event_history_page(TrackerIdentity.t(), keyword()) :: {:ok, map()} | {:error, event_history_error()}
+  def event_history_page(%TrackerIdentity{} = identity, opts \\ []) do
+    if TrackerIdentity.joinable?(identity) do
+      EventHistory.read_event_page(Paths.timeline_event_log_path(identity), opts)
+    else
+      {:error, :invalid_identity}
+    end
+  end
+
   @doc """
   Returns the resolved file path for an issue's log. Useful for tests
   and for users who want to `tail -F` a specific issue.
@@ -202,6 +213,7 @@ defmodule Aiur.IssueLog do
     identifier = Keyword.fetch!(opts, :identifier)
     path = Keyword.get(opts, :path, log_path(identifier))
     event_path = Keyword.get(opts, :event_path, event_log_path(identifier))
+    timeline_event_path = Keyword.get(opts, :timeline_event_path, Paths.timeline_event_log_path(identifier))
     transcript_path = Keyword.get(opts, :transcript_path, transcript_path(identifier))
     :ok = File.mkdir_p(Path.dirname(path))
 
@@ -237,6 +249,7 @@ defmodule Aiur.IssueLog do
           transcript_path: transcript_path,
           path: path,
           event_path: event_path,
+          timeline_event_file: TimelineEventStore.open(timeline_event_path, event_path),
           history: :queue.new(),
           history_size: 0,
           subscribed?: false,
@@ -300,10 +313,11 @@ defmodule Aiur.IssueLog do
   end
 
   @impl true
-  def terminate(_reason, %{file: file, event_file: event_file, transcript_file: transcript_file}) when not is_nil(file) do
+  def terminate(_reason, %{file: file, event_file: event_file, transcript_file: transcript_file} = state) when not is_nil(file) do
     _ = File.close(file)
     _ = File.close(event_file)
     _ = File.close(transcript_file)
+    :ok = TimelineEventStore.close(state.timeline_event_file)
     :ok
   end
 
@@ -355,7 +369,7 @@ defmodule Aiur.IssueLog do
   end
 
   def handle_info({:aiur_event, kind, event}, state)
-      when kind in [:emit, :emit_alert, :consumed, :self] do
+      when kind in [:emit, :emit_alert, :consumed, :self, :command] do
     write_event_and_continue(state, format_event_marker(kind, event))
   end
 
@@ -402,6 +416,10 @@ defmodule Aiur.IssueLog do
     :ok
   end
 
+  @doc "Writes a sanitized command marker to the ticket event journal."
+  @spec record_command(TrackerIdentity.t(), String.t(), keyword()) :: :ok
+  defdelegate record_command(identity, command, opts \\ []), to: CommandRecorder
+
   defp event_identity(%{ticket_observation: %TicketObservation{} = observation}, identifier) do
     identity = observation.tracker_identity
 
@@ -443,6 +461,7 @@ defmodule Aiur.IssueLog do
   defp write_event_and_continue(state, line) do
     write_line(state.file, line)
     write_line(state.event_file, line)
+    :ok = TimelineEventStore.write(state.timeline_event_file, line)
     {:noreply, state}
   end
 

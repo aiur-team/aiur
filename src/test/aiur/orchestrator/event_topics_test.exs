@@ -271,17 +271,18 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         end
       end
 
-    {:ok, store} =
-      DecisionStore.start_link(
-        name: nil,
-        state_dir: state_dir,
-        dispatcher: dispatcher,
-        dispatch_scheduler: dispatch_scheduler
+    store =
+      start_supervised!(
+        {DecisionStore,
+         [
+           name: nil,
+           state_dir: state_dir,
+           dispatcher: dispatcher,
+           dispatch_scheduler: dispatch_scheduler
+         ]}
       )
 
     on_exit(fn ->
-      if Process.alive?(store), do: GenServer.stop(store)
-
       Aiur.TestCleanup.rm_rf!(state_dir)
     end)
 

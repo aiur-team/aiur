@@ -37,6 +37,34 @@ function bodyHTML(doc) {
     default: return cue('Loading the issue body…');
   }
 }
+const timelineKinds = { emit: 'Event emitted', consume: 'Event consumed', command: 'Command', note: 'Note' };
+const fmtMoment = ms => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function timelineLink(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? esc(parsed.href) : '';
+  } catch { return ''; }
+}
+function timelineHTML(timeline) {
+  if (!timeline || timeline.status === 'loading') return cue('Loading ticket timeline…');
+  const items = timeline.items || [];
+  if (!items.length) return cue(timeline.status === 'unavailable' ? 'Timeline is unavailable · retry when the ticket history service is available' : 'No recorded events for this ticket yet', timeline.status === 'unavailable' ? I.warn : I.docs, timeline.status === 'unavailable');
+  const start = items[0]?.at ?? 0, end = items.at(-1)?.at ?? start + 1, span = Math.max(1, end - start);
+  const actors = ['Executor', 'CI', 'Aiur agent', 'Aiur daemon'];
+  const gaps = items.slice(1).flatMap((item, index) => {
+    const previous = items[index]; const duration = item.at - previous.at;
+    return duration >= 30 * 60_000 ? [{ from: previous.at, to: item.at, duration }] : [];
+  });
+  return '<section class="bm-timeline" aria-label="Ticket timeline">' +
+    (timeline.status === 'unavailable' ? cue('History refresh failed · showing the last cached events', I.warn, true) : '') +
+    (timeline.truncated ? cue('Earlier timeline events are unavailable in the retained event history', I.warn) : '') +
+    '<div class="bm-timerange"><time>' + esc(fmtMoment(start)) + '</time><time>' + esc(fmtMoment(end)) + '</time></div>' +
+    '<div class="bm-timebar" aria-label="Real-time ticket progress">' + (timeline.phases || []).map(phase => '<i class="bm-timephase" style="left:' + ((phase.start - start) / span * 100) + '%;width:' + (phase.finish ? ((phase.finish - phase.start) / span * 100) : ((end - phase.start) / span * 100)) + '%" title="' + esc(phase.label) + '"></i>').join('') + gaps.map(g => '<i class="bm-timegap" style="left:' + ((g.from - start) / span * 100) + '%;width:' + ((g.to - g.from) / span * 100) + '%" title="No recorded activity · ' + esc(Math.round(g.duration / 60_000) + ' min') + '"></i>').join('') +
+    items.map(item => '<i class="bm-timepin kind-' + esc(item.kind) + '" style="left:' + ((item.at - start) / span * 100) + '%" title="' + esc(item.label) + '"></i>').join('') + '</div>' +
+    (gaps.length ? '<ul class="bm-timegaps" aria-label="Quiet periods">' + gaps.map(g => '<li>No recorded activity · ' + esc(Math.round(g.duration / 60_000) + ' min') + ' (' + esc(fmtMoment(g.from)) + '–' + esc(fmtMoment(g.to)) + ')</li>').join('') + '</ul>' : '') +
+    '<div class="bm-timelanes">' + actors.map(actor => '<section class="bm-timelane"><h3>' + esc(actor) + '</h3><ol class="bm-timeitems">' + items.filter(item => item.actor === actor).map(item => '<li class="bm-timeitem kind-' + esc(item.kind) + ' status-' + esc(item.status || 'normal') + '"><time datetime="' + new Date(item.at).toISOString() + '">' + esc(fmtMoment(item.at)) + '</time><span><small>' + esc(timelineKinds[item.kind] || 'Note') + (item.status ? ' · ' + esc(item.status.replaceAll('_', ' ')) : '') + '</small><b>' + esc(item.label) + '</b>' + (item.run_url && timelineLink(item.run_url) ? '<a href="' + timelineLink(item.run_url) + '" target="_blank" rel="noopener noreferrer">Open CI run</a>' : '') + (item.topic ? '<code>' + esc(item.topic) + '</code>' : '') + '</span></li>').join('') + '</ol></section>').join('') + '</div>' +
+    '<ol class="bm-timeprogress" aria-label="Reported progress">' + (timeline.progress || []).map(item => '<li><time>' + esc(fmtMoment(item.at)) + '</time><b>' + esc(item.percent == null ? 'Unknown' : item.percent + '%') + '</b></li>').join('') + '</ol></section>';
+}
 function cues(t) {
   const c = t.cue || {}, parts = [];
   if (c.held) parts.push(cue(c.held, I.lock));
@@ -76,12 +104,13 @@ function addHTML(t, D) {
 export function renderDoc(body, t, D, doc, opts = {}) {
   const scroll = body.querySelector('.bm-doc')?.scrollTop || 0;
   const active = document.activeElement;
-  const focused = body.contains(active) ? active.closest('[data-goto], [data-a], .bm-body a') : null;
-  const focus = focused ? { goto: focused.dataset.goto, action: focused.dataset.a, href: focused.getAttribute('href') } : null;
+  const focused = body.contains(active) ? active.closest('[data-goto], [data-a], [data-tab], .bm-body a') : null;
+  const focus = focused ? { goto: focused.dataset.goto, action: focused.dataset.a, tab: focused.dataset.tab, href: focused.getAttribute('href') } : null;
   const created = doc?.created ?? t.created;
   const source = isUnfiled(t) ? I.docs + esc(srcLine(t)) : I.github + esc(refText(t)) + (created == null ? '' : ' · opened ' + esc(fmtDate(created)) + (doc?.author ? ' by @' + esc(doc.author) : ''));
   const fact = (name, value) => '<div><small>' + name + '</small><b>' + esc(value) + '</b></div>';
-  body.innerHTML = '<div class="bm-doc"><article class="bm-art"><div class="bm-src">' + source + '</div><div class="bm-body">' + (isUnfiled(t) ? '' : bodyHTML(doc)) + '</div></article><aside class="bm-side"><div class="bm-facts">' +
+  const tab = view?.tab || 'description';
+  body.innerHTML = '<div class="bm-tabs" role="tablist" aria-label="Ticket detail"><button type="button" role="tab" id="bm-tab-description" aria-controls="bm-panel-description" tabindex="' + (tab === 'description' ? '0' : '-1') + '" data-tab="description" aria-selected="' + (tab === 'description') + '">Description</button><button type="button" role="tab" id="bm-tab-timeline" aria-controls="bm-panel-timeline" tabindex="' + (tab === 'timeline' ? '0' : '-1') + '" data-tab="timeline" aria-selected="' + (tab === 'timeline') + '">Timeline</button></div><div class="bm-doc"><article class="bm-art"><div class="bm-src">' + source + '</div><div class="bm-body" role="tabpanel" id="bm-panel-' + tab + '" aria-labelledby="bm-tab-' + tab + '">' + (tab === 'timeline' ? timelineHTML(doc?.timeline) : (isUnfiled(t) ? '' : bodyHTML(doc))) + '</div></article><aside class="bm-side"><div class="bm-facts">' +
     fact('Queue', t.sec === 'plan' && !isUnfiled(t) ? queueText(t) : '—') + (t.sec === 'plan' ? fact('Wave', t.wave == null ? '—' : 'W' + t.wave) : '') +
     fact('Estimate', estLabel(t)) + fact('Complexity', t.cx == null ? '—' : t.cx + '/5') + '</div>' +
     ((t.deps || []).length ? '<div class="bm-dg"><small>Depends on</small>' + dependencies(t.deps, D) + '</div>' : '') +
@@ -96,19 +125,31 @@ export function renderDoc(body, t, D, doc, opts = {}) {
   else content.insertAdjacentHTML('afterbegin', cues(t));
   content.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
   if (focus) {
-    const replacement = Array.from(body.querySelectorAll('[data-goto], [data-a], .bm-body a')).find(el =>
-      focus.href != null ? el.getAttribute('href') === focus.href : focus.goto != null ? el.dataset.goto === focus.goto : el.dataset.a === focus.action);
+    const replacement = Array.from(body.querySelectorAll('[data-goto], [data-a], [data-tab], .bm-body a')).find(el =>
+      focus.href != null ? el.getAttribute('href') === focus.href : focus.goto != null ? el.dataset.goto === focus.goto : focus.tab != null ? el.dataset.tab === focus.tab : el.dataset.a === focus.action);
     if (replacement && !replacement.disabled) replacement.focus({ preventScroll: true });
   }
   body.querySelector('.bm-doc').scrollTop = scroll;
   body.querySelector('[data-a="queue-add"]')?.addEventListener('click', () => add(t.id));
+  body.querySelectorAll('[data-tab]').forEach(button => {
+    button.addEventListener('click', () => { if (view) view.tab = button.dataset.tab; repaint(); });
+    button.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...body.querySelectorAll('[role="tab"]')];
+      const index = tabs.indexOf(button);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      tabs[next].focus();
+      tabs[next].click();
+    });
+  });
 }
 function repaint() {
   if (view && MS.t?.id === view.id && $('#tk-body')) renderDoc($('#tk-body'), MS.t, ctx.D, view.doc, view.opts);
 }
 export function applyDoc(doc) {
   if (doc?.v !== 1 || doc.kind !== 'doc' || doc.id !== view?.id || MS.t?.id !== doc.id) return;
-  view.doc = doc; repaint();
+  view.doc = { ...view.doc, ...doc }; repaint();
 }
 export function requestDoc(t) {
   if (!numeric(t.id) || ctx.socket !== 'up') return;
@@ -158,7 +199,7 @@ export function reconnectDoc() {
   repaint(); if (view && MS.t?.id === view.id) requestDoc(MS.t);
 }
 registerBody('doc', (t, body, opts = {}) => {
-  view = { id: t.id, opts, doc: null };
+  view = { id: t.id, opts, doc: null, tab: 'description' };
   renderDoc(body, t, ctx.D, null, opts); requestDoc(t);
 });
 const modalSync = fx.modalSync;

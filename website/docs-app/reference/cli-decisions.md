@@ -131,7 +131,9 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur --instance nuc executor-wait --as fleet-executor --json` | Waits on one named remote instance using the same per-instance cursor and deferred acknowledgement behavior. | `aiur --instance nuc executor-wait --as fleet-executor --json` |
 | `aiur executor-fast-forward <wake-id>` | Explicitly acknowledges an exact durable wake prefix that this Executor demonstrably covered by another complete means. It acquires the owner lease, refuses a live peer owner, rejects an absent or future id, reports before/through/acknowledged/pending counts, and preserves newer wakes. This is recovery, not the normal consumption loop. | `aiur executor-fast-forward 2832 --as agent-a` |
 | `aiur executor-roster` | Lists every Executor consumer with the evidence behind its state: role, host, pid, `claimed_at`, `last_renewed_at`, `last_acknowledged_at`, `pending_count`, cursor position, and whether the cursor moved since the previous observation. | `aiur executor-roster --json` |
-| `aiur executor-session [--json]` | Prints the live Executor's harness session handle: `harness`, `session_id`, `config_dir`, `cwd`, `harness_pid`, `recorded_at`. Reads `{"state":"unknown","reason":…}` when nobody owns the stream (`no_live_owner`, including an expired lease), the owner recorded no session (`no_session`), or its `harness_pid` is dead (`harness_pid_dead`). | `aiur executor-session --json` |
+| `aiur executor-attach --harness claude\|codex [--takeover] [--print-config]` | Attaches an Executor binding to this instance. Requires a running dashboard listener. Claude installs hooks at the Git repository root (or current directory outside Git); `--print-config` prints them instead. Codex always prints config for interactive trust. A live binding refuses replacement (exit 75); `--takeover` names the superseded binding. | `aiur executor-attach --harness claude` |
+| `aiur executor-detach` | Ends the binding if needed, rotates its hook token, and removes marked Claude hooks at the Git repository root (or current directory outside Git). Cleanup also runs after SessionEnd and without a binding. | `aiur executor-detach` |
+| `aiur executor-session [--json]` | Shows the public hook binding, liveness, last hook age, `observed_at`, `age_ms`, `freshness`, and rejected foreign-session/not-attached counts. Counts come from hook ingestion; when ingestion is unavailable, `recording?` is false and counts are null. Before the first hook, age is null and freshness unknown. The previous wake-stream harness handle is retained under `harness_session`. | `aiur executor-session --json` |
 | `aiur executor-claim` | Claims the wake stream. Refused when a live, renewing owner holds it; the refusal names that owner so a takeover is an operator decision, never a silent steal. | `aiur executor-claim --as agent-a` |
 | `aiur executor-release` | Gives up this consumer's claim so a successor can take over immediately. | `aiur executor-release --as agent-a` |
 | `aiur executor-revoke <consumer-id>` | Operator-only revoke of the named live owner. Requires the owner's id, read from the roster first. | `aiur executor-revoke agent-a` |
@@ -145,6 +147,10 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --scope repo` | Filters to `aiur` or `repo` scope. | `aiur findings --scope repo` |
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
+
+The [Executor hook generator](/concepts/executor#generated-hook-settings) includes
+delivery hooks and preserves user handlers; Claude installs locally and Codex
+prints configuration for an explicit merge and trust review.
 
 ### `executor-wait` outcomes
 
@@ -221,3 +227,14 @@ An open **blocking** ask is also printed by plain `aiur status`; no extra flag i
 An agent attention is a visibility signal rather than a gate — the agent keeps running after it opens one — so attentions are listed by `aiur commands` but are not counted as blocking.
 
 Answering a Command dismisses duplicate unanswered Commands on the same ticket, including deferred ones. A blocking Command is not swept up, since the waiting agent needs its answer. Dismissing a Command closes it; a live agent is told to use its judgement, while a gone agent gets no notice.
+
+Attach and detach operate locally on the daemon and the repository you run them from;
+remote instance RPC does not permit these file-writing commands.
+
+No listener returns
+exit 69 with restart instructions; missing or invalid flags return 64. If Claude
+settings cannot be written, attach keeps its `awaiting_first_hook` binding and
+returns 73 naming the settings path.
+
+Use `--takeover --print-config` to replace
+that pending binding and print config for manual installation.

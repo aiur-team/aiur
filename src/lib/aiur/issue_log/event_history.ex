@@ -38,6 +38,57 @@ defmodule Aiur.IssueLog.EventHistory do
     end
   end
 
+  @spec read_event_page(String.t(), keyword()) :: {:ok, %{events: [map()], high_water: non_neg_integer(), has_more: boolean()}} | {:error, term()}
+  def read_event_page(path, opts) do
+    after_id = Keyword.get(opts, :after_id, 0)
+    limit = Keyword.get(opts, :limit, 200)
+    kinds = opts |> Keyword.get(:kinds, [:emit, :emit_alert, :consumed, :self, :command]) |> Enum.map(&Atom.to_string/1) |> MapSet.new()
+
+    with true <- is_integer(after_id) and after_id >= 0 and is_integer(limit) and limit in 1..500,
+         {:ok, %{size: size}} <- File.stat(path, time: :posix),
+         {:ok, content} <- read_page_chunk(path, page_start(size, after_id, limit), page_bytes(size, after_id, limit)) do
+      events =
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse_event_line/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.filter(&(MapSet.member?(kinds, &1.kind) and &1.id > after_id))
+        |> Enum.sort_by(& &1.id)
+
+      page = Enum.take(events, limit)
+      {:ok, %{events: page, high_water: Enum.reduce(page, after_id, &max(&2, &1.id)), has_more: length(events) > limit}}
+    else
+      false -> {:error, :invalid_page}
+      {:error, :enoent} -> {:ok, %{events: [], high_water: after_id, has_more: false}}
+      {:error, reason} -> {:error, {:unavailable, reason}}
+    end
+  end
+
+  defp page_start(_size, 0, _limit), do: 0
+  defp page_start(size, _after_id, limit), do: max(size - (Encoding.max_record_bytes() + 1) * limit * 2, 0)
+
+  defp page_bytes(size, 0, _limit), do: size
+  defp page_bytes(size, _after_id, limit), do: min(size, (Encoding.max_record_bytes() + 1) * limit * 2)
+
+  defp read_page_chunk(path, start, bytes) do
+    with {:ok, file} <- File.open(path, [:read, :binary]) do
+      try do
+        case :file.pread(file, start, bytes) do
+          {:ok, content} when start > 0 ->
+            case :binary.match(content, "\n") do
+              {index, 1} -> {:ok, binary_part(content, index + 1, byte_size(content) - index - 1)}
+              :nomatch -> {:ok, ""}
+            end
+
+          result ->
+            result
+        end
+      after
+        :ok = File.close(file)
+      end
+    end
+  end
+
   defp parse_event_line(line) do
     # Matches the optional `src=…` / `trust=…` / `digest=…` flag segments between
     # `id=…` and the topic. Flags are surfaced as fields on the parsed
@@ -62,6 +113,7 @@ defmodule Aiur.IssueLog.EventHistory do
 
   defp build_parsed_event(ts, kind, id_str, flag_segment, topic, summary) do
     flags = parse_flags(flag_segment)
+    summary = if kind == "command", do: decode_command(flags, summary), else: summary
 
     %{
       kind: kind,
@@ -71,9 +123,51 @@ defmodule Aiur.IssueLog.EventHistory do
       summary: summary,
       source: flags |> Map.get("src") |> maybe_atomize_source(),
       author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool(),
-      digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source()
+      digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source(),
+      actor: Map.get(flags, "actor"),
+      percent: safe_percent(Map.get(flags, "pct")),
+      ci_checks: safe_ci_checks(Map.get(flags, "ci")),
+      review_state: safe_review_state(Map.get(flags, "review"))
     }
   end
+
+  defp decode_command(%{"cmd" => encoded}, _summary) do
+    case Base.url_decode64(encoded, padding: false) do
+      {:ok, command} -> command
+      :error -> ""
+    end
+  end
+
+  defp decode_command(_flags, summary), do: summary
+
+  defp safe_percent(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {percent, ""} when percent in 0..100 -> percent
+      _ -> nil
+    end
+  end
+
+  defp safe_percent(_value), do: nil
+
+  defp safe_ci_checks(encoded) when is_binary(encoded) do
+    with {:ok, json} <- Base.url_decode64(encoded, padding: false),
+         {:ok, checks} when is_list(checks) <- Jason.decode(json) do
+      Enum.take(checks, 30)
+      |> Enum.flat_map(fn
+        %{"name" => name, "url" => url} when is_binary(name) and is_binary(url) -> [%{name: name, url: url}]
+        %{"name" => name, "url" => nil} when is_binary(name) -> [%{name: name}]
+        %{"name" => name} when is_binary(name) -> [%{name: name}]
+        _ -> []
+      end)
+    else
+      _ -> []
+    end
+  end
+
+  defp safe_ci_checks(_value), do: []
+
+  defp safe_review_state(value) when value in ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"], do: value
+  defp safe_review_state(_value), do: nil
 
   defp parse_flags(flag_segment) when is_binary(flag_segment) do
     flag_segment
