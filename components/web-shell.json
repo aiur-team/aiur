@@ -46,6 +46,7 @@
     "config",
     "event-bus",
     "identity",
+    "kernel",
     "listener-modes",
     "projections",
     "signal",
