@@ -101,10 +101,13 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
                   this.pushEvent("restore-nav", {collapsed: this.pending}, () => {});
                 } else this.mirror();
               },
-              reconnected: function () { this.mirror(); },
+              // A push made before the reconnect is lost, so the server state wins again.
+              reconnected: function () { this.pending = undefined; this.mirror(); },
               collapsed: function () { return this.el.dataset.navCollapsed === "true"; },
               mirror: function () {
-                if (!this.drag) this.root.classList.toggle("nav-collapsed", this.media.matches && this.collapsed());
+                // An unacknowledged choice outranks the server value it has not reached yet.
+                var collapsed = this.pending === undefined ? this.collapsed() : this.pending;
+                if (!this.drag) this.root.classList.toggle("nav-collapsed", this.media.matches && collapsed);
               },
               updated: function () {
                 if (this.pending !== undefined && this.collapsed() !== this.pending) return;
@@ -113,6 +116,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
                 try { window.localStorage.setItem("aiur-nav-collapsed", String(this.collapsed())); } catch (_error) {}
               },
               commit: function (collapsed) {
+                this.pending = collapsed;
                 this.root.classList.toggle("nav-collapsed", this.media.matches && collapsed);
                 this.pushEvent("restore-nav", {collapsed: collapsed}, () => {});
                 clearTimeout(this.resizeTimer);

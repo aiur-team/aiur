@@ -1,7 +1,7 @@
 defmodule Aiur.Commands.CorrectiveStalePrTest do
   use Aiur.TestSupport
 
-  alias Aiur.Commands.CorrectiveTicket
+  alias Aiur.Commands.{CorrectiveTicket, OverrideMerge}
   alias Aiur.{Decision, DecisionAnswer, DecisionRevision, Issue, Tracker, Workflow}
   alias Aiur.GitHub.ResourceStore
 
@@ -14,7 +14,11 @@ defmodule Aiur.Commands.CorrectiveStalePrTest do
     answer = struct(DecisionAnswer, action_id: "override", custom_response: "green")
     revision = struct(DecisionRevision, action_id: "override", prior_action_id: "old", answer: answer, recorded_at: now)
     record = %{action_id: "override", route: :resume_pending, pr_merged: :unknown, state: :queued, ticket: %{identifier: "50"}}
-    decision = struct(Decision, decision_id: "command", ticket: record.ticket, question: "Colour?", short_label: "Colour", answer: old, revisions: [revision], overrides: [record])
+    record = Map.merge(record, %{pr_number: nil, pr_head_sha: nil, corrective_ticket: nil, delivered_at: nil, implemented_at: nil, evidence: nil})
+
+    decision =
+      struct(Decision, active_action_id: "override", decision_id: "command", ticket: record.ticket, question: "Colour?", short_label: "Colour", answer: old, revisions: [revision], overrides: [record])
+
     %{decision: decision, record: record}
   end
 
@@ -25,11 +29,12 @@ defmodule Aiur.Commands.CorrectiveStalePrTest do
       assert {:ok, nil} = Tracker.ticket_pull_request("50")
       {:ok, storage} = Agent.start_link(fn -> %{ticket: nil, creates: 0, reads: 0} end)
       opts = options(storage)
-      assert {:ok, [first]} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
+      {decision, record} = merge_route(ctx, opts)
+      assert {:ok, [first]} = CorrectiveTicket.reconcile(decision, record, opts)
       assert {:override_corrective_ticket, %{ticket: %{identifier: "70"}, pr_number: 60, merge_commit_sha: "merged-days-ago"}} = first
-      assert {:ok, [^first]} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
+      assert {:ok, [^first]} = CorrectiveTicket.reconcile(decision, record, opts)
       assert Agent.get(storage, & &1.creates) == 1
-      assert Agent.get(storage, & &1.reads) == 2
+      assert Agent.get(storage, & &1.reads) == 3
       Agent.stop(storage)
     end
   end
@@ -71,10 +76,18 @@ defmodule Aiur.Commands.CorrectiveStalePrTest do
     {:ok, storage} = Agent.start_link(fn -> %{ticket: nil, creates: 0, reads: 0} end)
     foreign = node("other/repository", 99, "foreign-merge") |> Map.put("mergedAt", DateTime.utc_now() |> DateTime.to_iso8601())
     opts = options(storage) |> Keyword.put(:resolve_pull_request, resolver([node("OWNER/REPO", 60, "own-merge"), foreign]))
-    assert {:ok, [{:override_corrective_ticket, %{pr_number: 60, merge_commit_sha: "own-merge"}}]} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
+    {decision, record} = merge_route(ctx, opts)
+    assert {:ok, [{:override_corrective_ticket, %{pr_number: 60, merge_commit_sha: "own-merge"}}]} = CorrectiveTicket.reconcile(decision, record, opts)
     assert Agent.get(storage, & &1.creates) == 1
     assert Agent.get(storage, & &1.ticket["body"]) =~ "own-merge"
     refute Agent.get(storage, & &1.ticket["body"]) =~ "foreign-merge"
+  end
+
+  defp merge_route(ctx, opts) do
+    assert {:ok, [{:override_merge_settled, data}]} = CorrectiveTicket.reconcile(ctx.decision, ctx.record, opts)
+    assert {:ok, decision} = OverrideMerge.apply(ctx.decision, %{data: data, occurred_at: DateTime.utc_now()})
+    assert [%{route: :corrective_ticket} = record] = decision.overrides
+    {decision, record}
   end
 
   defp options(storage) do

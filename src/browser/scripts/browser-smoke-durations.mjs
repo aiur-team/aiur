@@ -12,6 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // Governed local run (2026-10-30): expanded 11-case suite took 31.029s including fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-conversation-live': 32,
   // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
   // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
   'test:conversation-view': 36,

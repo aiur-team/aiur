@@ -41,6 +41,7 @@ defmodule Aiur.DecisionStore do
   alias Aiur.DecisionStore.Info
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Reads
+  alias Aiur.DecisionStore.WorkerHandoffs
 
   @request_timeout 60_000
   @recent_decision_limit 50
@@ -80,6 +81,10 @@ defmodule Aiur.DecisionStore do
     GenServer.call(Keyword.get(opts, :server, __MODULE__), {:command_fact, decision_id, type, data, opts}, @request_timeout)
   end
 
+  @spec override_handoff_candidates(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  defdelegate override_handoff_candidates(identifier, opts \\ []), to: WorkerHandoffs, as: :candidates
+  @spec record_override_handoff(String.t(), [map()], map(), keyword()) :: :ok | {:error, term()}
+  defdelegate record_override_handoff(identifier, snapshots, receipt, opts \\ []), to: WorkerHandoffs, as: :record
   @doc "Projects one legacy attention into the canonical Decision history."
   @spec project_attention(map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, accept_result()} | {:error, term()}
@@ -332,6 +337,11 @@ defmodule Aiur.DecisionStore do
       when is_binary(ticket_identifier) do
     GenServer.cast(server, {:deliver_pending_answers, ticket_identifier})
   end
+
+  @doc "Rechecks a pending override before including it in a worker prompt."
+  @spec recheck_override_delivery(String.t(), String.t(), GenServer.server()) :: :ok | {:error, term()}
+  def recheck_override_delivery(id, action, server \\ __MODULE__),
+    do: GenServer.call(server, {:recheck_override_delivery, id, action}, @request_timeout)
 
   @doc "Synchronously validate one correlated item before attempting provider delivery."
   @spec validate_delivery(map(), GenServer.server()) ::

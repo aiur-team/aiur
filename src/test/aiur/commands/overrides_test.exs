@@ -33,11 +33,10 @@ defmodule Aiur.Commands.OverridesTest do
     assert Overrides.observe(delivered, %{type: :consumed}) == delivered
 
     acknowledged = Overrides.observe(delivered, %{type: :acknowledged, data: %{action_id: "action-1"}, occurred_at: DateTime.add(@at, 2)})
-    assert [%{state: :implemented, evidence: :acknowledged, implemented_at: implemented_at}] = acknowledged.overrides
-    assert implemented_at == DateTime.add(@at, 2)
+    assert [%{state: :delivered, evidence: nil, implemented_at: nil}] = acknowledged.overrides
   end
 
-  test "a subsequent override supersedes prior implemented work in journal order" do
+  test "a subsequent override supersedes prior acknowledged work in journal order" do
     first = record("action-1") |> Overrides.observe(%{type: :acknowledged, data: %{action_id: "action-1"}, occurred_at: @at})
     second = record("action-2", first)
     assert [%{state: :superseded}, %{state: :queued, action_id: "action-2"}] = second.overrides
@@ -62,14 +61,14 @@ defmodule Aiur.Commands.OverridesTest do
     assert newest.state == :queued
     assert third.pending_for_session?
     acknowledged = Overrides.observe(third, %{type: :acknowledged, data: %{action_id: "action-3"}, occurred_at: DateTime.add(@at, 21)})
-    assert List.last(acknowledged.overrides).state == :implemented
+    assert List.last(acknowledged.overrides).state == :queued
   end
 
-  test "only a changed head on the same PR after delivery proves implementation" do
+  test "only a changed head on the same PR after delivery records push evidence" do
     decision = record("action-1") |> Overrides.observe(%{type: :delivered, data: %{action_id: "action-1"}, occurred_at: @at})
     data = %{action_id: "action-1", at: DateTime.add(@at, 1), head_sha: "after", pr_number: 77}
     assert {:ok, updated} = Overrides.implemented(decision, %{data: data})
-    assert [%{state: :implemented, evidence: %{kind: :push, head_sha: "after", pr_number: 77}}] = updated.overrides
+    assert [%{state: :delivered, evidence: %{kind: :push, head_sha: "after", pr_number: 77}}] = updated.overrides
 
     for invalid <- [%{data | head_sha: "before"}, %{data | pr_number: 78}, %{data | at: @at}, %{data | action_id: "other"}] do
       assert {:error, :override_push_mismatch} = Overrides.implemented(decision, %{data: invalid})
