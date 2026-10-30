@@ -3,7 +3,10 @@
   "to_module": "Aiur.HttpServer",
   "kind": "reference",
   "only_paths": [
-    "src/lib/aiur/agent_control_cli.ex"
+    "src/lib/aiur.ex",
+    "src/lib/aiur/agent_control_cli.ex",
+    "src/lib/aiur/application/children.ex",
+    "src/lib/aiur/application/startup_checks.ex"
   ],
-  "reason": "MP-E3-C1-T03: local control entry verifies the hook sink listener before attach"
+  "reason": "MP-E3-C1-T03: verify bound hook sink at the control entry; preserve existing application composition references"
 }

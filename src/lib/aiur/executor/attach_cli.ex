@@ -59,7 +59,7 @@ defmodule Aiur.Executor.AttachCLI do
       IO.puts("Next: review the hooks, then start or resume the Executor session.")
       0
     else
-      case HookConfig.install(Keyword.fetch!(opts, :repo_root)) do
+      case HookConfig.install(:claude, Keyword.take(opts, [:repo_root])) do
         :ok ->
           IO.puts("Next: start or resume Claude in this repository and confirm its hooks are enabled.")
           0
@@ -71,7 +71,7 @@ defmodule Aiur.Executor.AttachCLI do
   end
 
   defp uninstall("claude", opts) do
-    case HookConfig.uninstall(Keyword.fetch!(opts, :repo_root)) do
+    case HookConfig.uninstall(Keyword.take(opts, [:repo_root])) do
       :ok -> 0
       error -> install_failure(error, opts)
     end
