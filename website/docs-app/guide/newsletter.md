@@ -16,6 +16,7 @@ PATH if `aiur`, Chromium or tracker tools live outside its default PATH.
 Choose the scheduling machine by enabling **this user timer only on that
 machine**. `NEWSLETTER_REPO` selects the repository; `NEWSLETTER_CHECKOUT`
 selects its source checkout. There is no cross-machine scheduler election.
+
 The report combines the configured sources; do not install a second timer for
 another machine's contribution. Disable the old timer before moving it.
 
@@ -85,7 +86,9 @@ Outputs live in `~/.aiur/repo/<owner>/<repo>/newsletter/<UTC-date>/`:
 `report.json`, `newsletter.html`, `newsletter.pdf`, `run.log` and, after successful
 publication, `wake-sent.json`. Snapshots live in `newsletter/snapshots/` and the
 latest automatic outputs in `newsletter/latest/`. The package verifies that
-the PDF has one page. Use `--state-dir` to override the per-repo state root,
+the PDF has one page.
+
+Use `--state-dir` to override the per-repo state root,
 `--instance <name>` repeatedly for additional configured daemon sources, and
 `--aiur /absolute/path/to/aiur` to choose the CLI executable.
 
