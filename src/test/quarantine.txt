@@ -18,6 +18,7 @@ Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
+Aiur.Regression.ProgressRendererBoundaryTest	Build Order presentation surfaces do not bypass the shared renderer	#7234	2026-11-13
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
 AiurWeb.UsageAccountsApiControllerTest	*	#7217	2026-11-13
