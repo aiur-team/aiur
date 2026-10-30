@@ -78,7 +78,18 @@ def october_30_report():
         'instant_context': {},
         'headline': {'pc': {'window_24h': {'feature_turn_hours_percent': {'value': 38.98606411653381}}}}
     }
-    data['editorial']['blockers'] = [{'label': f'Blocked item {i}', 'action': 'Operator follow-up'} for i in range(8)]
+    data['editorial']['blockers'] = [
+        {'label': f'Blocked{i:02} needs owner ok by Friday',
+         'action': action}
+        for i, action in enumerate([
+            'Please ask ops to rotate keys then verify',
+            'Ask ops to test app before launch',
+            'Review signed build then approve release',
+            'Check outbound rules before launch freeze',
+            'Verify voice commands in dashboard by Friday',
+            'Pick a default and share it now',
+            'Confirm freeze with ops this week',
+            'Approve data retention for one week'])]
     data['editorial']['shipped'] = [{'icon': 'rocket', 'label': f'Shipped item {i}'} for i in range(7)]
     data['editorial']['bottlenecks'] = [
         {'problem': f'Bottleneck {i}', 'action': 'Take action', 'result': 'Measure result'} for i in range(3)]
@@ -215,7 +226,7 @@ class RendererTest(unittest.TestCase):
             for row in data['program']['lanes'].values():
                 self.assertIn(row['name'], printed)
             for i in range(8):
-                self.assertIn(f'Blocked item {i}', printed)
+                self.assertIn(f'Blocked{i:02}', printed)
             for i in range(5):
                 self.assertIn(f'Shipped item {i}', printed)
             for i in range(2):
@@ -224,15 +235,66 @@ class RendererTest(unittest.TestCase):
             self.assertNotIn('38.98606411653381', printed)
             self.assertNotIn('unavailableFeature', printed)
 
+            bbox = ET.fromstring(subprocess.check_output(['pdftotext', '-bbox', str(path), '-'], text=True))
+            words = [word for word in bbox.iter() if word.tag.endswith('word')]
+            anchor_y = {}
+            anchor_x = []
+            for i in range(8):
+                anchor = [word for word in words if word.text == f'Blocked{i:02}']
+                self.assertEqual(len(anchor), 1, f'blocker {i} label should render once')
+                anchor_y[i] = float(anchor[0].attrib['yMin'])
+                anchor_x.append(float(anchor[0].attrib['xMin']))
+            next_section_y = min(float(word.attrib['yMin']) for word in words
+                                 if word.text == 'CHANGES' and float(word.attrib['yMin']) > anchor_y[7])
+            for i in range(8):
+                start = anchor_y[i]
+                end = anchor_y[i + 1] if i < 7 else next_section_y
+                y_positions = sorted(float(word.attrib['yMin']) for word in words
+                                     if start <= float(word.attrib['yMin']) < end
+                                     and float(word.attrib['xMin']) >= min(anchor_x) - 1)
+                row_lines = []
+                for y in y_positions:
+                    if not row_lines or y - row_lines[-1] > 4:
+                        row_lines.append(y)
+                self.assertLessEqual(len(row_lines), 2,
+                                     f'blocker {i} should use at most two text lines, got {len(row_lines)}')
+
     @unittest.skipUnless(chromium_available(), 'Chromium is not installed; trimmed-list PDF acceptance skipped')
     @unittest.skipUnless(shutil.which('pdftotext'), 'pdftotext is not installed; printed count acceptance skipped')
     def test_trimmed_editorial_lists_keep_truthful_remaining_counts(self):
-        data = editorial_report()
+        data = october_30_report()
         for row in data['editorial']['blockers']:
             row['label'] += ' critical dependency' * 200
+            row['action'] += ' coordinate operator signoff' * 200
         with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaisesRegex(RuntimeError, 'must be exactly 1 page'):
-                render.compile_report(data, Path(temporary) / 'newsletter.pdf')
+            path = render.compile_report(data, Path(temporary) / 'newsletter.pdf', 'America/Los_Angeles')
+            self.assertEqual(render.page_count(path), 1)
+            printed = ' '.join(subprocess.check_output(['pdftotext', str(path), '-'], text=True).split())
+            for row in data['program']['lanes'].values():
+                self.assertIn(row['name'], printed)
+            for i in range(5):
+                self.assertIn(f'Shipped item {i}', printed)
+            for i in range(2):
+                self.assertIn(f'Bottleneck {i}', printed)
+            bbox = ET.fromstring(subprocess.check_output(['pdftotext', '-bbox', str(path), '-'], text=True))
+            words = [word for word in bbox.iter() if word.tag.endswith('word')]
+            header = next(word for word in words if word.text == 'Blocked')
+            start = float(header.attrib['yMin'])
+            end = min(float(word.attrib['yMin']) for word in words
+                      if word.text == 'CHANGES' and float(word.attrib['yMin']) > start)
+            blocker_words = [word.text for word in words
+                             if start <= float(word.attrib['yMin']) < end
+                             and float(word.attrib['xMin']) >= float(header.attrib['xMin']) - 25]
+            visible = sum(f'Blocked{i:02}' in blocker_words for i in range(8))
+            omitted = 8 - visible
+            self.assertGreater(omitted, 0)
+            markers = [word for word in words if word.text == f'+{omitted}'
+                       and start <= float(word.attrib['yMin']) < end
+                       and float(word.attrib['xMin']) >= float(header.attrib['xMin']) - 25]
+            self.assertTrue(any(any(word.text == 'more' and abs(float(word.attrib['yMin']) - float(marker.attrib['yMin'])) < 1
+                                    and float(word.attrib['xMin']) >= float(marker.attrib['xMax'])
+                                    for word in words) for marker in markers))
+            self.assertIn('lower priority items omitted', printed)
 
     def test_unknown_feature_share_does_not_draw_zero_gauge(self):
         data = compute(fixtures.snapshot())
@@ -268,7 +330,7 @@ class RendererTest(unittest.TestCase):
             self.assertIn('&lt;script&gt;bad()&lt;/script&gt;', page)
             self.assertNotIn('<script>bad()', page)
             self.assertEqual(page.count('<b>Publish package</b>'), 7)
-            self.assertIn('+2 more', page)
+            self.assertNotIn('>+2 more</li>', page)
             path = Path(temporary) / 'notes.md'
             path.write_text('An executor observation.\n\nAnother paragraph.')
             self.assertEqual(read_notes(path)['notes'], ['An executor observation.', 'Another paragraph.'])

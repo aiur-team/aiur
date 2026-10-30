@@ -193,7 +193,7 @@ body{padding-top:16px;padding-bottom:12px}
 .focus.compact-focus .pbar{display:none}
 .focus.compact-focus .lg{margin:0 4px 0 0}
 .focus.compact-focus p{display:inline;margin:0 4px 0 0}
-.byou li{grid-template-columns:auto 1fr;align-items:baseline;column-gap:6px}
+.byou li{grid-template-columns:minmax(0,50%) minmax(0,1fr);align-items:baseline;column-gap:6px}
 .byou li b+span+span{white-space:normal}
 .byou li b{font-size:12px;line-height:14px}
 .byou li b+span+span{font-size:10px;line-height:12px}
