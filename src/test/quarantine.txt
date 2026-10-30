@@ -22,4 +22,3 @@ Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalida
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
 AiurWeb.UsageAccountsApiControllerTest	*	#7217	2026-11-13
-Aiur.Regression.ProgressRendererBoundaryTest	Build Order presentation surfaces do not bypass the shared renderer	#7234	2026-11-13
