@@ -58,6 +58,9 @@ defmodule VoiceConverse.RolesTest do
     file = Path.join(dir, "file")
     File.write!(file, "not a directory")
     assert [%{source: ^file, reason: :enotdir}] = Roles.load(%{config | roles_dir: file}).warnings
+    unreadable = Path.join(dir, "unreadable.md")
+    File.mkdir!(unreadable)
+    assert [%{source: ^unreadable, reason: :eisdir}] = Roles.load(%Config{roles_dir: dir}).warnings
     assert [%{reason: :invalid_role}] = Roles.load(%Config{roles: [nil]}).warnings
   end
 end

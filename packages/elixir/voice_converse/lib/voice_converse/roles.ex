@@ -66,8 +66,14 @@ defmodule VoiceConverse.Roles do
   end
 
   defp read(path) do
-    with {:ok, text} <- File.read(path),
-         [_, yaml, body] <- Regex.run(~r/\A---\r?\n(.*?)\r?\n---(?:\r?\n|\z)(.*)\z/s, text),
+    case File.read(path) do
+      {:ok, text} -> parse(text)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp parse(text) do
+    with [_, yaml, body] <- Regex.run(~r/\A---\r?\n(.*?)\r?\n---(?:\r?\n|\z)(.*)\z/s, text),
          {:ok, metadata} when is_map(metadata) <- YamlElixir.read_from_string(yaml) do
       normalize(%{
         id: metadata["id"],
