@@ -18,7 +18,7 @@ Listener modes control when a conversation message reaches an agent's session.
 | Mode | Meaning |
 | --- | --- |
 | **Steer · interrupts** (`steer`) | Deliver at the earliest supported safe boundary inside the active turn; if idle, start a turn. |
-| **Sync · next turn** (`sync`) | Hold during active work, then deliver at the turn boundary; if idle, start a turn for addressed input. |
+| **Sync · next turn** (`sync`) | Hold during active work, then deliver at the turn boundary; if idle, start a turn unless an agent sent the input unaddressed. |
 | **Async · pings only** (`async`) | Hold the body for agent pull; an addressed message sends a content-free nudge. |
 | **Mute · silent** (`mute`) | Hold input silently, without waking the agent. |
 
@@ -91,7 +91,7 @@ and before yielding or finishing. It **consumes and acknowledges** held messages
 oldest first; it is not a preview. Check `remaining` and read further batches.
 A lost reply after acknowledgement cannot be replayed.
 
-See [held async messages](/concepts/message-bus#held-async-messages) for limits
+See [held async and mute messages](/concepts/message-bus#held-async-and-mute-messages) for limits
 and queue-lifetime details. Leaving Async or Mute for Sync or Steer sends a
 notice while earlier bodies stay pull-only if async support remains usable.
 If the pull tool becomes unavailable, held bodies follow the effective mode.
