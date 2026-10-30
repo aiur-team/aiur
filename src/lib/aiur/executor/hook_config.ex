@@ -7,7 +7,7 @@ defmodule Aiur.Executor.HookConfig do
   Extra entries are `%{event: name, command: command, timeout: seconds}`;
   commands owned by Aiur must begin with `AIUR_EXECUTOR_HOOK=1` for removal.
   """
-  alias Aiur.Executor.{HookSettingsFile, HookToken}
+  alias Aiur.Executor.{DeliverHookCommand, HookMerge, HookSettingsFile, HookToken}
   alias Aiur.{Fs, Shell}
 
   @marker "AIUR_EXECUTOR_HOOK=1"
@@ -40,10 +40,20 @@ defmodule Aiur.Executor.HookConfig do
     events = if harness == :claude, do: @claude, else: @common
     initial = Map.new(events, &{&1, [entry(command, 3)]})
 
-    Enum.reduce(extra, initial, fn %{event: event, command: command, timeout: timeout}, acc ->
+    Enum.reduce(delivery_entries(harness) ++ extra, initial, fn %{event: event, command: command, timeout: timeout}, acc ->
       Map.update(acc, event, [entry(command, timeout)], &(&1 ++ [entry(command, timeout)]))
     end)
   end
+
+  defp delivery_entries(harness) do
+    script = DeliverHookCommand.from_url_file(harness, url_path(), HookToken.path())
+    command = @marker <> " sh -c " <> Shell.escape(script)
+    Enum.map(~w(PostToolUse UserPromptSubmit Stop), &%{event: &1, command: command, timeout: 10})
+  end
+
+  @doc "Merge hook fragments without modifying unrelated settings or handlers."
+  @spec merge(map(), :install | :uninstall, map()) :: {:ok, map()} | {:error, :invalid_hooks_config}
+  def merge(config, action, fragment), do: HookMerge.merge(config, action, fragment)
 
   @spec render(:claude | :codex, keyword()) :: String.t()
   def render(harness, opts \\ []) do
@@ -61,8 +71,7 @@ defmodule Aiur.Executor.HookConfig do
 
   def install(:claude, opts) do
     additions = entries(:claude, Keyword.get(opts, :extra_entries, []))
-    command = get_in(additions, ["SessionStart", Access.at(0), "hooks", Access.at(0), "command"])
-    HookSettingsFile.install(Keyword.fetch!(opts, :repo_root), additions, command)
+    HookSettingsFile.install(Keyword.fetch!(opts, :repo_root), additions)
   end
 
   @spec uninstall(keyword()) :: :ok | {:error, term()}
