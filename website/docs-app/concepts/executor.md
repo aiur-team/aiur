@@ -157,7 +157,9 @@ tree and is not covered by this ignore rule.
 
 Removing the integration removes only commands
 starting with `AIUR_EXECUTOR_HOOK=1`, plus legacy delivery commands matching
-`curl -sS -f -m 3` and `/api/v1/executor/hook/deliver` (including old ports). If no settings changed since install,
+`curl -sS -f -m 3` and `/api/v1/executor/hook/deliver` (including old ports).
+
+If no settings changed since install,
 uninstall restores the original file bytes from the private backup. Later user
 edits are preserved, and the backup remains available for manual restoration.
 
@@ -173,10 +175,14 @@ invocation. The daemon rewrites that file after an HTTP bind, so a changed
 port does not require reinstalling hooks.
 
 Lifecycle commands send input to the loopback endpoint with the separate header
-file, suppress output and bound curl to two seconds. Delivery commands also run
+file, suppress output and bound curl to two seconds.
+
+Delivery commands also run
 on `PostToolUse`, `UserPromptSubmit` and `Stop`, with a ten-second hook timeout
 and a three-second curl budget. They read the private token at invocation and
-print the delivery envelope to stdout. Both commands exit successfully when the
+print the delivery envelope to stdout.
+
+Both commands exit successfully when the
 daemon is unavailable. User and Khala handlers remain in their original order.
 
 Compatibility of two `Stop` hooks that both return `decision: "block"` has not

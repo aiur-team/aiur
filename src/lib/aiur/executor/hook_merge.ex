@@ -14,14 +14,15 @@ defmodule Aiur.Executor.HookMerge do
     end
   end
 
-  defp valid?(config) when is_map(config) do
+  @spec valid?(term()) :: boolean()
+  def valid?(config) when is_map(config) do
     case Map.get(config, "hooks", %{}) do
       hooks when is_map(hooks) -> Enum.all?(hooks, fn {_event, groups} -> is_list(groups) and Enum.all?(groups, &valid_group?/1) end)
       _ -> false
     end
   end
 
-  defp valid?(_config), do: false
+  def valid?(_config), do: false
   defp valid_group?(group), do: is_map(group) and is_list(group["hooks"]) and Enum.all?(group["hooks"], &is_map/1)
 
   defp install(hooks, fragment) do

@@ -51,19 +51,13 @@ defmodule Aiur.Executor.HookSettingsFile do
 
   defp decode(original) do
     with {:ok, settings} when is_map(settings) <- Jason.decode(original),
-         true <- valid_hooks?(Map.get(settings, "hooks", %{})) do
+         true <- HookMerge.valid?(settings) do
       {:ok, original, settings}
     else
       _ -> {:error, :unparsable}
     end
   end
 
-  defp valid_hooks?(hooks) when is_map(hooks) do
-    Enum.all?(hooks, fn {_event, groups} -> is_list(groups) and Enum.all?(groups, &valid_group?/1) end)
-  end
-
-  defp valid_hooks?(_hooks), do: false
-  defp valid_group?(group), do: is_map(group) and is_list(group["hooks"]) and Enum.all?(group["hooks"], &is_map/1)
   defp backup(_path, nil, _backup?), do: :ok
   defp backup(_path, _original, false), do: :ok
   defp backup(path, original, true), do: HookSettingsBackup.create(path, original)
