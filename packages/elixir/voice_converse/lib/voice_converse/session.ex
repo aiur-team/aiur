@@ -14,7 +14,6 @@ defmodule VoiceConverse.Session do
   }
 
   @transport_grace_ms 10_000
-  @max_queued_audio 8
   def start_link(opts),
     do:
       GenServer.start_link(__MODULE__, opts,
@@ -51,13 +50,10 @@ defmodule VoiceConverse.Session do
   @impl true
   def handle_continue(:open_provider, state), do: {:noreply, open_provider_async(state, :initial)}
   def handle_continue(:consult_failed, state), do: stop_unknown(state)
-
   @impl true
-  def handle_cast({:audio, audio_b64}, state) when is_binary(audio_b64) do
-    {:noreply, Runtime.enqueue_audio(self(), state, audio_b64, @max_queued_audio)}
-  end
+  def handle_cast(message, state),
+    do: VoiceConverse.Session.ClientInput.handle_cast(message, state, &handle_provider_event/2)
 
-  def handle_cast({:audio, _audio_b64}, state), do: {:noreply, state}
   @impl true
   def handle_call({:subscribe, subscriber}, _from, state) when is_pid(subscriber) do
     state = add_subscriber(state, subscriber)
