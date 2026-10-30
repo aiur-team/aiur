@@ -58,7 +58,9 @@ defmodule VoiceConverse.SessionRolesTest do
              Start.state(
                %{config | roles: [%{id: "worker", title: "Ticket", prompt: "Discuss", targets: ["worker"]}]},
                %{kind: :executor},
-               "vc_cccccccccccccccccccccc", role_id: "worker")
+               "vc_cccccccccccccccccccccc",
+               role_id: "worker"
+             )
 
     assert File.ls!(root) == []
   end
