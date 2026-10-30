@@ -258,6 +258,8 @@ test('future regression guard: overlapping navigation choices survive older ackn
     })
   })
   await handle.dispatchEvent('keydown', { key: 'Enter' })
+  // A media-query change (or reconnect) mirrors the shell while the first choice is still unacknowledged.
+  await page.evaluate(() => window.liveSocket.main.getHook(document.querySelector('#ax-drag')).media.dispatchEvent(new Event('change')))
   await handle.dispatchEvent('keydown', { key: 'Enter' })
   await expect.poll(() => replies.size).toBe(2)
   expect(requests.map(request => request.collapsed)).toEqual([true, false])
