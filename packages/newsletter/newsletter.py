@@ -14,7 +14,7 @@ from metrics import compute
 from render import compile_report
 
 
-def prepare(repo, state_dir, now, instances=(), notes=None):
+def prepare(repo, state_dir, now, instances=(), notes=None, output_date=None):
     directory = state_dir / "newsletter"
     snapshot = collect(repo, state_dir, now, instances=instances, telemetry_root=Path.home() / ".aiur/logs")
     baseline = directory / "snapshots" / ((now - timedelta(days=1)).date().isoformat() + ".json")
@@ -23,13 +23,13 @@ def prepare(repo, state_dir, now, instances=(), notes=None):
     report["editorial"] = notes or {}
     report["sources"] = [name + ": " + info["state"] for name, info in snapshot["sources"].items()]
     write_snapshot(snapshot, directory / "snapshots")
-    target = directory / now.date().isoformat() / "report.json"
+    target = directory / (output_date or now.date().isoformat()) / "report.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     return target, report
 
 
-def preprocess(repo, state_dir, now, instances=(), notes=None):
-    target, report = prepare(repo, state_dir, now, instances, notes)
+def preprocess(repo, state_dir, now, instances=(), notes=None, output_date=None):
+    target, report = prepare(repo, state_dir, now, instances, notes, output_date)
     target.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     return target
 

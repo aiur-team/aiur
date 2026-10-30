@@ -262,11 +262,20 @@ test('command keys render real state-derived controls, flash on click, and emit 
     const key = page.locator(`[data-streamdeck-command="${command}"]`)
     await key.click()
     expect(await page.evaluate(() => window.__streamdeckFlashes.at(-1))).toEqual({ command, flashing: true })
-    // Commands and Settings are navigation keys: each opens its own pane
-    // and dial A backs out of it.
+    // Settings shares the physical dial-4 hold to go back; Commands keeps dial A.
     if (command === 'commands' || command === 'settings') {
       await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', command)
-      await page.locator('.sd-knob').first().click()
+      if (command === 'settings') {
+        const dial = page.locator('.sd-knob').nth(3)
+        await anchor(dial)
+        const box = await dial.boundingBox()
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+        await page.mouse.down()
+        await page.waitForTimeout(550)
+        await page.mouse.up()
+      } else {
+        await page.locator('.sd-knob').first().click()
+      }
       await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
     }
   }

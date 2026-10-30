@@ -4,26 +4,30 @@ defmodule AiurWeb.StreamdeckLive.Input do
   alias AiurWeb.Streamdeck.{Deck, FrameUpdates}
   alias AiurWeb.Streamdeck.Deck.{MeterPage, Nav}
   alias AiurWeb.StreamdeckLive
-  alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Surface}
+  alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Settings, Surface}
 
   @spec handle(map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle(raw, %{assigns: %{deck_nav: %{chat: chat, surface: :chat}}} = socket) when is_map(chat), do: StreamdeckLive.reduce_input(raw, socket)
 
-  def handle(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
-      when index in 0..3 and is_integer(delta) and delta in -32..32 do
+  def handle(raw, socket) do
+    if Settings.handles?(raw, socket), do: Settings.input(raw, socket), else: route(raw, socket)
+  end
+
+  defp route(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
+       when index in 0..3 and is_integer(delta) and delta in -32..32 do
     StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
   end
 
-  def handle(%{"kind" => "dial", "index" => 0, "action" => "press"}, socket),
+  defp route(%{"kind" => "dial", "index" => 0, "action" => "press"}, socket),
     do: StreamdeckLive.handle_event("dial-press", %{"index" => 0, "action" => "back"}, socket)
 
-  def handle(
-        %{"kind" => "dial", "index" => 3, "action" => "press"},
-        %{assigns: %{sd_mode: :grid}} = socket
-      ),
-      do: StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => 3, "action" => "press"}, socket)
+  defp route(
+         %{"kind" => "dial", "index" => 3, "action" => "press"},
+         %{assigns: %{sd_mode: :grid}} = socket
+       ),
+       do: StreamdeckLive.reduce_input(%{"kind" => "dial", "index" => 3, "action" => "press"}, socket)
 
-  def handle(%{"kind" => "dial", "index" => 3, "action" => "press"}, socket),
+  defp route(%{"kind" => "dial", "index" => 3, "action" => "press"}, socket),
     do:
       StreamdeckLive.handle_event(
         "dial-press",
@@ -31,19 +35,21 @@ defmodule AiurWeb.StreamdeckLive.Input do
         socket
       )
 
-  def handle(raw, socket), do: StreamdeckLive.reduce_input(raw, socket)
+  defp route(raw, socket), do: StreamdeckLive.reduce_input(raw, socket)
 
   @spec reduce(map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def reduce(raw, socket) do
-    case FrameUpdates.transition(socket.assigns.deck_nav, raw, Map.put(socket.assigns.grid, :meter_usage, socket.assigns.usage)) do
+    socket = Settings.refresh(socket)
+    grid = socket.assigns.grid |> Map.put(:meter_usage, socket.assigns.usage) |> FrameUpdates.prepare_grid()
+
+    case FrameUpdates.transition(socket.assigns.deck_nav, raw, grid) do
       {:ok, nav, effects} ->
         socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
-        meter_grid = Map.put(socket.assigns.grid, :meter_usage, socket.assigns.usage)
-        sections = MeterPage.sections(meter_grid, nav)
+        sections = MeterPage.sections(grid, nav)
         sizes = Deck.Input.sizes(nav, sections)
         total = if nav.stack == [], do: sizes[nav.view], else: sizes.drill
         dial_value = Surface.dial_value_from_offset(Nav.page(nav) * 4, total)
-        socket = Grid.assign_grid(socket, socket.assigns.grid, 0, socket.assigns.usage, dial_value)
+        socket = Grid.assign_grid(socket, grid, 0, socket.assigns.usage, dial_value)
 
         {:noreply, socket}
 

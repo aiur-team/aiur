@@ -47,6 +47,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Registry, [keys: :unique, name: Aiur.Workspace.Ownership.Registry]},
     Aiur.Workspace.Ownership.Reconciler,
     {Task.Supervisor, [name: Aiur.TaskSupervisor]},
+    AiurWeb.Streamdeck.Deck.SettingsSnapshot,
     Aiur.AlertFeed.Backfill,
     Aiur.CoordinationTasks,
     Aiur.DecisionDispatchTasks,

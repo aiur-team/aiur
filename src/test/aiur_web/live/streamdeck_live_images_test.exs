@@ -116,7 +116,9 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
                )
       end
 
-      render_hook(view, "input", %{"kind" => "dial", "index" => 0, "action" => "press"})
+      if mode == :settings,
+        do: render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "long_press"}),
+        else: render_hook(view, "input", %{"kind" => "dial", "index" => 0, "action" => "press"})
     end
   end
 

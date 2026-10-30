@@ -24,8 +24,9 @@ defmodule AiurWeb.Streamdeck.MeterFramesTest do
     assert hd(frame.keys).svg =~ "62% left"
     assert hd(frame.keys).svg =~ "unknown-hatch"
     {_nav, _model, focused} = FrameUpdates.frame(%{same | surface: :settings}, grid, usage)
-    assert String.starts_with?(hd(focused.keys).label, "Microphone selection")
-    assert hd(focused.keys).svg =~ "Microphone"
+    assert length(focused.keys) == 8
+    assert hd(focused.keys).label == "Mic · Unavailable"
+    assert hd(focused.keys).svg =~ "Mic"
     {:ok, closed, [:close_ticket]} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => "long_press"}, grid)
     assert closed.stack == []
     {_nav, _model, back} = FrameUpdates.frame(closed, grid, usage)

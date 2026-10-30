@@ -124,6 +124,8 @@ defmodule Aiur.ApplicationChildOrderTest do
   # children. Explain the startup dependency here; do not extend the baseline.
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
+    # Hardware channels and browser mounts share this cache from their first request.
+    AiurWeb.Streamdeck.Deck.SettingsSnapshot => "Serve settings snapshots before HttpServer accepts channels or browser mounts",
     Aiur.Conversation.HeadTable => "Provide committed entry heads before the resolver reads startup events",
     Aiur.Conversation.Registry => "Make writer lookup available before the resolver starts",
     Aiur.Conversation.JournalSupervisor => "Start anchor writers before producers can publish startup events",
@@ -169,6 +171,15 @@ defmodule Aiur.ApplicationChildOrderTest do
       expected = Enum.filter(@existing_children, &(&1 in children))
       assert_order(children, expected)
     end
+  end
+
+  test "settings snapshots are available before HTTP begins accepting deck clients" do
+    children = child_ids(Keyword.put(Enum.map(@flags, &{&1, true}), :headless?, false))
+    snapshot = Enum.find_index(children, &(&1 == AiurWeb.Streamdeck.Deck.SettingsSnapshot))
+    http = Enum.find_index(children, &(&1 == Aiur.HttpServer))
+    assert is_integer(snapshot)
+    assert is_integer(http)
+    assert snapshot < http
   end
 
   test "a fixture inserted before the Orchestrator fails with append guidance" do

@@ -69,4 +69,4 @@ a seven-day average never stands in for yesterday.
 
 Run `python3 scripts/test-newsletter-render.py` and the other
 `scripts/test-newsletter-*.py` suites. Real PDF tests explain their skip when
-Chromium is absent. No email delivery or scheduler is configured by this package.
+Chromium is absent. The [daily runner and user timer](../../website/docs-app/guide/newsletter.md) prepare automatic outputs and wake the Executor; delivery remains an Executor action.

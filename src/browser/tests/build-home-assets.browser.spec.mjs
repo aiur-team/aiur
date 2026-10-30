@@ -136,9 +136,12 @@ test('ordered stylesheet imports preserve source order and Safari blur fallbacks
 
 test('home.css does not change other pages', async ({ page }) => {
   test.setTimeout(120_000)
+  // Margins come from the Typed OM: Chromium sometimes reports a laid-out flex item's auto margin as 0px (#7187).
   const snapshot = () => JSON.stringify([...document.body.querySelectorAll('*')].map(e => {
     const style = getComputedStyle(e)
-    return [e.tagName, [...style].filter(p => !p.startsWith('--')).map(p => style.getPropertyValue(p))]
+    const computed = e.computedStyleMap()
+    return [e.tagName, [...style].filter(p => !p.startsWith('--'))
+      .map(p => p.startsWith('margin') ? String(computed.get(p)) : style.getPropertyValue(p))]
   }))
   let buttons = 0
   let anchors = 0
