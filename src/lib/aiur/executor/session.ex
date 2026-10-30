@@ -130,11 +130,13 @@ defmodule Aiur.Executor.Session do
   end
 
   defp provider_fields(binding, hook, now) do
+    path = Map.get(hook, :transcript_path) || if(binding.provider_session_id == hook.session_id, do: binding.transcript_path)
+
     Map.merge(binding, %{
       state: "attached",
       provider_session_id: hook.session_id,
-      transcript_path: Map.get(hook, :transcript_path),
-      locator_hash: locator_hash(Map.get(hook, :transcript_path)),
+      transcript_path: path,
+      locator_hash: locator_hash(path),
       cwd: Map.get(hook, :cwd),
       pid: if(binding.provider_session_id != hook.session_id or not live?(binding, now), do: Map.get(hook, :pid), else: binding.pid || Map.get(hook, :pid)),
       last_hook_at: DateTime.to_iso8601(now),

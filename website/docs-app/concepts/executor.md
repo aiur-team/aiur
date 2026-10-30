@@ -101,9 +101,14 @@ strings are bounded, and transcript paths must identify an owned regular file
 under `~/.claude/projects/` or `~/.codex/sessions/` with the matching session
 filename; symlinks and traversal are refused.
 
-Subagent paths match `agent_id`.
+Claude subagents require `<session_id>/subagents/agent-<agent_id>.jsonl`.
+The Codex agent filename rule remains provisional until a real CLI capture
+confirms it.
 Rejected paths become `nil`. Unattached sessions, foreign sessions and events
 beyond 50 per second per binding are dropped.
+
+A nil or rejected path preserves an existing locator for the same session;
+a new session never inherits it.
 
 Accepted events publish on the
 internal `executor_hook` topic; rejection counts use

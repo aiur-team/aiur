@@ -8,6 +8,9 @@ defmodule Aiur.Executor.SessionIngest do
   use GenServer
   alias Aiur.Executor.{HookPayload, Session}
 
+  @spec topic() :: String.t()
+  def topic, do: "executor_hook"
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   @spec dispatch(map()) :: :ok
@@ -58,7 +61,7 @@ defmodule Aiur.Executor.SessionIngest do
     with :ok <- same_harness(binding, event),
          {:ok, bound} <- bind(binding, event),
          {:ok, _} <- finish(bound.binding_id, event) do
-      Phoenix.PubSub.broadcast(state.pubsub, "executor_hook", {:executor_hook, event})
+      Phoenix.PubSub.broadcast(state.pubsub, topic(), {:executor_hook, event})
       state
     else
       {:error, reason} -> reject(state, reason)

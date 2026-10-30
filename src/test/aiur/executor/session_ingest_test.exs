@@ -20,7 +20,7 @@ defmodule Aiur.Executor.SessionIngestTest do
     start_supervised!({Session, instance_key: "hook-ingest"})
     timer = start_supervised!({Agent, fn -> 0 end})
     start_supervised!({SessionIngest, pubsub: context.pubsub, clock: fn -> Agent.get(timer, & &1) end})
-    :ok = Phoenix.PubSub.subscribe(context.pubsub, "executor_hook")
+    :ok = Phoenix.PubSub.subscribe(context.pubsub, SessionIngest.topic())
     Map.put(context, :timer, timer)
   end
 
@@ -78,6 +78,33 @@ defmodule Aiur.Executor.SessionIngestTest do
     dispatch("Stop", "two")
     assert SessionIngest.rejected_counts()[:not_attached] == 1
     refute_receive {:executor_hook, _event}, 0
+  end
+
+  test "nil and rejected hook paths retain the same session locator but never cross a rebind", %{root: root} do
+    path = Path.join(root, ".claude/projects/p/one.jsonl")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "{}\n")
+    {:ok, event} = HookPayload.normalize(Map.put(raw("SessionStart"), "transcript_path", path), "claude", home: root)
+    assert {:ok, _} = Session.attach(%{harness: "claude"})
+    SessionIngest.dispatch(event)
+    SessionIngest.rejected_counts()
+    assert {:ok, initial} = Session.current()
+    assert initial.transcript_path == path
+
+    for incoming <- [nil, path <> ".missing"] do
+      dispatch("PostToolUse", "one", %{"transcript_path" => incoming})
+      SessionIngest.rejected_counts()
+      assert {:ok, current} = Session.current()
+      assert current.transcript_path == path
+      assert current.locator_hash == initial.locator_hash
+    end
+
+    dispatch("SessionStart", "two", %{"source" => "clear"})
+    SessionIngest.rejected_counts()
+    assert {:ok, rebound} = Session.current()
+    assert rebound.provider_session_id == "two"
+    assert rebound.transcript_path == nil
+    assert rebound.locator_hash == nil
   end
 
   test "first hook from an already resumed harness binds without an earlier process identity" do

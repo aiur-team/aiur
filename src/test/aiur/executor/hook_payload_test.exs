@@ -58,10 +58,26 @@ defmodule Aiur.Executor.HookPayloadTest do
     for {harness, relative} <- [{"claude", ".claude/projects/p/session.jsonl"}, {"codex", ".codex/sessions/2026/rollout-date-session.jsonl"}] do
       path = make_file(root, relative)
       assert TranscriptPath.validate(path, harness, "session", home: root) == {:ok, path}
-      agent = make_file(root, String.replace(relative, "session.jsonl", "agent.jsonl"))
+      agent_relative = if harness == "claude", do: ".claude/projects/p/session/subagents/agent-agent.jsonl", else: String.replace(relative, "session.jsonl", "agent.jsonl")
+      agent = make_file(root, agent_relative)
       assert {:ok, event} = HookPayload.normalize(Map.merge(raw(), %{"transcript_path" => path, "agent_transcript_path" => agent, "agent_id" => "agent"}), harness, home: root)
       assert event.transcript_path == path
       assert event.agent_transcript_path == agent
+    end
+  end
+
+  test "Claude subagent paths require the agent prefix and the parent session", %{root: root} do
+    for relative <- [
+          ".claude/projects/p/session/subagents/agent.jsonl",
+          ".claude/projects/p/foreign/subagents/agent-agent.jsonl",
+          ".claude/projects/p/session/other/agent-agent.jsonl",
+          ".claude/projects/p/session/subagents/agent-foreign.jsonl"
+        ] do
+      path = make_file(root, relative)
+      payload = Map.merge(raw(), %{"agent_id" => "agent", "agent_transcript_path" => path})
+      assert {:ok, event} = HookPayload.normalize(payload, "claude", home: root)
+      assert event.agent_transcript_path == nil
+      assert_receive {:count, %{count: 1}, %{reason: :transcript_path_rejected, rejection: :session_mismatch}}, 1000
     end
   end
 

@@ -19,7 +19,7 @@ defmodule Aiur.Executor.HookPayload do
     fields = Map.new(@fields, &{&1, bounded(raw[Atom.to_string(&1)])})
     normalized = Map.merge(fields, %{harness: harness, session_id: id, event: event, observed_at: DateTime.utc_now(), stop_hook_active: boolean(raw["stop_hook_active"])})
     normalized = Map.put(normalized, :transcript_path, path(raw["transcript_path"], harness, id, opts))
-    {:ok, Map.put(normalized, :agent_transcript_path, path(raw["agent_transcript_path"], harness, fields.agent_id, opts))}
+    {:ok, Map.put(normalized, :agent_transcript_path, path(raw["agent_transcript_path"], harness, id, Keyword.put(opts, :agent_id, fields.agent_id)))}
   end
 
   def normalize(_raw, _harness, _opts), do: {:error, :invalid_payload}

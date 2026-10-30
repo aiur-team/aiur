@@ -1,5 +1,12 @@
 defmodule Aiur.Executor.TranscriptPath do
-  @moduledoc "Validates Executor transcript locators without trusting payload-supplied roots."
+  @moduledoc """
+  Validates Executor transcript locators without trusting payload-supplied roots.
+
+  The `:agent_id` option requires Claude's `<session_id>/subagents/agent-<agent_id>.jsonl`
+  layout, binding the agent to its parent session. Codex agent filenames retain
+  the provisional `rollout-*-<agent_id>.jsonl` rule; that layout is unverified
+  until the real-CLI capture in MP-E3-C4-T02 confirms it.
+  """
 
   @spec validate(term(), String.t(), term(), keyword()) :: {:ok, Path.t() | nil} | {:error, atom()}
   def validate(path, harness, session_id, opts \\ [])
@@ -14,7 +21,7 @@ defmodule Aiur.Executor.TranscriptPath do
          {:ok, stat} <- File.lstat(path),
          {:ok, owner} <- File.stat(home),
          :ok <- owned(stat.uid, owner.uid),
-         :ok <- matches(path, harness, session_id) do
+         :ok <- matches(path, harness, session_id, opts) do
       {:ok, path}
     end
   end
@@ -42,9 +49,24 @@ defmodule Aiur.Executor.TranscriptPath do
   defp owned(uid, uid), do: :ok
   defp owned(_uid, _owner), do: {:error, :wrong_owner}
 
-  defp matches(path, harness, id) do
-    name = Path.basename(path)
-    matches? = if harness == "claude", do: name == id <> ".jsonl", else: String.starts_with?(name, "rollout-") and String.ends_with?(name, "-#{id}.jsonl")
-    if matches?, do: :ok, else: {:error, :session_mismatch}
+  defp matches(path, harness, id, opts) do
+    accepted? =
+      case Keyword.fetch(opts, :agent_id) do
+        :error -> session_name?(Path.basename(path), harness, id)
+        {:ok, agent} when is_binary(agent) and agent != "" -> agent_path?(path, harness, id, agent)
+        _ -> false
+      end
+
+    if accepted?, do: :ok, else: {:error, :session_mismatch}
   end
+
+  defp agent_path?(path, "claude", session, agent) do
+    Path.basename(path) == "agent-#{agent}.jsonl" and Path.basename(Path.dirname(path)) == "subagents" and
+      Path.basename(Path.dirname(Path.dirname(path))) == session
+  end
+
+  defp agent_path?(path, harness, _session, agent), do: session_name?(Path.basename(path), harness, agent)
+  defp session_name?(name, "claude", id), do: name == id <> ".jsonl"
+  defp session_name?(name, "codex", id), do: String.starts_with?(name, "rollout-") and String.ends_with?(name, "-#{id}.jsonl")
+  defp session_name?(_name, _harness, _id), do: false
 end
