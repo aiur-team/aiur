@@ -48,9 +48,9 @@ defmodule Aiur.Diagnostics.IdleBurstSamplerTest do
 
   test "deadline truncates capture and records processes that exit during stack sampling" do
     {opts, _reads} = source([:worker], fn _, time -> time * 2_000 end)
-    # Keep reduction readings above the trigger; metadata/stacks model an exited PID.
+    # Exit after the triggering reduction read, including the post-capture baseline.
     info = Keyword.fetch!(opts, :info)
-    opts = Keyword.put(opts, :info, fn pid, key -> if key == :reductions, do: info.(pid, key), else: nil end)
+    opts = Keyword.put(opts, :info, fn pid, key -> if key == :reductions and clock() <= 200, do: info.(pid, key), else: nil end)
 
     assert %{bursts: [%{samples: [%{at_ms: 225, stacks: [worker: nil]}, %{at_ms: 250, stacks: [worker: nil]}]}], elapsed_ms: 250} =
              IdleBurstSampler.run(opts ++ [duration_ms: 250])
