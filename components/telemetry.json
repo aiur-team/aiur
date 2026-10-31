@@ -8,6 +8,7 @@
     "src/lib/aiur/daemon_heartbeat.ex",
     "src/lib/aiur/daemon_heartbeat_checker.ex",
     "src/lib/aiur/daemon_heartbeat_writer.ex",
+    "src/lib/aiur/diagnostics/idle_burst_sampler.ex",
     "src/lib/aiur/metrics.ex",
     "src/lib/aiur/run_telemetry.ex",
     "src/lib/aiur/run_telemetry/**",
