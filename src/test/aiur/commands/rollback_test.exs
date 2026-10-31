@@ -19,9 +19,17 @@ defmodule Aiur.Commands.RollbackTest do
       routed: %{policy: :executor_first, state: :with_executor, cause: nil, at: at, actor: actor},
       escalated: %{cause: :executor_ack_timeout, at: at, detail: "Timeout", actor: actor},
       human_needed: %{cause: :executor_ack_timeout, at: at, short_label: "Choose", requester_kind: :worker, blocking: false, urgency: :normal},
+      override_successor_ticket: %{action_id: "action-1", ticket: %{identifier: "124", title: "Successor", url: "https://example.test/124"}},
+      override_corrective_ticket: %{action_id: "action-1", ticket: %{identifier: "124", title: "Correction", url: "https://example.test/124"}, pr_number: 77, merge_commit_sha: "merged-1"},
+      override_corrective_implemented: %{action_id: "action-1", pr_number: 78, merge_commit_sha: "merged-2"},
+      override_corrective_failed: %{action_id: "action-1", failure_class: "github", reason: "HTTP 422", attempts: 1, retry_at: at, alerted: true},
+      override_corrective_closed: %{action_id: "action-1"},
+      override_corrective_recovered: %{action_id: "action-1"},
       override_resume_state: %{action_id: "action-1", route: :capacity_wait, reason: :capacity},
       override_prompt_delivered: %{action_id: "action-1", at: at},
+      override_worker_handoff: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
       override_implemented: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
+      override_merge_settled: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, expected_version: 1, committed_at: at},
       requester_notified: %{action_id: "action-1", at: at, channel: :wake_inbox},
       executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}
     }

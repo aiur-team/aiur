@@ -69,9 +69,12 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     "#{f.prefix}:queued" not in f.labels and marker != nil and marker.action == :mark and marker.outcome != :ok
   end
 
+  defp managed(%{item: %{override: override}} = f) when not is_nil(override) do
+    if parked?(f) or not f.todo, do: result(:held, :parked_marker), else: result(:overridden, override)
+  end
+
   defp managed(f) do
     cond do
-      f.item.override != nil -> result(:overridden, f.item.override)
       f.todo and not own_promotion?(f) -> manual_promotion(f)
       awaiting_promotion?(f) -> result(:unknown, :awaiting_promotion_observation)
       external_removal?(f) -> external_hold(f)

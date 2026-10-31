@@ -50,8 +50,10 @@ defmodule Aiur.Application.Children do
 
     instance_role = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0)
 
+    # The shared unit-test app turns repository services off: they poll GitHub and log into other tests' captures (#6474).
     github_tracker? =
-      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
+      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end) and
+        Keyword.get(opts, :repository_services?, Application.get_env(:aiur, :repository_services?, true))
 
     main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
 
@@ -319,7 +321,7 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_projection, opts) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        dashboard_cache_children(dashboard?) ++
+        dashboard_cache_children(dashboard?, opts) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
@@ -337,7 +339,7 @@ defmodule Aiur.Application.Children do
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
 
-  defp dashboard_cache_children(dashboard?) do
+  defp dashboard_cache_children(dashboard?, opts) do
     List.wrap(
       if(dashboard?,
         do: [
@@ -345,7 +347,7 @@ defmodule Aiur.Application.Children do
           {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
         ]
       )
-    )
+    ) ++ if(dashboard?, do: BuildOrders.child_specs(:timeline_cache, opts), else: [])
   end
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do

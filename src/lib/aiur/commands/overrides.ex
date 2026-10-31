@@ -23,6 +23,18 @@ defmodule Aiur.Commands.Overrides do
 
   def normalize_metadata(_raw), do: {:error, :invalid_override_metadata}
 
+  @doc "Effective work target, retaining the original Command identity."
+  @spec target_ticket(Decision.t(), String.t() | nil) :: map()
+  def target_ticket(decision, action_id \\ nil) do
+    action_id = action_id || decision.active_action_id
+
+    case Enum.find(decision.overrides, &(&1.action_id == action_id)) do
+      %{corrective_ticket: ticket} when is_map(ticket) -> ticket
+      %{ticket: ticket} -> ticket
+      _missing -> decision.ticket
+    end
+  end
+
   @spec public(Decision.t()) :: [map()]
   def public(decision), do: JSONSafe.normalize(decision.overrides)
 
@@ -30,13 +42,19 @@ defmodule Aiur.Commands.Overrides do
   def observe(decision, %{type: :revision_recorded, data: %{override: metadata} = revision} = event) when is_map(metadata) do
     previous = Enum.map(decision.overrides, &supersede(&1, event.occurred_at))
 
+    prior = List.last(decision.overrides)
+    ticket = if prior, do: Map.get(prior, :corrective_ticket) || prior.ticket, else: decision.ticket
+    corrective = if prior && metadata.pr_merged != true, do: Map.get(prior, :corrective_ticket)
+
     record =
       Map.merge(metadata, %{
         override_id: revision.action_id,
+        merge_version: 1,
         decision_id: decision.decision_id,
         prior_action_id: revision.prior_action_id,
         action_id: revision.action_id,
-        ticket: decision.ticket,
+        ticket: ticket,
+        corrective_ticket: corrective,
         state: :queued,
         queued_at: event.occurred_at,
         delivered_at: nil,
@@ -50,18 +68,8 @@ defmodule Aiur.Commands.Overrides do
 
   def observe(decision, %{type: :delivered, data: data, occurred_at: at}) do
     update(decision, data.action_id, fn
-      %{state: :queued} = record -> %{record | state: :delivered, delivered_at: at}
+      %{state: state} = record when state in [:queued, :failed] -> %{record | state: :delivered, delivered_at: at}
       record -> record
-    end)
-  end
-
-  def observe(decision, %{type: type, data: data, occurred_at: at}) when type in [:acknowledged, :resolved] do
-    update(decision, data.action_id, fn
-      %{state: state, route: route} = record when state in [:queued, :delivered] and route in [:active_worker, :resume_pending, :capacity_wait] ->
-        %{record | state: :implemented, implemented_at: at, evidence: :acknowledged}
-
-      record ->
-        record
     end)
   end
 
@@ -70,7 +78,7 @@ defmodule Aiur.Commands.Overrides do
   @doc "The current unacknowledged override, including journal-backed resume requests."
   @spec pending(Decision.t()) :: map() | nil
   def pending(%{decision_status: :decided} = decision) do
-    Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id and &1.state in [:queued, :delivered, :implemented]))
+    Enum.find(decision.overrides, &(&1.action_id == decision.active_action_id and &1.state in [:queued, :delivered, :failed, :implemented]))
   end
 
   def pending(_decision), do: nil
@@ -81,7 +89,7 @@ defmodule Aiur.Commands.Overrides do
 
   def resume_request(decision) do
     case pending(decision) do
-      %{pr_merged: false, route: route} = record when route in [:resume_pending, :capacity_wait] -> record
+      %{pr_merged: false, route: route} = record when route in [:resume_pending, :capacity_wait, :replacement] -> record
       _observational -> nil
     end
   end
@@ -89,6 +97,9 @@ defmodule Aiur.Commands.Overrides do
   @spec resume_fact(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
   def resume_fact(decision, %{data: %{action_id: action_id}} = event) do
     case pending(decision) do
+      %{action_id: ^action_id, pr_merged: true} ->
+        {:error, :stale}
+
       %{action_id: ^action_id} ->
         updated = update(decision, action_id, &apply_resume_fact(&1, event))
         updated = if event.type == :override_prompt_delivered, do: %{updated | delivery_status: :delivered}, else: updated
@@ -99,26 +110,37 @@ defmodule Aiur.Commands.Overrides do
     end
   end
 
-  defp apply_resume_fact(record, %{type: :override_resume_state, data: data}),
-    do: record |> Map.put(:route, data.route) |> Map.put(:resume_reason, data.reason)
+  defp apply_resume_fact(record, %{type: :override_resume_state, data: data}) do
+    record = record |> Map.put(:route, data.route) |> Map.put(:resume_reason, data.reason) |> Map.put(:resume_attempts, data.attempts) |> Map.merge(Map.take(data, [:read_attempts, :read_retry_at]))
+    if data.route == :replacement, do: Map.put(record, :recovery_path, :replacement), else: record
+  end
 
-  defp apply_resume_fact(%{state: :queued} = record, %{type: :override_prompt_delivered, data: data}),
+  defp apply_resume_fact(%{state: state} = record, %{type: :override_prompt_delivered, data: data}) when state in [:queued, :failed],
     do: %{record | state: :delivered, delivered_at: data.at}
 
   defp apply_resume_fact(record, _event), do: record
 
   @spec implemented(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
-  def implemented(decision, %{data: data}) do
+  def implemented(decision, event), do: record_push(decision, event, false)
+
+  @spec worker_handoff(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, atom()}
+  def worker_handoff(decision, event), do: record_push(decision, event, true)
+
+  defp record_push(decision, %{data: data}, reported) do
     record = Enum.find(decision.overrides, &(&1.action_id == data.action_id))
 
     if valid_push?(record, decision, data) do
-      {:ok, update(decision, data.action_id, &%{&1 | state: :implemented, implemented_at: data.at, evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number}})}
+      if match?(%{worker_reported: true}, record.evidence) and not reported do
+        {:ok, decision}
+      else
+        {:ok, update(decision, data.action_id, &%{&1 | evidence: %{kind: :push, head_sha: data.head_sha, pr_number: data.pr_number, at: data.at, worker_reported: reported}})}
+      end
     else
       {:error, :override_push_mismatch}
     end
   end
 
-  defp valid_push?(%{state: :delivered, route: route} = record, decision, data) when route in [:active_worker, :resume_pending, :capacity_wait] do
+  defp valid_push?(%{state: :delivered, route: route, corrective_ticket: nil} = record, decision, data) when route in [:active_worker, :resume_pending, :capacity_wait, :replacement] do
     decision.active_action_id == data.action_id && (is_nil(record.pr_number) || record.pr_number == data.pr_number) &&
       is_integer(data.pr_number) && changed_head?(record, data) && after_delivery?(record, data)
   end

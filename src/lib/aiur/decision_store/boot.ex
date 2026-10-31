@@ -3,6 +3,8 @@ defmodule Aiur.DecisionStore.Boot do
 
   require Logger
 
+  alias Aiur.CodeHost
+  alias Aiur.Commands.CorrectiveProvenance
   alias Aiur.Config
   alias Aiur.DecisionAnswerComment
   alias Aiur.DecisionDispatch
@@ -13,6 +15,7 @@ defmodule Aiur.DecisionStore.Boot do
   alias Aiur.DecisionStore
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
+  alias Aiur.DecisionStore.CorrectiveOverrides
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Index
@@ -25,6 +28,7 @@ defmodule Aiur.DecisionStore.Boot do
   alias Aiur.ExecutorEvents
   alias Aiur.Journal
   alias Aiur.Signal
+  alias Aiur.Tracker.DispatchProvenance
 
   @ndjson_filename "decisions.ndjson"
   @projection_filename "decisions.json"
@@ -61,6 +65,9 @@ defmodule Aiur.DecisionStore.Boot do
 
   @spec configure_dispatch(term(), term()) :: term()
   def configure_dispatch(state, opts) do
+    state = CorrectiveOverrides.configure(state, opts)
+    owner = self()
+    DispatchProvenance.register(:corrective_ticket, &CorrectiveProvenance.check(&1, owner))
     :ok = OverridePushes.subscribe(Keyword.get(opts, :override_push_exchange, Aiur.Events.exchange_server()))
 
     revision_projector =
@@ -73,7 +80,10 @@ defmodule Aiur.DecisionStore.Boot do
       Map.merge(state, %{
         file_ops: Keyword.get(opts, :file_ops, :file),
         override_reconcile_timer: Process.send_after(self(), :reconcile_override_pushes, Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms)),
+        override_pr_reader: Keyword.get(opts, :override_pr_reader, &Aiur.Tracker.ticket_pull_request/1),
+        override_merge_reader: Keyword.get(opts, :override_merge_reader, &CodeHost.override_merge_head/1),
         override_context_reader: Keyword.get(opts, :override_context_reader, &OverridePushes.context/1),
+        override_pending_pushes: %{},
         follow_up_append_retries: %{},
         held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),

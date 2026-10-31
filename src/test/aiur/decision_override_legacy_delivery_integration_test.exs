@@ -159,7 +159,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     receive_barrier({:worker_queue_empty, ^worker})
   end
 
-  test "merged PR override preserves terminal target follow-up instead of silently staying queued", ctx do
+  test "merged PR override waits for a corrective ticket instead of a terminal follow-up", ctx do
     store = start_store!(ctx, "done")
     worker = launch!(ctx.runtime, store)
     receive_barrier({:first_session_input, ^worker, []})
@@ -168,14 +168,10 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
     receive_barrier({:worker_input, ^worker, _, _})
     context = %{@context | pr: %{@context.pr | merged?: true}}
     revised = override!(store, delivered, "correct merged work", context)
-    terminal = wait_for(store, revised.decision_id, &(map_size(&1.revision_follow_ups) == 1))
     action = revised.active_action_id
-    assert [%{route: :corrective_ticket, action_id: ^action}] = terminal.overrides
-    assert terminal.revision_outcomes[action].reason_class == "target_terminal"
-    assert terminal.revision_follow_ups[action].handled_at == nil
-    receive_barrier({:follow_up, ^action})
-    assert {:ok, history} = DecisionStore.audit_history(revised.decision_id, store)
-    assert Enum.count(history, &(&1.type == :follow_up_required and &1.data.action_id == action)) == 1
+    assert [%{route: :corrective_ticket, state: :queued, action_id: ^action}] = revised.overrides
+    refute Commands.override_dispatchable?(revised)
+    assert revised.revision_follow_ups == %{}
     refute_received {:worker_input, ^worker, ^action, _}
   end
 
@@ -205,6 +201,7 @@ defmodule Aiur.DecisionOverrideLegacyDeliveryIntegrationTest do
        retry_delays_ms: [],
        reconcile_delay_ms: 60_000,
        dispatcher: dispatcher,
+       corrective_override_reconciler: fn _, _ -> {:ok, []} end,
        answer_comment_publisher: fn _ -> :ok end,
        revision_follow_up_projector: fn _, action ->
          send(parent, {:follow_up, action})

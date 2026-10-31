@@ -220,15 +220,42 @@ Enabling the relay gate raises an info alert. Every relay also raises an info al
 
 <span id="who-can-replace-an-answer"></span>
 
-## Answering and replacing
+## Overriding an answer
 
 The first accepted answer wins. If another responder answers first, the conflict
 shows the accepted answer and its delivery state instead of overwriting it.
 
-Use **Replace** before delivery, or **Send correction** after delivery. Both
-record an override of the original Command. Before delivery the new answer
-replaces the pending answer; after delivery it sends corrective direction to the
-active worker on the existing work. It cannot retract earlier effects.
+Use **Send correction** on an answered Command to record an override, even after
+delivery or merge. The original answer remains in the audit history.
+
+Before delivery the new answer replaces the pending answer; after delivery it sends corrective direction to the
+active worker on unmerged work. If the PR has merged, it creates a corrective
+ticket for a new worker and PR.
+
+It cannot retract earlier effects.
+
+| State when the override arrives | Routing |
+| --- | --- |
+| Unmerged, worker active | Deliver to that worker and update the existing work. |
+| Unmerged, worker parked | Resume the worker when capacity permits. |
+| Unmerged, capacity full | Keep queued; deliver first on resume without exceeding the cap. |
+| PR merged | Create a corrective ticket, worker and PR. |
+| Worker unrecoverable | Recover or replace it without competing duplicate work. |
+| PR merges during routing | Reconcile implementation evidence or create corrective work. |
+
+The **Overrides** timeline links each override to its original Command, ticket,
+PR and corrective ticket when known. Text chips distinguish queued (including
+slot and resume waits), delivered, implemented and superseded states. Delivery
+alone does not establish implementation.
+
+A worker-attested push reads “Implemented
+in PR #N (awaiting merge)”; the durable state remains delivered until merge
+evidence confirms it. Inbox badges remain until implementation
+or supersession.
+
+The Build header shows a collapsed override count badge. Open it for ticket
+numbers and Command links; close it with the badge, Escape or an outside click. `aiur commands` includes the same state and links in its override
+column. The Stream Deck status reads “override queued” or “override delivered”.
 
 Both revise and supersede use the current active answer's precedence:
 **direct operator > operator relayed by an Executor > Executor or supervisor**.
@@ -247,13 +274,44 @@ A newer override supersedes the previous one; stale queued messages cannot deliv
 Records survive daemon restart.
 
 Active-worker overrides progress from `queued` to `delivered` after confirmed
-delivery, then `implemented` when the worker acknowledges the override or a later
-branch push is confirmed as a changed head on the same PR. The record names the
-evidence.
+delivery. Acknowledgement and push evidence do not prove implementation: the
+merged PR head must contain a worker-attested commit made after delivery.
+
+The worker attests its pushed checkout head at handoff; repository push notifications alone do not attest work.
+An update-branch, main merge or rebase without that worker receipt cannot mark it implemented.
+
+If the PR merges first,
+Aiur automatically routes the override to a corrective ticket and records
+“PR merged before the change; corrective ticket #M”. A late worker push cannot
+reverse this outcome. Overrides delivered while a PR is queued for merge follow
+the same rule; Aiur does not dequeue the PR.
 
 Push evidence needs a verified PR head-update timestamp later than
-delivery; unknown or same-second chronology stays unproven until acknowledgement
-or a later proven push. Queue acceptance alone does not mean implementation.
+delivery; unknown or same-second chronology stays unproven. Queue acceptance alone does not mean implementation.
+
+When the PR has merged, the override creates one corrective ticket, with the
+question, old and new answers, original PR and merge SHA. Its `corrective_ticket`
+link survives restart, and comments link the original ticket and merged PR to it.
+Retries reconcile the override marker before creating a ticket.
+
+Linking a corrective ticket closes any follow-up about the old target.
+Delayed results from that target cannot cancel the corrective work.
+
+If the local PR observation is missing or stale, reconciliation checks a closed
+ticket's merged PR through GitHub before filing the correction. This runs outside
+worker dispatch.
+
+Reconciliation errors appear in `aiur commands --json` as a `failure` record,
+including the redacted reason, attempt count and next retry time. Before
+delivery, the override state becomes `failed`; confirmed delivery remains
+visible. Retries back off from one minute to one hour. Permanent failures
+alert immediately; other failures alert after three attempts.
+
+The corrective
+ticket enters normal dispatch and capacity limits; merged history is preserved.
+A later override targets this corrective ticket while its PR remains unmerged.
+It keeps the observed active-worker, resume or capacity-wait route.
+For corrective work, `implemented` requires the corrective PR to merge.
 
 For a confirmed unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
 journal-backed resume queue. Resumable workers continue on the same ticket,
@@ -272,13 +330,27 @@ Aiur raises an Executor Command,
 “Resume #N to apply the override?”; the operator uses the normal resume control
 to authorize resumption. Capacity-only waits need no approval.
 
-Merged and unknown PR observations retain the legacy delivery path. A terminal
-target retains its Executor follow-up; it is not resumed or injected into a worker
-prompt. The resume scheduler requires a freshly confirmed live ticket.
+Unknown PR observations never authorize automatic resumption. Closed targets
+are checked for a merged PR asynchronously, as described above. The resume
+scheduler requires a freshly confirmed live ticket.
 
-Corrective-ticket creation and unrecoverable worker replacement are separate
-routing work. Overrides never rewrite merged work. Direct legacy supersede
-calls retain their pre-delivery guard.
+After three failed non-capacity resumes, or evidence of a missing workspace or
+unrecoverable worker, Aiur starts a fresh session on the same ticket and PR head.
+Its first instruction is the override plus “The previous session ended; continue
+PR #N from its head.” Capacity and in-flight claim refusals never count toward replacement.
+
+If the branch is deleted or the PR closed unmerged, Aiur creates one parked
+successor with the original Command and answer history, closes the old PR with
+“superseded by #M”, parks the old ticket with its reason, then releases the
+successor for normal dispatch.
+
+An operator pause added during retirement keeps
+the successor parked until the operator resumes the work.
+
+Failure keeps the override queued and opens an
+Executor Command. The override records its recovery path and reason.
+Overrides never rewrite merged work. Direct legacy supersede calls retain their pre-delivery
+guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.

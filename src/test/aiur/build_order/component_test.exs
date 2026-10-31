@@ -20,7 +20,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     recording?: true,
     executor_mode?: false,
     ls_remote_ticker?: true,
-    build_index?: true
+    build_index?: true,
+    repository_services?: true
   ]
 
   # Conversation journals now precede producers, with the resolver bound immediately after Exchange.
@@ -179,6 +180,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.AnalystTrigger,
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    Aiur.BuildOrder.TicketTimelineCache,
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     Aiur.Netlify.Usage,
@@ -221,6 +223,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
             AiurWeb.ControlCenterCache,
             Aiur.RunTelemetry.RetainedCache,
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+            Aiur.BuildOrder.TicketTimelineCache,
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.DashboardAuth.ChallengeStore,
             AiurWeb.DashboardAuthRateLimit.Store,

@@ -42,6 +42,7 @@ defmodule Aiur.DecisionOverrideStoreTest do
       dispatch_delay_ms: 60_000,
       reconcile_delay_ms: 60_000,
       dispatcher: dispatcher,
+      corrective_override_reconciler: fn _, _ -> {:ok, []} end,
       answer_comment_publisher: fn _ -> :ok end,
       override_context_reader: fn _ -> %{@context | pr: Map.merge(@context.pr, %{head_sha: "after", head_updated_at: DateTime.add(DateTime.utc_now(), 1)})} end
     ]
@@ -62,7 +63,7 @@ defmodule Aiur.DecisionOverrideStoreTest do
     %{store: store, decision: answered, dir: dir, store_opts: opts}
   end
 
-  test "delivered override reaches existing worker and acknowledgement implements durable record", ctx do
+  test "delivered override reaches existing worker and acknowledgement leaves implementation awaiting merge", ctx do
     override = override!(ctx, "first")
     assert [%{state: :queued, prior_action_id: prior, pr_number: 77, route: :active_worker}] = override.overrides
     assert prior == ctx.decision.active_action_id
@@ -81,7 +82,7 @@ defmodule Aiur.DecisionOverrideStoreTest do
                ctx.store
              )
 
-    assert {:ok, %{overrides: [%{state: :implemented, evidence: :acknowledged}]}} = DecisionStore.get(override.decision_id, ctx.store)
+    assert {:ok, %{overrides: [%{state: :delivered, evidence: nil}]}} = DecisionStore.get(override.decision_id, ctx.store)
 
     assert {:ok, %{status: :accepted}} =
              DecisionStore.enrich(override.decision_id, %{context: %{short_summary: "Revised work"}}, [expected_version: 1, actor: %{kind: :supervisor, id: "supervising-agent"}], ctx.store)
@@ -89,7 +90,7 @@ defmodule Aiur.DecisionOverrideStoreTest do
     stop_supervised!(DecisionStore)
     replayed_store = start_supervised!({DecisionStore, ctx.store_opts})
     assert {:ok, replayed} = DecisionStore.get(override.decision_id, replayed_store)
-    assert [%{state: :implemented, evidence: :acknowledged, decision_id: id, ticket: @ticket}] = replayed.overrides
+    assert [%{state: :delivered, evidence: nil, decision_id: id, ticket: @ticket}] = replayed.overrides
     assert id == override.decision_id
   end
 
@@ -113,20 +114,16 @@ defmodule Aiur.DecisionOverrideStoreTest do
     refute_receive {:worker_message, _item}, 0
   end
 
-  test "observational routes retain legacy retry, startup prompt and delivery", ctx do
+  test "merged override waits for its corrective ticket before delivery", ctx do
     context = %{@context | pr: %{@context.pr | merged?: true}, worker: :active}
     override = override!(ctx, "merged", context)
     assert [%{route: :corrective_ticket, state: :queued}] = override.overrides
-    assert Aiur.Commands.override_dispatchable?(override)
-    assert Retry.dispatchable?(override, true)
-    assert [%{action_id: action_id, answer: "merged"}] = AnsweredDecisions.for_ticket("6908", ctx.store, 1_000)
-    assert action_id == override.active_action_id
-    item = dispatch!(ctx, override)
-    assert item.action_id == override.active_action_id
-    assert {:ok, :accepted} = DecisionStore.validate_delivery(item, ctx.store)
+    refute Aiur.Commands.override_dispatchable?(override)
+    refute Retry.dispatchable?(override, true)
+    assert [] == AnsweredDecisions.for_ticket("6908", ctx.store, 1_000)
   end
 
-  test "verified branch push after delivery implements the override on its ticket PR", ctx do
+  test "verified branch push after delivery records evidence for the override on its ticket PR", ctx do
     override = override!(ctx, "pushed")
     item = dispatch!(ctx, override)
     assert {:ok, :accepted} = DecisionStore.validate_delivery(item, ctx.store)
@@ -135,7 +132,7 @@ defmodule Aiur.DecisionOverrideStoreTest do
     [%{delivered_at: at}] = delivered.overrides
     event = %{topic: "ticket.6908.branch.push", source: :system, sha: "after", ref: "refs/heads/work", ticket_observation: %{observed_at: DateTime.add(at, 1, :second)}}
     Exchange.publish(event.topic, event)
-    implemented = wait_for(ctx.store, override.decision_id, fn d -> hd(d.overrides).state == :implemented end)
+    implemented = wait_for(ctx.store, override.decision_id, fn d -> match?(%{kind: :push}, hd(d.overrides).evidence) end)
     assert [%{evidence: %{kind: :push, head_sha: "after", pr_number: 77}}] = implemented.overrides
     assert implemented.decision_status == :decided
   end

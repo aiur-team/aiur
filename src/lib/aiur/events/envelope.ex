@@ -65,6 +65,8 @@ defmodule Aiur.Events.Envelope do
     |> subject_identifier()
   end
 
+  defp ref(:run_id, event, _topic), do: event |> value(:run_id) |> positive_integer()
+
   defp ref(:pr_number, event, _topic) do
     event |> pr() |> value(:number) |> fallback(value(event, :pr_number)) |> fallback(value(event, :pull_request_number)) |> positive_integer()
   end

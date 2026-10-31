@@ -1,7 +1,10 @@
+Code.require_file("../../support/build_home/queue_read_model_fixture.ex", __DIR__)
+
 defmodule AiurWeb.Build.PayloadTest do
   use ExUnit.Case, async: true
+  alias Aiur.Test.BuildHome.QueueReadModelFixture, as: FixtureQueue
   alias Aiur.TestSupport.BuildHome.FixtureSource
-  alias AiurWeb.Build.{Payload, Read}
+  alias AiurWeb.Build.{Payload, PlannedRows, Read}
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   test "shared index presentation metadata stays outside the strict browser row schema" do
@@ -93,6 +96,17 @@ defmodule AiurWeb.Build.PayloadTest do
       assert {:error, errors} = Payload.validate(data)
       assert Enum.any?(errors, fn {path, _reason} -> path == if(unquote(name) == "section is an enum", do: "upsert.0.sec", else: unquote(expected)) end)
     end
+  end
+
+  test "planned row with unobserved GitHub blockers keeps the snapshot valid (#7273)" do
+    # Shape of ReadModel.native_prerequisites/2 for {:unknown, :blockers_not_observed}.
+    unobserved = %{number: nil, verdict: :unknown, source: :github, trigger: nil, stage: nil, optimistic: false, description: "GitHub dependencies unknown (blockers_not_observed)"}
+    show = FixtureQueue.show([FixtureQueue.item(607, state: :ready, verdict: :ready, prerequisites: [unobserved, FixtureQueue.edge(597, :satisfied)])])
+    [row] = PlannedRows.build(show, {:ok, %{rows: %{}}}, []).rows
+    assert row.deps == ["597"] and is_nil(row.dependency_ready)
+
+    data = update_in(fixture(), ["sections", "plan", Access.at(0)], &Map.merge(&1, %{"deps" => row.deps, "dep_states" => Map.new(row.deps, fn id -> {id, "unknown"} end)}))
+    assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
   end
 
   test "planned unknown readiness is a boolean in the payload" do

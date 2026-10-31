@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Revisions do
 
   alias Aiur.Commands.Answering
   alias Aiur.Commands.ConflictSummary
+  alias Aiur.Commands.Overrides, as: CommandOverrides
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionRevision
@@ -56,6 +57,14 @@ defmodule Aiur.DecisionStore.Revisions do
   end
 
   defp accept_override(decision, payload, actor, opts, state) do
+    target = CommandOverrides.target_ticket(decision).identifier
+
+    if Keyword.get(opts, :override_target_identifier, target) == target,
+      do: accept_target_override(decision, payload, actor, opts, state),
+      else: {:reply, {:error, {:conflict, :override_target_changed}}, state}
+  end
+
+  defp accept_target_override(decision, payload, actor, opts, state) do
     opts = Keyword.put(opts, :override, Overrides.metadata(opts))
     correlated = correlate_override(payload, decision.active_action_id, decision.revision_sequence)
     replaceable? = ConflictSummary.for(decision, actor).replaceable
@@ -278,6 +287,7 @@ defmodule Aiur.DecisionStore.Revisions do
   defp persist_revision(decision, revision, state) do
     case Persistence.build_and_persist_event(:revision_recorded, decision, revision, revision.recorded_at, state) do
       {:ok, next_state, updated} ->
+        send(self(), :reconcile_corrective_overrides)
         Answers.notify_operator_relay(revision.answer, updated, next_state)
         next_state = Settlement.ensure_superseded_revision_follow_ups(next_state, updated)
         current = Map.fetch!(next_state.current, updated.decision_id)

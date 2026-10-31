@@ -37,7 +37,7 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur commands --limit 20` | Sets a positive result limit. | `aiur commands --limit 20` |
 | `aiur commands --json` | Emits machine-readable decision rows, including request attribution and short labels. The alias remains supported. | `aiur commands --json` |
 | `aiur operator-relay-answer DECISION-ID` | Records an operator's already-given answer when `executor.relay_operator_answers: true`. Requires `--expected-version`, exactly one of `--option` or `--custom-response`, `--quote` (verbatim operator words), `--relayed-by` (Executor identity), and `--idempotency-key`. Accepted for `human_required`; recorded as `operator_relayed`, never a direct operator answer. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote "keep them" --relayed-by attended-executor --idempotency-key palette-1` |
-| `aiur operator-relay-answer DECISION-ID --supersede` | Relays the operator's override before or after worker delivery, preserving the prior answer and routing evidence. Delivery waits for the next session when needed; terminal tickets raise a follow-up. Refused when the active answer was recorded directly by the operator. | `aiur operator-relay-answer dec_123 --expected-version 1 --option replace --quote "replace them instead" --relayed-by attended-executor --idempotency-key palette-2 --supersede` |
+| `aiur operator-relay-answer DECISION-ID --supersede` | Relays the operator's override before or after worker delivery, preserving the prior answer and routing evidence. Delivery waits for the next session when needed; a merged PR creates a corrective ticket. Refused when the active answer was recorded directly by the operator. | `aiur operator-relay-answer dec_123 --expected-version 1 --option replace --quote "replace them instead" --relayed-by attended-executor --idempotency-key palette-2 --supersede` |
 | `aiur answer DECISION-ID --operator` | Human operators only. Requires an interactive terminal, shows the Command question, version and selected answer, then requires typing the decision ID to confirm. Agents and Executors must never run it. It accepts only `human_required` Commands and records actor `cli:<user>`. | `aiur answer dec_123 --option build_content --operator` |
 | `aiur executor-ack DECISION-ID` | Records that the Executor has seen a Command. Stops its acknowledgement deadline while preserving its answer deadline. Repeats succeed with “already acknowledged”. The ID is `dec_` followed by 16 lowercase hexadecimal characters. | `aiur executor-ack dec_0123456789abcdef` |
 | `aiur executor-ack DECISION-ID --executor-id exec-1` | Optional attribution; defaults to `aiur-cli`. Must contain 1–256 bytes. | `aiur executor-ack dec_0123456789abcdef --executor-id exec-1` |
@@ -49,7 +49,7 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur executor-answer DECISION-ID --rationale "Why"` | Required. It records why the answer was chosen, so decision history is auditable. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1` |
 | `aiur executor-answer DECISION-ID --idempotency-key run-1` | Required. Replaying the same key does not record a second answer, so a retried command is safe. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1` |
 | `aiur executor-answer DECISION-ID --executor-id exec-1` | Optional attribution for the answering Executor. It must not be empty when present. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1 --executor-id exec-1` |
-| `aiur executor-answer DECISION-ID --supersede` | Overrides an existing answer, including after delivery. Records the prior answer and routing evidence; an active worker receives corrective direction. Absent or paused workers receive it at the next session; terminal tickets raise a follow-up. Refused for human-attributed answers or without an answer. | `aiur executor-answer dec_123 --expected-version 1 --custom-response "Use the new fixture" --rationale "Operator changed direction" --idempotency-key run-3 --supersede` |
+| `aiur executor-answer DECISION-ID --supersede` | Overrides an existing answer, including after delivery. Records the prior answer and routing evidence; an active worker receives corrective direction. Absent workers receive it at the next session; a merged PR creates a corrective ticket. Refused for human-attributed answers or without an answer. | `aiur executor-answer dec_123 --expected-version 1 --custom-response "Use the new fixture" --rationale "Operator changed direction" --idempotency-key run-3 --supersede` |
 | `aiur executor-escalate DECISION-ID` | Hands a decision back to the human Executor instead of answering it. It requires `--expected-version` and `--reason`. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
 | `aiur executor-reclassify DECISION-ID` | Reclassifies an open historical `human_required` decision with no human-only basis. Refuses decisions with product, spend, publication, security, or legacy-attention provenance. Requires `--expected-version` and `--rationale`; reclassification increments the version. | `aiur executor-reclassify dec_123 --expected-version 1 --rationale "Acceptance specifies the fallback"` |
 | `aiur executor-escalate DECISION-ID --reason "Text"` | Required. It records why the supervising Executor declined to answer. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
@@ -70,7 +70,7 @@ its default is blocking.
 Successful Executor answers, escalations, moots, and supersedes also record an acknowledgement. A failed acknowledgement write is logged without changing the action’s result. Reading a Command or receiving an Executor wake does not acknowledge it. Acknowledging after escalation remains audit evidence and does not change routing.
 
 Human rows show `ID`, `ROUTE`, `AGE`, `WHY` (latest escalation cause), `ASKS`
-(short label), and `TICKET|EXECUTOR`. Simultaneous routing reads `Needs you and Executor`;
+(short label), `TICKET|EXECUTOR`, and `OVERRIDE` (state and links). Simultaneous routing reads `Needs you and Executor`;
 unknown routes show `?`. `WHY` shows `-` for an empty escalation history and `?` for
 missing or malformed escalation data.
 
@@ -107,7 +107,9 @@ Before delivery, `executor-moot` withdraws an answer. `executor-answer --superse
 
 The `overrides` array in `aiur commands --json` links the original Command, prior/new action IDs, ticket and observed PR to each override, its route, timestamps and queued/delivered/implemented/superseded state. Unknown PR state is explicit.
 
-Route observations preserve existing delivery: absent or paused workers receive the override at the next session, and terminal tickets raise a follow-up. Active-worker implementation evidence names a worker acknowledgement or a confirmed later PR head change.
+Absent or paused workers receive the override at the next session. A merged PR creates a corrective ticket, recorded as `corrective_ticket`; later overrides reuse its open work. This route is implemented only when the corrective PR merges.
+
+Other terminal targets raise a follow-up. Active-worker implementation evidence names a worker acknowledgement or a confirmed later PR head change.
 
 Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly.
 
@@ -129,7 +131,9 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur --instance nuc executor-wait --as fleet-executor --json` | Waits on one named remote instance using the same per-instance cursor and deferred acknowledgement behavior. | `aiur --instance nuc executor-wait --as fleet-executor --json` |
 | `aiur executor-fast-forward <wake-id>` | Explicitly acknowledges an exact durable wake prefix that this Executor demonstrably covered by another complete means. It acquires the owner lease, refuses a live peer owner, rejects an absent or future id, reports before/through/acknowledged/pending counts, and preserves newer wakes. This is recovery, not the normal consumption loop. | `aiur executor-fast-forward 2832 --as agent-a` |
 | `aiur executor-roster` | Lists every Executor consumer with the evidence behind its state: role, host, pid, `claimed_at`, `last_renewed_at`, `last_acknowledged_at`, `pending_count`, cursor position, and whether the cursor moved since the previous observation. | `aiur executor-roster --json` |
-| `aiur executor-session [--json]` | Prints the live Executor's harness session handle: `harness`, `session_id`, `config_dir`, `cwd`, `harness_pid`, `recorded_at`. Reads `{"state":"unknown","reason":…}` when nobody owns the stream (`no_live_owner`, including an expired lease), the owner recorded no session (`no_session`), or its `harness_pid` is dead (`harness_pid_dead`). | `aiur executor-session --json` |
+| `aiur executor-attach --harness claude\|codex [--takeover] [--print-config]` | Attaches an Executor binding to this instance. Requires a running dashboard listener. Claude installs hooks at the Git repository root (or current directory outside Git); `--print-config` prints them instead. Codex always prints config for interactive trust. A live binding refuses replacement (exit 75); `--takeover` names the superseded binding. | `aiur executor-attach --harness claude` |
+| `aiur executor-detach` | Ends the binding if needed, rotates its hook token, and removes marked Claude hooks at the Git repository root (or current directory outside Git). Cleanup also runs after SessionEnd and without a binding. | `aiur executor-detach` |
+| `aiur executor-session [--json]` | Shows the public hook binding, liveness, last hook age, `observed_at`, `age_ms`, `freshness`, and rejected foreign-session/not-attached counts. Counts come from hook ingestion; when ingestion is unavailable, `recording?` is false and counts are null. Before the first hook, age is null and freshness unknown. The previous wake-stream harness handle is retained under `harness_session`. | `aiur executor-session --json` |
 | `aiur executor-claim` | Claims the wake stream. Refused when a live, renewing owner holds it; the refusal names that owner so a takeover is an operator decision, never a silent steal. | `aiur executor-claim --as agent-a` |
 | `aiur executor-release` | Gives up this consumer's claim so a successor can take over immediately. | `aiur executor-release --as agent-a` |
 | `aiur executor-revoke <consumer-id>` | Operator-only revoke of the named live owner. Requires the owner's id, read from the roster first. | `aiur executor-revoke agent-a` |
@@ -143,6 +147,10 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --scope repo` | Filters to `aiur` or `repo` scope. | `aiur findings --scope repo` |
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
+
+The [Executor hook generator](/concepts/executor#generated-hook-settings) includes
+delivery hooks and preserves user handlers; Claude installs locally and Codex
+prints configuration for an explicit merge and trust review.
 
 ### `executor-wait` outcomes
 
@@ -219,3 +227,14 @@ An open **blocking** ask is also printed by plain `aiur status`; no extra flag i
 An agent attention is a visibility signal rather than a gate — the agent keeps running after it opens one — so attentions are listed by `aiur commands` but are not counted as blocking.
 
 Answering a Command dismisses duplicate unanswered Commands on the same ticket, including deferred ones. A blocking Command is not swept up, since the waiting agent needs its answer. Dismissing a Command closes it; a live agent is told to use its judgement, while a gone agent gets no notice.
+
+Attach and detach operate locally on the daemon and the repository you run them from;
+remote instance RPC does not permit these file-writing commands.
+
+No listener returns
+exit 69 with restart instructions; missing or invalid flags return 64. If Claude
+settings cannot be written, attach keeps its `awaiting_first_hook` binding and
+returns 73 naming the settings path.
+
+Use `--takeover --print-config` to replace
+that pending binding and print config for manual installation.

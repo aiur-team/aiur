@@ -34,7 +34,8 @@ defmodule Aiur.AgentRunner.SessionOptions do
     # Rejoin the prior agent thread across an aiur restart instead of cold-
     # starting a fresh conversation that re-discovers the work (issue #378).
     # Only a resumable, local backend with a persisted handle qualifies; any miss degrades silently to a clean start.
-    resume_thread_id = Keyword.get(opts, :resume_thread_id) || SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
+    resume_thread_id =
+      if Keyword.get(opts, :fresh_session, false), do: nil, else: Keyword.get(opts, :resume_thread_id) || SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
 
     session_opts =
       [

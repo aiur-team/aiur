@@ -69,7 +69,7 @@ defmodule Aiur.Commands.OverrideResumeTest do
 
     assert OverridePrompt.prepare(ctx.issue.identifier, decision_store: ctx.store)[:pending_overrides] == []
     {:ok, done} = DecisionStore.get(ctx.decision.decision_id, ctx.store)
-    assert [%{state: :implemented, evidence: %{kind: :push, head_sha: "after"}}] = done.overrides
+    assert [%{state: :delivered, evidence: %{kind: :push, head_sha: "after"}}] = done.overrides
   end
 
   test "capacity wait survives restart then resumes only one worker on the same ticket", ctx do

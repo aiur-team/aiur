@@ -380,6 +380,10 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
     owner = spawn(fn -> Process.sleep(:infinity) end)
     {:ok, session} = Realtime.start(session_opts(owner: owner))
     ref = Process.monitor(session)
+    # The monitor is a signal, and the owner's DOWN comes from another sender, so
+    # BEAM may hand the session that DOWN first and the monitor then reports
+    # `:noproc` (#5873). A call from this process is ordered after the monitor.
+    :sys.get_state(session)
     assert_receive {:transport_connect, _url, _headers}, 1000
 
     Process.exit(owner, :kill)

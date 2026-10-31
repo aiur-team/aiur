@@ -165,7 +165,7 @@ defmodule Aiur.BuildQueue.PlannerTest do
     end
 
     assert {[%{state: :claimed}], []} = Planner.plan(%{F.input() | claims: %{"1" => :claimed}})
-    assert {[%{state: :overridden}], []} = F.input() |> F.update_item(override: :manual_promotion) |> Planner.plan()
+    assert {[%{state: :held, reason: :parked_marker}], []} = F.input() |> F.update_item(override: :manual_promotion) |> Planner.plan()
   end
 
   test "prerequisites wait, fail with latched attention, or stay unknown on missing and cyclic evidence" do

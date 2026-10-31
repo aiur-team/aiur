@@ -67,8 +67,8 @@ defmodule AiurWeb.Build.ConversationEvents do
     merges = if is_list(facts[:merges]), do: facts[:merges], else: []
     repo = facts[:repository]
     deps = facts[:deps] || %{}
-    dep_rows = for id <- row["deps"] || [], dep = deps[id], is_map(dep), is_integer(dep["num"]), do: dep_event(dep, merge_for(merges, dep["id"], repo))
-    tail = List.wrap(pr_event(row, merge_for(merges, row["id"], repo))) ++ command_events(row, facts[:decisions], repo) ++ List.wrap(state_event(row, facts))
+    dep_rows = for id <- row_value(row, :deps) || [], dep = deps[id], is_map(dep), is_integer(dep["num"]), do: dep_event(dep, merge_for(merges, dep["id"], repo))
+    tail = List.wrap(pr_event(row, merge_for(merges, row_value(row, :id), repo))) ++ command_events(row, facts[:decisions], repo) ++ List.wrap(state_event(row, facts))
     %{deps: dep_rows, tail: tail}
   end
 
@@ -90,17 +90,24 @@ defmodule AiurWeb.Build.ConversationEvents do
     end
   end
 
+  defp merge_for(_merges, id, _repo) when is_nil(id), do: nil
   defp merge_for(_merges, _id, nil), do: nil
   defp merge_for(merges, id, repo), do: Enum.find(merges, &(&1.ticket_id == id and is_binary(&1.repository) and String.downcase(&1.repository) == String.downcase(repo)))
 
   defp pr_event(_row, %{number: num} = merge) when is_integer(num), do: event("ev:merge:#{num}", "merge", "Merged PR ##{num}", at: millis!(merge.merged_at))
 
-  defp pr_event(%{"pr" => %{"num" => num, "state" => state}} = row, nil) when is_integer(num) do
-    case {state, row["status"]} do
-      {"merged", _} -> event("ev:merge:#{num}", "merge", "Merged PR ##{num}", at: row["end"])
-      {"open", _} -> event("ev:pr:#{num}", "pr", "Opened PR ##{num}", sub: row["title"])
-      {"closed", "failed"} -> event("ev:fail:pr:#{num}", "fail", "PR ##{num} closed", at: row["end"])
-      _ -> nil
+  defp pr_event(row, nil) do
+    pr = row_value(row, :pr)
+    num = is_map(pr) && row_value(pr, :num)
+    state = is_map(pr) && row_value(pr, :state)
+
+    if is_integer(num) do
+      case {state, row_value(row, :status)} do
+        {"merged", _} -> event("ev:merge:#{num}", "merge", "Merged PR ##{num}", at: row_value(row, :end))
+        {"open", _} -> event("ev:pr:#{num}", "pr", "Opened PR ##{num}", sub: row_value(row, :title))
+        {"closed", "failed"} -> event("ev:fail:pr:#{num}", "fail", "PR ##{num} closed", at: row_value(row, :end))
+        _ -> nil
+      end
     end
   end
 
@@ -139,8 +146,14 @@ defmodule AiurWeb.Build.ConversationEvents do
   defp parked(:github_budget_hold), do: "Parked · GitHub budget hold"
   defp parked(_reason), do: "Parked"
 
+  defp row_value(row, key), do: Map.get(row, key, Map.get(row, Atom.to_string(key)))
+
   @spec agent_state(map()) :: String.t() | nil
-  def agent_state(row), do: get_in(row, ["agent", "state"])
+  def agent_state(row) do
+    with agent when is_map(agent) <- row_value(row, :agent) do
+      row_value(agent, :state)
+    end
+  end
 
   @doc "The live-only \"Resumed\" row (row 17) when a change moves the open ticket from paused or parked to active."
   @spec resumed(String.t() | nil, String.t() | nil, integer() | nil) :: entry() | nil

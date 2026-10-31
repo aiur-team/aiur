@@ -113,6 +113,7 @@ defmodule AiurWeb.DashboardLiveSupport do
         dashboard_writable: false,
         dashboard_auth_required: false,
         control_center_cache: cache,
+        units_startup_elapsed_ms_fun: fn -> 0 end,
         # Without a stub the Tickets panel reads the app-global OpenTicketSource, which other test modules feed (#4862).
         open_tickets_fun: fn -> open_ticket_snapshot([]) end
       )

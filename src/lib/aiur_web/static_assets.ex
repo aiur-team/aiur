@@ -24,6 +24,7 @@ defmodule AiurWeb.StaticAssets do
     conversation-drawer-hook.js
     conversation-voice-controller.js
     dashboard.css
+    nav-toggle-hook.js
     decision-questions-validation.js
     elevenlabs-symbol.svg
     executor-voice-controller.js
@@ -63,6 +64,7 @@ defmodule AiurWeb.StaticAssets do
 
   @runtime_static_assets %{
     "/decision-questions-validation.js" => {"application/javascript", "priv/static/decision-questions-validation.js"},
+    "/nav-toggle-hook.js" => {"application/javascript", "priv/static/nav-toggle-hook.js"},
     "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},

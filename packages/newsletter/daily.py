@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -35,7 +36,7 @@ def day_key(args, now):
 
 def preprocess(args, root, now):
     if not args.fixture:
-        report_path = newsletter.preprocess(args.repo, root, now, args.instance, output_date=day_key(args, now))
+        report_path = newsletter.preprocess(args.repo, root, now, args.instance, output_date=day_key(args, now), aiur=args.aiur)
         snapshot_path = root / 'newsletter/snapshots' / (now.date().isoformat() + '.json')
         return report_path, snapshot_path
     snapshot = json.loads(args.fixture.read_text())
@@ -117,7 +118,8 @@ def parse_args():
     parser.add_argument('--state-dir', type=Path, help='per-repository Aiur state root')
     parser.add_argument('--instance', action='append', default=[])
     parser.add_argument('--timezone', default='America/Los_Angeles')
-    parser.add_argument('--aiur', default='aiur', help='CLI executable targeting this repository daemon')
+    parser.add_argument('--aiur', default=os.environ.get('NEWSLETTER_AIUR') or 'aiur',
+                        help='CLI executable targeting this repository daemon (or NEWSLETTER_AIUR)')
     parser.add_argument('--dry-run', action='store_true', help='build without publishing a wake')
     parser.add_argument('--fixture', type=Path, help='snapshot JSON (requires --dry-run and --state-dir)')
     args = parser.parse_args()

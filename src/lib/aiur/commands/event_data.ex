@@ -1,15 +1,21 @@
 defmodule Aiur.Commands.EventData do
   @moduledoc "Closed, bounded data for additive Command facts outside the v1 request snapshot."
 
+  alias Aiur.Commands.CorrectiveFacts
   alias Aiur.Commands.ExecutorDelivery
+  alias Aiur.Commands.OverrideMerge
   alias Aiur.Commands.RequestContent
   alias Aiur.Commands.Routing.FactData
   alias Aiur.DecisionEvent.Validation
 
   @routing_types FactData.types()
+  @corrective_types CorrectiveFacts.types()
 
   @spec fact_types() :: [atom()]
-  def fact_types, do: [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_resume_state, :override_prompt_delivered] ++ @routing_types
+  def fact_types,
+    do:
+      [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_worker_handoff, :override_merge_settled, :override_resume_state, :override_prompt_delivered] ++
+        @routing_types ++ @corrective_types
 
   @spec normalize(atom(), term()) :: {:ok, map()} | {:error, term()}
   def normalize(:request_attributed, raw) when is_map(raw) do
@@ -32,9 +38,19 @@ defmodule Aiur.Commands.EventData do
 
   def normalize(:override_resume_state, raw) when is_map(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
-         {:ok, route} <- enum(Validation.get(raw, :route), [:resume_pending, :capacity_wait], :route),
-         {:ok, reason} <- enum(Validation.get(raw, :reason), [:capacity, :operator_pause, :eligible], :reason) do
-      {:ok, %{action_id: action_id, route: route, reason: reason}}
+         {:ok, route} <- enum(Validation.get(raw, :route), [:resume_pending, :capacity_wait, :replacement], :route),
+         {:ok, reason} <-
+           enum(
+             Validation.get(raw, :reason),
+             [:capacity, :claim_pending, :operator_pause, :eligible, :resume_failed, :workspace_missing, :worker_unrecoverable, :branch_missing, :pr_closed, :replacement_failed],
+             :reason
+           ),
+         attempts when is_integer(attempts) and attempts >= 0 <- Validation.get(raw, :attempts) || 0,
+         {:ok, read} <- recovery_read(raw) do
+      {:ok, Map.merge(%{action_id: action_id, route: route, reason: reason, attempts: attempts}, read)}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, {:attempts, :invalid}}
     end
   end
 
@@ -46,7 +62,9 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
-  def normalize(:override_implemented, raw) when is_map(raw) do
+  def normalize(:override_merge_settled, raw) when is_map(raw), do: OverrideMerge.normalize(raw)
+
+  def normalize(type, raw) when type in [:override_implemented, :override_worker_handoff] and is_map(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, 256),
          {:ok, head_sha} <- Validation.map_required_string(raw, :head_sha, 128),
          {:ok, timestamp} <- release_timestamp(Validation.get(raw, :at)),
@@ -59,6 +77,8 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
+  def normalize(type, raw) when type in @corrective_types and is_map(raw), do: CorrectiveFacts.normalize(type, raw)
+
   def normalize(:requester_notified, raw) when is_map(raw), do: ExecutorDelivery.normalize(raw)
 
   def normalize(type, raw) when type in @routing_types and is_map(raw), do: FactData.normalize(type, raw)
@@ -66,12 +86,27 @@ defmodule Aiur.Commands.EventData do
   def normalize(_type, _raw), do: {:error, {:event_data, :invalid}}
 
   @spec to_json_safe(atom(), map()) :: map()
+  def to_json_safe(type, data) when type in @corrective_types, do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(type, data) when type in [:override_resume_state, :override_prompt_delivered], do: Aiur.JSONSafe.normalize(data)
-  def to_json_safe(:override_implemented, data), do: Aiur.JSONSafe.normalize(data)
+  def to_json_safe(:override_merge_settled, data), do: Aiur.JSONSafe.normalize(data)
+  def to_json_safe(type, data) when type in [:override_implemented, :override_worker_handoff], do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:requester_notified, data), do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(type, data) when type in @routing_types, do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:native_released, data), do: json_safe(data)
   def to_json_safe(:request_attributed, data), do: json_safe(data)
+
+  defp recovery_read(raw) do
+    case {Validation.get(raw, :read_attempts), Validation.get(raw, :read_retry_at)} do
+      {nil, nil} ->
+        {:ok, %{}}
+
+      {attempts, retry_at} when is_integer(attempts) and attempts >= 0 and (is_nil(retry_at) or (is_integer(retry_at) and retry_at >= 0)) ->
+        {:ok, %{read_attempts: attempts, read_retry_at: retry_at}}
+
+      _ ->
+        {:error, {:recovery_read, :invalid}}
+    end
+  end
 
   defp release_timestamp(%DateTime{} = at), do: {:ok, DateTime.to_iso8601(at)}
 

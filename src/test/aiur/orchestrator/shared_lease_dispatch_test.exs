@@ -7,8 +7,7 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
 
   test "two dispatcher instances race through launch and start only one runner" do
     parent = self()
-    {:ok, leases} = Agent.start_link(fn -> MapSet.new() end)
-    on_exit(fn -> if Process.alive?(leases), do: Agent.stop(leases) end)
+    leases = start_supervised!({Agent, fn -> MapSet.new() end}, id: make_ref())
 
     claim_fun = fn issue ->
       {:ok, key} = LeaseStore.ticket_key(issue)
@@ -68,8 +67,7 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
     ttl_ms = 30_000
     grace_ms = 20_000
     issue = lease_issue("44")
-    {:ok, store} = Agent.start_link(fn -> %{now: 0, leases: %{}} end)
-    on_exit(fn -> if Process.alive?(store), do: Agent.stop(store) end)
+    store = start_supervised!({Agent, fn -> %{now: 0, leases: %{}} end}, id: make_ref())
 
     claim_for = fn instance_id ->
       fn ticket ->

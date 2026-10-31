@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{CommandCard, Composer, Controls, Conversation, DataSource, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
+  alias AiurWeb.Build.{CommandCard, Composer, Controls, Conversation, DataSource, OverrideSummary, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, DecisionCommands, NavState, RouteRegistry}
@@ -31,6 +31,7 @@ defmodule AiurWeb.BuildLive do
       |> DashboardShell.mount()
       |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
+      |> OverrideSummary.refresh()
       |> assign(
         open_ticket: nil,
         build_state: :loading,
@@ -119,15 +120,18 @@ defmodule AiurWeb.BuildLive do
   def handle_info(:build_usage_flush, socket), do: {:noreply, UsageUpdates.flush(socket)}
   def handle_info(tick, socket) when tick in [:build_usage_github_tick, :build_usage_elevenlabs_tick], do: {:noreply, UsageUpdates.tick(socket, tick)}
 
-  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> AwaitingCommands.refresh() |> CommandCard.refresh()}
-  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, socket |> AwaitingCommands.tick() |> CommandCard.refresh()}
+  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> AwaitingCommands.refresh() |> OverrideSummary.refresh() |> CommandCard.refresh()}
+  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, socket |> AwaitingCommands.tick() |> OverrideSummary.refresh() |> CommandCard.refresh()}
   def handle_info({:send_status_poll, id, request_id, n}, socket), do: {:noreply, Composer.poll(socket, id, request_id, n)}
   def handle_info({:build_conversation_poll, _token} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_changed, _snapshot} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_restarted, _epoch, _now} = message, socket), do: {:noreply, Conversation.info(socket, message)}
-  def handle_info({tag, _} = message, socket) when tag in [:conversation_events_refresh, :ticket_history_updated], do: {:noreply, Conversation.info(socket, message)}
+  def handle_info({:ticket_history_updated, _} = message, socket), do: {:noreply, socket |> TicketDoc.update(message) |> Conversation.info(message)}
+  def handle_info({:build_order_history_changed, _} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
+  def handle_info({tag, _} = message, socket) when tag in [:conversation_events_refresh], do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:ticket_detail_updated, _state} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
   def handle_info({:ticket_detail_coordinator_reset, _epoch} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
+  def handle_info({:ticket_timeline_loaded, _key, _cached, _result} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
   def handle_info(message, socket), do: DashboardShell.handle_info(message, socket)
 
   @impl true
@@ -220,6 +224,7 @@ defmodule AiurWeb.BuildLive do
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
       pause_state={DashboardShell.pause_state(assigns)}>
+      <:status><OverrideSummary.summary state={@fleet_overrides} /></:status>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}
         data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>

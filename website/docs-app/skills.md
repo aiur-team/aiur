@@ -27,7 +27,7 @@ Muse loads workspace skills and rules only when `agent.backend_configs.muse.trus
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer | The `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and [Message Bus](/concepts/message-bus) events, subscriptions, blockers, and attentions. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer | The `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and [Message Bus](/concepts/message-bus) events, subscriptions, blockers, attentions, and consuming async message reads. |
 | [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | Run, daemon, agent, or workspace failure | Correlated evidence and safe recovery order. |
 | [aiur-experiment](../../.claude/skills/aiur-experiment/SKILL.md) | Experiment analysis ticket or local analyst brief | Blind pre-registration, engine statistics, complete confounder ledger, and validated CLI report submission. Analysis tickets produce no PR and finish after verified submission. |
 | [design-import](../../.claude/skills/design-import/SKILL.md) | Large frontend design import | Disk-first import without overflowing agent context. |
@@ -232,11 +232,13 @@ These fields add context without replacing metrics. Missing inputs visibly say `
 `preprocess` runs collection plus metrics without Chromium; `compile <report>`
 prints an existing report, with the same notes/timezone options.
 
-Fonts, logo and
-dark tokens are embedded from `packages/aiur-style`; rendering needs no font
-network access. The page balances all unfinished feature lanes across both columns, excludes
-completed lanes, and drops only optional editorial items to fit. Fonts stay
-readable and all data stays in the report.
+Fonts, logo and dark tokens are embedded from `packages/aiur-style`; rendering
+needs no font network access. The page balances unfinished feature lanes across
+both columns and excludes completed lanes.
+
+When present, all blockers, five shipped items and two bottleneck cards are
+retained while optional editorial items are trimmed to fit. Fonts stay readable
+and all data stays in the report.
 
 Overflow or missing Chromium fails
 with a clear error. See `packages/newsletter/README.md` for the notes schema and

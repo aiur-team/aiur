@@ -6,6 +6,7 @@ defmodule Aiur.Commands.OverridePrompt do
   alias Aiur.Commands
   alias Aiur.Commands.Overrides
   alias Aiur.DecisionRevisionDispatch
+  alias Aiur.DecisionStore
 
   @spec prepare(String.t(), keyword()) :: keyword()
   def prepare(identifier, opts) do
@@ -17,7 +18,8 @@ defmodule Aiur.Commands.OverridePrompt do
       |> Enum.filter(fn decision ->
         record = Overrides.resume_request(decision)
 
-        decision.ticket.identifier == identifier and not is_nil(record)
+        Commands.override_target_ticket(decision).identifier == identifier and not is_nil(record) and
+          DecisionStore.recheck_override_delivery(decision.decision_id, decision.active_action_id, store) == :ok
       end)
 
     Keyword.put(opts, :pending_overrides, pending)
@@ -27,8 +29,15 @@ defmodule Aiur.Commands.OverridePrompt do
   def render(opts) do
     Enum.map_join(Keyword.get(opts, :pending_overrides, []), "\n", fn decision ->
       "Operator override — this replaces your earlier instruction for Command #{decision.decision_id}\n\n" <>
-        DecisionRevisionDispatch.render(decision) <> "\n\n"
+        DecisionRevisionDispatch.render(decision) <> handover(decision) <> "\n\n"
     end)
+  end
+
+  defp handover(decision) do
+    case Overrides.pending(decision) do
+      %{route: :replacement, pr_number: number} when is_integer(number) -> "\n\nThe previous session ended; continue PR ##{number} from its head."
+      _ -> ""
+    end
   end
 
   @doc "Only a confirmed provider turn start records prompt delivery."
@@ -49,7 +58,7 @@ defmodule Aiur.Commands.OverridePrompt do
            server: Keyword.get(opts, :decision_store, Commands.default_store())
          ) do
       {:ok, _} -> :ok
-      {:error, {:invalid_transition, :override_not_current}} -> :ok
+      {:error, {:invalid_transition, reason}} when reason in [:override_not_current, :stale] -> :ok
       {:error, reason} -> receipt_failed(decision, reason)
     end
   catch

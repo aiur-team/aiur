@@ -69,8 +69,7 @@ defmodule Aiur.BuildOrder.Features.RootImportRunnerTest do
   test "stale removal stops subsequent writes and retry re-plans from the real registry" do
     {_, features_pid, real_writer} = stores()
     initial = history()
-    {:ok, agent} = Agent.start_link(fn -> %{history: initial, raced?: false} end)
-    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
+    agent = start_supervised!({Agent, fn -> %{history: initial, raced?: false} end}, id: make_ref())
 
     writer = fn op, args ->
       if op == :remove and not Agent.get(agent, & &1.raced?) do

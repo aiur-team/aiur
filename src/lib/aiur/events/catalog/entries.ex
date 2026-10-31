@@ -7,7 +7,7 @@ defmodule Aiur.Events.Catalog.Entries do
 
   # aiur/decision_store/{requests,persistence,audit}.ex
   @decision_slugs ~w(requested request-attributed native-released routed escalated human-needed executor-acknowledged requester-notified answered pending-for-session session-started answer-comment-published expired mooted dismissed
-    deferred executor-escalated authority-reclassified enriched override-implemented override-resume-state override-prompt-delivered revision-recorded queued dispatch-outcome-unknown revision-dispatched
+    deferred executor-escalated authority-reclassified enriched override-successor-ticket override-corrective-ticket override-corrective-implemented override-corrective-failed override-corrective-recovered override-corrective-closed override-implemented override-worker-handoff override-merge-settled override-resume-state override-prompt-delivered revision-recorded queued dispatch-outcome-unknown revision-dispatched
     revision-no-longer-applicable revision-follow-up-required revision-follow-up-handled handed-off delivered restored consumed failed acknowledged resolved)
   # aiur/executor_wake_projection.ex
   @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)
@@ -43,6 +43,9 @@ defmodule Aiur.Events.Catalog.Entries do
          %Entry{pattern: "ticket.*.ci.#{outcome}", class: :live, export?: true, refs: [:ticket, :pr_number, :head_sha], attrs: [ci_conclusion: {:enum, @ci_conclusions}], owner: "orchestration"}
        end)
 
+  @merge_group_failure %Entry{pattern: "ticket.*.ci.merge_group.failed", class: :live, export?: true, refs: [:ticket, :pr_number, :run_id], owner: "orchestration"}
+  @merge_group_requeue %Entry{pattern: "ticket.*.ci.merge_group.requeued", class: :live, export?: true, refs: [:ticket, :pr_number, :run_id], owner: "orchestration"}
+
   # aiur/events/github_comments_poller/publish.ex; aiur/events/github_webhook/triples.ex
   @comments (for suffix <- ~w(issue.commented pr.review_comment) do
                %Entry{pattern: "ticket.*.#{suffix}", class: :live, export?: true, refs: [:ticket, :pr_number], attrs: [author_trusted?: :boolean], owner: "github-listeners"}
@@ -60,10 +63,13 @@ defmodule Aiur.Events.Catalog.Entries do
                }
              end)
 
+  @agent_command %Entry{pattern: "ticket.*.agent.command", class: :logged, export?: true, refs: [:ticket], owner: "harness-adapters"}
+
   @entries @core ++
              @pull_requests ++
              @ci ++
              @comments ++
+             [@merge_group_failure, @merge_group_requeue, @agent_command] ++
              @progress ++
              PlannedEntries.entries() ++ SystemEntries.entries() ++ GithubSystemEntries.entries() ++ TicketEntries.entries() ++ AttentionEntries.entries() ++ LegacyEntries.entries()
 
