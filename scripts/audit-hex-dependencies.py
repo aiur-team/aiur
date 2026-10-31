@@ -17,7 +17,7 @@ SRC = ROOT / "src"
 LOCK = SRC / "mix.lock"
 MIX_EXS = SRC / "mix.exs"
 ALLOWLIST = ROOT / "docs/security/hex-advisories-allowlist.json"
-FINDING = re.compile(r"^\s+(\S+)\s+(\S+)\s+-\s+(\S+)\s+\((HIGH|MEDIUM|LOW)\)$", re.M)
+FINDING = re.compile(r"^\s+(\S+)\s+(\S+)\s+-\s+(\S+)\s+\((CRITICAL|HIGH|MEDIUM|LOW)\)$", re.M)
 ADVISORY_ROW = re.compile(r"^ {2}\S+\s+\S+\s+-\s+\S+.*$", re.M)
 OSV_LINK = re.compile(r"^ {4}https://osv\.dev/vulnerability/(\S+)\s*$", re.M)
 FETCH_FAILURE = re.compile(r"Failed to fetch (?:record|retired|advisory).*?(?:registry|cache)", re.I)
@@ -60,6 +60,9 @@ def evaluate(base: set[tuple[str, str, str, str]], head: set[tuple[str, str, str
     for package, version, advisory, severity in sorted(head):
         newly_introduced = advisory not in base_ids
         entry = allowed.get(advisory)
+        if severity == "CRITICAL":
+            errors.append(f"{package} {version}: CRITICAL advisory {advisory} cannot be allow-listed")
+            continue
         if entry is not None:
             if severity != "HIGH" or entry.get("accept_high") is True:
                 continue
