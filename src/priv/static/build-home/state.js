@@ -45,7 +45,7 @@ function defaultUnavailable(reason) {
   loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`);
 }
 export const fx = {
-  viewport() {}, relayout() {}, update() {}, jumpNow() {}, liveGuard() {}, markScrolling() {},
+  viewport() {}, relayout() {}, update() {}, jumpNow() {}, markScrolling() {},
   unlock() {}, closeTree() {}, chainOf: () => new Set(), renderFilters() {},
   renderUsage() {}, renderOffline() {}, renderFeatures() {}, renderTools() {},
   spanToolsHTML: () => '', wireSpanTools() {}, renderStatus() {},

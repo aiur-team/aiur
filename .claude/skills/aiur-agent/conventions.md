@@ -71,6 +71,14 @@ Keep the current PR focused on the originally-scoped change.
 
 ## Tooling environment
 
+### Build-gate occupancy
+
+Use `aiur status` and its `BUILD GATE HOLDER` / `BUILD GATE QUEUED` lines to
+understand build-slot occupancy. Do not inspect raw files in
+`~/.aiur/build-gate/` as lease evidence: owner candidates and handshake
+publication files are not slot leases. A full gate is shown by live holders
+and queued work in status.
+
 Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for
 you, pointing at per-workspace directories. `mise trust` has already been run for
 the workspace's `mise.toml`. Run `mix` and `mise exec -- mix ...` directly — do

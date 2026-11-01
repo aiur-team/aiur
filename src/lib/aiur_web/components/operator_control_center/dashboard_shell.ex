@@ -60,6 +60,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         {render_slot(@status)}
         <span class={["ax-paused aiur-shell__paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">New starts paused</span>
       </header>
+      <nav class="standalone-recovery" data-dashboard-recovery aria-label="Dashboard recovery" hidden>
+        <a href="/" aria-label="Home">Home</a>
+        <button type="button" data-recovery-reload>Reload</button>
+      </nav>
       <div class="app-layout aiur-shell__body">
         <aside class="sidenav aiur-shell__sidebar">
           <div class="ax-drag aiur-shell__drag" id="ax-drag" phx-hook="NavToggle" data-nav-collapsed={to_string(@nav_collapsed)}

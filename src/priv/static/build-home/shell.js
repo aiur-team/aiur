@@ -60,7 +60,7 @@ export function shell() {
     if (!$('#bd-tree', root).hidden) fx.closeTree(); else if (ctx.lockId) fx.unlock();
   }, { capture: true });
   life.on(vp, 'scroll', () => {
-    fx.liveGuard(); fx.markScrolling(); life.frame('scroll-update', () => fx.update());
+    fx.markScrolling(); life.frame('scroll-update', () => fx.update());
   }, { passive: true });
   // #4827: on phones the fixed bottom nav covers the board's end, so reaching it scrolls the page clear; the shell's bottom padding leaves room.
   const nav = document.querySelector('.sidenav');

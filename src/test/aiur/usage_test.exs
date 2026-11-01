@@ -5,6 +5,45 @@ defmodule Aiur.UsageTest do
   alias Aiur.Usage.Events
   alias Aiur.Usage.Provider.{Broker, Claude, Codex, GitHub, Ticket}
 
+  alias Aiur.Accounts.UsageReadings
+
+  setup do
+    UsageReadings.reset()
+    on_exit(&UsageReadings.reset/0)
+  end
+
+  test "summary CLI render includes a recorded signed-out Claude probe failure" do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    UsageReadings.record("claude", "work", {:error, :no_oauth_token}, observed_at)
+
+    assert UsageReadings.snapshot_for_accounts(["work"]) == %{
+             "work" => %{
+               reading: nil,
+               observed_at: observed_at,
+               freshness: :unavailable,
+               reason: :no_oauth_token,
+               consecutive_failures: 1,
+               previous_consecutive_failures: 0,
+               recovery_alert_open?: false,
+               last_observed_at: nil,
+               fix: "not signed in; run `aiur login claude work`"
+             }
+           }
+
+    summary =
+      Aiur.Usage.json_snapshot(
+        meter_views: %{},
+        github_quota: %{state: :unknown, windows: %{}},
+        broker_usage: %{actors: []},
+        ticket_usage: %{}
+      )
+
+    output = CLI.render(summary, nil)
+
+    assert output =~ "ACCOUNT claude/work usage probe failing: not signed in; run `aiur login claude work`"
+    assert output =~ "last failed #{DateTime.to_iso8601(observed_at)}"
+  end
+
   test "registry includes the Netlify provider adapter" do
     assert Enum.sort(Aiur.Usage.providers()) == [:broker, :claude, :codex, :github, :netlify, :ticket]
     assert {:ok, %{"provider" => "netlify"}} = Aiur.Usage.provider("netlify", netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unavailable, fields: %{}})

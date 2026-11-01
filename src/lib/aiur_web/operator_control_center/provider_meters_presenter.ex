@@ -22,6 +22,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   alias AiurWeb.OperatorControlCenter.AccountUsagePresenter
 
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.CodingAgent
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialDataAccess
@@ -34,18 +35,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   # read, but it is not broken. They render as loading, exactly like a first
   # observation that simply has not arrived.
   @credential_failures [
-    :no_credentials,
     :malformed_credentials,
     :missing_api_key,
     :missing_api_key_configuration,
     :disabled
   ]
-
-  # Failure reasons that mean the account is not signed in: an OAuth token that
-  # is absent, empty, or expired. Unlike a missing API key, this is a stable,
-  # user-actionable state ("sign in to Claude Code"), so it renders honestly as
-  # "not signed in" rather than hanging in an eternal loading state.
-  @signed_out_failures [:no_oauth_token, :token_expired]
 
   @window_kind_order %{rate_limit: 0, credit: 1, spend_control: 2}
 
@@ -153,16 +147,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: :unknown_account_generation}}), do: :unknown
 
-  defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: failure}})
-       when failure in @signed_out_failures,
-       do: :signed_out
+  defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: failure}}) do
+    cond do
+      UsageReadings.signed_out?(failure) -> :signed_out
+      failure in @credential_failures -> :loading
+      failure == :no_observation -> :loading
+      true -> :unavailable
+    end
+  end
 
-  defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: failure}})
-       when failure in @credential_failures,
-       do: :loading
-
-  defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: :no_observation}}), do: :loading
-  defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable}}), do: :unavailable
   defp card_state(%ProviderMeterSnapshot{health: %{state: :healthy}}), do: :healthy
   defp card_state(%ProviderMeterSnapshot{health: %{state: :partial}}), do: :partial
 

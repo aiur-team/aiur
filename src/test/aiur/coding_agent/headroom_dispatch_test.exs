@@ -387,5 +387,33 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert Keyword.fetch!(opts, :account_name) == "max"
       refute Keyword.has_key?(opts, :account_selection_error)
     end
+
+    # #7449: a ticket chosen for `second` before a reload removed it must not
+    # start its next session there.
+    test "a pin on an account removed by a config reload reselects among the configured accounts", %{home: home} do
+      :ok = Accounts.register("claude", "max", nil)
+      :ok = Accounts.register("claude", "second", nil)
+
+      issue = %Issue{
+        id: "removed",
+        identifier: "HR-3",
+        selected_backend: "claude",
+        selected_account: "second",
+        dispatch_selection: %{backend: "claude", account: "second", route: "claude", pinned: false, summary: "headroom: claude/second=15%"}
+      }
+
+      {"claude", false, opts} =
+        SessionLifecycle.resolve_session_options(
+          issue,
+          [
+            account_config: %{accounts: %{"claude" => ["max"]}, account_selection: "headroom"},
+            account_usage_fetcher: fn _name -> %{"seven_day" => 10, "five_hour" => 20} end
+          ],
+          nil
+        )
+
+      assert Keyword.fetch!(opts, :account_name) == "max"
+      assert Keyword.fetch!(opts, :env) == [{"CLAUDE_CONFIG_DIR", Path.join([home, ".aiur/accounts/claude/max"])}]
+    end
   end
 end
