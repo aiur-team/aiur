@@ -98,6 +98,7 @@ export function receive(msg) {
       clearResyncRetry(true);
       fx.tickCardAges();
       if (msg.kind === 'snapshot') {
+        renderPartialNotice(msg.unavailable_rows);
         if (first) firstPaint();
         else { repaint(); fx.modalSync({ upsert: ctx.D.all, snapshot: true }); }
       }
@@ -106,6 +107,14 @@ export function receive(msg) {
       break;
     }
   }
+}
+function renderPartialNotice(count) {
+  const host = ctx.root?.querySelector('#bd-partial');
+  if (!host) return;
+  const n = Number.isSafeInteger(count) && count > 0 ? count : 0;
+  host.textContent = n ? `${n} ${n === 1 ? 'row' : 'rows'} unavailable · this board is partial` : '';
+  host.hidden = n === 0;
+  if (n) host.setAttribute('role', 'status'); else host.removeAttribute('role');
 }
 export function resync(retry = false) {
   if (ctx.proto.inFlight) return;

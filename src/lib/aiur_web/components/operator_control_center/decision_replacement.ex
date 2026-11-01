@@ -39,6 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
     explicit = state[:outcome] || if(state[:replacing?], do: late_outcome(decision))
     outcome = current_outcome(explicit, canonical, decision)
     outcome_notice = if outcome, do: DecisionOutcomes.outcome_notice(outcome)
+    outcome_notice = if is_nil(explicit) and match?(%{status: :already_answered}, canonical), do: put_elem(outcome_notice, 0, :info), else: outcome_notice
     notice = if explicit, do: outcome_notice, else: form_notice(state) || outcome_notice
     {notice, if(outcome_notice, do: elem(outcome_notice, 2), else: [])}
   end
