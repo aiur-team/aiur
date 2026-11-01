@@ -31,6 +31,6 @@ for (const args of [["--json"], ["--check", "--harness", "claude"], ["--check", 
     const result = run(args);
     expect(result.status).toBe(64);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("aiur:");
+    expect(result.stderr).toContain(args.length === 1 ? "--json requires --check" : "--check cannot be combined with attach options");
   });
 }
