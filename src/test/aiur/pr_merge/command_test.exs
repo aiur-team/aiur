@@ -240,4 +240,32 @@ defmodule Aiur.PrMerge.CommandTest do
     [failure] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
     assert failure["outcome"] == "unknown"
   end
+
+  test "a ledger failure after observing an existing merge preserves the known outcome", ctx do
+    api = fn method, path, body ->
+      case {method, path} do
+        {"get", "repos/owner/repo/pulls/1"} ->
+          {:ok, raw} = response(method, path, body)
+
+          {:ok,
+           Map.merge(raw, %{
+             "state" => "closed",
+             "merged" => true,
+             "merge_commit_sha" => "confirmed-merge-sha",
+             "merged_by" => %{"login" => "operator"},
+             "merged_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+           })}
+
+        _ ->
+          response(method, path, body)
+      end
+    end
+
+    step = fn current, callback -> if current == :record, do: raise("ledger failed"), else: callback.() end
+
+    assert PrMerge.run(ctx.opts, deps(ctx, api: api, step: step)) == 1
+    assert Enum.any?(outputs(), &(&1 =~ "aiur pr merge: record failed: ledger failed" and &1 =~ "GitHub confirms the PR is already merged"))
+    [failure] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
+    assert failure["outcome"] == "merged"
+  end
 end

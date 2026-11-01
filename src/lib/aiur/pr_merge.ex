@@ -6,7 +6,7 @@ defmodule Aiur.PrMerge do
   @spec run(map(), keyword()) :: non_neg_integer()
   def run(opts, deps \\ []) do
     puts = Keyword.get(deps, :puts, &IO.puts/1)
-    state = %{step: :settings, settings: nil, opts: opts, deps: deps, delivered?: false}
+    state = %{step: :settings, settings: nil, opts: opts, deps: deps, delivered?: false, merged_observed?: false}
     Process.put({__MODULE__, :state}, state)
     Process.put({__MODULE__, :step}, :settings)
 
@@ -82,6 +82,7 @@ defmodule Aiur.PrMerge do
 
       true ->
         root = Keyword.get(deps, :log_root, Path.expand("~/.aiur/logs/pr-merge"))
+        mark_merged_observed()
 
         record = %{
           repo: settings.tracker.github.repo,
@@ -253,7 +254,7 @@ defmodule Aiur.PrMerge do
     state = Process.get({__MODULE__, :state}, state)
     message = Exception.message(error)
     safe_message = redact_token(message)
-    outcome = if state.delivered?, do: "merge outcome may be unknown", else: "nothing was merged"
+    outcome = failure_outcome(state)
     formatted = Exception.format(:error, error, stacktrace) |> redact_token()
     Logger.error("aiur pr merge: #{step_name} failed: #{safe_message}; #{outcome}\n#{formatted}")
     puts.("aiur pr merge: #{step_name} failed: #{safe_message}; #{outcome}")
@@ -271,7 +272,7 @@ defmodule Aiur.PrMerge do
       state: "failed",
       failed_step: step_name,
       error: message,
-      outcome: if(state.delivered?, do: "unknown", else: "not_merged"),
+      outcome: ledger_outcome(state),
       policy: if(settings, do: settings.merge_policy.ci)
     }
 
@@ -298,4 +299,17 @@ defmodule Aiur.PrMerge do
       _ -> []
     end
   end
+
+  defp mark_merged_observed do
+    state = run_state()
+    Process.put({__MODULE__, :state}, %{state | merged_observed?: true})
+  end
+
+  defp failure_outcome(%{merged_observed?: true}), do: "GitHub confirms the PR is already merged"
+  defp failure_outcome(%{delivered?: true}), do: "merge outcome may be unknown"
+  defp failure_outcome(_state), do: "nothing was merged"
+
+  defp ledger_outcome(%{merged_observed?: true}), do: "merged"
+  defp ledger_outcome(%{delivered?: true}), do: "unknown"
+  defp ledger_outcome(_state), do: "not_merged"
 end
