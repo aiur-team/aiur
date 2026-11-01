@@ -214,12 +214,14 @@ defmodule Aiur.BuildOrder.ComponentTest do
         [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
         final ++
         [
+          # Toolchain starts before the optional writer and Executor tail so
+          # neither tail's supervision-order contract is displaced.
+          {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
           Aiur.BuildOrder.History.LabelBackfill,
           Aiur.Executor.Session,
           Aiur.Executor.SessionIngest,
           {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
-          Aiur.Executor.TranscriptIngest,
-          {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}
+          Aiur.Executor.TranscriptIngest
         ]
 
     assert Aiur.Application.child_specs(@opts) == expected
