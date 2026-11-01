@@ -91,3 +91,22 @@ Replay answers are identified as coming from a summary once per session.
 The voice transcript
 records `side_query` with the fork mode, child session ID and cost when supplied by the host;
 missing identity or cost remains unknown. Host support determines whether this path is available.
+
+### Standalone example for package consumers
+
+`packages/elixir/voice_converse/examples/local_host` is an independent Bandit
+application with a browser page at `http://127.0.0.1:4100/`. It requires no Aiur
+application or agent CLI. Run `mix deps.get` and `mix run --no-halt` from that
+directory, then click **Converse**. The default fake provider is silent and
+uses no credentials; the example README documents real-provider setup.
+
+The host reads `briefing.md` and `notes.md`, writes confirmed instructions and
+queued questions to `outbox.ndjson`, reads replies from `inbox.ndjson`, and
+stores transcripts under `transcripts/`. It supplies credentials and expiring
+transport tokens through the core ports. Its own `config/runtime.exs` reads
+`VOICE_HOST_ROOT`, `VOICE_HOST_PORT`, `VOICE_HOST_PROVIDER`, `VOICE_HOST_MODEL`,
+`VOICE_HOST_CLOUD_ACCEPTED`, and `VOICE_HOST_ELEVENLABS_AGENT_ID`. Provider keys
+use `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`, and
+`ANTHROPIC_API_KEY`; only OpenAI and ElevenLabs transports are selectable in
+this example. Cloud sessions require explicit acceptance. Forks are optional;
+CommandSource is absent and stated as unavailable in context.

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Local voice assistant</title>
+<body><main><h1>Local voice assistant</h1>
+<p>Briefing and notes come from this host's Markdown files. Cloud mode sends audio and text to your chosen provider.</p>
+<button id="start">Converse</button> <button id="end">End conversation</button>
+<p role="status" id="status">Ready</p><div id="drafts"></div><pre id="output" aria-live="polite"></pre>
+<script type="module">
+import { VoiceConverseClient } from '/client.js';
+const status = document.querySelector('#status');
+const client = new VoiceConverseClient({
+  url: `ws://${location.host}/voice?token=__TOKEN__`, target: 'local',
+  draftContainer: document.querySelector('#drafts'),
+  onFrame(frame) {
+    if (frame.type === 'state') status.textContent = frame.state;
+    if (frame.type === 'transcript' || frame.type === 'agent_text')
+      document.querySelector('#output').textContent += frame.text + '\n';
+  },
+  onError(error) { status.textContent = error.message; }
+});
+client.bindStart(document.querySelector('#start'));
+document.querySelector('#end').addEventListener('click', () => client.end());
+</script></main></body></html>

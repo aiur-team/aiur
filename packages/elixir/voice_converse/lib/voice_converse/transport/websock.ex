@@ -133,6 +133,10 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       def handle_in({payload, _opcode}, state) when is_binary(payload) and byte_size(payload) > @max_frame_bytes,
         do: error(state, "frame_too_large", "Frame exceeds 400000 bytes.")
 
+      # Bandit/WebSock passes keyword metadata; retain atom input for direct callers.
+      def handle_in({payload, metadata}, state) when is_list(metadata),
+        do: handle_in({payload, Keyword.fetch!(metadata, :opcode)}, state)
+
       def handle_in({payload, :text}, state) do
         with {:ok, frame} <- Wire.decode(payload) do
           dispatch(frame, state)
