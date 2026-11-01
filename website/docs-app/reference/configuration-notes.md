@@ -80,7 +80,7 @@
   Three fresh above-target samples halve capacity, bounded by the decrease
   cooldown. Ramps require pressure below 80% of target; unavailable samples
   reset the streak. Set the target to `null` to disable PSI AIMD.
-- `agent.load_resume_max_age_seconds` retains safe capacity for 21600 seconds;
+- `agent.load_resume_max_age_seconds` retains safe capacity for 3600 seconds;
   0 disables resume. Five fresh occupied samples demonstrate a level. Boot
   starts at one and the first fresh sample holds. Recovery below 80% of the
   PSI target doubles, at most +3, toward that level.
