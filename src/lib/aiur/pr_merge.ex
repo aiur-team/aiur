@@ -250,7 +250,7 @@ defmodule Aiur.PrMerge do
   end
 
   defp failure(state, error, stacktrace, puts) do
-    step_name = Process.get({__MODULE__, :step}, state.step)
+    step_name = failure_step(Process.get({__MODULE__, :step}, state.step))
     state = Process.get({__MODULE__, :state}, state)
     message = Exception.message(error)
     safe_message = redact_token(message)
@@ -312,4 +312,7 @@ defmodule Aiur.PrMerge do
   defp ledger_outcome(%{merged_observed?: true}), do: "merged"
   defp ledger_outcome(%{delivered?: true}), do: "unknown"
   defp ledger_outcome(_state), do: "not_merged"
+
+  defp failure_step(:record_setup), do: :record
+  defp failure_step(step), do: step
 end

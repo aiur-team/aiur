@@ -268,4 +268,14 @@ defmodule Aiur.PrMerge.CommandTest do
     [failure] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
     assert failure["outcome"] == "merged"
   end
+
+  test "ledger directory setup failure reports the record phase before delivery", ctx do
+    step = fn current, callback -> if current == :record_setup, do: raise("directory setup failed"), else: callback.() end
+
+    assert PrMerge.run(ctx.opts, deps(ctx, step: step)) == 1
+    assert Enum.any?(outputs(), &(&1 =~ "aiur pr merge: record failed: directory setup failed" and &1 =~ "nothing was merged"))
+    [failure] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
+    assert failure["failed_step"] == "record"
+    assert failure["outcome"] == "not_merged"
+  end
 end
