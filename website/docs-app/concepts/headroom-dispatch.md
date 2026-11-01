@@ -38,12 +38,10 @@ Claude win while Codex has an available route. When Codex is unavailable or
 all its candidates are exhausted, dispatch falls through to Claude and chooses
 the Claude account with the most headroom.
 
-A missing or stale reading is unknown, not full. Unknown ranks ahead of any
-known reading so an unobserved account is not skipped indefinitely. This is an
-exploration rule, not a claim that the account has more allowance: it may be
-near its limit. The selected account's next usage observation replaces the
-unknown score, and dispatch still never selects an account known to be
-exhausted.
+An account with no current reading is unknown, not full. Unknown ranks ahead
+of known accounts so it can be observed. This is an exploration rule: the
+account may be near its limit. Once observed, dispatch ranks its recorded
+allowance. Known exhausted accounts remain ineligible.
 
 When every candidate is exhausted, the ticket waits for a reset, as an
 exhausted `agent.priority` chain does. A `model:` label still pins the
