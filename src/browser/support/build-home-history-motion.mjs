@@ -67,7 +67,7 @@ export async function historySequence(page, ctx, name) {
   positions.push(0)
   const samples = []
   // Hold the scrollbar as a user does while inspecting history. This invokes
-  // the design's drag guard so the separately owned live snap cannot page it.
+  // the design's drag guard so live passes cannot page it.
   await scroll(page, band)
   const thumb = await page.locator('#bd-sb i').boundingBox()
   await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + 3)

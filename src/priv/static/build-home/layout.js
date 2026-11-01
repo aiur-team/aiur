@@ -108,7 +108,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
   else if (S.view === "gantt") ext.gantt.hist(entries(histList), gctx(SEC + 4));
   else hs.h = rows(entries(histList), SEC + 4, hs.items, hs.marks, hs.labels, "hist", true) + gap;
   out.secs.hist = hs;
-  out.band = bandLayout(D, S, dims, { ch, gap, base: baseDet, pphG, CH, gantt: ext.gantt });
+  out.band = bandLayout(D, S, dims, { ch, gap, pphG, CH, gantt: ext.gantt });
   /* planned */
   const ps = { items: [], marks: [], labels: [], h: 0 };
   const pst = sectionState(P, D, H, 'plan', PLANL);

@@ -6,7 +6,6 @@ import { etaLabel } from './estimate.js';
 import { fmtT } from './util.js';
 import { writeURL } from './url.js';
 import './band-scroll.js';
-export { SNAP_T, guardTarget, settleTarget } from './band-scroll.js';
 
 const groups = [['ok', 'nr', 'active', 'running'], ['queued', 'nt', 'retrying', 'retrying'], ['bad', 'ns', 'error,retries,command,native_question', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
 const AGENTS_STALE_MAX_AGE_MS = 120_000;
