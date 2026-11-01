@@ -4,7 +4,6 @@ defmodule VoiceConverse.Session do
   alias VoiceConverse.{
     ClientErrors,
     Events,
-    ProviderCleanup,
     Session.Runtime,
     Session.Start,
     SessionLimits,
@@ -14,7 +13,6 @@ defmodule VoiceConverse.Session do
   }
 
   @transport_grace_ms 10_000
-  @max_queued_audio 8
   def start_link(opts),
     do:
       GenServer.start_link(__MODULE__, opts,
@@ -51,13 +49,10 @@ defmodule VoiceConverse.Session do
   @impl true
   def handle_continue(:open_provider, state), do: {:noreply, open_provider_async(state, :initial)}
   def handle_continue(:consult_failed, state), do: stop_unknown(state)
-
   @impl true
-  def handle_cast({:audio, audio_b64}, state) when is_binary(audio_b64) do
-    {:noreply, Runtime.enqueue_audio(self(), state, audio_b64, @max_queued_audio)}
-  end
+  def handle_cast(message, state),
+    do: VoiceConverse.Session.ClientInput.handle_cast(message, state, &handle_provider_event/2)
 
-  def handle_cast({:audio, _audio_b64}, state), do: {:noreply, state}
   @impl true
   def handle_call({:subscribe, subscriber}, _from, state) when is_pid(subscriber) do
     state = add_subscriber(state, subscriber)
@@ -375,7 +370,7 @@ defmodule VoiceConverse.Session do
     with {:ok, state} <- VoiceConverse.Session.Consult.note_session_end(state),
          {:ok, state} <-
            persist(state, %{type: "session_ended", reason: to_string(reason), at: now(state), duration_s: duration_s}),
-         {:ok, state} <- enqueue_cleanup(state) do
+         {:ok, state} <- VoiceConverse.Session.Cleanup.enqueue(state) do
       broadcast(state, {:ended, reason})
       broadcast_state(state, :ended)
       TranscriptStore.close(state.store)
@@ -383,19 +378,6 @@ defmodule VoiceConverse.Session do
     else
       {:error, state} -> %{state | finished?: true, finishing?: false, provider_ref: nil}
     end
-  end
-
-  defp enqueue_cleanup(state) do
-    cleanup = Module.concat(state.config.name, ProviderCleanup)
-
-    Enum.reduce_while(state.provider_ids, {:ok, state}, fn provider_id, {:ok, state} ->
-      with :ok <- ProviderCleanup.enqueue(cleanup, provider_id, state.id),
-           {:ok, state} <- persist(state, %{type: "cleanup_enqueued", provider_id: provider_id, at: now(state)}) do
-        {:cont, {:ok, state}}
-      else
-        _ -> {:halt, {:error, state}}
-      end
-    end)
   end
 
   defp close_after_start_failure(%{store: store} = state, code) do

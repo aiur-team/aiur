@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-decision-event.v1.schema.json",
+  "title": "TicketDecisionEvent",
+  "allOf": [
+    { "$ref": "outbound-event-envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string", "pattern": "^ticket\\.[A-Za-z0-9._:-]+\\.agent\\.decision\\.(requested|answered)$" },
+        "refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ticket": { "type": "string", "minLength": 1 },
+            "decision_id": { "type": "string", "minLength": 1 },
+            "decision_version": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["ticket", "decision_id", "decision_version"]
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "question": { "type": "string" },
+            "options": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": ["string", "null"] },
+                  "label": { "type": ["string", "null"] },
+                  "description": { "type": ["string", "null"] },
+                  "benefits": { "type": ["string", "null"] },
+                  "drawbacks": { "type": ["string", "null"] },
+                  "risk": { "type": ["string", "null"] }
+                },
+                "required": ["id", "label", "description", "benefits", "drawbacks", "risk"]
+              }
+            },
+            "answer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "selected_option_id": { "type": ["string", "null"] },
+                "custom_response": { "type": ["string", "null"] },
+                "rationale": { "type": ["string", "null"] }
+              },
+              "required": ["selected_option_id", "custom_response", "rationale"]
+            }
+          },
+          "required": ["question", "options"]
+        }
+      },
+      "required": ["topic", "refs", "attrs"],
+      "if": { "properties": { "topic": { "type": "string", "pattern": "\\.answered$" } } },
+      "then": { "properties": { "attrs": { "type": "object", "required": ["question", "options", "answer"] } } },
+      "else": { "properties": { "attrs": { "type": "object", "not": { "required": ["answer"] } } } }
+    }
+  ]
+}

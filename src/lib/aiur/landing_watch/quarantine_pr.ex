@@ -50,7 +50,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
          },
          {:ok, existing} <- list_contents(ctx),
          expires <- expiry(ctx, opts),
-         {:ok, contents} <- entry(identity, ticket, existing, expires),
+         {:ok, contents} <- entry(identity, ticket, existing, expires, Keyword.get_lazy(opts, :tests_root, &default_test_root/0)),
          {:ok, branch} <- branch_name(identity, base),
          {:ok, base_sha, commit_sha} <- reuse_or_publish(ctx, branch, contents, identity),
          {:ok, pr} <-

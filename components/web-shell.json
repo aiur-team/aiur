@@ -8,6 +8,7 @@
     "src/lib/aiur/http_server.ex",
     "src/lib/aiur/http_server/**",
     "src/lib/aiur/tailscale_funnel.ex",
+    "src/lib/aiur_web/api/memory_issue_controller.ex",
     "src/lib/aiur_web/control_body_limit.ex",
     "src/lib/aiur_web/control_body_reader.ex",
     "src/lib/aiur_web/control_token_auth.ex",
@@ -34,6 +35,8 @@
     "src/lib/aiur_web/sockets/events.ex",
     "src/lib/aiur_web/sockets/voice.ex",
     "src/lib/aiur_web/supervisor_auth.ex",
+    "src/lib/aiur_web/voice_converse/**",
+    "src/lib/aiur_web/voice_converse_channel.ex",
     "src/lib/aiur_web/voice_socket.ex"
   ],
   "facades": [
@@ -44,9 +47,11 @@
     "config",
     "event-bus",
     "identity",
+    "kernel",
     "listener-modes",
     "projections",
     "signal",
+    "tracker",
     "web-kit"
   ],
   "optional": [
@@ -62,6 +67,7 @@
     "pairing-discovery",
     "streamdeck-server",
     "voice-conversation",
+    "voice-conversation-core",
     "voice-stt"
   ],
   "owns": {
