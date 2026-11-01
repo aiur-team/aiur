@@ -110,24 +110,9 @@ In List view, **List shows** switches between Tickets, Features and Epics. The
 selection is kept in the `list` link parameter; `tickets` is the default and
 omitted.
 
-The Features list has one row per feature: its name, a progress bar, and
-merged/total tickets. A feature is every registry feature and every
-`feature:<slug>` label found in history. Finished features remain in the list.
+Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Merged means closed with a merged PR, or closed as done without a PR. Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them.
 
-A ticket counts as merged when it closed with a merged PR, or closed as done
-with no PR. Tickets closed without merging are left out of the total.
-
-Finished features have a green bar; partly done ones are blue. The amber
-**All features** row sums every row.
-
-Rows follow goal order ([`feature_order`](../reference/configuration-build-order.md)).
-**Sort** can switch to most done or most left, with the choice kept in the
-`fsort` link parameter.
-
-The feature filter shows the same merged percentage. If history is unavailable,
-the list says so rather than showing zero.
-
-Selecting a registry feature's row opens its focus in Tickets view.
+Rows follow [`feature_order`](../reference/configuration-build-order.md). Sort by most done or most left stays in `fsort`. The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 
 Epics counts matching general epics, including feature-owned tickets, so totals
 overlap. Sort is remaining, then name; age is shown. Footer counts unmatched

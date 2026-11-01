@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.OpenIssueListing do
 
   @spec record(String.t(), String.t(), [Aiur.Issue.t()], DateTime.t()) :: :ok
   def record(owner, repo, issues, listed_from) do
-    labels = Map.new(issues, &{&1.id, %{labels: &1.labels, label_descriptions: &1.label_descriptions || %{}, updated_at: &1.updated_at}})
+    labels = Map.new(issues, &{&1.id, label_snapshot(&1)})
     OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id), labels, listed_from)
     AllowedContributors.offer_open_issues(issues)
     repository = String.downcase(owner <> "/" <> repo)
@@ -18,6 +18,11 @@ defmodule Aiur.GitHub.OpenIssueListing do
     end
 
     :ok
+  end
+
+  defp label_snapshot(issue) do
+    base = %{labels: issue.labels, updated_at: issue.updated_at}
+    if map_size(issue.label_descriptions || %{}) > 0, do: Map.put(base, :label_descriptions, issue.label_descriptions), else: base
   end
 
   defp topic(repository), do: "github:open_issue_listing:" <> String.downcase(repository)
