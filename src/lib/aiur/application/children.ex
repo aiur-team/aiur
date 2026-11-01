@@ -325,8 +325,8 @@ defmodule Aiur.Application.Children do
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
-        dashboard_final_children(dashboard?, opts) ++
         [toolchain_child()] ++
+        dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
         BuildOrders.child_specs(:label_backfill, opts) ++
         List.wrap(

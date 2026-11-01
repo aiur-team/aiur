@@ -209,14 +209,14 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {early, final} = Enum.split_while(@foreground, &(&1 != AiurWeb.DashboardAuth.ChallengeStore))
     assert {:ok, voice_config} = Aiur.VoiceConversation.config()
 
+    # Start this independent observer before the dashboard and optional
+    # backfill/Executor tails, whose final child positions are pinned.
     expected =
       early ++
         [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
+        [{Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}] ++
         final ++
         [
-          # Toolchain starts before the optional writer and Executor tail so
-          # neither tail's supervision-order contract is displaced.
-          {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
           Aiur.BuildOrder.History.LabelBackfill,
           Aiur.Executor.Session,
           Aiur.Executor.SessionIngest,
