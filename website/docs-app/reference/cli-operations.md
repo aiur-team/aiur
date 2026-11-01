@@ -63,7 +63,7 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur upgrade --force` | Upgrades even while a daemon is running. The running daemon keeps the old code until you restart it; in-flight agents are unaffected until then. | `aiur upgrade --force` |
 | `aiur cleanup-stale` | Lists and reaps stale manual-smoke processes and sockets. | `aiur cleanup-stale` |
 | `aiur cleanup-stale --dry-run` | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
-| `aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]` | Requires an allowlisted human identity and ten-minute gates for head, draft, changes, CI, conflicts, attribution and merge result. `separate_account` requires a current-head APPROVED review; `single_account` treats `--reviewed-sha` as the operator's self-review attestation because GitHub refuses self-approval. An optional body is posted as a COMMENT review in single-account mode. Agents and Apps refuse. Queues report `ENQUEUED`; rerun after merge. Exit 0: merged/enqueued/observed/dry run; 2: refusal; 1: tool error. Records: `~/.aiur/logs/pr-merge/`; observed merges notify `system.pr.merged`. | `aiur pr merge 42 --reviewed-sha <40-character-sha> --dry-run` |
+| `aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]` | Requires an allowlisted human identity and ten-minute gates for head, draft, changes, CI, conflicts, attribution and merge result. `separate_account` requires a current-head APPROVED review; `single_account` treats `--reviewed-sha` as the operator's self-review attestation because GitHub refuses self-approval. Every single-account merge or enqueue posts a COMMENT review at that head, using the supplied body or a generated SHA attestation. Agents and Apps refuse. Queues report `ENQUEUED`; rerun after merge. Exit 0: merged/enqueued/observed/dry run; 2: refusal; 1: tool error. Records: `~/.aiur/logs/pr-merge/`; observed merges notify `system.pr.merged`. | `aiur pr merge 42 --reviewed-sha <40-character-sha> --dry-run` |
 
 ### Units
 
@@ -294,7 +294,7 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 
 In `separate_account` mode, the PR needs an APPROVED review at the current head from another identity. `--approve-body-file <file>` posts that approval and reruns the gates.
 
-In `single_account` mode, the reviewed SHA is the operator's explicit self-review attestation because GitHub refuses self-approval. An optional body is posted as a COMMENT review. The ledger records `reviewed_by`, `attestation: "single_account_self_review"`, and `reviewed_sha`.
+In `single_account` mode, the reviewed SHA is the operator's explicit self-review attestation because GitHub refuses self-approval. Every merge or enqueue posts a COMMENT review at that head. `--approve-body-file <file>` supplies its body; otherwise Aiur posts `Single-account self-review attestation: reviewed <sha>.` The ledger records `reviewed_by`, `attestation: "single_account_self_review"`, and `reviewed_sha`.
 
 Repeatable `--inherited <check>` requires watcher verification, currently unavailable.
 
