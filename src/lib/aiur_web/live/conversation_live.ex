@@ -144,6 +144,7 @@ defmodule AiurWeb.ConversationLive do
               class={@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement) && "conversation-highlight"}
               aria-current={if @highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement), do: "location"}
               data-jump-target={to_string(@highlight_pos == entry.pos && Navigation.highlight?(@anchors, entry.pos, @jump_placement))} >
+              <Components.session_divider :for={session <- @sessions} :if={@executor? && entry.kind == "reasoning" && session.first_pos == entry.pos} session={session} />
               <Components.entry :if={not @executor? or entry.kind != "reasoning"} entry={entry} sessions={@sessions} can_reveal={@can_reveal} />
               <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={{:at_pos, entry.pos}} />
               <EventComponents.entry_marker anchors={@anchors} pos={entry.pos} highlight_pos={if Navigation.highlight?(@anchors, entry.pos, @jump_placement), do: nil, else: @highlight_pos} />
