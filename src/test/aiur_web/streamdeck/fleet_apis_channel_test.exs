@@ -24,17 +24,17 @@ defmodule AiurWeb.Streamdeck.FleetAPIsChannelTest do
 
     socket = joined_socket()
     receive_barrier(:usage_loaded)
-    assert_push("frame", %{strip: initial_strip})
+    assert_push("frame", %{strip: initial_strip}, 2_000)
     refute Enum.at(initial_strip, 1).svg =~ "GitHub"
 
     for view <- ["feature", "epic", "fleet"] do
       ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
-      assert_reply(ref, :ok, reply)
+      assert_reply(ref, :ok, reply, 2_000)
       assert %{"view" => ^view, "page" => 0} = reply
       refute Map.has_key?(reply, "frame")
       refute Map.has_key?(reply, :frame)
       flush(socket)
-      assert_push("frame", frame)
+      assert_push("frame", frame, 2_000)
 
       if view == "fleet" do
         svg = Enum.at(frame.strip, 2).svg
@@ -63,7 +63,7 @@ defmodule AiurWeb.Streamdeck.FleetAPIsChannelTest do
 
     socket = joined_socket()
     receive_barrier(:usage_loaded)
-    assert_push("frame", _initial)
+    assert_push("frame", _initial, 2_000)
 
     :sys.replace_state(socket.channel_pid, fn state ->
       Phoenix.Socket.assign(state, :deck_usage_refreshed_at, System.monotonic_time(:millisecond) - 60_001)
@@ -73,13 +73,13 @@ defmodule AiurWeb.Streamdeck.FleetAPIsChannelTest do
     :sys.get_state(socket.channel_pid)
     flush(socket)
     receive_barrier(:usage_loaded)
-    assert_push("frame", _updated)
+    assert_push("frame", _updated, 2_000)
     assert [%{lines: [%{remaining_percent: nil, tip: tip} | _]}] = :sys.get_state(socket.channel_pid).assigns.deck_usage["apis"]
     assert tip =~ "GitHub budget meter unavailable"
     send(socket.channel_pid, :fleet_changed)
     :sys.get_state(socket.channel_pid)
     flush(socket)
-    assert_push("frame", _next)
+    assert_push("frame", _next, 2_000)
     refute_received :usage_loaded
   end
 

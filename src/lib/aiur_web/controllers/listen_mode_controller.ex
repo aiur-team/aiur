@@ -14,7 +14,7 @@ defmodule AiurWeb.ListenModeController do
 
     result =
       cond do
-        mode not in ["steer", "sync", "async"] ->
+        mode not in ["steer", "sync", "async", "mute"] ->
           {:error, :invalid_mode}
 
         actor not in ["human", "executor"] ->
@@ -31,7 +31,7 @@ defmodule AiurWeb.ListenModeController do
     respond(conn, result)
   end
 
-  defp respond(conn, {:ok, record}), do: json(conn, Map.put(record, :routing, :legacy))
+  defp respond(conn, {:ok, record}), do: json(conn, Map.put(record, :routing, Listener.routing()))
   defp respond(conn, {:error, {:mode_conflict, current}}), do: conn |> put_status(409) |> json(%{error: "mode_conflict", current: current})
   defp respond(conn, {:error, :issue_not_found}), do: conn |> put_status(404) |> json(%{error: "issue_not_found"})
   defp respond(conn, {:error, {:outcome_unknown, info}}), do: conn |> put_status(503) |> json(%{error: "outcome_unknown", idempotency_key: info.idempotency_key})

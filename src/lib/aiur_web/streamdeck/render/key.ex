@@ -1,6 +1,7 @@
 defmodule AiurWeb.Streamdeck.Render.Key do
   @moduledoc false
 
+  alias AiurWeb.OperatorControlCenter.UnitsPresentation
   alias AiurWeb.Streamdeck.Render.{Marks, Parts, Style, Svg}
   import Svg, only: [element: 2, element: 3, field: 2, field: 3, text: 5]
 
@@ -69,9 +70,25 @@ defmodule AiurWeb.Streamdeck.Render.Key do
   end
 
   defp footer(face, percent, freshness) do
+    hold = field(face, :native_hold)
+
+    if is_map(hold) do
+      text(UnitsPresentation.native_hold_age(%{since: field(hold, :since)}, DateTime.utc_now()), 9, 112, 9, fill: "#ffcf87")
+    else
+      progress_footer(face, percent, freshness)
+    end
+  end
+
+  defp progress_footer(face, percent, freshness) do
     if to_string(field(face, :bucket, "queued")) == "queued" do
-      label = if field(face, :dependency_ready) == true, do: "Unblocked", else: "Blocked"
-      text(label, 9, 112, 9, fill: if(label == "Unblocked", do: "#88e0a6", else: "#ff9a90"))
+      {label, color} =
+        case field(face, :dependency_ready) do
+          true -> {"Unblocked", "#88e0a6"}
+          false -> {"Blocked", "#ff9a90"}
+          _ -> {"Readiness unknown", "#9096a4"}
+        end
+
+      text(label, 9, 112, 9, fill: color)
     else
       if is_number(percent) or is_nil(field(face, :face)), do: Parts.bar(percent, freshness, 9, 106, 102), else: []
     end

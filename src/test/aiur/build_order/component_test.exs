@@ -20,7 +20,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     recording?: true,
     executor_mode?: false,
     ls_remote_ticker?: true,
-    build_index?: true
+    build_index?: true,
+    repository_services?: true
   ]
 
   # Conversation journals now precede producers, with the resolver bound immediately after Exchange.
@@ -47,6 +48,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Registry, [keys: :unique, name: Aiur.Workspace.Ownership.Registry]},
     Aiur.Workspace.Ownership.Reconciler,
     {Task.Supervisor, [name: Aiur.TaskSupervisor]},
+    AiurWeb.Streamdeck.Deck.SettingsSnapshot,
     Aiur.AlertFeed.Backfill,
     Aiur.CoordinationTasks,
     Aiur.DecisionDispatchTasks,
@@ -178,6 +180,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.AnalystTrigger,
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    Aiur.BuildOrder.TicketTimelineCache,
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     Aiur.Netlify.Usage,
@@ -203,7 +206,20 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    expected = @foreground ++ [Aiur.BuildOrder.History.LabelBackfill]
+    {early, final} = Enum.split_while(@foreground, &(&1 != AiurWeb.DashboardAuth.ChallengeStore))
+    assert {:ok, voice_config} = Aiur.VoiceConversation.config()
+
+    expected =
+      early ++
+        [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
+        final ++
+        [
+          Aiur.BuildOrder.History.LabelBackfill,
+          Aiur.Executor.Session,
+          Aiur.Executor.SessionIngest,
+          {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
+          Aiur.Executor.TranscriptIngest
+        ]
 
     assert Aiur.Application.child_specs(@opts) == expected
 
@@ -214,6 +230,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
             AiurWeb.ControlCenterCache,
             Aiur.RunTelemetry.RetainedCache,
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+            Aiur.BuildOrder.TicketTimelineCache,
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.DashboardAuth.ChallengeStore,
             AiurWeb.DashboardAuthRateLimit.Store,

@@ -1,6 +1,6 @@
 defmodule Aiur.PrMergeCLI do
   @moduledoc false
-  @usage "Usage: aiur pr merge <N> --reviewed-sha <40-character-sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]"
+  @usage "Usage: aiur pr merge <N> --reviewed-sha <40-character-sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]\nIn single_account mode, reviewed-sha is the operator's self-review attestation; an optional body is posted as a COMMENT review. separate_account requires an APPROVED review from a different identity."
   @switches [reviewed_sha: :string, dry_run: :boolean, approve_body_file: :string, inherited: :keep]
 
   @spec main([String.t()]) :: no_return()

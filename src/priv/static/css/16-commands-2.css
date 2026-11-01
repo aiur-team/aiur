@@ -375,16 +375,31 @@
   border-top: 1px solid var(--hairline);
 }
 
-
-.units-card {
-  min-width: 0;
-  /* Clip the full-bleed units table to the card's rounded corners. */
-  overflow: hidden;
-}
-
 .units-count-summary {
   margin: 0 0 0.2rem;
   font-size: 0.85rem;
   color: var(--muted);
 }
 
+.override-timeline li { display: flex; flex-wrap: wrap; gap: 8px; overflow-wrap: anywhere; }
+.override-timeline .chip, .override-badge, .fleet-override-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+
+/* A collapsed header badge keeps the Build board clear until the operator opens it. */
+.fleet-overrides { position: relative; flex: none; margin-left: auto; }
+.fleet-overrides summary { cursor: pointer; white-space: nowrap; }
+.fleet-overrides-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(24rem, calc(100vw - 32px));
+  max-height: 40vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.fleet-overrides h2 { margin: 0 0 8px; font-size: 0.875rem; line-height: 1.25rem; }
+.fleet-overrides p { margin: 0; }

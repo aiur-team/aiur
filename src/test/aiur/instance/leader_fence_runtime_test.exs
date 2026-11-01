@@ -18,8 +18,7 @@ defmodule Aiur.Instance.LeaderFenceRuntimeTest do
   end
 
   test "refuses primary when the configured lease store is unreachable" do
-    {:ok, store} = GenServer.start_link(__MODULE__.UnavailableLeaseStore, nil)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store = start_supervised!({__MODULE__.UnavailableLeaseStore, []})
 
     with_aiur_env(:lease_database_url, "postgres://unreachable.invalid/aiur", fn ->
       refute LeaderFence.allowed?(role: "primary", store_opts: [server: store])
@@ -39,6 +38,8 @@ defmodule Aiur.Instance.LeaderFenceRuntimeTest do
 
   defmodule UnavailableLeaseStore do
     use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
     @impl true
     def init(state), do: {:ok, state}

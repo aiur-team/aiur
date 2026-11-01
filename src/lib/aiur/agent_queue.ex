@@ -18,7 +18,7 @@ defmodule Aiur.AgentQueue do
       causal_refs: Keyword.get(opts, :causal_refs, []),
       turn_id: Keyword.get(opts, :turn_id)
     }
-    |> Map.merge(Map.new(Keyword.take(opts, [:origin, :actor])))
+    |> Map.merge(Map.new(Keyword.take(opts, [:origin, :actor, :persist_across_restart?])))
   end
 
   defp operator_delivery(opts) do
@@ -30,7 +30,7 @@ defmodule Aiur.AgentQueue do
 
   defp listener_delivery(:sync, opts), do: legacy_delivery(Keyword.put(opts, :delivery_policy, :checkpoint))
 
-  defp listener_delivery(:async, opts) do
+  defp listener_delivery(mode, opts) when mode in [:async, :mute] do
     opts
     |> Keyword.put(:delivery_policy, :checkpoint)
     |> legacy_delivery()

@@ -54,7 +54,7 @@ The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |
-| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; unconfirmed backfill waits for explicit release. |
+| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; backfill joins wait for explicit release even after CLI confirmation, including when projection first observes the join after confirmation. |
 | A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
 | The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment or its own review reply. |
 | A label or a close is delivered | It reconciles state rather than waking anybody, so an orchestrator label write cannot wake the agent that state belongs to. |
@@ -124,3 +124,32 @@ GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-rep
 Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
 
 Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. The listing must have begun after the request's latest revision; its completion time cannot prove closure. Missing observation provenance also cannot prove closure. No quota saving is claimed.
+
+
+## Corrective Command tickets
+
+Post-merge Command overrides create corrective issues through the governed transport as `command_override_create`. Their marker lookup uses `command_override_reconcile`, paging the repository issue listing rather than GitHub search so reconciliation does not depend on search indexing.
+
+The lookup shares the creation-time window and incomplete-read refusal described under [Experiment analyst tickets](#experiment-analyst-tickets). A read failure never proves absence or authorizes another create.
+
+Missing or stale source PR evidence first checks issue closure through the conditional resource cache (`build_queue_observe`, five-minute freshness). Successful unresolved observations wait five minutes before another reconciliation; ordinary 30-second store ticks do not each trigger a remote read.
+
+When recovering an earlier override's corrective ticket, reconciliation checks whether the issue remains open through the same conditional closure cache before reuse; the current override's own marker is reused directly without a closure read.
+
+For a closed source ticket, `command_override_merged_pr` performs one governed GraphQL read of closing PRs and merge SHAs, outside dispatch. It is bounded to 100 references and rejects incomplete results. A complete result with no merged PR in the configured repository records a final journal fact, retained across restart.
+
+Linked corrective tickets observe only the delivered PR cache, including when no PR exists yet. They do not fetch issue labels or closing PRs on each reconciliation. Errors retain durable exponential backoff capped at one hour. These are read-cadence contracts; no measured production saving is claimed.
+
+
+Normal queued overrides route from the cached PR observation. Only an admitted
+recovery candidate reads the recorded PR and head branch through the governed
+REST transport as `command_override_recovery`. Recovery observations wait at least 60 seconds between reads. Failed reads
+back off to one hour; the journal retains retry state across restart.
+
+A failed fresh read defers recovery without adding a dependency to normal T2
+resumes. Capacity waits and active workers make no recovery reads.
+
+A missing branch or closed unmerged PR uses the corrective marker lookup and
+creates a parked successor. The old PR receives `superseded by #M`
+(`command_override_supersede`), reusing that comment on retries, then is closed
+and read back before the successor becomes dispatchable. No saving is claimed.

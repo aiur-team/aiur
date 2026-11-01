@@ -43,6 +43,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TerminalEvent do
 
     case Events.publish(topic, payload,
            issue_number: target,
+           identity: Issue.tracker_identity(issue),
            bypass_contamination: true,
            dedup_key: ci_event_dedup_key(target, outcome, Map.get(result, :head_sha))
          ) do

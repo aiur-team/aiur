@@ -91,8 +91,10 @@ new journal for that subject; deletion is not a recording opt-out.
 
 ## Reading entries
 
-The full conversation chronology renders agent messages as Markdown. Reasoning
-and command or tool output start collapsed; select their summaries to expand.
+The full conversation chronology renders agent messages as Markdown. Executor
+reasoning rows are hidden; worker reasoning and command or tool output start
+collapsed. Select a summary to expand it.
+
 Commands show their exit code when nonzero, and tools distinguish success,
 failure and unknown status. File edits show unified diffs, with lines after the
 first 200 under an expandable summary.
@@ -113,7 +115,7 @@ by masking show **masked**. **Show raw** re-reads one entry and is available onl
 for loopback dashboard sessions with dashboard writing enabled. Device principals
 always receive redacted bodies.
 
-The quick drawer remains a separate view. Display masking does not remove
+The worker quick drawer remains available on `/voice`, reachable from Home’s **Settings → Talk to Executor**. Display masking does not remove
 secrets from disk and cannot guarantee that all secrets are detected.
 
 ## Jump points and precision

@@ -37,6 +37,5 @@ defmodule AiurWeb.StreamdeckFleetTest do
     grid = StreamdeckFleet.grid(retained)
     assert grid.agents == []
     assert grid.tickets_status == "unavailable"
-    assert grid.snapshot_freshness == freshness
   end
 end

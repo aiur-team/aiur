@@ -43,7 +43,7 @@ test('synthetic fixture supports touch, reduced motion, zoom, and focus', async 
 
     await page.locator('#keyboard-input').focus()
     await expect(page.locator('#keyboard-input')).toBeFocused()
-    await expect(page.locator('#graph-viewport')).toHaveAttribute('data-reduced-motion', 'true')
+    await expect(page.locator('#fixture-viewport')).toHaveAttribute('data-reduced-motion', 'true')
 
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
     await assertNoDocumentOverflow(page)
@@ -72,7 +72,7 @@ test('synthetic fixture reconnects LiveView and passes automated accessibility c
 test('browser measurements use monotonic samples after warmup', async ({ page }) => {
   await openFixture(page)
   await page.evaluate(() => {
-    const target = document.querySelector('#graph-content')
+    const target = document.querySelector('#fixture-content')
 
     window.__aiurBrowserHarnessOperations = {
       redraw(index) {

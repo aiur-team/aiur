@@ -1,16 +1,17 @@
 defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   @moduledoc """
-  Validates, dedupes, and queues Executor messages and event digests for a running agent.
+  Validates, dedupes, and queues Executor messages and event digests for running or next workers.
   Public API stays on `Aiur.Orchestrator.OperatorMessages`.
   """
 
   @max_operator_message_chars 8_000
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, OperatorWaitLog}
+  alias Aiur.AgentQueueStore.Correlation
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseResume, State, TicketTransition}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
 
   @doc false
   @spec payload_key(map(), term()) :: String.t() | nil
@@ -128,12 +129,16 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
       :continue ->
         case State.find_running_by_identifier(state.running, issue_identifier) do
           nil ->
-            {{:error, :no_running_agent}, state}
+            enqueue_for_next_worker(state, issue_identifier, text, request)
 
           running_entry ->
             enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
         end
     end
+  end
+
+  defp enqueue_for_next_worker(state, issue_identifier, text, request) do
+    EnqueueNextWorker.enqueue(state, issue_identifier, text, request, &enqueue_plain/3, &record_operator_queued_evidence/1)
   end
 
   defp replay_existing_correlated_message(
@@ -143,7 +148,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
          %{mode: :correlated, action_id: action_id} = request
        )
        when is_binary(action_id) do
-    case AgentQueueStore.find_by_action(state.queue_store, action_id) do
+    case AgentQueueStore.find_by_action(state.queue_store, Correlation.delivery_key(action_id, request.correlation)) do
       nil ->
         :continue
 
@@ -233,7 +238,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # conversation pane surfaces it.
   defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, request) do
     cond do
-      State.deactivated_running_entry?(running_entry) ->
+      State.deactivated_running_entry?(running_entry) and not Scheduler.muted_request?(issue_identifier, request.delivery_policy) ->
         enqueue_after_reactivate(state, running_entry, issue_identifier, text, request)
 
       message_resumes_pause?(state, running_entry, request) ->
@@ -378,11 +383,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
       {:ok, queue_store, item, :accepted} ->
         Unread.broadcast_change(state.queue_store, queue_store, item.target_issue_identifier)
         record_operator_queued_evidence(item)
-        DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
+        queue_store = Scheduler.notify_enqueued(%{state | queue_store: queue_store}, running_entry, item)
 
         next_state =
           %{state | queue_store: queue_store}
-          |> maybe_replace_completed_runner(running_entry)
+          |> maybe_replace_completed_runner(running_entry, item.delivery)
           |> LifecycleFence.protect_queued_item(item.target_issue_identifier, item)
 
         {{:ok, item.id}, next_state}
@@ -398,15 +403,18 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :correlated} = request) do
     case AgentQueueStore.enqueue_correlated(state.queue_store, attrs, retry_failed: request.retry_failed) do
       {:ok, queue_store, item, status} ->
-        if status in [:accepted, :retried] do
-          Unread.broadcast_change(state.queue_store, queue_store, item.target_issue_identifier)
-          record_operator_queued_evidence(item)
-          DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
-        end
+        queue_store =
+          if status in [:accepted, :retried] do
+            Unread.broadcast_change(state.queue_store, queue_store, item.target_issue_identifier)
+            record_operator_queued_evidence(item)
+            Scheduler.notify_enqueued(%{state | queue_store: queue_store}, running_entry, item)
+          else
+            queue_store
+          end
 
         next_state =
           %{state | queue_store: queue_store}
-          |> maybe_replace_completed_runner(running_entry)
+          |> maybe_replace_completed_runner(running_entry, item.delivery)
           |> maybe_protect_correlated_item(item, status)
 
         {{:ok, %{status: status, item: item}}, next_state}
@@ -424,9 +432,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
     {:ok, queue_store, item, :accepted}
   end
 
-  defp maybe_replace_completed_runner(state, nil), do: state
+  defp maybe_replace_completed_runner(state, entry, delivery \\ %{})
+  defp maybe_replace_completed_runner(state, _entry, %{listener_mode_at_claim: :mute}), do: state
+  defp maybe_replace_completed_runner(state, nil, _delivery), do: state
 
-  defp maybe_replace_completed_runner(state, running_entry) do
+  defp maybe_replace_completed_runner(state, running_entry, _delivery) do
     case Map.get(running_entry, :issue) do
       %Aiur.Issue{} = issue -> PauseResume.replace_completed_issue(state, running_entry, issue)
       _ -> state

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
-  alias Aiur.BuildOrder.Index
-  alias AiurWeb.Build.{Freshness, NowRows, PackRead, PlannedRows}
+  alias Aiur.BuildOrder.{Index, Metadata}
+  alias AiurWeb.Build.{Freshness, NowRows, PackRead, PlannedRows, ProgressPRFacts}
   alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
@@ -46,7 +46,10 @@ defmodule AiurWeb.Build.IndexReader do
   defp read_now(repo, todo_ids, opts) do
     units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
     catalog = units_fun.()
-    units_now = NowRows.build(catalog, repository: repo, todo_ids: todo_ids) |> Map.put(:unit_rows, unit_rows(catalog, repo))
+    pr_facts = ProgressPRFacts.read(catalog, lookup: Keyword.get(opts, :pr_lookup))
+    unit_rows = unit_rows(catalog, repo)
+
+    units_now = NowRows.build(catalog, repository: repo, todo_ids: todo_ids, pr_facts: pr_facts) |> Map.put(:unit_rows, unit_rows)
 
     result =
       if map_size(units_now.rows) > 0 do
@@ -57,7 +60,7 @@ defmodule AiurWeb.Build.IndexReader do
         case snapshot_fun.(opts) do
           {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
             rows = fleet_rows(statuses, running)
-            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
+            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo, pr_facts: ProgressPRFacts.read(rows, lookup: Keyword.get(opts, :pr_lookup)))
 
           {:error, :timeout} ->
             {:error, :running_snapshot_timeout}
@@ -135,9 +138,11 @@ defmodule AiurWeb.Build.IndexReader do
         work_state: Map.get(summary, :work_state, :working),
         usage_limit_reset_at: Map.get(summary, :usage_limit_reset_at) || get_in(summary, [:runtime, :usage_limit_reset_at])
       },
-      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
+      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason), native_hold: Map.get(running, :native_hold)},
       timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),
+      priority: Map.get(summary, :priority),
+      build_lane: Metadata.parse(Map.get(summary, :labels, [])).lane,
       open_command_count: Map.get(summary, :open_decision_count, 0),
       agent_family: Map.get(summary, :agent_family),
       backend: Map.get(summary, :backend),

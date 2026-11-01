@@ -25,6 +25,16 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     %{store: store, decision: decision}
   end
 
+  test "pending Executor answer has one informational notice alongside Replace", ctx do
+    answered = answer(ctx, :executor)
+    {:ok, view, html} = live(build_conn(), "/commands/#{answered.decision_id}")
+    text = html |> Floki.parse_document!() |> Floki.find(".decision-detail") |> Floki.text()
+    assert length(Regex.scan(~r/Already answered by the Executor/, text)) == 1
+    assert has_element?(view, ".decision-replacement p[role=status]", "Already answered by the Executor")
+    refute has_element?(view, ".decision-replacement p.error")
+    assert has_element?(view, "button[phx-click=begin-replace-decision]", "Replace")
+  end
+
   test "confirmed replace records an operator revision through the dashboard", ctx do
     answered = answer(ctx, :executor)
     {:ok, view, html} = live(build_conn(), "/commands/#{answered.decision_id}")
@@ -83,7 +93,7 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     assert current.answer.accepted_at == answered.answer.accepted_at
   end
 
-  test "delivery racing replacement disables the form and links to the unit chat", ctx do
+  test "delivery racing replacement records the operator override for the same ticket", ctx do
     answered = answer(ctx, :executor)
     {:ok, view, _} = live(build_conn(), "/commands/#{answered.decision_id}")
     view |> element("button[phx-click=begin-replace-decision]") |> render_click()
@@ -99,15 +109,17 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
 
     assert {:ok, :accepted} = DecisionStore.record_delivery(item, ctx.store)
     html = render_submit(view, "replace-decision", params(answered.decision_id))
-    assert {:ok, delivered} = DecisionStore.get(answered.decision_id, ctx.store)
-    [attempt] = delivered.dispatch_attempts
-    assert html =~ "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(attempt.delivered_at, :second))}"
-    assert has_element?(view, ".decision-answer-summary", "Original Executor direction")
-    assert has_element?(view, "form fieldset[disabled]")
-    assert has_element?(view, "a[href='/chat/owner/repo/987']", "Send a follow-up message")
+    assert html =~ "Answer recorded"
+    assert has_element?(view, ".decision-answer-summary", "Use the replacement")
     refute has_element?(view, "button[phx-click=begin-replace-decision]")
     assert {:ok, current} = DecisionStore.get(answered.decision_id, ctx.store)
-    assert current.revision_sequence == 0
+    assert current.revision_sequence == 1
+    assert current.answer.action_id == answered.answer.action_id
+    assert Decision.active_answer(current).actor == %{kind: :operator, id: "dashboard", source: :dashboard_session}
+    assert [%{state: :queued, ticket: %{identifier: "987"}, prior_action_id: prior_id, action_id: override_id}] = current.overrides
+    assert prior_id == answered.active_action_id
+    assert override_id == current.active_action_id
+    assert override_id != prior_id
   end
 
   test "the operator's delivered custom answer shows success and summary without an answer form", ctx do
@@ -146,7 +158,7 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     refute has_element?(view, "button[phx-click=begin-replace-decision]")
   end
 
-  test "a stale replacement socket receives too_late from the store", ctx do
+  test "a replacement socket read before delivery still records the newest override", ctx do
     answered = answer(ctx, :executor)
     [row] = DecisionPresenter.present(answered)
     socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, selected_decision: row, selected_decision_id: row.decision_id, decision_actions: %{}}}
@@ -170,8 +182,15 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     end
 
     result = DecisionEvents.handle("replace-decision", params(answered.decision_id), socket, reload)
-    assert %{status: :too_late, reason: :answer_delivered, delivered_at: %DateTime{}} = result.assigns.decision_actions[row.decision_id].outcome
-    assert {:ok, %{revision_sequence: 0}} = DecisionStore.get(answered.decision_id, ctx.store)
+    assert %{status: :accepted, decision: accepted} = result.assigns.decision_actions[row.decision_id].outcome
+    assert {:ok, current} = DecisionStore.get(answered.decision_id, ctx.store)
+    assert current.revision_sequence == 1
+    assert current.active_action_id == accepted.active_action_id
+    assert Decision.active_answer(current).custom_response == "Use the replacement"
+    assert [%{state: :queued, ticket: %{identifier: "987"}, action_id: override_id, prior_action_id: prior_id}] = current.overrides
+    assert override_id == current.active_action_id
+    assert prior_id == answered.active_action_id
+    assert override_id != prior_id
   end
 
   defp delivery_item(answered, attempt_id) do

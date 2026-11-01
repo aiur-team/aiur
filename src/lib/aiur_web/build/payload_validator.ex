@@ -3,12 +3,27 @@ defmodule AiurWeb.Build.PayloadValidator do
   alias AiurWeb.Build.ConversationPayload
   alias AiurWeb.Build.PayloadSchema, as: Schema
 
+  @spec validate_row(term(), String.t()) :: :ok | {:error, [{String.t(), atom()}]}
+  def validate_row(row, section), do: row_validation(row, section, nil, nil)
+
+  @spec validate_row(term(), String.t(), term(), term()) :: :ok | {:error, [{String.t(), atom()}]}
+  def validate_row(row, section, epics, features), do: row_validation(row, section, epics, features)
+
+  defp row_validation(row, section, epics, features) when is_map(row) and is_binary(section) do
+    errors = check(row, {:object, Schema.row(), []}, "") ++ row_rules(row, "")
+    errors = errors ++ if(row["sec"] == section, do: [], else: error("sec", :section))
+    errors = errors ++ if(is_map(epics) and is_map(features), do: ticket_refs(row, "", section, epics, features), else: [])
+    if errors == [], do: :ok, else: {:error, errors}
+  end
+
+  defp row_validation(_row, _section, _epics, _features), do: {:error, [{"", :type}]}
+
   @spec validate(map()) :: :ok | {:error, [{String.t(), atom()}]}
   def validate(message) do
     optional =
       case message["kind"] do
         "ticket" -> ~w(row control chat by_you_at)
-        "snapshot" -> ["icons"]
+        "snapshot" -> ~w(icons unavailable_rows)
         _ -> []
       end
 

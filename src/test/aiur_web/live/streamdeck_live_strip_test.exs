@@ -2,7 +2,13 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
   alias Aiur.TestSupport.BuildHome.UsageInputs
   use AiurWeb.StreamdeckLiveCase
 
-  alias Aiur.TestSupport.EndpointStubs
+  setup do
+    previous = Application.get_env(:aiur, :build_conversation_source)
+    Application.put_env(:aiur, :build_conversation_source, :unavailable)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
+  end
+
+  alias Aiur.TestSupport.{EndpointStubs, StreamdeckBuildFixture}
 
   setup %{meter_agent: meter_agent} do
     EndpointStubs.put(
@@ -48,7 +54,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     html = render_hook(view, "grid-page", %{"page" => "1"})
     assert html =~ ~s(data-grid-page="1")
-    assert strip(html) =~ "9–16 / 17"
+    assert strip(html) =~ "2 / 3"
     assert html =~ ~s(data-streamdeck-identifier="1367")
 
     html = render_hook(view, "grid-page", %{"page" => "99"})
@@ -56,34 +62,37 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert html =~ ~s(data-streamdeck-identifier="1377")
   end
 
-  test "renders shared provider meters and refreshes them from the live meter event", %{
+  test "refreshes shared usage without putting provider meters into the count strip", %{
     meter_agent: meter_agent
   } do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "70% left"
-    assert html =~ "50% left"
+    initial_strip = strip(html)
+    assert initial_strip =~ "Queued"
+    refute initial_strip =~ "70% left"
+    refute initial_strip =~ "50% left"
 
     Agent.update(meter_agent, fn meters ->
       put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "40% left"
+    assert strip(render(view)) == initial_strip
+    assert :sys.get_state(view.pid).socket.assigns.usage["claude"]["windows"]["session"]["used_percent"] == 60
   end
 
-  test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{
+  test "a provider meter change refreshes meters without re-reading the shared Build window", %{
     snapshot_agent: snapshot_agent,
     meter_agent: meter_agent
   } do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
-    counting_snapshot_fun = fn ->
+    counting_window_fun = fn _, _, _ ->
       Agent.update(counter, &(&1 + 1))
-      Agent.get(snapshot_agent, & &1)
+      snapshot_agent |> Agent.get(& &1) |> StreamdeckBuildFixture.window()
     end
 
-    EndpointStubs.put(streamdeck_snapshot_fun: counting_snapshot_fun)
+    EndpointStubs.put(streamdeck_build_window_fun: counting_window_fun)
 
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
@@ -97,52 +106,21 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
       send(view.pid, {:provider_meter_changed, %{}})
       html = render(view)
 
-      assert html =~ "40% left"
-      # Meter observations must not re-project the fleet: the grid snapshot was
-      # read once at mount and not again for the meter refresh.
+      assert :sys.get_state(view.pid).socket.assigns.usage["claude"]["windows"]["session"]["used_percent"] == 60
+      refute strip(html) =~ "40% left"
+      # A usage-only refresh must leave the shared ticket population retained.
       assert Agent.get(counter, & &1) == reads_before
     after
       Agent.stop(counter)
     end
   end
 
-  test "renders an unobserved provider without treating it as zero percent", %{
-    meter_agent: meter_agent
-  } do
+  test "unobserved providers do not replace category bands", %{meter_agent: meter_agent} do
     Agent.update(meter_agent, &Map.delete(&1, "claude"))
-
-    {:ok, _view, html} = live(build_conn(), "/streamdeck")
-
-    assert streamdeck_assigns_from_html(html, "claude") =~ "Unknown"
-    refute streamdeck_assigns_from_html(html, "claude") =~ "0%"
-  end
-
-  test "renders a segment for a configured provider that was never observed at all" do
-    # The meter fixture only carries claude and codex, so this configured
-    # provider has no reading of any kind. It must still get its own segment,
-    # and both of its meters must say so rather than showing an invented value.
-    {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    html = render_hook(view, "input", %{"kind" => "dial", "index" => 0, "action" => "turn", "delta" => 32})
-
-    assert streamdeck_assigns_from_html(html, "kimi") =~ "Unknown"
-    refute streamdeck_assigns_from_html(html, "kimi") =~ ~s(data-part="progress-fill")
-  end
-
-  test "renders retained readings with explicit staleness", %{meter_agent: meter_agent} do
-    Agent.update(meter_agent, fn meters ->
-      stale_at = DateTime.add(DateTime.utc_now(), -601, :second)
-
-      meters
-      |> put_in(["claude", "observed_at"], stale_at)
-      |> put_in(["claude", "windows", "weekly", "observed_at"], stale_at)
-    end)
-
-    {:ok, _view, html} = live(build_conn(), "/streamdeck")
-
-    provider = streamdeck_assigns_from_html(html, "claude")
-    assert provider =~ "70% left"
-    assert provider =~ "stale"
-    assert provider =~ ~s(opacity="0.45")
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+    refute has_element?(view, "#sd-screen [data-provider]")
+    assert strip(html) =~ "Queued"
+    assert has_element?(view, "[data-streamdeck-region='200'] [data-state]")
   end
 
   test "renders unavailable summary and no ticket pages when the Build window is unavailable" do
@@ -150,66 +128,56 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     assert strip(html) =~ "AIUR"
-    assert strip(html) =~ "— live / — left"
+    assert strip(html) =~ "Counts unavailable"
+    assert strip(html) =~ "Queued unknown"
     assert strip(html) =~ "Build"
-    assert strip(html) =~ "Tickets unavailable"
+    refute strip(html) =~ "Queued 0"
     refute html =~ ~s(data-grid-total="0")
     assert html =~ ~s(data-tickets-status="unavailable")
     assert has_element?(view, "#sd-keys button[disabled][aria-label*='Tickets unavailable']")
   end
 
-  test "the pager renders as the design's dial segment rather than a logo-headed info segment" do
+  test "the backlog and pager band yields to full-width chat when focused" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
-    assert has_element?(view, "[data-streamdeck-region='600']", "MORE AGENTS")
+    assert has_element?(view, "[data-streamdeck-region='600']", "Queued")
     assert has_element?(view, "[data-streamdeck-region='0']", "AIUR")
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert has_element?(view, "[data-streamdeck-region='600']", "CONTROLLING")
-    assert has_element?(view, "[data-streamdeck-region='600']", "#1352")
-    assert length(Floki.find(Floki.parse_fragment!(render(view)), "#sd-screen svg")) == 2
+    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation unavailable")
+    refute has_element?(view, "[data-streamdeck-region='600']")
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
+    assert length(Floki.find(Floki.parse_fragment!(render(view)), "#sd-screen svg")) == 1
   end
 
-  test "the CONTROLLING relabel replaces MORE AGENTS while a command is focused" do
+  test "full-width chat replaces the backlog band while a ticket is focused" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "MORE AGENTS"
+    assert html =~ "Queued"
     refute html =~ "CONTROLLING"
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert html =~ "CONTROLLING #1352"
+    assert html =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
     refute html =~ "MORE AGENTS"
     refute html =~ "data-pager-page="
-
-    # Descending into logs swaps the strip to this ticket's three-shape
-    # transcript window, but #1662/#1707 keep the pager segment so dial D stays
-    # labelled with the agent being read. Both hold at once.
-    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
-    assert has_element?(view, "#sd-screen[data-mode-view='logs-strip']")
-    refute html =~ "MORE AGENTS"
-    assert strip(html) =~ "#1352"
-    assert html =~ ~s(data-streamdeck-region="600")
-
-    # Backing out of logs restores the cmd page and its CONTROLLING relabel.
-    html = render_click(view, "dial-press", %{"action" => "back"})
-    assert html =~ "CONTROLLING"
 
     # Backing all the way out restores the segment row and its pager dots.
     html = render_click(view, "dial-press", %{"action" => "back"})
 
-    assert html =~ "MORE AGENTS"
+    assert html =~ "Queued"
     refute html =~ "CONTROLLING"
-    assert strip(html) =~ "1–8 / 17"
+    assert strip(html) =~ "1 / 3"
   end
 
-  test "the CONTROLLING label follows a focus change without leaving the previous agent behind" do
+  test "the shared conversation follows a focus change" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
-    assert html =~ "CONTROLLING #1345"
-    refute html =~ "CONTROLLING #1352"
+    assert html =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).deck_chat.ref.id == "1345"
   end
 
   test "renders priority and shared strip images" do
@@ -296,12 +264,5 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     # Stream Deck is a control surface the operator runs the fleet from. An
     # unrelated Command action anywhere must not take it down.
     assert AwaitingCommands.render_after_command_topic(view) =~ "2 Commands need you"
-  end
-
-  defp streamdeck_assigns_from_html(html, provider) do
-    html
-    |> Floki.parse_fragment!()
-    |> Floki.find("#sd-screen [data-provider='#{provider}']")
-    |> Floki.raw_html()
   end
 end

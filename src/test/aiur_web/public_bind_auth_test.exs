@@ -163,7 +163,7 @@ defmodule AiurWeb.PublicBindAuthTest do
 
   test "sign-in routes rate limit repeated attempts by client IP" do
     start_store()
-    ip = {203, 0, 113, 201}
+    ip = {203, 0, 113, rem(System.unique_integer([:positive]), 254) + 1}
 
     responses =
       for _ <- 1..21 do
@@ -180,15 +180,10 @@ defmodule AiurWeb.PublicBindAuthTest do
   defp start_store do
     case Process.whereis(DashboardAuthRateLimit.Store) do
       nil ->
-        {:ok, pid} = DashboardAuthRateLimit.Store.start_link()
-        ExUnit.Callbacks.on_exit(fn -> stop_store(pid) end)
+        start_supervised!(DashboardAuthRateLimit.Store)
 
       _pid ->
         :ok
     end
-  end
-
-  defp stop_store(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
   end
 end

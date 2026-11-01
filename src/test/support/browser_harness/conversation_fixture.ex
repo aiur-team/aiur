@@ -2,7 +2,16 @@ defmodule Aiur.BrowserHarness.ConversationFixture do
   @moduledoc false
   use Phoenix.Controller, formats: []
   alias Aiur.BrowserHarness.Fixtures
-  alias Aiur.Conversation.{Ingest, Ref}
+  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref}
+
+  def reset(conn, %{"empty" => "true"}) do
+    id = Ref.conversation_id(Ref.executor())
+    for {pid, _} <- Registry.lookup(Aiur.Conversation.Registry, id), do: DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+    dir = Path.join(Application.fetch_env!(:aiur, :conversation_state_dir), id)
+    Aiur.TestCleanup.rm_rf!(dir)
+    :ets.delete(:aiur_conversation_heads, {dir, id})
+    Plug.Conn.send_resp(conn, 200, "empty")
+  end
 
   def reset(conn, _params) do
     # Stop the cached writer before replacing its on-disk head and sessions.
@@ -12,8 +21,64 @@ defmodule Aiur.BrowserHarness.ConversationFixture do
       :ok = DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
     end
 
-    Fixtures.conversation(Application.fetch_env!(:aiur, :conversation_state_dir))
+    root = Application.fetch_env!(:aiur, :conversation_state_dir)
+    Fixtures.conversation(root)
+
+    anchors = [
+      %{
+        "event" => %{"event_id" => 1, "observed_at" => DateTime.to_iso8601(DateTime.utc_now())},
+        "kind" => "pr_merged",
+        "conversation_id" => id,
+        "pos" => 1000,
+        "placement" => "at",
+        "precision" => "causal",
+        "label" => "PR #42 merged"
+      },
+      %{
+        "event" => %{"event_id" => 2, "observed_at" => DateTime.to_iso8601(DateTime.utc_now())},
+        "kind" => "command_requested",
+        "conversation_id" => id,
+        "pos" => 1100,
+        "placement" => "at",
+        "precision" => "exact",
+        "label" => "Command requested",
+        "subject_ref" => %{"decision_id" => "fixture-command"}
+      }
+    ]
+
+    File.write!(Path.join([root, id, "anchors.jsonl"]), Enum.map(anchors, &(Jason.encode!(Map.put(&1, "anchor_id", "fixture-#{&1["event"]["event_id"]}")) <> "\n")))
     Plug.Conn.send_resp(conn, 200, "reset")
+  end
+
+  def append(conn, %{"command_id" => decision_id}) do
+    ref = Ref.executor()
+
+    anchor = %{
+      "v" => 1,
+      "anchor_id" => "fixture-command-#{decision_id}",
+      "event" => %{"event_id" => 3, "observed_at" => DateTime.to_iso8601(DateTime.utc_now())},
+      "kind" => "command_requested",
+      "conversation_id" => Ref.conversation_id(ref),
+      "pos" => 1100,
+      "placement" => "at",
+      "precision" => "exact",
+      "label" => "Command requested",
+      "subject_ref" => %{"decision_id" => decision_id}
+    }
+
+    Ingest.anchor(ref, anchor)
+    {:ok, writer} = Ingest.writer(ref)
+    :ok = GenServer.call(writer, :flush)
+
+    unless Process.whereis(AnchorResolver) do
+      {:ok, exchange} = Aiur.Events.Exchange.start_link(name: __MODULE__.Exchange)
+      Process.unlink(exchange)
+      {:ok, resolver} = AnchorResolver.start_link(exchange: __MODULE__.Exchange)
+      Process.unlink(resolver)
+    end
+
+    {:ok, _} = History.command_anchor(decision_id)
+    Plug.Conn.send_resp(conn, 200, "anchored")
   end
 
   def append(conn, %{"kinds" => "true"}) do

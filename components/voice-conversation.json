@@ -17,6 +17,7 @@
     "commands",
     "config",
     "conversations",
+    "event-bus",
     "executor-attention",
     "harness-adapters",
     "identity",
@@ -31,8 +32,11 @@
     "config": [
       "voice"
     ],
-    "env": [],
+    "env": [
+      "GEMINI_API_KEY"
+    ],
     "state": [
+      "file: <conversation_state_dir>/voice/*.json",
       "voice_conversation_state_dir"
     ],
     "capabilities": [
@@ -41,18 +45,24 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Supports voice conversations with a worker agent or the Executor.",
+  "summary": "Supports voice conversations and bounded side-by-side provider evaluations with persisted ratings.",
   "status": "optional",
   "install": {
     "type": "included"
   },
   "docs": [
-    "apis/elevenlabs.md"
+    "apis/anthropic.md",
+    "apis/elevenlabs.md",
+    "apis/gemini.md",
+    "apis/openai.md",
+    "reference/configuration-voice.md"
   ],
   "config": [
     "voice"
   ],
-  "env": [],
+  "env": [
+    "GEMINI_API_KEY"
+  ],
   "capabilities": [
     "voice.conversation"
   ],

@@ -1,7 +1,8 @@
+import './support/voice-cancel-cases.mjs'
 import './support/voice-input-state-cases.mjs'
 import { test, expect } from '@playwright/test'
 
-async function openVoice(page) {
+async function openVoice(page, query = '') {
   await page.addInitScript(() => {
     window.__micRequests = 0
     window.__trackStops = 0
@@ -33,7 +34,7 @@ async function openVoice(page) {
   })
   await page.goto('/auth/writable')
   await page.goto('/streamdeck-control/writable')
-  await page.goto('/voice-input-fixture')
+  await page.goto(`/voice-input-fixture${query}`)
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
@@ -65,6 +66,11 @@ test('VoiceInput dictates into a standalone form and waits for Send', async ({ p
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
   await form.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'hello browser')
+  await expect(form.locator('[data-voice-delivery]')).toHaveText('Delivered to the agent')
+  await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'sent')
+  await patch(page, 1)
+  await expect(form.locator('[data-voice-delivery]')).toHaveText('Delivered to the agent')
+  await expect(form.locator('[data-voice-root]')).toHaveAttribute('data-voice-state', 'sent')
 })
 
 test('VoiceInput never requests the microphone before a click or without a textarea', async ({ page }) => {

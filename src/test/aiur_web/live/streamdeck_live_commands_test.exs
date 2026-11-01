@@ -139,14 +139,13 @@ defmodule AiurWeb.StreamdeckLiveCommandsTest do
     html = render_hook(view, "command-press", %{"command" => "settings"})
 
     assert html =~ ~s(data-mode-view="settings")
-    # Microphone enumeration happens on the machine running the sidecar, so the
-    # pane says so and offers nothing to pick. A device list invented in the
-    # browser could not be true.
-    assert html =~ "machine running the sidecar"
+    assert :sys.get_state(view.pid).socket.assigns.grid.settings_snapshot.devices == nil
+    assert html =~ "Mic · Unavailable"
+    assert html =~ "Brightness"
     refute html =~ ~s(<select)
 
     # Back returns to the command keys rather than falling through to the grid.
-    html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+    html = render_hook(view, "dial-long-press", %{"index" => "3"})
     assert html =~ ~s(data-mode-view="cmd")
   end
 

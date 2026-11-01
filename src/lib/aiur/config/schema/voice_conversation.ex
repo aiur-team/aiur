@@ -3,6 +3,10 @@ defmodule Aiur.Config.Schema.VoiceConversation do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @external_resource Path.relative_to(Path.join(__DIR__, "voice_conversation_providers.ex"), File.cwd!(), force: true)
+  alias Aiur.Config.Schema.VoiceConversationProviders
+  require VoiceConversationProviders
+
   @type t :: %__MODULE__{}
 
   @fields [
@@ -20,6 +24,7 @@ defmodule Aiur.Config.Schema.VoiceConversation do
 
   @primary_key false
   embedded_schema do
+    embeds_one(:providers, VoiceConversationProviders, on_replace: :update, defaults_to_struct: true)
     # @config-reference config-configuration-voice-00 voice.conversation.provider
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail voice.conversation.provider | string | elevenlabs_agents | Conversation provider: `elevenlabs_agents` or `openai_realtime`. OpenAI requires `llm` and the daemon's `OPENAI_API_KEY`; no Agent id. |
@@ -44,7 +49,7 @@ defmodule Aiur.Config.Schema.VoiceConversation do
     field(:cloud_disclosure_accepted, :boolean)
     # @config-reference config-configuration-voice-00 voice.conversation.roles_dir
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail voice.conversation.roles_dir | string or nil | nil | Directory of role pre-context files. A relative path resolves against the config file's directory, like `prompt_file`. |
+    # @config-detail voice.conversation.roles_dir | string or nil | nil | Directory of Markdown role files overriding shipped roles by id. Relative paths resolve against the config directory. |
     field(:roles_dir, :string)
     # @config-reference config-configuration-voice-00 voice.conversation.max_session_seconds
     # @config-detail voice.conversation.max_session_seconds | integer | 1800 | Longest one voice session may run, 60 to 3600 seconds. |
@@ -67,6 +72,8 @@ defmodule Aiur.Config.Schema.VoiceConversation do
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, @fields, empty_values: [])
+    |> cast_embed(:providers)
+    |> validate_required([:providers])
     |> validate_not_blank(:voice_id)
     |> validate_not_blank(:agent_id)
     |> validate_not_blank(:llm)

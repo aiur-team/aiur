@@ -1,6 +1,13 @@
+import type { DeckDevices, DeckSettings } from "./deck-settings.js";
 import type { DeckFrame } from "./frame.js";
 import type { RawInput } from "./frame-input.js";
-import type { BuildProgressInput } from "./touchStrip/summarySegment.js";
+interface BuildProgressInput {
+  readonly completed?: number | null;
+  readonly percent?: number | null;
+  readonly eta_seconds?: number | null;
+  readonly total?: number;
+  readonly etaSeconds?: number | null;
+}
 
 /** Wire types of the `streamdeck:fleet` channel contract; re-exported from `channel.ts`. */
 
@@ -37,6 +44,16 @@ export interface StreamDeckSnapshot {
 }
 
 /** Build ticket projection; unknown evidence remains null. */
+/** Allowlisted entry from the shared desktop conversation source. */
+export interface StreamDeckChat {
+  readonly v: 1;
+  readonly kind: "chat";
+  readonly id: string;
+  readonly state: "live" | "ended" | "known_empty" | "stale" | "unavailable" | "restart_unknown" | "not_retained";
+  readonly observed_at: number | null;
+  readonly latest: { readonly id: string; readonly at: number | null; readonly k: "say" | "op" | "sys" | "tool"; readonly text?: string; readonly name?: string; readonly arg?: string; readonly res?: string; readonly bad?: boolean } | null;
+}
+
 export interface StreamDeckTicket {
   readonly v: 1;
   readonly kind: "ticket";
@@ -74,90 +91,12 @@ export interface StreamDeckGrid {
   readonly max_column_offset: number;
 }
 
-/**
- * One row of the flattened transcript, in the daemon's shape.
- *
- * `StreamdeckLogs.flatten/1` emits three of these — an `event_header` followed
- * by that event's `diff` and `message` entries, newest event first. Only
- * `message` carries a body, so collapsing every row to one display string
- * printed the literal "[INFO]" for each diff (whose text is its path and its
- * +/- counts) and discarded the badge that marks where an event begins. The
- * headers are also the jump targets for the log keys, so they have to survive
- * the trip to the renderer.
- */
-/** One line of a unified diff, as the feed carries it. */
-export interface DiffLine {
-  /** `+` added, `-` removed, ` ` context. */
-  readonly sign: "+" | "-" | " ";
-  readonly text: string;
-}
-
-export type TranscriptRow =
-  | {
-      readonly kind: "event_header";
-      /** Direction badge: EMIT, CONSUME, INFO, AGENT or SYSTEM. */
-      readonly badge: string;
-      readonly body: string;
-      /** Human topic name — "PR merged", "Progress check-in", "Ticket opened". */
-      readonly label: string;
-      /** ISO instant the event was published; null when the feed omits one. */
-      readonly timestamp: string | null;
-    }
-  | {
-      readonly kind: "diff";
-      readonly path: string;
-      readonly additions: number;
-      readonly deletions: number;
-      /** First changed line of the hunk; null for a summary-only diff. */
-      readonly line: string | null;
-    }
-  | {
-      /**
-       * One line of the hunk above it.
-       *
-       * The feed unrolls a diff into a header row followed by one of these per
-       * line, rather than packing the hunk into a single row. The client
-       * addresses transcript rows by index — to scroll, and to jump the log
-       * keys — so a row that painted three lines would move the readout three
-       * rows for one detent.
-       */
-      readonly kind: "diff_line";
-      readonly sign: "+" | "-" | " ";
-      readonly text: string;
-    }
-  | {
-      readonly kind: "message";
-      readonly role: string;
-      readonly body: string;
-      /** Tool name for a `tool` role, when the provider named one. */
-      readonly tool: string | null;
-      /**
-       * Colour class for the row, mirroring the server's `StreamdeckLogs.row_kind/1`
-       * so the physical deck and the emulator agree. Absent for a row that did
-       * not carry one (a live push, a legacy DTO); the renderer derives it from
-       * `role`.
-       */
-      readonly rowKind?: ChatKind;
-      /** opencode-style gutter glyph (`$`, `→`, `←`, `⚙`); absent for prose. */
-      readonly glyph?: string | null;
-    };
-
-/**
- * The three visually-distinct row classes plus the rare user turn. Commands
- * and tool rows share the command colour; agent prose is its own class; system
- * context rows (event headers, diffs, logs) are the third. Mirrors the server's
- * `StreamdeckLogs.row_kind/1` so the physical deck matches the emulator.
- */
-export type ChatKind = "command" | "agent" | "logs" | "user";
-
-export interface StreamDeckLogs {
-  readonly event_keys?: readonly Record<string, unknown>[];
-  readonly event_keys_visible?: readonly Record<string, unknown>[];
-  readonly transcript?: readonly Record<string, unknown>[];
-  readonly events_offset?: number;
-  readonly events_max_offset?: number;
-  readonly transcript_offset?: number;
-  readonly transcript_max_offset?: number;
+/** One live transcript message from the daemon. */
+export interface TranscriptRow {
+  readonly kind: "message";
+  readonly role: string;
+  readonly body: string;
+  readonly tool: string | null;
 }
 
 /**
@@ -237,14 +176,16 @@ export type StreamDeckCommandAnswerError =
   | { readonly reason: "stale" };
 
 export interface StreamDeckChannelEvents {
+  alert?(payload: Readonly<Record<string, unknown>>): void;
+  settings?(settings: DeckSettings): void;
   frame?(frame: DeckFrame): void;
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
+  chat?(chat: StreamDeckChat): void;
   ticket?(ticket: StreamDeckTicket): void;
   usage(usage: Readonly<Record<string, unknown>>): void;
   transcript(row: TranscriptRow): void;
-  logs(logs: StreamDeckLogs): void;
   control(payload: Readonly<Record<string, unknown>>): void;
   /**
    * The reply to a {@link StreamDeckChannel.voiceStart}. Exactly one of the two
@@ -297,6 +238,9 @@ export interface StreamDeckChannelOptions {
 }
 
 export interface StreamDeckChannel {
+  voiceStatus(text: string): void;
+  devices(devices: DeckDevices): void;
+  settingsSet(patch: Partial<DeckSettings>): void;
   input(input: RawInput): void;
   priority(identifier: string, direction: "up" | "down"): void;
   focus(identifier: string): void;

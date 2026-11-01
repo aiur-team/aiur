@@ -5,7 +5,7 @@
     {"argv": ["usage"], "expression": "Aiur.Usage.CLI.rpc(nil, false)"},
     {"argv": ["agents"], "expression": "Aiur.AgentControlCLI.agents()"},
     {"argv": ["accounts"], "expression": "Aiur.Usage.CLI.legacy_accounts(false, nil)"},
-    {"argv": ["commands"], "expression": "Aiur.AgentControlCLI.commands([filter: :all])"},
+    {"argv": ["commands"], "expression": "Aiur.AgentControlCLI.commands([filter: :open])"},
     {"argv": ["units"], "expression": "Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"},
     {"argv": ["queue", "show"], "expression": "Aiur.AgentControlCLI.queue([])"},
     {"argv": ["queue", "order"], "expression": "Aiur.AgentControlCLI.queue([verb: :order, caller_agent_workspace: Base.decode64!(\"\")])"},
@@ -29,7 +29,7 @@
     {"argv": ["watch", "--full"], "expression": "Aiur.AgentControlCLI.watch(mode: :full)"},
     {"argv": ["executor-subscriptions"], "expression": "Aiur.AgentControlCLI.executor_subscriptions()"},
     {"argv": ["executor-roster"], "expression": "Aiur.AgentControlCLI.executor_roster(json: false)"},
-    {"argv": ["executor-session"], "expression": "Aiur.HarnessSessionCLI.rpc(json: false)"},
+    {"argv": ["executor-session"], "expression": "Aiur.AgentControlCLI.executor_session(json: false)"},
     {"argv": ["message", "--status", "1"], "expression": "Aiur.AgentControlCLI.message_status(1)"}
   ],
   "remote_write_commands": [

@@ -1,21 +1,5 @@
 defmodule AiurWeb.StreamdeckLive do
-  @moduledoc """
-  Browser emulator for the Stream Deck control surface.
-
-  The view renders the same orchestrator snapshot projection used by the
-  Stream Deck API and subscribes to the fleet topics so browser state follows
-  the dashboard. Key presses use the existing AgentChat control facade; the
-  orchestrator remains the authority for the resulting pause/resume state.
-
-  Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`
-  and projects the durable classified feed (`AgentEventFeed`) through
-  `StreamdeckLogs`. That projection is one newest-first document read at two
-  granularities: the eight keys are the event index (LIVE first, then a
-  scrolling window of event rows) and the touch strip is the transcript text at
-  the selected event's offset. Selecting a key positions the strip; scrolling
-  the strip reselects the event under the cursor. The production path reads the
-  real feed; `streamdeck_logs_fun` exists only as a test seam.
-  """
+  @moduledoc "Browser emulator over shared deck frames, settings and owner-process conversation tails."
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
@@ -24,12 +8,10 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Modes
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
-  alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.Streamdeck.FrameUpdates
-  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Surface}
+  alias AiurWeb.Streamdeck.Deck.{Chat, Nav}
+  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Settings, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLive.TicketActions
-  alias AiurWeb.StreamdeckLogs
 
   alias AiurWeb.OperatorControlCenter.{
     AwaitingCommands,
@@ -38,10 +20,6 @@ defmodule AiurWeb.StreamdeckLive do
     Overview,
     RouteRegistry
   }
-
-  @relative_time_refresh_ms 1_000
-  @durable_feed_retry_attempts 2
-  @durable_feed_retry_ms 50
 
   @control_commands ~w(pause)
 
@@ -60,6 +38,7 @@ defmodule AiurWeb.StreamdeckLive do
   def mount(_params, _session, socket) do
     socket =
       socket
+      |> Chat.init()
       |> DashboardShell.mount()
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
@@ -82,7 +61,6 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:commands_cursor, nil)
       |> assign(:commands_page_index, 0)
       |> assign(:commands_error, nil)
-      |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
       |> assign(:install_modal?, false)
       |> assign(:streamdeck_package, streamdeck_package())
@@ -92,7 +70,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:os, detect_os(user_agent(socket)))
       |> refresh_grid()
 
-    socket = assign(socket, :logs, load_logs(socket.assigns.selected_identifier))
+    socket = Settings.mount(socket, connected?(socket))
 
     socket =
       if connected?(socket) do
@@ -103,7 +81,6 @@ defmodule AiurWeb.StreamdeckLive do
 
         socket
         |> replace_transcript_relay(nil, socket.assigns.selected_identifier)
-        |> schedule_relative_time_refresh()
       else
         socket
       end
@@ -135,7 +112,7 @@ defmodule AiurWeb.StreamdeckLive do
     page = parse_integer(page, socket.assigns.grid_page)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
-    socket = focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
+    socket = focus_agent(socket, previous_identifier, socket.assigns.selected_identifier)
     {:noreply, socket}
   end
 
@@ -144,7 +121,7 @@ defmodule AiurWeb.StreamdeckLive do
     value = parse_integer(value, socket.assigns.grid_dial_value)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_dial(socket, value)
-    socket = focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
+    socket = focus_agent(socket, previous_identifier, socket.assigns.selected_identifier)
     {:noreply, socket}
   end
 
@@ -153,23 +130,8 @@ defmodule AiurWeb.StreamdeckLive do
     page = rem(socket.assigns.grid_page + 1, max(socket.assigns.grid.windows, 1))
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
-    socket = focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
+    socket = focus_agent(socket, previous_identifier, socket.assigns.selected_identifier)
     {:noreply, socket}
-  end
-
-  def handle_event("logs-scroll", %{"axis" => axis, "delta" => delta}, socket)
-      when axis in ["events", "transcript"] do
-    {:noreply,
-     socket
-     |> Navigation.route("logs-scroll", %{"axis" => axis, "delta" => delta})
-     |> update_logs(axis, parse_integer(delta, 0))}
-  end
-
-  def handle_event("log-key-select", %{"index" => index}, socket) do
-    {:noreply,
-     socket
-     |> assign(:logs, StreamdeckLogs.select_event(socket.assigns.logs, parse_integer(index, 0)))
-     |> refresh_knobs()}
   end
 
   def handle_event("key-press", params, socket) do
@@ -183,9 +145,6 @@ defmodule AiurWeb.StreamdeckLive do
       {:noreply, socket}
     end
   end
-
-  def handle_event("command-press", %{"command" => "logs"}, socket),
-    do: {:noreply, enter_logs(socket)}
 
   def handle_event("command-press", %{"command" => command}, socket) when command in ["priority_up", "priority_down"] do
     {:noreply, TicketActions.priority(socket, command)}
@@ -208,19 +167,22 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", _params, socket), do: {:noreply, socket}
 
+  def handle_event(event, params, %{assigns: %{deck_nav: %{surface: :settings}}} = socket)
+      when event in ["dial-press", "dial-long-press", "dial-turn"],
+      do: Settings.event(event, params, socket)
+
+  def handle_event("dial-long-press", params, socket), do: Settings.event("dial-long-press", params, socket)
+
   def handle_event("dial-press", %{"action" => "back"} = params, socket),
     do: {:noreply, socket |> Navigation.route("dial-press", params) |> back()}
 
-  # Dial D (cycle-window) is the focused window's paging knob: in logs it opens
-  # the log surface, and on the Commands page it pages the history window
-  # forward (or, on the detail view, cycles the option window) — the same
-  # deliberate-reading direction as the physical deck.
+  # Dial D pages the Commands history or cycles the option window.
   def handle_event("dial-press", %{"action" => "cycle-window"} = params, socket) do
     socket = Navigation.route(socket, "dial-press", params)
 
     case socket.assigns.sd_mode do
       :commands -> {:noreply, page_commands(socket)}
-      _ -> {:noreply, enter_logs(socket)}
+      _ -> {:noreply, socket}
     end
   end
 
@@ -257,6 +219,11 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_info({:streamdeck_settings_changed, path}, socket) do
+    if socket.assigns.deck_settings_path == path, do: {:noreply, Settings.refresh(socket)}, else: {:noreply, socket}
+  end
+
+  @impl true
   def handle_info({event, _fact}, socket)
       when event in [:build_queue_changed, :build_progress_changed, :build_changes],
       do: {:noreply, refresh_grid(socket)}
@@ -275,66 +242,25 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, refresh_meters(socket)}
   end
 
-  def handle_info({:streamdeck_transcript, identifier, _event}, socket)
-      when is_binary(identifier) do
-    if socket.assigns.selected_identifier == identifier do
-      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_info({:streamdeck_alert, identifier, _event}, socket) when is_binary(identifier) do
-    if socket.assigns.selected_identifier == identifier do
-      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_info({:streamdeck_control, identifier, _payload}, socket)
-      when is_binary(identifier) do
-    if socket.assigns.selected_identifier == identifier do
-      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_info({:refresh_streamdeck_durable_feed, identifier, attempts}, socket)
-      when is_binary(identifier) and is_integer(attempts) do
-    if socket.assigns.selected_identifier == identifier do
-      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier, attempts)}
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_info({:decision_changed, _decision_id, _version}, socket),
     do: {:noreply, AwaitingCommands.refresh(socket)}
 
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
-
-  def handle_info(:refresh_streamdeck_relative_times, socket) do
-    socket =
-      if socket.assigns.sd_mode == :logs do
-        assign(socket, :logs, StreamdeckLogs.refresh_relative_times(socket.assigns.logs))
-      else
-        socket
-      end
-
-    {:noreply, schedule_relative_time_refresh(socket)}
-  end
 
   # The awaiting-Commands banner subscribes this view to the Command topic, and
   # that topic carries more than the one message the banner reads —
   # `:decision_metrics_changed` rides the same channel. Without this clause an
   # unrelated Command action anywhere in the fleet takes down the Stream Deck,
   # which is a control surface the operator runs the fleet from.
+  def handle_info({:deck_chat_tick, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_changed, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_restarted, _, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def terminate(_reason, socket) do
+    Chat.clear(socket)
     # The transcript relay is `start_link`ed to this LiveView, so a normal exit
     # does not kill it through the link alone. Stop it explicitly so focus
     # changes across repeated visits do not leak one subscribed relay per visit.
@@ -372,8 +298,8 @@ defmodule AiurWeb.StreamdeckLive do
           <p id="sd-instance" class="streamdeck-status">Instance: {@streamdeck_instance}</p>
 
           <ImageComponents.keys frame={@frame} model={@frame_model} grid={@grid} page={@frame_page} dial_value={@frame_dial_value}
-            selected_identifier={@selected_identifier} mode={@sd_mode} logs={@logs} commands_view={@commands_view} />
-          <ImageComponents.strip regions={@frame.strip} data-transcript-offset={@logs.transcript_offset} data-transcript-max-offset={@logs.transcript_max_offset} data-mode-view={"#{@sd_mode}-strip"} />
+            selected_identifier={@selected_identifier} mode={@sd_mode} commands_view={@commands_view} />
+          <ImageComponents.strip regions={@frame.strip} data-mode-view={"#{@sd_mode}-strip"} />
 
           <Components.knobs knobs={@knobs} />
         </div>
@@ -387,47 +313,10 @@ defmodule AiurWeb.StreamdeckLive do
   @doc false
   @spec reduce_input(map(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
-  def reduce_input(raw, socket) do
-    case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
-      {:ok, nav, effects} ->
-        socket = assign(socket, deck_nav: nav, deck_effects: effects)
-
-        {:noreply,
-         assign_grid(
-           socket,
-           socket.assigns.grid,
-           0,
-           socket.assigns.usage,
-           Nav.page(nav)
-         )}
-
-      _unchanged ->
-        {:noreply, socket}
-    end
-  end
+  def reduce_input(raw, socket), do: Input.reduce(raw, socket)
 
   defp control_feedback(nil), do: ""
   defp control_feedback(feedback), do: feedback
-
-  defp schedule_relative_time_refresh(socket) do
-    Process.send_after(self(), :refresh_streamdeck_relative_times, @relative_time_refresh_ms)
-    socket
-  end
-
-  defp schedule_durable_feed_refresh(socket, identifier, attempts \\ @durable_feed_retry_attempts)
-
-  defp schedule_durable_feed_refresh(socket, identifier, attempts)
-       when is_binary(identifier) and is_integer(attempts) and attempts > 0 do
-    Process.send_after(
-      self(),
-      {:refresh_streamdeck_durable_feed, identifier, attempts - 1},
-      @durable_feed_retry_ms
-    )
-
-    socket
-  end
-
-  defp schedule_durable_feed_refresh(socket, _identifier, _attempts), do: socket
 
   defp maybe_subscribe_fixture_fleet do
     if endpoint_config(:streamdeck_fixture_fleet) do

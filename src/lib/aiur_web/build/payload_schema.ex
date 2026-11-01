@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.PayloadSchema do
   @moduledoc false
   alias AiurWeb.Build.ConversationPayload
-  # Cohesive schema definitions: required keys are literal; only epic flags are optional.
+  # Cohesive schema definitions: required keys are literal; epic flags and account reset arrays are optional.
   @spec row() :: map()
   def row do
     %{
@@ -32,13 +32,16 @@ defmodule AiurWeb.Build.PayloadSchema do
               "name" => nullable({:short_string, 64}),
               "state" =>
                 nullable(
-                  enum(~w(active error retrying retries command paused parked usage_limited ci_wait merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off))
+                  enum(
+                    ~w(native_question active error retrying retries command paused parked usage_limited ci_wait merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off)
+                  )
                 ),
+              "native_hold" => nullable(object(%{"decision_id" => :string, "since" => nullable(:integer)})),
               "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
               "resume_at" => nullable(:integer),
               "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
             },
-            ~w(pause resume_at)
+            ~w(native_hold pause resume_at)
           )
         ),
       "est" => nullable(:number),
@@ -137,7 +140,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   end
 
   @spec message(String.t()) :: map() | nil
-  def message("snapshot"), do: Map.merge(envelope(), Map.put(blocks(), "sections", object(Map.new(~w(hist now plan nq), &{&1, list(:row)}))))
+  def message("snapshot"), do: Map.merge(envelope(), Map.put(blocks(), "sections", object(Map.new(~w(hist now plan nq), &{&1, list(:row)})))) |> Map.put("unavailable_rows", :nonnegative)
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
 
@@ -207,11 +210,11 @@ defmodule AiurWeb.Build.PayloadSchema do
       "hue" => nullable(:number),
       "tag" => nullable(:string),
       "accounts" => nullable(list(:string)),
-      "session" => nullable(object(window())),
-      "weekly" => nullable(object(window())),
+      "session" => nullable(object(window(), ["resets"])),
+      "weekly" => nullable(object(window(), ["resets"])),
       "credits" => nullable(object(%{"pct" => nullable({:range, 0, 100}), "left" => :string, "tip" => list({:pair, :string})})),
       "none" => :boolean,
-      "lines" => nullable(list(object(line()))),
+      "lines" => nullable(list(object(line(), ["resets"]))),
       "icon" => nullable(enum(~w(github bars))),
       "stale" => :boolean,
       "observed_at" => nullable(:integer),
@@ -220,7 +223,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
   end
 
-  defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "reset_at" => nullable(:integer), "win" => nullable(:string)}
+  defp window, do: %{"acc" => list(nullable({:range, 0, 100})), "resets" => list(nullable(:integer)), "reset_at" => nullable(:integer), "win" => nullable(:string)}
   defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
   defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier ticket)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 

@@ -206,13 +206,14 @@ show complexity, section status and queue cues. Unknown progress, points and
 estimates read `—`; unknown progress has no progress bar. Closed tickets
 distinguish merged, failed, not planned and other closed outcomes.
 
-Open a card, or a `/?ticket=<number>` link, to read the ticket's conversation.
-The modal starts with the newest entries; scroll to the top to load earlier
-ones. A missing past transcript reads “Conversation not retained”, and an
-unknown ticket reads “Ticket not found”.
+Open a card or `/?ticket=<number>` link to read its conversation, newest first;
+scroll up for earlier entries. Masked journal entries survive restarts and
+workspace removal, falling back to workspace logs only without a journal.
+Missing history reads “Conversation not retained”; unknown tickets read
+“Ticket not found”.
 
-Remote workers show only their retained live window; stale or unavailable live
-state is labeled separately from the transcript.
+Without a journal, remote workers show only their retained live window; stale
+or unavailable live state is labeled separately from the transcript.
 
 On a writable dashboard, a Not queued ticket's modal offers **Add to queue**.
 In a running ticket's modal, use **Pause agent** or **Resume agent** with writable
@@ -285,12 +286,12 @@ when the socket is open. It reads “Reconnecting…” while pending and return
 **Reconnect** after ten seconds if the page is still degraded. This control also
 works with read-only access.
 
-## What stays on the Units page
+## Retired Units board
 
-The Units page is the hidden rollback route `/units`, retained for one release.
-Orchestration turns, context occupancy, cumulative token usage, the Tickets
-panel and its routing preview stay there and in `aiur units`; see
-[Units](/concepts/units).
+The legacy `/units` URL redirects permanently to `/` with its query string.
+Use `aiur units` for fleet inspection, `aiur set max-agents <n>` for capacity,
+and `aiur --todo <ticket-id>` to queue work. The Units-only GUI controls and
+run-summary strip have been retired.
 
 ## Adding work
 
@@ -336,3 +337,11 @@ When packs cannot be read, **Planning packs unavailable** names the affected pac
 and shows when they were checked; readable packs and queued tickets remain visible.
 Pack writes refresh on the next index flush, including its ten-second daemon tick.
 Between issue creation and rewriting the pack, both rows may briefly appear.
+
+## Unconfirmed classifications
+
+A classification with `confirmed: false` is an unaccepted backfill-agent guess. The board and ticket modal do not mark these guesses. Other sources are confirmed when written, which does not imply human review.
+
+Use the [CLI review procedure](../reference/build-history-commands#review-unconfirmed-classifications) to find guesses, confirm selected IDs, or reject them with epic clear/feature remove.
+
+Confirmation preserves the stored epic, feature, feature epic and join time, while recording who accepted the guess. A confirmed override outranks type labels and can move a labelled ticket to that epic’s column; feature ownership still takes precedence. Later backfill writes cannot replace an accepted classification.

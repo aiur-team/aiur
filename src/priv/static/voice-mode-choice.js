@@ -47,6 +47,7 @@
     }
 
     click(event) {
+      if (event.target.closest("[data-voice-cancel]")) return this.controller.cancel();
       if (event.target.closest("[data-voice-chooser]")) {
         if (this.controller.recording) return this.controller.stop();
         window.AiurVoiceInputState.availability(this.controller);
@@ -71,6 +72,14 @@
     }
 
     keydown(event) {
+      const c = this.controller;
+      if (event.key === "Escape" && (c.recording || c.finishing) &&
+          (this.root?.contains(event.target) || event.target === c.input)) {
+        event.preventDefault();
+        event.stopPropagation();
+        c.cancel();
+        return;
+      }
       if (!this.trigger || this.menu.hidden) return;
       if (event.key === "Escape") {
         event.preventDefault();

@@ -2,23 +2,47 @@ defmodule Aiur.Commands do
   @moduledoc """
   Public entry point for Commands and Asks.
 
-  The existing Decision services retain persistence, validation and delivery
-  ownership; this facade preserves their arguments and results. All supported
-  arities stay together so the public delegation contract is easy to audit.
+  Decision services retain persistence, validation and delivery ownership.
   """
-
   @spec requester_notified(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate requester_notified(decision_id, action_id, opts \\ []), to: Aiur.Commands.ExecutorDelivery, as: :on_enqueued
 
+  @doc "Accepts an override and resolves routing before entering the serialized store."
+  @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  defdelegate override(id, payload, opts \\ [], server \\ Aiur.DecisionStore), to: Aiur.DecisionStore
+
+  @doc "The active override's effective work ticket, retaining the original Command identity."
+  @spec override_target_ticket(Aiur.Decision.t()) :: map()
+  defdelegate override_target_ticket(decision), to: Aiur.Commands.Overrides, as: :target_ticket
+  @spec prepare_override_prompt(String.t(), keyword()) :: keyword()
+  defdelegate prepare_override_prompt(identifier, opts), to: Aiur.Commands.OverridePrompt, as: :prepare
+  @spec render_pending_overrides(keyword()) :: String.t()
+  defdelegate render_pending_overrides(opts), to: Aiur.Commands.OverridePrompt, as: :render
+  @spec record_override_prompt_receipt(map(), keyword()) :: :ok
+  defdelegate record_override_prompt_receipt(message, opts), to: Aiur.Commands.OverridePrompt, as: :received
+  @spec pending_override(Aiur.Decision.t()) :: map() | nil
+  defdelegate pending_override(decision), to: Aiur.Commands.Overrides, as: :pending
+  @spec pending_resume_override(Aiur.Decision.t()) :: map() | nil
+  defdelegate pending_resume_override(decision), to: Aiur.Commands.Overrides, as: :resume_request
+  @doc "Whether the current override may be dispatched to its effective worker."
+  @spec override_dispatchable?(Aiur.Decision.t()) :: boolean()
+  defdelegate override_dispatchable?(decision), to: Aiur.DecisionStore.Overrides, as: :dispatchable?
+  @spec notify_override_merge(String.t() | integer()) :: :ok
+  defdelegate notify_override_merge(identifier), to: Aiur.DecisionStore.OverrideMerges, as: :notify
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
-
+  @spec override_handoff_candidates(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  defdelegate override_handoff_candidates(identifier, opts \\ []), to: Aiur.DecisionStore
+  @spec record_override_handoff(String.t(), [map()], map(), keyword()) :: :ok | {:error, term()}
+  defdelegate record_override_handoff(identifier, snapshots, receipt, opts \\ []), to: Aiur.DecisionStore
   @spec needs_you?(map()) :: boolean()
   defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
-
   @spec matches_route?(map(), atom() | nil) :: boolean()
   defdelegate matches_route?(decision, route), to: Aiur.Commands.Routing.Policy
-
+  @spec override_rows(map()) :: [map()]
+  defdelegate override_rows(decision), to: Aiur.Commands.OverridePresentation, as: :rows
+  @spec pending_override_status(map()) :: map() | nil
+  defdelegate pending_override_status(decision), to: Aiur.Commands.OverridePresentation, as: :pending
   @spec public_v2(Aiur.Decision.t()) :: map()
   defdelegate public_v2(decision), to: Aiur.Commands.Projection
 
@@ -29,16 +53,12 @@ defmodule Aiur.Commands do
   @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword(), GenServer.server()) ::
           {:ok, map()} | {:error, term()}
   defdelegate agent_lifecycle(type, payload, opts, server), to: Aiur.DecisionStore
-
   @spec all_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate all_asks(repo), to: Aiur.Asks, as: :all
-
   @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate get(decision_id, opts \\ []), to: Aiur.DecisionQuery
-
   @spec answer(String.t(), map()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload), to: Aiur.DecisionStore
-
   @spec answer(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload, opts), to: Aiur.DecisionStore
 
@@ -75,10 +95,8 @@ defmodule Aiur.Commands do
 
   @spec default_attention() :: module()
   defdelegate default_attention(), to: Aiur.Commands.Defaults
-
   @spec default_metrics() :: module()
   defdelegate default_metrics(), to: Aiur.Commands.Defaults
-
   @spec default_store() :: module()
   defdelegate default_store(), to: Aiur.DecisionQuery
 
@@ -181,7 +199,6 @@ defmodule Aiur.Commands do
 
   @spec list_decisions() :: [Aiur.Decision.t()]
   defdelegate list_decisions(), to: Aiur.DecisionStore, as: :list
-
   @spec list_decisions(GenServer.server()) :: [Aiur.Decision.t()]
   defdelegate list_decisions(server), to: Aiur.DecisionStore, as: :list
 
@@ -472,6 +489,9 @@ defmodule Aiur.Commands do
   @spec validate_delivery(map(), GenServer.server()) ::
           {:ok, :accepted | :ignored} | {:error, term()}
   defdelegate validate_delivery(item, server), to: Aiur.DecisionStore
+  @doc "Find or create a parked successor for uncontinuable work."
+  @spec override_successor(Aiur.Decision.t(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_successor(decision, record, pr, opts), to: Aiur.Commands.CorrectiveTicket, as: :successor
   @spec capability_ids() :: [String.t()]
   defdelegate capability_ids(), to: Aiur.DecisionStore.CapabilityProvider
 

@@ -82,6 +82,10 @@ defmodule Aiur.GitHub.Tracker do
   def ticket_pull_request(issue_id), do: TicketPullRequest.read(issue_id)
 
   @impl Aiur.Tracker.IssueTracker
+  @spec resolve_ticket_pull_request(String.t(), keyword()) :: Aiur.Tracker.ticket_pull_request_result()
+  defdelegate resolve_ticket_pull_request(issue_id, opts), to: Aiur.GitHub.ClosedTicketPullRequest, as: :read
+
+  @impl Aiur.Tracker.IssueTracker
   @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
   def issue_closure(issue_id, max_age_ms) do
     with {:ok, body, _source} <- client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: "build_queue_observe") do
@@ -408,4 +412,13 @@ defmodule Aiur.GitHub.Tracker do
   defp client_module do
     Application.get_env(:aiur, :github_client_module, Client)
   end
+
+  @spec override_merge_head(map()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_merge_head(pr), to: Aiur.GitHub.OverrideMergeEvidence, as: :read
+
+  @spec override_pull_request(pos_integer()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_pull_request(number), to: Aiur.GitHub.OverrideRecovery, as: :pull_request
+
+  @spec close_superseded_pull_request(pos_integer(), String.t()) :: :ok | {:error, term()}
+  defdelegate close_superseded_pull_request(number, successor), to: Aiur.GitHub.OverrideRecovery, as: :close
 end

@@ -70,7 +70,7 @@ defmodule Aiur.Events.Catalog.PlannedEntries do
       attribution: :payload_actor,
       class: :live,
       export?: true,
-      attrs: [requested: {:enum, ~w(steer sync async)}, effective: {:enum, ~w(steer sync async)}, effective_reason: {:enum, @listener_reasons}, version: :integer],
+      attrs: [requested: {:enum, ~w(steer sync async mute)}, effective: {:enum, ~w(steer sync async mute)}, effective_reason: {:enum, @listener_reasons}, version: :integer],
       reserved: false,
       owner: "orchestration"
     }

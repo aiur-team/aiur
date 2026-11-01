@@ -18,12 +18,19 @@ defmodule Aiur.AgentRunner.CiWaitTransition do
     if Aiur.CodeHost.available?() do
       case coordination.ci_wait_pr_fetcher.(issue_id) do
         {:ok, %{"draft" => true, "number" => number}} -> {:error, {:draft_pr_cannot_enter_state, state_name, number}}
-        {:ok, _pr_or_missing} -> :ok
+        {:ok, pr_or_missing} -> receipt(coordination, pr_or_missing)
         {:error, _reason} -> :ok
         _other -> :ok
       end
     else
-      :ok
+      receipt(coordination, nil)
+    end
+  end
+
+  defp receipt(coordination, pr) do
+    case Map.get(coordination, :worker_handoff_receipt) do
+      callback when is_function(callback, 1) -> callback.(pr)
+      _ -> :ok
     end
   end
 end

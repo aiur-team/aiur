@@ -110,6 +110,7 @@ defmodule Aiur.ControlCall.Allowlist do
        quote: :non_empty_string,
        relayed_by: :non_empty_string,
        idempotency_key: :non_empty_string,
+       auto_current: :boolean,
        supersede: :boolean
      }},
     {:command_request, 1, :write, [:keyword],
@@ -157,6 +158,10 @@ defmodule Aiur.ControlCall.Allowlist do
        env: :executor_env
      }},
     {:executor_wait, 0, :write, [], %{}},
+    {:executor_check, 1, :deny, [:keyword], %{json: :boolean, repo_root: :non_empty_string}},
+    {:executor_attach, 1, :deny, [:keyword], %{harness: {:enum, ["claude", "codex"]}, takeover?: :boolean, print_config: :boolean, repo_root: :non_empty_string}},
+    {:executor_detach, 1, :deny, [:keyword], %{repo_root: :non_empty_string}},
+    {:executor_session, 1, :read, [:keyword], %{json: :boolean}},
     {:executor_roster, 0, :read, [], %{}},
     {:executor_roster, 1, :read, [:keyword], %{json: :boolean}},
     {:executor_fast_forward, 1, :write, [:positive], %{}},

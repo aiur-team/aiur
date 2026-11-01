@@ -90,7 +90,7 @@ defmodule AiurWeb.Build.Conversation do
     if socket.assigns.conversation_poll_token == token do
       signature = signature(socket.assigns.conversation_ref)
       socket = assign(socket, conversation_timer: nil)
-      socket = if socket.assigns.conversation_drain or signature != socket.assigns.conversation_stat, do: update(socket, false), else: socket
+      socket = if socket.assigns.conversation_ref[:journal_id] != nil or socket.assigns.conversation_drain or signature != socket.assigns.conversation_stat, do: update(socket, false), else: socket
       schedule(socket)
     else
       socket
@@ -110,22 +110,36 @@ defmodule AiurWeb.Build.Conversation do
   defp first(socket, id) do
     with {:ok, row} <- Read.safe_read(fn -> DataSource.call(socket.assigns.build_source, :ticket, [id, Read.source_opts(socket)]) end),
          true <- eligible?(row),
-         :ok <- Payload.validate(Payload.ticket(row, socket.assigns.build_epoch, socket.assigns.build_generation)) do
+         :ok <- Payload.validate(Payload.ticket(public_ticket_row(row), socket.assigns.build_epoch, socket.assigns.build_generation)) do
       socket = clear(socket)
-      ref = %{id: id, identity: row["identity"], running: nil, closed?: row["sec"] == "hist", row: row}
+      ref = %{id: id, identity: row_value(row, :identity), running: row_value(row, :running), closed?: row_value(row, :sec) == "hist", row: row}
 
       case prepare(socket, ref) do
-        {:ok, ref} -> open(socket, ref)
-        {:error, _reason} -> reply_error(socket, :unavailable)
+        {:ok, ref} ->
+          open(socket, ref)
+
+        {:error, reason} ->
+          Logger.warning("build conversation prepare unavailable ticket=#{id} reason=#{inspect(reason)}")
+          reply_error(socket, :unavailable)
       end
     else
-      {:error, :not_found} -> reply_error(socket, :invalid_params)
-      false -> reply_error(socket, :invalid_params)
-      _ -> reply_error(socket, :unavailable)
+      {:error, :not_found} ->
+        reply_error(socket, :invalid_params)
+
+      false ->
+        reply_error(socket, :invalid_params)
+
+      reason ->
+        Logger.warning("build conversation lookup unavailable ticket=#{id} reason=#{inspect(reason)}")
+        reply_error(socket, :unavailable)
     end
   end
 
-  defp eligible?(row), do: is_map(row["agent"]) and row["start"] != nil
+  defp public_ticket_row(row), do: Map.drop(row, [:identity, :running, "identity", "running"])
+
+  defp eligible?(row), do: is_map(row_value(row, :agent)) and row_value(row, :start) != nil
+
+  defp row_value(row, key), do: Map.get(row, key, Map.get(row, Atom.to_string(key)))
 
   defp open(socket, ref) do
     with {:ok, view} <- call(socket, :tail, [ref, nil]),
@@ -136,7 +150,9 @@ defmodule AiurWeb.Build.Conversation do
       socket = socket |> pin(ref, view) |> ConversationEventFeed.subscribe() |> schedule()
       {:reply, message, socket}
     else
-      _ -> reply_error(socket, :unavailable)
+      reason ->
+        Logger.warning("build conversation open unavailable ticket=#{ref.id} reason=#{inspect(reason)}")
+        reply_error(socket, :unavailable)
     end
   end
 
@@ -223,7 +239,7 @@ defmodule AiurWeb.Build.Conversation do
   end
 
   defp changed_ref?(old, ref) do
-    fields = [:handle, :running_unknown?, :reason, :remote?, :workspace]
+    fields = [:journal_id, :handle, :running_unknown?, :reason, :remote?, :workspace]
     Map.take(old, fields) != Map.take(ref, fields) or old[:running] == nil != (ref[:running] == nil)
   end
 
@@ -273,6 +289,8 @@ defmodule AiurWeb.Build.Conversation do
       socket
     end
   end
+
+  defp local?(%{journal_id: id}) when is_binary(id), do: true
 
   defp local?(ref), do: is_binary(ref[:path]) and not is_binary((ref[:running] || %{})[:worker_host])
 

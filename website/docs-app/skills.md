@@ -10,6 +10,8 @@ Shared credentials can live in `~/.aiur/.env` outside Git. Local settings, permi
 
 `aiur-intro` explains one-time home setup and per-repository readiness: GitHub access, base branch, CODEOWNERS or dispatch allowlist, labels and validation. The Executor tells the user what was configured and what still blocks startup or worker publication.
 
+`aiur-run` and `aiur-intro` offer [Executor conversation attachment](/concepts/executor#talk-to-the-executor-from-the-dashboard) as a separate opt-in, explaining transcript retention, paired-device access and detachment first.
+
 Aiur ships Agent Skills under `.claude/skills/`, with shared links for Codex under `.codex/skills/` and Muse under `.agents/skills/` in the source checkout. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
@@ -27,7 +29,7 @@ Muse loads workspace skills and rules only when `agent.backend_configs.muse.trus
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer | The `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and [Message Bus](/concepts/message-bus) events, subscriptions, blockers, and attentions. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer | The `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and [Message Bus](/concepts/message-bus) events, subscriptions, blockers, attentions, and consuming async message reads. |
 | [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | Run, daemon, agent, or workspace failure | Correlated evidence and safe recovery order. |
 | [aiur-experiment](../../.claude/skills/aiur-experiment/SKILL.md) | Experiment analysis ticket or local analyst brief | Blind pre-registration, engine statistics, complete confounder ledger, and validated CLI report submission. Analysis tickets produce no PR and finish after verified submission. |
 | [design-import](../../.claude/skills/design-import/SKILL.md) | Large frontend design import | Disk-first import without overflowing agent context. |
@@ -73,6 +75,10 @@ For a home-page epic, issue workers use `aiur_set_epic` or `aiur_feature`; Execu
 ## Executor skills
 
 These stay with the Executor and are not copied into ticket workspaces.
+
+`aiur-run` emits `executor.progress` whenever it posts its periodic progress
+table, using only `done`, `total`, and optional `blocked` counts. The event
+provides a conversation jump point; a failed emission does not stop the run.
 
 `aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; it must never run the human-only `aiur answer` command, which only a human operator may use from an interactive terminal; `aiur-handoff` records that policy and watcher state.
 
@@ -147,7 +153,7 @@ The complexity routing rules that pick which CE skill to run live in [complexity
 
 ## Daily newsletter snapshots
 
-Run `python3 scripts/newsletter/collect.py` from the repository to capture a
+Run `python3 packages/newsletter/collect.py` from the repository to capture a
 rolling 24-hour window (merges retain 48 hours) beneath the per-repository Aiur
 state directory at `newsletter/snapshots/YYYY-MM-DD.json`. Repeating a UTC date
 atomically replaces that file.
@@ -157,7 +163,10 @@ atomically replaces that file.
 selects the snapshot output directory.
 
 Repeat `--instance <name>` for each
-additional configured daemon to query through `aiur --instance <name>`.
+additional configured daemon to query through `aiur --instance <name>`. This
+selects daemon queries; it does not expose that machine's local telemetry or
+analytics files to the collector, so its allocation sections remain unavailable
+unless those files are reachable in the collector's local state directory.
 
 The collector uses the daemon's labels-only feature rule: `feature:*`,
 `build-lane:*`, or exact `build-order`. Titles can only select non-feature classes.
@@ -169,6 +178,11 @@ incomplete reads unavailable. See [GitHub budgets](/apis/github-budgets).
 Meta summaries read timestamped `meta/*.md` files and Executor action records
 read `executor/*/history.ndjson`.
 
+Snapshots also include `allocation_evidence` blocks for `pc` and `nuc`, with
+turn, intake, and feature-supply sections. Sections include records only when
+the source can prove complete window coverage; missing intake history and
+unreachable machine telemetry remain unavailable rather than zero.
+
 Missing sources remain `null` with reasons;
 stale daemon observations cannot produce current allocation counts. Units are
 deduplicated by repository and issue number across daemons.
@@ -179,7 +193,7 @@ hours remain unavailable until per-ticket active intervals cover the window.
 Running build identity comes from each daemon's release stamp, separately
 from merged changes; a merge alone does not establish deployment or verification.
 
-Newsletter metrics use `scripts/newsletter/metrics.py`'s pure
+Newsletter metrics use `packages/newsletter/metrics.py`'s pure
 `compute(today, yesterday_or_none)` function. The report separates merge outcomes,
 seven-day allocation per PC/NUC machine, program scope changes, lanes, and
 meta/action evidence.
@@ -189,7 +203,7 @@ and trend `unavailable`; merge timestamps alone never prove a change is live.
 
 Ancestry and Executor verification require explicit snapshot evidence, so their
 counts remain unavailable when the collector cannot supply it. The input and
-report contract is in `scripts/newsletter/metrics-contract.md` in the repository.
+report contract is in `packages/newsletter/metrics-contract.md` in the repository.
 
 The allocation headline compares feature turn-hours and distinct tickets worked
 with the 95% target over seven days, separately for PC and NUC. Instant agent
@@ -199,3 +213,58 @@ non-feature intake by source, and observed feature-starved slot-minutes.
 Each machine needs complete evidence for its window; absent or partial capture
 shows `unavailable` for that machine. A 24-hour capture cannot substitute for
 seven days, and current todo labels cannot establish first-dispatch intake.
+
+
+### Build the daily PDF
+
+Run `python3 packages/newsletter/newsletter.py build --repo owner/repo` to
+collect a snapshot, compute metrics and compile the approved dark broadsheet.
+Chromium or Google Chrome is required.
+
+The command writes `report.json`,
+`newsletter.html` and a checked one-page US Letter `newsletter.pdf` under the
+repository state root at `newsletter/<UTC-date>/`.
+
+`--state-dir <dir>` selects
+a different root; repeat `--instance <name>` for additional daemon sources.
+
+Use `--timezone <IANA-zone>` for the operator's printed window end (default:
+local time). `--notes <file>` accepts Markdown paragraphs or editorial JSON with
+`notes`, `blockers[{label,action}]`, `shipped[{icon,label}]` and
+`bottlenecks[{problem,action,result,tone}]`. 
+
+These fields add context without replacing metrics. Missing inputs visibly say `unavailable`.
+
+`preprocess` runs collection plus metrics without Chromium; `compile <report>`
+prints an existing report, with the same notes/timezone options.
+
+Fonts, logo and dark tokens are embedded from `packages/aiur-style`; rendering
+needs no font network access. The page balances unfinished feature lanes across
+both columns and excludes completed lanes.
+
+When present, all blockers, five shipped items and two bottleneck cards are
+retained while optional editorial items are trimmed to fit. Fonts stay readable
+and all data stays in the report.
+
+Overflow or missing Chromium fails
+with a clear error. See `packages/newsletter/README.md` for the notes schema and
+exact trimming order. This package does not send messages or schedule delivery.
+
+
+### Enrich and deliver with the Executor
+
+Invoke `/aiur-newsletter` to preprocess the daily report, add checked Executor
+findings as a notes file, and compile the PDF. The skill checks operator decisions
+in tracker items, open Commands and the latest handoff.
+
+Its `blockers` entries use short `{label, action}` pairs without issue numbers.
+A checked empty list displays
+“Nothing blocked on you today”; missing blocker evidence remains `unavailable`.
+
+The Executor attaches the PDF with Claude's `SendUserFile` and sends a one-line
+Claude app push notification, checking each result. This requires those tools in
+the Executor session; a local PDF alone is not delivery.
+
+A delivery receipt avoids duplicate sends on repeated wakes.
+Ask for a **dry-run** to produce and inspect the
+PDF without sending it or notifying. The skill installs no scheduler or email path.

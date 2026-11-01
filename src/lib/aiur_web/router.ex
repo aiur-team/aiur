@@ -49,6 +49,14 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.ControlTokenAuth)
   end
 
+  pipeline :executor_hook_delivery_auth do
+    plug(AiurWeb.ExecutorHookAuth, delivery: true)
+  end
+
+  pipeline :executor_hook_auth do
+    plug(AiurWeb.ExecutorHookAuth)
+  end
+
   pipeline :supervisor_auth do
     plug(AiurWeb.SupervisorAuth)
   end
@@ -109,6 +117,17 @@ defmodule AiurWeb.Router do
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
 
+  scope "/", AiurWeb do
+    pipe_through(:executor_hook_delivery_auth)
+    post("/api/v1/executor/hook/deliver", ExecutorHookDeliveryController, :create)
+  end
+
+  scope "/", AiurWeb do
+    pipe_through(:executor_hook_auth)
+    post("/api/v1/executor/hook", ExecutorHookController, :create)
+    match(:*, "/api/v1/executor/hook", ExecutorHookController, :method_not_allowed)
+  end
+
   get("/healthz", AiurWeb.PublicHealthController, :live)
   get("/readyz", AiurWeb.PublicHealthController, :live)
 
@@ -133,6 +152,15 @@ defmodule AiurWeb.Router do
   Decisions.reads()
   Decisions.method_catches()
   Control.calls()
+
+  if Mix.env() in [:dev, :test] do
+    scope "/" do
+      pipe_through([:client_token_write, :api_write])
+      post("/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :create)
+      match(:*, "/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :method_not_allowed)
+    end
+  end
+
   DashboardPages.static_assets()
   DashboardPages.pages()
   Experiments.pages()

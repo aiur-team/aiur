@@ -22,7 +22,7 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Displays daemon-rendered SVG frames on a physical Stream Deck and forwards raw input with offline and device recovery.",
+  "summary": "Displays daemon-rendered frames, reports audio devices, applies settings and idle dimming, and forwards physical input.",
   "status": "optional",
   "install": {
     "type": "setup",

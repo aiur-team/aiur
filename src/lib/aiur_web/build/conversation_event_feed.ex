@@ -129,9 +129,9 @@ defmodule AiurWeb.Build.ConversationEventFeed do
   defp build(socket, ref) do
     with {:ok, facts} <- ConversationSource.call(socket.assigns.conversation_source, :events, [ref]) do
       row = ref.row || %{}
-      deps = Map.new(row["deps"] || [], &{&1, dep_row(socket, &1)})
-      current = ConversationEvents.current_facts(row, Map.merge(facts, %{deps: deps, by_you_at: nil}))
+      deps = Map.new(row_value(row, :deps) || [], &{&1, dep_row(socket, &1)})
       {log, unreadable, truncated} = log(facts, ref.id)
+      current = ConversationEvents.current_facts(row, Map.merge(facts, %{deps: deps, by_you_at: nil, logged_events: log}))
       {:ok, %{log: log, deps: current.deps, tail: current.tail, unreadable: unreadable, truncated: truncated, identity: facts[:identity]}}
     end
   end
@@ -156,6 +156,8 @@ defmodule AiurWeb.Build.ConversationEventFeed do
       _ -> nil
     end
   end
+
+  defp row_value(row, key), do: Map.get(row, key, Map.get(row, Atom.to_string(key)))
 
   defp cancel(timer) when is_reference(timer), do: Process.cancel_timer(timer)
   defp cancel(_timer), do: :ok

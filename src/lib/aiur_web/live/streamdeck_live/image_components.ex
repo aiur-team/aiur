@@ -2,6 +2,7 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
   @moduledoc "Browser wrappers for trusted images produced by Streamdeck.Render."
 
   use Phoenix.Component
+  alias Phoenix.LiveView.JS
 
   alias AiurWeb.Streamdeck.Render
 
@@ -37,7 +38,6 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
   attr(:dial_value, :integer, required: true)
   attr(:selected_identifier, :any, default: nil)
   attr(:mode, :atom, required: true)
-  attr(:logs, :map, required: true)
   attr(:commands_view, :atom, required: true)
 
   @spec keys(map()) :: Phoenix.LiveView.Rendered.t()
@@ -48,35 +48,37 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
     ~H"""
     <div id={container_id(@mode)} data-mode-view={@mode} data-focused-identifier={@selected_identifier}>
       <div id={keys_id(@mode)} class="sd-keys" role="group" aria-label={keys_label(@mode)} data-mode-view={@mode}
-        data-grid-total={@mode == :grid && @grid[:tickets_status] != "unavailable" && @grid.total} data-tickets-status={@mode == :grid && @grid[:tickets_status]} data-grid-windows={@mode == :grid && @grid.windows}
+        data-deck-view={@model.nav.view} data-grid-total={@mode == :grid && @grid[:tickets_status] != "unavailable" && @grid.total} data-tickets-status={@mode == :grid && @grid[:tickets_status]} data-grid-windows={@mode == :grid && @grid.windows}
         data-grid-page={@mode == :grid && @page} data-grid-page-count={@mode == :grid && @grid.windows}
         data-grid-column-offset={@mode == :grid && @page * 4} data-grid-dial-value={@mode == :grid && @dial_value}
         data-grid-selected-identifier={@mode == :grid && @selected_identifier} data-commands-view={@mode == :commands && @commands_view}
-        data-offset={@mode == :logs && @logs.events_offset} data-max-offset={@mode == :logs && @logs.events_max_offset}>
+        >
         <.key :for={{{image, face}, index} <- @slots} image={image} index={index} class={key_class(@mode, face)} disabled={value(face, :disabled, false)}
           data-streamdeck-identifier={if @mode == :grid, do: value(face, :identifier), else: if(@mode == :cmd, do: @selected_identifier)}
           data-streamdeck-state={value(face, :bucket)} data-streamdeck-face={value(face, :face, value(face, :bucket))} data-control-action={control_action(value(face, :bucket))}
           data-streamdeck-url={value(face, :url)} data-streamdeck-command={value(face, :command)} data-streamdeck-icon={value(face, :icon)}
           data-command-state={value(face, :state)} data-command-hold={value(face, :hold) && "true"}
           data-command-label={value(face, :title)} data-command-sub={value(face, :sub)}
-          data-log-event-index={value(face, :event_index)} aria-current={if @mode == :logs, do: to_string(value(face, :selected, false))}
+          data-chat-turn={value(face, :chat_turn)} data-chat-live={@model.nav.surface == :chat && value(face, :live) && "true"}
+          aria-current={if not is_nil(value(face, :chat_turn)) or value(face, :live), do: to_string(value(face, :selected, false))}
           data-command-key={value(face, :decision_id)} data-command-option={@commands_view == :detail && value(face, :option_index)}
           data-command-selected={value(face, :selected) && "true"}
-          phx-click={not is_nil(value(face, :option_index)) && "command-select"} phx-value-index={value(face, :option_index)} />
+          phx-click={key_click(@mode, face, index)}
+          phx-value-kind={@mode == :settings && "key"} phx-value-action={@mode == :settings && "down"}
+          phx-value-index={if @mode == :settings, do: index, else: value(face, :option_index)} />
       </div>
-      <div :if={@mode == :logs} hidden>
-        <div id="sd-log-events" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
-          <span id="sd-events-hint-up" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
-          <span id="sd-events-hint-down" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
-        </div>
-        <div id="sd-log-transcript" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
-          <span id="sd-transcript-hint-up" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
-          <span id="sd-transcript-hint-down" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
-        </div>
-      </div>
+
     </div>
     """
   end
+
+  defp key_click(:grid, _face, index),
+    do: JS.push("input", value: %{kind: "key", index: index, action: "down"})
+
+  defp key_click(:settings, _face, _index), do: "input"
+
+  defp key_click(_mode, face, _index),
+    do: not is_nil(value(face, :option_index)) && "command-select"
 
   defp value(nil, _key, default), do: default
   defp value(face, key, default), do: Map.get(face, key, default)
@@ -87,12 +89,10 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
   defp container_id(:grid), do: nil
   defp container_id(:cmd), do: nil
   defp container_id(mode), do: "sd-#{mode}-view"
-  defp keys_id(:logs), do: "sd-log-keys"
   defp keys_id(:commands), do: "sd-command-keys"
   defp keys_id(_mode), do: "sd-keys"
   defp keys_label(:grid), do: "Agent keys"
   defp keys_label(:cmd), do: "Available commands"
-  defp keys_label(:logs), do: "Log event keys"
   defp keys_label(:commands), do: "Command keys"
   defp keys_label(:settings), do: "Settings"
 
@@ -100,7 +100,6 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
     [
       if(mode == :grid, do: "sd-agent-key"),
       if(mode == :cmd, do: "sd-cmd-key"),
-      if(mode == :logs, do: "sd-log-key"),
       value(face, :hold, false) && "sd-mic-key",
       value(face, :state) == "live" && "mic-live",
       value(face, :live, false) && "sd-live-key",

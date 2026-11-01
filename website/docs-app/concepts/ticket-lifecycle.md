@@ -1,5 +1,7 @@
 # How a ticket flows
 
+For a visual happy-path timeline, see [Ticket lifecycle timeline](/concepts/lifecycle). This page remains the label and lifecycle reference.
+
 A ticket moves from being filed, to a labelled queue, to an isolated agent run,
 to a draft PR, through CI and review, and finally to a merge that closes the
 issue. This page is the full end-to-end lifecycle: what the operator does at

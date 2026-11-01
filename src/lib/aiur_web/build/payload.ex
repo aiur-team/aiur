@@ -9,7 +9,8 @@ defmodule AiurWeb.Build.Payload do
   epic_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
-  usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
+  usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at),
+  unavailable_rows (optional count of invalid rows omitted from this snapshot).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
   Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
@@ -33,7 +34,8 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
+  | agent.state | native_question, active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
+  | agent.native_hold | optional decision_id and nullable since (milliseconds); nil after release |
   | agent.pause | usage_limit_exhausted, ci_wait, or nil |
   | agent.resume_at | usage limit reset milliseconds or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
@@ -64,7 +66,7 @@ defmodule AiurWeb.Build.Payload do
   Authorized usage requires observed_at (ms or nil), apis and providers. Each
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
-  and boolean none. Windows require nullable 0..100 `acc` values representing
+  and boolean none. Windows optionally include `resets` aligned with account names and `acc`. Windows require nullable 0..100 `acc` values representing
   percent remaining, nullable `reset_at`
   milliseconds and nullable string win. Optional row fields carry lines (tagged
   windows with tip pairs and nullable hold_until), icon, stale, observed_at,
@@ -134,6 +136,10 @@ defmodule AiurWeb.Build.Payload do
   def validate(_message), do: {:error, [{"", :type}]}
 
   @spec scrub(term()) :: term()
+  # Shared presentation metadata stays internal to the index, outside schema v1.
+  def scrub(%{num: _} = row),
+    do: row |> Map.drop([:general_epics, :priority, :lane, :progress_freshness, :dependency_ready]) |> Map.new(fn {key, child} -> {scrub_key(key), scrub(child)} end)
+
   def scrub(value) when is_binary(value), do: String.replace_invalid(value)
   def scrub(value) when is_list(value), do: Enum.map(value, &scrub/1)
   def scrub(value) when is_map(value), do: Map.new(value, fn {key, child} -> {scrub_key(key), scrub(child)} end)

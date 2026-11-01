@@ -1,11 +1,15 @@
 defmodule AiurWeb.BuildLiveConversationTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   alias Aiur.TestSupport.LiveViewAsync
+  alias Aiur.TrackerIdentity
 
   defmodule Source do
+    @behaviour AiurWeb.Build.ConversationSource
+
     def prepare(ref, opts) do
       send(opts[:test_pid], {:prepare, ref.id})
-      entry = %{identifier: ref.id, workspace_path: opts[:workspace]}
+      send(opts[:test_pid], {:identity, ref.identity, ref.running[:tracker_identity]})
+      entry = %{identifier: ref.id, workspace_path: opts[:workspace], tracker_identity: ref.identity}
       generation = Agent.get(opts[:control], &Map.get(&1, :generation, ""))
       {:ok, Map.merge(ref, %{handle: "h:" <> ref.id <> generation, path: Path.join(opts[:workspace], "agent.ndjson"), running: entry, fleet: %{fleet: %{running: [entry]}}})}
     end
@@ -55,6 +59,23 @@ defmodule AiurWeb.BuildLiveConversationTest do
     end
   end
 
+  defmodule TicketSource do
+    alias Aiur.TestSupport.BuildHome.FixtureSource
+
+    defdelegate snapshot(opts), to: FixtureSource
+    defdelegate subscribe(opts), to: FixtureSource
+    defdelegate earlier(before, zone, opts), to: FixtureSource
+
+    def ticket(id, _opts) do
+      identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "example", repository: "aiur", provider_id: "I_issue_#{id}", identifier: id}
+
+      with {:ok, row} <- FixtureSource.ticket(id, dataset: "live") do
+        atom_row = Map.new(row, fn {key, value} -> {String.to_existing_atom(key), value} end)
+        {:ok, Map.merge(atom_row, %{identity: identity, running: %{identifier: id, tracker_identity: identity}})}
+      end
+    end
+  end
+
   setup do
     previous = Application.get_env(:aiur, :build_conversation_source)
     control = start_supervised!({Agent, fn -> %{} end})
@@ -95,6 +116,34 @@ defmodule AiurWeb.BuildLiveConversationTest do
       refute Map.has_key?(assigns.conversation_composer, :messages)
       refute Map.has_key?(assigns.conversation_composer, :path)
     end
+  end
+
+  test "conversation page uses the running identity from the Build ticket row" do
+    previous = Application.get_env(:aiur, :build_data_source)
+    Application.put_env(:aiur, :build_data_source, {TicketSource, []})
+    on_exit(fn -> Application.put_env(:aiur, :build_data_source, previous) end)
+
+    view = view()
+    id = hd(rows())["id"]
+    render_hook(view, "conversation-page", %{id: id})
+    assert_reply(view, %{"kind" => "conversation", "id" => ^id, "state" => "live"})
+    assert_received {:prepare, ^id}
+    assert_received {:identity, %TrackerIdentity{status: :joinable}, %TrackerIdentity{status: :joinable}}
+    assert :sys.get_state(view.pid).socket.assigns.conversation_ref.running.tracker_identity.status == :joinable
+  end
+
+  test "conversation page accepts atom-keyed IndexSource ticket rows" do
+    previous = Application.get_env(:aiur, :build_data_source)
+    Application.put_env(:aiur, :build_data_source, {TicketSource, []})
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_data_source, previous), else: Application.delete_env(:aiur, :build_data_source) end)
+
+    view = view()
+    id = hd(rows())["id"]
+    render_hook(view, "conversation-page", %{id: id})
+
+    assert_reply(view, %{"kind" => "conversation", "id" => ^id, "entries" => [%{"text" => "Ticket " <> ^id}]})
+    assert :sys.get_state(view.pid).socket.assigns.conversation_ref.identity.status == :joinable
+    assert :sys.get_state(view.pid).socket.assigns.conversation_ref.running.tracker_identity.status == :joinable
   end
 
   test "older pages use pinned id and cursor; invalid cursor refused and reset rereads tail" do

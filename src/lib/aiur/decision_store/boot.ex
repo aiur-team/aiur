@@ -3,6 +3,8 @@ defmodule Aiur.DecisionStore.Boot do
 
   require Logger
 
+  alias Aiur.CodeHost
+  alias Aiur.Commands.CorrectiveProvenance
   alias Aiur.Config
   alias Aiur.DecisionAnswerComment
   alias Aiur.DecisionDispatch
@@ -13,9 +15,11 @@ defmodule Aiur.DecisionStore.Boot do
   alias Aiur.DecisionStore
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
+  alias Aiur.DecisionStore.CorrectiveOverrides
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Index
+  alias Aiur.DecisionStore.OverridePushes
   alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
@@ -24,6 +28,7 @@ defmodule Aiur.DecisionStore.Boot do
   alias Aiur.ExecutorEvents
   alias Aiur.Journal
   alias Aiur.Signal
+  alias Aiur.Tracker.DispatchProvenance
 
   @ndjson_filename "decisions.ndjson"
   @projection_filename "decisions.json"
@@ -60,6 +65,11 @@ defmodule Aiur.DecisionStore.Boot do
 
   @spec configure_dispatch(term(), term()) :: term()
   def configure_dispatch(state, opts) do
+    state = CorrectiveOverrides.configure(state, opts)
+    owner = self()
+    DispatchProvenance.register(:corrective_ticket, &CorrectiveProvenance.check(&1, owner))
+    :ok = OverridePushes.subscribe(Keyword.get(opts, :override_push_exchange, Aiur.Events.exchange_server()))
+
     revision_projector =
       Keyword.get(opts, :revision_follow_up_projector, &DecisionRevisionDispatch.project_follow_up/2)
 
@@ -69,6 +79,11 @@ defmodule Aiur.DecisionStore.Boot do
     state =
       Map.merge(state, %{
         file_ops: Keyword.get(opts, :file_ops, :file),
+        override_reconcile_timer: Process.send_after(self(), :reconcile_override_pushes, Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms)),
+        override_pr_reader: Keyword.get(opts, :override_pr_reader, &Aiur.Tracker.ticket_pull_request/1),
+        override_merge_reader: Keyword.get(opts, :override_merge_reader, &CodeHost.override_merge_head/1),
+        override_context_reader: Keyword.get(opts, :override_context_reader, &OverridePushes.context/1),
+        override_pending_pushes: %{},
         follow_up_append_retries: %{},
         held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
@@ -88,6 +103,7 @@ defmodule Aiur.DecisionStore.Boot do
         revision_follow_up_resolver: revision_resolver,
         event_id_reserver: Keyword.get(opts, :event_id_reserver, &Events.reserve_durable_id/0),
         relay_enabled: Keyword.get(opts, :relay_enabled, &Aiur.Config.relay_operator_answers?/0),
+        allow_reversible_human_required_answers: Keyword.get(opts, :allow_reversible_human_required_answers, &Aiur.Config.allow_reversible_human_required_answers?/0),
         relay_notifier: Keyword.get(opts, :relay_notifier, &Aiur.OperatorRelay.notify/2),
         executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
         executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),

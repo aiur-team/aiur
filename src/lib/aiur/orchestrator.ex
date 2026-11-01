@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator do
   use GenServer
 
   alias Aiur.Orchestrator.ListenerModes
-  alias Aiur.Orchestrator.OperatorMessages.HeldReads
+  alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads}
   require Logger
 
   alias Aiur.{Issue, Signal}
@@ -49,6 +49,10 @@ defmodule Aiur.Orchestrator do
   @spec has_live_owner?(String.t()) :: boolean() | :unknown
   def has_live_owner?(identifier),
     do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
+
+  @doc false
+  @spec tracker_identity(String.t()) :: Aiur.TrackerIdentity.t() | nil
+  def tracker_identity(identifier), do: TrackedSet.tracker_identity(identifier)
 
   @impl true
   def terminate(reason, state), do: Lifecycle.terminate(reason, state)
@@ -425,6 +429,7 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_call({:listener_get_mode, id}, _from, state), do: ListenerModes.get_mode(state, id)
+
   def handle_call({:listener_set_mode, id, mode, opts}, _from, state), do: ListenerModes.set_mode(state, id, mode, opts)
   defdelegate handle_call(message, from, state), to: Aiur.Orchestrator.Calls
 
@@ -467,6 +472,9 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
+  def handle_cast({:restore_executor_hook_batch, attempt}, state),
+    do: ExecutorHookClaims.restore_call(state, attempt)
+
   def handle_cast({:mark_sleeping, identifier}, state) when is_binary(identifier) do
     {next, effects} = PushRouting.sleeping_effects(state, identifier)
     {:noreply, TicketTransition.apply_effects(next, effects)}

@@ -23,7 +23,7 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
       command_key("priority_down", "Priority down", "QUEUE", icon: "down", disabled?: actions["priority_down"] != "enabled"),
       command_key("commands", "Commands", "OPEN", icon: "commands"),
       link_key("pr", "Open PR", ticket["links"]["pr"]),
-      link_key("modal", "Dashboard", ticket["links"]["modal"]),
+      link_key("modal", if(get_in(ticket, ["agent", "native_hold"]), do: "Open Command", else: "Dashboard"), ticket["links"]["modal"]),
       mic_command_key(mic_held?, dashboard_writable?()),
       command_key("settings", "Settings", "OPEN", icon: "settings")
     ]
@@ -94,7 +94,7 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
         empty?: false,
         decision_id: command["decision_id"],
         question: command["question"] || "",
-        status: command_status_badge(command["status"]),
+        status: command_status(command),
         answerable?: command["status"] in ["open", "deferred"],
         selected?: index == selected_index,
         index: index
@@ -126,6 +126,8 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
   defp pad_slots(list, count, filler),
     do: list ++ List.duplicate(filler, max(0, count - length(list)))
 
+  defp command_status(command), do: command["override_status"] || command_status_badge(command["status"])
+
   defp command_status_badge(status) when status in ["open", "deferred"], do: "OPEN"
 
   defp command_status_badge(status) when status in ["decided", "acknowledged", "resolved"],
@@ -148,7 +150,7 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
         view: "detail",
         question: command["question"] || "",
         reading: option_reading(command, assigns.commands_option),
-        status: command_status_badge(command["status"]),
+        status: command_status(command),
         answerable?: answerable?,
         selected?: assigns.commands_option != nil,
         more_options?: offset + 4 < length(options),

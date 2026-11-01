@@ -27,8 +27,10 @@
     "commands",
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel",
+    "listener-modes",
     "signal"
   ],
   "optional": [
@@ -56,13 +58,14 @@
     "EXE"
   ],
   "dependency_kind": "optional",
-  "summary": "Collects alerts and pending work so the Executor can keep a run moving.",
+  "summary": "Collects Executor alerts and pending work, and captures the attached Claude session into its durable conversation.",
   "status": "optional",
   "install": {
     "type": "included"
   },
   "docs": [
     "concepts/executor.md",
+    "reference/cli-decisions.md",
     "reference/cli.md"
   ],
   "config": [

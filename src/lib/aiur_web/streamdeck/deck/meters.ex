@@ -1,8 +1,10 @@
 defmodule AiurWeb.Streamdeck.Deck.Meters do
   @moduledoc "Deck usage from the Build page, selecting the account closest to its limit."
+  alias Aiur.Accounts
   alias AiurWeb.Build.Usage
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.Streamdeck.Deck.MeterSource
+  alias AiurWeb.OperatorControlCenter.RedactedMeterSource
+  alias AiurWeb.Streamdeck.Deck.MeterDetail
 
   @doc "Provider-keyed readings, excluding the separate API rows."
   @spec providers(map()) :: map()
@@ -11,7 +13,7 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
-    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, MeterSource))
+    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
     block = Usage.block({:ok, :streamdeck}, inputs, Keyword.get(opts, :now, DateTime.utc_now()))
 
     inputs.families
@@ -29,6 +31,23 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
 
     %{name: row.name, lines: lines, stale: row.stale, observed_at: row.observed_at}
   end
+
+  @spec detail(String.t(), keyword()) :: map()
+  def detail(provider, opts \\ []) do
+    load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
+    inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
+    MeterDetail.from_inputs(provider, detail_accounts(provider, inputs, opts), Keyword.get(opts, :now, DateTime.utc_now()))
+  end
+
+  defp detail_accounts("claude", inputs, opts) do
+    names = Keyword.get_lazy(opts, :account_names, &Accounts.configured_names/0)
+    names = Enum.uniq(names ++ Map.keys(inputs.accounts))
+    names = if names == [], do: ["default"], else: names
+    unknown = %{reading: nil, observed_at: nil, freshness: :unavailable}
+    %{inputs | accounts: Map.new(names, &{&1, Map.get(inputs.accounts, &1, unknown)})}
+  end
+
+  defp detail_accounts(_provider, inputs, _opts), do: inputs
 
   defp meter(family, row, accounts) do
     names = row.accounts || if(family == :claude, do: Enum.sort(Map.keys(accounts)))

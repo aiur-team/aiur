@@ -102,6 +102,24 @@ defmodule Aiur.OperatorRelayAnswerTest do
     assert decoded == DecisionAnswer.content(answer)
   end
 
+  test "canonical command relay fills the current version and creates an idempotency key", %{dir: dir, config: config} do
+    enable(config)
+    store = store(dir)
+    decision = request(store, "reversible")
+
+    assert capture_io(fn ->
+             assert OperatorRelayCLI.answer(
+                      [decision_id: decision.decision_id, option_id: "keep", quote: "keep them", relayed_by: "attended-executor", auto_current: true],
+                      decision_store: store
+                    ) == 0
+           end) =~ "answered by operator, relayed by attended-executor"
+
+    assert {:ok, %{answer: answer}} = DecisionStore.get(decision.decision_id, store)
+    assert answer.actor.kind == :operator_relayed
+    assert answer.decision_version == decision.version
+    assert String.starts_with?(answer.action_id, "act_")
+  end
+
   test "relay supersede and revision cannot replace a direct operator answer", %{dir: dir, config: config} do
     enable(config)
     store = store(dir)

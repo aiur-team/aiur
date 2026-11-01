@@ -30,6 +30,8 @@ defmodule Aiur.DecisionStore do
 
   use GenServer
 
+  alias Aiur.Commands.OverrideContext
+  alias Aiur.Commands.Overrides, as: CommandOverrides
   alias Aiur.Decision
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Boot
@@ -39,6 +41,7 @@ defmodule Aiur.DecisionStore do
   alias Aiur.DecisionStore.Info
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Reads
+  alias Aiur.DecisionStore.WorkerHandoffs
 
   @request_timeout 60_000
   @recent_decision_limit 50
@@ -78,6 +81,10 @@ defmodule Aiur.DecisionStore do
     GenServer.call(Keyword.get(opts, :server, __MODULE__), {:command_fact, decision_id, type, data, opts}, @request_timeout)
   end
 
+  @spec override_handoff_candidates(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  defdelegate override_handoff_candidates(identifier, opts \\ []), to: WorkerHandoffs, as: :candidates
+  @spec record_override_handoff(String.t(), [map()], map(), keyword()) :: :ok | {:error, term()}
+  defdelegate record_override_handoff(identifier, snapshots, receipt, opts \\ []), to: WorkerHandoffs, as: :record
   @doc "Projects one legacy attention into the canonical Decision history."
   @spec project_attention(map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, accept_result()} | {:error, term()}
@@ -252,6 +259,24 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:supersede, decision_id, payload, opts}, timeout)
   end
 
+  @doc "Records an override before or after delivery, preserving the original Command and routing evidence."
+  @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  def override(decision_id, payload, opts \\ [], server \\ __MODULE__) do
+    result = override_once(decision_id, payload, opts, server)
+
+    if result == {:error, {:conflict, :override_target_changed}} and not Keyword.has_key?(opts, :override_context),
+      do: override_once(decision_id, payload, opts, server),
+      else: result
+  end
+
+  defp override_once(decision_id, payload, opts, server) do
+    with {:ok, decision} <- get(decision_id, server) do
+      target = CommandOverrides.target_ticket(decision).identifier
+      opts = target |> OverrideContext.options(opts) |> Keyword.put(:override_target_identifier, target)
+      GenServer.call(server, {:override, decision_id, payload, opts}, @request_timeout)
+    end
+  end
+
   @doc "Durably records an ordered correction to the active Decision action."
   @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
@@ -312,6 +337,11 @@ defmodule Aiur.DecisionStore do
       when is_binary(ticket_identifier) do
     GenServer.cast(server, {:deliver_pending_answers, ticket_identifier})
   end
+
+  @doc "Rechecks a pending override before including it in a worker prompt."
+  @spec recheck_override_delivery(String.t(), String.t(), GenServer.server()) :: :ok | {:error, term()}
+  def recheck_override_delivery(id, action, server \\ __MODULE__),
+    do: GenServer.call(server, {:recheck_override_delivery, id, action}, @request_timeout)
 
   @doc "Synchronously validate one correlated item before attempting provider delivery."
   @spec validate_delivery(map(), GenServer.server()) ::
@@ -418,7 +448,7 @@ defmodule Aiur.DecisionStore do
   defdelegate blocked_ticket_ids(server \\ __MODULE__), to: Reads
   defdelegate open_blocking_decision_ids(ticket_identifiers, server \\ __MODULE__, timeout \\ 1_000), to: Reads
   defdelegate open_blocking_decision_ids_by_ticket(ticket_identifiers, server \\ __MODULE__, timeout \\ 1_000), to: Reads
-  defdelegate nonblocking_question_pause?(ticket_identifier, server \\ __MODULE__, timeout \\ 100), to: Reads
+  defdelegate nonblocking_question_pause?(ticket_identifier, server \\ __MODULE__, timeout \\ 1_000), to: Reads
   defdelegate recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__), to: Reads
   defdelegate history(decision_id, server \\ __MODULE__), to: Reads
   defdelegate all_history(server \\ __MODULE__), to: Reads

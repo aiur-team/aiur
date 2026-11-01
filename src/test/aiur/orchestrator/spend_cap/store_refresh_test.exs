@@ -11,8 +11,11 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
     %{root: root}
   end
 
-  test "coalesces broadcasts into one snapshot and projects only running nonterminal caps", %{root: root} do
+  test "coalesces broadcasts into one snapshot and projects only running nonterminal caps", %{root: _root} do
     owner = self()
+    root = Aiur.TestSupport.tmp_root!("spend-cap-refresh-store")
+    File.mkdir_p!(root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     running = GS.identity(5693)
     idle = GS.identity(77)
     exhausted = GS.identity(88)
@@ -23,22 +26,29 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
       ^exhausted -> usage("1.00")
     end
 
-    {:ok, store} =
-      start_store(root,
-        usage_fun: usage_fun,
-        snapshot_fun: fn ->
-          send(owner, :snapshot_read)
-          %{generation: 9}
-        end,
-        project_fun: fn %{generation: 9}, identity ->
-          send(owner, {:projected, identity})
-          usage_fun.(identity)
-        end,
-        refresh_debounce_ms: 20,
-        reserve_event_id_fun: fn -> {:ok, 71} end,
-        stop_fun: fn _identity, _reason -> :ok end,
-        event_fun: fn _topic, _payload, event_id -> {:ok, event_id, 0} end,
-        transition_fun: fn _identifier, _state -> :ok end
+    store =
+      start_supervised!(
+        {Store,
+         [
+           name: nil,
+           table: Module.concat(__MODULE__, "Dispatch#{System.unique_integer([:positive, :monotonic])}"),
+           repository: "its-everdred/aiur",
+           state_dir: root,
+           usage_fun: usage_fun,
+           snapshot_fun: fn ->
+             send(owner, :snapshot_read)
+             %{generation: 9}
+           end,
+           project_fun: fn %{generation: 9}, identity ->
+             send(owner, {:projected, identity})
+             usage_fun.(identity)
+           end,
+           refresh_debounce_ms: 20,
+           reserve_event_id_fun: fn -> {:ok, 71} end,
+           stop_fun: fn _identity, _reason -> :ok end,
+           event_fun: fn _topic, _payload, event_id -> {:ok, event_id, 0} end,
+           transition_fun: fn _identifier, _state -> :ok end
+         ]}
       )
 
     assert {:ok, %{"state" => "active"}} = Store.put(store, running, "1.00")
@@ -70,8 +80,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
   test "partial coverage stays active on known spend and raises one attention", %{root: root} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, coverage} = Agent.start_link(fn -> :partial end)
-    on_exit(fn -> if Process.alive?(coverage), do: Agent.stop(coverage) end)
+    coverage = start_supervised!({Agent, fn -> :partial end}, id: make_ref())
 
     usage_fun = fn ^identity -> usage("0.50", Agent.get(coverage, & &1)) end
 
@@ -105,8 +114,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
   test "unavailable usage closes dispatch but does not stop an already-running agent", %{root: root} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, projection} = Agent.start_link(fn -> usage("0.25") end)
-    on_exit(fn -> if Process.alive?(projection), do: Agent.stop(projection) end)
+    projection = start_supervised!({Agent, fn -> usage("0.25") end}, id: make_ref())
 
     {:ok, store} =
       start_store(root,
@@ -154,29 +162,29 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
     checkpoint = %{version: 1, repository: "its-everdred/aiur", records: [Record.encode(record)]}
     File.write!(Path.join(state_dir, "ticket-spend-caps.json"), Jason.encode!(checkpoint))
 
-    starter =
-      Task.async(fn ->
-        Store.start_link(
-          name: nil,
-          table: nil,
-          state_dir: state_dir,
-          repository: "its-everdred/aiur",
-          subscribe_fun: fn -> :ok end,
-          running_subscribe_fun: fn -> :ok end,
-          usage_fun: fn _identity -> flunk("terminal records must not be projected at startup") end,
-          transition_fun: fn "5693", "budget-exhausted" ->
-            send(owner, {:tracker_effect_started, self()})
+    store =
+      start_supervised!(
+        {Store,
+         [
+           name: nil,
+           table: nil,
+           state_dir: state_dir,
+           repository: "its-everdred/aiur",
+           subscribe_fun: fn -> :ok end,
+           running_subscribe_fun: fn -> :ok end,
+           usage_fun: fn _identity -> flunk("terminal records must not be projected at startup") end,
+           transition_fun: fn "5693", "budget-exhausted" ->
+             send(owner, {:tracker_effect_started, self()})
 
-            receive do
-              :finish_tracker_effect -> :ok
-            end
-          end,
-          task_start_fun: fn run -> Task.start_link(run) end
-        )
-      end)
+             receive do
+               :finish_tracker_effect -> :ok
+             end
+           end,
+           task_start_fun: fn run -> Task.start_link(run) end
+         ]}
+      )
 
-    assert {:ok, store} = Task.await(starter, 500)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    assert Process.alive?(store)
     assert_receive {:tracker_effect_started, effect_task}, 1_000
     send(effect_task, :finish_tracker_effect)
   end
@@ -184,8 +192,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
   test "usage recovery re-admits an idle unavailable ticket", %{root: root} do
     owner = self()
     identity = GS.identity(5693)
-    {:ok, projection} = Agent.start_link(fn -> usage("0.25") end)
-    on_exit(fn -> if Process.alive?(projection), do: Agent.stop(projection) end)
+    projection = start_supervised!({Agent, fn -> usage("0.25") end}, id: make_ref())
 
     {:ok, store} =
       start_store(root,

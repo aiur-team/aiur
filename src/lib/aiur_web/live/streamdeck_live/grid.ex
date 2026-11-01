@@ -1,29 +1,24 @@
 defmodule AiurWeb.StreamdeckLive.Grid do
   @moduledoc """
   Socket state for the Stream Deck emulator's fleet grid: loading the
-  orchestrator snapshot, windowing it under the page dial, keeping the focused
-  agent, and loading that agent's logs and transcript relay. Socket in, socket
+  shared ticket sections, windowing them under the page dial, and keeping the
+  focused agent and transcript relay. Socket in, socket
   out.
   """
 
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1]
-  import AiurWeb.StreamdeckLive.Env, only: [endpoint_config: 1, safe_call: 2]
   import AiurWeb.StreamdeckLive.Surface
-
-  alias Aiur.{Conversation.History, Orchestrator, PollCadence}
 
   alias AiurWeb.{
     Endpoint,
     EndpointConfig,
     StreamdeckFleet,
-    StreamdeckLogs,
     StreamdeckProjection,
     StreamdeckTranscriptRelay
   }
 
-  alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, TicketPage}
+  alias AiurWeb.Streamdeck.Deck.{Input, MeterPage, Nav, TicketPage}
   alias Phoenix.LiveView.Socket
 
   @spec refresh_grid(Socket.t()) :: Socket.t()
@@ -37,7 +32,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
 
     if connected?(socket) and is_binary(previous_identifier) and
          previous_identifier != socket.assigns.selected_identifier do
-      focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
+      focus_agent(socket, previous_identifier, socket.assigns.selected_identifier)
     else
       socket
     end
@@ -57,6 +52,8 @@ defmodule AiurWeb.StreamdeckLive.Grid do
 
   @spec assign_grid(Socket.t(), map(), integer(), map() | nil, number() | nil) :: Socket.t()
   def assign_grid(socket, grid, column_offset, usage, dial_value) do
+    usage = usage || StreamdeckProjection.provider_meters()
+
     {dial_value, _legacy_offset} =
       case dial_value do
         nil ->
@@ -70,12 +67,11 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     nav =
       Nav.clamp(
         socket.assigns.deck_nav,
-        Input.sizes(socket.assigns.deck_nav, Deck.navigation(grid))
+        Input.sizes(socket.assigns.deck_nav, MeterPage.sections(Map.put(grid, :meter_usage, usage), socket.assigns.deck_nav))
       )
 
     page = Nav.page(nav)
     column_offset = page * 4
-    usage = usage || StreamdeckProjection.provider_meters()
 
     visible_agents =
       Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
@@ -119,7 +115,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   end
 
   defp mode_focus(%{assigns: %{sd_mode: mode, sd_active: active}}, grid, _visible_agents)
-       when mode in [:cmd, :logs, :settings] and not is_nil(active) do
+       when mode in [:cmd, :settings] and not is_nil(active) do
     identifier = to_string(active.identifier)
     refreshed_active = Enum.find(grid.agents, active, &(to_string(&1.identifier) == identifier))
     {identifier, refreshed_active}
@@ -129,104 +125,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     {selected_identifier(socket, grid, visible_agents), socket.assigns.sd_active}
   end
 
-  @spec update_logs(Socket.t(), String.t(), integer()) :: Socket.t()
-  def update_logs(socket, axis, delta) do
-    axis = String.to_existing_atom(axis)
-
-    socket
-    |> assign(:logs, StreamdeckLogs.scroll(socket.assigns.logs, axis, delta))
-    |> refresh_knobs()
-  rescue
-    _ -> socket
-  end
-
-  @spec load_logs(term()) :: map()
-  def load_logs(identifier) when is_binary(identifier) do
-    identifier |> load_log_entries() |> StreamdeckLogs.project()
-  end
-
-  def load_logs(_identifier), do: StreamdeckLogs.project([])
-
-  @spec reload_logs(Socket.t(), String.t()) :: Socket.t()
-  def reload_logs(socket, identifier) do
-    logs = StreamdeckLogs.refresh(socket.assigns.logs, load_log_entries(identifier))
-    socket |> assign(:logs, logs) |> refresh_knobs()
-  end
-
-  defp load_log_entries(identifier) do
-    case endpoint_config(:streamdeck_logs_fun) do
-      fun when is_function(fun, 1) -> safe_call(fn -> fun.(identifier) end, [])
-      fun when is_function(fun, 0) -> safe_call(fun, [])
-      _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
-    end
-    |> log_entries()
-  end
-
-  defp agent_event_feed(identifier) do
-    transcript =
-      case History.transcript(identifier, %{"limit" => 50}) do
-        {:ok, %{events: events}} -> events
-        _ -> []
-      end
-
-    %{events: History.bus_events(identifier), transcript: transcript}
-  end
-
-  # The emulator's injected feed function predates the bus/transcript split and
-  # still hands back a bare transcript list. Normalise every accepted shape into
-  # the two-source map the projection now takes, so a fixture written against
-  # the old contract keeps working and simply projects with an empty bus.
-  defp log_entries(%{events: events, transcript: transcript})
-       when is_list(events) and is_list(transcript),
-       do: %{events: events, transcript: transcript}
-
-  defp log_entries(%{events: events}) when is_list(events), do: %{events: [], transcript: events}
-
-  defp log_entries(%{"events" => events}) when is_list(events),
-    do: %{events: [], transcript: events}
-
-  defp log_entries(entries) when is_list(entries), do: %{events: [], transcript: entries}
-  defp log_entries(_entries), do: %{events: [], transcript: []}
-
-  defp load_grid do
-    snapshot =
-      case endpoint_config(:streamdeck_snapshot_fun) do
-        fun when is_function(fun, 0) ->
-          safe_call(fun, %{})
-
-        _ ->
-          # Read the lock-free, coalesced dashboard snapshot rather than asking
-          # the Orchestrator to build one synchronously. `refresh_grid/1` runs on
-          # every fleet/status event; a blocking `Orchestrator.snapshot/2` call
-          # there stalls the LiveView (and can wedge it under dispatch).
-          case safe_call(
-                 fn -> Orchestrator.dashboard_snapshot(orchestrator(), snapshot_timeout_ms()) end,
-                 %{}
-               ) do
-            {status, snapshot, _freshness}
-            when status in [:current, :stale] and is_map(snapshot) ->
-              snapshot
-
-            snapshot when is_map(snapshot) ->
-              snapshot
-
-            _ ->
-              %{}
-          end
-      end
-
-    StreamdeckFleet.grid(snapshot)
-  end
-
-  defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
-  # The configured value is the floor, not the tolerance: a fixed 15s window
-  # against a 120s poll marks a healthy fleet stale for most of every cycle.
-  # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
-  defp snapshot_timeout_ms,
-    do:
-      PollCadence.snapshot_tolerance_ms(endpoint_config(:snapshot_timeout_ms) || 15_000,
-        class: :dispatch
-      )
+  defp load_grid, do: StreamdeckFleet.grid(nil)
 
   @spec refresh_knobs(Socket.t()) :: Socket.t()
   def refresh_knobs(socket) do
@@ -236,8 +135,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
       knob_descriptors(
         socket.assigns.grid_dial_value,
         socket.assigns.grid.windows,
-        socket.assigns.sd_mode,
-        socket.assigns.logs
+        socket.assigns.sd_mode
       )
     )
   end
@@ -261,16 +159,15 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     assign(socket, :transcript_relay, relay)
   end
 
-  @spec focus_logs(Socket.t(), String.t() | nil, String.t() | nil) :: Socket.t()
-  def focus_logs(socket, previous_identifier, identifier)
+  @spec focus_agent(Socket.t(), String.t() | nil, String.t() | nil) :: Socket.t()
+  def focus_agent(socket, previous_identifier, identifier)
       when previous_identifier != identifier do
     socket
-    |> assign(:logs, load_logs(identifier))
     |> replace_transcript_relay(previous_identifier, identifier)
     |> refresh_knobs()
   end
 
-  def focus_logs(socket, _previous_identifier, _identifier), do: socket
+  def focus_agent(socket, _previous_identifier, _identifier), do: socket
 
   defp transcript_flush_ms do
     EndpointConfig.get(:streamdeck_transcript_flush_ms) ||

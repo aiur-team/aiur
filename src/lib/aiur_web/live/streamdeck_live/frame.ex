@@ -4,14 +4,17 @@ defmodule AiurWeb.StreamdeckLive.Frame do
   import AiurWeb.StreamdeckLive.Env, only: [endpoint_config: 1]
   alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.{FrameUpdates, Render}
-  alias AiurWeb.StreamdeckLive.CommandKeys
+  alias AiurWeb.StreamdeckLive.{CommandKeys, Settings}
 
   @spec assign_frame(map()) :: map()
   def assign_frame(assigns) do
     renderer = endpoint_config(:streamdeck_render_fun) || (&Render.frame/1)
+    assigns = Settings.refresh_assigns(assigns)
 
     {nav, model, frame} =
-      FrameUpdates.frame(assigns.deck_nav, assigns.grid, assigns.usage, renderer, %{
+      FrameUpdates.frame(assigns.deck_nav, Map.put(assigns.grid, :meter_usage, assigns.usage), assigns.usage, renderer, %{
+        toast: assigns[:deck_toast],
+        chat: if(assigns.sd_mode == :cmd, do: assigns[:deck_chat_view]),
         view_context: context(assigns)
       })
 
@@ -26,8 +29,6 @@ defmodule AiurWeb.StreamdeckLive.Frame do
   defp context(assigns) do
     %{
       active: assigns.sd_active,
-      logs: assigns.logs,
-      strip_entries: AiurWeb.StreamdeckStrip.entries(assigns.logs.transcript_visible),
       command_keys: command_keys(assigns),
       commands_view: assigns.commands_view,
       commands_option: assigns.commands_option,

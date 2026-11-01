@@ -2,21 +2,31 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   @moduledoc "Adapt legacy browser selection and paging without cycling its non-grid modes."
   import Phoenix.Component, only: [assign: 2, assign: 3]
   alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav}
+  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.FrameUpdates
+  alias AiurWeb.StreamdeckLive.{ChatFocus, Settings}
   alias Phoenix.LiveView.Socket
 
   @spec route(Socket.t(), String.t(), map()) :: Socket.t()
   def route(socket, event, params) do
-    sections = Deck.navigation(socket.assigns.grid)
+    grid = socket.assigns |> Settings.refresh_assigns() |> Map.fetch!(:grid) |> FrameUpdates.prepare_grid()
+    sections = Deck.navigation(grid)
     nav = key_nav(socket.assigns.deck_nav, event, params, sections)
     socket = assign(socket, :deck_nav, nav)
     frame = frame(socket, event, params, sections)
 
-    case Input.reduce(nav, frame, sections) do
-      {%Nav{} = nav, effects} -> assign(socket, deck_nav: nav, deck_effects: effects)
-      {:error, _reason} -> socket
+    case FrameUpdates.transition(nav, frame, grid) do
+      {:ok, nav, effects} ->
+        socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
+        # Keep explicit legacy command events available while device input opens turn keys.
+        if event == "key-press", do: assign(socket, :deck_nav, %{socket.assigns.deck_nav | surface: socket.assigns.sd_mode}), else: socket
+
+      _ ->
+        socket
     end
   end
+
+  defp frame(_socket, "dial-press", %{"action" => "back"}, _sections), do: %{"kind" => "dial_press", "index" => 0}
 
   defp frame(_socket, "dial-press", params, _sections),
     do: %{"kind" => "dial_turn", "index" => integer(params["index"], 3), "ticks" => 0}
@@ -50,13 +60,6 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
 
     %{"kind" => "dial_turn", "index" => 3, "ticks" => max(-32, min(32, ticks))}
   end
-
-  defp frame(_socket, "logs-scroll", params, _sections),
-    do: %{
-      "kind" => "dial_turn",
-      "index" => if(params["axis"] == "events", do: 3, else: 0),
-      "ticks" => integer(params["delta"], 0)
-    }
 
   defp frame(socket, "key-press", params, sections) do
     nav = socket.assigns.deck_nav

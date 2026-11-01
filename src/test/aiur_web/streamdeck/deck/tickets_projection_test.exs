@@ -30,21 +30,23 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     assert_received :window_read
     refute_received :window_read
     {_nav, model, frame} = FrameUpdates.frame(%Nav{}, grid, %{})
-    html = render_component(&ImageComponents.keys/1, frame: frame, model: model, grid: grid, page: 0, dial_value: 0, selected_identifier: nil, mode: :grid, logs: %{}, commands_view: :history)
+    html = render_component(&ImageComponents.keys/1, frame: frame, model: model, grid: grid, page: 0, dial_value: 0, selected_identifier: nil, mode: :grid, commands_view: :history)
     assert html =~ "Waiting for CI"
     refute html =~ ~s(data-part="progress-fill")
 
     socket = joined_socket()
-    assert_reply(push(socket, "input", %{"kind" => "key_press", "index" => 0}), :ok)
-    assert :sys.get_state(socket.channel_pid).assigns.deck_effects == [{:open_ticket, "77"}]
+    ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
+    state = :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0, "chip_offset" => 0})
+    assert state.assigns.deck_effects == [{:open_ticket, "77"}]
     updated = put_in(window, [:sections, :now], [%{row | agent: %{state: "command"}, pct: 40}])
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, updated} end)
     Index.broadcast(%{})
-    assert_push("fleet", %{"grid" => %{agents: [%{label: "Awaiting command", progress_percent: 40}]}}, 1_000)
+    receive_barrier(%Phoenix.Socket.Message{event: "fleet", payload: %{"grid" => %{agents: [%{label: "Awaiting command", progress_percent: 40}]}}})
   end
 
-  test "Build facts win while control metadata and stale progress survive merging" do
-    row = %{num: 77, id: "77", title: "Build title", sec: "now", agent: %{state: "retrying", model: "codex"}, pct: 40}
+  test "Build facts retain priority stars and stale progress without legacy snapshot metadata" do
+    row = %{num: 77, id: "77", title: "Build title", sec: "now", agent: %{state: "retrying", model: "codex"}, pct: 40, priority: 1, progress_freshness: "stale"}
     window = %{sources: %{agents: %{state: "ok", observed_at: 123}}, sections: %{now: [row], plan: [], nq: []}}
     EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:ok, window} end)
     snapshot = %{running: [%{identifier: "77", title: "Old title", work_state: :working, progress_percent: 30, progress_freshness: :stale, priority: 1}], retrying: [], idle: []}
@@ -53,7 +55,7 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     assert key.label == "Retrying"
     assert key.progress_percent == 40
     assert key.progress_freshness == "stale"
-    assert key.bucket == :running
+    assert key.bucket == :stuck
     assert key.priority == true
     assert Render.key(key).label =~ "40% stale"
 
@@ -82,9 +84,13 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
       assert status.label =~ "Unavailable"
       refute status.svg =~ "progress-track"
       assert Enum.all?(rest, &is_nil/1)
-      assert hd(frame.strip).label =~ "Tickets unavailable"
-      refute hd(frame.strip).label =~ "0 live"
-      assert List.last(frame.strip).label == "Tickets unavailable"
+      assert grid.counts.status == "unavailable"
+      assert grid.counts.queued == nil
+      assert grid.counts.not_queued == nil
+      assert hd(frame.strip).label == "Build unavailable"
+      assert Enum.at(frame.strip, 1).label == "Counts unavailable"
+      assert List.last(frame.strip).label == "Queued unknown; Not queued unknown"
+      refute List.last(frame.strip).svg =~ "Queued 0"
     end
   end
 end

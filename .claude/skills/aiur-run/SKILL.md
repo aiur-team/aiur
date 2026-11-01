@@ -115,6 +115,14 @@ Read per-feature progress from Build home at `/?view=list&list=features`.
   real).
 - A table on every wake is exactly the noise this section exists to remove.
 
+Whenever you post this table, also run
+`"$AIUR_CMD" executor-emit executor.progress --payload '{"done":N,"total":M}'`,
+replacing `N` and `M` with observed completed and total ticket counts for the
+same run scope. Allow only `done`, `total`, and optional `blocked` counts in
+the payload; include no prose. The event provides a navigation aid to the
+progress table, not a report. If emission fails (including when no daemon is
+running), continue the run without it; keep the table's existing cadence.
+
 ### Returning is a transition
 
 When a human message arrives after an unattended stretch, lead with a compact
@@ -181,6 +189,18 @@ needs-attention alerts, and it registers a renewing principal in
 observer. Registration never acknowledges wakes or advances the shared cursor;
 only `executor-wait` does that. If you are acting as the Executor, launch with
 `--executor`; there is no valid Executor launch without it.
+
+Offer Executor conversation attachment as a separate opt-in; never attach the
+user's session merely because you operate the run. Before using
+`aiur executor-attach --harness claude` or `--harness codex`, explain that Aiur
+may read that session's transcript and retain a local, owner-only journal until
+deleted. Device pairing is not available yet; when it ships, pairing a phone or
+watch will grant full access, including the Executor transcript, with no separate
+transcript toggle. Claude installs marked project-local hooks;
+Codex prints configuration for manual merge and `/hooks` trust. Explain
+`aiur executor-detach` and that existing recordings remain. Attachment alone
+does not enable dashboard chat in attach-only builds. See
+[Executor opt-in and privacy](../../../website/docs-app/concepts/executor.md#talk-to-the-executor-from-the-dashboard).
 
 For a multi-instance fleet, run one Executor from one machine. Stop the
 per-machine Executors, then use `aiur --instance all executor-wait --as

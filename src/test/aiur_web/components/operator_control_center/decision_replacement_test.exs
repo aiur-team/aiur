@@ -33,8 +33,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacementTest do
     decision = delivered_decision(at)
     html = render_notice(decision, %{outcome: %{status: :too_late, reason: :answer_in_flight}})
     document = Floki.parse_fragment!(html)
-    assert document |> Floki.find("p[role=alert]") |> Floki.text() == "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}. Send a follow-up message instead."
-    assert document |> Floki.find("a[href='/chat/owner/repo/987']") |> Floki.text() == "Send a follow-up message"
+    assert document |> Floki.find("p[role=alert]") |> Floki.text() == "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}. Use Send correction to override this answer."
+    assert Floki.find(document, "a[href='/chat/owner/repo/987']") == []
     refute html =~ "Delivery is in progress"
   end
 

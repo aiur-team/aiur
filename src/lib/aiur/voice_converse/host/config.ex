@@ -2,8 +2,9 @@ defmodule Aiur.VoiceConverse.Host.Config do
   @moduledoc "Maps Aiur's resolved voice settings into a conversation instance."
 
   alias Aiur.Config.Paths
+  alias Aiur.Config.Schema.VoiceConversationProviders
   alias Aiur.VoiceConversation.Provider
-  alias Aiur.VoiceConverse.Host.{BriefingSource, CommandSource, Credentials}
+  alias Aiur.VoiceConverse.Host.{AgentChannel, BriefingSource, CommandSource, Credentials, Roles}
 
   @limit_keys [:max_session_seconds, :idle_timeout_seconds, :daily_minutes_cap, :context_token_budget]
 
@@ -28,11 +29,16 @@ defmodule Aiur.VoiceConverse.Host.Config do
       name: Aiur.VoiceConversation.Instance,
       provider: provider(settings),
       credentials: Credentials,
+      credential_names: Credentials.names(),
+      providers: VoiceConversationProviders.to_core(settings.providers),
       briefing_source: BriefingSource,
       command_source: CommandSource,
+      agent_channel: AgentChannel,
       transcript_root: transcript_root,
       llm: settings.llm,
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
+      roles: Roles.defaults(),
+      glossary: [Roles.glossary()],
       roles_dir: settings.roles_dir,
       redactor: &redact/1,
       limits: Map.take(settings, @limit_keys),

@@ -26,7 +26,7 @@ The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a ma
 | `tracker.github.daemon_search_limit_per_hour` | integer | 600 | Hourly billable ceiling for GitHub's separate `search` pool (`gh search repos/code/commits/users` hit REST `/search/*`, metered at roughly 30 requests per minute rather than 5,000/hour). `0` disables. |
 | `tracker.github.github_app.account` | string | nil | Optional. The GitHub App bot login (`<app-slug>[bot]`) the **daemon** writes as when App credentials are configured (see [GitHub](/apis/github-auth#github-app-authentication)). Set it only when the daemon's identity differs from the agents': an App installation token can never write as `tracker.github.bot_account`, so one key naming both would make every agent-authorship check demand a login no agent holds. Leave it unset for a single-identity install — self-loop suppression, PR command handling and the CODEOWNERS self-include then fall back to `tracker.github.bot_account` exactly as before. Only the login lives here; the App credentials stay in `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `GITHUB_APP_PRIVATE_KEY_PATH`. |
 | `tracker.github.human_mergers` | array | `[]` | Explicit human-only allowlist for post-merge attribution, current-head CHANGES_REQUESTED review routing and the planned `aiur pr merge` command. Reviews from these logins can route tickets to rework independently of `trusted_accounts`. Never inherits CODEOWNERS, bot accounts or dispatch users. |
-| `tracker.github.identity_mode` | string | `separate_account` | Whether the agents post as a login no human uses (`separate_account`) or share the operator's own login (`single_account`). Stated, never inferred: nothing compares `bot_account` against the token's viewer login to guess, because that guess is wrong in both directions and silently changes which comments wake an agent. Under `separate_account` the author login proves authorship and nothing else is needed. Under `single_account` it proves nothing, so Aiur appends an invisible HTML-comment marker to comments it writes and suppresses only comments carrying it — anything unmarked, including every comment posted before this existed, reads as human and wakes the agent. Any other value is rejected at config load. |
+| `tracker.github.identity_mode` | string | `separate_account` | Whether agents post as a separate login (`separate_account`) or share the operator's login (`single_account`). Stated, never inferred. Under `separate_account`, PR merging requires an APPROVED review from a different identity. Under `single_account`, agents and the operator share GitHub permissions, so this mode provides no separate reviewer identity; `aiur pr merge` accepts the operator's `--reviewed-sha` as a self-review attestation because GitHub cannot accept self-approval. Any supplied review body is posted as a COMMENT review and the ledger records the attestation. Single-account comments written by Aiur carry an invisible marker so they are not mistaken for human wake-ups. Any other value is rejected at config load. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.max_inflight` | integer | 4 | Cap on concurrent tracker HTTP requests across all endpoints (1-100). |
 | `tracker.github.max_inflight_per_endpoint` | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
@@ -46,6 +46,24 @@ The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a ma
 | `tracker.restack_after_blocker_merge` | boolean | true | Fast-forward restack idle GitHub dependents after a blocker squash-merges. Requires git 2.40+. Live agents restack themselves; false disables only the daemon path. |
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
+
+### Seeding the memory tracker
+
+In dev and test builds, add an issue to a running daemon configured with
+`tracker.kind: memory` through the authenticated API. Set `AIUR_CLIENT_TOKEN`
+to a token created with `aiur token create`:
+
+```sh
+curl -sS -X POST http://127.0.0.1:PORT/api/v1/memory/issues \
+  -H "Authorization: Bearer $AIUR_CLIENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Origin: http://127.0.0.1:PORT' -H 'X-Aiur-Request: 1' \
+  -d '{"id":"demo-1","identifier":"DEMO-1","title":"Try the fake provider","description":"Seeded from a script","state":"todo","labels":[]}'
+```
+
+The next dispatch poll sees the issue and can run it through the configured
+provider. The endpoint returns `404` for any other tracker and `409` for a
+duplicate `id` or `identifier`.
 
 ## polling
 

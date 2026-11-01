@@ -1,13 +1,13 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
   use ExUnit.Case, async: true
 
-  import Phoenix.LiveViewTest, only: [render_component: 2]
+  import ExUnit.CaptureIO
   import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{NativeHold, State, StatusReport}
   alias Aiur.Projections.UnitsPolicy
-  alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsTable}
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
   alias AiurWeb.Presenter.Entries
 
   test "held question reaches the unit row with Command link, blocked tone and elapsed minutes" do
@@ -20,26 +20,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     [row] = catalog.snapshot.rows
     assert row.reasons.native_hold == hold
     assert row.tracker_state == "in-progress"
+
+    output =
+      capture_io(fn ->
+        assert Aiur.UnitsCLI.run(payload_fun: fn -> %{units: catalog} end, now: now, format: :records) == 0
+      end)
+
+    assert output =~ "Latest: Waiting for your answer · for 7 min · /commands/decision-held"
+
     assert UnitsPolicy.condition?(:waiting_on_you, row)
     assert UnitsPolicy.condition?(:alert, row)
     refute UnitsPolicy.condition?(:active, row)
-
-    html = render(catalog, now)
-    assert html =~ "Waiting for your answer"
-    assert html =~ ~s(href="/commands/decision-held")
-    assert html =~ "for 7 min"
-    assert html |> Floki.parse_fragment!() |> Floki.find("td.ut-ticket-cell[phx-click]") == []
-    refute html =~ "agent:in-progress"
-    assert html =~ "is-blocked"
-  end
-
-  test "unknown hold duration stays unavailable rather than showing zero minutes" do
-    hold = %{event: :native_question_held, native_ref: "native-1", decision_id: "decision-held", since: nil}
-    [snapshot] = snapshot(NativeHold.integrate(entry(), hold)).running
-    html = render(catalog(snapshot), DateTime.utc_now())
-    assert html =~ "Waiting for your answer"
-    assert html =~ "duration unavailable"
-    refute html =~ "for 0 min"
   end
 
   test "resolved hold removes waiting state, link and attention" do
@@ -56,17 +47,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     [row] = catalog.snapshot.rows
     refute UnitsPolicy.condition?(:waiting_on_you, row)
     assert UnitsPolicy.condition?(:active, row)
-    html = render(catalog, now)
-    refute html =~ "Waiting for your answer"
-    refute html =~ "/commands/decision-held"
-    assert html =~ "agent:in-progress"
+    output = capture_io(fn -> assert Aiur.UnitsCLI.run(payload_fun: fn -> %{units: catalog} end, now: now, format: :records) == 0 end)
+    assert output =~ "Latest: Running"
+    refute output =~ "Waiting for your answer"
+    refute output =~ "/commands/decision-held"
   end
 
   test "future regression guard: unavailable status never invents a held question" do
     catalog = UnitsPresenter.load(%{}, membership_fun: fn -> membership([member(identity("NODE-held", "41"))]) end, activity_fun: fn -> %{entries: []} end)
     [row] = catalog.snapshot.rows
     refute UnitsPolicy.condition?(:waiting_on_you, row)
-    refute render(catalog, DateTime.utc_now()) =~ "Waiting for your answer"
   end
 
   defp entry do
@@ -89,9 +79,5 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     }
 
     UnitsPresenter.load(payload, membership_fun: fn -> membership([]) end, activity_fun: fn -> %{entries: []} end)
-  end
-
-  defp render(catalog, now) do
-    render_component(&UnitsTable.units_table/1, %{view: UnitsPresenter.project(catalog, %{scope: :all, conditions: []}), now: now})
   end
 end

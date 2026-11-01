@@ -6,7 +6,7 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
 
   @categories [
     {:active, "Active", ["active", :unknown]},
-    {:command, "Needs command", ["command"]},
+    {:command, "Needs command", ["command", "native_question"]},
     {:error, "Error / retrying", ["error", "retrying"]},
     {:ci_wait, "Waiting for CI", ["ci_wait"]},
     {:usage_limited, "Usage limited", ["usage_limited"]},
@@ -31,6 +31,8 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
 
   @spec navigation(map()) :: [map()]
   def navigation(fleet), do: Enum.map(field(fleet, :keys) || [], &navigation_key/1)
+
+  defp navigation_key(nil), do: nil
 
   defp navigation_key(key) do
     states = Enum.find_value(@categories, [], fn {cat, _title, states} -> if Atom.to_string(cat) == to_string(field(key, :cat)), do: states end)

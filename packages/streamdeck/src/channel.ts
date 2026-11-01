@@ -36,7 +36,7 @@ import { randomUUID } from "node:crypto";
 import { normalizeAiurDictation } from "./aiur-speech.js";
 
 import type {
-  ChatKind,
+  StreamDeckChat,
   FetchLike,
   StreamDeckAgentState,
   StreamDeckChannel,
@@ -45,7 +45,6 @@ import type {
   StreamDeckCommandAnswerError,
   StreamDeckCommandsPage,
   StreamDeckGrid,
-  StreamDeckLogs,
   StreamDeckSnapshot,
   StreamDeckTicket,
   WebSocketFactory,
@@ -53,21 +52,6 @@ import type {
 } from "./channel-types.js";
 
 export type * from "./channel-types.js";
-
-/** Derives the row class from a role, for a row that did not carry one. */
-export const rowKindOfRole = (role: string): ChatKind => {
-  if (role === "assistant" || role === "agent") return "agent";
-  if (role === "command" || role === "tool") return "command";
-  if (role === "user") return "user";
-  // system, reasoning, alert, ci and anything unknown are the "logs" class —
-  // the same mapping as the server's `StreamdeckLogs.row_kind/1`.
-  return "logs";
-};
-
-export const chatKind = (value: unknown): ChatKind => {
-  if (value === "command" || value === "agent" || value === "logs" || value === "user") return value;
-  return "logs";
-};
 
 const tokenPath = "/api/v1/streamdeck/token";
 
@@ -226,6 +210,9 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       options.events.fleet(fleet.agents ?? []);
       if (fleet.grid !== undefined) options.events.grid(fleet.grid);
     }
+    else if (event === "alert") options.events.alert?.(payload as Readonly<Record<string, unknown>>);
+    else if (event === "settings") options.events.settings?.(payload as unknown as import("./deck-settings.js").DeckSettings);
+    else if (event === "chat") options.events.chat?.(payload as StreamDeckChat);
     else if (event === "frame") options.events.frame?.(payload as import("./frame.js").DeckFrame);
     else if (event === "ticket") options.events.ticket?.(payload as StreamDeckTicket);
     else if (event === "usage") options.events.usage(payload as Readonly<Record<string, unknown>>);
@@ -242,7 +229,6 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
         tool: null,
       });
     }
-    else if (event === "logs") options.events.logs(payload as StreamDeckLogs);
     else if (event === "control") options.events.control(payload as Readonly<Record<string, unknown>>);
     else if (event === "voice") {
       const frame = payload as { session?: unknown; kind?: unknown; text?: unknown };
@@ -283,6 +269,9 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   socket.onclose = () => notifyClosed(new Error("Stream Deck channel closed"));
 
   return {
+    voiceStatus: (text) => send("voice_status", { text }),
+    devices: (devices) => send("devices", { ...devices }),
+    settingsSet: (patch) => send("settings_set", { ...patch }),
     input: (input) => { if (joined && !stopped) send("input", { ...input }); },
     focus: (identifier) => send("focus", { identifier }),
     priority: (identifier, direction) => send("priority", { identifier, direction }),

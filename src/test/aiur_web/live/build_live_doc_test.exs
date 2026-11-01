@@ -2,6 +2,8 @@ defmodule AiurWeb.BuildLiveDocTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
 
   alias Aiur.BuildOrder.TicketDetailCoordinator
+  alias Aiur.BuildOrder.TicketTimelineCache
+  alias Aiur.IssueLog.Paths
   alias Aiur.TestSupport.BuildHome.{FixtureSource, TicketDocs}
   alias Aiur.TestSupport.{EndpointStubs, LiveViewAsync}
 
@@ -61,6 +63,7 @@ defmodule AiurWeb.BuildLiveDocTest do
     assert first == :subscribe
     assert_received {:doc_action, second, ^expected}
     assert second == :request
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => _})
     expected
   end
 
@@ -79,6 +82,7 @@ defmodule AiurWeb.BuildLiveDocTest do
     second_id = row(1)["id"]
     render_hook(view, "ticket-doc", %{id: second_id})
     assert_reply(view, %{"id" => ^second_id, "state" => "available"})
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^second_id, "timeline" => _})
     second = identity(second_id)
     assert_received {:doc_action, action, selected}
     assert {action, selected} == {:unsubscribe, first}
@@ -124,6 +128,49 @@ defmodule AiurWeb.BuildLiveDocTest do
     render(view)
     refute_received {:doc_action, :request, _}
     refute_push_event(view, "build-ticket-doc", _)
+  end
+
+  test "ticket history updates load the timeline into the open modal" do
+    view = open_view()
+    id = row()["id"]
+    open_doc(view, id)
+
+    send(view.pid, {:ticket_history_updated, %{generation: 2}})
+
+    assert_push_event(view, "build-ticket-doc", %{"kind" => "doc", "id" => ^id, "timeline" => %{"items" => items}})
+    assert is_list(items)
+  end
+
+  test "successful timeline reads scheduled by the LiveView are available" do
+    root = Path.join(System.tmp_dir!(), "ticket-timeline-live-#{System.unique_integer([:positive])}")
+    previous = Application.get_env(:aiur, :runtime_state_dir)
+    Application.put_env(:aiur, :runtime_state_dir, root)
+    view = open_view()
+    id = row()["id"]
+    selected = open_doc(view, id)
+
+    key = Aiur.TrackerIdentity.github_key(selected)
+    event_path = Paths.timeline_event_log_path(selected)
+    File.mkdir_p!(Path.dirname(event_path))
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    File.write!(event_path, "#{timestamp} [event:emit] id=42 ticket.#{selected.identifier}.agent.progress.status: Timeline event\n")
+    TicketTimelineCache.put(key, %{events: [], high_water: 0})
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :runtime_state_dir, previous), else: Application.delete_env(:aiur, :runtime_state_dir)
+      Aiur.TestCleanup.rm_rf!(root)
+      TicketTimelineCache.put(key, %{events: [], high_water: 0})
+    end)
+
+    send(view.pid, {:ticket_history_updated, %{generation: 3}})
+
+    assert_push_event(view, "build-ticket-doc", %{
+      "kind" => "doc",
+      "id" => ^id,
+      "timeline" => %{"items" => [%{"label" => label}]}
+    })
+
+    assert label == "agent.progress.status: Timeline event"
   end
 
   test "invalid ids leave the open doc unchanged without reading the source" do

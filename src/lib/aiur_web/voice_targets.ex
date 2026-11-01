@@ -2,13 +2,13 @@ defmodule AiurWeb.VoiceTargets do
   @moduledoc """
   Join-time target check for `voice:dictate` (voice-session contract §5.1).
 
-  A dictation aimed at an agent that has stopped, or at a Command that was
-  already resolved, is refused before recording starts instead of failing only
+  A dictation aimed at an agent that has stopped, or at a Command that cannot
+  take the requested answer or revision, is refused before recording starts instead of failing only
   when the operator presses Send. This module owns the voice-side rules
   (surface per target kind, instance match, refusal text); whether a worker
   or Command can still take text is asked through `AiurWeb.VoiceTargetResolver`,
-  bound to the same rules the Send paths use. Executor targets are not
-  addressable yet (`unsupported_target`).
+  bound to the same rules the Send paths use. Executor targets follow the
+  instance capability report.
 
   Delivery stays with the surface's own Send; this check only refuses early.
   """
@@ -18,7 +18,7 @@ defmodule AiurWeb.VoiceTargets do
   alias Aiur.Identity
   alias AiurWeb.VoiceTargetResolver
 
-  @surfaces %{worker: "agent_composer", command: "command_response", executor: "executor_composer"}
+  @surfaces %{worker: ["agent_composer"], command: ["command_response", "command_revision"], executor: ["executor_composer"]}
 
   @type refusal :: %{reason: String.t(), reason_code: String.t()}
 
@@ -27,9 +27,9 @@ defmodule AiurWeb.VoiceTargets do
   def validate(%{kind: kind} = target, surface) do
     result =
       cond do
-        Map.get(@surfaces, kind) != surface -> {:error, :invalid_payload}
+        surface not in Map.get(@surfaces, kind, []) -> {:error, :invalid_payload}
         not same_instance?(target) -> {:error, :target_not_found}
-        true -> check(target)
+        true -> check(target, surface)
       end
 
     case result do
@@ -42,10 +42,13 @@ defmodule AiurWeb.VoiceTargets do
     end
   end
 
-  defp check(%{kind: :executor}), do: {:error, :unsupported_target}
-  defp check(%{kind: :worker, ticket: ticket}), do: resolve(fn resolver -> resolver.worker(ticket) end)
+  defp check(%{kind: :executor} = target, _surface), do: AiurWeb.ExecutorVoiceTarget.validate(target)
+  defp check(%{kind: :worker, ticket: ticket}, _surface), do: resolve(fn resolver -> resolver.worker(ticket) end)
 
-  defp check(%{kind: :command, decision_id: decision_id, expected_version: version}),
+  defp check(%{kind: :command, decision_id: decision_id, expected_version: version}, "command_revision"),
+    do: resolve(fn resolver -> resolver.command_revision(decision_id, version) end)
+
+  defp check(%{kind: :command, decision_id: decision_id, expected_version: version}, "command_response"),
     do: resolve(fn resolver -> resolver.command(decision_id, version) end)
 
   @resolver_refusals [:target_not_found, :target_not_writable, :target_stale, :unsupported_target, :unknown]
@@ -65,7 +68,9 @@ defmodule AiurWeb.VoiceTargets do
   end
 
   defp reason(:target_not_found, :worker), do: "Agent is no longer running."
+  defp reason(:target_not_found, :executor), do: "Executor is no longer available on this instance."
   defp reason(:target_not_found, _kind), do: "This Command no longer exists."
+  defp reason(:target_not_writable, :executor), do: "Executor conversation cannot receive messages."
   defp reason(:target_not_writable, _kind), do: "Agent actions require a unique typed target."
   defp reason(:target_stale, _kind), do: "This Command has changed. Reload it before dictating an answer."
   defp reason(:unsupported_target, _kind), do: "Voice input can't address this target yet."
@@ -74,6 +79,8 @@ defmodule AiurWeb.VoiceTargets do
 
   # Until every daemon carries an instance id, a target naming one is checked
   # only where this daemon knows its own.
+  # Executor identity is checked strictly against the same report as its capability.
+  defp same_instance?(%{kind: :executor}), do: true
   defp same_instance?(%{instance_id: nil}), do: true
 
   defp same_instance?(%{instance_id: instance_id}) do

@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.ReworkHandoff do
   @moduledoc false
 
-  alias Aiur.AgentRunner.{ReworkFindings, ReworkHandoffGuard, TurnAlerts, TurnLoop}
+  alias Aiur.AgentRunner.{OverrideHandoff, ReworkFindings, ReworkHandoffGuard, TurnAlerts, TurnLoop}
   alias Aiur.CodeHost
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
@@ -23,10 +23,13 @@ defmodule Aiur.AgentRunner.ReworkHandoff do
     opts = turn_context.opts
 
     case ReworkGate.completed_agent_handoff(issue.identifier, Keyword.get(opts, :rework_head_sha),
+           include_pr: true,
+           reviews_fetcher: Keyword.get(opts, :reviews_fetcher),
+           pull_request_approval_fetcher: Keyword.get(opts, :pull_request_approval_fetcher),
            open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &CodeHost.fetch_open_pull_request_for_branch/1),
            commit_ci_status_fetcher: Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
          ) do
-      {:handoff, state} -> if open_findings?(issue, opts), do: continue.(), else: write_handoff(issue, turn_context, state)
+      {:handoff, state, pr} -> if open_findings?(issue, opts), do: continue.(), else: write_handoff(issue, turn_context, state, pr)
       :none -> continue.()
     end
   end
@@ -39,7 +42,7 @@ defmodule Aiur.AgentRunner.ReworkHandoff do
     end
   end
 
-  defp write_handoff(issue, turn_context, state) do
+  defp write_handoff(issue, turn_context, state, pr) do
     case ReworkHandoffGuard.evidence_blockers(issue, state, turn_context[:workspace], turn_context.opts) do
       {:refused, reason, message} ->
         {:error, {:rework_handoff_evidence_refused, reason, message}}
@@ -47,17 +50,19 @@ defmodule Aiur.AgentRunner.ReworkHandoff do
       :allow ->
         case ReworkHandoffGuard.findings_blockers(issue, state, turn_context[:workspace], turn_context.opts) do
           {:refused, reason, message} -> {:error, {:rework_handoff_evidence_refused, reason, message}}
-          {:allow, _findings} -> write_state(issue, turn_context, state)
+          {:allow, _findings} -> write_state(issue, turn_context, state, pr)
         end
     end
   end
 
-  defp write_state(issue, turn_context, state) do
-    case TicketTransition.write_state(issue.identifier, state, writer: :turn_loop) do
-      :ok ->
-        TurnAlerts.emit_rework_handoff_alert(issue, turn_context.workspace, turn_context.worker_host, state)
-        TurnLoop.return_completed(turn_context, %{issue | state: state})
+  defp write_state(issue, turn_context, state, pr) do
+    recorder = Keyword.get(turn_context.opts, :override_handoff_recorder, &OverrideHandoff.record/6)
 
+    with :ok <- recorder.(issue.identifier, state, pr, turn_context.workspace, turn_context.worker_host, turn_context.opts),
+         :ok <- TicketTransition.write_state(issue.identifier, state, writer: :turn_loop) do
+      TurnAlerts.emit_rework_handoff_alert(issue, turn_context.workspace, turn_context.worker_host, state)
+      TurnLoop.return_completed(turn_context, %{issue | state: state})
+    else
       {:error, reason} ->
         {:error, {:rework_handoff_state_write_failed, reason}}
     end

@@ -7,6 +7,8 @@ defmodule Aiur.DecisionStore.Transport do
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.OverrideMerges
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Settlement
 
@@ -53,6 +55,13 @@ defmodule Aiur.DecisionStore.Transport do
   # the worker retries the item.
   @spec validate_and_hand_off(term(), term()) :: term()
   def validate_and_hand_off(state, item) do
+    case OverrideMerges.before_delivery(state, item) do
+      {:merged, next} -> {{:error, {:answer_withdrawn, :pr_merged}}, next}
+      {:ok, next} -> validate_current_and_hand_off(next, item)
+    end
+  end
+
+  defp validate_current_and_hand_off(state, item) do
     case validate_transport_delivery(state, item) do
       {:ok, :accepted} -> record_handoff(state, item)
       other -> {other, state}
@@ -102,6 +111,7 @@ defmodule Aiur.DecisionStore.Transport do
     case correlated_decision_context(state, item) do
       {:ok, %Decision{decision_status: :moot}, _context} -> {:withdrawn, :moot}
       {:ok, %Decision{active_action_id: active}, %{action_id: action_id}} when active != action_id -> {:withdrawn, :superseded}
+      {:ok, decision, _context} -> if Overrides.dispatchable?(decision), do: :not_withdrawn, else: {:withdrawn, :override_queued}
       _other -> :not_withdrawn
     end
   end
@@ -199,7 +209,7 @@ defmodule Aiur.DecisionStore.Transport do
     answer = Decision.answer_for_action(decision, context.action_id)
 
     cond do
-      decision.ticket.identifier != context.target -> {:error, :ticket_mismatch}
+      Aiur.Commands.Overrides.target_ticket(decision, context.action_id).identifier != context.target -> {:error, :ticket_mismatch}
       is_nil(answer) -> {:error, :action_mismatch}
       answer.decision_version != context.decision_version -> {:error, :version_mismatch}
       true -> :ok

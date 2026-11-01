@@ -79,6 +79,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
           issue: issue,
+          observation_identity: Issue.tracker_identity(issue),
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
@@ -97,6 +98,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
           issue: issue,
+          observation_identity: Issue.tracker_identity(issue),
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: task_state_alert_reason(current_state),
           needs_attention: task_state_needs_attention?(current_state),
@@ -131,6 +133,8 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
       bypass_contamination: true,
       exchange_payload: %{
         "action" => "human_review",
+        "observed_state" => DispatchPolicy.state_slug(issue.state),
+        "observed_updated_at" => issue.updated_at && DateTime.to_iso8601(issue.updated_at),
         "pr_number" => pr_number,
         "head_sha" => head_sha,
         "last_review_sha" => last_review_sha

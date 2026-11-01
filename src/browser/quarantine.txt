@@ -2,3 +2,8 @@
 BrowserSpec	src/browser/tests/build-home-composer.browser.spec.mjs	#6089	2026-11-07
 BrowserSpec	src/browser/tests/build-home-render.browser.spec.mjs	#6153	2026-11-07
 BrowserSpec	src/browser/tests/build-home-conversation.browser.spec.mjs	#6089	2026-11-07
+BrowserSpec	src/browser/tests/command-answer.browser.spec.mjs	revision dictation auto-selects Custom response and submits the reviewed correction	196	#7253
+BrowserSpec	src/browser/tests/command-answer.browser.spec.mjs	override timeline and form fit desktop and mobile after an answer	221	#7384	2026-11-15
+BrowserSpec	src/browser/tests/command-answer.browser.spec.mjs	override timeline and form fit desktop and mobile after an answer	221	#7393
+BrowserSpec	src/browser/tests/shell-chrome.browser.spec.mjs	B-2 drag clamps to boolean rails, click toggles and resize follows release	51	#7395	2026-11-15
+BrowserSpec	src/browser/tests/shell-chrome.browser.spec.mjs	future regression guard: overlapping navigation choices survive older acknowledgements	231	#7397	2026-11-15

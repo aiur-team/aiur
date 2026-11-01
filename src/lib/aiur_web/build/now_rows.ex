@@ -9,6 +9,7 @@ defmodule AiurWeb.Build.NowRows do
 
   | Units condition | State |
   | --- | --- |
+  | Held native question | native_question |
   | Error work state or UnitsPolicy stuck | error |
   | Retry backoff | retrying |
   | Positive integer command count or waiting for human | command |
@@ -38,6 +39,10 @@ defmodule AiurWeb.Build.NowRows do
           start: integer() | nil,
           start_src: String.t(),
           pct: 0..100 | nil,
+          progress_freshness: String.t(),
+          pr: map() | nil,
+          priority: pos_integer() | nil,
+          lane: String.t() | nil,
           agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, pause: String.t() | nil, resume_at: integer() | nil, effort: String.t() | nil}
         }
   @type source_block :: %{
@@ -51,11 +56,12 @@ defmodule AiurWeb.Build.NowRows do
   def build(catalog, opts \\ []) do
     case repository(Keyword.get(opts, :repository)) do
       nil -> unavailable("repository_unknown")
-      repo -> project(catalog, repo, Keyword.get(opts, :todo_ids, MapSet.new()))
+      repo -> project(catalog, repo, Keyword.get(opts, :todo_ids, MapSet.new()), Keyword.get(opts, :pr_facts, %{}))
     end
   end
 
-  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo, todo_ids) when status in [:ready, :empty, :stale] and is_list(rows) do
+  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo, todo_ids, pr_facts)
+       when status in [:ready, :empty, :stale] and is_list(rows) do
     source = %{
       state: if(status == :stale, do: "stale", else: "ok"),
       observed_at: timestamp(get_in(snapshot, [:freshness, :status]) |> observed_at()),
@@ -68,10 +74,16 @@ defmodule AiurWeb.Build.NowRows do
         end
     }
 
-    %{rows: rows |> Enum.map(&mark_todo_starting(&1, todo_ids)) |> Enum.filter(&band?(&1, repo)) |> Map.new(&{&1.identity.identifier, facts(&1)}), source: source}
+    projected =
+      rows
+      |> Enum.map(&mark_todo_starting(&1, todo_ids))
+      |> Enum.filter(&band?(&1, repo))
+      |> Map.new(&{&1.identity.identifier, facts(&1, Map.get(pr_facts, &1.identity.identifier))})
+
+    %{rows: projected, source: source}
   end
 
-  defp project(_catalog, _repo, _todo_ids), do: unavailable("fleet_unavailable")
+  defp project(_catalog, _repo, _todo_ids, _pr_facts), do: unavailable("fleet_unavailable")
   defp unavailable(reason), do: %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: reason}}
   defp observed_at(%{observed_at: time}), do: time
   defp observed_at(_freshness), do: nil
@@ -93,7 +105,7 @@ defmodule AiurWeb.Build.NowRows do
 
   defp band?(_row, _repo), do: false
 
-  defp facts(row) do
+  defp facts(row, pr) do
     num = String.to_integer(row.identity.identifier)
     family = UnitsPresentation.agent_family(row)
 
@@ -109,15 +121,27 @@ defmodule AiurWeb.Build.NowRows do
       # The session start is the agent's dispatch; an unknown start has an unknown source (MP-E8-C4-T04).
       start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row),
+      progress_freshness: progress_freshness(row),
+      pr: pr,
+      priority: priority(row[:priority]),
+      lane: lane(row[:build_lane]),
       agent: %{
         model: model(family),
         name: UnitsPresentation.agent_label(family),
         state: agent_state(row),
+        native_hold: native_hold(row),
         pause: pause_state(row),
         resume_at: resume_at(row),
         effort: effort(row[:effort])
       }
     }
+  end
+
+  defp native_hold(row) do
+    case get_in(row, [:reasons, :native_hold]) do
+      %{decision_id: id} = hold when is_binary(id) and id != "" -> %{decision_id: id, since: timestamp(hold[:since])}
+      _ -> nil
+    end
   end
 
   defp agent_state(row) do
@@ -128,6 +152,7 @@ defmodule AiurWeb.Build.NowRows do
     waiting = get_in(row, [:reasons, :waiting])
 
     cond do
+      native_hold(row) != nil -> "native_question"
       is_binary(runtime_reason_state(row)) -> runtime_reason_state(row)
       error?(row) -> if(retrying?(row), do: "retrying", else: "error")
       command?(row[:open_command_count], waiting) -> "command"
@@ -224,6 +249,17 @@ defmodule AiurWeb.Build.NowRows do
        do: %{progress: round(value), progress_resolution: :resolved}
 
   defp progress_contract(_row), do: %{progress: nil, progress_resolution: :unknown}
+
+  defp progress_freshness(row) do
+    progress = if is_map(row[:progress]), do: row.progress, else: %{}
+    hint = progress[:freshness] || row[:progress_freshness]
+    if not is_nil(pct(row)) and hint in [:fresh, :stale, "fresh", "stale"], do: to_string(hint), else: "unknown"
+  end
+
+  defp priority(value) when is_integer(value) and value > 0, do: value
+  defp priority(_value), do: nil
+  defp lane(value) when is_binary(value) and value != "", do: value
+  defp lane(_value), do: nil
   defp timestamp(%DateTime{} = time), do: DateTime.to_unix(time, :millisecond)
 
   defp timestamp(time) when is_binary(time) do

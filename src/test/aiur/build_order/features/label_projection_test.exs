@@ -166,7 +166,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
   end
 
   test "supervision is recording-gated and follows registry and History" do
-    specs = AiurApp.child_specs(recording?: true, interactive_cli?: false, headless?: true, dashboard?: false)
+    specs = AiurApp.child_specs(recording?: true, interactive_cli?: false, headless?: true, dashboard?: false, repository_services?: true)
 
     mods =
       Enum.map(specs, fn
@@ -198,7 +198,15 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
       Aiur.Experiments.AnalystTrigger
     ]
 
-    assert Enum.take(mods, -2) == [Aiur.BuildOrder.Estimates, Aiur.BuildOrder.History.LabelBackfill]
+    assert Enum.take(mods, -6) == [
+             Aiur.BuildOrder.Estimates,
+             Aiur.BuildOrder.History.LabelBackfill,
+             Aiur.Executor.Session,
+             Aiur.Executor.SessionIngest,
+             DynamicSupervisor,
+             Aiur.Executor.TranscriptIngest
+           ]
+
     assert Enum.find_index(mods, &(&1 == Aiur.Instance.RepositoryLeader)) > Enum.find_index(mods, &(&1 == Projection))
 
     Enum.each(optional_children, fn optional ->

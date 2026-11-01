@@ -1,7 +1,7 @@
 // Stream Deck emulator interaction hook.
 //
-// Authority model: dial gestures are local-first, while fleet page, log
-// offsets, and screen mode are server-authoritative. The hook pushes one
+// Authority model: dial gestures are local-first, while fleet page
+// and screen mode are server-authoritative. The hook pushes one
 // coarse event per gesture step and LiveView clamps the resulting state to
 // real bounds.
 //
@@ -11,8 +11,7 @@
 // to avoid duplicate-listener accumulation across patches.
 //
 // Mode machine (server-authoritative):
-//   grid → (key click) → cmd → (cycle-window) → logs
-//   logs → (back) → cmd → (back) → grid
+//   grid → (key click) → cmd → (back) → grid
 (function () {
   "use strict";
 
@@ -132,9 +131,18 @@
       this._knobs = [];
     },
 
-    _handleDialStep(index, delta) {
+    _handleDialStep(index, delta, onReply) {
       if (!delta) return;
-      this.pushEvent("input", { kind: "dial", index: index, action: "turn", delta: delta > 0 ? 1 : -1 });
+      this.pushEvent("input", { kind: "dial", index: index, action: "turn", delta: delta > 0 ? 1 : -1 }, onReply);
+    },
+
+    _handleDialRelease(index, delta) {
+      if (index === 3) {
+        if (delta) this._handleDialStep(index, delta, () => this._syncPageKnob());
+        else this._syncPageKnob();
+      } else {
+        this._handleDialStep(index, delta);
+      }
     },
 
     _syncPageKnob() {
@@ -143,22 +151,19 @@
       if (!keys || !knob) return null;
       var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
       if (!Number.isFinite(value)) return null;
-      knob._setLogicalValue(value);
+      if (!knob.isDragging) knob._setLogicalValue(value);
       return value;
     },
 
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
-      // Both key grids bind here: #sd-keys carries the agent keys (and, in cmd
-      // mode, the command keys) and #sd-log-keys carries the eight logs keys.
-      // Scoping to the two grids keeps stray .sd-key markup elsewhere in the
-      // device out of the agent key-press path.
+      // Bind only the server-rendered key grid.
       var keys = Array.prototype.slice.call(
-        this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty), #sd-log-keys .sd-key:not(.is-empty)")
+        this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty)")
       );
       keys.forEach(function (key) {
-        if (key.hasAttribute("data-streamdeck-command") || key.disabled) return;
+        if (key.hasAttribute("phx-click") || key.hasAttribute("data-streamdeck-command") || key.disabled) return;
         var timer = null;
         var handler = function () {
           // Cancel any outstanding removal timer so rapid clicks don't race.
@@ -169,21 +174,14 @@
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
 
-          var logEventIndex = key.getAttribute("data-log-event-index");
-
-          // Log keys index the flattened transcript instead of selecting an
-          // agent. The server owns the resulting transcript offset.
-          // `data-log-event-index` is authoritative on its own; the
-          // client-tracked `_mode` only reconciles at the end of updated(),
-          // so gating on it would silently drop a click while it lagged.
-          if (logEventIndex !== null) {
-            self.pushEvent("log-key-select", { index: Number(logEventIndex) });
+          if (key.hasAttribute("data-chat-turn") || key.hasAttribute("data-chat-live")) {
+            self.pushEvent("input", { kind: "key_press", index: Number(key.getAttribute("data-streamdeck-key")) });
             return;
           }
 
           var identifier = key.getAttribute("data-streamdeck-identifier");
           if (identifier) {
-            self.pushEvent("key-press", { identifier: identifier });
+            self.pushEvent("input", { kind: "key", index: Number(key.getAttribute("data-streamdeck-key")), action: "down" });
           }
         };
         var keydownHandler = function (event) {
@@ -258,10 +256,10 @@
           var push = function () {
             self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
           };
-          // Logs and Settings each replace the command keys with a pane of
+          // Settings and Commands replace the command keys with a pane of
           // their own, so leave the flash visible before asking the
           // server-authoritative mode machine to change mode.
-          if (command === "logs" || command === "settings") setTimeout(push, 500);
+          if (command === "settings" || command === "commands") setTimeout(push, 500);
           else push();
         };
         key.addEventListener("click", handler);

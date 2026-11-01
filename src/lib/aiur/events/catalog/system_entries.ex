@@ -30,6 +30,7 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.ci_readiness.unavailable", "orchestration"},
     # aiur/workflow_store/reload.ex
     {"system.config.base_branch.changed", "config"},
+    {"system.config.executor.human_required_delegation.enabled", "config"},
     # aiur/workflow_store/reload.ex
     {"system.config.operator_relay.enabled", "config"},
     # aiur/workflow_store/reload_rejection.ex
@@ -69,6 +70,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.dispatch.prewarm_blocked.resolved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
     {"system.dispatch.todo_capacity_exceeded", "orchestration"},
+    # aiur/executor/transcript_format.ex
+    {"system.executor.transcript.drift", "executor-attention"},
     # aiur/executor/takeover_alert.ex
     {"system.executor_takeover.*", "executor-attention"},
     # aiur/experiments/auto/notifier.ex

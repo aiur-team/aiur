@@ -6,9 +6,12 @@ import { MS, registerBody, bodyRenderer, onModalClose } from './frame.js';
 import { itemEl } from './conversation-items.js';
 import { footer, notRetainedCue } from './conversation-footer.js';
 import { timed } from '../perf.js';
+import { teardownComposer } from './composer.js';
+import { timelineHTML, requestTimeline } from './doc.js';
 export const prependEntries = timed('convPage', prependEntriesImpl);
 export { itemEl, notRetainedCue };
 export const MAX_DOM = 500;
+let timelineHTMLValue = '<p class="bm-cue">Loading ticket timeline…</p>';
 let open = null, sequence = 0;
 export const trimmedBottom = () => open?.trimmed || false;
 const current = ref => ref === open && ref.req === sequence && MS.t?.id === ref.id && ctx.life === ref.life && !ref.life.disposed;
@@ -33,8 +36,7 @@ export function appendEntries(entries) {
   for (const entry of entries) {
     const el = itemEl(entry, ref.model); if (!el) continue;
     const existing = find(entry.id) || (entry.k === 'op' ? fx.claimLocalOp(entry) : null);
-    if (existing) existing.replaceWith(el); else log.append(el);
-    added.push(el);
+    if (existing) existing.replaceWith(el); else { log.append(el); added.push(el); }
   }
   if (rows().length > MAX_DOM) trim('top');
   if (rows().length) log.querySelector('[data-empty]')?.remove();
@@ -62,30 +64,54 @@ function state(msg) {
     const row = document.createElement('div'); row.className = 'cv-end'; row.dataset.empty = ''; row.textContent = 'No messages yet'; log.append(row);
   } else if (msg.state !== 'known_empty') log.querySelector('[data-empty]')?.remove();
   fx.composerState(open.msg);
+  fx.conversationApplied({ ...open.msg, kind: 'conversation-state' });
 }
 export function renderConversation(msg, t = open?.ticket, model = open?.model) {
   if (!open || !t) return;
-  const body = $('#tk-body'); open.renderOff?.();
+  const body = $('#tk-body'); open.renderOff?.(); fx.disposeLive();
+  teardownComposer();
   if (msg.state === 'not_retained') {
     const doc = bodyRenderer('doc');
     if (doc) doc(t, body, { note: 'Conversation not retained' }); else body.innerHTML = notRetainedCue();
     return;
   }
-  body.innerHTML = '<div class="cv"><div class="cv-main"><div class="cv-log" id="cv-log"></div>' +
+  const tab = open.tab || 'conversation';
+  body.innerHTML = '<div class="bm-tabs" role="tablist" aria-label="Ticket detail"><button type="button" role="tab" id="cv-tab-conversation" aria-controls="cv-panel-conversation" tabindex="' + (tab === 'conversation' ? '0' : '-1') + '" data-tab="conversation" aria-selected="' + (tab === 'conversation') + '">Conversation</button><button type="button" role="tab" id="cv-tab-timeline" aria-controls="cv-panel-timeline" tabindex="' + (tab === 'timeline' ? '0' : '-1') + '" data-tab="timeline" aria-selected="' + (tab === 'timeline') + '">Timeline</button></div><section role="tabpanel" id="cv-panel-conversation" aria-labelledby="cv-tab-conversation"' + (tab !== 'conversation' ? ' hidden' : '') + '><div class="cv"><div class="cv-main"><div class="cv-log" id="cv-log"></div>' +
     '<button class="cv-new" type="button" id="cv-new" hidden>' + MI.down + 'New activity</button>' +
     '<div class="cv-typing" id="cv-typing" hidden><i></i><i></i><i></i>' + esc(model.name) + ' is working</div><div id="cv-footer"></div></div>' +
-    '<div class="cv-map" id="cv-map" title=""><div class="mm" id="cv-mm"></div><div class="mm-vw" id="cv-vw"></div><div class="mm-tip" id="cv-tip"></div></div></div>';
+    '<div class="cv-map" id="cv-map" title=""><div class="mm" id="cv-mm"></div><div class="mm-vw" id="cv-vw"></div><div class="mm-tip" id="cv-tip"></div></div></div></section><section class="bm-body cv-timeline" role="tabpanel" id="cv-panel-timeline" aria-labelledby="cv-tab-timeline"' + (tab !== 'timeline' ? ' hidden' : '') + '>' + timelineHTMLValue + '</section>';
   open.pending = false; open.failed = false; open.trimmed = false; open.before = msg.before; open.more = msg.more; open.msg = msg;
   const fragment = document.createDocumentFragment();
   for (const entry of msg.entries) { const el = itemEl(entry, model); if (el) fragment.append(el); }
   $('#cv-log').append(fragment); renderNote(msg); if (rows().length > MAX_DOM) trim('top'); state(msg);
   fx.renderComposer(t, msg);
+  body.querySelectorAll('[data-tab]').forEach(button => {
+    button.addEventListener('click', () => {
+      if (!open) return;
+      open.tab = button.dataset.tab;
+      body.querySelectorAll('[role="tab"]').forEach(tabButton => {
+        const selected = tabButton === button;
+        tabButton.setAttribute('aria-selected', String(selected));
+        tabButton.tabIndex = selected ? 0 : -1;
+      });
+      body.querySelector('#cv-panel-conversation').hidden = open.tab !== 'conversation';
+      body.querySelector('#cv-panel-timeline').hidden = open.tab !== 'timeline';
+      if (open.tab === 'timeline') loadTimeline(open);
+    });
+    button.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...body.querySelectorAll('[role="tab"]')], index = tabs.indexOf(button);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      tabs[next].focus(); tabs[next].click();
+    });
+  });
   const ref = open;
   ref.renderOff = ref.life.on($('#cv-log'), 'scroll', () => {
     if (current(ref) && $('#cv-log').scrollTop <= 120 && ref.more && !ref.pending && !ref.failed) older();
   }, { passive: true });
   ref.life.frame('conversation-bottom', () => { if (current(ref) && $('#cv-log')) $('#cv-log').scrollTop = $('#cv-log').scrollHeight; });
-  fx.wireLive(t, model); fx.placeCommand();
+  fx.conversationApplied(msg); fx.placeCommand();
 }
 async function request(ref, before) {
   const serial = ++ref.serial;
@@ -108,7 +134,7 @@ async function older() {
   const ref = open; if (!ref || ref.pending || !ref.more) return;
   ref.pending = true; ref.failed = false;
   const row = document.createElement('div'); row.className = 'cv-end'; row.setAttribute('role', 'status'); row.textContent = 'Loading earlier…';
-  ref.loadingRow?.remove(); ref.loadingRow = row; $('#cv-log').prepend(row);
+  ref.loadingRow?.remove(); ref.loadingRow = row; $('#cv-log').prepend(row); fx.scheduleMap();
   const reply = await request(ref, ref.before);
   if (!current(ref)) return;
   ref.pending = false;
@@ -118,13 +144,13 @@ async function older() {
   else {
     ref.failed = true; row.textContent = 'Could not load earlier entries ';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Retry';
-    ref.offs.push(ref.life.on(button, 'click', older)); row.append(button);
+    ref.offs.push(ref.life.on(button, 'click', older)); row.append(button); fx.scheduleMap();
   }
 }
 export function receiveConversation(msg) {
   if (!open || !current(open) || msg?.v !== 1 || msg.id !== open.id) return;
   if (msg.kind === 'conversation') renderConversation(msg);
-  else if (msg.kind === 'conversation-append') { fx.appendEntries(msg.entries); if (msg.entries.length) state({ entries: msg.entries }); }
+  else if (msg.kind === 'conversation-append') { (fx.appendLive ?? appendEntries)(msg.entries); if (msg.entries.length) state({ entries: msg.entries }); }
   else if (msg.kind === 'conversation-state') {
     if (msg.state === 'not_retained') renderConversation({ ...open.msg, ...msg, entries: [] }); else state(msg);
   }
@@ -138,10 +164,20 @@ function renderNote(msg) {
 }
 function start(t) {
   close();
-  open = { id: t.id, ticket: t, model: modelInfo(t.agent?.model), req: ++sequence, serial: 0, life: ctx.life, offs: [], trimmed: false };
+  open = { id: t.id, ticket: t, model: modelInfo(t.agent?.model), req: ++sequence, serial: 0, life: ctx.life, offs: [], trimmed: false, tab: 'conversation' };
+  timelineHTMLValue = '<p class="bm-cue">Loading ticket timeline…</p>';
   const ref = open;
   ref.offs.push(ctx.life.every(60000, () => { if (current(ref)) state(ref.msg || {}); }));
   requestTail();
+}
+function loadTimeline(ref) {
+  if (ref.timelineRequested) return;
+  ref.timelineRequested = true;
+  requestTimeline(ref.ticket, timeline => {
+    if (!current(ref)) return;
+    timelineHTMLValue = timelineHTML(timeline);
+    const panel = $('#cv-panel-timeline'); if (panel) panel.innerHTML = timelineHTMLValue;
+  });
 }
 registerBody('conversation', start);
 Object.assign(fx, { appendEntries, appendItem, receiveConversation, reconnectConversation: requestTail });

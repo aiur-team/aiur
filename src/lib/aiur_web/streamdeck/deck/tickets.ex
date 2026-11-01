@@ -3,7 +3,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   alias Aiur.BuildOrder.TicketStatus
   alias AiurWeb.Streamdeck.Deck.Counts
 
-  @order ~w(error command retrying active ci_wait usage_limited parked paused)
+  @order ~w(error native_question command retrying active ci_wait usage_limited parked paused)
   @models %{"claude" => "Claude", "codex" => "Codex", "deepseek" => "DeepSeek", "kimi" => "Kimi"}
   @states TicketStatus.agent_states()
 
@@ -23,9 +23,11 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
     now = Enum.filter(now, &filed?/1) |> Enum.sort_by(&{rank(state(&1)), field(&1, :num)})
     plan = Enum.filter(plan, &filed?/1) |> Enum.sort_by(&{field(&1, :qpos) || :unknown, field(&1, :num)})
 
-    (now ++ plan)
+    extra = if match?({:epic, _}, filter), do: (field(sections, :nq) || []) ++ (field(sections, :hist) || []), else: []
+
+    (now ++ plan ++ Enum.filter(extra, &filed?/1))
     |> Enum.uniq_by(&field(&1, :num))
-    |> Enum.filter(&matches?(&1, filter))
+    |> Enum.filter(&matches?(&1, filter, sections))
     |> Enum.map(&key/1)
   end
 
@@ -40,13 +42,26 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   defp filed?(row), do: is_integer(field(row, :num)) and field(row, :num) > 0
   defp state(row), do: row |> field(:agent) |> field(:state)
   defp rank(state), do: Enum.find_index(@order, &(&1 == state)) || if(state in @states, do: 8, else: 9)
-  defp matches?(_row, :all), do: true
-  defp matches?(row, {:state, :queued}), do: field(row, :sec) == "plan"
-  defp matches?(row, {:state, states}) when is_list(states), do: Enum.any?(states, &matches?(row, {:state, &1}))
-  defp matches?(row, {:state, :unknown}), do: field(row, :sec) == "now" and state(row) not in ~w(active command error retrying ci_wait usage_limited parked paused)
-  defp matches?(row, {:state, :live}), do: field(row, :sec) == "now"
-  defp matches?(row, {:state, state}), do: field(row, :sec) == "now" and state(row) == state
-  defp matches?(row, {kind, key}) when kind in [:feature, :epic], do: field(row, kind) == key
+  defp matches?(_row, :all, _sections), do: true
+  defp matches?(row, {:state, :queued}, _sections), do: field(row, :sec) == "plan"
+  defp matches?(row, {:state, states}, sections) when is_list(states), do: Enum.any?(states, &matches?(row, {:state, &1}, sections))
+  defp matches?(row, {:state, :unknown}, _sections), do: field(row, :sec) == "now" and state(row) not in ~w(active native_question command error retrying ci_wait usage_limited parked paused)
+  defp matches?(row, {:state, :live}, _sections), do: field(row, :sec) == "now"
+  defp matches?(row, {:state, state}, _sections), do: field(row, :sec) == "now" and state(row) == state
+
+  defp matches?(row, {:feature, slug}, sections) do
+    case field(sections, :features) do
+      features when is_map(features) -> field(row, :epic) in (field(Map.get(features, slug), :epics) || [])
+      _ -> field(row, :feature) == slug
+    end
+  end
+
+  defp matches?(row, {:epic, key}, _sections) do
+    case field(row, :general_epics) do
+      nil -> field(row, :epic) == key
+      epics -> key in epics
+    end
+  end
 
   defp key(row) do
     queued = field(row, :sec) == "plan"
@@ -61,6 +76,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
       state: state,
       label: if(queued, do: "Queued ##{field(row, :qpos) || "?"}", else: status.label),
       face: face,
+      native_hold: field(field(row, :agent), :native_hold),
       pct: pct,
       model: if(!queued, do: model(field(row, :agent)))
     }
@@ -70,12 +86,23 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   defp model(agent), do: field(agent, :name) || @models[field(agent, :model)]
 
   defp render_fields(key, row, queued) do
+    family = row |> field(:agent) |> field(:model) |> Aiur.CodingAgent.family_for()
+    provider = Aiur.CodingAgent.provider_descriptor(family) || %{}
+    freshness = if is_nil(key.pct), do: "unknown", else: to_string(field(row, :progress_freshness) || "fresh")
+    pct = if freshness != "unknown", do: key.pct
+    priority = field(row, :priority)
+
     Map.merge(key, %{
       identifier: key.id,
-      vendor: row |> field(:agent) |> field(:model),
+      vendor: Map.get(provider, :provider, family),
+      vendor_logo: Map.get(provider, :logo),
+      icon: field(row, :lane),
+      priority: is_integer(priority) and priority > 0 and priority < 5,
+      dependency_ready: field(row, :dependency_ready),
       bucket: bucket(key.state, queued),
-      progress_percent: key.pct,
-      progress_freshness: if(is_nil(key.pct), do: "unknown", else: "fresh")
+      pct: pct,
+      progress_percent: pct,
+      progress_freshness: freshness
     })
   end
 
@@ -87,7 +114,9 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   # Bucket remains a compatibility token for existing control/footer consumers.
   defp bucket(_face, true), do: :queued
   defp bucket("active", false), do: :running
-  defp bucket("paused", false), do: :paused
+  defp bucket("native_question", false), do: :alert
+  defp bucket("command", false), do: :alert
+  defp bucket(state, false) when state in ~w(paused parked usage_limited ci_wait), do: :paused
   defp bucket(_state, false), do: :stuck
   defp source_freshness(%{progress_freshness: "fresh"} = key, status) when status != "ok", do: %{key | progress_freshness: "stale"}
   defp source_freshness(key, _status), do: key

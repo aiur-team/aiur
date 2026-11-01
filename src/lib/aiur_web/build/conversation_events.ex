@@ -10,7 +10,7 @@ defmodule AiurWeb.Build.ConversationEvents do
   """
 
   @log_limit 500
-  @progress ~w(progress progress.checkin progress.phase)
+  @progress ~w(agent.progress agent.progress.checkin agent.progress.phase progress progress.checkin progress.phase)
   @dep_states %{"failed" => "failed", "not_planned" => "not planned", "closed" => "closed", "done" => "closed", "queued" => "queued", "open" => "open"}
 
   @type entry :: map()
@@ -19,10 +19,10 @@ defmodule AiurWeb.Build.ConversationEvents do
   @spec log_limit() :: pos_integer()
   def log_limit, do: @log_limit
 
-  @doc "Maps the ticket's own event-log rows (rows 1–5); every other topic is not shown."
+  @doc "Maps the ticket's own event-log rows; unsupported topics are omitted."
   @spec from_log([map()], String.t(), %{optional(pos_integer()) => 0..100}) :: [entry()]
   def from_log(rows, identifier, percents) do
-    prefix = "ticket." <> identifier <> ".agent."
+    prefix = "ticket." <> identifier <> "."
 
     Enum.flat_map(rows, fn row ->
       with topic when is_binary(topic) <- row[:topic],
@@ -38,6 +38,14 @@ defmodule AiurWeb.Build.ConversationEvents do
 
   defp log_kind(topic, pct) when topic in @progress and is_integer(pct), do: {"prog", "Progress · #{pct}%", pct}
   defp log_kind(topic, _pct) when topic in @progress, do: {"prog", "Progress updated", nil}
+  defp log_kind("pr.opened", _), do: {"pr", "Opened PR", nil}
+  defp log_kind("pr.ready_for_review", _), do: {"pr", "PR ready for review", nil}
+  defp log_kind("branch.push", _), do: {"commit", "Commit pushed", nil}
+  defp log_kind("agent.phase.review.start", _), do: {"review", "Review started", nil}
+  defp log_kind("agent.phase.review.end", _), do: {"review", "Review complete", nil}
+  defp log_kind("agent.blocked", _), do: {"dep", "Blocked", nil}
+  defp log_kind("agent.unblocked", _), do: {"dep", "Unblocked", nil}
+  defp log_kind("agent.pause.request", _), do: {"you", "Agent asked to pause", nil}
   defp log_kind("phase.review.start", _), do: {"review", "Review started", nil}
   defp log_kind("phase.review.end", _), do: {"review", "Review complete", nil}
   defp log_kind("blocked", _), do: {"dep", "Blocked", nil}
@@ -59,18 +67,23 @@ defmodule AiurWeb.Build.ConversationEvents do
   @doc """
   Current-fact rows (rows 6–16). `facts` carries `:deps` (dependency rows by id),
   `:merges` (a list, or `:unavailable`), `:decisions` (`{:ok, list}` or
-  `:unavailable`), `:pause` (the pause reason), `:by_you_at` and `:repository`
-  (`"owner/name"`).
+  `:unavailable`), `:logged_events` (mapped history rows), `:pause` (the pause
+  reason), `:by_you_at` and `:repository` (`"owner/name"`).
   """
   @spec current_facts(map(), map()) :: %{deps: [entry()], tail: [entry()]}
   def current_facts(row, facts) do
     merges = if is_list(facts[:merges]), do: facts[:merges], else: []
     repo = facts[:repository]
     deps = facts[:deps] || %{}
-    dep_rows = for id <- row["deps"] || [], dep = deps[id], is_map(dep), is_integer(dep["num"]), do: dep_event(dep, merge_for(merges, dep["id"], repo))
-    tail = List.wrap(pr_event(row, merge_for(merges, row["id"], repo))) ++ command_events(row, facts[:decisions], repo) ++ List.wrap(state_event(row, facts))
+    dep_rows = for id <- row_value(row, :deps) || [], dep = deps[id], is_map(dep), is_integer(dep["num"]), do: dep_event(dep, merge_for(merges, dep["id"], repo))
+    pr = pr_event(row, merge_for(merges, row_value(row, :id), repo))
+    pr_rows = if match?(%{ev: "pr"}, pr) and logged_pr_open?(facts[:logged_events]), do: [], else: List.wrap(pr)
+    tail = pr_rows ++ command_events(row, facts[:decisions], repo) ++ List.wrap(state_event(row, facts))
     %{deps: dep_rows, tail: tail}
   end
+
+  defp logged_pr_open?(events) when is_list(events), do: Enum.any?(events, &match?(%{ev: "pr", label: "Opened PR"}, &1))
+  defp logged_pr_open?(_events), do: false
 
   defp dep_event(dep, merge) do
     merged? = get_in(dep, ["pr", "state"]) == "merged"
@@ -90,17 +103,24 @@ defmodule AiurWeb.Build.ConversationEvents do
     end
   end
 
+  defp merge_for(_merges, id, _repo) when is_nil(id), do: nil
   defp merge_for(_merges, _id, nil), do: nil
   defp merge_for(merges, id, repo), do: Enum.find(merges, &(&1.ticket_id == id and is_binary(&1.repository) and String.downcase(&1.repository) == String.downcase(repo)))
 
   defp pr_event(_row, %{number: num} = merge) when is_integer(num), do: event("ev:merge:#{num}", "merge", "Merged PR ##{num}", at: millis!(merge.merged_at))
 
-  defp pr_event(%{"pr" => %{"num" => num, "state" => state}} = row, nil) when is_integer(num) do
-    case {state, row["status"]} do
-      {"merged", _} -> event("ev:merge:#{num}", "merge", "Merged PR ##{num}", at: row["end"])
-      {"open", _} -> event("ev:pr:#{num}", "pr", "Opened PR ##{num}", sub: row["title"])
-      {"closed", "failed"} -> event("ev:fail:pr:#{num}", "fail", "PR ##{num} closed", at: row["end"])
-      _ -> nil
+  defp pr_event(row, nil) do
+    pr = row_value(row, :pr)
+    num = is_map(pr) && row_value(pr, :num)
+    state = is_map(pr) && row_value(pr, :state)
+
+    if is_integer(num) do
+      case {state, row_value(row, :status)} do
+        {"merged", _} -> event("ev:merge:#{num}", "merge", "Merged PR ##{num}", at: row_value(row, :end))
+        {"open", _} -> event("ev:pr:#{num}", "pr", "Opened PR ##{num}", sub: row_value(row, :title))
+        {"closed", "failed"} -> event("ev:fail:pr:#{num}", "fail", "PR ##{num} closed", at: row_value(row, :end))
+        _ -> nil
+      end
     end
   end
 
@@ -139,8 +159,14 @@ defmodule AiurWeb.Build.ConversationEvents do
   defp parked(:github_budget_hold), do: "Parked · GitHub budget hold"
   defp parked(_reason), do: "Parked"
 
+  defp row_value(row, key), do: Map.get(row, key, Map.get(row, Atom.to_string(key)))
+
   @spec agent_state(map()) :: String.t() | nil
-  def agent_state(row), do: get_in(row, ["agent", "state"])
+  def agent_state(row) do
+    with agent when is_map(agent) <- row_value(row, :agent) do
+      row_value(agent, :state)
+    end
+  end
 
   @doc "The live-only \"Resumed\" row (row 17) when a change moves the open ticket from paused or parked to active."
   @spec resumed(String.t() | nil, String.t() | nil, integer() | nil) :: entry() | nil

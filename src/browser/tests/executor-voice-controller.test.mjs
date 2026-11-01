@@ -4,17 +4,23 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 
 const script = readFileSync(new URL('../../priv/static/executor-voice-controller.js', import.meta.url), 'utf8');
+function node(tag = 'div') {
+  return {tag, textContent: '', children: [], attributes: {}, listeners: {},
+    append(...items) { this.children.push(...items); }, replaceChildren() { this.children = []; },
+    setAttribute(key, value) { this.attributes[key] = value; },
+    addEventListener(key, fn) { this.listeners[key] = fn; }};
+}
 function fixture() {
   const fields = new Map();
   const button = {addEventListener() {}, removeEventListener() {}};
   const el = {dataset: {}, querySelector(selector) {
     if (selector.endsWith('-toggle]')) return button;
-    if (!fields.has(selector)) fields.set(selector, {textContent: ''});
+    if (!fields.has(selector)) fields.set(selector, node());
     return fields.get(selector);
   }};
   const window = {atob: value => Buffer.from(value, 'base64').toString('binary'),
     AiurVoiceTransport: {open: () => ({joined: Promise.resolve(), push() {}, close() {}})}};
-  vm.runInNewContext(script, {window, Uint8Array, DataView});
+  vm.runInNewContext(script, {window, Uint8Array, DataView, document: {createElement: node}});
   const controller = new window.AiurExecutorVoiceController({querySelector: () => el});
   controller.bindElements();
   return {controller, el, fields, window, button};
@@ -226,4 +232,70 @@ test('missing acknowledgments and disconnected receipt transport remain explicit
   options.onError();
   assert.match(f.fields.get('[data-executor-voice-receipt]').textContent, /acknowledgement unavailable/);
   assert.equal(f.controller.receipts.get(103).ack_status, 'unavailable');
+});
+
+
+test('session join carries the selected provider and model and unlocks them after ending', async () => {
+  const f = fixture();
+  const started = prepareStart(f);
+  const provider = f.el.querySelector('[data-executor-voice-provider]');
+  const model = f.el.querySelector('[data-executor-voice-model]');
+  provider.value = 'openai_realtime';
+  model.value = 'chosen-openai-model';
+  await f.controller.start();
+  assert.equal(started.options.joinPayload().provider, 'openai_realtime');
+  assert.equal(started.options.joinPayload().model, 'chosen-openai-model');
+  assert.equal(provider.disabled, true);
+  f.controller.ended();
+  assert.equal(provider.disabled, false);
+  provider.value = 'elevenlabs_agents';
+  model.value = 'chosen-eleven-model';
+  await f.controller.start();
+  assert.equal(started.options.joinPayload().provider, 'elevenlabs_agents');
+  assert.equal(started.options.joinPayload().model, 'chosen-eleven-model');
+});
+
+test('comparison transport renders both meters, unknown first audio and saves ratings without sending audio', async () => {
+  const f = fixture();
+  let options;
+  const sent = [];
+  f.window.AiurVoiceTransport = {open(opts) {
+    options = opts;
+    return {joined: Promise.resolve(), close() {}, push(event, payload) { sent.push({event, payload}); }};
+  }};
+  f.el.dataset.configured = 'true';
+  f.controller.bindElements();
+  await Promise.resolve();
+  assert.equal(options.topic, 'voice:executor_receipts');
+  assert.ok(sent.some(item => item.event === 'comparison_list'));
+  const row = {id: 'comparison-1', at: 'session-time', provider: 'openai_realtime', model: 'chosen', status: 'ended',
+    first_audio_ms: null, minutes: 2, estimated_cost_usd: 0.36, rating: null, note: ''};
+  options.handlers.comparison({rows: [row], meters: [
+    {provider: 'openai_realtime', used_seconds: 120, cap_seconds: 2700},
+    {provider: 'elevenlabs_agents', used_seconds: 60, cap_seconds: 2700}]});
+  assert.match(f.fields.get('[data-executor-voice-meter]').textContent, /OpenAI: 2.00 \/ 45 min/);
+  assert.match(f.fields.get('[data-executor-voice-meter]').textContent, /ElevenLabs: 1.00 \/ 45 min/);
+  const [empty, cell] = f.fields.get('[data-executor-voice-comparisons]').children[0].children;
+  assert.equal(empty.textContent, 'No session');
+  const [metrics, rating, note, save] = cell.children;
+  assert.match(metrics.textContent, /First audio: unavailable/);
+  assert.match(metrics.textContent, /chosen/);
+  assert.match(metrics.textContent, /2.00 min/);
+  assert.match(metrics.textContent, /USD 0.36 estimate/);
+  assert.equal(rating.value, '');
+  rating.value = '4';
+  note.value = 'Easy to interrupt';
+  save.listeners.click();
+  const last = sent.at(-1);
+  assert.equal(last.event, 'comparison_rate');
+  assert.equal(last.payload.id, row.id);
+  assert.equal(last.payload.rating, 4);
+  assert.equal(last.payload.note, 'Easy to interrupt');
+  assert.equal('audio' in last.payload, false);
+
+  options.handlers.comparison({rows: [{id: 'reserved', at: 'start', provider: 'elevenlabs_agents',
+    model: 'chosen', status: 'reserved', reserved_seconds: 180, first_audio_ms: null, rating: null, note: ''}], meters: []});
+  const activeCell = f.fields.get('[data-executor-voice-comparisons]').children[0].children[0];
+  assert.equal(activeCell.children.length, 1);
+  assert.match(activeCell.children[0].textContent, /First audio: unavailable · reserved \/ interrupted · unavailable$/);
 });

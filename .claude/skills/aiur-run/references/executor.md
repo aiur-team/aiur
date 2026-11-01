@@ -218,6 +218,15 @@ dispatch ramp.
 
 Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
 
+An `agent.handoff.human_review` wake is a historical observation, not proof of
+the ticket's current state. Before delivery, Aiur checks its latest GitHub issue
+projection and discards the wake when the ticket is closed or
+`agent:human-review` is no longer its sole agent state. If the projection is
+unavailable, Aiur delivers the wake so a real handback is not lost; re-fetch
+the issue labels before acting and skip any relabel if the ticket has moved on.
+Wake records may include `observed_state` and `observed_updated_at` as emission
+context; they do not replace the current-state check.
+
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`
 automatically — the `pull_request_review` webhook and the review-submission

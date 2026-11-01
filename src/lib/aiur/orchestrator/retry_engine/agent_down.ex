@@ -35,7 +35,13 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
       issue_id ->
         running_entry = running |> Map.fetch!(issue_id) |> clear_completed_fallback_replacement()
         state = expire_pending_control(state, running_entry, issue_id)
-        state = TokenAccounting.record_session_completion_totals(state, running_entry)
+
+        state =
+          TokenAccounting.record_session_completion_totals(
+            state,
+            running_entry,
+            Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+          )
 
         state =
           state

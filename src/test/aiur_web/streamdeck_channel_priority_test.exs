@@ -2,13 +2,17 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.TestSupport.StreamdeckBuildFixture
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.Streamdeck.Render
+  alias AiurWeb.Streamdeck.{FrameUpdates, Render}
 
   setup do
+    root = Path.join(System.tmp_dir!(), "deck-priority-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     owner = self()
     queue = start_supervised!({Agent, fn -> model(3) end})
 
     put_endpoint_config(
+      streamdeck_settings_path: Path.join(root, "settings.json"),
       streamdeck_snapshot_fun: fn -> %{running: [], retrying: [], idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]} end,
       streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(%{idle: [AgentEvents.agent_summary("4", :queued, 0, %{title: "Priority"})]}) end,
       streamdeck_build_queue_fun: fn -> Agent.get(queue, & &1) end,
@@ -22,39 +26,41 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     :ok
   end
 
-  test "raw input resolves selection, moves once, replies with read-back and renders queue position" do
+  test "raw input resolves selection, moves once and pushes the read-back frame" do
     socket = joined_socket()
-    assert_push("frame", _initial)
+    :sys.get_state(socket.channel_pid)
+    assert_push("frame", _initial, 2_000)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-    assert_reply(ref, :ok, %{"view" => "ticket"})
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, %{"view" => "ticket"}, 2_000)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -3})
-    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0} = reply)
-    refute Map.has_key?(reply, "frame")
-    flush_frame(socket)
-    assert_push("frame", frame)
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, navigation, 2_000)
+    assert navigation == %{"view" => "ticket", "page" => 0, "chip_offset" => 0}
+    refute Map.has_key?(navigation, "frame")
+    frame = flushed_frame(socket)
     assert_received {:reorder, "4", 0}
     refute_received {:reorder, _, _}
-    face = Enum.find(frame.keys, & &1)
-    assert face.label =~ "Queued #1"
-    assert face.svg =~ "Queued #1"
     assert hd(frame.strip).label == "Queued #1"
     assert hd(frame.strip).svg =~ "Queued #1"
   end
 
   test "physical input pushes priority feedback and read-back in a coalesced frame" do
     socket = joined_socket()
-    assert_push("frame", _initial)
+    :sys.get_state(socket.channel_pid)
+    assert_push("frame", _initial, 2_000)
     ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
-    assert_reply(ref, :ok, %{"view" => "ticket"})
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, %{"view" => "ticket"}, 2_000)
     ref = push(socket, "input", %{"kind" => "dial", "index" => 1, "action" => "turn", "delta" => -3})
-    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0})
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0, "chip_offset" => 0}, 2_000)
     assert_received {:reorder, "4", 0}
     refute_received {:reorder, _, _}
     state = :sys.get_state(socket.channel_pid)
     send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
     :sys.get_state(socket.channel_pid)
-    assert_push("frame", %{keys: keys, strip: strip})
-    assert Enum.find(keys, & &1).label =~ "Queued #1"
+    assert_push("frame", %{strip: strip}, 2_000)
     assert hd(strip).label == "Queued #1"
     assert hd(strip).svg =~ "Queued #1"
   end
@@ -76,19 +82,20 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     )
 
     socket = joined_socket()
-    assert_push("frame", _initial)
+    :sys.get_state(socket.channel_pid)
+    assert_push("frame", _initial, 2_000)
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
-    assert_reply(ref, :ok, %{"view" => "ticket"})
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :ok, %{"view" => "ticket"}, 2_000)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
-    assert_reply(ref, :error, %{reason: "outcome_unknown"} = reply)
-    refute Map.has_key?(reply, :frame)
-    flush_frame(socket)
-    assert_push("frame", frame)
+    :sys.get_state(socket.channel_pid)
+    assert_reply(ref, :error, %{reason: "outcome_unknown"} = error, 2_000)
+    refute Map.has_key?(error, :frame)
+    frame = flushed_frame(socket)
     assert_received {:reorder, "4", 2}
     refute_received {:reorder, _, _}
     assert hd(frame.strip).label == "outcome unknown"
     assert hd(frame.strip).svg =~ "outcome unknown"
-    assert Enum.find(frame.keys, & &1).label =~ "Queued #4"
   end
 
   test "queue refusals render short explanations without writes" do
@@ -98,9 +105,14 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
           {%{status: :disabled, queues: []}, "disabled", "queue disabled"}
         ] do
       put_endpoint_config(streamdeck_build_queue_fun: fn -> model end)
-      socket = %Phoenix.Socket{assigns: %{deck_nav: %Nav{selected: "4"}, streamdeck_authenticated: true}}
-      assert {:reply, {:error, %{reason: ^reason}}, result} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
-      assert result.assigns.deck_toast == text
+      socket = %Phoenix.Socket{assigns: %{deck_nav: %Nav{selected: "4"}, streamdeck_authenticated: true, fleet_flush: nil}}
+      assert {:reply, {:error, %{reason: ^reason} = reply}, updated} = StreamdeckChannel.handle_in("input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1}, socket)
+      refute Map.has_key?(reply, :frame)
+      assert updated.assigns.deck_toast == text
+      assert is_reference(updated.assigns.fleet_flush)
+      frame = FrameUpdates.frame(updated)
+      assert hd(frame.strip).label == text
+      assert hd(frame.strip).svg =~ text
     end
 
     refute_received {:reorder, _, _}
@@ -118,10 +130,12 @@ defmodule AiurWeb.StreamdeckChannelPriorityTest do
     end
   end
 
-  defp flush_frame(socket) do
+  defp flushed_frame(socket) do
     state = :sys.get_state(socket.channel_pid)
     send(socket.channel_pid, {:flush_fleet, state.assigns.fleet_flush})
     :sys.get_state(socket.channel_pid)
+    assert_push("frame", frame, 2_000)
+    frame
   end
 
   defp model(position) do

@@ -230,15 +230,12 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     request = Enum.find_index(messages, &match?({:request, _}, &1))
     assert is_integer(reservation) and reservation < request
     stop_supervised!(LabelBackfill)
+    # Expire the window before boot: init starts a batch at once, and a tick that joins it gets that batch's result.
+    update(ctx.fixture, %{now: DateTime.add(ctx.now, 3660)})
     opts = Keyword.put(ctx.opts, :writer, fn _, _, _ -> {:error, :enospc} end)
     server = boot(opts)
-    assert tick_after_expiry(server, ctx) in [%{state: :unavailable, reason: :checkpoint_write_failed}, {:error, :checkpoint_write_failed}]
+    assert tick(server) in [%{state: :unavailable, reason: :checkpoint_write_failed}, {:error, :checkpoint_write_failed}]
     assert requests() == []
-  end
-
-  defp tick_after_expiry(server, ctx) do
-    update(ctx.fixture, %{now: DateTime.add(ctx.now, 3660)})
-    tick(server)
   end
 
   defp drain(acc) do
@@ -398,10 +395,18 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     if Enum.any?(messages, &match?({:"$gen_call", _, :pause}, &1)), do: :ok, else: wait_for_pause(server, attempts - 1)
   end
 
-  test "supervision appends the optional writer after all existing children" do
+  test "supervision keeps the optional writer before the Executor binding" do
     opts = [interactive_cli?: false, headless?: true, dashboard?: false, tailscale_funnel?: false]
     enabled = Aiur.Application.child_specs([recording?: true] ++ opts)
-    assert Supervisor.child_spec(List.last(enabled), []).id == LabelBackfill
+
+    assert Enum.map(Enum.take(enabled, -5), &Supervisor.child_spec(&1, []).id) == [
+             LabelBackfill,
+             Aiur.Executor.Session,
+             Aiur.Executor.SessionIngest,
+             Aiur.Executor.TranscriptSupervisor,
+             Aiur.Executor.TranscriptIngest
+           ]
+
     disabled = Aiur.Application.child_specs([recording?: false] ++ opts)
     refute Enum.any?(disabled, &(Supervisor.child_spec(&1, []).id == LabelBackfill))
   end

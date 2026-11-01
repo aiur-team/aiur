@@ -91,6 +91,11 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@executor_handoff_example_path Path.expand(\"../../../../.aiur/examples/executor-handoff.md.example\", __DIR__)",
       "@external_resource Path.relative_to(@executor_handoff_example_path, File.cwd!(), force: true)"
     ],
+    # Glossary bytes are embedded at compilation; runtime never reads the skill path.
+    "aiur/voice_converse/host/roles.ex" => [
+      "@glossary_path Path.expand(\"../../../../../.claude/skills/aiur-agent/dictated-input.md\", __DIR__)",
+      "@external_resource @glossary_path"
+    ],
     "aiur/prompt_builder.ex" => [
       "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)",
       "@external_resource @shared_prompt_path"
@@ -147,6 +152,12 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     ],
     "aiur/config/schema/voice.ex" => [
       "@external_resource Path.relative_to(Path.join(__DIR__, \"voice_conversation.ex\"), File.cwd!(), force: true)"
+    ],
+    "aiur/config/schema/voice_conversation.ex" => [
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"voice_conversation_providers.ex\"), File.cwd!(), force: true)"
+    ],
+    "aiur/config/schema/voice_conversation_providers.ex" => [
+      "do: @external_resource(Path.relative_to(Path.join(__DIR__, source), File.cwd!(), force: true))"
     ]
   }
 

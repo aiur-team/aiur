@@ -79,12 +79,18 @@ defmodule Aiur.Conversation.History do
 
   @doc "Subscribe first, catch up, then discard live entries at or below the returned head. Live entries are raw."
   @spec subscribe(Ref.t() | String.t()) :: :ok | {:error, atom()}
-  def subscribe(ref) do
-    with {:ok, snapshot} <- HistoryReader.snapshot(ref) do
+  def subscribe(%Ref{} = ref), do: subscribe(Ref.conversation_id(ref))
+
+  def subscribe(id) when is_binary(id) do
+    if Regex.match?(~r/\Aconv_[a-z2-7]{26}\z/, id) do
       pubsub = Application.get_env(:aiur, :conversation_journal, []) |> Keyword.get(:pubsub, Aiur.PubSub)
-      Phoenix.PubSub.subscribe(pubsub, "conversation:" <> snapshot.id)
+      Phoenix.PubSub.subscribe(pubsub, "conversation:" <> id)
+    else
+      {:error, :not_found}
     end
   end
+
+  def subscribe(_ref), do: {:error, :not_found}
 
   @doc "Whether the journal has reported an unresolved write failure in this daemon."
   @spec degraded?(String.t()) :: boolean()

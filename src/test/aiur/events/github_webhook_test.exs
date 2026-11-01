@@ -263,7 +263,7 @@ defmodule Aiur.Events.GithubWebhookTest do
       assert payload.action == "closed"
       assert payload.post_deploy_checks == ["open /post-deploy and verify this merge appears"]
       assert opts[:bypass_contamination] == true
-      assert opts[:dedup_key] == {@repo, "pr:closed:901:#{ticket}", "deadbeef"}
+      assert opts[:dedup_key] == {@repo, "pr:merged:901:#{ticket}", "merged"}
     end
 
     test "closed without merge publishes nothing, matching the firehose" do

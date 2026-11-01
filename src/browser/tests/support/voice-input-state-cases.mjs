@@ -143,7 +143,8 @@ test('capability patches preserve active capture and disable next activation whi
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'typed while unavailable')
   await state(page, 'unavailable', 'Voice input is not configured.')
   await page.getByRole('button', { name: 'Enable voice', exact: true }).click()
-  await state(page, 'idle', 'Press the microphone to dictate. Review the text, then press Send.')
+  await state(page, 'sent', 'Press the microphone to dictate. Review the text, then press Send.')
+  await expect(page.locator('#standalone-voice [data-voice-delivery]')).toHaveText('Delivered to the agent')
 })
 
 

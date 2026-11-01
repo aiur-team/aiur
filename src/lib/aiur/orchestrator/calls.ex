@@ -1,10 +1,11 @@
 defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
+  alias Aiur.Orchestrator.CommandOverrideContext
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.OperatorMessages.Calls, as: MessageCalls
-  alias Aiur.Orchestrator.OperatorMessages.{HeldReads, Snapshot}
+  alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads, Snapshot}
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
   @spec handle_call(term(), GenServer.from(), Aiur.Orchestrator.State.t()) :: tuple()
@@ -20,10 +21,16 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:read_held_messages, identifier, max, deadline}, _from, state),
     do: HeldReads.handle_call(state, identifier, max, deadline: deadline)
 
+  def handle_call({:claim_executor_hook_batch, binding, boundary, opts}, _from, state),
+    do: Aiur.Handoff.claim_or_empty(state, fn -> ExecutorHookClaims.handle_call(state, binding, boundary, opts) end)
+
   def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
 
   def handle_call(:list_active_identifiers, _from, state),
     do: StatusReport.list_active_identifiers(state)
+
+  def handle_call({:command_override_context, identifier}, _from, state),
+    do: {:reply, CommandOverrideContext.read(state, identifier), state}
 
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)

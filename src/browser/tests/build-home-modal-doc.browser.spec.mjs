@@ -23,6 +23,7 @@ async function display(page, patch = {}, options = {}) {
     ctx.push = (event, payload) => {
       window.docCalls.push({ event, payload })
       if (['ticket-doc', 'queue-add'].includes(event)) return new Promise(resolve => { window[event + 'Reply'] = resolve })
+      if (event === 'conversation-page' && options.conversation) return Promise.resolve({ v: 1, kind: 'conversation', id: payload.id, state: 'known_empty', entries: [], more: false, composer: 'ready' })
       return push(event, payload)
     }
     ctx.snap.writable = options.writable ?? true
@@ -54,6 +55,60 @@ test('fixture body and author load through the real ticket-doc event', async ({ 
   await expect(page.locator('.bm-src')).toContainText(/by @\w/)
   await expect(page.locator('.bm-body')).not.toContainText('Loading the issue body')
   expect(t.agent).toBeFalsy()
+})
+
+test('timeline tabs expose keyboard semantics and reflow from phone to ultrawide widths', async ({ page }) => {
+  const t = await display(page)
+  const now = Date.now()
+  await pushDoc(page, t.id, { state: 'available', timeline: {
+    items: [
+      { id: 1, at: now - 3_600_000, actor: 'Executor', kind: 'note', label: 'Review approved' },
+      { id: 2, at: now - 1_800_000, actor: 'CI', kind: 'emit', status: 'ci_failure', label: 'test-linux failed', run_url: 'https://github.com/aiur-team/aiur/actions/runs/123' },
+      { id: 3, at: now, actor: 'Aiur agent', kind: 'rework', label: 'Changes requested · rework round 1' },
+    ], phases: [], progress: [{ at: now - 3_500_000, percent: 60 }, { at: now, percent: 80 }], truncated: false,
+  } })
+  const tabs = page.getByRole('tablist', { name: 'Ticket detail' })
+  await expect(tabs.getByRole('tab', { name: 'Description' })).toHaveAttribute('aria-selected', 'true')
+  await tabs.getByRole('tab', { name: 'Description' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(tabs.getByRole('tab', { name: 'Timeline' })).toBeFocused()
+  await expect(page.getByRole('tabpanel')).toContainText('test-linux failed')
+  await expect(page.getByRole('link', { name: 'Open CI run' })).toHaveAttribute('href', 'https://github.com/aiur-team/aiur/actions/runs/123')
+  await expect(page.locator('.bm-timegaps')).toContainText('30 min')
+  await expect(page.locator('.bm-timeprogress li')).toHaveCount(2)
+  for (const colorScheme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme }, colorScheme)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme)
+    for (const [width, height] of [[320, 568], [390, 844], [844, 390], [768, 1024], [1024, 768], [1280, 800], [1920, 1080], [3440, 1440]]) {
+      await page.setViewportSize({ width, height })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+      await expect(page.locator('.bm-timeitem').last()).toBeVisible()
+      const boxes = await page.locator('.bm-timeitem').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()))
+      for (let i = 1; i < boxes.length; i++) expect(boxes[i].top).toBeGreaterThanOrEqual(boxes[i - 1].bottom - 1)
+      if (width === 390) expect(parseFloat(await page.locator('.bm-timegaps').evaluate(node => getComputedStyle(node).fontSize))).toBeLessThanOrEqual(10)
+    }
+  }
+})
+
+test('first timeline tab render handles a 200 event history within 500 ms', async ({ page }) => {
+  const t = await display(page)
+  const start = Date.now() - 200 * 60_000
+  const items = Array.from({ length: 220 }, (_, i) => ({ id: i + 1, at: start + i * 60_000, actor: ['Executor', 'CI', 'Aiur agent', 'Aiur daemon'][i % 4], kind: i % 2 ? 'emit' : 'note', label: `History event ${i + 1}`, topic: `ticket.${t.id}.agent.progress` }))
+  await pushDoc(page, t.id, { state: 'available', timeline: { items, phases: [], progress: [], truncated: false } })
+  const elapsed = await page.evaluate(() => new Promise(resolve => {
+    const started = performance.now()
+    const observer = new MutationObserver(() => {
+      if (document.querySelectorAll('.bm-timeitem').length === 220) {
+        observer.disconnect()
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now() - started)))
+      }
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    document.querySelector('#bm-tab-timeline').click()
+  }))
+  await expect(page.locator('.bm-timeitem')).toHaveCount(220)
+  process.stdout.write(`Timeline tab 220-event render: ${Math.round(elapsed)} ms\n`)
+  expect(elapsed).toBeLessThan(500)
 })
 
 test('doc cues preserve order, hostile text, unknown facts, dependencies and note placement', async ({ page }) => {
@@ -165,10 +220,14 @@ test('mounted hook reconnect re-reads doc and turns pending adds into unknown ou
 })
 
 test('conversation opens skip body reads; doc close unsubscribes and pack ids never request GitHub', async ({ page }) => {
-  await display(page, { agent: { model: 'codex', state: 'active' }, start: 1 })
+  await display(page, { agent: { model: 'codex', state: 'active' }, start: 1 }, { conversation: true })
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc'))).toEqual([])
+  await expect(page.locator('#cv-tab-conversation')).toBeVisible()
+  await page.locator('#cv-tab-conversation').focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc').length)).toBe(1)
   await page.keyboard.press('Escape')
-  expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc-close'))).toEqual([])
+  expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc-close').length)).toBe(1)
   await display(page)
   await page.keyboard.press('Escape')
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc-close').length)).toBe(1)
@@ -220,6 +279,19 @@ for (const settleBeforeDiff of [true, false]) {
     expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'queue-add').length)).toBe(2)
   })
 }
+
+test('opening the modal does not steal dependency focus set before its animation frame', async ({ page }) => {
+  const focused = await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    const ticket = { ...ctx.D.plan[0], deps: ['999'] }
+    ;(await import('/build-home/modal/frame.js')).openModal(ticket)
+    const dependency = document.querySelector('.bm-dep[data-goto="999"]')
+    dependency.focus()
+    await new Promise(requestAnimationFrame)
+    return document.activeElement.matches('.bm-dep[data-goto="999"]')
+  })
+  expect(focused).toBe(true)
+})
 
 test('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
   const t = await display(page, { sec: 'nq', deps: ['999'] })
@@ -287,7 +359,7 @@ test('stale body with no observation renders unknown age and retains content', a
 test('board updates preserve focused body links', async ({ page }) => {
   const t = await display(page)
   await pushDoc(page, t.id, { state: 'available', body_html: '<p><a href="https://example.com">Body link</a></p>' })
-  await page.locator('.bm-body a').focus()
-  await page.evaluate(async () => (await import('/build-home/state.js')).fx.modalSync({ upsert: [], remove: [], set: {} }))
-  await expect(page.locator('.bm-body a')).toBeFocused()
+  const link = page.locator('.bm-body a'); await link.focus(); await link.evaluate(element => { window.focusedBodyLink = element })
+  await upsert(page, [{ ...t, title: t.title + ' updated' }]); expect(await page.evaluate(() => document.querySelector('.bm-body a') === window.focusedBodyLink)).toBe(false)
+  await expect(link).toBeFocused()
 })

@@ -45,6 +45,17 @@ defmodule AiurWeb.ListenerModeEventsTest do
     %{socket: socket}
   end
 
+  test "dashboard mute selection persists the mode and confirms its value", %{socket: socket} do
+    Aiur.AgentPubSub.subscribe_listen_mode("42")
+    {:noreply, pending} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "mute", "expected_version" => "0"}, socket)
+    assert pending.assigns.listener_feedback.state == :pending
+    event = receive_barrier({:listen_mode_changed, "42", %{version: 1, requested: :mute}})
+    {:noreply, confirmed} = DashboardLive.handle_info(event, pending)
+    assert confirmed.assigns.listener_view.requested == :mute
+    assert confirmed.assigns.listener_view.effective == :mute
+    assert {:ok, %{requested: :mute, version: 1}} = Listener.get_mode("42")
+  end
+
   test "stale expected version shows conflict and durable winner", %{socket: socket} do
     assert {:ok, %{version: 1}} = Listener.set_mode("42", :steer, expected_version: 0)
     assert {:noreply, changed} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, socket)
@@ -72,8 +83,8 @@ defmodule AiurWeb.ListenerModeEventsTest do
     assert timeout.assigns.listener_feedback.state == :error
   end
 
-  test "future regression guard: legacy, read-only, ambiguous targets and invalid input never write", %{socket: socket} do
-    for blocked <- [assign(socket, writable: false), assign(socket, listener_view: %{routing: :legacy}), assign(socket, agent_log_modal: %{writable_target?: false})] do
+  test "future regression guard: unavailable, read-only, ambiguous targets and invalid input never write", %{socket: socket} do
+    for blocked <- [assign(socket, writable: false), assign(socket, listener_view: %{routing: :unavailable}), assign(socket, agent_log_modal: %{writable_target?: false})] do
       assert {:noreply, ^blocked} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, blocked)
     end
 
@@ -130,6 +141,24 @@ defmodule AiurWeb.ListenerModeEventsTest do
     assert Enum.all?(unavailable.assigns.listener_receipts, &(&1.receipt == :unknown))
   end
 
+  test "a later failed receipt restores the untouched draft and retry id", %{socket: socket} do
+    {store, item} = AgentQueueStore.enqueue(AgentQueueStore.new(), AgentQueue.operator_message("42", "dictated", listener_mode: :async))
+    failed = %{item | status: :failed}
+    :sys.replace_state(Orchestrator, &%{&1 | queue_store: %{store | items: Map.put(store.items, item.id, failed)}})
+    token = make_ref()
+
+    socket =
+      %{socket | transport_pid: self(), view: DashboardLive}
+      |> assign(listener_timer: token, listener_receipts_busy: false, drafts: %{}, pending_message_ids: %{})
+      |> ListenerModeEvents.sent({:ok, item.id}, "same-message-id", "dictated")
+
+    observed = receipt_tick(socket, token)
+    assert observed.assigns.drafts == %{"42" => "dictated"}
+    assert observed.assigns.pending_message_ids == %{"42" => {"same-message-id", "dictated"}}
+    edited = socket |> assign(drafts: %{"42" => "new draft"}) |> receipt_tick(token)
+    assert edited.assigns.drafts == %{"42" => "new draft"}
+  end
+
   test "failed set mode shows the failure state and error text", %{socket: socket} do
     stop_supervised!(Server)
     {:noreply, failed} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, socket)
@@ -152,7 +181,14 @@ defmodule AiurWeb.ListenerModeEventsTest do
 
   test "send result keeps accepted, failed and outcome unknown distinct", %{socket: socket} do
     socket = socket |> ListenerModeEvents.sent({:ok, 12}) |> ListenerModeEvents.sent({:error, :unavailable}) |> ListenerModeEvents.sent({:error, {:outcome_unknown, %{}}})
-    assert socket.assigns.listener_receipts == [%{request_id: nil, receipt: :outcome_unknown}, %{request_id: nil, receipt: :failed}, %{request_id: 12, receipt: :accepted}]
+
+    assert Enum.map(socket.assigns.listener_receipts, &Map.take(&1, [:request_id, :receipt])) == [
+             %{request_id: nil, receipt: :outcome_unknown},
+             %{request_id: nil, receipt: :failed},
+             %{request_id: 12, receipt: :accepted}
+           ]
+
+    assert Enum.all?(socket.assigns.listener_receipts, &(&1.target_key == "42"))
   end
 
   defp assert_error_rendered(socket) do

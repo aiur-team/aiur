@@ -39,10 +39,20 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --unfiled` | Includes tickets without an issue identifier in supported listing commands. | `aiur --unfiled` |
 | `aiur --urgency LEVEL` | Sets urgency for a supported command. | `aiur --urgency high` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
+| `aiur command` | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | `aiur command` |
+| `aiur command --filter open` | Applies the existing Command filters through the canonical singular command. | `aiur command --filter open` |
+| `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery. | `aiur command dec_123` |
+| `aiur command DECISION-ID --custom-response TEXT` | Records a local operator's bounded text answer after interactive confirmation. | `aiur command dec_123 --custom-response 'Wait for a fresh build'` |
+| `aiur command DECISION-ID --option ID` | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | `aiur command dec_123 --option keep` |
+| `aiur command DECISION-ID --option ID --relayed --quote TEXT [--idempotency-key KEY]` | Relays an operator's already-given answer with the current version and a generated idempotency key unless one is supplied. Reuse a supplied key to safely retry after an unknown outcome; requires the relay config gate. | `aiur command dec_123 --option keep --relayed --quote 'Keep them' --idempotency-key relay-1` |
 | `aiur command request <question>` | Creates an Executor-originated Command for the human; requires a running daemon. | `aiur command request 'Ship today?' --option yes=Ship --option no=Wait` |
 | `aiur command request <question> --context-file PATH` | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | `aiur command request 'Ship?' --context-file release.md` |
 | `aiur command request <question> --recommend ID` | Moves the named supplied option first; omitted by default. | `aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes` |
 | `aiur command request <question> --short-summary TEXT` | Adds a concise Command title; omitted by default. | `aiur command request 'Ship?' --short-summary 'Beta release'` |
+| `aiur executor-attach --check [--json]` | Diagnose Executor attachment without changing it; exit 1 for fail or unknown. | `aiur executor-attach --check --json` |
+| `aiur executor-attach --harness claude` | Required: explicitly select claude or codex. | `aiur executor-attach --harness claude` |
+| `aiur executor-attach --harness claude --print-config` | Prints hooks instead of installing them; Codex always prints. | `aiur executor-attach --harness claude --print-config` |
+| `aiur executor-attach --harness claude --takeover` | Replaces a live binding; off by default. | `aiur executor-attach --harness claude --takeover` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
 | `aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR` | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1` |
 

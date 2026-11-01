@@ -24,3 +24,26 @@
 #conversation-delivery { padding: 0; list-style: none; }
 #conversation-delivery li { padding: 12px; margin: 8px 0; border: 1px solid var(--aiur-color-line); overflow-wrap: anywhere; }
 .conversation-mode { color: var(--aiur-color-muted); }
+
+.conversation-layout { display: grid; grid-template-columns: minmax(0, 256px) minmax(0, 1fr); gap: 16px; }
+.conversation-events { min-width: 0; max-height: 65vh; overflow: auto; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--aiur-color-line); }
+.event-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.event-filters button { font: inherit; font-size: 0.875rem; padding: 4px 8px; border: 1px solid var(--aiur-color-line); border-radius: 8px; }
+.event-filters button[aria-pressed=true], .conversation-highlight { background: var(--aiur-color-surface); outline: 2px solid var(--aiur-color-fg); outline-offset: -2px; }
+.conversation-events :is(button, a):focus-visible { outline: 2px solid var(--aiur-color-fg); outline-offset: 2px; }
+.conversation-events :is(button, a):hover { background: var(--aiur-color-surface); }
+.conversation-events button:active { transform: scale(0.98); }
+.conversation-events ul { list-style: none; padding: 0; }
+.conversation-events li { display: flex; flex-direction: column; gap: 4px; margin: 16px 0; }
+.conversation-events time, .conversation-events small, .conversation-event-marker { font-size: 0.75rem; color: var(--aiur-color-muted); }
+.conversation-event-marker { padding: 8px; margin-bottom: 16px; }
+.command-chip { padding: 4px 8px; border: 1px solid var(--aiur-color-line); border-radius: 8px; align-self: flex-start; }
+#event-list:not(:empty) + .events-empty { display: none; }
+@media (max-width: 700px) {
+  .conversation-layout { grid-template-columns: minmax(0, 1fr); }
+  .conversation-events { max-height: 20vh; }
+  .conversation-scroll { height: 40vh; }
+}
+
+.executor-frame { padding: 16px; margin: 16px 0; border: 1px solid var(--aiur-color-line); background: var(--aiur-color-surface); overflow-wrap: anywhere; }
+.executor-frame h1 { color: var(--aiur-color-accent, var(--aiur-color-fg)); }

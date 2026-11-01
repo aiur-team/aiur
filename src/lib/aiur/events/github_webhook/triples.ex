@@ -153,6 +153,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
     {topic, payload,
      [
        issue_number: target,
+       identity: trusted_identity(target),
        dedup_key: dedup_key,
        resource: resource,
        resource_version: GithubReviewThreadIdentity.resource_version(resource_version(comment), generation),
@@ -329,7 +330,11 @@ defmodule Aiur.Events.GithubWebhook.Triples do
           target_opts =
             publish_opts
             |> Keyword.put(:issue_number, ticket)
-            |> Keyword.put(:dedup_key, pr_dedup_key(repo, pr_number, action, head_sha, ticket, merged?))
+            |> Keyword.put(:identity, trusted_identity(ticket))
+            |> Keyword.put(
+              :dedup_key,
+              pr_dedup_key(repo, pr_number, action, head_sha, ticket, merged?)
+            )
 
           {target_topic, event, target_opts}
         end)
@@ -347,11 +352,17 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   defp pr_topic(target, _action, true), do: "ticket.#{target}.pr.merged"
   defp pr_topic(_target, _action, _merged), do: nil
 
+  defp trusted_identity(ticket) do
+    Aiur.Orchestrator.tracker_identity(ticket)
+  catch
+    :exit, _ -> nil
+  end
+
   defp pr_dedup_key(repo, pr_number, action, head_sha, _ticket, false),
     do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha)
 
-  defp pr_dedup_key(repo, pr_number, action, head_sha, ticket, true),
-    do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha, ticket)
+  defp pr_dedup_key(repo, pr_number, _action, _head_sha, ticket, true),
+    do: GithubKeys.merged_pr_dedup_key(repo, pr_number, ticket)
 
   defp maybe_enrich_commit_messages(pr, number, true, opts) do
     if Map.has_key?(pr, "commit_messages") do

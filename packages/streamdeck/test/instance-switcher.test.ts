@@ -4,8 +4,6 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createInstanceSwitcher } from "../src/instance-switcher.js";
 import { InstanceAuthError } from "../src/channel-types.js";
-import { createPhysicalController } from "../src/controller.js";
-import { keyReport } from "./support/deckReports.js";
 import type { InstanceTarget } from "../src/instances.js";
 
 const dirs: string[] = [];
@@ -135,15 +133,14 @@ it("keeps credentials out of debug output while a target rejects authentication"
 });
 
 
-it("retains focus, logs and Commands on same-target reconnect, but clears them on a switch", async () => {
+// Future regression guard for the surviving instance switcher, independent of local views.
+it("restores focused ticket on same-target reconnect, but clears it on a switch", async () => {
   vi.useFakeTimers();
   const options = setup();
-  const grid = { agents: [{ identifier: "LOCAL-1", bucket: "running" }], total: 1, windows: 1, max_column_offset: 0 };
-  const makeChannel = () => ({ close: vi.fn(), focus: vi.fn(), control: vi.fn(), say: vi.fn(), commandsPage: vi.fn(), answerCommand: vi.fn() });
+  const makeChannel = () => ({ close: vi.fn(), focus: vi.fn() });
   const connections: ReturnType<typeof makeChannel>[] = [];
-  let active: typeof connections[number] | null = null;
-  const controller = createPhysicalController({ grid: () => grid, channel: () => active, stateChanged: vi.fn() });
-  const reset = vi.fn(() => controller.resetInstance());
+  let focusedIdentifier: string | null = "LOCAL-1";
+  const reset = vi.fn(() => { focusedIdentifier = null; });
   let closed!: () => void;
   const switcher = createInstanceSwitcher({ ...options,
     connect: async (_target, lifecycle) => {
@@ -151,31 +148,22 @@ it("retains focus, logs and Commands on same-target reconnect, but clears them o
       lifecycle.connected();
       const opened = makeChannel(); connections.push(opened); return opened;
     },
-    channel: (opened) => { active = opened; },
+    channel: vi.fn(),
     resetInstance: reset,
-    focusedIdentifier: () => controller.state().focusedIdentifier,
+    focusedIdentifier: () => focusedIdentifier,
   });
   switcher.start(); await switcher.idle();
-  controller.handleReport(keyReport(0, true)); controller.handleReport(keyReport(0, false));
-  controller.setLogs({ transcript: [{ kind: "message", body: "retained transcript" }] });
-  controller.handleReport(keyReport(4, true)); controller.handleReport(keyReport(4, false));
-  controller.setCommands({ items: [{ decision_id: "decision-1", version: 1, question: "Continue?", options: [], status: "pending" }] });
-  const before = controller.state();
-  expect(before).toMatchObject({ mode: "commands", focusedIdentifier: "LOCAL-1", commandsPage: { items: [{ decision_id: "decision-1" }] } });
-  expect(before.transcriptRows).not.toHaveLength(0);
   closed();
   expect(options.disconnect).toHaveBeenCalled();
-  expect(controller.state()).toEqual(before);
   await vi.advanceTimersByTimeAsync(500); await switcher.idle();
-  expect(controller.state()).toEqual(before);
   expect(connections[1]!.focus).toHaveBeenCalledWith("LOCAL-1");
   expect(reset).not.toHaveBeenCalled();
   switcher.turn(1); switcher.press(); await switcher.idle();
   expect(reset).toHaveBeenCalledOnce();
-  expect(controller.state()).toMatchObject({ mode: "grid", focusedIdentifier: null, transcriptRows: [], commandsPage: { items: [] } });
   expect(connections[2]!.focus).not.toHaveBeenCalled();
   switcher.close();
 });
+
 
 it("labels invalid local startup as unreachable without exposing the URL or connecting", async () => {
   const options = setup(); options.targets[0]!.baseUrl = "invalid-private-url";
@@ -183,5 +171,46 @@ it("labels invalid local startup as unreachable without exposing the URL or conn
   expect(switcher.label()).toBe("local · unreachable | Invalid AIUR_PHOENIX_URL");
   expect(options.connect).not.toHaveBeenCalled();
   expect(options.disconnect).not.toHaveBeenCalled();
+  switcher.close();
+});
+
+it("follows a daemon setting without bouncing through conflicting saved targets", async () => {
+  const options = setup();
+  const switcher = createInstanceSwitcher(options);
+  switcher.start(); await switcher.idle();
+  switcher.select("unknown"); switcher.select("local");
+  expect(options.connect).toHaveBeenCalledTimes(1);
+  switcher.select("remote"); await switcher.idle();
+  expect(options.connect.mock.calls[1]![0]).toMatchObject({ name: "remote" });
+  switcher.select("local"); await switcher.idle();
+  expect(options.connect).toHaveBeenCalledTimes(2);
+  switcher.resetSelectionChain(); switcher.select("local"); await switcher.idle();
+  expect(options.connect.mock.calls[2]![0]).toMatchObject({ name: "local" });
+  switcher.close();
+});
+
+it("persists daemon-selected instances so restart reaches remote even when local is offline", async () => {
+  const options = setup();
+  const switcher = createInstanceSwitcher(options);
+  switcher.start(); await switcher.idle();
+  switcher.select("remote"); await switcher.idle();
+  expect(JSON.parse(readFileSync(options.preferencePath, "utf8"))).toBe("remote");
+  switcher.close();
+  const restarted = createInstanceSwitcher(options);
+  restarted.start(); await restarted.idle();
+  expect(options.connect.mock.calls[2]![0]).toMatchObject({ name: "remote" });
+  restarted.close();
+});
+
+it("allows an explicit browser selection to return to the prior instance without physical input", async () => {
+  const options = setup();
+  const switcher = createInstanceSwitcher(options);
+  switcher.start(); await switcher.idle();
+  switcher.select("remote"); await switcher.idle();
+  switcher.select("local"); await switcher.idle();
+  expect(options.connect).toHaveBeenCalledTimes(2);
+  switcher.select("local", true); await switcher.idle();
+  expect(options.connect.mock.calls[2]![0]).toMatchObject({ name: "local" });
+  expect(JSON.parse(readFileSync(options.preferencePath, "utf8"))).toBe("local");
   switcher.close();
 });

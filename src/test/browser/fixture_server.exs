@@ -5,16 +5,16 @@ for file <- ~w(earlier_control scale unfiled_fixture fixture_source fixture_conv
 
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
-Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
+Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/streamdeck_build_fixture.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
+Code.require_file("../support/browser_harness/streamdeck_transcript.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
-Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
-      route_shell_live graph_live ticket_context_live units_live_data units_live voice_input_live
+      route_shell_live fixture_live ticket_context_live voice_input_live voice_fixture_data voice_fixture_live executor_voice_control
       support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
@@ -49,7 +49,6 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
     get("/assets/phoenix_live_view.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_live_view)
     get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
-    get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
     get("/assets/streamdeck-emulator-:file", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator)
     get("/assets/sortable-table-hook.js", Aiur.BrowserHarness.FixtureAssets, :sortable_table_hook)
@@ -61,10 +60,12 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/executor-voice-control/:mode", Aiur.BrowserHarness.ExecutorVoiceControl, :configure)
     get("/build-fixture/index-live", Aiur.BrowserHarness.IndexLiveFixture, :configure)
     get("/build-fixture/:dataset", Aiur.BrowserHarness.FixtureBuildDataset, :configure)
     get("/build-control/:action", Aiur.BrowserHarness.FixtureBuildControl, :configure)
     get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
+    get("/streamdeck-transcript/:action", Aiur.BrowserHarness.StreamdeckTranscript, :configure)
     get("/command-answer-control/answerable", Aiur.BrowserHarness.CommandAnswerFixture, :configure)
     get("/command-answer-state", Aiur.BrowserHarness.CommandAnswerFixture, :status)
     get("/command-answer-join-state", Aiur.BrowserHarness.CommandAnswerFixture, :join_status)
@@ -82,13 +83,10 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
       live("/palette-probe", Aiur.BrowserHarness.PaletteProbeLive, :index)
     end
 
+    live("/voice-fixture", Aiur.BrowserHarness.VoiceFixtureLive, :index)
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
-    live("/units-fixture", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
-    live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
-    live("/models-panel", Aiur.BrowserHarness.ModelsPanelLive, :index)
-    live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/route-shell", Aiur.BrowserHarness.RouteShellLive, :build)
     live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
@@ -215,6 +213,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
           {Task.Supervisor, name: Aiur.TaskSupervisor},
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
+          AiurWeb.Streamdeck.Deck.SettingsSnapshot,
           {AiurWeb.Endpoint, []},
           AiurWeb.FinancialDataAccess.Generation,
           AiurWeb.VoiceSessionLimiter
@@ -456,6 +455,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
+        streamdeck_settings_path: Path.join(System.get_env("AIUR_BROWSER_ARTIFACT_DIR") || System.tmp_dir!(), "deck-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}.json"),
         streamdeck_build_source: Aiur.BrowserHarness.StreamdeckTicket,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(streamdeck_snapshot()) end,
@@ -464,7 +464,6 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
         agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
       )
-      |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
     Application.put_env(:aiur, :voice_provider, Aiur.BrowserHarness.VoiceProvider)

@@ -6,12 +6,16 @@
 | --- | --- |
 | Comment commands and review-driven rework | Accepted only from configured trusted/daemon/bot accounts, the repository owner, or CODEOWNERS logins verified in the current refresh. |
 | Unresolvable CODEOWNERS | Failed teams contribute no members, including previously trusted members. Status/dashboard show the cause and age; sanitized comments remain visible to the Executor but untrusted bodies never enter agent digests or commands. Incomplete path ownership is unknown. |
-| The bot identity | Cannot trigger its own work, except a distinct daemon App author filing a marked fixer authorized by `merge_policy.main_watch.on_red: dispatch_fixer`. Analysis tickets have the local-request exception below; other shared/PAT tickets require human triage. |
+| The bot identity | Cannot trigger its own work, except a distinct daemon App author filing a marked fixer authorized by `merge_policy.main_watch.on_red: dispatch_fixer`. Analysis and corrective Command tickets have the local-record exceptions below; other shared/PAT tickets require human triage. |
 
 
 A daemon-filed `experiment-analysis` ticket can dispatch after normal label authorization fails only when its body marker matches an **open local analysis request**, including a constant-time nonce check. The request must name that exact issue number and URL and record its daemon author login.
 
 The creator must also match the current daemon identity. Every actor adding or removing an `agent:*` label must be the daemon or configured agent bot; third-party or missing actors deny this fallback. Missing, unreadable, closed, or unattached local requests confer no trust.
+
+A corrective Command ticket uses the same creator and label-actor checks. Its exact issue number, URL and override marker must match a corrective-ticket link in the daemon’s durable Command journal. A copied marker or a ticket created before its link is persisted confers no trust.
+
+Registered local checks retain their owning process; a stopped owner cannot authorize dispatch.
 
 The optional experiment store registers this check; without it, ordinary authorization applies.
 
@@ -171,7 +175,7 @@ For the next 10 handoffs after rollout, record the tested PR head, observed base
 
 ## Cloudflare tunnel boundary
 
-Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
+Cloudflare is one example of webhook ingress — any HTTPS ingress that forwards only `/api/v1/github/webhook` works, and none is required: polling is the complete fallback; ingress is transport, not an API Aiur calls.
 
 | Boundary | Operator requirement |
 | --- | --- |
@@ -179,6 +183,7 @@ Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
 | Public host | Serve the webhook at a hostname you control (`hooks.aiur.dev` here); without one, a quick tunnel (`cloudflared tunnel --url`) works for a single session. |
 | Reachable path | Route only `/api/v1/github/webhook`; finish the ingress list with a catch-all `404`. |
 | Network | No inbound firewall rule is needed or wanted because `cloudflared` dials out. |
+| Other ingress | Any reverse proxy or tunnel that forwards only this path, with TLS, works the same; Aiur reads no proxy headers. |
 
 The path scope and webhook signature are independent locks:
 
@@ -186,6 +191,7 @@ The path scope and webhook signature are independent locks:
 | --- | --- |
 | Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's bound address. |
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
+| What a lock does not hide | The ingress operator terminates TLS, so it can read each delivery's headers and body; the signature stops forgery, not reading. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
 

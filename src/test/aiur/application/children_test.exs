@@ -107,6 +107,20 @@ defmodule Aiur.Application.ChildrenTest do
       assert Aiur.PRLifecycle.HealthScanner in mods
     end
 
+    test "repository services default on when the switch is not configured" do
+      previous = Application.fetch_env(:aiur, :repository_services?)
+      Application.delete_env(:aiur, :repository_services?)
+
+      try do
+        specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true)
+        {Aiur.Instance.RepositoryLeader, leader_opts} = Enum.find(specs, &match?({Aiur.Instance.RepositoryLeader, _}, &1))
+
+        assert Keyword.fetch!(leader_opts, :services) == [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch]
+      after
+        with {:ok, value} <- previous, do: Application.put_env(:aiur, :repository_services?, value)
+      end
+    end
+
     test "primary instance gives repository global services to the dynamic leader supervisor" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
 

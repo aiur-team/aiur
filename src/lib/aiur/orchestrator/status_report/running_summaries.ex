@@ -42,7 +42,7 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
     end)
   end
 
-  defp listener_summaries(summaries, _state, :legacy), do: summaries
+  defp listener_summaries(summaries, _state, :unavailable), do: summaries
 
   defp polled_summary({issue_id, issue}, state, now) do
     identifier = Map.get(issue, :identifier) || ""

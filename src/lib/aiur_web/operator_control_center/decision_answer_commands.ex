@@ -22,7 +22,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
   @spec replace(Socket.t(), String.t(), map(), reload_fun()) :: Socket.t()
   def replace(socket, id, form, reload) do
     if get_in(socket.assigns.decision_actions, [id, :replacing?]),
-      do: submit(socket, id, form, reload, :supersede),
+      do: submit(socket, id, form, reload, :override),
       else: socket
   end
 
@@ -64,7 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
     end
   end
 
-  defp replacement_rationale(payload, :supersede), do: Map.put_new(payload, "rationale", "Replaced the Executor's undelivered answer from the dashboard.")
+  defp replacement_rationale(payload, :override), do: Map.put_new(payload, "rationale", "Overrode the Executor's answer from the dashboard.")
   defp replacement_rationale(payload, :answer), do: payload
 
   defp retain_draft(reloaded, previous, id, %{status: :stale}) do

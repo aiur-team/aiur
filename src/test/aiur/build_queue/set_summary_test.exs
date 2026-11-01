@@ -43,6 +43,18 @@ defmodule Aiur.BuildQueue.SetSummaryTest do
     assert summary.critical_path == %{number: 7, gates: 3}
   end
 
+  test "parked and unknown blocker members do not count ready and report their wait cause" do
+    parked = %{item(:held) | number: 44, reason: :parked_marker}
+    unknown_blocker = %{item(:unknown) | number: 45, verdict: :unknown, prerequisites: [%{source: :github, verdict: :unknown}]}
+
+    [parked_summary, unknown_summary] = selected([queue(0, [parked]), queue(1, [unknown_blocker])], nil)
+
+    assert parked_summary.counts.ready == 0
+    assert parked_summary.counts.startable == 0
+    assert parked_summary.waiting_reason == "parked"
+    assert unknown_summary.waiting_reason == "readiness unknown"
+  end
+
   defp selected(queues, id), do: SetSummary.select_next(%{queues: SetSummary.decorate(queues, [])}, {:ok, id}).queues
 
   defp queue(rank, items), do: %{queue_id: to_string(rank), name: "set #{rank}", set_rank: rank, held: false, items: items}

@@ -1,0 +1,20 @@
+{"type": "queue-operation", "version": "2.1.290"}
+{"type": "system", "version": "2.1.290"}
+{"type": "pr-link", "version": "2.1.290"}
+{"type": "mode", "version": "2.1.290"}
+{"type": "permission-mode", "version": "2.1.290"}
+{"type": "atis-latch", "version": "2.1.290"}
+{"type": "ai-title", "version": "2.1.290"}
+{"type": "last-prompt", "version": "2.1.290"}
+{"type": "agent-name", "version": "2.1.290"}
+{"type": "bridge-session", "version": "2.1.290"}
+{"type": "file-history-delta", "version": "2.1.290"}
+{"type": "file-history-snapshot", "version": "2.1.290"}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "total_tokens_reminder"}}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "queued_command"}}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "hook_non_blocking_error"}}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "edited_text_file"}}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "task_reminder"}}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "deferred_tools_record"}}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "environment"}}
+{"type": "attachment", "version": "2.1.291", "attachment": {"type": "skill_listing"}}

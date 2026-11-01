@@ -9,18 +9,13 @@ defmodule AiurWeb.ObservabilityApiController do
   alias Aiur.Conversation.History
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
-  alias AiurWeb.{EndpointConfig, Presenter, StreamDeckGrid}
+  alias AiurWeb.{EndpointConfig, Presenter}
   alias Plug.Conn
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
     conn
     |> json(Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
-  end
-
-  @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()
-  def streamdeck_grid(conn, _params) do
-    json(conn, StreamDeckGrid.payload(orchestrator(), snapshot_timeout_ms()))
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
