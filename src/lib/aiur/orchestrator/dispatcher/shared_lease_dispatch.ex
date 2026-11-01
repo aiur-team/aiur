@@ -113,7 +113,8 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     with false <- Handoff.dispatch_held?(),
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
          :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
-         {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
+         {:ok, selected_issue} <-
+           CodingAgent.select_for_dispatch(force_backend(prepared, Keyword.get(opts, :forced_backend))) do
       state = %{
         state
         | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)
@@ -141,6 +142,20 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
           {:hold, %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}}
         end
     end
+  end
+
+  defp force_backend(issue, nil), do: issue
+
+  defp force_backend(issue, backend) when is_binary(backend) do
+    labels =
+      Enum.reject(issue.labels, fn label ->
+        spec = label |> to_string() |> String.downcase() |> String.replace_prefix("model:", "")
+
+        spec in CodingAgent.known_backends() or
+          Enum.any?(CodingAgent.known_backends(), &String.starts_with?(spec, &1 <> "-"))
+      end)
+
+    %{issue | labels: labels ++ ["model:#{backend}"]}
   end
 
   defp dispatch_after_workspace_wait_or_thrash_check(
@@ -171,6 +186,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
         envelope_opts =
           Keyword.put(opts, :prior_work, Map.get(envelope, :prior_work, Keyword.get(opts, :prior_work, false)))
+          |> Keyword.put(:forced_backend, Map.get(envelope, :forced_backend, Keyword.get(opts, :forced_backend)))
           |> Keyword.put(
             :stalled_alert_outstanding,
             Map.get(
@@ -179,6 +195,8 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
               Keyword.get(opts, :stalled_alert_outstanding, false)
             )
           )
+          |> Keyword.put(:workspace_path, Map.get(envelope, :workspace_path, Keyword.get(opts, :workspace_path)))
+          |> Keyword.put(:redispatch_safety, Map.get(envelope, :redispatch_safety, Keyword.get(opts, :redispatch_safety)))
 
         dispatch_to_worker.(state, issue, envelope_attempt, envelope_host, envelope_opts)
     end

@@ -24,6 +24,16 @@ defmodule Aiur.CLISubcommandsTest do
     assert usage =~ "aiur findings"
   end
 
+  test "parses redispatch ticket IDs and optional backend" do
+    assert {:redispatch, ["11", "12"], "codex"} =
+             CLI.evaluate(["redispatch", "11", "12", "--backend", "codex"], deps())
+
+    assert {:redispatch, ["11"], nil} = CLI.evaluate(["redispatch", "11"], deps())
+    assert {:error, _usage} = CLI.evaluate(["redispatch", "--backend", "", "11"], deps())
+    assert {:error, _usage} = CLI.evaluate(["redispatch", "--all"], deps())
+    assert {:error, _usage} = CLI.evaluate(["redispatch", "11", "--backend", "claude", "--backend", "codex"], deps())
+  end
+
   test "parses validated findings writes and digest generation" do
     record = Jason.encode!(%{"slug" => "dispatch-pressure"})
 

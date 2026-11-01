@@ -153,6 +153,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
+       aiur redispatch <ids> [--backend <spec>]  restart a ticket on current routing or a selected backend
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
        aiur listen-mode <id> [steer|sync|async|mute] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
@@ -431,6 +432,10 @@ aiur_engine_main() {
         take | release) cmd_executor_ownership "$cmd" "$@" ;;
         *) cmd_pause_resume "$cmd" "$@" ;;
       esac
+      ;;
+    redispatch)
+      shift
+      cmd_redispatch "$@"
       ;;
     reset-budget)
       shift

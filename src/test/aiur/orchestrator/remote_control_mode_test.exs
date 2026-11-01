@@ -39,6 +39,57 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
            ).labels == ["model:codex"]
   end
 
+  test "redispatch pins the requested backend and reuses the workspace and reservation" do
+    parent = self()
+    workspace = Path.join(System.tmp_dir!(), "aiur-redispatch-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    dirty_file = Path.join(workspace, "uncommitted.txt")
+    File.write!(dirty_file, "local edits survive")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    issue = %Issue{
+      id: "1",
+      identifier: "repo#1",
+      labels: ["model:claude", "model:remote", "in-progress"]
+    }
+
+    fence = %{pending_item_ids: MapSet.new([12]), authoritative_state: "in-progress"}
+    entry = running_entry(issue) |> Map.put(:workspace_path, workspace) |> Map.put(:lifecycle_fence, fence)
+    state = %Aiur.Orchestrator.State{running: %{issue.id => entry}, claimed: MapSet.new([issue.id])}
+
+    assert {{:ok, :redispatched}, next} =
+             RemoteControlMode.redispatch_call_unchecked(state, issue.identifier, "codex",
+               known_backends_fun: fn -> ["claude", "codex"] end,
+               effort_labels: fn -> ["model:xhigh"] end,
+               admit_fun: fn admitted, selected, nil ->
+                 assert selected.labels == ["model:remote", "in-progress", "model:codex"]
+                 {:ok, admitted}
+               end,
+               write_marker_fun: fn _identifier, _action, _label, _opts -> :ok end,
+               teardown_fun: fn current, old, :redispatch ->
+                 assert current.claimed == MapSet.new([issue.id])
+                 send(parent, {:teardown, old.workspace_path})
+                 current
+               end,
+               dispatch_fun: fn dispatch_state, dispatched_issue, nil, nil, opts ->
+                 assert dispatched_issue.labels == ["model:remote", "in-progress", "model:codex"]
+                 assert opts[:forced_backend] == "codex"
+                 assert opts[:redispatch_safety].workspace_path == workspace
+                 assert dispatch_state.claimed == MapSet.new([issue.id])
+                 send(parent, {:dispatch, dispatched_issue.id, dispatch_state.running[issue.id].workspace_path})
+                 dispatch_state
+               end,
+               schedule_retry_fun: fn retry_state, _id, _attempt, _metadata -> retry_state end
+             )
+
+    assert_received {:teardown, ^workspace}
+    assert_received {:dispatch, "1", ^workspace}
+    assert File.read!(dirty_file) == "local edits survive"
+    assert next.claimed == MapSet.new([issue.id])
+    assert next.running[issue.id].lifecycle_fence == fence
+    assert next.running[issue.id].redispatch_safety.workspace_path == workspace
+  end
+
   test "promotion preserves the live agent when redispatch is not ready" do
     issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:codex"]}
     entry = running_entry(issue)
