@@ -37,7 +37,7 @@ aiur_build_gate_run_linux() (
   local command_pgid command_pid_namespace holder_pid parent_pid python_binary retained status
   # A per-stage ceiling remains configurable for stuck peers; readiness files do the syncing.
   local deadline holder_handshake_seconds=${AIUR_BUILD_GATE_HANDSHAKE_SECONDS:-10} holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
-  local available_memory_mb memory_deferred=0 memory_unavailable_logged=0 command_summary
+  local available_memory_mb memory_deferred=0 memory_unavailable_logged=0 command_summary last_orphan_reap=0
   [[ $holder_handshake_seconds =~ ^[1-9][0-9]*$ ]] || holder_handshake_seconds=10
 
   # Keep descriptor allocation local to this subshell and independent of an
@@ -64,13 +64,11 @@ aiur_build_gate_run_linux() (
     return 125
   fi
 
-  if ((slots > 0)); then
-    python_binary=$(type -P python3)
+  python_binary=$(type -P python3)
 
-    if [[ -z $python_binary ]]; then
-      aiur_build_gate_fail "lease_holder_runtime_unavailable" "$gate_dir"
-      return 125
-    fi
+  if ((slots > 0)) && [[ -z $python_binary ]]; then
+    aiur_build_gate_fail "lease_holder_runtime_unavailable" "$gate_dir"
+    return 125
   fi
 
   queue_dir="$gate_dir/queue"
@@ -95,6 +93,8 @@ aiur_build_gate_run_linux() (
   fi
 
   aiur_build_gate_check_legacy_state "$gate_dir" "$queue_dir" || return $?
+  aiur_build_gate_reap_orphan_publications "$gate_dir" "$python_binary"
+  last_orphan_reap=$SECONDS
 
   queue_candidate=$(mktemp "$gate_dir/.queue-v2.XXXXXXXXXX" 2>/dev/null) || {
     aiur_build_gate_fail "queue_candidate_failed" "$gate_dir"
@@ -153,6 +153,11 @@ aiur_build_gate_run_linux() (
   aiur_build_gate_log "queued slots=$slots command=$*"
 
   while :; do
+    if ((SECONDS - last_orphan_reap >= 60)); then
+      aiur_build_gate_reap_orphan_publications "$gate_dir" "$python_binary"
+      last_orphan_reap=$SECONDS
+    fi
+
     if ((min_free_memory_mb > 0)); then
       if available_memory_mb=$(aiur_build_gate_available_memory_mb); then
         memory_unavailable_logged=0
