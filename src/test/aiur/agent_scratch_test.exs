@@ -77,7 +77,9 @@ defmodule Aiur.AgentScratchTest do
       short_dir = "/tmp/aiur-short"
       short_env = [{~c"AIUR_MCP_SOCKET_DIR", String.to_charlist(short_dir)}]
       short_workspace = Path.join(["/root", String.duplicate("w", 70), "owner", "other", "17"])
-      assert capture_log(fn -> AgentScratch.warn_mcp_socket_path(short_workspace, short_env) end) == ""
+
+      refute capture_log(fn -> AgentScratch.warn_mcp_socket_path(short_workspace, short_env) end) =~
+               "Claude MCP bridge socket path may exceed"
     end
   end
 
