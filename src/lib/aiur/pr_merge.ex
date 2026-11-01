@@ -18,8 +18,9 @@ defmodule Aiur.PrMerge do
          {:ok, token} <- Keyword.get(deps, :token, &Identity.token/0).(),
          api <- Keyword.get(deps, :api, &Client.request(token, &1, &2, &3)),
          {:ok, user} <- api.("get", "user", nil),
-         :ok <- Identity.allowed(user, settings.tracker.github),
+         :ok <- Identity.allowed(user, settings.tracker.github, settings.tracker.github.identity_mode),
          :ok <- main_note(settings, deps, puts),
+         opts <- Map.put(opts, :identity_mode, settings.tracker.github.identity_mode),
          {:ok, observation} <- Facts.observe(api, settings, opts.number) do
       observed(api, observation, settings, opts, token, deps, puts, user)
     end
@@ -87,7 +88,10 @@ defmodule Aiur.PrMerge do
 
   defp preflight(pr, settings, opts) do
     reasons = Gate.refusals(pr, settings.merge_policy, opts)
-    reasons = if opts.approve_body != nil and not opts.dry_run, do: List.delete(reasons, "approval at current head required"), else: reasons
+
+    reasons =
+      if opts.approve_body != nil and not opts.dry_run and settings.tracker.github.identity_mode == "separate_account", do: List.delete(reasons, "approval at current head required"), else: reasons
+
     if reasons == [], do: :ok, else: {:refuse, reasons}
   end
 
@@ -116,29 +120,29 @@ defmodule Aiur.PrMerge do
     repo = settings.tracker.github.repo
 
     with :ok <- File.mkdir_p(root),
-         :ok <- approve(api, repo, pr, opts.approve_body),
+         :ok <- review(api, repo, pr, opts.approve_body, settings.tracker.github.identity_mode),
          {:ok, fresh} <- Facts.read(api, settings, pr.number, user),
          :ok <- gate(fresh, settings, opts),
          true <- fresh.base_sha == pr.base_sha or {:refuse, ["base moved during approval; rerun"]} do
-      deliver(api, fresh, settings, root, deps, puts, user)
+      deliver(api, fresh, settings, root, deps, puts, user, opts)
     end
   end
 
-  defp deliver(api, %{merge_queue: true} = pr, settings, root, _deps, puts, user) do
+  defp deliver(api, %{merge_queue: true} = pr, settings, root, _deps, puts, user, opts) do
     with {:ok, entry} <- Queue.enqueue(api, pr) do
-      record = record_data(pr, settings, user) |> Map.merge(%{state: "enqueued", queue_entry: entry, enqueued_at: DateTime.to_iso8601(DateTime.utc_now())})
+      record = record_data(pr, settings, user, opts) |> Map.merge(%{state: "enqueued", queue_entry: entry, enqueued_at: DateTime.to_iso8601(DateTime.utc_now())})
       puts.("ENQUEUED ##{pr.number} #{pr.head}; policy ci=#{record.policy}; pending=#{Enum.join(record.pending, ",")}")
       if Record.append(record, root) != :ok, do: puts.("WARNING enqueued, but queue ledger write failed")
       :ok
     end
   end
 
-  defp deliver(api, %{merge_queue: false} = pr, settings, root, deps, puts, user) do
+  defp deliver(api, %{merge_queue: false} = pr, settings, root, deps, puts, user, opts) do
     repo = settings.tracker.github.repo
 
     case api.("put", "repos/#{repo}/pulls/#{pr.number}/merge", merge_body(pr)) do
       {:ok, %{"merged" => true, "sha" => sha}} ->
-        record = record_data(pr, settings, user) |> Map.merge(%{state: "merged", merged_sha: sha, merged_at: DateTime.to_iso8601(DateTime.utc_now())})
+        record = record_data(pr, settings, user, opts) |> Map.merge(%{state: "merged", merged_sha: sha, merged_at: DateTime.to_iso8601(DateTime.utc_now())})
         puts.("MERGED ##{pr.number} #{sha}; policy ci=#{record.policy}; pending=#{Enum.join(record.pending, ",")}")
         record(record, root, deps, puts)
         :ok
@@ -154,7 +158,7 @@ defmodule Aiur.PrMerge do
     end
   end
 
-  defp record_data(pr, settings, user) do
+  defp record_data(pr, settings, user, opts) do
     %{
       repo: settings.tracker.github.repo,
       pr: pr.number,
@@ -165,11 +169,25 @@ defmodule Aiur.PrMerge do
       policy: settings.merge_policy.ci,
       actor: user["login"]
     }
+    |> maybe_attestation(user, opts)
   end
 
-  defp approve(_api, _repo, _pr, nil), do: :ok
+  defp maybe_attestation(record, user, %{identity_mode: "single_account"} = opts),
+    do: Map.merge(record, %{reviewed_by: user["login"], attestation: "single_account_self_review", reviewed_sha: opts.reviewed_sha})
 
-  defp approve(api, repo, pr, body) do
+  defp maybe_attestation(record, _user, _opts), do: record
+
+  defp review(_api, _repo, _pr, nil, _mode), do: :ok
+
+  defp review(api, repo, pr, body, "single_account") do
+    case api.("post", "repos/#{repo}/pulls/#{pr.number}/reviews", %{event: "COMMENT", body: body, commit_id: pr.head}) do
+      {:ok, %{"state" => "COMMENTED", "commit_id" => head}} when head == pr.head -> :ok
+      {:error, _} = error -> error
+      _ -> {:error, "GitHub did not confirm comment review at the reviewed head"}
+    end
+  end
+
+  defp review(api, repo, pr, body, _mode) do
     case api.("post", "repos/#{repo}/pulls/#{pr.number}/reviews", %{event: "APPROVE", body: body, commit_id: pr.head}) do
       {:ok, %{"state" => "APPROVED", "commit_id" => head}} when head == pr.head -> :ok
       {:error, _} = error -> error

@@ -71,7 +71,7 @@ defmodule Aiur.WorkflowStoreTest do
     # `prewarm.base_build_file` is read by `Workflow.load/1` but is not part
     # of the change stamp — exactly the shape of a transient load error the
     # stamp cannot see, so a poisoned stamp would never heal on its own.
-    File.write!(path, File.read!(staging) <> "\nprewarm:\n  base_build_file: prewarm\n")
+    File.write!(path, File.read!(staging) <> "\nprewarm:\n  enabled: true\n  base_build_file: prewarm\n")
 
     assert {:error, {:missing_prewarm_file, _prewarm_path, :enoent}} = WorkflowStore.force_reload()
 

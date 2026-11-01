@@ -8,7 +8,7 @@ import { writeURL } from './url.js';
 import './band-scroll.js';
 export { SNAP_T, guardTarget, settleTarget } from './band-scroll.js';
 
-const groups = [['ok', 'nr', 'active', 'running'], ['queued', 'nt', 'retrying', 'retrying'], ['bad', 'ns', 'error,retries,command', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
+const groups = [['ok', 'nr', 'active', 'running'], ['queued', 'nt', 'retrying', 'retrying'], ['bad', 'ns', 'error,retries,command,native_question', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
 const AGENTS_STALE_MAX_AGE_MS = 120_000;
 export function bandCounts(rows) {
   const result = { nr: 0, nt: 0, ns: 0, ni: 0, nu: 0 };

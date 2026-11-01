@@ -9,6 +9,24 @@ defmodule VoiceConverse.EventFrames do
   def frames(%Events.AgentText{turn_id: id, text: text, final?: final?}),
     do: [%{v: 1, type: "agent_text", turn_id: to_string(id), text: text, final: final?}]
 
+  def frames(%Events.AgentTextTiming{} = event) do
+    frame = %{
+      v: 1,
+      type: "agent_text_timing",
+      turn_id: to_string(event.turn_id),
+      text: event.text,
+      audio_offset_ms: event.audio_offset_ms,
+      estimated: event.estimated
+    }
+
+    frame =
+      if event.chars,
+        do: Map.put(frame, :chars, Enum.map(event.chars, fn {ms, length} -> %{offset_ms: ms, length: length} end)),
+        else: frame
+
+    [frame]
+  end
+
   def frames(%Events.AgentAudio{turn_id: id, format: format, data_b64: data}) do
     case Base.decode64(data) do
       {:ok, pcm} -> audio_frames(pcm, to_string(id), to_string(format))

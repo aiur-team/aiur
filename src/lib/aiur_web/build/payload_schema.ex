@@ -32,13 +32,16 @@ defmodule AiurWeb.Build.PayloadSchema do
               "name" => nullable({:short_string, 64}),
               "state" =>
                 nullable(
-                  enum(~w(active error retrying retries command paused parked usage_limited ci_wait merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off))
+                  enum(
+                    ~w(native_question active error retrying retries command paused parked usage_limited ci_wait merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off)
+                  )
                 ),
+              "native_hold" => nullable(object(%{"decision_id" => :string, "since" => nullable(:integer)})),
               "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
               "resume_at" => nullable(:integer),
               "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
             },
-            ~w(pause resume_at)
+            ~w(native_hold pause resume_at)
           )
         ),
       "est" => nullable(:number),

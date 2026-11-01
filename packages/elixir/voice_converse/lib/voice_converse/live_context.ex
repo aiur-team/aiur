@@ -38,6 +38,7 @@ defmodule VoiceConverse.LiveContext do
       timer: nil,
       last_sent: nil,
       events: [],
+      refreshes: %{},
       fallback?: Enum.any?(results, &(&1 not in [:ok, :not_applicable]))
     }
 
@@ -46,7 +47,7 @@ defmodule VoiceConverse.LiveContext do
     state =
       if live.fallback? do
         text = "Gaps: Live updates unavailable for one or more sources; refresh on tool calls"
-        record!(state, text)
+        record!(state, text, "events")
         %{state | context: state.context <> "\n" <> text}
       else
         state
@@ -59,6 +60,21 @@ defmodule VoiceConverse.LiveContext do
   def refresh(%{live_context: %{fallback?: true}} = state), do: refresh_briefing(state)
   def refresh(state), do: state
 
+  @doc false
+  @spec refresh_briefing(map(), pid(), term()) :: {:noreply, map()}
+  def refresh_briefing(state, session, caller) do
+    ref = make_ref()
+    config = state.config
+    target = state.target
+
+    Task.start(fn ->
+      result = Ports.call_port(config.briefing_source, :brief, [target], :brief)
+      send(session, {:briefing_refresh, ref, result})
+    end)
+
+    {:noreply, put_in(state.live_context.refreshes[ref], caller)}
+  end
+
   defp refresh_briefing(state) do
     case read_briefing(state) do
       %Briefing{} = briefing -> update_briefing(state, briefing)
@@ -68,6 +84,9 @@ defmodule VoiceConverse.LiveContext do
 
   def handle_info(_message, %{finishing?: true} = state), do: {:noreply, state}
   def handle_info(_message, %{finished?: true} = state), do: {:noreply, state}
+
+  def handle_info({:briefing_refresh, ref, result}, state),
+    do: complete_refresh(state, ref, result)
 
   def handle_info({:briefing, %Briefing{} = briefing}, state),
     do: {:noreply, update_briefing(state, briefing)}
@@ -122,12 +141,26 @@ defmodule VoiceConverse.LiveContext do
     previous = state.live_context.briefing || %Briefing{}
     lines = Briefing.diff(previous, briefing)
     state = put_in(state.live_context.briefing, briefing)
-    if lines == [], do: state, else: enqueue(state, Enum.join(lines, "\n"), false)
+
+    if lines == [], do: state, else: enqueue_briefing(state, Enum.join(lines, "\n"))
   end
 
   defp enqueue(state, text, announce?) do
     text = state.config.redactor.(text)
-    record!(state, text)
+    enqueue_redacted(state, text, announce?, "events")
+  end
+
+  defp enqueue_briefing(state, text) do
+    text =
+      text
+      |> state.config.redactor.()
+      |> limit(state.config.limits.briefing_token_budget)
+
+    enqueue_redacted(state, text, false, "briefing")
+  end
+
+  defp enqueue_redacted(state, text, announce?, source) do
+    record!(state, text, source)
     state = update_in(state.live_context.events, &Enum.take(&1 ++ [text], -10))
     state = update_in(state.live_context.pending, &Enum.take(Enum.uniq(&1 ++ [text]), -10))
 
@@ -209,8 +242,66 @@ defmodule VoiceConverse.LiveContext do
     end
   end
 
-  defp record!(state, text) do
-    :ok = TranscriptStore.append(state.store, %{type: "context", source: "events", text: text, at: now(state)})
+  defp complete_refresh(state, ref, result) do
+    case Map.pop(state.live_context.refreshes, ref) do
+      {nil, _refreshes} ->
+        {:noreply, state}
+
+      {caller, refreshes} ->
+        state = put_in(state.live_context.refreshes, refreshes)
+
+        case result do
+          {:ok, %Briefing{} = briefing} ->
+            state = update_briefing(state, briefing)
+            GenServer.reply(caller, :ok)
+            {:noreply, state}
+
+          _ ->
+            GenServer.reply(caller, {:error, :unavailable})
+            {:noreply, state}
+        end
+    end
+  end
+
+  defp limit(text, budget) do
+    max_bytes = budget * 4
+
+    if byte_size(text) <= max_bytes do
+      text
+    else
+      take_graphemes(text, max_bytes, [])
+    end
+  end
+
+  defp take_graphemes(text, remaining, acc) do
+    case String.next_grapheme(text) do
+      {grapheme, rest} when byte_size(grapheme) <= remaining ->
+        take_graphemes(rest, remaining - byte_size(grapheme), [grapheme | acc])
+
+      _ ->
+        acc |> Enum.reverse() |> IO.iodata_to_binary()
+    end
+  end
+
+  defp record!(state, text, "briefing") do
+    :ok =
+      TranscriptStore.append(state.store, %{
+        type: "context",
+        source: "briefing",
+        ref: target_ref(state),
+        observed_at: now(state),
+        text: text,
+        refresh?: true
+      })
+  end
+
+  defp record!(state, text, source) do
+    :ok = TranscriptStore.append(state.store, %{type: "context", source: source, text: text, at: now(state)})
+  end
+
+  defp target_ref(state) do
+    target = Map.get(state, :draft_target, %{})
+    target |> Map.get(:id, Map.get(target, "id", "target")) |> to_string()
   end
 
   defp now(state), do: DateTime.to_iso8601(state.clock.())

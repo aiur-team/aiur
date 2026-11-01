@@ -43,7 +43,7 @@ executor_project_root() {
 }
 
 cmd_executor_attach() {
-  local harness="" takeover=false print_config=false
+  local harness="" takeover=false print_config=false check=false json=false
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --harness)
@@ -52,10 +52,18 @@ cmd_executor_attach() {
       --harness=*) harness="${1#*=}" ;;
       --takeover) takeover=true ;;
       --print-config) print_config=true ;;
+      --check) check=true ;;
+      --json) json=true ;;
       *) echo "aiur: executor-attach: unknown argument $1" >&2; exit 64 ;;
     esac
     shift
   done
+  if [ "$check" = true ]; then
+    [ -z "$harness" ] && [ "$takeover" = false ] && [ "$print_config" = false ] || { echo "aiur: --check cannot be combined with attach options" >&2; exit 64; }
+    run_control_rpc "Aiur.AgentControlCLI.executor_check(json: $json, repo_root: \"$(encode_control_value "$(executor_project_root)")\" |> Base.decode64!())"
+    return
+  fi
+  [ "$json" = false ] || { echo "aiur: --json requires --check" >&2; exit 64; }
   case "$harness" in claude|codex) ;; *) echo "aiur: executor-attach requires --harness claude or codex" >&2; exit 64 ;; esac
   run_control_rpc "Aiur.AgentControlCLI.executor_attach(harness: \"$harness\", takeover?: $takeover, print_config: $print_config, repo_root: \"$(encode_control_value "$(executor_project_root)")\" |> Base.decode64!())"
 }

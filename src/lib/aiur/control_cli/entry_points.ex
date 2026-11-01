@@ -10,6 +10,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.GitHubUsageCLI
   alias Aiur.UnitsCLI
   alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.HoldStatus
   import Aiur.Orchestrator.ControlCLI.Output, only: [print_failure: 3]
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1, guarded: 2]
 
@@ -102,31 +103,65 @@ defmodule Aiur.ControlCLI.EntryPoints do
   def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
     guarded("workspace-recover", fn ->
       ticket_key = workspace_recovery_ticket_key(ticket)
+
+      {proof, check_failed} =
+        case HoldStatus.for_ticket(ticket_key) do
+          %{proof: value, check_failed: failed_check} -> {value, failed_check}
+          _ -> {:unavailable, :hold_unavailable}
+        end
+
       result = Ownership.release_if_held_with_exit_proof(ticket_key, generation)
       status = %{identifier: ticket, issue_id: ticket}
 
-      report_workspace_recovery(result, ticket, generation, status)
+      report_workspace_recovery(result, ticket, generation, status, proof, check_failed)
     end)
   end
 
-  defp report_workspace_recovery(:ok, ticket, generation, _status) do
-    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+  defp report_workspace_recovery(:ok, ticket, generation, _status, proof, _check_failed) do
+    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation} proof=#{proof}")
     exit_marker(0)
   end
 
-  defp report_workspace_recovery({:error, {:audit_write_failed, reason}}, _ticket, _generation, _status) do
+  defp report_workspace_recovery(
+         {:error, {:audit_write_failed, reason}},
+         _ticket,
+         _generation,
+         _status,
+         _proof,
+         _check_failed
+       ) do
     IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
     exit_marker(1)
   end
 
-  defp report_workspace_recovery(result, _ticket, _generation, status) do
+  defp report_workspace_recovery(result, _ticket, _generation, status, proof, check_failed) do
     reason = if result == :not_found, do: :not_found, else: recovery_failure_reason(result)
     print_failure(:workspace_recover, status, reason)
+
+    if reason == :cannot_release_without_proof do
+      IO.puts("aiur: release check failed: #{recovery_check_description(check_failed)} (check_failed=#{check_failed}, proof=#{proof})")
+    end
+
     exit_marker(1)
   end
 
   defp recovery_failure_reason(:not_held_for_reaping), do: :not_held_for_reaping
   defp recovery_failure_reason({:error, reason}), do: reason
+
+  defp recovery_check_description(:pid_alive), do: "the recorded owner pid is still running"
+  defp recovery_check_description(:start_time_within_tolerance), do: "the pid start time is within the live-owner tolerance"
+  defp recovery_check_description(:owner_matches_daemon), do: "the lock pid matches the running daemon"
+  defp recovery_check_description(:owner_not_stale), do: "the lock file names a different owner"
+  defp recovery_check_description(:lock_unreadable), do: "the lock file could not be verified"
+  defp recovery_check_description(:proc_unreadable), do: "the process start time could not be verified"
+  defp recovery_check_description(:pid_missing), do: "the lock has no owner pid"
+  defp recovery_check_description(:lock_identity_unavailable), do: "the lock identity could not be verified"
+  defp recovery_check_description(:host_lock_missing), do: "the hold has no recorded host lock"
+  defp recovery_check_description(:remote_provider), do: "the provider is remote"
+  defp recovery_check_description(:provider_still_tracked), do: "the provider is still tracked as running"
+  defp recovery_check_description(:provider_exit_not_recorded), do: "provider exit was not recorded"
+  defp recovery_check_description(:boot_probe_unavailable), do: "the host boot id could not be verified"
+  defp recovery_check_description(_reason), do: "independent owner-exit proof is unavailable"
 
   defp workspace_recovery_ticket_key(ticket) do
     case Regex.run(~r/^(?:[^#\/]+\/[^#\/]+#|#)(\d+)$/, ticket) do

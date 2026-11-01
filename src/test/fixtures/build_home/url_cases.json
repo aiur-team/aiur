@@ -145,7 +145,7 @@
     },
     {
       "query": "v=1&conditions=alert",
-      "canonical": "astate=error,retries,command",
+      "canonical": "astate=error,retries,command,native_question",
       "design_output": "v=1&conditions=alert",
       "differs": "Legacy Units keys map to home presets."
     },

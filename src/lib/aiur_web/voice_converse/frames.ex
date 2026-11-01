@@ -19,7 +19,6 @@ defmodule AiurWeb.VoiceConverse.Frames do
 
   def input(_, _, _), do: {:error, :invalid_payload}
 
-  defp type("playback_state"), do: "state"
   defp type("client_text"), do: "text"
   defp type(event), do: event
   defp audio_data(frame, "audio"), do: Map.put(frame, "data_b64", frame["data"] || frame["data_b64"])
@@ -40,8 +39,8 @@ defmodule AiurWeb.VoiceConverse.Frames do
   defp dispatch(%{"type" => "discard_draft", "draft_id" => id}, a) when is_binary(id) and byte_size(id) in 1..256,
     do: VoiceConverse.discard_draft(a.instance, a.conversation_id, id, origin: :client)
 
-  defp dispatch(%{"type" => "state", "state" => state}, a) when state in ["playing", "stopped"],
-    do: VoiceConverse.playback_state(a.instance, a.conversation_id, state)
+  defp dispatch(%{"type" => "playback_state"} = frame, a),
+    do: VoiceConverse.playback_state(a.instance, a.conversation_id, frame)
 
   defp dispatch(_, _), do: {:error, :invalid_payload}
 

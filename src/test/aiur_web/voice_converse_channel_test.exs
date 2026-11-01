@@ -79,6 +79,34 @@ defmodule AiurWeb.VoiceConverseChannelTest do
     assert_push("state", %{"state" => "ended"}, 2_000)
   end
 
+  test "timing reaches the channel and playback progress cuts the transcript before deferred client text", ctx do
+    start_core(ctx)
+    assert {:ok, %{conversation_id: id}, joined} = subscribe_and_join(client(), "voice:converse", payload())
+    assert_push("state", %{"state" => "listening"}, 2_000)
+    ref = provider(ctx.name, id)
+    text = "é👩🏽‍💻!"
+    FakeProvider.emit(ref, %Events.AgentText{turn_id: "timed", text: text, final?: true})
+    assert_push("assistant_text", %{"text" => ^text}, 2_000)
+    timing = Events.AgentTextTiming.from_text_deltas(text, turn_id: "timed", duration_ms: 300)
+    FakeProvider.emit(ref, timing)
+
+    assert_push(
+      "agent_text_timing",
+      %{"text" => ^text, "estimated" => true, "chars" => [%{"offset_ms" => 0, "length" => 1}, %{"offset_ms" => 100, "length" => 1}, %{"offset_ms" => 200, "length" => 1}]},
+      2_000
+    )
+
+    FakeProvider.emit(ref, %Events.Interruption{turn_id: "timed"})
+    assert_push("interrupted", %{"turn_id" => "timed"}, 2_000)
+    push(joined, "client_text", %{"text" => "next"})
+    push(joined, "playback_state", %{"state" => "stopped", "turn_id" => "timed", "played_until_ms" => 100})
+    assert_push("transcript", %{"text" => "next", "kind" => "final"}, 4_000)
+    assert {:ok, records, _} = TranscriptStore.read(ctx.root, id)
+    assert [%{"text" => "é", "interrupted?" => true}] = Enum.filter(records, &(&1["type"] == "assistant_turn"))
+    assert Enum.find_index(records, &(&1["type"] == "assistant_turn")) < Enum.find_index(records, &(&1["type"] == "user_turn"))
+    assert Enum.count(FakeProvider.calls(ref), &(&1 == {:truncate, "timed", 100})) == 1
+  end
+
   test "privacy preflight refusal releases the lease", ctx do
     start_core(ctx, preflight_error: Events.Error.new(:privacy_preflight_failed, "privacy"))
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# @cli-reference aiur executor-attach --check [--json]|Diagnose Executor attachment without changing it; exit 1 for fail or unknown.|aiur executor-attach --check --json
 # @cli-reference aiur executor-attach --harness claude|Required: explicitly select claude or codex.|aiur executor-attach --harness claude
 # @cli-reference aiur executor-attach --harness claude --print-config|Prints hooks instead of installing them; Codex always prints.|aiur executor-attach --harness claude --print-config
 # @cli-reference aiur executor-attach --harness claude --takeover|Replaces a live binding; off by default.|aiur executor-attach --harness claude --takeover
@@ -142,6 +143,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-roster [--json]  list Executor consumers
        aiur executor-session [--json]  show Executor binding, hook age and harness handle
        aiur executor-attach --harness claude|codex [--takeover] [--print-config]
+       aiur executor-attach --check [--json]
        aiur executor-detach  detach the Executor and revoke its hook token
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim

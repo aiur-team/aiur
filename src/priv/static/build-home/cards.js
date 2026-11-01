@@ -7,7 +7,7 @@ import { nowMs } from './clock.js';
 import { fmtD, fmtT, fmtH, dayKey } from './util.js';
 import { I } from './icons.js';
 import { progress } from './now-state.js';
-import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
+import { rowState, holdLinkHTML, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
 import { labelCard } from './a11y.js';
@@ -122,11 +122,13 @@ export function makeCard(it) {
     const points = number(t.pts, 'pts', 'Points unknown');
     let body = '', status = '';
     if (t.sec === 'hist') ({ body, status } = historyContent(t, points));
-    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + (ag.cls ? ag.label : '<span data-unknown="state" title="State unknown">' + ag.label + '</span>') + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
+    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + (holdLinkHTML(t) || (ag.cls ? ag.label : '<span data-unknown="state" title="State unknown">' + ag.label + '</span>')) + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
     else if (t.sec === 'plan') ({ body, status } = planContent(t, points));
     else status = '<div class="bd-status"><span>Open · not queued</span><span>' + points + ' pts</span></div>';
     el.innerHTML = glow + '<div class="bd-in"' + (startUnknown || estUnknown ? ' title="' + esc(tip) + '"' : '') + '>' + sr + top + '<div class="bd-title">' + esc(t.title) + '</div>' + body + status + '</div>' + logoHTML(t, det);
   }
+  el.querySelector('.bd-hold')?.addEventListener('click', event => event.stopPropagation());
+  el.querySelector('.bd-hold')?.addEventListener('keydown', event => event.stopPropagation());
   el.setAttribute('role', 'button'); decorate(el); return el;
 }
 export function decorate(el) {

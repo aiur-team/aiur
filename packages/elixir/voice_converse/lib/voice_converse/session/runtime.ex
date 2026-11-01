@@ -38,14 +38,17 @@ defmodule VoiceConverse.Session.Runtime do
   end
 
   def flush_consult_context(%{provider_ref: nil} = state), do: state
-  def flush_consult_context(state), do: flush_context(state, state.pending_consult_context)
 
-  defp flush_context(state, []), do: %{state | pending_consult_context: []}
+  def flush_consult_context(state) do
+    flush_context(state, state.pending_consult_context, :pending_consult_context)
+  end
 
-  defp flush_context(state, [text | rest] = pending) do
+  defp flush_context(state, [], key), do: Map.put(state, key, [])
+
+  defp flush_context(state, [text | rest] = pending, key) do
     case safely(fn -> state.provider.send_context(state.provider_ref, text) end) do
-      :ok -> flush_context(state, rest)
-      _ -> %{state | pending_consult_context: pending}
+      :ok -> flush_context(state, rest, key)
+      _ -> Map.put(state, key, pending)
     end
   end
 

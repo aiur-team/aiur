@@ -12,7 +12,7 @@ defmodule Aiur.PrMerge.QueueCommandTest do
     settings = %{
       workspace: %{root: Path.join(root, "agents")},
       merge_policy: %{ci: "wait", local_tests: "partial", main_watch: %{enabled: false}, attribution_scan: false, full_ci_labels: [], full_ci_paths: []},
-      tracker: %{base_branch: "main", github: %{repo: "owner/repo", bot_account: "worker", github_app: %{account: "daemon[bot]"}, human_mergers: ["operator"]}}
+      tracker: %{base_branch: "main", github: %{repo: "owner/repo", bot_account: "worker", identity_mode: "separate_account", github_app: %{account: "daemon[bot]"}, human_mergers: ["operator"]}}
     }
 
     opts = %{number: 1, reviewed_sha: @head, approve_body: nil, dry_run: false, inherited: []}

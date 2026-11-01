@@ -55,15 +55,28 @@ defmodule VoiceConverse do
 
   def push_text(_instance, _id, _text), do: {:error, :invalid_payload}
 
-  @doc "Reports client playback state for interruption context."
-  @spec playback_state(module(), String.t(), String.t()) :: :ok | {:error, atom()}
-  def playback_state(instance, id, state) when state in ["playing", "stopped"] do
-    with {:ok, pid} <- session_pid(instance, id) do
-      GenServer.cast(pid, {:playback_state, state})
+  @doc "Reports playback state, optionally including turn-relative progress for interruption truncation."
+  @spec playback_state(module(), String.t(), String.t() | map()) :: :ok | {:error, atom()}
+  def playback_state(instance, id, status) when status in ["playing", "stopped"],
+    do: playback_state(instance, id, %{"state" => status})
+
+  def playback_state(instance, id, frame) when is_map(frame) do
+    with {:ok, json} <- VoiceConverse.Wire.encode(Map.merge(frame, %{"v" => 1, "type" => "playback_state"})),
+         {:ok, frame} <- VoiceConverse.Wire.decode(json),
+         {:ok, pid} <- session_pid(instance, id) do
+      GenServer.call(pid, {:playback_state, frame})
     end
   end
 
   def playback_state(_, _, _), do: {:error, :invalid_payload}
+
+  @doc "Refreshes a live conversation's briefing and sends changed lines as context."
+  @spec refresh_briefing(module(), String.t()) :: :ok | {:error, :not_found | :unavailable}
+  def refresh_briefing(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
+      GenServer.call(pid, :refresh_briefing)
+    end
+  end
 
   @doc "Ends a live conversation with one stable end reason."
   @spec end_session(module(), String.t(), atom()) :: :ok | {:error, :not_found}
@@ -162,7 +175,11 @@ defmodule VoiceConverse do
 
   defp transcript_children(%Config{transcript: :none}), do: []
 
-  defp transcript_children(%Config{transcript: :file, name: name, transcript_root: root}) do
+  defp transcript_children(%Config{
+         transcript: :file,
+         name: name,
+         transcript_root: root
+       }) do
     cleanup = Module.concat(name, ProviderCleanup)
 
     [

@@ -34,7 +34,7 @@ defmodule AiurWeb.ExecutorView do
         <p>Run <code>aiur executor-attach --harness claude</code> or <code>aiur executor-attach --harness codex</code> in your repository.</p>
         <a href="https://aiur.team/docs/guide/gui#executor">Executor setup and history</a>
       </div>
-      <p :if={@view.state == :awaiting_hook}>Waiting for the Executor session. Run <code>aiur executor-session --json</code> to inspect the current session and hook state.</p>
+      <p :if={@view.state == :awaiting_hook}>Waiting for the Executor session. Run <code>aiur executor-attach --check</code> to diagnose attachment and hook failures.</p>
       <p :if={@view.state == :ended}>Executor session ended or detached. Recorded history remains readable.</p>
       <p :if={@view.unreadable?} role="alert">Executor transcript unreadable (source_unreadable). Status may still work; check transcript access and the attached session.</p>
       <p :if={@view.capability && @view.capability.state == :unsupported} role="status">Executor transcript unsupported: {@view.capability.reason}. Recorded history remains readable.</p>
