@@ -119,15 +119,12 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       {:workspace_guardian_call, from, ref, {:cancel_provider_expectation, generation}} ->
         {reply_value, next} = cancel_provider_expectation(state, generation)
         reply(from, ref, reply_value)
-        loop(next)
+        continue_after_provider_update(reply_value, next, state)
 
       {:workspace_guardian_call, from, ref, {:track_provider, generation, provider}} ->
         {reply_value, next} = track_provider(state, generation, provider)
         reply(from, ref, reply_value)
-
-        if reply_value == :ok,
-          do: continue_after_provider_update(next),
-          else: loop(next)
+        continue_after_provider_update(reply_value, next, next)
 
       {:workspace_guardian_call, from, ref, {:mark_provider_cleanup_unknown, generation}} ->
         {reply_value, next} = mark_provider_cleanup_unknown(state, generation)
@@ -142,10 +139,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       {:workspace_guardian_call, from, ref, {:track_process_group, generation, process_group_id}} ->
         {reply_value, next} = track_provider(state, generation, %{process_group_id: process_group_id})
         reply(from, ref, reply_value)
-
-        if reply_value == :ok,
-          do: continue_after_provider_update(next),
-          else: loop(next)
+        continue_after_provider_update(reply_value, next, next)
 
       {:workspace_guardian_call, from, ref, {:track_host_lock, generation, lock}} ->
         {reply_value, next} = track_host_lock(state, generation, lock)
@@ -202,7 +196,10 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp continue_after_provider_update(%{owner_dead?: true} = state), do: maybe_release_or_reap(state)
+  defp continue_after_provider_update(%{release_requested?: true} = state), do: maybe_release_or_reap(state)
   defp continue_after_provider_update(state), do: loop(state)
+  defp continue_after_provider_update(:ok, next, _fallback), do: continue_after_provider_update(next)
+  defp continue_after_provider_update(_error, _next, fallback), do: loop(fallback)
 
   defp activate(state, generation) when generation == state.lease.generation do
     case Registry.update_value(state.registry, state.lease.ticket, &Map.put(&1, :phase, :active)) do
