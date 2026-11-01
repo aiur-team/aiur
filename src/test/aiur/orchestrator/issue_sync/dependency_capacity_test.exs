@@ -50,7 +50,7 @@ defmodule Aiur.Orchestrator.IssueSync.DependencyCapacityTest do
     refute Map.has_key?(resumed.running[previous.id], :pending_auto_resume)
   end
 
-  test "reports waiting for capacity, not a blocker pause, when a cleared dependency resume is deferred" do
+  test "reports waiting for the state gate, not a blocker pause, when cleared dependency resume is deferred" do
     Publisher.set_tracked_fn(fn _ -> true end)
 
     blockee_identifier = "its-everdred/aiur#blockee"
@@ -104,8 +104,7 @@ defmodule Aiur.Orchestrator.IssueSync.DependencyCapacityTest do
     assert deferred.running[previous.id].pending_auto_resume.resume_kind == :cleared_dependency
 
     assert_received {:event, %{topic: ^deferred_topic} = alert}
-    assert alert["reason"] =~ "waiting for a dispatch slot"
-    assert alert["reason"] =~ "binding: configured cap=1"
+    assert alert["reason"] =~ "waiting for the state concurrency gate for in-progress"
     assert alert["needs_attention"] in [false, nil]
 
     mailbox_barrier()

@@ -113,6 +113,24 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
     assert PauseResume.resume_paused_issue_preflight(state, running[rework.id]) == :ok
   end
 
+  test "resume reuses its reservation when seven paused workers exceed the six-slot envelope" do
+    paused =
+      Map.new(1..7, fn index ->
+        id = "paused-#{index}"
+        issue = %Issue{id: id, identifier: "repo##{id}", state: "in-progress", paused: true}
+        entry = %{issue: issue, identifier: issue.identifier, paused_reason: :operator, control: %{status: :paused}}
+        {id, entry}
+      end)
+
+    state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 6, running: paused}
+    entry = paused["paused-1"]
+
+    assert Slots.effective_concurrent_agent_limit(state) == 6
+    assert State.reserved_paused_running_count(state.running) == 7
+    assert Slots.used_slots(state) == 7
+    assert PauseResume.resume_paused_issue_preflight(state, entry) == :ok
+  end
+
   test "parks only pause reasons that currently hold fleet capacity" do
     for reason <- [:operator, :agent_pause_request, :input_required] do
       issue = %Issue{id: "#{reason}", identifier: "repo##{reason}", state: "in-progress", paused: true}

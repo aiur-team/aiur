@@ -331,9 +331,19 @@ defmodule Aiur.Orchestrator.Slots do
   # workers plus every *other* paused entry still reserving a slot (#4694).
   @spec resume_fleet_slot_available?(State.t(), map()) :: boolean()
   def resume_fleet_slot_available?(%State{} = state, running_entry) do
-    others = Map.delete(state.running, get_in(running_entry, [:issue, Access.key(:id)]))
-    used_slots(state, others) < effective_concurrent_agent_limit(state)
+    if holds_paused_reservation?(running_entry) do
+      true
+    else
+      others = Map.delete(state.running, get_in(running_entry, [:issue, Access.key(:id)]))
+      used_slots(state, others) < effective_concurrent_agent_limit(state)
+    end
   end
+
+  defp holds_paused_reservation?(%{issue: %{id: issue_id}} = running_entry) do
+    State.reserved_paused_running_count(%{issue_id => running_entry}) > 0
+  end
+
+  defp holds_paused_reservation?(_running_entry), do: false
 
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{globally_paused: true}), do: 0
