@@ -47,6 +47,10 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
       CommentWake.benign_review_pass_comment?(event) ->
         state
 
+      ReworkTransition.human_merger_blocking_comment?(event) and
+          DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)])) == "in-progress" ->
+        OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
+
       # A live rework worker gets the review; a finished one may have handed off since the last poll (#4601).
       live_rework_worker?(running_entry) ->
         OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)

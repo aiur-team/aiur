@@ -96,7 +96,13 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   end
 
   defp configured_human_blocking_comment?(event) do
-    not CommentWake.trusted_comment_event?(event) and comment_review_state(event) == "COMMENTED" and
+    human_merger_blocking_comment?(event)
+  end
+
+  @doc false
+  @spec human_merger_blocking_comment?(map()) :: boolean()
+  def human_merger_blocking_comment?(event) do
+    comment_review_state(event) == "COMMENTED" and
       ReviewFindings.blocking_body?(CommentWake.comment_body(event)) and human_merger_review?(event)
   end
 

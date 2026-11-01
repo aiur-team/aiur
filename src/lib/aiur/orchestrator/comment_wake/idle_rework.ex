@@ -46,7 +46,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
         # comment has to survive into the digest the agent reads on its first
         # turn. Dropping it here would trade a wrong label for lost operator
         # input, which is the worse failure of the two.
-        if reason == :not_yet_attempted,
+        if reason in [:not_yet_attempted, :already_in_progress],
           do: Dispatch.seed_idle_comment_wake_event(state, issue_number, event),
           else: state
 
@@ -94,6 +94,10 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
 
           DispatchPolicy.normalize_issue_state(issue.state) == "" ->
             {:skip, :unlabeled_issue}
+
+          DispatchPolicy.normalize_issue_state(issue.state) == "in-progress" and
+              ReworkTransition.human_merger_blocking_comment?(event) ->
+            {:skip, :already_in_progress}
 
           # Ordinary comments on a `todo` ticket remain briefing material:
           # there is no prior implementation to rework, and flipping the state
