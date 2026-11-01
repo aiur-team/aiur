@@ -44,7 +44,13 @@ defmodule Aiur.Events.CatalogLookupTest do
     :erlang.trace(worker, true, [:call])
     send(worker, :lookup)
 
-    assert_receive {:lookups, ^worker, [%Entry{pattern: "ticket.*.agent.decision.#"}, %Entry{owner: "unknown"}], entries}, 5_000
+    assert_receive {:lookups, ^worker,
+                    [
+                      %Entry{pattern: "ticket.*.agent.decision.answered"},
+                      %Entry{owner: "unknown"}
+                    ], entries},
+                   5_000
+
     assert entries == Catalog.entries()
     assert Enum.any?(entries, &(&1.pattern == "ticket.*.ci.passed"))
 

@@ -41,6 +41,7 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `ticket-usage-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.usage.changed` |
 | `ticket-spend-cap-reached-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.usage.spend_cap_reached` |
 | `ticket-cancel-result-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.cancel.result` |
+| `ticket-decision-event.v1` | outbound webhook | canonical envelope v1; decision requests and answers |
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
 | `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
 

@@ -212,7 +212,14 @@ defmodule Aiur.BuildOrder.ComponentTest do
     expected =
       early ++
         [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
-        final ++ [Aiur.BuildOrder.History.LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest]
+        final ++
+        [
+          Aiur.BuildOrder.History.LabelBackfill,
+          Aiur.Executor.Session,
+          Aiur.Executor.SessionIngest,
+          {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
+          Aiur.Executor.TranscriptIngest
+        ]
 
     assert Aiur.Application.child_specs(@opts) == expected
 

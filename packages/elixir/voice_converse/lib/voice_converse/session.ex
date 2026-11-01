@@ -2,19 +2,16 @@ defmodule VoiceConverse.Session do
   use GenServer, restart: :temporary
 
   alias VoiceConverse.{
-    ClientErrors,
     Events,
-    ProviderCleanup,
     Session.Runtime,
     Session.Start,
     SessionLimits,
     SessionRegistry,
-    Tools,
+    Redact,
     TranscriptStore
   }
 
   @transport_grace_ms 10_000
-  @max_queued_audio 8
   def start_link(opts),
     do:
       GenServer.start_link(__MODULE__, opts,
@@ -40,6 +37,7 @@ defmodule VoiceConverse.Session do
 
     case Start.state(config, target, id, opts) do
       {:ok, state} ->
+        state = VoiceConverse.LiveContext.attach(state)
         state = if client = Keyword.get(opts, :client), do: add_subscriber(state, client), else: state
         {:ok, state, {:continue, :open_provider}}
 
@@ -51,13 +49,10 @@ defmodule VoiceConverse.Session do
   @impl true
   def handle_continue(:open_provider, state), do: {:noreply, open_provider_async(state, :initial)}
   def handle_continue(:consult_failed, state), do: stop_unknown(state)
-
   @impl true
-  def handle_cast({:audio, audio_b64}, state) when is_binary(audio_b64) do
-    {:noreply, Runtime.enqueue_audio(self(), state, audio_b64, @max_queued_audio)}
-  end
+  def handle_cast(message, state),
+    do: VoiceConverse.Session.ClientInput.handle_cast(message, state, &handle_provider_event/2)
 
-  def handle_cast({:audio, _audio_b64}, state), do: {:noreply, state}
   @impl true
   def handle_call({:subscribe, subscriber}, _from, state) when is_pid(subscriber) do
     state = add_subscriber(state, subscriber)
@@ -75,7 +70,7 @@ defmodule VoiceConverse.Session do
   def handle_call(:await_started, from, state), do: {:noreply, update_in(state.start_waiters, &[from | &1])}
 
   def handle_call({:end, reason}, _from, state) do
-    case begin_finish(state, valid_end_reason(reason)) do
+    case begin_finish(state, Runtime.end_reason(reason)) do
       {:done, state} -> {:stop, :normal, :ok, state}
       {:pending, state} -> {:reply, :ok, state}
     end
@@ -83,7 +78,9 @@ defmodule VoiceConverse.Session do
 
   @impl true
   def handle_info(:provider_ready, state),
-    do: {:noreply, state |> Runtime.flush_consult_context() |> transition(:listening)}
+    do:
+      {:noreply,
+       state |> Runtime.flush_consult_context() |> transition(:listening) |> VoiceConverse.LiveContext.ready()}
 
   def handle_info({:provider_opened, phase, result}, state), do: handle_provider_opened(phase, result, state)
 
@@ -138,7 +135,8 @@ defmodule VoiceConverse.Session do
     end
   end
 
-  def handle_info(message, state), do: VoiceConverse.Session.Consult.handle_info(message, state)
+  def handle_info({:live_target_gone, reason}, state), do: stop_on_timeout(state, reason)
+  def handle_info(message, state), do: VoiceConverse.LiveContext.handle_info(message, state)
   @impl true
   def terminate(reason, %{finished?: false} = state) when reason not in [:normal, :shutdown] do
     state = close_current_provider(state)
@@ -266,7 +264,7 @@ defmodule VoiceConverse.Session do
     case persist(state, record) do
       {:ok, state} ->
         broadcast(state, broadcast_event)
-        {result, state} = Tools.dispatch(state, event, &handle_tool/2)
+        {result, state} = VoiceConverse.Tools.dispatch(VoiceConverse.LiveContext.refresh(state), event, &handle_tool/2)
 
         result_record = %{
           type: "tool_result",
@@ -336,7 +334,7 @@ defmodule VoiceConverse.Session do
   defp handle_tool(state, %Events.ToolCall{name: "ask_agent", params: params}),
     do: VoiceConverse.Session.Consult.tool(state, params)
 
-  defp handle_tool(state, event), do: {Tools.handle(state, event), state}
+  defp handle_tool(state, event), do: {VoiceConverse.Tools.handle(state, event), state}
 
   defp redact_tool_call(state, %Events.ToolCall{name: "propose_instruction", params: params} = event) do
     %{event | params: Map.update(params, "text", "", &redact_text(state, &1))}
@@ -345,7 +343,7 @@ defmodule VoiceConverse.Session do
   defp redact_tool_call(state, %Events.ToolCall{name: "ask_agent", params: params} = event),
     do: %{event | params: VoiceConverse.Session.Consult.redact_question(state, params)}
 
-  defp redact_tool_call(state, event), do: VoiceConverse.SummaryTool.redact_event(state.config, event)
+  defp redact_tool_call(state, event), do: %{event | params: Redact.redact_value(event.params, state.config.redactor)}
 
   defp redact_text(state, text) when is_binary(text), do: redact(state, text)
   defp redact_text(_state, text), do: text
@@ -375,7 +373,7 @@ defmodule VoiceConverse.Session do
     with {:ok, state} <- VoiceConverse.Session.Consult.note_session_end(state),
          {:ok, state} <-
            persist(state, %{type: "session_ended", reason: to_string(reason), at: now(state), duration_s: duration_s}),
-         {:ok, state} <- enqueue_cleanup(state) do
+         {:ok, state} <- VoiceConverse.Session.Cleanup.enqueue(state) do
       broadcast(state, {:ended, reason})
       broadcast_state(state, :ended)
       TranscriptStore.close(state.store)
@@ -383,19 +381,6 @@ defmodule VoiceConverse.Session do
     else
       {:error, state} -> %{state | finished?: true, finishing?: false, provider_ref: nil}
     end
-  end
-
-  defp enqueue_cleanup(state) do
-    cleanup = Module.concat(state.config.name, ProviderCleanup)
-
-    Enum.reduce_while(state.provider_ids, {:ok, state}, fn provider_id, {:ok, state} ->
-      with :ok <- ProviderCleanup.enqueue(cleanup, provider_id, state.id),
-           {:ok, state} <- persist(state, %{type: "cleanup_enqueued", provider_id: provider_id, at: now(state)}) do
-        {:cont, {:ok, state}}
-      else
-        _ -> {:halt, {:error, state}}
-      end
-    end)
   end
 
   defp close_after_start_failure(%{store: store} = state, code) do
@@ -493,8 +478,4 @@ defmodule VoiceConverse.Session do
   defp provider_code(:provider_quota), do: :provider_quota
   defp provider_code(code) when code in [:provider_auth, :provider_unavailable, :privacy_preflight_failed], do: code
   defp provider_code(_), do: :provider_error
-
-  defp valid_end_reason(reason) do
-    if Enum.any?(ClientErrors.table(), &(&1.code == reason and :end_reason in &1.kinds)), do: reason, else: :unknown
-  end
 end

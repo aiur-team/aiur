@@ -47,6 +47,24 @@ The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a ma
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 
+### Seeding the memory tracker
+
+In dev and test builds, add an issue to a running daemon configured with
+`tracker.kind: memory` through the authenticated API. Set `AIUR_CLIENT_TOKEN`
+to a token created with `aiur token create`:
+
+```sh
+curl -sS -X POST http://127.0.0.1:PORT/api/v1/memory/issues \
+  -H "Authorization: Bearer $AIUR_CLIENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Origin: http://127.0.0.1:PORT' -H 'X-Aiur-Request: 1' \
+  -d '{"id":"demo-1","identifier":"DEMO-1","title":"Try the fake provider","description":"Seeded from a script","state":"todo","labels":[]}'
+```
+
+The next dispatch poll sees the issue and can run it through the configured
+provider. The endpoint returns `404` for any other tracker and `409` for a
+duplicate `id` or `identifier`.
+
 ## polling
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-02 -->
