@@ -20,7 +20,7 @@ defmodule AiurWeb.UsageAccountsApiController do
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, params) do
-    accounts = params |> harness() |> AccountsCLI.rows(&UsageReadings.snapshot("claude", &1)) |> Enum.map(&public_row/1)
+    accounts = params |> harness() |> AccountsCLI.rows(&UsageReadings.snapshot_for_accounts/1) |> Enum.map(&public_row/1)
 
     conn
     |> Plug.Conn.put_resp_header("cache-control", "no-store")

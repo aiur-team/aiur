@@ -152,6 +152,15 @@ defmodule Aiur.Accounts.UsageReadings do
     end)
   end
 
+  @doc "Snapshot for account rows, carrying precomputed operator-facing fix text across the CLI component boundary."
+  @spec snapshot_for_accounts([String.t()]) :: %{String.t() => map()}
+  def snapshot_for_accounts(names) do
+    Map.new(snapshot("claude", names), fn {name, entry} ->
+      fix = if signed_out?(entry[:reason]), do: failure_text(name, entry.reason), else: nil
+      {name, if(fix, do: Map.put(entry, :fix, fix), else: entry)}
+    end)
+  end
+
   @spec record(String.t(), term(), DateTime.t()) :: :ok
   def record(name, result, observed_at) do
     record("claude", name, result, observed_at)

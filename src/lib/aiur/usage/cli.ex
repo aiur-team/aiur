@@ -16,7 +16,7 @@ defmodule Aiur.Usage.CLI do
   @spec legacy_accounts(boolean(), String.t() | nil) :: :ok
   def legacy_accounts(json, harness) do
     guarded("accounts", fn ->
-      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot_for_accounts/1)
       exit_marker(0)
     end)
   end

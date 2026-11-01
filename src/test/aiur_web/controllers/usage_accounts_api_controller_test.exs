@@ -164,7 +164,7 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
   end
 
   defp cli_rows(harness) do
-    output = ExUnit.CaptureIO.capture_io(fn -> :ok = Aiur.AccountsCLI.accounts(true, harness, &UsageReadings.snapshot("claude", &1)) end)
+    output = ExUnit.CaptureIO.capture_io(fn -> :ok = Aiur.AccountsCLI.accounts(true, harness, &UsageReadings.snapshot_for_accounts/1) end)
     output |> String.split("\n", trim: true) |> hd() |> Jason.decode!()
   end
 

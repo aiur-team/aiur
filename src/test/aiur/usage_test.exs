@@ -16,6 +16,20 @@ defmodule Aiur.UsageTest do
     observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
     UsageReadings.record("claude", "work", {:error, :no_oauth_token}, observed_at)
 
+    assert UsageReadings.snapshot_for_accounts(["work"]) == %{
+             "work" => %{
+               reading: nil,
+               observed_at: observed_at,
+               freshness: :unavailable,
+               reason: :no_oauth_token,
+               consecutive_failures: 1,
+               previous_consecutive_failures: 0,
+               recovery_alert_open?: false,
+               last_observed_at: nil,
+               fix: "not signed in; run `aiur login claude work`"
+             }
+           }
+
     summary =
       Aiur.Usage.json_snapshot(
         meter_views: %{},

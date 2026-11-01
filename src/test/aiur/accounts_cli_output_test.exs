@@ -23,7 +23,9 @@ defmodule Aiur.AccountsCLIOutputTest do
     :ok
   end
 
-  defp snapshot(_names), do: %{"default" => %{reading: nil, observed_at: ~U[2026-11-01 19:46:00Z], freshness: :unavailable, reason: :no_oauth_token}}
+  defp snapshot(_names),
+    do: %{"default" => %{reading: nil, observed_at: ~U[2026-11-01 19:46:00Z], freshness: :unavailable, reason: :no_oauth_token, fix: "not signed in; run `aiur login claude default`"}}
+
   defp ledger("codex"), do: %{stale: true, age_seconds: 120, source: "ledger"}
   defp ledger(_harness), do: nil
 

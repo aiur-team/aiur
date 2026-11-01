@@ -209,7 +209,7 @@ defmodule Aiur.AccountsCLI do
     end
   end
 
-  # Freshness and the stale cutoff come from `Aiur.Accounts.UsageReadings`, the rule the
+  # Freshness and the stale cutoff come from the usage readings, the rule the
   # Models panel uses too. Only Claude rows carry `last_error` (#5747).
   defp claude_row(name, harness, identity, %{reading: reading} = entry) when is_map(reading) do
     observed_at = entry.observed_at
@@ -251,7 +251,7 @@ defmodule Aiur.AccountsCLI do
 
     row
     |> Map.merge(%{last_error: freshness(reason), last_error_at: failed_at && DateTime.to_iso8601(failed_at)})
-    |> then(&if(Accounts.UsageReadings.signed_out?(reason), do: Map.put(&1, :fix, Accounts.UsageReadings.failure_text(row.name, reason)), else: &1))
+    |> then(&if(entry[:fix], do: Map.put(&1, :fix, entry.fix), else: &1))
   end
 
   defp with_failure(row, _entry), do: Map.put(row, :last_error, nil)
