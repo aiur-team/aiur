@@ -36,7 +36,10 @@ defmodule VoiceConverse.Provider.ElevenLabsNarrationTest do
   end
 
   test "malformed displayed alignment is rejected" do
-    malformed = Jason.decode!(documented_body()) |> put_in(["alignment", "character_end_times_seconds"], [0.02]) |> Jason.encode!()
+    malformed =
+      Jason.decode!(documented_body())
+      |> put_in(["alignment", "character_end_times_seconds"], [0.02])
+      |> Jason.encode!()
 
     assert {:error, %Events.Error{code: :provider_error}} =
              ElevenLabsAgents.render_speech(spec(http: response(200, malformed)))
@@ -57,10 +60,16 @@ defmodule VoiceConverse.Provider.ElevenLabsNarrationTest do
   end
 
   defp narration_opts(extra),
-    do: [provider: ElevenLabsAgents, privacy: %{}, credentials: {StaticCredentials, :elevenlabs}, voice_id: @voice] ++ extra
+    do:
+      [provider: ElevenLabsAgents, privacy: %{}, credentials: {StaticCredentials, :elevenlabs}, voice_id: @voice] ++
+        extra
 
   defp spec(extra),
-    do: Map.merge(%{text: "Hi!", format: :pcm_24000, voice_id: @voice, credentials: {StaticCredentials, :elevenlabs}}, Map.new(extra))
+    do:
+      Map.merge(
+        %{text: "Hi!", format: :pcm_24000, voice_id: @voice, credentials: {StaticCredentials, :elevenlabs}},
+        Map.new(extra)
+      )
 
   defp response(status, body), do: fn _url, _opts -> {:ok, status, body} end
 

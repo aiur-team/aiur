@@ -24,14 +24,17 @@ defmodule VoiceConverse.Provider.ElevenLabsNarration do
     _kind, _reason -> {:error, Events.Error.new(:provider_unavailable, "ElevenLabs connection is unavailable.")}
   end
 
-  def render_speech(_spec), do: {:error, Events.Error.new(:provider_error, "Invalid ElevenLabs narration specification.")}
+  def render_speech(_spec),
+    do: {:error, Events.Error.new(:provider_error, "Invalid ElevenLabs narration specification.")}
 
   defp speech_url(spec) do
     base_url = Map.get(spec, :base_url, @speech_endpoint) |> String.trim_trailing("/")
     voice_id = Map.get(spec, :voice_id)
     model_id = Map.get(spec, :model_id, "eleven_multilingual_v2")
     base_url = if voice_id, do: base_url <> "/#{URI.encode(voice_id)}", else: base_url
-    base_url <> "/with-timestamps?" <> URI.encode_query(%{"output_format" => format_query(spec.format), "model_id" => model_id})
+
+    base_url <>
+      "/with-timestamps?" <> URI.encode_query(%{"output_format" => format_query(spec.format), "model_id" => model_id})
   end
 
   defp render_request(spec, key) do
@@ -66,8 +69,13 @@ defmodule VoiceConverse.Provider.ElevenLabsNarration do
     {:error, Events.Error.new(code, error_message(code))}
   end
 
-  defp displayed_alignment(%{"characters" => chars, "character_start_times_seconds" => starts, "character_end_times_seconds" => ends})
-       when is_list(chars) and is_list(starts) and is_list(ends) and length(chars) == length(starts) and length(starts) == length(ends) do
+  defp displayed_alignment(%{
+         "characters" => chars,
+         "character_start_times_seconds" => starts,
+         "character_end_times_seconds" => ends
+       })
+       when is_list(chars) and is_list(starts) and is_list(ends) and length(chars) == length(starts) and
+              length(starts) == length(ends) do
     segments =
       Enum.zip([chars, starts, ends])
       |> Enum.reduce([], fn {char, start_s, end_s}, acc ->

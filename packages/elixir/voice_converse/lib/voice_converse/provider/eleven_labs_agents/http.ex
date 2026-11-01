@@ -22,7 +22,12 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.HTTP do
 
     timeout = Keyword.get(opts, :receive_timeout, 30_000)
 
-    case :httpc.request(:post, {String.to_charlist(url), headers, ~c"application/json", Keyword.fetch!(opts, :body)}, request_options(timeout), body_format: :binary) do
+    case :httpc.request(
+           :post,
+           {String.to_charlist(url), headers, ~c"application/json", Keyword.fetch!(opts, :body)},
+           request_options(timeout),
+           body_format: :binary
+         ) do
       {:ok, {{_version, status, _reason}, _headers, body}} -> {:ok, status, body}
       {:error, reason} -> {:error, reason}
     end
