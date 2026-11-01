@@ -155,7 +155,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
-A worker holding a native question raises a Command; open Commands to answer it.
+A worker holding a native question reads **Waiting for your answer** on its Build card, ticket header, Stream Deck key and `aiur units` output. The hold age appears alongside it; open the linked Command to answer. On the Stream Deck, focus the ticket and use **Open Command**. The waiting state clears when the answer is delivered or the hold is released.
 
 ### Read fleet and build pressure
 
@@ -183,7 +183,7 @@ on a phone, to read the instance's one Executor
 conversation at `/executor`. Attach with `aiur executor-attach --harness claude`
 or `aiur executor-attach --harness codex`.
 
-Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-session --json` hint for inspecting the current binding and hook state.
+Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-attach --check` hint for diagnosing attachment and hook failures.
 
 The distinct Executor frame wraps the same paging, event jumps and live history
 as worker conversations; `/executor?pos=N` highlights a recorded position.
@@ -330,6 +330,12 @@ Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, t
 Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` to be configured for browser sign-in.
 
 After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. Machine API clients can use individually revocable bearer tokens created with `aiur token create`; browser routes continue to use sign-in sessions.
+
+### iPhone Home Screen
+
+Use an HTTPS dashboard URL, sign in with Google or a registered passkey, then in Safari choose **Share → Add to Home Screen**. Open Aiur from its icon. The HttpOnly, SameSite=Lax session cookie survives relaunches until sign-out or expiry; its default lifetime is 30 days, controlled by `dashboard_auth.session_max_age_days`.
+
+For standalone use, disable the browser Basic Auth prompt with `dashboard_auth.browser_basic_auth: false` after confirming cookie sign-in. Basic Auth remains available to CLI and API clients. Home and Reload controls stay visible in standalone mode and appear after a LiveView disconnect.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 

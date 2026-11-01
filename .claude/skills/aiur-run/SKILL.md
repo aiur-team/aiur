@@ -162,6 +162,11 @@ From the repository root:
    needs an explicit clean checkpoint; ordinary local launches rebuild stale
    sources, and installed `aiur` has no shim-only `build` command.
 
+When changing capacity on a running daemon, edit `.aiur/config` and let the
+one-second config poll reload it. Do not run `aiur stop` and relaunch just to
+change `agent.max_concurrent_agents`, `agent.target_cpu_pressure`, or
+`agent.max_cpu_pressure`; confirm the result with `"$AIUR_CMD" status`.
+
 Preflight also covers the Executor wake path. The listener is armed on **every**
 run now, with or without `--executor`, so `LISTENER absent` no longer means "no
 Executor was intended" — it always means the recording path is broken and this
@@ -181,6 +186,11 @@ in consumer repositories. Equivalent background forms are:
 "$AIUR_CMD" --bg --executor --debug --max-agents <n>
 ```
 
+For a capacity adjustment after launch, change the relevant live setting in
+`.aiur/config` and verify it with `"$AIUR_CMD" status`. Do not stop and relaunch
+the daemon for this; accepted config edits reload within about one second while
+agent turns continue.
+
 `--executor` is required for every Executor-owned run, but what it now declares
 is **authority**, not recording. Every run records the wake stream and every run
 arms the listener; `--executor` is what raises created and deferred Commands as
@@ -189,6 +199,18 @@ needs-attention alerts, and it registers a renewing principal in
 observer. Registration never acknowledges wakes or advances the shared cursor;
 only `executor-wait` does that. If you are acting as the Executor, launch with
 `--executor`; there is no valid Executor launch without it.
+
+Offer Executor conversation attachment as a separate opt-in; never attach the
+user's session merely because you operate the run. Before using
+`aiur executor-attach --harness claude` or `--harness codex`, explain that Aiur
+may read that session's transcript and retain a local, owner-only journal until
+deleted. Device pairing is not available yet; when it ships, pairing a phone or
+watch will grant full access, including the Executor transcript, with no separate
+transcript toggle. Claude installs marked project-local hooks;
+Codex prints configuration for manual merge and `/hooks` trust. Explain
+`aiur executor-detach` and that existing recordings remain. Attachment alone
+does not enable dashboard chat in attach-only builds. See
+[Executor opt-in and privacy](../../../website/docs-app/concepts/executor.md#talk-to-the-executor-from-the-dashboard).
 
 For a multi-instance fleet, run one Executor from one machine. Stop the
 per-machine Executors, then use `aiur --instance all executor-wait --as

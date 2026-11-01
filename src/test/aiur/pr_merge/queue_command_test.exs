@@ -12,7 +12,7 @@ defmodule Aiur.PrMerge.QueueCommandTest do
     settings = %{
       workspace: %{root: Path.join(root, "agents")},
       merge_policy: %{ci: "wait", local_tests: "partial", main_watch: %{enabled: false}, attribution_scan: false, full_ci_labels: [], full_ci_paths: []},
-      tracker: %{base_branch: "main", github: %{repo: "owner/repo", bot_account: "worker", github_app: %{account: "daemon[bot]"}, human_mergers: ["operator"]}}
+      tracker: %{base_branch: "main", github: %{repo: "owner/repo", bot_account: "worker", identity_mode: "separate_account", github_app: %{account: "daemon[bot]"}, human_mergers: ["operator"]}}
     }
 
     opts = %{number: 1, reviewed_sha: @head, approve_body: nil, dry_run: false, inherited: []}
@@ -133,8 +133,13 @@ defmodule Aiur.PrMerge.QueueCommandTest do
 
   defp response(key, "post", "repos/owner/repo/pulls/1/reviews", body) do
     state = Process.get(key)
-    Process.put(key, %{state | approved: state.approval_effect, approval_posted: true})
-    {:ok, %{"state" => "APPROVED", "commit_id" => body.commit_id}}
+
+    case body.event do
+      "APPROVE" -> Process.put(key, %{state | approved: state.approval_effect, approval_posted: true})
+      "COMMENT" -> Process.put(key, Map.put(state, :comment_posted, true))
+    end
+
+    {:ok, %{"state" => if(body.event == "COMMENT", do: "COMMENTED", else: "APPROVED"), "commit_id" => body.commit_id}}
   end
 
   defp response(_key, "put", "repos/owner/repo/pulls/1/merge", _), do: {:ok, %{"merged" => true, "sha" => "merge-sha"}}
@@ -151,6 +156,16 @@ defmodule Aiur.PrMerge.QueueCommandTest do
     refute_received {:notify, _}
     assert [%{"state" => "enqueued", "sha" => @head, "queue_entry" => "MQ_1"}] = ledger(ctx)
     assert_received {:output, "ENQUEUED #1 " <> _}
+  end
+
+  test "single-account queue always comments the self-review attestation", ctx do
+    github = %{ctx.settings.tracker.github | identity_mode: "single_account"}
+    ctx = %{ctx | settings: put_in(ctx.settings, [:tracker, :github], github)}
+
+    assert run(ctx, approved: false) == 0
+    assert_received {:api, "post", "repos/owner/repo/pulls/1/reviews", %{body: "Single-account self-review attestation: reviewed " <> @head <> ".", commit_id: @head, event: "COMMENT"}}
+    assert_received {:api, "post", "graphql", %{variables: %{input: %{expectedHeadOid: @head}}}}
+    assert [%{"attestation" => "single_account_self_review", "reviewed_sha" => @head, "state" => "enqueued"}] = ledger(ctx)
   end
 
   test "nonqueue base retains pinned squash merge", ctx do

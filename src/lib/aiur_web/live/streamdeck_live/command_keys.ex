@@ -23,7 +23,7 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
       command_key("priority_down", "Priority down", "QUEUE", icon: "down", disabled?: actions["priority_down"] != "enabled"),
       command_key("commands", "Commands", "OPEN", icon: "commands"),
       link_key("pr", "Open PR", ticket["links"]["pr"]),
-      link_key("modal", "Dashboard", ticket["links"]["modal"]),
+      link_key("modal", if(get_in(ticket, ["agent", "native_hold"]), do: "Open Command", else: "Dashboard"), ticket["links"]["modal"]),
       mic_command_key(mic_held?, dashboard_writable?()),
       command_key("settings", "Settings", "OPEN", icon: "settings")
     ]

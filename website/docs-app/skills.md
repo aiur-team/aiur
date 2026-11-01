@@ -10,6 +10,8 @@ Shared credentials can live in `~/.aiur/.env` outside Git. Local settings, permi
 
 `aiur-intro` explains one-time home setup and per-repository readiness: GitHub access, base branch, CODEOWNERS or dispatch allowlist, labels and validation. The Executor tells the user what was configured and what still blocks startup or worker publication.
 
+`aiur-run` and `aiur-intro` offer [Executor conversation attachment](/concepts/executor#talk-to-the-executor-from-the-dashboard) as a separate opt-in, explaining transcript retention, paired-device access and detachment first.
+
 Aiur ships Agent Skills under `.claude/skills/`, with shared links for Codex under `.codex/skills/` and Muse under `.agents/skills/` in the source checkout. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
@@ -27,7 +29,7 @@ Muse loads workspace skills and rules only when `agent.backend_configs.muse.trus
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer | The `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and [Message Bus](/concepts/message-bus) events, subscriptions, blockers, attentions, and consuming async message reads. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer | The `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and [Message Bus](/concepts/message-bus) events, subscriptions, blockers, attentions, and consuming async message reads. For build-slot occupancy, agents use `aiur status` rather than raw files in `~/.aiur/build-gate/`. |
 | [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | Run, daemon, agent, or workspace failure | Correlated evidence and safe recovery order. |
 | [aiur-experiment](../../.claude/skills/aiur-experiment/SKILL.md) | Experiment analysis ticket or local analyst brief | Blind pre-registration, engine statistics, complete confounder ledger, and validated CLI report submission. Analysis tickets produce no PR and finish after verified submission. |
 | [design-import](../../.claude/skills/design-import/SKILL.md) | Large frontend design import | Disk-first import without overflowing agent context. |

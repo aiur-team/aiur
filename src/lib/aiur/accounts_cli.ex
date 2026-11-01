@@ -69,15 +69,66 @@ defmodule Aiur.AccountsCLI do
   @spec login(String.t(), String.t(), String.t() | nil) :: :ok | {:error, term()}
   def login(harness, name, dir) do
     with :ok <- maybe_validate_and_register(harness, name, dir) do
-      case Accounts.capability(harness) do
-        {:ok, %{kind: :api_key}} ->
-          :ok
-
-        _ ->
-          launch_login(Accounts.login_command(harness, name))
-      end
+      login_registered_account(harness, name)
     end
   end
+
+  defp login_registered_account(harness, name) do
+    case Accounts.capability(harness) do
+      {:ok, %{kind: :api_key}} -> :ok
+      _ -> login_profile(harness, name)
+    end
+  end
+
+  defp login_profile(harness, name) do
+    case login_decision(harness, name) do
+      {:ok, _profile_dir, false} -> print_registered_identity(harness, name)
+      {:ok, _profile_dir, true} -> launch_profile_login(harness, name)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp launch_profile_login(harness, name) do
+    if stdin_tty?() do
+      launch_login(Accounts.login_command(harness, name))
+    else
+      {:error, "profile is not signed in; run `aiur login #{harness} #{name}` in an interactive terminal"}
+    end
+  end
+
+  defp print_registered_identity(harness, name) do
+    identity =
+      case Enum.find(Accounts.list(harness), &(&1.name == name)) do
+        %{profile_dir: dir} -> shim_identity(harness, dir)
+        _ -> %{}
+      end
+
+    label = Map.get(identity, "email") || Map.get(identity, "account_id") || Map.get(identity, "organization") || "profile"
+    IO.puts("registered #{harness}:#{name} (signed in as #{label})")
+    :ok
+  end
+
+  @doc false
+  @spec login_decision(String.t(), String.t()) :: {:ok, Path.t() | nil, boolean()} | {:error, term()}
+  def login_decision(harness, name) do
+    case Enum.find(Accounts.list(harness), &(&1.name == name)) do
+      %{profile_dir: profile_dir} -> {:ok, profile_dir, not signed_in?(harness, profile_dir)}
+      nil -> {:error, :unknown_account}
+    end
+  end
+
+  defp signed_in?(harness, profile_dir), do: map_size(shim_identity(harness, profile_dir)) > 0
+
+  defp stdin_tty? do
+    case :io.getopts(:standard_io) do
+      opts when is_list(opts) -> Keyword.get(opts, :terminal, false)
+      _ -> false
+    end
+  end
+
+  defp shim_identity("claude", dir), do: Claude.identity(dir)
+  defp shim_identity("codex", dir), do: Codex.identity(dir)
+  defp shim_identity(_, _dir), do: %{}
 
   defp launch_login({command, args}) when is_binary(command) and is_list(args) do
     {_output, status} = System.cmd(command, args, into: IO.stream(:stdio, :line))
@@ -103,17 +154,20 @@ defmodule Aiur.AccountsCLI do
     end
   end
 
-  @spec prepare_login_result(String.t(), String.t(), String.t() | nil) :: {:ok, Path.t() | nil} | {:error, term()}
+  @spec prepare_login_result(String.t(), String.t(), String.t() | nil) :: {:ok, Path.t() | nil, boolean()} | {:error, term()}
   def prepare_login_result(harness, name, dir) do
     case Accounts.capability(harness) do
       {:ok, %{kind: :api_key}} ->
-        with :ok <- maybe_validate_and_register(harness, name, dir), do: {:ok, nil}
+        with :ok <- maybe_validate_and_register(harness, name, dir), do: {:ok, nil, false}
 
       {:ok, %{reason: reason}} ->
         {:error, {:unsupported_account_backend, reason}}
 
       _ ->
-        prepare_login(harness, name, dir)
+        with {:ok, profile_dir} <- prepare_login(harness, name, dir),
+             {:ok, _profile_dir, login_needed} <- login_decision(harness, name) do
+          {:ok, profile_dir, login_needed}
+        end
     end
   end
 

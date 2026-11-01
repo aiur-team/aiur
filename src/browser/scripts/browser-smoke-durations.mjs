@@ -12,12 +12,16 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // Governed local run (2026-10-30): 38.557s whole command including fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-native-hold': 39,
   // #7319 local two-case run: 21.1s, plus fixture/startup margin; refresh from the first CI shard log.
   'test:executor-view': 60,
   // Local run (2026-10-30): one focused tab-preservation case, rounded up with fixture startup.
   'test:browser-suite -- build-home-running-ticket-timeline': 12,
   // Governed local run (2026-10-30): expanded 11-case suite took 31.029s including fixture startup; refresh from CI.
   'test:browser-suite -- build-home-conversation-live': 32,
+  // Governed local run (2026-11-01): three 390px cases in 18.7s plus fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-mobile-composer': 30,
   // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
   // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
   'test:conversation-view': 36,

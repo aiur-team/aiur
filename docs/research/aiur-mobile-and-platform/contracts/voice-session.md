@@ -76,3 +76,47 @@ capture or delivery path.
 
 Dashboard privacy and retention are documented in the
 [ElevenLabs API guide](../../../../website/docs-app/apis/elevenlabs.md#privacy-and-secret-handling).
+
+## 3.3 Conversation client → daemon
+
+The existing `playback_state` v1 frame carries `state: "playing" | "stopped"`.
+It optionally carries `turn_id` and nonnegative integer `played_until_ms`;
+`played_until_ms` requires `turn_id`. Old state-only frames remain valid.
+Clients report `{state: "stopped", turn_id, played_until_ms}` after barge-in.
+The clock is milliseconds from that turn's first audio sample.
+
+## 3.4 Conversation daemon → client
+
+`agent_text_timing` carries `turn_id`, chunk `text`, `audio_offset_ms`, boolean
+`estimated`, and optional `chars: [{offset_ms, length}]` (JSON objects).
+Offsets are turn-relative milliseconds and lengths count Unicode grapheme
+clusters (`String.graphemes/1`, browser `Intl.Segmenter`). Missing or null
+`chars` means reveal on arrival. `estimated: false` identifies provider timing.
+The public codec schema lives in
+`packages/aiur-contracts/schemas/voice-converse.v1.schema.json`.
+
+## 4.1 Normalized assistant timing
+
+`VoiceConverse.Events.AgentTextTiming` is the provider-neutral
+`agent_text_timing` event. Its in-memory `chars` are `{offset_ms, length}` tuples.
+Adapters use `from_char_alignment/3` with ElevenLabs displayed alignment,
+`from_word_timestamps/2`, or `from_text_deltas/2` with the matching chunk audio
+duration. Chunk-local provider offsets gain `audio_offset_ms`; all helpers
+produce monotonic grapheme spans. Invalid alignment falls back to estimation
+and emits `[:voice_converse, :text_timing, :alignment_mismatch]` telemetry.
+No audio duration produces `chars: nil` with `estimated: true`.
+
+## 9 Conversation interruption records
+
+Timings remain in session memory. Transcripts contain only final assistant
+text, never `chars` or `offset_ms`. Voiced final text waits for playback stop
+(or session end) before persistence, so completed generation can still be cut
+when the user interrupts playback. Text-only final turns persist immediately.
+
+On `Interruption`, the session waits up to two seconds for a matching stopped
+report. It writes one `assistant_turn` with `interrupted?: true` and the prefix
+whose grapheme start offsets are strictly below `played_until_ms`. Zero selects
+empty text and an offset beyond the final span selects all text. Missing timing
+or a missing report retains all received text. Later provider events wait until
+that interrupted record is durable. A provider declaring `manual_truncation: true`
+receives optional `truncate(ref, turn_id, played_until_ms)` once after the report.

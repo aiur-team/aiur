@@ -325,6 +325,21 @@ defmodule AiurWeb.Layouts do
             var markSocketDown = () => socketStatus.classList.remove("live-socket-connected");
             socket.onClose(markSocketDown);
             socket.onError(markSocketDown);
+            var recovery = document.querySelector("[data-dashboard-recovery]");
+            recovery?.querySelector("[data-recovery-reload]")?.addEventListener("click", () => window.location.reload());
+            var syncRecovery = () => {
+              var main = document.querySelector("[data-phx-main]");
+              var standalone = window.matchMedia("(display-mode: standalone)").matches;
+              var failed = main && (main.classList.contains("phx-error") || !liveSocket.isConnected());
+              if (recovery) recovery.hidden = !standalone && !failed;
+            };
+            new MutationObserver(syncRecovery).observe(document.documentElement, {subtree: true, attributes: true, attributeFilter: ["class"]});
+            socket.onOpen(syncRecovery);
+            socket.onClose(syncRecovery);
+            socket.onError(syncRecovery);
+            window.addEventListener("error", syncRecovery);
+            window.addEventListener("unhandledrejection", syncRecovery);
+            syncRecovery();
             liveSocket.connect();
             window.liveSocket = liveSocket;
           });
