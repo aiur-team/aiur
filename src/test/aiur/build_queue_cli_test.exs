@@ -262,6 +262,10 @@ defmodule Aiur.BuildQueueCLITest do
                %{"id" => "#2", "status" => "ok", "outcome" => "added"}
              ]
            } = Jason.decode!(output)
+
+    human_pid = start_supervised!({Aiur.BuildQueueCLITest.BuildOrderJsonMutationServer, []}, id: :build_order_json_human)
+    human_output = capture_io(fn -> assert BuildQueueCLI.run(server: human_pid, verb: :add, build_order: 99) == 0 end)
+    assert human_output == "Build Order #99: ok\n"
   end
 
   @spec document() :: map()

@@ -107,14 +107,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     results =
       case result do
         {:ok, refusals} ->
-          accepted =
-            BuildQueue.show(server(opts)).queues
-            |> Enum.find(&(&1.root == root))
-            |> case do
-              %{items: items} -> Enum.map(items, &{"##{&1.number}", :ok})
-              _ -> []
-            end
-
+          accepted = accepted_member_rows(root, opts)
           refused = Enum.map(refusals, fn {id, reason} -> {"##{id}", {:error, owning_queue(reason, id, opts)}} end)
           [{"Build Order ##{root}", :ok} | accepted ++ refused]
 
@@ -124,6 +117,19 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
     {:ok, results}
   end
+
+  defp accepted_member_rows(root, opts) do
+    if Keyword.get(opts, :json, false) do
+      BuildQueue.show(server(opts)).queues
+      |> Enum.find(&(&1.root == root))
+      |> accepted_member_rows()
+    else
+      []
+    end
+  end
+
+  defp accepted_member_rows(%{items: items}), do: Enum.map(items, &{"##{&1.number}", :ok})
+  defp accepted_member_rows(_queue), do: []
 
   defp confirm(opts) do
     if opts[:verb] == :clear and opts[:yes] != true, do: {:error, :confirmation_required}, else: :ok
