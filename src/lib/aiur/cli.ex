@@ -51,8 +51,8 @@ defmodule Aiur.CLI do
   @spec prepare_account_login(String.t(), String.t(), String.t() | nil) :: no_return()
   defp prepare_account_login(harness, name, dir) do
     case Aiur.AccountsCLI.prepare_login_result(harness, name, dir) do
-      {:ok, profile_dir} ->
-        IO.write(profile_dir)
+      {:ok, profile_dir, login_needed} ->
+        IO.write([profile_dir, "\n", if(login_needed, do: "login", else: "registered"), "\n"])
         System.halt(0)
 
       {:error, reason} ->

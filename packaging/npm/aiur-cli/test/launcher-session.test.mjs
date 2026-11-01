@@ -27,7 +27,7 @@ test("Claude login prepares a profile and hands its exact path to the interactiv
   writeFileSync(claude, '#!/usr/bin/env bash\nprintf "%s" "$CLAUDE_CONFIG_DIR" > "$AIUR_LOGIN_ENV_CAPTURE"\n');
   chmodSync(claude, 0o755);
 
-  const result = spawnSync("bash", [launcher, "login", "claude", "max", "--dir", profileDir], {
+  const result = spawnSync("script", ["-qec", `bash ${JSON.stringify(launcher)} login claude max --dir ${JSON.stringify(profileDir)}`, "/dev/null"], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -42,6 +42,48 @@ test("Claude login prepares a profile and hands its exact path to the interactiv
   expect(result.status).toBe(0);
   expect(readFileSync(receivedEnv, "utf8")).toBe(profileDir);
   expect(readFileSync(captureFile, "utf8")).toContain(`__login_prepare\nclaude\nmax\n--dir\n${profileDir}`);
+});
+
+test("Claude login adopts an already signed-in profile without starting the harness", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const fakeBin = path.join(root, "signed-in-bin");
+  const profileDir = path.join(root, "signed-in-profile");
+  const calledFile = path.join(root, "claude-called");
+  const preparedReleaseDir = path.join(root, "prepared-release");
+  mkdirSync(fakeBin, { recursive: true });
+  mkdirSync(profileDir, { recursive: true });
+  mkdirSync(path.join(preparedReleaseDir, "releases", "0.1.1"), { recursive: true });
+  mkdirSync(path.join(preparedReleaseDir, "bin"), { recursive: true });
+  writeFileSync(path.join(profileDir, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "signed-in@example.com" } }));
+  writeFileSync(path.join(preparedReleaseDir, "releases", "start_erl.data"), "1 0.1.1\n");
+  writeFileSync(path.join(preparedReleaseDir, "releases", "0.1.1", "vm.args"), "");
+  writeFileSync(path.join(preparedReleaseDir, "releases", "0.1.1", "sys.config"), "");
+  const elixir = path.join(preparedReleaseDir, "releases", "0.1.1", "elixir");
+  writeFileSync(elixir, '#!/usr/bin/env bash\nprintf "%s\\nregistered\\n" "$AIUR_TEST_PROFILE"\n');
+  chmodSync(elixir, 0o755);
+  const aiur = path.join(preparedReleaseDir, "bin", "aiur");
+  writeFileSync(aiur, "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(aiur, 0o755);
+  const claude = path.join(fakeBin, "claude");
+  writeFileSync(claude, '#!/usr/bin/env bash\nprintf called > "$AIUR_LOGIN_CALLED"\n');
+  chmodSync(claude, 0o755);
+
+  const result = spawnSync("bash", [launcher, "login", "claude", "adopted", "--dir", profileDir], {
+    encoding: "utf8",
+    input: "",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: preparedReleaseDir,
+      AIUR_TEST_OUT: captureFile,
+      AIUR_TEST_PROFILE: profileDir,
+      AIUR_LOGIN_CALLED: calledFile,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("registered claude:adopted (signed in)");
+  expect(existsSync(calledFile)).toBe(false);
 });
 
 test("API-key login registers through the local CLI without starting an interactive harness", () => {

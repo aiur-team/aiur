@@ -377,4 +377,22 @@ defmodule Aiur.AccountsTest do
     assert :ok = Accounts.logout("purged", true)
     refute File.exists?(profile)
   end
+
+  test "login decision skips the harness when an adopted Claude or Codex profile has an identity", %{home: home} do
+    claude_dir = Path.join(home, "signed-in-claude")
+    codex_dir = Path.join(home, "signed-in-codex")
+    File.mkdir_p!(claude_dir)
+    File.mkdir_p!(codex_dir)
+    File.write!(Path.join(claude_dir, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"claude@example.com"}}))
+    File.write!(Path.join(codex_dir, "auth.json"), Jason.encode!(%{"tokens" => %{"account_id" => "acct-codex"}}))
+    :ok = Accounts.register("claude", "adopted-claude", claude_dir)
+    :ok = Accounts.register("codex", "adopted-codex", codex_dir)
+    signed_out_dir = Path.join(home, "signed-out")
+    File.mkdir_p!(signed_out_dir)
+    :ok = Accounts.register("claude", "signed-out", signed_out_dir)
+
+    assert {:ok, ^claude_dir, false} = AccountsCLI.login_decision("claude", "adopted-claude")
+    assert {:ok, ^codex_dir, false} = AccountsCLI.login_decision("codex", "adopted-codex")
+    assert {:ok, _dir, true} = AccountsCLI.login_decision("claude", "signed-out")
+  end
 end
