@@ -7,6 +7,7 @@ import { nowMs } from '../clock.js';
 import { MS, onModalClose, registerBody } from './frame.js';
 
 let view = null;
+let timelineView = null;
 const adds = new Map();
 const numeric = id => /^[1-9][0-9]{0,9}$/.test(id);
 const cue = (text, icon = I.hourglass, bad = false) => '<p class="bm-cue' + (bad ? ' bad' : '') + '">' + icon + esc(text) + '</p>';
@@ -45,7 +46,7 @@ function timelineLink(url) {
     return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? esc(parsed.href) : '';
   } catch { return ''; }
 }
-function timelineHTML(timeline) {
+export function timelineHTML(timeline) {
   if (!timeline || timeline.status === 'loading') return cue('Loading ticket timeline…');
   const items = timeline.items || [];
   if (!items.length) return cue(timeline.status === 'unavailable' ? 'Timeline is unavailable · retry when the ticket history service is available' : 'No recorded events for this ticket yet', timeline.status === 'unavailable' ? I.warn : I.docs, timeline.status === 'unavailable');
@@ -148,8 +149,17 @@ function repaint() {
   if (view && MS.t?.id === view.id && $('#tk-body')) renderDoc($('#tk-body'), MS.t, ctx.D, view.doc, view.opts);
 }
 export function applyDoc(doc) {
-  if (doc?.v !== 1 || doc.kind !== 'doc' || doc.id !== view?.id || MS.t?.id !== doc.id) return;
+  if (doc?.v !== 1 || doc.kind !== 'doc' || MS.t?.id !== doc.id) return;
+  if (doc.id === timelineView?.id) { timelineView.update(doc.timeline); return; }
+  if (doc.id !== view?.id) return;
   view.doc = { ...view.doc, ...doc }; repaint();
+}
+export function requestTimeline(t, update) {
+  const current = timelineView = { id: t.id, update };
+  if (!numeric(t.id) || ctx.socket !== 'up') { update({ status: 'unavailable', items: [] }); return; }
+  ctx.push('ticket-doc', { id: t.id }).then(doc => {
+    if (timelineView === current) applyDoc(doc);
+  }, () => { if (timelineView === current) update({ status: 'unavailable', items: [] }); });
 }
 export function requestDoc(t) {
   if (!numeric(t.id) || ctx.socket !== 'up') return;
@@ -205,8 +215,10 @@ registerBody('doc', (t, body, opts = {}) => {
 const modalSync = fx.modalSync;
 fx.modalSync = msg => { modalSync(msg); syncDoc(msg); };
 onModalClose(() => {
+  const hadTimeline = timelineView && numeric(timelineView.id);
+  timelineView = null;
   const hadDoc = view && numeric(view.id);
   view = null;
-  if (hadDoc && ctx.socket === 'up' && ctx.push) ctx.push('ticket-doc-close', {}).catch(() => {});
+  if ((hadDoc || hadTimeline) && ctx.socket === 'up' && ctx.push) ctx.push('ticket-doc-close', {}).catch(() => {});
 });
 onReset(() => { view = null; adds.clear(); });

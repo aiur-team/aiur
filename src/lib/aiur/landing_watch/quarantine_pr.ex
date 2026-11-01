@@ -8,6 +8,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   alias Aiur.Config.TrackerSettings
   alias Aiur.GitHub.Access
+  alias Aiur.TestQuarantine
 
   @branch_prefix "aiur/quarantine/"
   @exunit_list "src/test/quarantine.txt"
@@ -49,7 +50,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
          },
          {:ok, existing} <- list_contents(ctx),
          expires <- expiry(ctx, opts),
-         {:ok, contents} <- entry(identity, ticket, existing, expires),
+         {:ok, contents} <- entry(identity, ticket, existing, expires, Keyword.get_lazy(opts, :tests_root, &default_test_root/0)),
          {:ok, branch} <- branch_name(identity, base),
          {:ok, base_sha, commit_sha} <- reuse_or_publish(ctx, branch, contents, identity),
          {:ok, pr} <-
@@ -79,20 +80,48 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   @doc false
   @spec entry(String.t(), pos_integer(), String.t(), Date.t() | nil) :: {:ok, String.t()} | {:error, term()}
-  def entry(identity, ticket, contents, expires) do
+  def entry(identity, ticket, contents, expires),
+    do: entry(identity, ticket, contents, expires, default_test_root())
+
+  @doc false
+  @spec entry(String.t(), pos_integer(), String.t(), Date.t() | nil, Path.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def entry(identity, ticket, contents, expires, tests_root) do
     case String.split(identity, " :: ", parts: 2) do
       [module, name] ->
+        {module, name} = quarantine_identity(module, name, tests_root)
         fields = quarantine_fields(module, name, ticket, expires)
 
         line = Enum.join(fields, "\t")
 
         if listed?(contents, identity),
           do: {:error, :already_quarantined},
-          else: {:ok, String.trim_trailing(contents) <> "\n" <> line <> "\n"}
+          else: {:ok, TestQuarantine.insert_sorted(contents, line)}
 
       _ ->
         {:error, :invalid_quarantine_identity}
     end
+  end
+
+  defp quarantine_identity(module, name, tests_root) do
+    if module == "BrowserSpec" do
+      {module, name}
+    else
+      exunit_quarantine_identity(module, name, tests_root)
+    end
+  end
+
+  defp exunit_quarantine_identity(module, name, tests_root) do
+    occurrences = TestQuarantine.test_name_occurrences(name, tests_root)
+    unique_in_module? = match?([{^module, _, _}], occurrences)
+
+    if unique_in_module?, do: {module, name}, else: {module, "*"}
+  end
+
+  defp default_test_root do
+    cwd = File.cwd!()
+    candidates = [Path.join(cwd, "src/test"), Path.join(cwd, "test")]
+    Enum.find(candidates, &File.dir?/1) || hd(candidates)
   end
 
   defp quarantine_fields("BrowserSpec", name, ticket, _expires) do
@@ -120,7 +149,10 @@ defmodule Aiur.LandingWatch.QuarantinePR do
       _ ->
         contents
         |> String.split("\n")
-        |> Enum.any?(&String.starts_with?(&1, module <> "\t" <> name <> "\t"))
+        |> Enum.any?(fn line ->
+          String.starts_with?(line, module <> "\t" <> name <> "\t") or
+            String.starts_with?(line, module <> "\t*\t")
+        end)
     end
   end
 

@@ -175,7 +175,7 @@ defmodule Aiur.MixProject do
       {:stream_data, "~> 1.2", only: :test},
       {:ex_json_schema, "~> 0.11", only: :test},
       {:phoenix, "~> 1.8.9"},
-      {:phoenix_html, "~> 4.2"},
+      {:phoenix_html, "~> 4.4"},
       {:phoenix_live_view, "~> 1.1.0"},
       {:req, "~> 0.7"},
       {:assent, "~> 0.3.1"},

@@ -55,8 +55,7 @@ window.AiurConversationScrollHook = {
     if (!this.el.dataset.highlight) return false
     const target = this.el.querySelector('[data-jump-target="true"]')
     if (!target) return false
-    const top = target.getBoundingClientRect().top - this.el.getBoundingClientRect().top
-    this.el.scrollTop += top - this.el.clientHeight / 2 + target.clientHeight / 2
+    target.scrollIntoView({ block: 'center', inline: 'nearest' })
     this.onScroll()
     return true
   },

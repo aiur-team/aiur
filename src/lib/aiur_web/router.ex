@@ -152,6 +152,15 @@ defmodule AiurWeb.Router do
   Decisions.reads()
   Decisions.method_catches()
   Control.calls()
+
+  if Mix.env() in [:dev, :test] do
+    scope "/" do
+      pipe_through([:client_token_write, :api_write])
+      post("/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :create)
+      match(:*, "/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :method_not_allowed)
+    end
+  end
+
   DashboardPages.static_assets()
   DashboardPages.pages()
   Experiments.pages()

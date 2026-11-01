@@ -75,8 +75,8 @@ defmodule Aiur.Events.Envelope do
     event |> pr() |> value(:head) |> value(:sha) |> fallback(value(event, :head_sha)) |> fallback(value(event, :sha)) |> sha()
   end
 
-  defp ref(:decision_version, event, _topic), do: event |> value(:decision_version) |> positive_integer()
-  defp ref(:decision_id, event, _topic), do: event |> value(:decision_id) |> identifier()
+  defp ref(:decision_version, event, _topic), do: event |> value(:decision_version) |> fallback(value(event, :version)) |> positive_integer()
+  defp ref(:decision_id, event, _topic), do: event |> value(:decision_id) |> fallback(value(event, :data) |> value(:decision_id)) |> identifier()
   defp ref(:queue_id, event, _topic), do: event |> value(:queue_id) |> identifier()
   defp ref(:prerequisite, event, _topic), do: event |> value(:prerequisite) |> identifier()
   defp ref(:blocked, event, _topic), do: event |> value(:blocked) |> identifiers()
@@ -87,12 +87,34 @@ defmodule Aiur.Events.Envelope do
   end
 
   defp attr(value, {:enum, allowed}), do: enum(value, allowed)
+  defp attr(value, :text) when is_binary(value), do: value
+  defp attr(value, :decision_options) when is_list(value), do: Enum.map(value, &decision_option/1)
+  defp attr(value, :decision_answer) when is_map(value), do: decision_answer(value)
   defp attr(value, :integer) when is_integer(value), do: value
   defp attr(value, :boolean) when is_boolean(value), do: value
   defp attr(value, :id), do: identifier(value)
   defp attr(value, :sha), do: sha(value)
   defp attr(value, {:list, :id}), do: identifiers(value)
   defp attr(_value, _type), do: nil
+
+  defp decision_option(option) when is_map(option) do
+    Map.new([:id, :label, :description, :benefits, :drawbacks, :risk], fn key ->
+      {Atom.to_string(key), value(option, key) |> safe_text()}
+    end)
+  end
+
+  defp decision_option(_option), do: %{}
+
+  defp decision_answer(answer) do
+    %{
+      "selected_option_id" => value(answer, :selected_option_id) |> safe_text(),
+      "custom_response" => value(answer, :custom_response) |> safe_text(),
+      "rationale" => value(answer, :rationale) |> safe_text()
+    }
+  end
+
+  defp safe_text(value) when is_binary(value), do: value
+  defp safe_text(_value), do: nil
 
   defp source(event, topic) do
     case observation_value(event, :source) |> value(:kind) do
