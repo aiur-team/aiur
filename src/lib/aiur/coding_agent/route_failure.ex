@@ -1,4 +1,6 @@
 defmodule Aiur.CodingAgent.RouteFailure do
+  # Cohesion: classification, route disposition, and its one alert are a
+  # single policy so deterministic launch faults cannot become retries.
   @moduledoc """
   Classification of a *request-time* route failure into the four causes #1923
   insists must never be conflated, and the disposition each one gets.
@@ -35,16 +37,21 @@ defmodule Aiur.CodingAgent.RouteFailure do
   alias Aiur.ModelAvailability
   alias Aiur.Signal
 
-  @type class :: :usage_limit | :transient | :auth_rejected | :fatal
+  @type class :: :usage_limit | :transient | :auth_rejected | :fatal | :launch_failed
 
-  @doc "The failure class of a transport error, as returned by `Aiur.OpenAICompat.Transport.complete/3`."
+  @doc "Classify transport and deterministic Claude bridge launch failures."
   @spec classify(term()) :: class()
   def classify(:rate_limited), do: :usage_limit
   def classify({:http_error, 429, _detail}), do: :usage_limit
   def classify(:unauthorized), do: :auth_rejected
 
-  def classify({:turn_failed, details}) when is_map(details),
-    do: if(unauthorized_status?(details), do: :auth_rejected, else: :fatal)
+  def classify({:turn_failed, details}) when is_map(details) do
+    cond do
+      unauthorized_status?(details) -> :auth_rejected
+      mcp_socket_path_error?(details) -> :launch_failed
+      true -> :fatal
+    end
+  end
 
   def classify({:http_error, status, _detail}) when status == 401, do: :auth_rejected
   def classify({:http_error, status, _detail}) when status >= 500, do: :transient
@@ -56,6 +63,17 @@ defmodule Aiur.CodingAgent.RouteFailure do
   def classify(%{reason: :timeout}), do: :transient
   def classify(%Req.TransportError{}), do: :transient
   def classify(_reason), do: :fatal
+
+  @doc false
+  @spec mcp_socket_path_error?(term()) :: boolean()
+  def mcp_socket_path_error?(details) when is_map(details) do
+    message = Map.get(details, "error") || Map.get(details, "message") || ""
+
+    is_binary(message) and String.contains?(message, "aiur-mcp-") and
+      (String.contains?(message, "listen EINVAL") or String.contains?(message, "ENAMETOOLONG"))
+  end
+
+  def mcp_socket_path_error?(_details), do: false
 
   defp unauthorized_status?(details) when is_map(details) do
     Enum.any?(details, fn
@@ -166,6 +184,12 @@ defmodule Aiur.CodingAgent.RouteFailure do
         "the next agent.priority entry; the route is NOT marked rate-limited, so the next claim tries it " <>
         "again and this alert repeats while the outage lasts."
     )
+  end
+
+  defp emit(:launch_failed, issue, _route, reason, opts) do
+    details = elem(reason, 1)
+    message = Map.get(details, "error") || Map.get(details, "message") || inspect(details)
+    emit_system(issue, "launch_failed", opts, "Claude MCP socket launch failed: #{message}")
   end
 
   defp emit(_class, _issue, _route, _reason, _opts), do: :ok

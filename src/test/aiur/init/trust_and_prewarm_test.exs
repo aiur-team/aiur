@@ -309,6 +309,10 @@ defmodule Aiur.Init.TrustAndPrewarmTest do
       assert log =~ "Warm base build failed"
       assert log =~ "authentication failure"
       assert log =~ "GITHUB_TOKEN"
+      assert log =~ "~/.aiur/.env (machine-wide) or ./.env"
+      assert :binary.match(log, "~/.aiur/.env") < :binary.match(log, "./.env")
+      assert log =~ "Make sure GITHUB_TOKEN is set in ~/.aiur/.env (machine-wide) or ./.env"
+      assert log =~ ~r/valid GITHUB_TOKEN in ~\/\.aiur\/\.env\s+\(machine-wide\) or \.\/\.env/
       # AI handoff present and embeds the real git error
       assert log =~ "paste this to your coding agent"
       assert log =~ "Authentication failed for"
