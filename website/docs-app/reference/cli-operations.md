@@ -290,7 +290,9 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 
 `aiur pr merge <N> --reviewed-sha <full-sha>` uses a stored, allowlisted human `gh` identity without a daemon; agents and Apps refuse. `--dry-run` writes nothing.
 
-In `separate_account` mode, the PR needs an APPROVED review at the current head from another identity. `--approve-body-file <file>` posts that approval and reruns the gates. In `single_account` mode, the reviewed SHA is the operator's explicit self-review attestation because GitHub refuses self-approval. An optional body is posted as a COMMENT review instead. The ledger records `reviewed_by`, `attestation: "single_account_self_review"`, and `reviewed_sha`.
+In `separate_account` mode, the PR needs an APPROVED review at the current head from another identity. `--approve-body-file <file>` posts that approval and reruns the gates.
+
+In `single_account` mode, the reviewed SHA is the operator's explicit self-review attestation because GitHub refuses self-approval. An optional body is posted as a COMMENT review. The ledger records `reviewed_by`, `attestation: "single_account_self_review"`, and `reviewed_sha`.
 
 Repeatable `--inherited <check>` requires watcher verification, currently unavailable.
 
