@@ -173,8 +173,7 @@ defmodule VoiceConverse do
   defp transcript_children(%Config{
          transcript: :file,
          name: name,
-         transcript_root: root,
-         credentials: credentials
+         transcript_root: root
        }) do
     cleanup = Module.concat(name, ProviderCleanup)
 
