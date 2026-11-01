@@ -389,11 +389,8 @@
 
   .conversation-drawer-panel.is-chat-composer-focused > .conversation-drawer-summary,
   .conversation-drawer-panel.is-chat-composer-focused > .conversation-drawer-metadata,
-  .conversation-drawer-panel.is-chat-composer-focused > .agent-usage-snapshot {
-    display: none;
-  }
-
-  .conversation-drawer-panel.is-chat-composer-focused [data-executor-voice] > :not(label):not([data-executor-voice-provider]):not([data-executor-voice-model]) {
+  .conversation-drawer-panel.is-chat-composer-focused > .agent-usage-snapshot,
+  .conversation-drawer-panel.is-chat-composer-focused [data-executor-voice] {
     display: none;
   }
 
