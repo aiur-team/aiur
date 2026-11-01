@@ -106,8 +106,20 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
     results =
       case result do
-        {:ok, refusals} -> [{"Build Order ##{root}", :ok} | Enum.map(refusals, fn {id, reason} -> {"##{id}", {:error, owning_queue(reason, id, opts)}} end)]
-        error -> [{"Build Order ##{root}", error}]
+        {:ok, refusals} ->
+          accepted =
+            BuildQueue.show(server(opts)).queues
+            |> Enum.find(&(&1.root == root))
+            |> case do
+              %{items: items} -> Enum.map(items, &{"##{&1.number}", :ok})
+              _ -> []
+            end
+
+          refused = Enum.map(refusals, fn {id, reason} -> {"##{id}", {:error, owning_queue(reason, id, opts)}} end)
+          [{"Build Order ##{root}", :ok} | accepted ++ refused]
+
+        error ->
+          [{"Build Order ##{root}", error}]
       end
 
     {:ok, results}
