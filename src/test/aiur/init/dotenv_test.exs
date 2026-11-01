@@ -82,6 +82,20 @@ defmodule Aiur.Init.DotenvTest do
         assert System.get_env("FROM_MACHINE") == nil
       end)
     end
+
+    @tag :not_async
+    test "blank local GitHub credentials do not block machine GitHub credentials" do
+      dir = Aiur.TestSupport.tmp_root!("dotenv-test")
+      home = Path.join(dir, "home")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=\n")
+      File.write!(Path.join(home, ".aiur/.env"), "GITHUB_APP_ID=machine-app\n")
+
+      with_isolated_env(dir, home, %{}, fn ->
+        File.cd!(dir, fn -> Dotenv.load() end)
+        assert System.get_env("GITHUB_APP_ID") == "machine-app"
+      end)
+    end
   end
 
   defp with_isolated_env(dir, home, env, fun) do
