@@ -5,7 +5,7 @@ defmodule Aiur.Executor.SessionRecord do
   alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
 
-  @fields ~w(v binding_id generation harness state provider_session_id transcript_path locator_hash cwd consumer_id attached_at last_hook_at takeover_armed detached_at end_reason transcript_offset pid start_reason)a
+  @fields ~w(v binding_id generation harness state provider_session_id transcript_path locator_hash cwd consumer_id attached_at last_hook_at takeover_armed detached_at end_reason transcript_offset pid start_reason transcript_format)a
 
   @spec path(String.t()) :: Path.t()
   def path(key) do
@@ -33,6 +33,7 @@ defmodule Aiur.Executor.SessionRecord do
       detached_at: nil,
       end_reason: nil,
       transcript_offset: 0,
+      transcript_format: nil,
       pid: nil,
       start_reason: "start"
     }
