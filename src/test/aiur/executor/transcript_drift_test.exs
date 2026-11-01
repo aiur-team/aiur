@@ -48,7 +48,7 @@ defmodule Aiur.Executor.TranscriptDriftTest do
     assert_received {:drift, "system.executor.transcript.drift", opts}
     assert opts[:needs_attention]
     assert opts[:exchange_payload].counts["types"] == %{"mapped" => 0, "ignored_known" => 195, "unknown" => 5}
-    refute inspect(opts) =~ "PRIVATE"
+    Aiur.TestSupport.refute_leak(opts, "PRIVATE")
     assert Enum.sort(Map.keys(opts[:exchange_payload])) == [:binding_id, :counts, :generation]
     append(path, [%{"type" => "new"}])
     TranscriptIngest.poll()

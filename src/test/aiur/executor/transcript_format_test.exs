@@ -18,7 +18,7 @@ defmodule Aiur.Executor.TranscriptFormatTest do
   test "invalid versions never enter diagnostics and failed alert publication retries" do
     counts = Enum.reduce(1..200, Format.new(), fn _, counts -> Format.count(counts, %{"type" => "system", "version" => "PRIVATE"}) end)
     assert counts["untested_version"] == "invalid"
-    refute inspect(counts) =~ "PRIVATE"
+    Aiur.TestSupport.refute_leak(counts, "PRIVATE")
     binding = %{binding_id: "binding", generation: 1}
     assert Format.alert(counts, binding, fn _, _ -> {:error, :unavailable} end) == counts
     assert Format.alert(counts, binding, fn _, _ -> :ok end)["alerted"]
