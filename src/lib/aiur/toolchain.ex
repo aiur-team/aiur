@@ -89,24 +89,27 @@ defmodule Aiur.Toolchain do
   end
 
   defp probe_opts(opts) do
-    fetch = Keyword.get_lazy(opts, :latest, fn -> if Config.upgrade_check_enabled?(), do: &Probe.npm_latest/1, else: fn _package -> nil end end)
+    fetch = Keyword.get_lazy(opts, :latest, &default_latest/0)
     Keyword.take(opts, [:path, :runner]) ++ [latest: cached_latest(fetch, opts)]
   end
+
+  defp default_latest, do: if(Config.upgrade_check_enabled?(), do: &Probe.npm_latest/1, else: fn _package -> nil end)
 
   # npm's latest version is reused from the published snapshot for one probe
   # interval, so a re-run check (a GenServer restart, a manual call) does not
   # spawn `npm view` again. An unknown latest is never cached.
   defp cached_latest(fetch, opts) do
-    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-
-    fresh =
-      case snapshot() do
-        %{observed_at: at, tools: tools} -> if DateTime.diff(now, at, :millisecond) < @interval_ms, do: for(%{latest: v} = t <- tools, is_binary(v), into: %{}, do: {t.package, v}), else: %{}
-        nil -> %{}
-      end
-
+    fresh = fresh_latest(snapshot(), Keyword.get_lazy(opts, :now, &DateTime.utc_now/0))
     fn package -> Map.get_lazy(fresh, package, fn -> fetch.(package) end) end
   end
+
+  defp fresh_latest(%{observed_at: at, tools: tools}, now) do
+    if DateTime.diff(now, at, :millisecond) < @interval_ms,
+      do: for(%{latest: version} = tool <- tools, is_binary(version), into: %{}, do: {tool.package, version}),
+      else: %{}
+  end
+
+  defp fresh_latest(nil, _now), do: %{}
 
   defp auto_update?(opts) do
     Keyword.get_lazy(opts, :auto_update?, fn -> match?({:ok, %{toolchain: %{auto_update: true}}}, Config.settings()) end)
@@ -145,14 +148,22 @@ defmodule Aiur.Toolchain do
       held ->
         skip_held = fn routes -> Enum.reject(routes, &hold_for(held, RoutingValue.routing_backend(&1))) end
 
-        with {:ok, selected} <- CodingAgent.select_for_dispatch(issue, Keyword.update(opts, :route_policies, [skip_held], &[skip_held | &1])) do
-          case hold_for(held, CodingAgent.backend_for(selected)) do
-            nil -> {:ok, selected}
-            tool -> {:error, {:toolchain_hold, hold_detail(tool)}}
-          end
-        end
+        issue
+        |> CodingAgent.select_for_dispatch(Keyword.update(opts, :route_policies, [skip_held], &[skip_held | &1]))
+        |> hold_selected(held)
     end
   end
+
+  # The selection still lands on a held backend: a pin, the routed default, or
+  # the fallback once every route is held.
+  defp hold_selected({:ok, selected}, held) do
+    case hold_for(held, CodingAgent.backend_for(selected)) do
+      nil -> {:ok, selected}
+      tool -> {:error, {:toolchain_hold, hold_detail(tool)}}
+    end
+  end
+
+  defp hold_selected(other, _held), do: other
 
   defp hold_detail(%{status: :updating} = tool), do: "#{tool.name} is updating to #{tool.latest}"
   defp hold_detail(tool), do: "#{tool.name} #{tool.version} is below the minimum #{tool.minimum}; #{update_hint(tool)}"
