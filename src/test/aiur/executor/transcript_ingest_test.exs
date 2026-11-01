@@ -24,54 +24,30 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     Map.merge(context, %{tail_supervisor: sup, home: context.root})
   end
 
-  test "boot backfills messages and tools without persisting reasoning", context do
+  test "boot backfills all record kinds with provenance and remote-control origin", context do
     path = bind(context, "one", fixture())
     start_ingest(context)
     assert :ok = TranscriptIngest.poll()
     assert :ok = flush(context.ref)
     entries = rows(context.dir)
-    refute journal_bytes(context.dir) =~ "thought"
 
     assert Enum.map(entries, &{&1["kind"], &1["body"]}) == [
              {"message", "answer"},
+             {"reasoning", "thought"},
              {"command", "pwd"},
              {"operator_message", "prompt"},
              {"tool_result", "tool result"},
              {"operator_message", "phone"}
            ]
 
-    refute Enum.any?(entries, &(&1["kind"] == "reasoning"))
-    assert Enum.at(entries, 3)["output"] == "/repo"
-    assert Enum.at(entries, 4)["meta"]["origin"] == "remote_control"
-    assert Enum.at(entries, 2)["role"] == "executor_operator"
+    assert Enum.at(entries, 4)["output"] == "/repo"
+    assert Enum.at(entries, 5)["meta"]["origin"] == "remote_control"
+    assert Enum.at(entries, 3)["role"] == "executor_operator"
     assert [session] = sessions(context.dir)
     assert session["harness"] == "claude"
     assert session["transcript_source"] == %{"kind" => "provider_file", "locator_hash" => hash(path)}
     assert {:ok, binding} = Session.current()
     assert binding.transcript_offset == File.stat!(path).size
-  end
-
-  test "Executor credentials are redacted before journal writes while PR links survive", context do
-    token = "ghp_" <> String.duplicate("A", 36)
-    link = "https://github.com/aiur-team/aiur/pull/7338"
-
-    records = [
-      assistant("answer", "answer #{token} #{link}"),
-      %{"type" => "user", "uuid" => "prompt", "message" => %{"content" => "prompt #{token}"}},
-      %{"type" => "user", "uuid" => "result", "message" => %{"content" => [%{"type" => "tool_result", "tool_use_id" => "call", "content" => "output #{token}"}]}},
-      %{"type" => "assistant", "uuid" => "command", "message" => %{"content" => [%{"type" => "tool_use", "id" => "command", "name" => "Bash", "input" => %{"command" => "echo #{token}"}}]}}
-    ]
-
-    bind(context, "one", records)
-    start_ingest(context)
-    assert :ok = TranscriptIngest.poll()
-    assert :ok = flush(context.ref)
-    bytes = journal_bytes(context.dir)
-    refute bytes =~ token
-    assert bytes =~ link
-    entries = rows(context.dir)
-    assert Enum.map(entries, & &1["body"]) == ["answer [REDACTED:ghp] #{link}", "prompt [REDACTED:ghp]", "tool result", "echo [REDACTED:ghp]"]
-    assert Enum.at(entries, 2)["output"] == "output [REDACTED:ghp]"
   end
 
   test "restart resumes the saved cursor, replays uncheckpointed overlap without duplicates, and keeps partial lines", context do
@@ -342,12 +318,6 @@ defmodule Aiur.Executor.TranscriptIngestTest do
 
     assert TranscriptIngest in modules
     assert Enum.find_index(modules, &(&1 == Session)) < Enum.find_index(modules, &(&1 == TranscriptIngest))
-  end
-
-  defp journal_bytes(dir) do
-    paths = Path.wildcard(Path.join(dir, "entries.*.jsonl"))
-    assert paths != []
-    Enum.map_join(paths, &File.read!/1)
   end
 
   defp start_ingest(context, restart \\ :permanent) do

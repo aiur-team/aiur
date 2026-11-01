@@ -5,13 +5,11 @@ defmodule Aiur.Executor.TranscriptIngest do
   Tailer callbacks, session boundaries and cursor commits share this mailbox so
   a boundary cannot overtake records already read. The polling tailer runs under
   a dedicated DynamicSupervisor; manager restart reclaims its stopped readers.
-  Executor capture excludes reasoning and redacts known credentials before journal writes.
   """
   use GenServer
   alias Aiur.Claude.TranscriptTailer
   alias Aiur.Conversation.{Ingest, Ref}
   alias Aiur.Executor.{Session, SessionIngest, TranscriptPath}
-  alias Aiur.SecretRedactor
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -80,10 +78,8 @@ defmodule Aiur.Executor.TranscriptIngest do
 
   def handle_info({:executor_hook, _event}, state), do: {:noreply, step(state)}
 
-  def handle_info({token, {:event, %{role: :reasoning}}}, %{capture: %{token: token}} = state), do: {:noreply, state}
-
   def handle_info({token, {:event, event}}, %{capture: %{token: token} = capture} = state) do
-    {:noreply, %{state | capture: %{capture | pending: [redact_event(event) | capture.pending]}}}
+    {:noreply, %{state | capture: %{capture | pending: [event | capture.pending]}}}
   end
 
   def handle_info({token, {:offset, offset}}, %{capture: %{token: token} = capture} = state) do
@@ -266,23 +262,6 @@ defmodule Aiur.Executor.TranscriptIngest do
       _ ->
         :ok
     end
-  end
-
-  defp redact_event(event) do
-    event
-    |> redact_text_fields()
-    |> Map.update!(:payload, fn
-      payload when is_map(payload) -> redact_text_fields(payload)
-      payload -> payload
-    end)
-  end
-
-  # Commands and diff titles become Entry.body; tool output comes from payload.output.
-  defp redact_text_fields(fields) do
-    Map.new(fields, fn
-      {key, value} when key in [:body, :output, :command, :title] and is_binary(value) -> {key, SecretRedactor.redact(value)}
-      pair -> pair
-    end)
   end
 
   defp identity(binding), do: Map.take(binding, [:binding_id, :generation, :provider_session_id, :transcript_path])
