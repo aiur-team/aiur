@@ -37,6 +37,9 @@ defmodule VoiceConverse.Config do
             command_source: nil,
             token_issuer: nil,
             transcript_root: nil,
+            cleanup_root: nil,
+            provider_cleanup: false,
+            cleanup_options: [],
             transcript: :file,
             redactor: &VoiceConverse.Redact.redact/1,
             roles: [],
@@ -80,7 +83,9 @@ defmodule VoiceConverse.Config do
   def validate(%__MODULE__{} = config) do
     with :ok <- check_required(config),
          :ok <- check_ports(config),
-         :ok <- check_transcript_root(config),
+         :ok <- check_provider_cleanup(config),
+         :ok <- check_cleanup_options(config),
+         :ok <- check_roots(config),
          :ok <- check_session_settings(config),
          :ok <- check_limits(config),
          :ok <- VoiceConverse.ProviderConfig.validate(config.providers),
@@ -129,7 +134,17 @@ defmodule VoiceConverse.Config do
   defp check_transcript_mode(_config), do: {:error, %{field: :transcript, reason: :invalid}}
 
   # `transcript: :none` stores no transcript, so it needs no root.
+  defp required_fields(%{transcript: :none, provider_cleanup: false}),
+    do: @required -- [:transcript_root]
+
+  defp required_fields(%{transcript: :none, cleanup_root: root}) when is_binary(root) and root != "",
+    do: @required -- [:transcript_root]
+
+  defp required_fields(%{transcript: :none, provider_cleanup: true, cleanup_root: nil}),
+    do: (@required -- [:transcript_root]) ++ [:cleanup_root]
+
   defp required_fields(%{transcript: :none}), do: @required -- [:transcript_root]
+
   defp required_fields(_config), do: @required
 
   defp check_ports(config) do
@@ -142,14 +157,38 @@ defmodule VoiceConverse.Config do
   defp valid_port?(nil), do: true
   defp valid_port?(mod), do: is_atom(mod)
 
-  # A no-transcript config carries no root, so nothing downstream has a place to write.
-  defp check_transcript_root(%{transcript: :none, transcript_root: nil}), do: :ok
+  defp check_roots(%{transcript: :none, transcript_root: nil, cleanup_root: nil, provider_cleanup: false}), do: :ok
 
-  defp check_transcript_root(%{transcript: :none}),
-    do: {:error, %{field: :transcript_root, reason: :not_allowed}}
+  defp check_roots(%{
+         transcript: :none,
+         transcript_root: transcript_root,
+         cleanup_root: cleanup_root,
+         provider_cleanup: enabled
+       }) do
+    cond do
+      not is_nil(transcript_root) -> {:error, %{field: :transcript_root, reason: :not_allowed}}
+      is_nil(cleanup_root) and not enabled -> :ok
+      is_nil(cleanup_root) -> {:error, %{field: :cleanup_root, reason: :missing}}
+      is_binary(cleanup_root) and cleanup_root != "" -> :ok
+      true -> {:error, %{field: :cleanup_root, reason: :invalid}}
+    end
+  end
 
-  defp check_transcript_root(%{transcript_root: root}) when is_binary(root), do: :ok
-  defp check_transcript_root(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
+  defp check_roots(%{transcript: :file, transcript_root: root, cleanup_root: nil}) when is_binary(root), do: :ok
+
+  defp check_roots(%{transcript: :file, transcript_root: root, cleanup_root: _cleanup_root}) when is_binary(root),
+    do: {:error, %{field: :cleanup_root, reason: :not_allowed}}
+
+  defp check_roots(%{transcript: :file, transcript_root: root}) when not is_binary(root),
+    do: {:error, %{field: :transcript_root, reason: :invalid}}
+
+  defp check_roots(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
+
+  defp check_provider_cleanup(%{provider_cleanup: enabled}) when is_boolean(enabled), do: :ok
+  defp check_provider_cleanup(_), do: {:error, %{field: :provider_cleanup, reason: :invalid}}
+
+  defp check_cleanup_options(%{cleanup_options: options}) when is_list(options), do: :ok
+  defp check_cleanup_options(_), do: {:error, %{field: :cleanup_options, reason: :invalid}}
 
   defp check_session_settings(%{llm: llm}) when not (is_nil(llm) or is_binary(llm)),
     do: {:error, %{field: :llm, reason: :invalid}}

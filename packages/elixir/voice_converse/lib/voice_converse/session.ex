@@ -386,16 +386,29 @@ defmodule VoiceConverse.Session do
   end
 
   defp enqueue_cleanup(state) do
-    cleanup = Module.concat(state.config.name, ProviderCleanup)
+    if is_nil(state.config.cleanup_root) and state.config.transcript == :none and not state.config.provider_cleanup do
+      {:ok, state}
+    else
+      cleanup = Module.concat(state.config.name, ProviderCleanup)
 
-    Enum.reduce_while(state.provider_ids, {:ok, state}, fn provider_id, {:ok, state} ->
-      with :ok <- ProviderCleanup.enqueue(cleanup, provider_id, state.id),
-           {:ok, state} <- persist(state, %{type: "cleanup_enqueued", provider_id: provider_id, at: now(state)}) do
-        {:cont, {:ok, state}}
-      else
-        _ -> {:halt, {:error, state}}
-      end
-    end)
+      Enum.reduce_while(state.provider_ids, {:ok, state}, fn provider_id, {:ok, state} ->
+        with :ok <- ProviderCleanup.enqueue(cleanup, provider_id, state.id),
+             {:ok, state} <- persist_cleanup_marker(state, provider_id) do
+          {:cont, {:ok, state}}
+        else
+          _ -> {:halt, {:error, state}}
+        end
+      end)
+    end
+  end
+
+  defp persist_cleanup_marker(%{config: %{transcript: :none}} = state, _provider_id), do: {:ok, state}
+
+  defp persist_cleanup_marker(state, provider_id) do
+    case persist(state, %{type: "cleanup_enqueued", provider_id: provider_id, at: now(state)}) do
+      {:ok, state} -> {:ok, state}
+      {:error, state} -> {:ok, state}
+    end
   end
 
   defp close_after_start_failure(%{store: store} = state, code) do

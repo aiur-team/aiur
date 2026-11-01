@@ -59,6 +59,45 @@ defmodule VoiceConverse.SessionTest do
     assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}
   end
 
+  test "no-transcript session enqueues and deletes its provider conversation", %{root: root, name: name} do
+    StaticCredentials.put(%{fake: "test-secret", elevenlabs: "test-cleanup-secret"})
+    parent = self()
+
+    config =
+      config!(root, name,
+        transcript: :none,
+        transcript_root: nil,
+        cleanup_root: root,
+        provider_cleanup: true
+      )
+
+    http = fn url, _opts ->
+      send(parent, {:deleted, url})
+      {:ok, 204, ""}
+    end
+
+    config = %{config | cleanup_options: [http: http]}
+
+    start_instance(config)
+    {:ok, id} = start!(name)
+    assert_receive {:voice_conversation_state, ^id, :connecting}
+    assert_receive {:voice_conversation_state, ^id, :listening}
+    {:ok, _session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    :ok = VoiceConverse.end_session(name, id)
+
+    assert_receive {:deleted, "https://api.elevenlabs.io/v1/convai/conversations/provider-session"}
+    assert TranscriptStore.mode(:none) == :none
+    refute File.exists?(Path.join(root, id <> ".ndjson"))
+    queue = Path.join(root, "provider-cleanup.ndjson")
+    assert_eventually(fn -> String.contains?(File.read!(queue), "\"op\":\"done\"") end)
+    assert File.exists?(queue)
+
+    assert Enum.map(File.read!(queue) |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1), & &1["op"]) == [
+             "enqueue",
+             "done"
+           ]
+  end
+
   test "audio and partial text are broadcast but never stored", %{root: root, name: name} do
     config = config!(root, name)
     start_instance(config)
