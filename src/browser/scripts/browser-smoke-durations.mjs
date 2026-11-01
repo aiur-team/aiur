@@ -20,6 +20,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-running-ticket-timeline': 12,
   // Governed local run (2026-10-30): expanded 11-case suite took 31.029s including fixture startup; refresh from CI.
   'test:browser-suite -- build-home-conversation-live': 32,
+  // Governed local run (2026-11-01): three 390px cases in 18.7s plus fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-mobile-composer': 30,
   // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
   // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
   'test:conversation-view': 36,

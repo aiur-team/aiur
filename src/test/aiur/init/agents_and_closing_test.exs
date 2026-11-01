@@ -218,6 +218,9 @@ defmodule Aiur.Init.AgentsAndClosingTest do
 
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/bot account/i))
+      instructions = Enum.join(log, "\n")
+      assert instructions =~ "~/.aiur/.env (machine-wide) or ./.env"
+      assert :binary.match(instructions, "~/.aiur/.env") < :binary.match(instructions, "./.env")
       assert Enum.any?(log, &(&1 =~ "settings/tokens"))
       assert Enum.any?(log, &(&1 =~ "Fine-grained token (recommended)"))
       assert Enum.any?(log, &(&1 =~ "broad access that includes Administration"))
