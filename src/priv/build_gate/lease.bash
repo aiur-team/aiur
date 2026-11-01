@@ -212,7 +212,6 @@ aiur_build_gate_publish_owner_v2() {
   local gate_dir=$1 owner_path=$2 token=$3 phase=$4 owner_pid=$5 owner_pgid=$6
   local holder_pid=$7 command_pgid=$8 command_pid_namespace=$9
   local owner_candidate started_at acquired_at summary command_name file_count
-  local line prior_token= prior_acquired_at=
   shift 9
   command_name=$1
   shift
@@ -223,18 +222,7 @@ aiur_build_gate_publish_owner_v2() {
   started_at=$(aiur_build_gate_started_at)
   # started_at is re-stamped on every publish; acquired_at stays at this
   # token's first publish so the reaper can protect handshakes made after it.
-  acquired_at=$started_at
-  if [[ -f $owner_path ]]; then
-    while IFS= read -r line; do
-      case $line in
-        token=*) prior_token=${line#token=} ;;
-        acquired_at=*) prior_acquired_at=${line#acquired_at=} ;;
-      esac
-    done 2>/dev/null <"$owner_path" || true
-    if [[ $prior_token == "$token" && $prior_acquired_at =~ ^[0-9]+$ ]]; then
-      acquired_at=$prior_acquired_at
-    fi
-  fi
+  acquired_at=$(aiur_build_gate_owner_acquired_at "$owner_path" "$token" "$started_at")
 
   owner_candidate=$(mktemp "$gate_dir/.owner-v2.XXXXXXXXXX" 2>/dev/null) || {
     aiur_build_gate_fail "owner_candidate_failed" "$gate_dir"
