@@ -100,6 +100,20 @@ Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
 for provider configuration, credentials and ElevenLabs client-tool setup.
 
+## Live conversation context
+
+The reusable voice session receives worker status notes, Commands and phase/PR
+milestones while you talk. Updates enter context silently, coalesced over five
+seconds; agent answers and refreshed notes can be spoken at the next pause.
+
+Each event is redacted and saved before delivery. When a Command resolves elsewhere,
+unconfirmed instruction drafts become stale so you can review them against the new
+context. A missing live subscription is reported as a gap; tool calls still refresh
+the briefing.
+
+Live Executor context reads presence after capability notifications and reports the number
+of tickets affected by a failed queue prerequisite, plus when that prerequisite clears.
+
 ### Read-only side questions
 
 Hosts that advertise a fork can answer `ask_agent` history or reasoning questions from

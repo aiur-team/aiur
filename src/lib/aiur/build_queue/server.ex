@@ -312,8 +312,19 @@ defmodule Aiur.BuildQueue.Server do
           |> Enum.reject(&(elem(&1, 2) == :ok))
           |> Enum.reverse()
 
-        reply = if failures == [], do: :ok, else: {:error, {:marker_write_failed, failures}}
-        reply = if state.status == :store_unavailable and failures == [], do: {:error, :store_unavailable}, else: reply
+        reply =
+          cond do
+            failures == [] ->
+              :ok
+
+            ListCommands.only_deferred_or_satisfied_marks?(failures, observations, "#{state.settings.tracker.github.label_prefix}:queued") ->
+              {:ok, {:marker_deferred, Enum.map(failures, &elem(&1, 1))}}
+
+            true ->
+              {:error, {:marker_write_failed, failures}}
+          end
+
+        reply = if state.status == :store_unavailable, do: {:error, :store_unavailable}, else: reply
         {reply, state}
 
       {:error, _} ->
