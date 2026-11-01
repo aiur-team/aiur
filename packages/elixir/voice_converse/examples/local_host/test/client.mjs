@@ -13,6 +13,7 @@ const client = new VoiceConverseClient({
   url: base.replace('http:', 'ws:') + '/voice?token=' + token, target: 'local',
   onFrame(frame) {
     if (frame.type === 'state' && frame.state === 'listening') console.log('LISTENING');
+    if (frame.type === 'agent_text') console.log('TEXT ' + frame.text);
     if (frame.type === 'draft') console.log('DRAFT ' + frame.draft_id);
     if (frame.type === 'delivery') console.log('DELIVERY ' + frame.status);
     if (frame.type === 'ended') { console.log('ENDED'); client.socket.close(); }

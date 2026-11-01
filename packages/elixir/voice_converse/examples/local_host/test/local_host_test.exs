@@ -111,6 +111,8 @@ defmodule LocalHostTest do
         final?: true
       })
 
+    receive_barrier({^client, {:data, {:eol, "TEXT Building a telescope"}}})
+
     :ok =
       FakeProvider.emit(
         state.provider_ref,
