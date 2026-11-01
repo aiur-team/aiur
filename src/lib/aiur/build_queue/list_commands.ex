@@ -41,6 +41,15 @@ defmodule Aiur.BuildQueue.ListCommands do
   @spec queue_id(map()) :: {:ok, String.t()} | {:error, :queue_limit}
   defdelegate queue_id(document), to: ListMutations
 
+  @spec only_deferred_or_satisfied_marks?(list(), map(), String.t()) :: boolean()
+  def only_deferred_or_satisfied_marks?(failures, observations, marker) do
+    Enum.all?(failures, fn
+      {:mark, _id, {:error, :paced}} -> true
+      {:mark, id, _result} -> marker in Map.get(observations, id, %{labels: []}).labels
+      _ -> false
+    end)
+  end
+
   @spec record(map(), map(), list(), map()) :: map()
   @spec record(map(), map(), list(), map(), map()) :: map()
   def record(state, document, actions, observations, current_labels \\ %{}) do

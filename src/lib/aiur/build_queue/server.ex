@@ -317,7 +317,7 @@ defmodule Aiur.BuildQueue.Server do
             failures == [] ->
               :ok
 
-            Enum.all?(failures, fn {action, id, result} -> paced_or_already_present?(action, id, result, observations, state.settings) end) ->
+            ListCommands.only_deferred_or_satisfied_marks?(failures, observations, "#{state.settings.tracker.github.label_prefix}:queued") ->
               {:ok, {:marker_deferred, Enum.map(failures, &elem(&1, 1))}}
 
             true ->
@@ -331,19 +331,6 @@ defmodule Aiur.BuildQueue.Server do
         {{:error, :store_unavailable}, AttentionHealth.store(%{state | status: :store_unavailable})}
     end
   end
-
-  defp paced_or_already_present?(:mark, _id, {:error, :paced}, _observations, _settings), do: true
-
-  defp paced_or_already_present?(:mark, id, _result, observations, settings) do
-    marker = "#{settings.tracker.github.label_prefix}:queued"
-
-    case observations[id] do
-      %{labels: labels} -> marker in labels
-      _ -> false
-    end
-  end
-
-  defp paced_or_already_present?(_, _, _, _, _), do: false
 
   defp initialize(%{settings: %{build_queue: %{enabled: false}}} = state), do: state
 
