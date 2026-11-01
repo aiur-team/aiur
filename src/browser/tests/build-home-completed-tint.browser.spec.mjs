@@ -1,5 +1,25 @@
 import { test, expect } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
+import { contrastRatio } from './support/build-home-a11y-audit.mjs'
+
+function colorChannels(color) {
+  const match = color.match(/rgba?\(([^)]+)\)/)
+  if (!match) throw new Error(`Expected computed rgb color, received ${color}`)
+  const values = match[1].match(/[\d.]+/g).map(Number)
+  return { rgb: values.slice(0, 3), alpha: values[3] ?? 1 }
+}
+
+function hexColor(rgb) {
+  return '#' + rgb.map(channel => Math.round(channel).toString(16).padStart(2, '0')).join('')
+}
+
+function contrastAgainstTint(foreground, overlay, surface) {
+  const fg = colorChannels(foreground).rgb
+  const tint = colorChannels(overlay)
+  const base = colorChannels(surface).rgb
+  const composite = base.map((channel, index) => tint.rgb[index] * tint.alpha + channel * (1 - tint.alpha))
+  return contrastRatio(hexColor(fg), hexColor(composite))
+}
 
 test.use({ httpCredentials: dashboardCredentials })
 
@@ -79,6 +99,12 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
     expect(colors.completed.backgroundImage).toContain('linear-gradient')
     expect(colors.completed.backgroundImage).not.toBe(colors.running.backgroundImage)
     expect(colors.completed.backgroundImage).not.toBe(colors.notPlanned.backgroundImage)
+    const titleColors = await completed.locator('.bd-title').evaluate(element => ({
+      foreground: getComputedStyle(element).color,
+      overlay: getComputedStyle(document.documentElement).getPropertyValue('--good-soft').trim(),
+      surface: getComputedStyle(element.closest('.bd-in')).backgroundColor,
+    }))
+    expect(contrastAgainstTint(titleColors.foreground, titleColors.overlay, titleColors.surface)).toBeGreaterThanOrEqual(4.5)
     const rowBackground = await row.evaluate(element => {
       const { backgroundColor, backgroundImage } = getComputedStyle(element)
       return { backgroundColor, backgroundImage }
@@ -89,5 +115,15 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
       return { backgroundColor, backgroundImage }
     })
     expect(notPlannedBackground).not.toEqual(colors.completed)
+    const rowText = await page.evaluate(() => ['.c-id', '.c-tt', '.c-ep', '.lr-mu', '.c-ag']
+      .flatMap(selector => [...document.querySelectorAll(`#completed-timeline-row ${selector}`)])
+      .map(element => ({
+        foreground: getComputedStyle(element).color,
+        overlay: getComputedStyle(document.documentElement).getPropertyValue('--good-soft').trim(),
+        surface: getComputedStyle(element.closest('.lr')).backgroundColor,
+      })))
+    for (const colors of rowText) {
+      expect(contrastAgainstTint(colors.foreground, colors.overlay, colors.surface)).toBeGreaterThanOrEqual(4.5)
+    }
   })
 }
