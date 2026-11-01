@@ -179,8 +179,9 @@ history entry.
 
 ## The Live band
 
-The Live band shows active agents between history and the plan. It settles at
-the nearest viewport edge; the **Live** button returns to it. Minimize keeps
+The Live band shows active agents between history and the plan, in the same
+card style as the other tickets. It scrolls with the board and stays wherever you
+stop; the **Live** button scrolls to it. Minimize keeps
 state counts visible (`live=min`), and a state preset expands it. The clock shows
 cached observation time when stale and `—` when unknown.
 
