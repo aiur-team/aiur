@@ -10,15 +10,16 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
     def save(doc) do
       Agent.get_and_update(__MODULE__, fn state ->
-        case Map.get(state, :save_results, []) do
-          [result | rest] ->
-            state = Map.put(state, :save_results, rest)
-            if result == :ok, do: {:ok, %{state | document: doc}}, else: {result, state}
-
-          [] ->
-            if state.save_result == :ok, do: {:ok, %{state | document: doc}}, else: {state.save_result, state}
-        end
+        {result, state} = next_save_result(state)
+        if result == :ok, do: {:ok, %{state | document: doc}}, else: {result, state}
       end)
+    end
+
+    defp next_save_result(state) do
+      case Map.get(state, :save_results, []) do
+        [result | rest] -> {result, Map.put(state, :save_results, rest)}
+        [] -> {state.save_result, state}
+      end
     end
 
     def open_issue_labels(_), do: Agent.get(__MODULE__, &if(Map.get(&1, :observation_unavailable?, false), do: {:error, :offline}, else: {:ok, Map.get(&1, :observation_labels, &1.labels), 1_000}))
