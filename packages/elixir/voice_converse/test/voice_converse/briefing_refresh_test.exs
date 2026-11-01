@@ -67,6 +67,55 @@ defmodule VoiceConverse.BriefingRefreshTest do
     end)
   end
 
+  test "oversize briefing diffs stay within budget and on grapheme boundaries", %{root: root} do
+    name = Module.concat([VoiceConverse, "BriefingBudget#{System.unique_integer([:positive])}"])
+    config = config!(root, name, limits: %{briefing_token_budget: 3})
+    start_supervised!(VoiceConverse.child_spec(config))
+    target = target(self(), "First")
+    {:ok, id} = start(name, target)
+    assert_receive {:fake_briefing_source, :subscribe, _pid}
+    await_listening(id)
+    {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    provider = :sys.get_state(session).provider_ref
+    update(target, "é🙂 beyond budget")
+
+    assert :ok = VoiceConverse.refresh_briefing(name, id)
+
+    assert [{:send_context, text}] = FakeProvider.calls(provider)
+    assert String.valid?(text)
+    assert String.ends_with?(text, "é")
+    assert div(byte_size(text), 4) <= 3
+  end
+
+  test "refresh redacts secrets from provider context and transcript", %{root: root} do
+    name = Module.concat([VoiceConverse, "BriefingRedaction#{System.unique_integer([:positive])}"])
+
+    redactor = fn text -> String.replace(text, "test-secret", "[REDACTED]") end
+    config = config!(root, name, redactor: redactor)
+    start_supervised!(VoiceConverse.child_spec(config))
+    target = target(self(), "First")
+    {:ok, id} = start(name, target)
+    assert_receive {:fake_briefing_source, :subscribe, _pid}
+    await_listening(id)
+    {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    provider = :sys.get_state(session).provider_ref
+    update(target, "contains test-secret")
+
+    assert :ok = VoiceConverse.refresh_briefing(name, id)
+    assert [{:send_context, "Summary: contains [REDACTED]"}] = FakeProvider.calls(provider)
+
+    assert {:ok, records, _meta} = TranscriptStore.read(root, id)
+
+    refresh =
+      Enum.find(records, fn record ->
+        record["type"] == "context" and record["source"] == "briefing" and
+          String.contains?(record["text"], "Summary: contains")
+      end)
+
+    assert refresh["text"] == "Summary: contains [REDACTED]"
+    refute String.contains?(refresh["text"], "test-secret")
+  end
+
   defp start(name, target) do
     VoiceConverse.start_session(name, target,
       client: self(),
@@ -87,16 +136,18 @@ defmodule VoiceConverse.BriefingRefreshTest do
     assert_receive {:voice_conversation_state, ^id, :listening}
   end
 
-  defp config!(root, name) do
+  defp config!(root, name, opts \\ []) do
     {:ok, config} =
       Config.new(
-        name: name,
-        transcript_root: root,
-        credentials: StaticCredentials,
-        briefing_source: FakeBriefingSource,
-        provider: {FakeProvider, []},
-        llm: "test-model",
-        cloud_disclosure_accepted: true
+        [
+          name: name,
+          transcript_root: root,
+          credentials: StaticCredentials,
+          briefing_source: FakeBriefingSource,
+          provider: {FakeProvider, []},
+          llm: "test-model",
+          cloud_disclosure_accepted: true
+        ] ++ opts
       )
 
     config
