@@ -29,7 +29,7 @@ defmodule Aiur.Workspace.Remove do
 
   require Logger
 
-  alias Aiur.{Config, TestTicketScope}
+  alias Aiur.{AgentScratch, Config, TestTicketScope}
   alias Aiur.Workspace.{Hooks, Layout, Remote, WipPreservation}
 
   # Exit statuses returned by the remote removal script.
@@ -75,7 +75,7 @@ defmodule Aiur.Workspace.Remove do
     with :clean <- precheck,
          :ok <- destroy_guard(opts) do
       maybe_run_before_remove_hook(workspace, worker_host)
-      script = if discard?, do: "rm -rf \"$workspace\"", else: remote_dirty_check() <> "\nrm -rf \"$workspace\""
+      script = remote_remove_script(workspace, discard?)
       remote_removed(run_remote(workspace, worker_host, script), workspace, worker_host, discard?, opts)
     else
       :dirty -> remote_dirty(workspace, worker_host, opts)
@@ -138,6 +138,17 @@ defmodule Aiur.Workspace.Remove do
       "fi"
     ]
     |> Enum.join("\n")
+  end
+
+  @doc false
+  @spec remote_remove_script(Path.t(), boolean()) :: String.t()
+  def remote_remove_script(workspace, discard?) do
+    remove_command =
+      if discard?,
+        do: "rm -rf \"$workspace\" || exit $?\n",
+        else: remote_dirty_check() <> "\nrm -rf \"$workspace\" || exit $?\n"
+
+    remove_command <> remote_mcp_socket_cleanup(workspace)
   end
 
   defp remote_dirty(workspace, worker_host, opts) do
@@ -277,11 +288,38 @@ defmodule Aiur.Workspace.Remove do
   defp destroy_local(workspace, opts) do
     case destroy_guard(opts) do
       :ok ->
-        File.rm_rf(workspace)
+        case File.rm_rf(workspace) do
+          {:ok, removed} ->
+            _ = AgentScratch.remove_mcp_socket_dir(workspace)
+            {:ok, removed}
+
+          error ->
+            error
+        end
 
       skipped ->
         skipped
     end
+  end
+
+  defp remote_mcp_socket_cleanup(workspace) do
+    escaped_workspace = Aiur.Shell.escape(workspace)
+
+    "aiur_mcp_workspace=#{escaped_workspace}; " <>
+      ~s"""
+      aiur_mcp_uid=$(id -u)
+      aiur_mcp_hash=$(printf '%s' "$aiur_mcp_workspace" | sha256sum | cut -c1-10)
+      aiur_mcp_runtime="${XDG_RUNTIME_DIR:-/tmp}"
+      if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ "$(stat -c %u "$XDG_RUNTIME_DIR" 2>/dev/null)" != "$aiur_mcp_uid" ]; then aiur_mcp_runtime=/tmp; fi
+      aiur_mcp_probe="$aiur_mcp_runtime/aiur-$aiur_mcp_uid/$aiur_mcp_hash/aiur-mcp-9999999-999.sock"
+      if [ "$(LC_ALL=C printf '%s' "$aiur_mcp_probe" | wc -c)" -gt 100 ]; then aiur_mcp_runtime=/tmp; fi
+      unset aiur_mcp_probe
+      aiur_mcp_root="$aiur_mcp_runtime/aiur-$aiur_mcp_uid"
+      if [ ! -L "$aiur_mcp_root" ] && [ "$(stat -c %u "$aiur_mcp_root" 2>/dev/null)" = "$aiur_mcp_uid" ]; then
+        rm -rf -- "$aiur_mcp_root/$aiur_mcp_hash" 2>/dev/null || true
+      fi
+      unset aiur_mcp_uid aiur_mcp_hash aiur_mcp_runtime aiur_mcp_root aiur_mcp_workspace
+      """
   end
 
   defp ticket(workspace, opts), do: Keyword.get(opts, :ticket) || Path.basename(workspace)

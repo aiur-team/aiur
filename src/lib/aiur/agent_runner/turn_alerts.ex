@@ -65,9 +65,17 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   """
   @spec maybe_emit_route_failure_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
   def maybe_emit_route_failure_alert(%Issue{} = issue, workspace, worker_host, reason) do
-    route = CodingAgent.backend_for(issue)
+    case reason do
+      {:turn_failed, details} when is_map(details) ->
+        unless RouteFailure.mcp_socket_path_error?(details) do
+          route = CodingAgent.backend_for(issue)
+          RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+        end
 
-    RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+      _other ->
+        route = CodingAgent.backend_for(issue)
+        RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+    end
 
     :ok
   end

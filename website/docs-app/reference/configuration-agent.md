@@ -6,7 +6,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-00 -->
 | --- | --- | --- | --- |
-| `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` scores every allowed backend **and** account at dispatch and picks the one with the most remaining usage; see [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
+| `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` follows backend preference, then ranks accounts within that backend. Unknown or stale accounts get one exploration per 120-second window; a fresh usage reading clears the window. See [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
 | `agent.accounts` | map | `%{}` | Machine-local account names enabled per harness, for example `{claude: [default, max]}`. The list is priority order; absent or empty keeps the existing single-account behavior. Claude and Codex use isolated profile directories; Kimi, DeepSeek, and OpenRouter use named API keys; Muse is unsupported. See [accounts by backend](/guide/claude-accounts). |
 | `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
 | `agent.budget_broker_degraded_alert_after_seconds` | integer | 60 | How long the budget-broker timeout rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained outage raises once with its duration. |
@@ -28,8 +28,8 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.headroom_reading_max_age_seconds` | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
-| `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
-| `agent.load_resume_max_age_seconds` | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one, holding the first fresh sample. |
+| `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). With a valid saved safe level, each ramp poll adds at least this step while accelerating toward the level; a configured step above 3 can exceed +3. Without a valid saved level, the first fresh sample holds. Above 80%, fast probing requires below half target before a sustained decrease. |
+| `agent.load_resume_max_age_seconds` | integer | 3600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one; without a valid saved level, the first fresh sample holds. A shorter lifetime avoids resuming into a different load picture but may cold-start after a long downtime. |
 | `agent.local_gate_ci_max_age_minutes` | positive integer | 15 | Trust cached green CI only this long to prevent stale-head actions. |
 | `agent.local_gate_wait_steer_minutes` | positive integer | 20 | Green CI: steer only after this long waiting on local gate work. |
 | `agent.local_gate_wait_stop_minutes` | positive integer | 30 | Stop after steer grace so the worker can refresh the PR body and hand off. |
@@ -125,7 +125,9 @@ agent:
 
 #### What happens when a route fails
 
-A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+
+Claude workers also receive `AIUR_MCP_SOCKET_DIR`, a short private MCP socket path. Workspace `TMPDIR` stays isolated.
 
 A Claude reset timestamp that already passed is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
 
@@ -247,9 +249,11 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-04 -->
 | --- | --- | --- | --- |
-| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0. |
+| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0, and short MCP socket directory support requires >= 1.3.1. |
 | `agent.claude.model` | string or nil | nil | Optional Claude model override. |
 | `agent.claude.permission_mode` | string | `bypassPermissions` | Claude permission mode. |
+
+The MCP socket directory override is set for local workers only. Its private, hashed runtime directory is not removed when a workspace is deleted; remote worker exports continue to use the sibling's default temporary directory.
 
 ## agent.codex
 

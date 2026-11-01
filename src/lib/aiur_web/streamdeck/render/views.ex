@@ -38,7 +38,7 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     do: with_toast(EpicFrame.compose(field(model, :grid) || model, nav), model)
 
   def compose(%{nav: %{view: :fleet} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"] do
-    with_toast(Fleet.compose(field(model, :grid) || model, nav), model)
+    with_toast(Fleet.compose(field(model, :grid) || model, nav, field(model, :usage) || %{}), model)
   end
 
   def compose(model) do

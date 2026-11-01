@@ -60,6 +60,11 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
 
   @asset_root Path.join(__DIR__, "../assets")
 
+  def health(conn, %{"dashboard_origin" => "1"}) do
+    port = Application.fetch_env!(:aiur, :browser_dashboard_port)
+    send_resp(conn, 200, "http://127.0.0.1:#{port}")
+  end
+
   def health(conn, _params), do: send_resp(conn, 200, "synthetic fixture ready")
 
   def phoenix_html(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_html/phoenix_html.js")
@@ -82,5 +87,24 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   defp serve_file(conn, filename) do
     body = File.read!(Path.join(@asset_root, filename))
     conn |> put_resp_content_type("application/javascript") |> send_resp(200, body)
+  end
+end
+
+defmodule Aiur.BrowserHarness.DashboardEndpoint do
+  def forwarded_config do
+    Application.get_env(:aiur, AiurWeb.Endpoint, [])
+    |> Keyword.merge(
+      server: true,
+      http: [ip: {127, 0, 0, 1}, port: 0],
+      url: [host: "127.0.0.1", port: 0],
+      allowed_hosts: ["127.0.0.1", "localhost"],
+      check_origin: false
+    )
+  end
+
+  def record_bound_port do
+    {:ok, {_ip, port}} = Bandit.PhoenixAdapter.server_info(AiurWeb.Endpoint, :http)
+    Application.put_env(:aiur, :browser_dashboard_port, port)
+    port
   end
 end

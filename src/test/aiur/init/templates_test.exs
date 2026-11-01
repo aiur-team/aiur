@@ -179,6 +179,25 @@ defmodule Aiur.Init.TemplatesTest do
   end
 
   describe "elevenlabs voice-input section" do
+    test "prompt and rendered config name both dotenv files in precedence order" do
+      parent = self()
+
+      io = %{
+        confirm: fn _question, _default -> true end,
+        puts: fn message -> send(parent, {:voice_prompt, IO.chardata_to_string(message)}) end,
+        input: fn _label, default, _hint -> default end
+      }
+
+      assert %{enabled: true, api_key: "$ELEVENLABS_API_KEY"} = ElevenLabs.prompt_eleven_labs(io, %{}, :repo_local)
+      assert_received {:voice_prompt, prompt}
+      assert prompt =~ "~/.aiur/.env (machine-wide) or ./.env"
+      assert :binary.match(prompt, "~/.aiur/.env") < :binary.match(prompt, "./.env")
+
+      yaml = IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}))
+      assert yaml =~ "set the value in `~/.aiur/.env` or `./.env`"
+      assert :binary.match(yaml, "~/.aiur/.env") < :binary.match(yaml, "./.env")
+    end
+
     test "opting in fills the whole section from the shared renderer" do
       rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
 

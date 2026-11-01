@@ -76,7 +76,7 @@ test('clock ticks on payload minute boundaries without new diffs and preserves c
   await page.clock.runFor(60000)
   await expect(page.locator('.bd-now-h time')).toHaveText('cached 14:14')
 })
-test('scrolling clears unlocked hover, disables card pointers and settles; reduced motion still snaps', async ({ page }) => {
+test('scrolling clears unlocked hover, disables card pointers and settles where the user stopped', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page); await settle(page)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const instant = await page.evaluate(() => {
@@ -95,12 +95,12 @@ test('scrolling clears unlocked hover, disables card pointers and settles; reduc
   await settle(page)
   await expect(page.locator('#bd-content')).not.toHaveClass(/scrolling/)
   expect(await page.evaluate(() => m.ctx.isScrolling())).toBe(false)
-  expect(await page.evaluate(() => Math.abs(m.ctx.vp.scrollTop - (m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 46)))).toBeLessThanOrEqual(1)
+  // #7446: reduced motion or not, nothing snaps the band back under the header.
+  expect(await page.evaluate(() => Math.abs(m.ctx.vp.scrollTop - (m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 46 - 20)))).toBeLessThanOrEqual(1)
 })
 test('jump uses 420ms cubic easing, clamps and cancels previous animations', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page); await settle(page)
   await page.evaluate(() => {
-    // Tall viewport constraint disables guard so the curve is measured without a second snap.
     m.ctx.vp.style.height = '200px'; m.S.ready = false
     m.fx.scrollVP(300, false); window.start = performance.now(); m.fx.scrollVP(1300, true);
     const sample = at => { window.lastFrame = at; requestAnimationFrame(sample) }; requestAnimationFrame(sample)
@@ -278,19 +278,20 @@ test('focused band card survives live relayout', async ({ page }) => {
 })
 
 // Future-regression guard for the design's CSS-only re-pin; not counted as change coverage.
-test('future guard: added agents stay pinned at the bottom without a new scroll animation', async ({ page }) => {
+// #7446: the band no longer sticks to the viewport bottom; a live pass keeps the reader's band anchor instead.
+test('future guard: added agents keep the band where the reader left it without a new scroll animation', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page); await settle(page)
   await page.evaluate(() => m.fx.scrollVP(m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h + m.ctx.L.band.h - m.ctx.vp.clientHeight, false))
   await settle(page)
   await page.evaluate(() => {
-    window.scrollFrames = []
+    window.scrollFrames = []; window.bandTop = m.ctx.bandEl.getBoundingClientRect().top
     const frame = m.ctx.life.frame
     m.ctx.life.frame = (key, fn) => { if (typeof key === 'string' && key.startsWith('scrollVP:')) scrollFrames.push(key); return frame(key, fn) }
   })
   expect((await page.request.get('/build-control/diff?name=add-four-agents')).ok()).toBe(true)
   await settle(page)
   await expect(page.locator('#bd-now .bd-card')).toHaveCount(12)
-  expect(await page.evaluate(() => Math.abs(m.ctx.bandEl.getBoundingClientRect().bottom - m.ctx.vp.getBoundingClientRect().bottom))).toBeLessThanOrEqual(1)
+  expect(await page.evaluate(() => Math.abs(m.ctx.bandEl.getBoundingClientRect().top - window.bandTop))).toBeLessThanOrEqual(1)
   expect(await page.evaluate(() => scrollFrames)).toEqual([])
 })
 

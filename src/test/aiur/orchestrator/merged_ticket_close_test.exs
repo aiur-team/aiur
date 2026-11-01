@@ -44,6 +44,32 @@ defmodule Aiur.Orchestrator.MergedTicketCloseTest do
     assert state.running == %{}
   end
 
+  test "a merged ticket with stale lifecycle labels ends with only done" do
+    issue = %Issue{
+      id: "issue-7386",
+      identifier: "7386",
+      state: "rework",
+      labels: ["agent:rework", "agent:ci-wait", "agent:human-review"]
+    }
+
+    parent = self()
+
+    {state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #7386")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+    assert_receive {:transition, "7386", "done", "rework"}, 1000
+    assert issues == []
+    assert state.merged_ticket_reconciliations == MapSet.new([{"7386", "owner/repo#1600"}])
+  end
+
   test "comments on a different ticket referenced by this PR without changing its state" do
     issue = %Issue{id: "issue-5162", identifier: "5162", state: "human-review"}
     parent = self()

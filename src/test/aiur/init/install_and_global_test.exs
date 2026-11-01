@@ -19,8 +19,8 @@ defmodule Aiur.Init.InstallAndGlobalTest do
             "claude" -> if Agent.get(present, & &1), do: :ok, else: @missing_claude
             _ -> :ok
           end,
-          claude_version: fn -> if Agent.get(present, & &1), do: {:ok, "1.1.0"}, else: :missing end,
-          claude_registry_version: fn -> {:ok, "1.1.0"} end,
+          claude_version: fn -> if Agent.get(present, & &1), do: {:ok, "1.3.0"}, else: :missing end,
+          claude_registry_version: fn -> {:ok, "1.3.0"} end,
           install_claude_app_server: fn _spec ->
             send(parent, {:install, :claude})
             Agent.update(present, fn _ -> true end)
@@ -91,7 +91,7 @@ defmodule Aiur.Init.InstallAndGlobalTest do
 
     test "a current aiur-claude prints no version warning", %{dir: dir, target: target} do
       parent = self()
-      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.1.0"} end})
+      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.3.0"} end})
 
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
@@ -100,7 +100,7 @@ defmodule Aiur.Init.InstallAndGlobalTest do
 
     test "a satisfying installed adapter completes without reinstalling", %{dir: dir, target: target} do
       parent = self()
-      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.1.0"} end})
+      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.3.0"} end})
 
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 

@@ -211,12 +211,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "credential absence is awaiting observation, not a hard failure" do
-    # A missing DeepSeek/OpenRouter API key, a missing credentials file, or a
-    # malformed credential blob means the provider cannot be read *yet* — not
+    # A missing DeepSeek/OpenRouter API key or malformed credential blob means
+    # the provider cannot be read *yet* — not
     # that it is broken. These render as loading, matching a first observation
     # that has not arrived, rather than a misleading hard "unavailable".
     test "a missing or malformed credential blob renders loading" do
-      for failure <- [:no_credentials, :malformed_credentials] do
+      for failure <- [:malformed_credentials] do
         snapshot = %ProviderMeterSnapshot{
           provider: :claude,
           backend: :app_server,
@@ -227,6 +227,17 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
         assert card(Presenter.present(authorized(), %{claude: snapshot}), :claude).state == :loading,
                "expected #{inspect(failure)} to render loading, got a hard state"
       end
+    end
+
+    test "a missing Claude credential reports the signed-out state" do
+      snapshot = %ProviderMeterSnapshot{
+        provider: :claude,
+        backend: :app_server,
+        provider_account_generation: nil,
+        health: %{state: :unavailable, failure: :no_credentials, last_observed_at: nil, last_source_version: nil}
+      }
+
+      assert card(Presenter.present(authorized(), %{claude: snapshot}), :claude).state == :signed_out
     end
 
     test "a missing API key or disabled provider renders loading" do
