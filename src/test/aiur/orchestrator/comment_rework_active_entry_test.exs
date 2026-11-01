@@ -221,6 +221,32 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     end
   end
 
+  test "future regression guard: a single-account operator blocking review routes to rework" do
+    issue = human_review_issue()
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", tracker_identity_mode: "single_account")
+
+    event =
+      changes_requested_review_event(issue, %{
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+        human_merger_allowed_fun: fn _login -> true end
+      })
+
+    comment =
+      Map.merge(event.comment, %{
+        "state" => "COMMENTED",
+        "body" => "Blocking: fix before merge",
+        "user" => %{"login" => "operator"}
+      })
+
+    pull_request = Map.put(event.pull_request, "review_decision", "REVIEW_REQUIRED")
+    event = %{event | author_trusted?: false, comment: comment, pull_request: pull_request}
+
+    CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+  end
+
   test "a blocking review received by an in-progress worker is delivered without another rework cycle" do
     issue = %{human_review_issue() | state: "in-progress", labels: ["agent:in-progress"]}
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
