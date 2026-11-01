@@ -301,6 +301,9 @@ defmodule Aiur.Workspace.Remove do
       aiur_mcp_hash=$(printf '%s' "$aiur_mcp_workspace" | sha256sum | cut -c1-10)
       aiur_mcp_runtime="${XDG_RUNTIME_DIR:-/tmp}"
       if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ "$(stat -c %u "$XDG_RUNTIME_DIR" 2>/dev/null)" != "$aiur_mcp_uid" ]; then aiur_mcp_runtime=/tmp; fi
+      aiur_mcp_probe="$aiur_mcp_runtime/aiur-$aiur_mcp_uid/$aiur_mcp_hash/aiur-mcp-9999999-999.sock"
+      if [ "$(LC_ALL=C printf '%s' "$aiur_mcp_probe" | wc -c)" -gt 100 ]; then aiur_mcp_runtime=/tmp; fi
+      unset aiur_mcp_probe
       aiur_mcp_root="$aiur_mcp_runtime/aiur-$aiur_mcp_uid"
       if [ ! -L "$aiur_mcp_root" ] && [ "$(stat -c %u "$aiur_mcp_root" 2>/dev/null)" = "$aiur_mcp_uid" ]; then
         rm -rf -- "$aiur_mcp_root/$aiur_mcp_hash" 2>/dev/null || true
