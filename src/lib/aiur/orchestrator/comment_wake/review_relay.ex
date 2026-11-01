@@ -2,14 +2,14 @@ defmodule Aiur.Orchestrator.CommentWake.ReviewRelay do
   @moduledoc false
 
   alias Aiur.Orchestrator.CommentWake
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.ReviewFindings
 
   @spec for_running_worker?(map(), map()) :: boolean()
   def for_running_worker?(running_entry, event) do
     get_in(running_entry, [:control, Access.key(:status)]) == :working and
-      Aiur.Orchestrator.DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)])) ==
-        "in-progress" and
+      DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)])) == "in-progress" and
       (review_submission?(event) or blocking_pr_comment?(event))
   end
 
