@@ -46,7 +46,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
         # comment has to survive into the digest the agent reads on its first
         # turn. Dropping it here would trade a wrong label for lost operator
         # input, which is the worse failure of the two.
-        if reason == :not_yet_attempted,
+        if reason in [:not_yet_attempted, :already_in_progress],
           do: Dispatch.seed_idle_comment_wake_event(state, issue_number, event),
           else: state
 
@@ -88,29 +88,12 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   defp idle_rework_decision_from_issue(result, event) do
     case result do
       {:ok, %Issue{} = issue} ->
-        cond do
-          Issue.held?(issue) ->
-            {:skip, if(Issue.parked?(issue), do: :parked, else: :executor_owned)}
+        case issue_hold_reason(issue) do
+          {:skip, reason} ->
+            {:skip, reason}
 
-          DispatchPolicy.normalize_issue_state(issue.state) == "" ->
-            {:skip, :unlabeled_issue}
-
-          # Ordinary comments on a `todo` ticket remain briefing material:
-          # there is no prior implementation to rework, and flipping the state
-          # would discard operator triage. A formal live review is the narrow
-          # exception because it proves an existing PR was rejected.
-          #
-          # Observed repeatedly: promoting a ticket to `agent:todo` and then
-          # commenting to say why reliably un-promoted it on the next poll, so
-          # promotion and commentary could not be done in the same breath.
-          #
-          # The skip seeds the event digest below so the dispatched agent gets
-          # the operator's briefing on its first turn.
-          not_yet_attempted?(issue, event) ->
-            {:skip, :not_yet_attempted}
-
-          true ->
-            :active
+          nil ->
+            active_issue_rework_decision(issue, event)
         end
 
       # The tracker has no record to read the labels off — a non-GitHub backend
@@ -123,6 +106,33 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp active_issue_rework_decision(issue, event) do
+    cond do
+      DispatchPolicy.normalize_issue_state(issue.state) == "in-progress" and
+          ReworkTransition.human_merger_blocking_comment?(event) ->
+        {:skip, :already_in_progress}
+
+      not_yet_attempted?(issue, event) ->
+        {:skip, :not_yet_attempted}
+
+      true ->
+        :active
+    end
+  end
+
+  defp issue_hold_reason(issue) do
+    cond do
+      Issue.held?(issue) ->
+        {:skip, if(Issue.parked?(issue), do: :parked, else: :executor_owned)}
+
+      DispatchPolicy.normalize_issue_state(issue.state) == "" ->
+        {:skip, :unlabeled_issue}
+
+      true ->
+        nil
     end
   end
 

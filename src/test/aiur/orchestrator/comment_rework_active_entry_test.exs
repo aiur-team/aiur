@@ -92,6 +92,15 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     }
   end
 
+  defp assert_comment_digest(state, event) do
+    digest_items =
+      state.queue_store.items
+      |> Map.values()
+      |> Enum.filter(&(&1.event_type == :events_digest))
+
+    assert Enum.any?(digest_items, &(&1.target_issue_identifier == @issue_number and event in &1.body.events))
+  end
+
   # A body-only `gh pr review --request-changes`: live against the current head,
   # by a trusted author, opening no review thread at all.
   defp changes_requested_review_event(issue, overrides) do
@@ -148,21 +157,119 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
-  for body <- ["Update the stale base before merge", "## Blocking: stale base must be updated"] do
-    test "a trusted blocking COMMENTED review #{inspect(body)} in human-review routes without inline threads" do
+  for ticket_state <- ["human-review", "ci-wait"],
+      retained_entry? <- [false, true],
+      {author_kind, login, trusted?, merger?} <- [
+        {:human_merger, "its-everdred", false, true},
+        {:trusted_non_merger, "trusted-reviewer", true, false},
+        {:untrusted_non_merger, "outsider", false, false},
+        {:agent_own_login, "aiur-bot", false, false}
+      ] do
+    test "a blocking COMMENTED review from #{author_kind} in #{ticket_state} with retained_entry=#{retained_entry?} routes according to author policy" do
       issue = human_review_issue()
+      issue = %{issue | state: unquote(ticket_state), labels: ["agent:" <> unquote(ticket_state)]}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
       event =
         changes_requested_review_event(issue, %{
-          comment: %{"state" => "COMMENTED", "body" => unquote(body), "submitted_at" => "2026-09-26T04:09:44Z"},
-          pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
+          comment: %{
+            "state" => "COMMENTED",
+            "body" => "## Blocking: stale base must be updated",
+            "submitted_at" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+            "user" => %{"login" => unquote(login)}
+          },
+          author: unquote(login),
+          author_trusted?: unquote(trusted?),
+          human_merger_allowed_fun: fn candidate -> unquote(merger?) and candidate == "its-everdred" end,
+          open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 337, "head" => %{"sha" => "new-head"}}} end,
+          pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.to_iso8601()},
           unresolved_threads_fetcher: fn _pr -> {:ok, []} end
         })
 
-      CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
+      test_pid = self()
 
-      assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+      event = Map.put(event, :emit_alert_fun, fn topic, attrs -> send(test_pid, {:gate_alert, topic, attrs}) end)
+
+      running =
+        if unquote(retained_entry?) do
+          entry = completed_running_entry()
+          put_in(entry, ["2814", :issue], issue)
+        else
+          %{}
+        end
+
+      next_state = CommentWake.maybe_reactivate_on_comment(base_state(running), @issue_number, :pr_review, event)
+
+      case unquote(author_kind) do
+        :human_merger ->
+          assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+          assert_comment_digest(next_state, event)
+
+        :trusted_non_merger ->
+          assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+
+        :untrusted_non_merger ->
+          refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+
+        :agent_own_login ->
+          refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+      end
+
+      if unquote(author_kind) == :human_merger do
+        refute_receive {:gate_alert, _, _}, 50
+      end
     end
+  end
+
+  test "a blocking review received by an in-progress worker is delivered without another rework cycle" do
+    issue = %{human_review_issue() | state: "in-progress", labels: ["agent:in-progress"]}
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    event =
+      changes_requested_review_event(issue, %{
+        comment: %{
+          "state" => "COMMENTED",
+          "body" => "Blocking: fix the regression",
+          "submitted_at" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+          "user" => %{"login" => "its-everdred"}
+        },
+        author: "its-everdred",
+        author_trusted?: false,
+        human_merger_allowed_fun: fn login -> login == "its-everdred" end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
+      })
+
+    running = completed_running_entry()
+    running = put_in(running, ["2814", :issue], issue)
+    state = base_state(running)
+
+    next_state = CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event)
+
+    refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+    assert_comment_digest(next_state, event)
+  end
+
+  test "a blocking human-merger review on an idle in-progress ticket does not restart rework" do
+    issue = %{human_review_issue() | state: "in-progress", labels: ["agent:in-progress"]}
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    event =
+      changes_requested_review_event(issue, %{
+        author: "its-everdred",
+        author_trusted?: false,
+        human_merger_allowed_fun: fn login -> login == "its-everdred" end,
+        comment: %{
+          "state" => "COMMENTED",
+          "body" => "Blocking: avoid another run",
+          "submitted_at" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+          "user" => %{"login" => "its-everdred"}
+        }
+      })
+
+    next_state = CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+    refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+    assert_comment_digest(next_state, event)
   end
 
   for ticket_state <- ["human-review", "ci-wait"],
@@ -183,6 +290,70 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
       refute_received {:memory_tracker_state_update, @issue_number, "rework"}
       assert {:ok, [%Issue{state: state}]} = Aiur.Tracker.fetch_issue_states_by_ids([@issue_number])
       assert state == unquote(ticket_state)
+    end
+  end
+
+  for ticket_state <- ["human-review", "ci-wait"] do
+    test "a non-blocking, non-benign COMMENTED review from a human merger in #{ticket_state} does not route to rework" do
+      issue = %{human_review_issue() | state: unquote(ticket_state), labels: ["agent:" <> unquote(ticket_state)]}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+      event =
+        changes_requested_review_event(issue, %{
+          comment: %{
+            "state" => "COMMENTED",
+            "body" => "Consider renaming this later",
+            "submitted_at" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+            "user" => %{"login" => "its-everdred"}
+          },
+          author: "its-everdred",
+          author_trusted?: false,
+          human_merger_allowed_fun: fn login -> login == "its-everdred" end,
+          pull_request: %{
+            "review_decision" => "REVIEW_REQUIRED",
+            "head_committed_at" => DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.to_iso8601()
+          },
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        })
+
+      CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+      refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+      assert {:ok, [%Issue{state: state}]} = Aiur.Tracker.fetch_issue_states_by_ids([@issue_number])
+      assert state == unquote(ticket_state)
+    end
+  end
+
+  for {description, decision} <- [
+        {"an approved PR", "APPROVED"},
+        {"a review older than the head", "REVIEW_REQUIRED"}
+      ] do
+    test "a blocking COMMENTED review from a human merger on #{description} does not route to rework" do
+      issue = human_review_issue()
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
+      head_committed_at = DateTime.utc_now() |> DateTime.add(-30, :second) |> DateTime.to_iso8601()
+      submitted_at_offset = if unquote(decision) == "APPROVED", do: -10, else: -120
+      submitted_at = DateTime.utc_now() |> DateTime.add(submitted_at_offset, :second) |> DateTime.to_iso8601()
+
+      event =
+        changes_requested_review_event(issue, %{
+          comment: %{
+            "state" => "COMMENTED",
+            "body" => "Blocking: update this before merge",
+            "submitted_at" => submitted_at,
+            "user" => %{"login" => "its-everdred"}
+          },
+          author: "its-everdred",
+          author_trusted?: false,
+          human_merger_allowed_fun: fn login -> login == "its-everdred" end,
+          pull_request: %{"review_decision" => unquote(decision), "head_committed_at" => head_committed_at},
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        })
+
+      CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+      refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+      assert {:ok, [%Issue{state: "human-review"}]} = Aiur.Tracker.fetch_issue_states_by_ids([@issue_number])
     end
   end
 
