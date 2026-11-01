@@ -24,6 +24,23 @@ async function patch(page) {
   await expect(toggle).toHaveAttribute('data-nav-collapsed', previous === 'true' ? 'false' : 'true')
 }
 
+test('settings reaches Executor while Build is loading on phone and desktop', async ({ page }) => {
+  await page.context().setHTTPCredentials(dashboardCredentials)
+
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/build-fixture/hold')
+    await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected())).toBe(true)
+    await expect(page.locator('.bd-loading')).toHaveText(/Loading build timeline/)
+
+    await page.locator('#ax-cog').click()
+    await expect(page.locator('#ax-menu')).toBeVisible()
+    await page.getByRole('menuitem', { name: 'Talk to Executor', exact: true }).click()
+    await expect(page).toHaveURL(/\/voice$/)
+    await expect(page.locator('#executor-voice-heading')).toHaveText('Talk to Executor')
+  }
+})
+
 test('hook-owned DOM survives a server patch', async ({ page }) => {
   await open(page)
   await page.locator('#build-root').evaluate(root => root.append(Object.assign(document.createElement('b'), { id: 'probe' })))
