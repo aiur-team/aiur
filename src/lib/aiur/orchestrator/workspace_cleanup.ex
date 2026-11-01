@@ -30,12 +30,14 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   require Logger
 
   alias Aiur.Alerts.ClosedTicket
-  alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
+  alias Aiur.{Config, DecisionStore, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
   alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.{ClosedTicketTranscriptArchive, DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
   @type terminal_cleanup :: {ticket :: String.t(), workspace_identifier :: String.t(), worker_host :: String.t() | nil}
+
+  @decision_moot_retry_delays_ms [250, 1_000, 5_000]
 
   @spec cleanup_issue_workspace(binary() | term(), binary() | nil) :: :ok
   def cleanup_issue_workspace(identifier, worker_host \\ nil)
@@ -74,6 +76,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
     run = fn ->
       resolve_closed_ticket_attentions(cleanups, opts)
+      moot_closed_ticket_decisions(cleanups, opts)
       Enum.each(cleanups, &run_terminal_workspace_cleanup_entry(&1, notify))
     end
 
@@ -93,6 +96,57 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
     ClosedTicket.resolve(tickets, opts)
   rescue
     error -> Logger.warning("Closed-ticket attention resolution failed: #{Exception.message(error)}")
+  end
+
+  defp moot_closed_ticket_decisions(cleanups, opts) do
+    tickets = MapSet.new(cleanups, fn {{ticket, _, _}, _} -> ticket end)
+    store = Keyword.get(opts, :decision_store, DecisionStore)
+
+    case moot_closed_ticket_decisions_once(tickets, store) do
+      :ok -> :ok
+      {:error, reason} -> retry_closed_ticket_decision_mooting(tickets, store, reason, @decision_moot_retry_delays_ms)
+    end
+  rescue
+    error -> Logger.warning("Closed-ticket decision retirement failed: #{Exception.message(error)}")
+  catch
+    kind, reason -> Logger.warning("Closed-ticket decision retirement failed: #{kind} #{inspect(reason)}")
+  end
+
+  defp moot_closed_ticket_decisions_once(tickets, store) do
+    store
+    |> DecisionStore.list()
+    |> Enum.filter(&(MapSet.member?(tickets, &1.ticket.identifier) and &1.decision_status in [:open, :deferred]))
+    |> Enum.reduce_while(:ok, fn decision, :ok ->
+      case DecisionStore.moot(
+             decision.decision_id,
+             %{
+               "reason_class" => "ticket_closed",
+               "reason" => "Ticket #{decision.ticket.identifier} closed; the decision is obsolete."
+             },
+             [actor: %{kind: :system, id: "closed-ticket-cleanup"}],
+             store
+           ) do
+        {:ok, _result} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {decision.decision_id, reason}}}
+      end
+    end)
+  rescue
+    error -> {:error, {:exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp retry_closed_ticket_decision_mooting(tickets, store, _reason, [delay | delays]) do
+    Process.sleep(delay)
+
+    case moot_closed_ticket_decisions_once(tickets, store) do
+      :ok -> :ok
+      {:error, retry_reason} -> retry_closed_ticket_decision_mooting(tickets, store, retry_reason, delays)
+    end
+  end
+
+  defp retry_closed_ticket_decision_mooting(_tickets, _store, reason, []) do
+    Logger.warning("Closed-ticket decision retirement failed after retries: #{inspect(reason)}")
   end
 
   defp run_terminal_workspace_cleanup_entry({{ticket, workspace_identifier, _worker_host}, _known_generation} = entry, notify) do
