@@ -120,7 +120,7 @@ defmodule Aiur.PrMerge do
     repo = settings.tracker.github.repo
 
     with :ok <- File.mkdir_p(root),
-         :ok <- review(api, repo, pr, opts.approve_body, settings.tracker.github.identity_mode),
+         :ok <- review(api, repo, pr, review_body(opts, settings.tracker.github.identity_mode), settings.tracker.github.identity_mode),
          {:ok, fresh} <- Facts.read(api, settings, pr.number, user),
          :ok <- gate(fresh, settings, opts),
          true <- fresh.base_sha == pr.base_sha or {:refuse, ["base moved during approval; rerun"]} do
@@ -176,6 +176,12 @@ defmodule Aiur.PrMerge do
     do: Map.merge(record, %{reviewed_by: user["login"], attestation: "single_account_self_review", reviewed_sha: opts.reviewed_sha})
 
   defp maybe_attestation(record, _user, _opts), do: record
+
+  defp review_body(%{approve_body: body, reviewed_sha: sha}, "single_account") do
+    if is_binary(body) and String.trim(body) != "", do: body, else: "Single-account self-review attestation: reviewed #{sha}."
+  end
+
+  defp review_body(opts, _mode), do: opts.approve_body
 
   defp review(_api, _repo, _pr, nil, _mode), do: :ok
 
