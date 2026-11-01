@@ -248,4 +248,5 @@ Assistant timing stays in memory. Conversation providers can send grapheme timin
 spans for clients to reveal text with audio. On interruption, a matching stopped
 playback report selects the heard prefix for the transcript; without timing or a
 report within two seconds, all received text is retained and marked interrupted.
+
 See the [voice session contract](https://github.com/aiur-team/aiur/blob/main/docs/research/aiur-mobile-and-platform/contracts/voice-session.md#33-conversation-client--daemon).
