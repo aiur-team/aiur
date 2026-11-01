@@ -45,6 +45,23 @@ defmodule VoiceConverse.Provider.ElevenLabsNarrationTest do
              ElevenLabsAgents.render_speech(spec(http: response(200, malformed)))
   end
 
+  test "alignment retains whitespace as a displayed character" do
+    body =
+      Jason.decode!(documented_body())
+      |> put_in(["alignment", "characters"], ["H", "i", " ", "t"])
+      |> put_in(["alignment", "character_start_times_seconds"], [0.0, 0.04, 0.08, 0.1])
+      |> put_in(["alignment", "character_end_times_seconds"], [0.04, 0.08, 0.1, 0.14])
+      |> Jason.encode!()
+
+    assert {:ok, result} = ElevenLabsAgents.render_speech(spec(http: response(200, body)))
+    assert Enum.map(result.alignment, & &1.text) == ["H", "i", " ", "t"]
+  end
+
+  test "missing voice ID returns a typed error without making an HTTP request" do
+    assert {:error, %Events.Error{code: :provider_error, message: "An ElevenLabs voice ID is required for narration."}} =
+             ElevenLabsAgents.render_speech(spec(http: fn _, _ -> flunk("request should not run") end, voice_id: nil))
+  end
+
   test "request uses ElevenLabs timestamped TTS endpoint and credential header" do
     http = fn url, opts ->
       send(self(), {:request, url, opts})

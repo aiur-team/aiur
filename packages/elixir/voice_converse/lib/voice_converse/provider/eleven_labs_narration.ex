@@ -11,6 +11,7 @@ defmodule VoiceConverse.Provider.ElevenLabsNarration do
   def render_speech(%{text: text, credentials: {credentials, provider_id}, format: format} = spec)
       when is_binary(text) and is_atom(credentials) and is_atom(provider_id) do
     with {:ok, key} <- fetch_render_key(credentials, provider_id),
+         :ok <- validate_voice_id(spec),
          {:ok, status, body} <- http_post(Map.get(spec, :http, HTTP), speech_url(spec), render_request(spec, key)),
          {:ok, result} <- render_response(status, body, format) do
       {:ok, result}
@@ -36,6 +37,11 @@ defmodule VoiceConverse.Provider.ElevenLabsNarration do
     base_url <>
       "/with-timestamps?" <> URI.encode_query(%{"output_format" => format_query(spec.format), "model_id" => model_id})
   end
+
+  defp validate_voice_id(%{voice_id: voice_id}) when is_binary(voice_id) and byte_size(voice_id) > 0, do: :ok
+
+  defp validate_voice_id(_spec),
+    do: {:error, Events.Error.new(:provider_error, "An ElevenLabs voice ID is required for narration.")}
 
   defp render_request(spec, key) do
     %{
@@ -81,7 +87,6 @@ defmodule VoiceConverse.Provider.ElevenLabsNarration do
       |> Enum.reduce([], fn {char, start_s, end_s}, acc ->
         cond do
           not is_binary(char) or not is_number(start_s) or not is_number(end_s) -> acc ++ [:invalid]
-          String.trim(char) == "" -> acc
           true -> acc ++ [%{text: char, start_ms: round(start_s * 1000), end_ms: round(end_s * 1000)}]
         end
       end)
