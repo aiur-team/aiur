@@ -20,7 +20,8 @@ defmodule Aiur.Toolchain do
   use GenServer
   require Logger
 
-  alias Aiur.{AlertFeed, CodingAgent, Config, Signal}
+  alias Aiur.{AlertFeed, CodingAgent, Config, Issue, Signal}
+  alias Aiur.Config.RoutingValue
   alias Aiur.Toolchain.Probe
 
   @alert "system.toolchain.below_minimum"
@@ -88,8 +89,23 @@ defmodule Aiur.Toolchain do
   end
 
   defp probe_opts(opts) do
-    defaults = if Config.upgrade_check_enabled?(), do: [], else: [latest: fn _package -> nil end]
-    Keyword.merge(defaults, Keyword.take(opts, [:path, :runner, :latest]))
+    fetch = Keyword.get_lazy(opts, :latest, fn -> if Config.upgrade_check_enabled?(), do: &Probe.npm_latest/1, else: fn _package -> nil end end)
+    Keyword.take(opts, [:path, :runner]) ++ [latest: cached_latest(fetch, opts)]
+  end
+
+  # npm's latest version is reused from the published snapshot for one probe
+  # interval, so a re-run check (a GenServer restart, a manual call) does not
+  # spawn `npm view` again. An unknown latest is never cached.
+  defp cached_latest(fetch, opts) do
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+
+    fresh =
+      case snapshot() do
+        %{observed_at: at, tools: tools} -> if DateTime.diff(now, at, :millisecond) < @interval_ms, do: for(%{latest: v} = t <- tools, is_binary(v), into: %{}, do: {t.package, v}), else: %{}
+        nil -> %{}
+      end
+
+    fn package -> Map.get_lazy(fresh, package, fn -> fetch.(package) end) end
   end
 
   defp auto_update?(opts) do
@@ -113,24 +129,33 @@ defmodule Aiur.Toolchain do
 
   defp replace(tools, tool), do: Enum.map(tools, &if(&1.name == tool.name, do: tool, else: &1))
 
-  @doc "Holds dispatch to a backend whose CLI is below the minimum or mid-update."
-  @spec dispatch_decision(term()) :: :dispatch | {:skip, :toolchain_hold}
-  def dispatch_decision(issue) do
+  @doc """
+  `CodingAgent.select_for_dispatch/2` with held backends (CLI below the minimum
+  or mid-update) treated as unavailable routes, so selection falls through to
+  the next allowed route. The ticket is held only when the backend it would
+  still spawn — a `model:` pin, the routed default, or the fallback once every
+  route is held — is itself held.
+  """
+  @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [String.t()]} | {:error, {:toolchain_hold, String.t()}}
+  def select_for_dispatch(%Issue{} = issue, opts \\ []) do
     case held_tools() do
-      [] -> :dispatch
-      held -> if hold_for(held, CodingAgent.backend_for(issue)), do: {:skip, :toolchain_hold}, else: :dispatch
+      [] ->
+        CodingAgent.select_for_dispatch(issue, opts)
+
+      held ->
+        skip_held = fn routes -> Enum.reject(routes, &hold_for(held, RoutingValue.routing_backend(&1))) end
+
+        with {:ok, selected} <- CodingAgent.select_for_dispatch(issue, Keyword.update(opts, :route_policies, [skip_held], &[skip_held | &1])) do
+          case hold_for(held, CodingAgent.backend_for(selected)) do
+            nil -> {:ok, selected}
+            tool -> {:error, {:toolchain_hold, hold_detail(tool)}}
+          end
+        end
     end
   end
 
-  @doc "Why dispatch to `issue`'s backend is held, for decline messages."
-  @spec hold_detail(term()) :: String.t()
-  def hold_detail(issue) do
-    case hold_for(held_tools(), CodingAgent.backend_for(issue)) do
-      nil -> "toolchain hold cleared"
-      %{status: :updating} = tool -> "#{tool.name} is updating to #{tool.latest}"
-      tool -> "#{tool.name} #{tool.version} is below the minimum #{tool.minimum}; #{update_hint(tool)}"
-    end
-  end
+  defp hold_detail(%{status: :updating} = tool), do: "#{tool.name} is updating to #{tool.latest}"
+  defp hold_detail(tool), do: "#{tool.name} #{tool.version} is below the minimum #{tool.minimum}; #{update_hint(tool)}"
 
   defp held_tools do
     case snapshot() do

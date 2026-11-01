@@ -2,7 +2,7 @@ defmodule Aiur.ToolchainTest do
   use Aiur.TestSupport
 
   alias Aiur.{AlertFeed, Issue, Toolchain}
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Claude.CodingAgent.Handshake
   alias Aiur.Toolchain.Probe
 
   @now ~U[2026-11-01 12:00:00Z]
@@ -59,12 +59,18 @@ defmodule Aiur.ToolchainTest do
   defp issue(backend),
     do: %Issue{id: "t-#{backend}", identifier: "T-#{backend}", title: "t", state: "todo", labels: ["model:#{backend}"], dispatch_authorized?: true, blocked_by: []}
 
+  defp unpinned, do: %Issue{id: "t", identifier: "T", title: "t", state: "todo", labels: []}
+
+  # Route selection with an explicit priority chain and availability state.
+  defp select(issue, opts \\ []),
+    do: Toolchain.select_for_dispatch(issue, Keyword.merge([backends: ["claude", "codex"], configured_backends: ["claude", "codex"], state: %{}], opts))
+
   defp attentions, do: Enum.filter(AlertFeed.list(needs_attention: true), &(&1["topic"] == Toolchain.alert_name()))
 
   test "aiur-claude carries the handshake's minimum and the launcher is never auto-updated" do
     tools = Map.new(Toolchain.tools(), &{&1.name, &1})
 
-    assert tools["aiur-claude"].minimum == Aiur.Claude.CodingAgent.Handshake.minimum_version()
+    assert tools["aiur-claude"].minimum == Handshake.minimum_version()
     assert tools["aiur-claude"].backends == ["claude"]
     refute tools["aiur"].auto_update?
   end
@@ -96,14 +102,15 @@ defmodule Aiur.ToolchainTest do
   end
 
   describe "below minimum" do
-    test "raises one attention and holds only that backend's dispatch until fixed", %{root: root, path: path} do
+    setup %{root: root, path: path} do
       npm_install!(root, "aiur-claude", "aiur-claude", "1.1.0")
       npm_install!(root, "codex", "@openai/codex", "0.166.0")
       tools = [tool("aiur-claude", "aiur-claude", ["claude"], "1.3.0"), tool("codex", "@openai/codex", ["codex"])]
-      opts = [tools: tools, path: path, latest: latest(%{"aiur-claude" => "1.3.0", "@openai/codex" => "0.166.0"}), auto_update?: false, now: @now]
+      %{opts: [tools: tools, path: path, latest: latest(%{"aiur-claude" => "1.3.0", "@openai/codex" => "0.166.0"}), auto_update?: false, now: @now]}
+    end
 
-      claude_issue = issue("claude")
-      assert DispatchPolicy.dispatch_decision(claude_issue, %State{}, MapSet.new(["todo"]), MapSet.new()) == :dispatch
+    test "raises one attention, holds a claude pin, and clears once fixed", %{root: root, opts: opts} do
+      assert {:ok, _} = select(issue("claude"))
 
       Toolchain.check(opts)
       Toolchain.check(opts)
@@ -111,16 +118,45 @@ defmodule Aiur.ToolchainTest do
       assert [alert] = attentions()
       assert alert["reason"] =~ "aiur-claude 1.1.0"
       assert alert["reason"] =~ "below 1.3.0"
-      assert DispatchPolicy.dispatch_decision(claude_issue, %State{}, MapSet.new(["todo"]), MapSet.new()) == {:skip, :toolchain_hold}
-      assert Toolchain.dispatch_decision(issue("codex")) == :dispatch
-      assert Toolchain.hold_detail(claude_issue) =~ "aiur-claude 1.1.0 is below the minimum 1.3.0; update: npm install -g aiur-claude@latest"
+      assert {:error, {:toolchain_hold, detail}} = select(issue("claude"))
+      assert detail =~ "aiur-claude 1.1.0 is below the minimum 1.3.0; update: npm install -g aiur-claude@latest"
+      assert {:ok, %Issue{labels: ["model:codex"]}} = select(issue("codex"))
 
       npm_install!(root, "aiur-claude", "aiur-claude", "1.3.0")
       Toolchain.check(opts)
 
       assert [] = attentions()
-      assert Toolchain.dispatch_decision(claude_issue) == :dispatch
+      assert {:ok, _} = select(issue("claude"))
     end
+
+    test "routing skips a held claude route and dispatches to codex", %{opts: opts} do
+      Toolchain.check(opts)
+
+      assert {:ok, %Issue{selected_backend: "codex"}} = select(unpinned(), backends: ["claude", "codex"])
+    end
+
+    test "with codex unavailable, a held claude route holds the ticket instead of spawning claude", %{opts: opts} do
+      Toolchain.check(opts)
+      codex_limited = %{"backends" => %{"codex" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}}
+
+      assert {:all_limited, ["codex"]} = select(unpinned(), backends: ["codex", "claude"], state: codex_limited)
+    end
+  end
+
+  test "a second check inside the probe interval does not ask npm again", %{root: root, path: path} do
+    npm_install!(root, "codex", "@openai/codex", "0.166.0")
+    owner = self()
+    npm_view = fn package -> send(owner, {:npm_view, package}) && "0.166.0" end
+    opts = [tools: [tool("codex", "@openai/codex", ["codex"])], path: path, latest: npm_view, auto_update?: false]
+
+    Toolchain.check([now: @now] ++ opts)
+    assert_received {:npm_view, "@openai/codex"}
+
+    assert [%{latest: "0.166.0", status: :current}] = Toolchain.check([now: DateTime.add(@now, 30, :minute)] ++ opts)
+    refute_received {:npm_view, _}
+
+    Toolchain.check([now: DateTime.add(@now, 2, :hour)] ++ opts)
+    assert_received {:npm_view, "@openai/codex"}
   end
 
   describe "auto_update" do
@@ -137,14 +173,14 @@ defmodule Aiur.ToolchainTest do
       owner = self()
 
       install = fn package, version ->
-        send(owner, {:installed, package, version, Toolchain.dispatch_decision(issue("codex"))})
+        send(owner, {:installed, package, version, select(issue("codex"))})
         npm_install!(root, "codex", "@openai/codex", version)
         :ok
       end
 
       assert [%{version: "0.166.0", status: :current}] = Toolchain.check(update_opts(path, install: install, running_backends: fn -> [] end))
-      assert_received {:installed, "@openai/codex", "0.166.0", {:skip, :toolchain_hold}}
-      assert Toolchain.dispatch_decision(issue("codex")) == :dispatch
+      assert_received {:installed, "@openai/codex", "0.166.0", {:error, {:toolchain_hold, "codex is updating to 0.166.0"}}}
+      assert {:ok, _} = select(issue("codex"))
     end
 
     test "the published snapshot keeps every tool updated in one pass", %{root: root, path: path} do
@@ -164,8 +200,10 @@ defmodule Aiur.ToolchainTest do
 
       for running <- [["codex"], [nil], :unavailable] do
         assert [%{version: "0.165.0", status: :behind}] = Toolchain.check(update_opts(path, install: install, running_backends: fn -> running end))
-        assert Toolchain.dispatch_decision(issue("codex")) == :dispatch
+        assert {:ok, _} = select(issue("codex"))
       end
+
+      Toolchain.reset()
 
       assert [%{status: :current}] =
                Toolchain.check(update_opts(path, install: fn _p, _v -> :ok end, running_backends: fn -> ["claude"] end, latest: latest(%{"@openai/codex" => "0.165.0"})))

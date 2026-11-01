@@ -221,7 +221,7 @@ environment-variable equivalents; the check also stays silent in CI runs.
 
 At startup and then hourly, the daemon checks the CLIs its workers spawn (`aiur-claude`, `claude`, `codex`) and the `aiur` launcher. It resolves each one on the PATH and backend `command` the workers use. It records the version and install kind: `npm`, `dev link` (an `npm link` or a checkout on PATH) or `standalone`.
 
-A version below Aiur's minimum (today `aiur-claude` 1.3.0) raises `system.toolchain.below_minimum` and holds dispatch to that backend; the decline names the binary and the update command. A version behind npm's latest is a warning with the update command.
+A version below Aiur's minimum (today `aiur-claude` 1.3.0) raises `system.toolchain.below_minimum`, and routing skips that backend for the next allowed route. A ticket pinned to it, or left with no other route, is held; the decline names the binary and the update command. A version behind npm's latest is a warning with the update command.
 
 `aiur status` prints the result as its `TOOLCHAIN` section, where rows read `latest unknown` when `upgrade.check_enabled: false` skips the npm lookup.
 

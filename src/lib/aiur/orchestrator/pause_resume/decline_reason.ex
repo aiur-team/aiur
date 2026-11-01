@@ -61,8 +61,6 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   def resume_decline_reason(:fleet_capacity, issue, state, _opts),
     do: {:max_concurrent_agents_reached, Slots.fleet_capacity_detail(state, %{issue: issue})}
 
-  def resume_decline_reason(:toolchain_hold, _issue, _state, _opts), do: :toolchain_hold
-
   def resume_decline_reason(reason, issue, _state, _opts) do
     Logger.warning("Resume declined with an untranslated dispatch reason: issue_id=#{inspect(Map.get(issue || %{}, :id))} reason=#{inspect(reason)}")
 

@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Toolchain, Tracker}
+  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Tracker}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates, SpendCap}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
@@ -192,7 +192,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :optimistic_share
           | :queue_set_order
           | :fleet_capacity
-          | :toolchain_hold
 
   # The single list of every reason `dispatch_decision/5` and
   # `manual_resume_decision/2` can decline with. Callers that translate a
@@ -226,8 +225,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :worker_capacity,
     :optimistic_share,
     :queue_set_order,
-    :fleet_capacity,
-    :toolchain_hold
+    :fleet_capacity
   ]
 
   @doc "Every reason the dispatch policy can decline an issue with."
@@ -255,13 +253,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           :dispatch | {:skip, dispatch_decline_reason()}
   def dispatch_decision(issue, %State{} = state, active_states, terminal_states, blocked_ticket_ids) do
     case dispatch_candidate_decision(issue, state, active_states, terminal_states, blocked_ticket_ids) do
-      :dispatch -> toolchain_then_slots(issue, Slots.dispatch_slots_available?(issue, state))
+      :dispatch -> if(Slots.dispatch_slots_available?(issue, state), do: :dispatch, else: {:skip, :fleet_capacity})
       {:skip, _reason} = declined -> declined
     end
   end
-
-  defp toolchain_then_slots(issue, slot_free?),
-    do: with(:dispatch <- Toolchain.dispatch_decision(issue), do: if(slot_free?, do: :dispatch, else: {:skip, :fleet_capacity}))
 
   @doc false
   # Manual starts share every canonical eligibility and ownership check with
@@ -279,7 +274,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            state.blocked_ticket_ids
          ) do
       :dispatch ->
-        toolchain_then_slots(issue, Slots.active_slots(state) < Slots.max_concurrent_agent_limit(state))
+        if Slots.active_slots(state) < Slots.max_concurrent_agent_limit(state),
+          do: :dispatch,
+          else: {:skip, :fleet_capacity}
 
       {:skip, _reason} = declined ->
         declined
