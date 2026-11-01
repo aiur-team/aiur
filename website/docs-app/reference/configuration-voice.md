@@ -243,3 +243,9 @@ The host appends its
 shared dictated-input glossary. Each session snapshots the resulting prompt and
 records its `role_id` and SHA-256 `role_hash` in `session_started`; edits affect
 new sessions. Reconnecting sessions retain their original prompt.
+
+Assistant timing stays in memory. Conversation providers can send grapheme timing
+spans for clients to reveal text with audio. On interruption, a matching stopped
+playback report selects the heard prefix for the transcript; without timing or a
+report within two seconds, all received text is retained and marked interrupted.
+See the [voice session contract](https://github.com/aiur-team/aiur/blob/main/docs/research/aiur-mobile-and-platform/contracts/voice-session.md#33-conversation-client--daemon).

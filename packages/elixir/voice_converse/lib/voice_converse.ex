@@ -45,6 +45,15 @@ defmodule VoiceConverse do
     end
   end
 
+  @doc "Reports client playback progress for interruption truncation."
+  @spec playback_state(module(), String.t(), map()) :: :ok | {:error, atom()}
+  def playback_state(instance, conversation_id, frame) do
+    with {:ok, _json} <- VoiceConverse.Wire.encode(Map.merge(frame, %{"v" => 1, "type" => "playback_state"})),
+         {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+      GenServer.call(pid, {:playback_state, frame})
+    end
+  end
+
   @doc "Ends a live conversation with one stable end reason."
   @spec end_session(module(), String.t(), atom()) :: :ok | {:error, :not_found}
   def end_session(instance, conversation_id, reason \\ :user_end) do
