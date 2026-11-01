@@ -249,6 +249,44 @@ defmodule Aiur.Orchestrator.IssueSync.DependencyResumeTest do
     assert event.body.blocker_issue_identifier == blocker.id
   end
 
+  test "resumes a dependency pause when its blocker became terminal before this poll" do
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    receive_barrier({:agent_started, ^agent})
+
+    blockee = issue("blockee", "in-progress")
+    blocker = issue("blocker", "done")
+
+    entry = %{
+      pid: agent,
+      identifier: blockee.identifier,
+      issue: blockee,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    resumed =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{blockee.id => blockee}, running: %{blockee.id => entry}, max_concurrent_agents: 2},
+        [blockee],
+        fn identifiers ->
+          assert identifiers == [blocker.id]
+          {:ok, [%{blocker | identifier: blocker.id}]}
+        end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    control_agent_barrier(agent)
+    assert_received {:resume_agent, _request_id}
+    assert get_in(resumed.running, [blockee.id, :control, :status]) == :working
+    refute Map.has_key?(resumed.running[blockee.id], :paused_reason)
+  end
+
   test "keeps a cleared blocker event off every agent that was not parked on that blocker" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)

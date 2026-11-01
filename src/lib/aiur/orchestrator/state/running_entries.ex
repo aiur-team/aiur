@@ -51,7 +51,7 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
   # A provider usage limit belongs here for the same reason: the account, not
   # this agent, is what the fleet waits on. Any pause on a `ci-wait` ticket
   # releases too: its PR is handed off and the daemon owns that wait (#4694).
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
+  @non_reserving_pause_reasons [:ci_wait, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
 
   @spec non_reserving_pause_reason?(term()) :: boolean()
   def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons
@@ -60,6 +60,7 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
   def reserved_paused_running_count(running) when is_map(running) do
     Enum.count(running, fn
       {_issue_id, %{paused_reason: reason}} when reason in @non_reserving_pause_reasons -> false
+      {_issue_id, %{paused_reason: :blocker_dependency, pending_auto_resume: %{resume_kind: :cleared_dependency}}} -> false
       {_issue_id, entry} -> paused_running_entry?(entry) and not CiLifecycle.ci_wait_state?(get_in(entry, [:issue, Access.key(:state)]))
     end)
   end
