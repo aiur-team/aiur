@@ -52,6 +52,48 @@ test('placeholder names the agent, the paused copy, an unknown key, and never "U
   await expect(box(page)).toHaveAttribute('placeholder', 'Message the agent…')
 })
 
+test('mobile composer stays zoom-safe and the conversation follows only while pinned to the bottom', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await open(page)
+  const viewportScale = await page.evaluate(() => window.visualViewport?.scale ?? 1)
+  await box(page).focus()
+  await expect.poll(() => box(page).evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16)
+  expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(viewportScale)
+
+  const addRows = count => page.evaluate(async count => {
+    const { fx } = await import('/build-home/state.js')
+    fx.appendLive(Array.from({ length: count }, (_, i) => ({ id: 'mobile:' + i, k: 'say', text: 'Transcript row ' + i + ' — ' + 'message '.repeat(12), at: 1791408000000 })))
+  }, count)
+  await addRows(32)
+  const log = page.locator('#cv-log'), last = log.locator('[data-k]').last(), anchor = log.locator('[data-k]').nth(20)
+  await log.evaluate(el => { el.scrollTop = el.scrollHeight })
+  await expect.poll(() => last.evaluate(el => el.getBoundingClientRect().bottom <= document.querySelector('#cv-log').getBoundingClientRect().bottom + 1)).toBe(true)
+
+  // Model the viewport shrinking when the on-screen keyboard opens.
+  await page.evaluate(() => {
+    const log = document.querySelector('#cv-log')
+    log.style.height = Math.max(120, log.clientHeight - 180) + 'px'
+    window.visualViewport.dispatchEvent(new Event('resize'))
+  })
+  await expect.poll(() => last.evaluate(el => el.getBoundingClientRect().bottom <= document.querySelector('#cv-log').getBoundingClientRect().bottom + 1)).toBe(true)
+
+  await box(page).fill('A longer draft that grows the composer. '.repeat(7))
+  await expect.poll(() => box(page).evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(38)
+  await expect.poll(() => last.evaluate(el => el.getBoundingClientRect().bottom <= document.querySelector('#cv-log').getBoundingClientRect().bottom + 1)).toBe(true)
+  await expect.poll(() => box(page).evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(140)
+
+  await log.evaluate(el => { el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 220) })
+  const before = await anchor.evaluate(el => el.getBoundingClientRect().top)
+  await page.evaluate(async () => {
+    const { fx } = await import('/build-home/state.js')
+    fx.appendLive([{ id: 'mobile:new-up', k: 'say', text: 'Incoming while reading up', at: 1791408000000 }])
+  })
+  expect(await anchor.evaluate(el => el.getBoundingClientRect().top)).toBe(before)
+  await expect(page.locator('#cv-new')).toBeVisible()
+  await page.locator('#cv-new').click()
+  await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(60)
+})
+
 test('dictation stays unavailable until the server confirms it, then transcribes and reports failure in the modal', async ({ page }) => {
   await open(page, { voice: { state: 'unconfigured', reason: 'Dictation needs an ElevenLabs key.' } })
   const mic = page.locator('#cv-in #cv-mic')

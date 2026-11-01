@@ -5,11 +5,11 @@ import { MS, onModalClose } from './frame.js';
 import { appendEntries, trimmedBottom, requestTail } from './conversation.js';
 
 const STICK = 60;
-let V = null, life = null, live = false, detach = null;
+let V = null, life = null, live = false, detach = null, atBottom = true;
 export function disposeLive() {
   const off = detach; detach = null;
   life?.dispose(); life = null; V = null; live = false;
-  off?.();
+  off?.(); atBottom = true;
 }
 onReset(disposeLive); onModalClose(disposeLive);
 export function typingVisible(t, conversationLive, linkLive) {
@@ -24,17 +24,17 @@ export function updateTyping() {
 }
 export function appendLive(entries) {
   if (!V || !MS.t) return [];
-  const { log } = V, stick = log.scrollHeight - log.scrollTop - log.clientHeight < STICK;
-  const anchor = stick ? null : [...log.children].find(el => el.offsetTop + el.offsetHeight > log.scrollTop);
-  const offset = anchor ? anchor.offsetTop - log.scrollTop : 0, eid = anchor?.dataset.eid;
+  const { log } = V, stick = atBottom && log.scrollHeight - log.scrollTop - log.clientHeight < STICK;
+  const anchor = stick ? null : [...log.children].find(el => el.hasAttribute('data-k') && el.getBoundingClientRect().bottom > log.getBoundingClientRect().top);
+  const offset = anchor ? anchor.getBoundingClientRect().top : 0, eid = anchor?.dataset.eid;
   const fresh = appendEntries(entries);
   if (!stick) {
     const retained = anchor?.isConnected ? anchor : [...log.children].find(el => eid && el.dataset.eid === eid);
-    if (retained) log.scrollTop = retained.offsetTop - offset;
+    if (retained) log.scrollTop += retained.getBoundingClientRect().top - offset;
   }
   if (fresh.length) {
     fresh.forEach(el => el.classList.add('in'));
-    if (stick) { log.scrollTop = log.scrollHeight; $('#cv-new').hidden = true; }
+    if (stick) { log.scrollTop = log.scrollHeight; atBottom = true; $('#cv-new').hidden = true; }
     else $('#cv-new').hidden = false;
   } else if (trimmedBottom() && entries.length) $('#cv-new').hidden = false;
   scheduleMap(); return fresh;
@@ -73,11 +73,23 @@ export function wireLive() {
   const log = $('#cv-log'), map = $('#cv-map'); if (!log || !map) return;
   life = createLife(); detach = ctx.life.cleanup(disposeLive);
   V = { log, map, mm: $('#cv-mm'), vw: $('#cv-vw'), tip: $('#cv-tip'), s: 1 };
+  atBottom = true;
+  const preservePosition = () => {
+    if (atBottom) log.scrollTop = log.scrollHeight;
+    scheduleMap();
+  };
+  if (window.visualViewport) life.on(window.visualViewport, 'resize', preservePosition);
+  const composer = $('#cv-in');
+  if (composer && typeof ResizeObserver !== 'undefined') {
+    const resize = new ResizeObserver(preservePosition); resize.observe(composer);
+    life.cleanup(() => resize.disconnect());
+  }
   const { tip } = V;
   log.tabIndex = 0; log.setAttribute('role', 'region'); log.setAttribute('aria-label', 'Conversation');
   life.on(log, 'scroll', () => {
     syncView();
-    if (!trimmedBottom() && log.scrollHeight - log.scrollTop - log.clientHeight < STICK) $('#cv-new').hidden = true;
+    atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < STICK;
+    if (!trimmedBottom() && atBottom) $('#cv-new').hidden = true;
   }, { passive: true });
   life.on($('#cv-new'), 'click', () => {
     if (trimmedBottom()) requestTail();
