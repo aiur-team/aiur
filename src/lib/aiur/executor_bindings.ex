@@ -20,6 +20,8 @@ defmodule Aiur.ExecutorBindings do
     {"system.tracker.auth_preflight_failed.resolved", "dispatch:auto"},
     {"system.toolchain.erlang_missing", "dispatch:auto"},
     {"system.toolchain.erlang_missing.resolved", "dispatch:auto"},
+    {"system.toolchain.below_minimum", "dispatch:auto"},
+    {"system.toolchain.below_minimum.resolved", "dispatch:auto"},
     {"system.fleet.capacity.backoff", "dispatch:auto"},
     {"system.fleet.capacity.resumed", "dispatch:auto"},
     {"system.fleet.contradictory_state_labels", "dispatch:auto"},
