@@ -20,6 +20,40 @@ defmodule AiurWeb.Build.Index.RefreshState do
     {failures, retry_dirty}
   end
 
+  @doc false
+  @spec retain_unavailable_agents(map(), map()) :: map()
+  def retain_unavailable_agents(parts, previous) do
+    case {parts[:now], previous[:now]} do
+      {current, %{rows: rows, source: source}}
+      when is_map(rows) and is_map(source) ->
+        if not needs_agent_retry?(current) or not usable_agents?(previous[:now]) do
+          parts
+        else
+          reason = current_agent_reason(current)
+          retained = %{rows: rows, source: %{source | state: "stale", reason: reason}}
+          Map.put(parts, :now, retained)
+        end
+
+      _ ->
+        parts
+    end
+  end
+
+  @spec usable_agents?(term()) :: boolean()
+  def usable_agents?(%{source: %{state: state, observed_at: observed_at}}),
+    do: state in ["ok", "stale"] and is_integer(observed_at)
+
+  def usable_agents?(_), do: false
+
+  @spec needs_agent_retry?(term()) :: boolean()
+  def needs_agent_retry?({:error, _reason}), do: true
+  def needs_agent_retry?(%{source: %{state: state}}), do: state in ["unavailable", "unknown"]
+  def needs_agent_retry?(_), do: true
+
+  defp current_agent_reason({:error, reason}), do: Atom.to_string(reason)
+  defp current_agent_reason(%{source: %{reason: reason}}) when is_binary(reason), do: reason
+  defp current_agent_reason(_), do: "unavailable"
+
   @spec expire_settings_loading(map(), map(), term(), integer()) :: {map(), term(), integer() | nil}
   def expire_settings_loading(state, parts, {:error, :settings_loading} = next, now) do
     started_at = state.settings_loading_since_ms || now

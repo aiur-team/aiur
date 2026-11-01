@@ -217,7 +217,7 @@ defmodule AiurWeb.Build.Index do
       match?({:error, :settings_loading}, Core.assemble(parts, now: clock(state)))
 
     failures =
-      if match?({:error, _}, parts[:now]) or settings_loading?, do: state.failures, else: 0
+      if RefreshState.needs_agent_retry?(parts[:now]) or settings_loading?, do: state.failures, else: 0
 
     {:noreply, finish(%{state | task: nil, failures: failures}, parts, dirty)}
   end
@@ -445,6 +445,9 @@ defmodule AiurWeb.Build.Index do
     {parts, history_at} =
       HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
 
+    now_unavailable? = RefreshState.needs_agent_retry?(parts[:now])
+    parts = RefreshState.retain_unavailable_agents(parts, state.parts)
+
     next = Core.assemble(parts, now: clock(state))
 
     {parts, next, settings_loading_since_ms} =
@@ -456,8 +459,7 @@ defmodule AiurWeb.Build.Index do
     if changes,
       do: broadcast(state, Map.merge(changes, %{index_generation: generation, now: clock(state)}))
 
-    now_failed? = match?({:error, _}, parts[:now])
-    {failures, retry_dirty} = RefreshState.retry_after_finish(state, next, now_failed?, parts)
+    {failures, retry_dirty} = RefreshState.retry_after_finish(state, next, now_unavailable?, parts)
 
     state = %{
       state
@@ -478,7 +480,7 @@ defmodule AiurWeb.Build.Index do
 
     cond do
       MapSet.size(state.dirty) > 0 -> schedule(state)
-      now_failed? -> schedule(state)
+      now_unavailable? -> schedule(state)
       true -> state
     end
   end

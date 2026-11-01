@@ -4,6 +4,7 @@ defmodule AiurWeb.Build.IndexServerTest do
   import Aiur.TestSupport.BuildHome.IndexParts
   alias AiurWeb.Build.Index
   alias AiurWeb.Build.IndexReader
+  alias AiurWeb.Build.Index.RefreshState
 
   defmodule BlockingOpenSource do
     def snapshot_for_index(server, timeout), do: GenServer.call(server, :snapshot, timeout)
@@ -265,8 +266,85 @@ defmodule AiurWeb.Build.IndexServerTest do
     receive_barrier({:trace, ^pid, :receive, {:DOWN, _ref, :process, ^worker, :killed_read}})
 
     assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
-    assert Enum.map(snapshot.sections.now, & &1.id) == ["12"]
+    assert Enum.map(snapshot.sections.now, & &1.id) == ["12"], inspect(:sys.get_state(pid).parts.now)
     assert snapshot.sources.agents == %{state: "stale", observed_at: nil, reason: "unknown"}
+  end
+
+  test "an unavailable ready agent read keeps its last observed rows and age", %{pid: pid} do
+    observed_at = now()
+    initial = put_in(parts(), [:now, :rows], %{"12" => now_row(12)})
+    send(pid, {:ticket_activity_changed, %{}})
+    :sys.get_state(pid)
+    send(pid, :flush)
+    receive_barrier({:read_started, first_worker, first_dirty})
+    assert MapSet.member?(first_dirty, :now)
+    send(first_worker, {:return, initial})
+    assert await_read_finish(pid, 100)
+
+    send(pid, {:ticket_activity_changed, %{}})
+    :sys.get_state(pid)
+    send(pid, :flush)
+    receive_barrier({:read_started, worker, dirty})
+    assert MapSet.member?(dirty, :now)
+    unavailable = put_in(initial, [:now], %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: "fleet_unavailable"}})
+    send(worker, {:return, unavailable})
+    assert await_read_finish(pid, 100)
+
+    assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(snapshot.sections.now, & &1.id) == ["12"]
+    assert snapshot.sources.agents.state == "stale"
+    assert snapshot.sources.agents.observed_at == observed_at
+  end
+
+  test "a cold unavailable agent read stays unavailable without inventing an observation" do
+    parts = parts() |> put_in([:now], %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: "fleet_unavailable"}})
+    assert RefreshState.retain_unavailable_agents(parts, parts) == parts
+    refute RefreshState.usable_agents?(parts.now)
+  end
+
+  test "a cold Index retries an unavailable agent read and publishes the first real observation" do
+    parent = self()
+    unavailable = parts() |> put_in([:now], %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: "fleet_unavailable"}})
+    ready = put_in(parts(), [:now, :rows], %{"12" => now_row(12)})
+
+    pid =
+      start_supervised!(
+        {Index,
+         name: nil,
+         subscribe: fn -> :ok end,
+         read: fn dirty, _previous, _opts ->
+           send(parent, {:cold_read, self(), dirty})
+           receive(do: ({:return, value} -> value))
+         end,
+         timer: fn server, message, ms ->
+           send(parent, {:cold_timer, server, message, ms})
+           make_ref()
+         end,
+         daemon_timer: fn _, _, _ -> make_ref() end,
+         daemon_read: fn _ -> %{state: "live", heartbeat_at: 1, observed_at: 2} end,
+         clock: &now/0},
+        id: :cold_agent_index
+      )
+
+    receive_barrier({:cold_read, first_worker, :all})
+    send(first_worker, {:return, unavailable})
+    assert await_read_finish(pid, 100)
+
+    assert {:ok, first} = Index.window(pid, "Etc/UTC")
+    assert first.sources.agents.state == "unavailable"
+    assert first.sources.agents.observed_at == nil
+    assert_receive {:cold_timer, ^pid, :flush, _delay}
+
+    send(pid, :flush)
+    receive_barrier({:cold_read, retry_worker, retry_dirty})
+    assert MapSet.member?(retry_dirty, :now)
+    send(retry_worker, {:return, ready})
+    assert await_read_finish(pid, 100)
+
+    assert {:ok, recovered} = Index.window(pid, "Etc/UTC")
+    assert Enum.map(recovered.sections.now, & &1.id) == ["12"]
+    assert recovered.sources.agents.state == "ok"
+    assert is_integer(recovered.sources.agents.observed_at)
   end
 
   test "an open part timeout preserves rows from the other parts and names the degraded source" do
