@@ -60,45 +60,31 @@
 .bd-list-label { color: var(--muted); font: 600 .68rem "JetBrains Mono", monospace; white-space: nowrap; }
 .bd-list-shows button span { display: inline; }
 .bd-list-placeholder { padding: 2rem; color: var(--muted); text-align: center; font: .8rem "JetBrains Mono", monospace; }
-.fp-card { box-sizing: border-box; width: min(100%, 1120px); margin: 1rem auto; padding: 1.5rem; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
-.fp-head { display: grid; grid-template-columns: 1fr auto; gap: .5rem 1rem; align-items: center; }
-.fp-head h1 { margin: 0; font-size: 1rem; }
-.fp-head p, .fp-card footer { margin: .25rem 0; color: var(--muted); font-size: .72rem; }
-.fp-overall { display: flex; align-items: center; gap: 1rem; }
-.fp-overall b, .fp-numbers b { font: 700 1.6rem "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
-.fp-overall span { color: var(--muted); font-size: .76rem; }
-.fp-bar { position: relative; display: flex; overflow: hidden; height: 14px; border-radius: 8px; background: var(--line); }
-.fp-total { grid-column: 1 / -1; height: 18px; }
-.fp-bar i { display: block; height: 100%; }
-.fp-closed { background: var(--accent); }
-.fp-open { background: color-mix(in srgb, var(--accent) 40%, var(--surface)); }
-.fp-unpublished { background: var(--line-strong); }
-.fp-bar.unknown .fp-unknown { width: 100%; background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--muted) 40%, transparent) 6px 9px); }
-.fp-legend { grid-column: 1 / -1; display: flex; gap: 1rem; color: var(--muted); font-size: .68rem; }
-.fp-legend span { display: flex; gap: .35rem; align-items: center; }
-.fp-legend i { width: 9px; height: 9px; border-radius: 2px; background: var(--line-strong); }
-.fp-legend i.closed { background: var(--accent); }.fp-legend i.open { background: color-mix(in srgb, var(--accent) 40%, var(--surface)); }
-.fp-groups { margin: 1.4rem 0; }
-.fp-wave h2 { margin: 1rem 0 .4rem; color: var(--muted); font: 600 .66rem "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
-.fp-row { width: 100%; display: grid; grid-template-columns: 40px minmax(150px, 1fr) minmax(120px, 1.2fr) 90px; gap: .5rem .8rem; align-items: center; padding: .7rem .4rem; border: 0; border-bottom: 1px solid var(--line); color: inherit; background: transparent; text-align: left; cursor: pointer; }
-.fp-row:hover, .fp-row:focus-visible { background: color-mix(in srgb, var(--accent) 8%, transparent); outline: 2px solid var(--accent); outline-offset: -2px; }
-.fp-icon { display: grid; width: 40px; height: 40px; place-items: center; color: var(--fg); }
-.fp-icon svg { width: 25px; height: 25px; }
-.fp-icon svg path:last-child { stroke: var(--accent); }
-.fp-name { min-width: 0; display: flex; flex-wrap: wrap; gap: 0 .45rem; }
-.fp-name b { font-size: .85rem; }.fp-name > small { color: var(--muted); font: .65rem "JetBrains Mono", monospace; }
-.fp-name > .fp-summary { flex-basis: 100%; margin-top: .2rem; font: .7rem/1.35 inherit; }
-.fp-numbers { text-align: right; }.fp-numbers b { font-size: 1.2rem; }.fp-numbers small { display: block; color: var(--muted); font: .64rem "JetBrains Mono", monospace; }
-.fp-note { grid-column: 3 / 5; margin-top: -.35rem; color: var(--muted); font-size: .66rem; }
-.fp-card footer { border-top: 1px solid var(--line); padding-top: .7rem; line-height: 1.5; }
+.fp-card { box-sizing: border-box; width: min(100%, 960px); margin: 1rem auto; padding: 1.5rem 1.75rem; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.fp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.25rem; }
+.fp-head h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
+.fp-head p { margin: .3rem 0 0; color: var(--muted); font-size: .85rem; }
+.fp-sort { display: flex; gap: .4rem; align-items: center; color: var(--muted); font-size: .75rem; }
+.fp-sort select { color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .2rem .35rem; font: inherit; }
+.fp-row { box-sizing: border-box; width: 100%; display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr 4.5rem; gap: 1.25rem; align-items: center; padding: .6rem .25rem; color: inherit; background: none; border: 0; border-radius: 6px; font: inherit; text-align: left; }
+button.fp-row { cursor: pointer; }
+button.fp-row:hover, button.fp-row:focus-visible { background: color-mix(in srgb, var(--accent) 8%, transparent); outline: 2px solid var(--accent); outline-offset: -2px; }
+.fp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .95rem; }
+.fp-bar { display: block; overflow: hidden; height: 14px; border-radius: 999px; background: var(--line-strong); }
+.fp-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.fp-bar.done i { background: var(--good); }
+.fp-bar.all i { background: var(--attention); }
+.fp-count { text-align: right; font: .9rem "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+.fp-all { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); border-radius: 0; }
+.fp-all .fp-name { font-weight: 700; }
 @media (max-width: 480px) {
-  .fp-card { margin: .5rem auto; padding: 14px; }
-  .fp-overall { grid-column: 1 / -1; align-items: flex-start; gap: .6rem; }
-  .fp-overall b { font-size: 1.25rem; }.fp-overall span { font-size: .68rem; }
-  .fp-row { grid-template-columns: 36px minmax(0, 1fr) 70px; gap: .35rem .55rem; padding: .65rem 0; }
-  .fp-icon { width: 36px; height: 36px; }.fp-icon svg { width: 23px; height: 23px; }
-  .fp-meter { grid-column: 2 / 4; }.fp-note { grid-column: 2 / 4; margin: -.15rem 0 .2rem; }
-  .fp-numbers b { font-size: 1.05rem; }.fp-name b { font-size: .78rem; }
+  .fp-card { margin: .5rem auto; padding: 12px; }
+  .fp-head { flex-direction: column; gap: .5rem; margin-bottom: .6rem; }
+  .fp-head h1 { font-size: 1.15rem; }
+  .fp-row { grid-template-columns: minmax(0, 1fr) 1.3fr 3.4rem; gap: .6rem; padding: .3rem 0; }
+  .fp-name { font-size: .8rem; }.fp-count { font-size: .75rem; }
+  .fp-bar { height: 10px; }
+  .fp-all { margin-top: .5rem; padding-top: .5rem; }
 }
 @media (max-width: 480px) {
   .bd-toolbar:has(.bd-list-shows) { flex-wrap: wrap; }
