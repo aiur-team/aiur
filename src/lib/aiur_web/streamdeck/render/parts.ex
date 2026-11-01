@@ -68,7 +68,8 @@ defmodule AiurWeb.Streamdeck.Render.Parts do
 
     element("g", ["data-provider": field(part, :provider, "")], [
       if(field(part, :tip), do: element("title", [], Svg.escape(field(part, :tip))), else: []),
-      line("#{label} #{reading}", if(compact, do: width - 100, else: width), y, 10),
+      # Reserve only what the right-aligned age needs (8 px monospace, 0.6 em per char).
+      line("#{label} #{reading}", if(compact, do: width - ceil(String.length(age) * 4.8) - 10, else: width), y, 10),
       bar(percent, freshness, 10, y + 5, width - 20),
       if(compact and age != "",
         do: text(age, width - 10, y, 8, "text-anchor": "end"),

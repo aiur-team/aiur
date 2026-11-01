@@ -40,20 +40,14 @@ defmodule AiurWeb.Streamdeck.Render.FleetMeters do
 
   defp api_part(row, line) do
     hold = field(line, :hold_until)
-    held = if is_integer(hold), do: " ⏸ held until #{Calendar.strftime(DateTime.from_unix!(hold, :millisecond), "%H:%M")}", else: " left"
+    held = if is_integer(hold), do: " ⏸ until #{Calendar.strftime(DateTime.from_unix!(hold, :millisecond), "%H:%M")}", else: " left"
     tag = field(line, :tag)
     label = if field(row, :name) == "GitHub", do: tag, else: "E #{tag}"
     stale = field(row, :stale) == true
     percent = if stale, do: nil, else: field(line, :remaining_percent)
     # A stale or unknown reading shows "—" with its age, never a number.
     age = field(row, :age_seconds)
-
-    age_label =
-      cond do
-        is_number(percent) -> ""
-        is_number(age) -> "#{age}s old"
-        true -> "never"
-      end
+    age_label = if is_number(age), do: "#{age}s old", else: "never"
 
     %{
       kind: :meter_row,
@@ -62,7 +56,7 @@ defmodule AiurWeb.Streamdeck.Render.FleetMeters do
       percent: percent,
       freshness: if(stale, do: :stale, else: :fresh),
       age_label: age_label,
-      compact: age_label != "",
+      compact: true,
       suffix: held,
       unknown_label: "—",
       tip: field(line, :tip)

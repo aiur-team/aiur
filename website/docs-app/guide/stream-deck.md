@@ -114,7 +114,7 @@ The strip shows daemon state and heartbeat age, capacity (including staleness),
 and global pause state. Unknown capacity shows `—`; a stale daemon stays
 labelled stale. Fleet only displays global pause.
 
-Fleet adds GitHub `core`/`gql` and configured ElevenLabs `credits` remaining bars beside providers. Unknowns show `—`; expired bars dim; `⏸ held until HH:MM` uses UTC. Tips match Build. Fleet flushes refresh cached usage at most once a minute. See [GitHub budgets](/apis/github-budgets).
+Fleet adds GitHub `core`/`gql` and configured ElevenLabs `credits` remaining bars beside providers. Every row shows its reading age (`Ns old`, or `never`); stale or unknown rows show `—` instead of a number. The age is taken at refresh, so it can lag by up to a minute. A held line shows `⏸ until HH:MM` in UTC. Tips match Build. Fleet flushes refresh cached usage at most once a minute. See [GitHub budgets](/apis/github-budgets).
 
 ## Read ticket conversation turns
 

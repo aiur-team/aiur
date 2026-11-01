@@ -33,9 +33,9 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
     assert core.tip == "Requests left: 3,950 of 5,000 · 79% left"
     svg = Enum.at(frame.strip, 2).svg
     assert svg =~ "core 79% left"
-    assert svg =~ "gql 8% ⏸ held until 13:00"
+    assert svg =~ "gql 8% ⏸ until 13:00"
     assert svg =~ ~s(width="142.2")
-    refute svg =~ " old"
+    assert svg =~ ~r{core 79% left</text>.*0s old}
     assert Enum.at(frame.strip, 1).svg =~ "codex 79% left"
     {_, _, scrolled} = FrameUpdates.frame(%Nav{view: :fleet, scroll: 999}, %{agents: []}, usage)
     assert Enum.at(scrolled.strip, 1) == Enum.at(frame.strip, 1)
@@ -66,7 +66,7 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
   end
 
   test "observed ElevenLabs credits render while expired GitHub windows show a dash with their age" do
-    elevenlabs = %{state: :observed, observed_at: I.now(), window: %{used_percent: 25, remaining: 750, reset_at: DateTime.add(I.now(), 3600)}}
+    elevenlabs = %{state: :observed, observed_at: DateTime.add(I.now(), 600), window: %{used_percent: 25, remaining: 750, reset_at: DateTime.add(I.now(), 3600)}}
     quota = I.quota(3950, 400)
     quota = %{quota | windows: Map.new(quota.windows, fn {name, window} -> {name, %{window | reset_at: DateTime.add(I.now(), -1)}} end)}
     usage = read(%{github: {:ok, quota}, elevenlabs: elevenlabs}, DateTime.add(I.now(), 840))
@@ -75,13 +75,13 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
     assert credits.remaining_percent == 75
     {_, _, frame} = FrameUpdates.frame(%Nav{view: :fleet}, %{agents: []}, usage)
     svg = Enum.at(frame.strip, 2).svg
-    assert svg =~ "E credits 75% left"
+    assert svg =~ ~r{E credits 75% left</text>.*240s old}
     assert svg =~ "core —"
     assert svg =~ "gql —"
     assert svg =~ "840s old"
     refute svg =~ "core 79%"
     refute svg =~ "gql 8%"
-    refute svg =~ "held until"
+    refute svg =~ "⏸"
   end
 
   defp read(overrides, now \\ I.now()) do

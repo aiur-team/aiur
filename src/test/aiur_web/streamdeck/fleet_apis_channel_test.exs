@@ -39,7 +39,7 @@ defmodule AiurWeb.Streamdeck.FleetAPIsChannelTest do
       if view == "fleet" do
         svg = Enum.at(frame.strip, 2).svg
         assert svg =~ "core 79% left"
-        assert svg =~ "gql 8% ⏸ held until #{Calendar.strftime(reset, "%H:%M")}"
+        assert svg =~ "gql 8% ⏸ until #{Calendar.strftime(reset, "%H:%M")}"
         state = :sys.get_state(socket.channel_pid)
         assert frame == FrameUpdates.frame(state)
       end
