@@ -210,6 +210,21 @@ defmodule Aiur.AccountsTest do
     assert Map.keys(entries) == ["claude:second"]
   end
 
+  test "registering a Claude account preserves another harness legacy entry with the same name", %{home: home} do
+    path = Path.join(home, ".aiur/machine")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(%{"accounts" => %{"work" => %{"harness" => "codex", "profile_dir" => Path.join(home, "codex-work")}}}))
+    claude_dir = Path.join(home, "claude-work")
+    File.mkdir_p!(claude_dir)
+
+    assert :ok = Accounts.register("claude", "work", claude_dir)
+
+    assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
+    assert Map.keys(entries) |> Enum.sort() == ["claude:work", "codex:work"]
+    assert [%{profile_dir: codex_dir}] = Accounts.list("codex") |> Enum.filter(&(&1.name == "work"))
+    assert codex_dir == Path.join(home, "codex-work")
+  end
+
   test "profile purge refuses adopted paths outside the account root", %{home: home} do
     adopted = Path.join(home, "adopted-claude")
     File.mkdir_p!(adopted)

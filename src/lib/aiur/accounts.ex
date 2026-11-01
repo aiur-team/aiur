@@ -407,11 +407,16 @@ defmodule Aiur.Accounts do
   defp maybe_purge(_entry, _purge), do: :ok
 
   defp write_entry({harness, name}, entry) do
-    entries = normalize_registry(registry())
-
-    entries = Map.delete(entries, name)
+    entries = registry() |> delete_legacy_entry(harness, name) |> normalize_registry()
 
     write_registry(Map.put(entries, registry_key(harness, name), entry))
+  end
+
+  defp delete_legacy_entry(entries, harness, name) do
+    case Map.get(entries, name) do
+      %{"harness" => ^harness} -> Map.delete(entries, name)
+      _entry -> entries
+    end
   end
 
   defp registry_key(harness, name), do: harness <> ":" <> name
