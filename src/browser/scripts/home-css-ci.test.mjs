@@ -63,10 +63,10 @@ test('browser shards have bounded timeouts', () => {
   assert.equal(browserAction.runs.steps.find(step => step.name === 'Run browser smoke shard').run,
     'node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}')
   assert.equal(browserAction.runs.steps.find(step => step.name === 'Report slowest browser smoke suites').if, '${{ always() }}')
-  const failureTraces = browserAction.runs.steps.find(step => step.name === 'Upload sanitized browser failure traces')
+  const failureTraces = browserAction.runs.steps.find(step => step.name === 'Upload browser failure traces')
   assert.equal(failureTraces.if, '${{ failure() }}')
   assert.equal(failureTraces.uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02')
-  assert.equal(failureTraces.with.path, 'src/browser/.artifacts-run-*/')
+  assert.equal(failureTraces.with.path, 'src/browser/.artifacts-run-*/**/trace.zip')
   assert.equal(failureTraces.with['retention-days'], 14)
   assert.equal(failureTraces.with['if-no-files-found'], 'ignore')
   assert.match(read('src/browser/playwright.config.mjs'), /trace:\s*'retain-on-failure'/)
