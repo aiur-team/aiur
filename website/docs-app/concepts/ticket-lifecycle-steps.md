@@ -369,6 +369,10 @@ Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route bo
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
 reviews without inline threads.
 
+In `single_account` mode, an operator's blocking `COMMENTED` review routes to
+rework like other trusted blocking reviews. Merge or close cleanup removes stale
+lifecycle labels afterward.
+
 A trusted `CHANGES_REQUESTED` review also takes
 the PR out of the merge queue, turns its auto-merge off, and records both on the
 ticket; a later Executor approval lands it through the normal merge path.

@@ -2,7 +2,9 @@ defmodule Aiur.Accounts.UsageReadings do
   @moduledoc "Small read model for per-account provider usage observations."
 
   @key {__MODULE__, :readings}
+  @explored_key {__MODULE__, :headroom_explorations}
   @default_max_reading_age_seconds 1800
+  @headroom_exploration_window_seconds 120
 
   @doc """
   Whether an observation is too old to treat as current.
@@ -50,7 +52,32 @@ defmodule Aiur.Accounts.UsageReadings do
   def snapshot, do: :persistent_term.get(@key, %{})
 
   @spec reset() :: :ok
-  def reset, do: :persistent_term.erase(@key) && :ok
+  def reset do
+    :persistent_term.erase(@key)
+    :persistent_term.erase(@explored_key)
+    :ok
+  end
+
+  @doc "Whether an unknown or stale account was dispatched recently while awaiting a fresh usage observation."
+  @spec recently_explored?(String.t(), String.t(), DateTime.t()) :: boolean()
+  def recently_explored?(harness, name, now \\ DateTime.utc_now()) do
+    case Map.get(:persistent_term.get(@explored_key, %{}), {harness, name}) do
+      %DateTime{} = explored_at ->
+        age = DateTime.diff(now, explored_at, :second)
+        age >= 0 and age < @headroom_exploration_window_seconds
+
+      _missing ->
+        false
+    end
+  end
+
+  @doc "Mark an account as explored so an unknown reading does not attract a dispatch burst."
+  @spec mark_explored(String.t(), String.t(), DateTime.t()) :: :ok
+  def mark_explored(harness, name, now \\ DateTime.utc_now()) do
+    explored = :persistent_term.get(@explored_key, %{})
+    :persistent_term.put(@explored_key, Map.put(explored, {harness, name}, now))
+    :ok
+  end
 
   @spec snapshot(String.t(), [String.t()]) :: %{String.t() => map()}
   def snapshot(harness, names) do
@@ -78,8 +105,17 @@ defmodule Aiur.Accounts.UsageReadings do
     previous = Map.get(readings, {harness, name}, %{})
     entry = entry(result, observed_at, freshness, previous)
 
+    if match?({:ok, _reading}, result) and freshness == :fresh do
+      clear_explored(harness, name)
+    end
+
     :persistent_term.put(@key, Map.put(readings, {harness, name}, entry))
     :ok
+  end
+
+  defp clear_explored(harness, name) do
+    explored = :persistent_term.get(@explored_key, %{})
+    :persistent_term.put(@explored_key, Map.delete(explored, {harness, name}))
   end
 
   # Only a fresh read is a new observation, so only it ends a failure streak.

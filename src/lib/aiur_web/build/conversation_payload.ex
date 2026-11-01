@@ -56,7 +56,7 @@ defmodule AiurWeb.Build.ConversationPayload do
   def entry(kind) when kind in ~w(say op sys), do: {Map.put(entry_base(kind), "text", @text), []}
 
   def entry("tool"),
-    do: {Map.merge(entry_base("tool"), %{"name" => @text, "arg" => @text, "res" => @text, "bad" => :boolean}), ["bad"]}
+    do: {Map.merge(entry_base("tool"), %{"name" => @text, "arg" => @text, "res" => @text, "bad" => :boolean, "summary" => @text, "status" => @text}), ["bad", "summary", "status"]}
 
   def entry("ev") do
     {Map.merge(entry_base("ev"), %{
@@ -69,7 +69,7 @@ defmodule AiurWeb.Build.ConversationPayload do
   end
 
   def entry("diff"),
-    do: {Map.merge(entry_base("diff"), %{"file" => @text, "lines" => {:list, {:pair, @text}}, "add" => :nonnegative, "del" => :nonnegative}), []}
+    do: {Map.merge(entry_base("diff"), %{"file" => @text, "lines" => {:list, {:pair, @text}}, "add" => :nonnegative, "del" => :nonnegative, "summary" => @text}), ["summary"]}
 
   def entry(_kind), do: nil
 

@@ -90,13 +90,16 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
 
   @spec mask_entry(map()) :: map()
   def mask_entry(entry) do
-    Enum.reduce([:text, :arg, :res], entry, fn field, masked ->
-      case Map.get(masked, field) do
-        text when is_binary(text) -> Map.put(masked, field, History.mask_for(%{body: text}, {:device, "streamdeck"}).body)
-        _ -> masked
-      end
+    # Every text field a row carries (summary, status, file, diff lines) can echo the raw command.
+    Map.new(entry, fn
+      {key, value} when key in [:id, :k, :at] -> {key, value}
+      {:lines, lines} when is_list(lines) -> {:lines, Enum.map(lines, fn line -> Enum.map(line, &mask_text/1) end)}
+      {key, value} -> {key, mask_text(value)}
     end)
   end
+
+  defp mask_text(text) when is_binary(text), do: History.mask_for(%{body: text}, {:device, "streamdeck"}).body
+  defp mask_text(value), do: value
 
   defp tail(state) do
     case call(state, :tail, [state.ref, state.last]) do

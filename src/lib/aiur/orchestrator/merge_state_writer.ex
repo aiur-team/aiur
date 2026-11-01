@@ -18,7 +18,13 @@ defmodule Aiur.Orchestrator.MergeStateWriter do
         refuse_labels = if StatePolicy.terminal_state_name?(target), do: [], else: operator_hold_labels()
 
         prefix = Config.label_prefix()
-        terminal_labels = if StatePolicy.terminal_state_name?(target), do: ["#{prefix}:merge-queued", "#{prefix}:body-fix"], else: []
+
+        terminal_labels =
+          if StatePolicy.terminal_state_name?(target) do
+            clear_terminal_labels(prefix, target) ++ ["#{prefix}:merge-queued", "#{prefix}:body-fix"]
+          else
+            []
+          end
 
         TicketTransition.write_state(identifier, target,
           writer: :comment_wake,
@@ -92,13 +98,20 @@ defmodule Aiur.Orchestrator.MergeStateWriter do
   @spec write_reconciler_transition(String.t(), String.t(), term(), keyword()) ::
           :ok | {:error, term()}
   def write_reconciler_transition(identifier, target, expected_state, opts) do
+    prefix = Config.label_prefix()
+    terminal? = StatePolicy.terminal_state_name?(target)
+
     TicketTransition.write_state(identifier, target,
       writer: :merged_ticket_reconciler,
       expected_state: expected_state,
       refuse_labels: operator_hold_labels(),
+      clear_terminal_state_labels: if(terminal?, do: clear_terminal_labels(prefix, target), else: []),
       tracker: Keyword.get(opts, :tracker, Tracker)
     )
   end
+
+  defp clear_terminal_labels(prefix, target),
+    do: Labels.state_labels(prefix) -- [StatePolicy.state_label(prefix, target)]
 
   @doc false
   @spec operator_hold_labels() :: [String.t()]

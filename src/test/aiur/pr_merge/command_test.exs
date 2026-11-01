@@ -121,7 +121,7 @@ defmodule Aiur.PrMerge.CommandTest do
     assert_received {:output, "WARNING merged, but daemon event delivery failed"}
   end
 
-  test "single account self-attests, comments optionally, and records review fields", ctx do
+  test "single-account comment preserves a supplied body and records review fields", ctx do
     settings = put_in(ctx.settings, [:tracker, :github, :identity_mode], "single_account")
     ctx = %{ctx | settings: settings}
 
@@ -136,7 +136,7 @@ defmodule Aiur.PrMerge.CommandTest do
     end
 
     assert PrMerge.run(%{ctx.opts | approve_body: "Reviewed"}, deps(ctx, api: api)) == 0
-    assert {"post", "repos/owner/repo/pulls/1/reviews", %{commit_id: @head, event: "COMMENT"}} = next_write()
+    assert {"post", "repos/owner/repo/pulls/1/reviews", %{body: "Reviewed", commit_id: @head, event: "COMMENT"}} = next_write()
     record = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list() |> hd()
     assert record["reviewed_by"] == "operator"
     assert record["attestation"] == "single_account_self_review"
@@ -159,12 +159,16 @@ defmodule Aiur.PrMerge.CommandTest do
         {"get", "repos/owner/repo/pulls/1/reviews?per_page=100&page=1"} ->
           {:ok, []}
 
+        {"post", "repos/owner/repo/pulls/1/reviews"} ->
+          {:ok, %{"state" => "COMMENTED", "commit_id" => body.commit_id}}
+
         _ ->
           response(method, path, body)
       end
     end
 
     assert PrMerge.run(ctx.opts, deps(ctx, api: api)) == 0
+    assert {"post", "repos/owner/repo/pulls/1/reviews", %{body: "Single-account self-review attestation: reviewed " <> @head <> ".", commit_id: @head, event: "COMMENT"}} = next_write()
     assert {"put", "repos/owner/repo/pulls/1/merge", %{sha: @head}} = next_write()
     [record] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
     assert record["reviewed_by"] == "operator"

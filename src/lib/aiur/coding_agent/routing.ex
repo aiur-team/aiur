@@ -34,8 +34,8 @@ defmodule Aiur.CodingAgent.Routing do
 
   @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [backend()]}
   def select_for_dispatch(%Issue{} = issue, opts \\ []) do
-    # `account_selection: headroom` scores every allowed backend and account by
-    # remaining usage (#3960). A pin still pins; headroom picks its account.
+    # `account_selection: headroom` follows backend priority, then scores the
+    # selected backend's accounts by remaining usage (#7429). A pin still pins.
     if HeadroomDispatch.enabled?(opts),
       do: HeadroomDispatch.select(issue, &eligible_routes(Keyword.put(opts, :backends, &1)), opts),
       else: select_in_priority_order(issue, opts)
