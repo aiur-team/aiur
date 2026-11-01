@@ -30,7 +30,9 @@ The daemon checks `.aiur/config` once per second and reloads valid changes witho
 
 Settings read by live consumers, including `agent.max_concurrent_agents`, `agent.target_cpu_pressure`, and `agent.max_cpu_pressure`, apply live.
 
-Settings documented as **read once at daemon start** need a restart; examples include `instance.id`, `instance.mode`, and `instance.role`. `events.export.enabled` and `observability.telemetry_enabled` also require a restart. Changing the dashboard bind address or port (`server.host` or `server.port`) requires a restart to rebind the listener. Environment changes require a restart.
+Settings documented as **read once at daemon start** need a restart; examples include `instance.id`, `instance.mode`, and `instance.role`.
+
+`events.export.enabled` and `observability.telemetry_enabled` also require a restart. Changing the dashboard bind address or port (`server.host` or `server.port`) requires a restart to rebind the listener. Environment changes require a restart.
 
 If a file change fails parsing or validation, Aiur keeps the last good config and raises `system.config.reload_rejected`. Check `aiur status`: `CONFIG RELOAD REJECTED` remains until a corrected config loads.
 
