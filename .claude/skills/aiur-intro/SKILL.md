@@ -25,8 +25,8 @@ misread of this tool comes from skipping it.
 
 Two facts worth stating early, because they are the ones people get wrong:
 
-- **Aiur owns the runs it dispatches.** It is not a passive observer that attaches to
-  agent sessions you started elsewhere.
+- **Aiur owns the runs it dispatches.** Worker sessions are dispatched by Aiur;
+  the optional Executor attachment described below identifies your own session.
 - **Aiur is not a replacement for the assistant you're talking to.** It is usually its
   counterpart: your agent can be the Executor, and you keep talking to your agent.
 
@@ -155,6 +155,18 @@ aiur stop
 Aiur works best in codebases with clear setup instructions, automated validation, and
 workflow conventions an autonomous run can follow. Say so plainly if their repo has none
 of those — it is the single best predictor of whether runs land.
+
+Offer Executor conversation attachment as a separate opt-in; never attach the
+user's session merely because you operate the run. Before using
+`aiur executor-attach --harness claude` or `--harness codex`, explain that Aiur
+may read that session's transcript and retain a local, owner-only journal until
+deleted. Device pairing is not available yet; when it ships, pairing a phone or
+watch will grant full access, including the Executor transcript, with no separate
+transcript toggle. Claude installs marked project-local hooks;
+Codex prints configuration for manual merge and `/hooks` trust. Explain
+`aiur executor-detach` and that existing recordings remain. Attachment alone
+does not enable dashboard chat in attach-only builds. See
+[Executor opt-in and privacy](../../../website/docs-app/concepts/executor.md#talk-to-the-executor-from-the-dashboard).
 
 ## 5. The safety warning, in context
 

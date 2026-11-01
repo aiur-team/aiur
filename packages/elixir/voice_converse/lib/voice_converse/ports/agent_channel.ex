@@ -15,6 +15,8 @@ defmodule VoiceConverse.Ports.AgentChannel do
   A channel with an asynchronous listener may report `listener_mode: :async` in its
   capabilities so the assistant can explain that delivery waits for the agent to read. Set
   `ask: true` when queued asking is available; fork-only channels may answer history questions.
+  `subscribe/2` returns `:not_applicable` when the target has no agent channel by design.
+  `:unsupported` means live updates are unavailable and enables briefing refresh on tool calls.
   """
 
   @type capabilities :: %{required(:fork) => :native | :history_copy | :replay | :none, optional(atom()) => term()}
@@ -26,7 +28,7 @@ defmodule VoiceConverse.Ports.AgentChannel do
   @callback fork_query(target :: term(), question :: String.t(), opts :: keyword()) ::
               {:ok, ref :: term()} | {:error, :unsupported | term()}
   @callback request_briefing(target :: term(), :refresh | :pause) :: :ok | {:error, term()}
-  @callback subscribe(target :: term(), pid()) :: :ok | :unsupported
+  @callback subscribe(target :: term(), pid()) :: :ok | :not_applicable | :unsupported
   @callback capabilities(target :: term()) :: capabilities()
 
   @optional_callbacks request_briefing: 2

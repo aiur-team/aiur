@@ -39,6 +39,7 @@ defmodule AiurWeb.Build.NowRows do
           start_src: String.t(),
           pct: 0..100 | nil,
           progress_freshness: String.t(),
+          pr: map() | nil,
           priority: pos_integer() | nil,
           lane: String.t() | nil,
           agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, pause: String.t() | nil, resume_at: integer() | nil, effort: String.t() | nil}
@@ -54,11 +55,12 @@ defmodule AiurWeb.Build.NowRows do
   def build(catalog, opts \\ []) do
     case repository(Keyword.get(opts, :repository)) do
       nil -> unavailable("repository_unknown")
-      repo -> project(catalog, repo, Keyword.get(opts, :todo_ids, MapSet.new()))
+      repo -> project(catalog, repo, Keyword.get(opts, :todo_ids, MapSet.new()), Keyword.get(opts, :pr_facts, %{}))
     end
   end
 
-  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo, todo_ids) when status in [:ready, :empty, :stale] and is_list(rows) do
+  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo, todo_ids, pr_facts)
+       when status in [:ready, :empty, :stale] and is_list(rows) do
     source = %{
       state: if(status == :stale, do: "stale", else: "ok"),
       observed_at: timestamp(get_in(snapshot, [:freshness, :status]) |> observed_at()),
@@ -71,10 +73,16 @@ defmodule AiurWeb.Build.NowRows do
         end
     }
 
-    %{rows: rows |> Enum.map(&mark_todo_starting(&1, todo_ids)) |> Enum.filter(&band?(&1, repo)) |> Map.new(&{&1.identity.identifier, facts(&1)}), source: source}
+    projected =
+      rows
+      |> Enum.map(&mark_todo_starting(&1, todo_ids))
+      |> Enum.filter(&band?(&1, repo))
+      |> Map.new(&{&1.identity.identifier, facts(&1, Map.get(pr_facts, &1.identity.identifier))})
+
+    %{rows: projected, source: source}
   end
 
-  defp project(_catalog, _repo, _todo_ids), do: unavailable("fleet_unavailable")
+  defp project(_catalog, _repo, _todo_ids, _pr_facts), do: unavailable("fleet_unavailable")
   defp unavailable(reason), do: %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: reason}}
   defp observed_at(%{observed_at: time}), do: time
   defp observed_at(_freshness), do: nil
@@ -96,7 +104,7 @@ defmodule AiurWeb.Build.NowRows do
 
   defp band?(_row, _repo), do: false
 
-  defp facts(row) do
+  defp facts(row, pr) do
     num = String.to_integer(row.identity.identifier)
     family = UnitsPresentation.agent_family(row)
 
@@ -113,6 +121,7 @@ defmodule AiurWeb.Build.NowRows do
       start_src: if(start, do: "dispatch", else: "unknown"),
       pct: pct(row),
       progress_freshness: progress_freshness(row),
+      pr: pr,
       priority: priority(row[:priority]),
       lane: lane(row[:build_lane]),
       agent: %{
