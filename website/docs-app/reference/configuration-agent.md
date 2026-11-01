@@ -86,7 +86,7 @@ Each entry is a **route**, not just a backend name. A route uses the same gramma
 
 A colon-free entry means what it has always meant, so **existing configs need no change**.
 
-If a hot-reloaded `.aiur/config` fails validation, the daemon keeps running on the last good config. It raises a `system.config.reload_rejected` alert, and `aiur status` shows `CONFIG RELOAD REJECTED` until a corrected file loads.
+For reload timing, live and restart-only settings, and recovery from rejected changes, see [Changing config on a running daemon](/reference/configuration#changing-config-on-a-running-daemon).
 
 The effort segment must be one the backend accepts. Headless `claude` takes no effort segment, so write `claude:sonnet`. Append `+remote` to route through the Claude REPL, which accepts `low`, `medium`, `high`, `xhigh` and `max`: `claude:sonnet:medium+remote`.
 
