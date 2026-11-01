@@ -23,7 +23,9 @@ defmodule Aiur.AccountsCLIOutputTest do
     :ok
   end
 
-  defp snapshot(_names), do: %{"default" => %{freshness: :unavailable, reason: :no_oauth_token}}
+  defp snapshot(_names),
+    do: %{"default" => %{reading: nil, observed_at: ~U[2026-11-01 19:46:00Z], freshness: :unavailable, reason: :no_oauth_token, fix: "not signed in; run `aiur login claude default`"}}
+
   defp ledger("codex"), do: %{stale: true, age_seconds: 120, source: "ledger"}
   defp ledger(_harness), do: nil
 
@@ -35,7 +37,7 @@ defmodule Aiur.AccountsCLIOutputTest do
   # atom-keyed map follows the VM atom table and already varies between builds.
   test "text output is unchanged" do
     assert output(false, "claude") ==
-             ~s(name="default"  harness="claude"  email="dev@example.com"  org="Example"  seat_tier="max"  remaining_percent=nil  weekly_percent=nil  five_hour_percent=nil  freshness="no_oauth_token"  age_ms=nil  last_error="no_oauth_token"\n)
+             ~s(name="default"  harness="claude"  email="dev@example.com"  org="Example"  seat_tier="max"  remaining_percent=nil  weekly_percent=nil  five_hour_percent=nil  freshness="no_oauth_token"  age_ms=nil  last_error="no_oauth_token"  last_error_at="2026-11-01T19:46:00Z"  fix="not signed in; run `aiur login claude default`"\n)
 
     assert output(false, "codex") ==
              ~s(name="default"  harness="codex"  email=nil  org=nil  seat_tier=nil  remaining_percent=nil  weekly_percent=nil  five_hour_percent=nil  freshness="stale_ledger"  age_ms=120000\n)
@@ -63,7 +65,10 @@ defmodule Aiur.AccountsCLIOutputTest do
                "weekly_percent" => nil,
                "five_hour_percent" => nil,
                # Claude rows only: why the usage probe has no reading (#5747).
-               "last_error" => "no_oauth_token"
+               "last_error" => "no_oauth_token",
+               # When it failed and, signed out, the command that fixes it (#7449).
+               "last_error_at" => "2026-11-01T19:46:00Z",
+               "fix" => "not signed in; run `aiur login claude default`"
              }
            ]
 

@@ -130,9 +130,17 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp maybe_put_account(session_opts, backend, config, opts) do
     account_backend = if backend == "claude-repl", do: "claude", else: backend
 
+    # A pin from before a config reload that removed its account is dropped,
+    # so the ticket's next session reselects among the accounts still
+    # configured. A session already running keeps its account (#7449).
     case Keyword.get(opts, :account_name) do
       name when is_binary(name) and account_backend in ["claude", "codex"] ->
-        Keyword.merge(session_opts, account_name: name, env: Accounts.profile_env(account_backend, name))
+        if name in configured_account_names(config, account_backend) do
+          Keyword.merge(session_opts, account_name: name, env: Accounts.profile_env(account_backend, name))
+        else
+          Logger.warning("account no longer configured; reselecting backend=#{account_backend} account=#{name}")
+          maybe_put_account(session_opts, backend, config, Keyword.delete(opts, :account_name))
+        end
 
       _ ->
         case Accounts.capability(account_backend) do
@@ -156,9 +164,10 @@ defmodule Aiur.AgentRunner.SessionOptions do
     end
   end
 
+  defp configured_account_names(config, backend), do: Map.get(Map.get(config, :accounts) || %{}, backend, [])
+
   defp configured_account_candidates(config, backend, opts) do
-    names = Map.get(config, :accounts) || %{}
-    names = Map.get(names, backend, [])
+    names = configured_account_names(config, backend)
     list_accounts = Keyword.get(opts, :account_list_fun, &Accounts.list/1)
     registered = MapSet.new(list_accounts.(backend), & &1.name)
     Enum.filter(names, &MapSet.member?(registered, &1))
