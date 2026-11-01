@@ -224,7 +224,8 @@ defmodule Aiur.BuildGate.PreflightTest do
       command=.+\n
       command_hash=[0-9a-f]{64}\n
       command_file_count=0\n
-      started_at=[0-9]+\n$/x
+      started_at=[0-9]+\n
+      acquired_at=[0-9]+\n$/x
 
     owner = File.read!(owner_path)
     assert owner =~ owner_pattern

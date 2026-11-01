@@ -1,17 +1,11 @@
 defmodule AiurWeb.Routes.Experiments do
-  @moduledoc "Experiment page routes expanded inside AiurWeb.Router."
+  @moduledoc "Experiment route definitions expanded inside the shared dashboard session."
   use AiurWeb.Kit, :routes
 
   defmacro pages do
     quote do
-      scope "/" do
-        pipe_through([:browser_dashboard_auth, :dashboard_pages, :browser])
-
-        live_session :experiments, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
-          live("/experiments", AiurWeb.ExperimentsLive, :experiments)
-          live("/experiments/:id", AiurWeb.ExperimentsLive, :experiment)
-        end
-      end
+      live("/experiments", AiurWeb.ExperimentsLive, :experiments)
+      live("/experiments/:id", AiurWeb.ExperimentsLive, :experiment)
     end
   end
 end

@@ -16,7 +16,7 @@ defmodule Aiur.Usage.CLI do
   @spec legacy_accounts(boolean(), String.t() | nil) :: :ok
   def legacy_accounts(json, harness) do
     guarded("accounts", fn ->
-      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot_for_accounts/1)
       exit_marker(0)
     end)
   end
@@ -46,7 +46,7 @@ defmodule Aiur.Usage.CLI do
   def render(%{"providers" => snapshot}, nil) do
     header = ["PROVIDER  FRESHNESS  AGE       SOURCE"]
     rows = Enum.map(Aiur.Usage.providers(), fn provider -> row(provider, Map.fetch!(snapshot, Atom.to_string(provider))) end)
-    Enum.join(header ++ rows, "\n")
+    Enum.join(header ++ rows ++ UsageReadings.failure_lines(), "\n")
   end
 
   def render(payload, provider) do
