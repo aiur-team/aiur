@@ -18,6 +18,8 @@ defmodule VoiceConverse.Session.Start do
          {:ok, store} <- open_transcript(config, descriptor, id, provider, opts),
          started_at <- clock.(),
          {:ok, context} <- build_context(config, target, store, started_at) do
+      _ = VoiceConverse.Ports.call_port(config.briefing_source, :subscribe, [target, self()], :brief)
+
       {:ok,
        %{
          id: id,
@@ -33,6 +35,9 @@ defmodule VoiceConverse.Session.Start do
          provider: provider,
          provider_opts: provider_opts,
          context: context.text,
+         briefing: context.briefing,
+         pending_briefing_context: [],
+         briefing_refreshes: %{},
          provider_ref: nil,
          provider_ids: MapSet.new(),
          store: store,
@@ -130,17 +135,25 @@ defmodule VoiceConverse.Session.Start do
 
   defp build_context(config, target, store, now) do
     context = ContextBuilder.build(config, target, now: now)
+    briefing = latest_briefing(config, target)
 
     case Enum.reduce_while(context.blocks, :ok, fn block, :ok ->
            record = Map.merge(block, %{type: "context"})
            if TranscriptStore.append(store, record) == :ok, do: {:cont, :ok}, else: {:halt, :error}
          end) do
       :ok ->
-        {:ok, context}
+        {:ok, Map.put(context, :briefing, briefing)}
 
       :error ->
         _ = TranscriptStore.close(store)
         {:error, :unknown}
+    end
+  end
+
+  defp latest_briefing(config, target) do
+    case VoiceConverse.Ports.call_port(config.briefing_source, :brief, [target], :brief) do
+      {:ok, %VoiceConverse.Briefing{} = briefing} -> briefing
+      _ -> nil
     end
   end
 
