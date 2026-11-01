@@ -23,6 +23,16 @@ GRACE_SECONDS = 300
 
 
 def process_snapshot(gate_dir):
+    for attempt in range(3):
+        snapshot = process_snapshot_once(gate_dir)
+        if snapshot is not None:
+            return snapshot
+        if attempt < 2:
+            time.sleep(0.01)
+    return None
+
+
+def process_snapshot_once(gate_dir):
     """Return open file identities and process identities; fail closed on /proc errors."""
     open_files = set()
     namespaces = {}
