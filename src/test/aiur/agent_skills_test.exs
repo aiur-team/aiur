@@ -326,6 +326,37 @@ defmodule Aiur.AgentSkillsTest do
            "install overwrote the target repo's own aiur-agent skill"
   end
 
+  test "links repository-shipped Claude skills into Codex without replacing tracked entries", %{workspace: ws} do
+    repo_skill = Path.join([ws, ".claude", "skills", "repo-helper"])
+    tracked = Path.join([ws, ".codex", "skills", "repo-helper"])
+    File.mkdir_p!(repo_skill)
+    File.write!(Path.join(repo_skill, "SKILL.md"), "repo skill\n")
+    File.mkdir_p!(Path.dirname(tracked))
+    File.write!(tracked, "tracked entry\n")
+
+    assert :ok = AgentSkills.install(ws)
+
+    assert File.read!(tracked) == "tracked entry\n"
+    assert File.read!(Path.join([ws, ".claude", "skills", "repo-helper", "SKILL.md"])) == "repo skill\n"
+  end
+
+  test "remote install links repository-shipped Claude skills without replacing tracked entries", %{workspace: ws} do
+    remote_workspace = Path.join(ws, "remote repo")
+    repo_skill = Path.join([remote_workspace, ".claude", "skills", "repo-helper"])
+    tracked = Path.join([remote_workspace, ".codex", "skills", "repo-helper"])
+    File.mkdir_p!(repo_skill)
+    File.write!(Path.join(repo_skill, "SKILL.md"), "repo skill\n")
+    File.mkdir_p!(Path.dirname(tracked))
+    File.write!(tracked, "tracked entry\n")
+    script_path = Path.join(ws, "remote-repo-skills.sh")
+    File.write!(script_path, AgentSkills.remote_install_script(remote_workspace))
+
+    assert {_output, 0} = System.cmd("bash", [script_path], stderr_to_stdout: true)
+
+    assert File.read!(tracked) == "tracked entry\n"
+    assert File.read!(Path.join([remote_workspace, ".claude", "skills", "repo-helper", "SKILL.md"])) == "repo skill\n"
+  end
+
   test "is best-effort: a failed file operation returns :ok without raising", %{workspace: ws} do
     # Occupy the `.claude/skills` path with a regular file so mkdir_p! raises a
     # File.Error — install must swallow it and never break workspace creation.
