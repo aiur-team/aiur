@@ -342,7 +342,7 @@ defmodule Aiur.Init do
     io.puts.("     For the one-shot CI readiness preflight, use an operator-only #{Aiur.GitHub.CiReadiness.operator_token_env()} with Contents, Actions, and Administration: Read-only.")
     io.puts.("     Do not add that operator token to ~/.aiur/.env, ./.env, or the daemon environment.")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
-    io.puts.("  2. Set GITHUB_TOKEN in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env).")
+    io.puts.("  2. Set GITHUB_TOKEN in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
   end
 

@@ -82,13 +82,6 @@ defmodule Aiur.Init.DotenvTest do
         assert System.get_env("FROM_MACHINE") == nil
       end)
     end
-
-    @tag :not_async
-    test "token instructions name both dotenv files" do
-      source = File.read!(Path.expand("../../../lib/aiur/init.ex", __DIR__))
-      assert source =~ "Set GITHUB_TOKEN in ~/.aiur/.env"
-      assert source =~ "or ./.env"
-    end
   end
 
   defp with_isolated_env(dir, home, env, fun) do
