@@ -8,8 +8,34 @@ defmodule Aiur.BuildQueue.ListCommands do
 
     with {:ok, document, actions} <- edit(state.document, command, state.clock.()),
          {:ok, current_labels, missing} <- open_members(state, command) do
-      {:ok, record(state, document, actions, observations, current_labels), actions, observations, missing}
+      {actions, already_marked} = skip_existing_markers(actions, current_labels, state.settings)
+      document = record(state, document, actions, observations, current_labels)
+      document = record_existing_markers(document, already_marked, observations, state)
+      {:ok, document, actions, observations, missing}
     end
+  end
+
+  defp skip_existing_markers(actions, labels, settings) do
+    marker = "#{settings.tracker.github.label_prefix}:queued"
+
+    Enum.split_with(actions, fn
+      {:mark, id} -> marker in (get_in(labels, [id, :labels]) || [])
+      _ -> false
+    end)
+    |> then(fn {existing, remaining} -> {remaining, Enum.map(existing, &elem(&1, 1))} end)
+  end
+
+  defp record_existing_markers(document, [], _observations, _state), do: document
+
+  defp record_existing_markers(document, ids, observations, state) do
+    existing =
+      Enum.map(ids, fn id ->
+        labels = observations[id].labels
+        target_labels = Enum.uniq(labels ++ ["#{state.settings.tracker.github.label_prefix}:queued"])
+        %Intent{id: Ecto.UUID.generate(), issue_id: id, action: :mark, target_labels: target_labels, recorded_at_ms: state.clock.(), outcome: :ok}
+      end)
+
+    %{document | intents: document.intents ++ existing}
   end
 
   @spec queue_id(map()) :: {:ok, String.t()} | {:error, :queue_limit}

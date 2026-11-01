@@ -157,12 +157,39 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   test "batch insertion order survives marker-write failure after membership is saved", %{server: pid} do
-    Agent.update(Boundary, &%{&1 | marker_result: {:error, :transient}})
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:marker_result, {:error, :transient})
+      |> Map.put(:observation_labels, Map.new(state.labels, fn {id, _} -> {id, %{labels: []}} end))
+    end)
+
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2"], at: 0, server: pid) == 1 end)
     assert output =~ "#1:"
     assert output =~ "#2:"
-    assert output =~ "marker_write_failed"
+    assert output =~ "marker write failed; retry is scheduled"
     assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"2", 1}]
+  end
+
+  test "paced marker is reported as queued and retried, while an existing marker counts as success", %{server: pid} do
+    Agent.update(Boundary, fn state ->
+      Map.put(state, :observation_labels, Map.put(state.labels, "1", %{labels: ["agent:queued"]}))
+    end)
+
+    output = capture_io(fn -> assert MutationCLI.run(verb: :add, ids: ["1"], queue: "paseo", server: pid) == 0 end)
+    assert output =~ "#1: ok"
+    refute output =~ "marker_write_failed"
+    refute output =~ "{:"
+
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:marker_result, {:error, :paced})
+      |> Map.put(:observation_labels, Map.put(state.labels, "2", %{labels: []}))
+    end)
+
+    output = capture_io(fn -> assert MutationCLI.run(verb: :add, ids: ["2"], queue: "paseo", server: pid) == 0 end)
+    assert output =~ "queued; marker write deferred and will retry"
+    refute output =~ "marker_write_failed"
+    refute output =~ "{:"
   end
 
   test "rank at list creation persists in a batch and cannot silently reorder an existing set", %{server: pid} do

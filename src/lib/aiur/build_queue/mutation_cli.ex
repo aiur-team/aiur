@@ -182,6 +182,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp successful?({_id, :ok}), do: true
   defp successful?({_id, {:ok, {:not_observed, ids}}}) when is_list(ids), do: true
   defp successful?({_id, {:ok, unobserved}}) when is_list(unobserved), do: true
+  defp successful?({_id, {:ok, {:marker_deferred, ids}}}) when is_list(ids), do: true
   defp successful?(_), do: false
 
   defp target(opts) do
@@ -228,7 +229,18 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:error, :agent_workspace}), do: "blocked in agent workspace"
   defp message({:error, :outcome_unknown}), do: "outcome unknown; run aiur queue show before retrying"
   defp message({:ok, {:not_observed, ids}}), do: "not yet observed (retry after next poll) for ##{Enum.join(ids, ", #")}; queued pending"
+  defp message({:ok, {:deferred, :paced}}), do: "queued; marker write deferred and will retry"
+  defp message({:ok, {:marker_deferred, ids}}), do: "queued; marker write deferred and will retry for #{Enum.map_join(ids, ", ", &"##{&1}")}"
   defp message({:ok, unobserved}) when is_list(unobserved), do: "released; no observation for ##{Enum.join(unobserved, ", #")}"
+  defp message({:error, {:marker_write_failed, failures}}), do: marker_failure_message(failures)
   defp message({:error, reason}) when is_atom(reason), do: reason |> Atom.to_string() |> String.replace("_", " ")
-  defp message({:error, reason}), do: inspect(reason)
+  defp message({:error, _reason}), do: "failed; inspect queue status and retry if needed"
+
+  defp marker_failure_message(failures) do
+    if Enum.all?(failures, fn {_action, _id, result} -> result == {:error, :paced} end) do
+      "queued; marker write deferred and will retry"
+    else
+      "queued, but marker write failed; retry is scheduled"
+    end
+  end
 end
