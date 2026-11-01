@@ -41,6 +41,7 @@ defmodule VoiceConverse.ConsultTest do
              {:send_context, "The agent answered: It preserves the data."} in FakeProvider.calls(provider)
            end)
 
+    assert eventually(fn -> {:announce, "It preserves the data.", [when: :idle]} in FakeProvider.calls(provider) end)
     assert_receive {:voice_conversation_state, ^id, :listening}, 1_000
     assert {:ok, records, _} = TranscriptStore.read(ctx.root, id)
 
@@ -114,6 +115,12 @@ defmodule VoiceConverse.ConsultTest do
 
     assert eventually(fn ->
              {:send_context, "Here is what the agent's notes say: A prior constraint."} in FakeProvider.calls(provider)
+           end)
+
+    assert eventually(fn ->
+             {:announce, "Here is what the agent's notes say: A prior constraint.", [when: :idle]} in FakeProvider.calls(
+               provider
+             )
            end)
 
     FakeProvider.emit(provider, %Events.ToolCall{

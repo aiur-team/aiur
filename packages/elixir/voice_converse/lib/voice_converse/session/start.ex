@@ -37,6 +37,7 @@ defmodule VoiceConverse.Session.Start do
          provider: provider,
          provider_opts: provider_opts,
          context: context.text,
+         initial_briefing: context.initial_briefing,
          role: role,
          provider_ref: nil,
          provider_ids: MapSet.new(),
@@ -59,6 +60,9 @@ defmodule VoiceConverse.Session.Start do
          finished?: false,
          end_tool_call_id: nil,
          deferred_events: [],
+         assistant_turns: %{},
+         interrupted_turn: nil,
+         timing_deferred: [],
          audio_queue: :queue.new(),
          audio_task?: false,
          started_at: started_at
@@ -153,14 +157,15 @@ defmodule VoiceConverse.Session.Start do
   end
 
   defp build_context(config, target, store, now) do
-    context = ContextBuilder.build(config, target, now: now)
+    briefing = VoiceConverse.Ports.call_port(config.briefing_source, :brief, [target], :brief)
+    context = ContextBuilder.build(config, target, now: now, briefing: briefing)
 
     case Enum.reduce_while(context.blocks, :ok, fn block, :ok ->
            record = Map.merge(block, %{type: "context"})
            if TranscriptStore.append(store, record) == :ok, do: {:cont, :ok}, else: {:halt, :error}
          end) do
       :ok ->
-        {:ok, context}
+        {:ok, Map.put(context, :initial_briefing, briefing)}
 
       :error ->
         _ = TranscriptStore.close(store)

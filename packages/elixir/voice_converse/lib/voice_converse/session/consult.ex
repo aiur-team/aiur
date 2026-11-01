@@ -221,7 +221,7 @@ defmodule VoiceConverse.Session.Consult do
     text = state.config.redactor.(text)
     persist_answer!(state, id, text, :agent)
     state = transition(state, id, :sent) |> transition(id, :delivered)
-    state = Runtime.consult_context(state, "The agent answered: " <> text)
+    state = state |> Runtime.consult_context("The agent answered: " <> text) |> VoiceConverse.LiveContext.announce(text)
     state |> Map.put(:consult, nil) |> set_state(:listening)
   end
 

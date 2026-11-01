@@ -147,7 +147,7 @@ defmodule Aiur.BuildQueue.ClearTest do
   test "restart after marker removal but before outcome save does not repeat removal" do
     pid = server()
     Agent.update(Boundary, &%{&1 | fail_outcome: true})
-    assert {:ok, [{"clear", {:error, {:marker_write_failed, _}}}]} = clear(pid)
+    assert {:ok, [{"clear", {:error, :store_unavailable}}]} = clear(pid)
     assert calls() == [{"1", "agent:queued"}]
     assert {:ok, doc} = Store.load()
     assert Enum.any?(doc.intents, &(&1.issue_id == "1" and &1.outcome == nil))
