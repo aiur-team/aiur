@@ -76,7 +76,8 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
 
   defp comment_rework_gate(issue_key, event) do
     cond do
-      not CommentWake.trusted_comment_event?(event) and not configured_human_review?(event) ->
+      not CommentWake.trusted_comment_event?(event) and not configured_human_review?(event) and
+          not configured_human_blocking_comment?(event) ->
         {:skip, :untrusted_author}
 
       CommentWake.benign_review_pass_comment?(event) ->
@@ -94,13 +95,20 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
     changes_requested_review?(event) and human_merger_review?(event)
   end
 
+  defp configured_human_blocking_comment?(event) do
+    not CommentWake.trusted_comment_event?(event) and comment_review_state(event) == "COMMENTED" and
+      ReviewFindings.blocking_body?(CommentWake.comment_body(event)) and human_merger_review?(event)
+  end
+
   defp human_merger_review?(event) do
     comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
     reviewer = get_in(comment, ["user", "login"]) || get_in(comment, [:user, :login])
+    author = Map.get(event, :author) || Map.get(event, "author")
     allowed? = Map.get(event, :human_merger_allowed_fun, &Config.human_merger_allowed?/1)
 
     case reviewer do
       login when is_binary(login) -> allowed?.(login)
+      _missing_reviewer when is_binary(author) -> allowed?.(author)
       _missing_reviewer -> false
     end
   end
@@ -173,7 +181,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
     event
     |> rework_open_pr_opts()
     |> maybe_put_threads_fetcher(event)
-    |> Keyword.put(:blocking_review_submission?, blocking_review_submission?(event))
+    |> Keyword.put(:blocking_review_submission?, blocking_review_submission?(event) or configured_human_blocking_comment?(event))
   end
 
   # A `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review with no inline comments

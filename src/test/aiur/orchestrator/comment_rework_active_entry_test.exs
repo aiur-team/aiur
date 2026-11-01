@@ -148,21 +148,77 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
-  for body <- ["Update the stale base before merge", "## Blocking: stale base must be updated"] do
-    test "a trusted blocking COMMENTED review #{inspect(body)} in human-review routes without inline threads" do
+  for ticket_state <- ["human-review", "ci-wait"],
+      {author_kind, login, trusted?, merger?} <- [
+        {:human_merger, "its-everdred", false, true},
+        {:trusted_non_merger, "trusted-reviewer", true, false},
+        {:untrusted_non_merger, "outsider", false, false}
+      ] do
+    test "a blocking COMMENTED review from #{author_kind} in #{ticket_state} routes according to author policy" do
       issue = human_review_issue()
+      issue = %{issue | state: unquote(ticket_state), labels: ["agent:" <> unquote(ticket_state)]}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
       event =
         changes_requested_review_event(issue, %{
-          comment: %{"state" => "COMMENTED", "body" => unquote(body), "submitted_at" => "2026-09-26T04:09:44Z"},
-          pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
+          comment: %{
+            "state" => "COMMENTED",
+            "body" => "## Blocking: stale base must be updated",
+            "submitted_at" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+            "user" => %{"login" => unquote(login)}
+          },
+          author: unquote(login),
+          author_trusted?: unquote(trusted?),
+          human_merger_allowed_fun: fn candidate -> unquote(merger?) and candidate == "its-everdred" end,
+          open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 337, "head" => %{"sha" => "new-head"}}} end,
+          pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.to_iso8601()},
           unresolved_threads_fetcher: fn _pr -> {:ok, []} end
         })
 
-      CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
+      test_pid = self()
 
-      assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+      event = Map.put(event, :emit_alert_fun, fn topic, attrs -> send(test_pid, {:gate_alert, topic, attrs}) end)
+
+      CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+      case unquote(author_kind) do
+        :human_merger ->
+          assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+
+        :trusted_non_merger ->
+          assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+
+        :untrusted_non_merger ->
+          refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+      end
+
+      if unquote(author_kind) == :human_merger do
+        refute_receive {:gate_alert, _, _}, 50
+      end
     end
+  end
+
+  test "a blocking review received by an already rework worker is delivered without another state transition" do
+    issue = %{human_review_issue() | state: "rework", labels: ["agent:rework"]}
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    event =
+      changes_requested_review_event(issue, %{
+        comment: %{
+          "state" => "COMMENTED",
+          "body" => "Blocking: fix the regression",
+          "submitted_at" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+          "user" => %{"login" => "trusted-reviewer"}
+        },
+        author_trusted?: true,
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
+      })
+
+    state = base_state(completed_running_entry())
+
+    CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event)
+
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
   for ticket_state <- ["human-review", "ci-wait"],
