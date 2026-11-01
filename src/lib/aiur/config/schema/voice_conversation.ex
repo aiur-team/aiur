@@ -49,7 +49,7 @@ defmodule Aiur.Config.Schema.VoiceConversation do
     field(:cloud_disclosure_accepted, :boolean)
     # @config-reference config-configuration-voice-00 voice.conversation.roles_dir
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail voice.conversation.roles_dir | string or nil | nil | Directory of role pre-context files. A relative path resolves against the config file's directory, like `prompt_file`. |
+    # @config-detail voice.conversation.roles_dir | string or nil | nil | Directory of Markdown role files overriding shipped roles by id. Relative paths resolve against the config directory. |
     field(:roles_dir, :string)
     # @config-reference config-configuration-voice-00 voice.conversation.max_session_seconds
     # @config-detail voice.conversation.max_session_seconds | integer | 1800 | Longest one voice session may run, 60 to 3600 seconds. |

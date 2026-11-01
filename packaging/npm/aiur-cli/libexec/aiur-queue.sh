@@ -23,7 +23,7 @@ cmd_queue() {
       --force) [ "$verb" = recover ] && [ "$force" -eq 0 ] || queue_usage_error '--force requires recover'; force=1 ;;
       --remove-markers) [ "$verb" = clear ] && [ "$remove_markers" -eq 0 ] || queue_usage_error '--remove-markers requires clear'; remove_markers=1 ;;
       --yes) [ "$verb" = clear ] && [ "$yes" -eq 0 ] || queue_usage_error '--yes requires clear'; yes=1 ;;
-      --json) [ "$verb" = show ] || queue_usage_error '--json requires show'; json=1 ;;
+      --json) { [ "$verb" = show ] || [ "$verb" = add ]; } || queue_usage_error '--json requires show or add'; json=1 ;;
       --queue)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != -* ]] || queue_usage_error '--queue requires a name'
         case "$verb" in show|add|hold|release) ;; *) queue_usage_error "--queue is not valid for $verb" ;; esac
@@ -93,7 +93,7 @@ cmd_queue() {
   [ "$force" -eq 1 ] && opts="$opts, force: true"
   [ "$remove_markers" -eq 1 ] && opts="$opts, remove_markers: true"
   [ "$yes" -eq 1 ] && opts="$opts, yes: true"
-  [ "$json" -eq 1 ] && opts="json: true"
+  [ "$json" -eq 1 ] && opts="${opts:+$opts, }json: true"
   [ -n "$queue" ] && opts="${opts:+$opts, }queue: $(queue_string "$queue")"
   [ -n "$start_on" ] && opts="$opts, start_on: $(queue_string "$start_on")"
   [ -n "$root" ] && opts="$opts, build_order: $root"
