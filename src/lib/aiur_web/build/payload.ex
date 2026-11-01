@@ -89,7 +89,7 @@ defmodule AiurWeb.Build.Payload do
   """
   alias AiurWeb.Build.{PayloadSchema, PayloadValidator}
   @version 1
-  @row_fields PayloadSchema.row() |> Map.keys() |> Enum.map(&String.to_atom/1)
+  @row_fields PayloadSchema.row() |> Map.keys() |> Enum.reject(&(&1 in PayloadSchema.row_optional())) |> Enum.map(&String.to_atom/1)
 
   @spec snapshot(map(), String.t(), non_neg_integer()) :: map()
   def snapshot(data, epoch, generation) do

@@ -7,11 +7,22 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
 
   alias Aiur.Orchestrator
   alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.DashboardLive.VoicePanel
 
   @endpoint AiurWeb.Endpoint
 
   defmodule InstalledPanel do
     @moduledoc false
+  end
+
+  test "voice conversation pages cap each visible set and compute the page count" do
+    workers = for index <- 1..26, do: %{label: "ticket #{index}"}
+    first = VoicePanel.page_rows(workers, 0)
+    second = VoicePanel.page_rows(workers, 1)
+
+    assert length(first) == 25
+    assert second == [%{label: "ticket 26"}]
+    assert VoicePanel.page_count(workers) == 2
   end
 
   # Voice availability comes from the same registry `/api/v1/capabilities`

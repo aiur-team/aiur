@@ -59,11 +59,11 @@ export function buildMap() {
   for (let i = 0; i < log.children.length; i++) {
     const el = log.children[i], k = el.dataset.k; if (!k) continue;
     const top = (el.offsetTop * s).toFixed(1);
-    if (k === 'ev') html += '<button type="button" tabindex="-1" class="mm-e' + (el.classList.contains('bad') ? ' bad' : '') + '" data-i="' + i + '" style="top:' + top + 'px;--eh:' + esc(el.style.getPropertyValue('--eh')) + '" aria-label="' + esc(el.dataset.label) + '"></button>';
+    if (k === 'ev') html += '<button type="button" tabindex="-1" class="mm-e' + (el.classList.contains('bad') ? ' bad' : '') + '" data-i="' + i + '" data-at="' + esc(el.dataset.at || '—') + '" data-kind="event" style="top:' + top + 'px;--eh:' + esc(el.style.getPropertyValue('--eh')) + '" aria-label="' + esc(el.dataset.label) + '"></button>';
     else {
       const h = Math.max(1.5, el.offsetHeight * s - 1.5).toFixed(1);
       const w = k === 'say' ? 62 + (i * 37 % 30) : k === 'tool' ? 42 + (i * 23 % 24) : k === 'op' ? 46 : k === 'sys' ? 36 : 84;
-      html += '<i class="mm-b k-' + esc(k) + '" style="top:' + top + 'px;height:' + h + 'px;width:' + w + '%"></i>';
+      html += '<i class="mm-b k-' + esc(k) + '" data-kind="' + esc(k) + '" data-at="' + esc(el.dataset.at || '—') + '" style="top:' + top + 'px;height:' + h + 'px;width:' + w + '%"></i>';
     }
   }
   mm.innerHTML = html; mm.style.height = (H0 * s) + 'px'; syncView();
@@ -84,6 +84,10 @@ export function wireLive() {
     else log.scrollTo({ top: log.scrollHeight, behavior: rmOn() ? 'auto' : 'smooth' });
   });
   const source = tick => tick && log.children[+tick.dataset.i]?.dataset.k === 'ev' ? log.children[+tick.dataset.i] : null;
+  const blockAt = ev => [...V.mm.querySelectorAll('.mm-b')].find(block => {
+    const rect = block.getBoundingClientRect();
+    return ev.clientX >= rect.left && ev.clientX <= rect.right && ev.clientY >= rect.top && ev.clientY <= rect.bottom;
+  }) || null;
   const toY = ev => { if (V.s > 0) log.scrollTop = (ev.clientY - map.getBoundingClientRect().top) / V.s - log.clientHeight / 2; };
   let drag = false;
   life.on(map, 'pointerdown', ev => {
@@ -99,11 +103,13 @@ export function wireLive() {
   });
   life.on(map, 'pointermove', ev => {
     if (drag) { toY(ev); return; }
-    const tick = ev.target.closest('.mm-e'), el = source(tick);
-    if (!el) { tip.classList.remove('show'); return; }
+    const tick = ev.target.closest('.mm-e') || blockAt(ev);
+    if (!tick) { tip.classList.remove('show'); return; }
+    const el = tick.classList.contains('mm-e') ? source(tick) : null;
     const swatch = document.createElement('i'), time = document.createElement('time');
-    swatch.style.setProperty('--eh', tick.style.getPropertyValue('--eh')); time.textContent = el.dataset.at || '—';
-    tip.replaceChildren(swatch, document.createTextNode(el.dataset.label || ''), time);
+    swatch.style.setProperty('--eh', tick.style.getPropertyValue('--eh')); time.textContent = el?.dataset.at || tick.dataset.at || '—';
+    const kind = el?.dataset.label || (el?.dataset.ev ? el.dataset.ev + ' event' : (tick.dataset.kind || 'event') + ' message');
+    tip.replaceChildren(swatch, document.createTextNode(kind), time);
     tip.style.top = tick.offsetTop + 'px'; tip.classList.add('show');
   });
   for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) life.on(map, event, () => { drag = false; });

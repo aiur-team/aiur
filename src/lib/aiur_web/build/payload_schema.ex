@@ -24,6 +24,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "created" => nullable(:integer),
       "status" => enum(~w(done failed not_planned closed running queued open)),
       "pct" => nullable({:range, 0, 100}),
+      "progress_observed_at" => nullable(:integer),
       "agent" =>
         nullable(
           object(
@@ -57,6 +58,9 @@ defmodule AiurWeb.Build.PayloadSchema do
       "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed)), "ci" => nullable(:string)}, ["ci"]))
     }
   end
+
+  @spec row_optional() :: [String.t()]
+  def row_optional, do: ["progress_observed_at"]
 
   @spec history() :: map()
   def history, do: %{"from" => nullable(:integer), "more" => :boolean, "total" => nullable(:nonnegative), "undated" => nullable(:nonnegative), "tz" => :string}

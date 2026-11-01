@@ -18,6 +18,12 @@ defmodule AiurWeb.Build.PayloadTest do
     assert snapshot["sections"]["now"] |> hd() |> Map.get("pct") == row.pct
   end
 
+  test "rows accept an optional progress observation timestamp" do
+    data = put_in(fixture(), ["sections", "now", Access.at(0), "progress_observed_at"], 1_791_408_000_000)
+    assert Payload.validate(Payload.snapshot(fixture(), "epoch", 1)) == :ok
+    assert Payload.validate(Payload.snapshot(data, "epoch", 1)) == :ok
+  end
+
   test "fixtures reach the full strict schema (future fixture guard)" do
     for name <- FixtureSource.datasets() -- ~w(unavailable hold) do
       {:ok, data} = FixtureSource.full(dataset: name)

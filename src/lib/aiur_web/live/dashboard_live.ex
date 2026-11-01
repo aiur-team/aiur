@@ -13,6 +13,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.DashboardLive.Session
   alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.DashboardLive.Voice
+  alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.OperatorControlCenter.DecisionEvents
   alias AiurWeb.OperatorControlCenter.NavState
   alias AiurWeb.OperatorControlCenter.PayloadLoader
@@ -107,6 +108,18 @@ defmodule AiurWeb.DashboardLive do
     do: Conversation.on_read_conversation(token, socket)
 
   def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
+
+  def handle_event("voice-page", %{"page" => page}, socket) do
+    case Integer.parse(page) do
+      {page, ""} when page >= 0 ->
+        last_page = max(VoicePanel.page_count(socket.assigns.voice_workers) - 1, 0)
+        {:noreply, Phoenix.Component.assign(socket, :voice_page, min(page, last_page))}
+
+      _invalid ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("close-conversation", _params, socket), do: Conversation.on_close_conversation(socket)
   def handle_event("refresh_listen_mode", _params, socket), do: AiurWeb.ListenerModeEvents.retry(socket)
   def handle_event("set_listen_mode", params, socket), do: AiurWeb.ListenerModeEvents.change(params, socket)
