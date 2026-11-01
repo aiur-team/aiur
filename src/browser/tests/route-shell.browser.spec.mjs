@@ -79,10 +79,28 @@ test('healthy dashboard pages keep recovery controls hidden in a normal browser'
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
   const origin = await dashboardOrigin(page)
-  await page.goto(`${origin}/`)
+  await page.goto(`${origin}/commands`)
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   await page.context().setHTTPCredentials(null)
-  await expect(page.locator('[data-dashboard-recovery]')).toBeHidden()
+  const recovery = page.locator('[data-dashboard-recovery]')
+  await expect(recovery).toBeHidden()
+
+  const reloadRequests = []
+  page.on('request', request => {
+    if (request.url() === `${origin}/commands`) reloadRequests.push(request)
+  })
+  await page.evaluate(() => window.liveSocket.disconnect())
+  await expect(recovery).toBeVisible()
+  await recovery.locator('[data-recovery-reload]').click()
+  await expect.poll(() => reloadRequests.length).toBe(1)
+  await expect(page.getByRole('heading', { name: 'Commands', exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+
+  await page.evaluate(() => window.liveSocket.disconnect())
+  await expect(recovery).toBeVisible()
+  await recovery.getByRole('link', { name: 'Home' }).click()
+  await expect(page).toHaveURL(`${origin}/`)
+  await expect(page.locator('#route-title')).toHaveText('Build')
 })
 
 test('an unauthenticated dashboard load shows working recovery controls', async ({ page }) => {
