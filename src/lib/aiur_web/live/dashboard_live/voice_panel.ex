@@ -39,11 +39,13 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
   def panel(assigns) do
     catalog = Map.get(assigns.payload, :units) || %{}
     workers = workers(catalog)
+    page = min(Map.get(assigns, :voice_page, 0), max(page_count(workers) - 1, 0))
 
     assigns =
       assigns
       |> assign(:voice_workers, workers)
-      |> assign(:voice_page_rows, page_rows(workers, Map.get(assigns, :voice_page, 0)))
+      |> assign(:voice_page, page)
+      |> assign(:voice_page_rows, page_rows(workers, page))
       |> assign(:voice_page_count, page_count(workers))
       |> assign(:voice_catalog_status, Map.get(catalog, :status, :unavailable))
       |> assign(:voice_catalog_message, Map.get(catalog, :message))
@@ -105,11 +107,15 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
   defp has_conversation?(%{live_conversation: %{generation_handle: handle}}), do: is_binary(handle)
   defp has_conversation?(_row), do: false
 
-  defp workers(catalog) do
+  @doc false
+  @spec workers(map(), keyword()) :: [map()] | nil
+  def workers(catalog, opts \\ []) do
+    history_resolver = Keyword.get(opts, :history_resolver, &History.resolve_worker/3)
+
     case catalog do
       %{status: status, snapshot: %{rows: rows}} when status in [:ready, :empty, :stale] and is_list(rows) ->
         rows
-        |> Enum.filter(&conversation_available?/1)
+        |> Enum.filter(&conversation_available?(&1, history_resolver))
         |> Enum.map(fn row ->
           token = UnitsPresenter.row_token(row)
           identity = Map.get(row, :identity) || %{}
@@ -127,20 +133,19 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
   end
 
   @page_size 25
-  defp conversation_available?(row) do
+  @spec conversation_available?(map(), (String.t(), String.t(), String.t() -> term())) :: boolean()
+  defp conversation_available?(row, history_resolver) do
     has_conversation?(row) or
       case Map.get(row, :identity) do
         %TrackerIdentity{} = identity ->
           case Conversation.Ref.worker(identity) do
-            {:ok, ref} -> match?({:ok, _}, History.snapshot(ref))
+            {:ok, _ref} -> match?({:ok, _}, history_resolver.(identity.owner, identity.repository, identity.identifier))
             _ -> false
           end
 
         _ ->
           false
       end
-  rescue
-    _error -> false
   end
 
   @spec page_rows([map()] | nil, non_neg_integer()) :: [map()]

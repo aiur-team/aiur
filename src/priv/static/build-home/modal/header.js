@@ -36,7 +36,7 @@ function links(t) {
 }
 export function headerHTML(t) {
   const e = lookup(ctx.D?.epics, t.epic || 'unsorted') || lookup(ctx.D?.epics, 'unsorted'), f = lookup(ctx.D?.features, t.feature), st = ticketStatus(t);
-  const known = Number.isFinite(t.pct) && t.pct >= 0 && t.pct <= 100;
+  const known = Number.isFinite(t.pct) && t.pct >= 0 && t.pct <= 100 && t.progress_freshness !== 'stale';
   const now = nowMs(), progressAge = Number.isFinite(t.progress_observed_at) && now !== null ? Math.max(0, now - t.progress_observed_at) : null;
   const ageLabel = progressAge === null ? 'age unknown' : progressAge < 60_000 ? `${Math.floor(progressAge / 1000)}s old` : `${Math.floor(progressAge / 60_000)}m old`;
   return '<div class="bm-h"><span class="bm-ep"' + (Number.isFinite(e?.hue) ? ' style="--h:' + e.hue + '"' : '') + ' title="' + esc(e?.label || 'Unsorted') + '">' + (ctx.D?.icons?.[e?.icon] || e?.svg || lookup(I, e?.icon) || '') + '</span>' +

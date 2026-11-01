@@ -163,8 +163,8 @@ defmodule Aiur.Capabilities.CollectorFailureTest do
     on_exit(fn -> Application.delete_env(:aiur, :collector_failure_test_parent) end)
     collector = Task.async(fn -> Collector.collect(providers: [RetryProvider], timeout_ms: 25, boot_elapsed_ms_fun: fn -> 0 end) end)
 
-    assert_receive {:provider_attempt, _first}, 500
-    assert_receive {:provider_attempt, second}, 500
+    receive_barrier({:provider_attempt, _first})
+    receive_barrier({:provider_attempt, second})
     send(second, {:reply, %{"test.failure" => %{state: :available}}})
     {report, warnings} = Task.await(collector, 1_000)
     assert report.capabilities["test.failure"] == %{state: :available}
@@ -175,7 +175,7 @@ defmodule Aiur.Capabilities.CollectorFailureTest do
     Application.put_env(:aiur, :collector_failure_test_parent, self())
     on_exit(fn -> Application.delete_env(:aiur, :collector_failure_test_parent) end)
     {report, warnings} = Collector.collect(providers: [BlockingProvider], timeout_ms: 20, boot_elapsed_ms_fun: fn -> 60_000 end)
-    assert_receive {:blocking_attempt, _pid}, 500
+    receive_barrier({:blocking_attempt, _pid})
     assert %{detail: "timed out after " <> elapsed} = report.capabilities["test.failure"]
     assert String.ends_with?(elapsed, " ms")
     assert Enum.any?(warnings, &match?({:failed, BlockingProvider, "timed out after " <> _}, &1))

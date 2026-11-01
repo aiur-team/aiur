@@ -112,7 +112,9 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("voice-page", %{"page" => page}, socket) do
     case Integer.parse(page) do
       {page, ""} when page >= 0 ->
-        last_page = max(VoicePanel.page_count(socket.assigns.voice_workers) - 1, 0)
+        catalog = Map.get(socket.assigns.payload || %{}, :units) || %{}
+        workers = VoicePanel.workers(catalog)
+        last_page = max(VoicePanel.page_count(workers) - 1, 0)
         {:noreply, Phoenix.Component.assign(socket, :voice_page, min(page, last_page))}
 
       _invalid ->

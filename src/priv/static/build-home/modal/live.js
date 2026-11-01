@@ -84,10 +84,6 @@ export function wireLive() {
     else log.scrollTo({ top: log.scrollHeight, behavior: rmOn() ? 'auto' : 'smooth' });
   });
   const source = tick => tick && log.children[+tick.dataset.i]?.dataset.k === 'ev' ? log.children[+tick.dataset.i] : null;
-  const blockAt = ev => [...V.mm.querySelectorAll('.mm-b')].find(block => {
-    const rect = block.getBoundingClientRect();
-    return ev.clientX >= rect.left && ev.clientX <= rect.right && ev.clientY >= rect.top && ev.clientY <= rect.bottom;
-  }) || null;
   const toY = ev => { if (V.s > 0) log.scrollTop = (ev.clientY - map.getBoundingClientRect().top) / V.s - log.clientHeight / 2; };
   let drag = false;
   life.on(map, 'pointerdown', ev => {
@@ -103,7 +99,7 @@ export function wireLive() {
   });
   life.on(map, 'pointermove', ev => {
     if (drag) { toY(ev); return; }
-    const tick = ev.target.closest('.mm-e') || blockAt(ev);
+    const tick = ev.target.closest('.mm-e, .mm-b');
     if (!tick) { tip.classList.remove('show'); return; }
     const el = tick.classList.contains('mm-e') ? source(tick) : null;
     const swatch = document.createElement('i'), time = document.createElement('time');

@@ -69,6 +69,18 @@ test('card open, header identity, notices, focus trap and all close paths', asyn
   ]).flat())
 })
 
+test('stale progress displays a dash while retaining its observed age', async ({ page }) => {
+  await open(page)
+  await page.evaluate(async () => (await import('/build-home/clock.js')).setNow(Date.now()))
+  const t = await row(page)
+  t.pct = 73
+  t.progress_freshness = 'stale'
+  t.progress_observed_at = Date.now() - 125_000
+  await display(page, t)
+  await expect(page.locator('#bm-pct')).toHaveText('—')
+  await expect(page.locator('#bm-pct')).toHaveAttribute('title', 'Progress unknown · 2m old')
+})
+
 test('epic icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
   await open(page)
   const t = await row(page)

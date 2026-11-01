@@ -25,6 +25,58 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
     assert VoicePanel.page_count(workers) == 2
   end
 
+  test "voice workers include live and stored conversations and hide unavailable tickets" do
+    identity = %Aiur.TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      identifier: "42",
+      provider_id: "issue-42",
+      reason: nil
+    }
+
+    live = %{identity: identity, live_conversation: %{generation_handle: "generation"}}
+    stored = %{identity: %{identity | identifier: "43", provider_id: "issue-43"}}
+    unavailable = %{identity: %{identity | identifier: "44", provider_id: "issue-44"}}
+
+    resolver = fn
+      _owner, _repository, "43" -> {:ok, "conv_stored"}
+      _, _, _ -> {:error, :not_found}
+    end
+
+    catalog = %{status: :ready, snapshot: %{rows: [live, stored, unavailable]}}
+
+    workers = VoicePanel.workers(catalog, history_resolver: resolver)
+    assert Enum.map(workers, & &1.label) == ["42", "43"]
+  end
+
+  test "voice page rendering clamps when the openable worker set shrinks" do
+    assigns = %{
+      payload: %{units: %{status: :ready, snapshot: %{rows: []}}},
+      voice_page: 8,
+      writable: false,
+      voice_capabilities: %{},
+      voice_conversation_error: nil,
+      now: DateTime.utc_now(),
+      conversation_drawer: nil,
+      agent_log_modal: nil,
+      drafts: %{},
+      chat_errors: %{},
+      conversation_usage_snapshot: nil,
+      conversation_usage_error: nil,
+      listener_view: :unavailable,
+      listener_feedback: %{},
+      listener_receipts: [],
+      conversation_row: nil,
+      conversation_origin_id: nil
+    }
+
+    html = render_component(&VoicePanel.panel/1, Map.to_list(assigns))
+    assert html =~ "No workers are listed."
+    refute html =~ "Showing 9 of"
+  end
+
   # Voice availability comes from the same registry `/api/v1/capabilities`
   # serves, and a key added mid-session is picked up on the 60 s voice tick
   # rather than only after a failed microphone join.
