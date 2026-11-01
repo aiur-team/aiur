@@ -21,7 +21,7 @@ defmodule Aiur.Events.Catalog.Entries do
     %Entry{pattern: "ticket.*.agent.#", class: :logged, owner: "harness-adapters"},
     %Entry{pattern: "ticket.*.agent.custom.#", class: :logged, owner: "harness-adapters"},
     # aiur/decision_store/{audit,persistence}.ex
-    %Entry{pattern: "ticket.*.agent.decision.#", class: :journaled, refs: [:ticket, :decision_id, :decision_version], attrs: [slug: {:enum, @decision_slugs}], owner: "commands"},
+    %Entry{pattern: "ticket.*.agent.decision.#", class: :journaled, export?: true, refs: [:ticket, :decision_id, :decision_version], attrs: [slug: {:enum, @decision_slugs}], owner: "commands"},
     %Entry{
       pattern: "ticket.*.agent.decision.requested",
       class: :journaled,

@@ -105,6 +105,7 @@ defmodule Aiur.Events.Outbound.EventTest do
   test "exports only requested and answered decision topics" do
     assert Event.exportable_topic?("ticket.5695.agent.decision.requested")
     assert Event.exportable_topic?("ticket.5695.agent.decision.answered")
+    refute Event.exportable_topic?("ticket.5695.agent.decision.mooted")
     refute Event.exportable_topic?("ticket.5695.agent.decision.executor-acknowledged")
   end
 

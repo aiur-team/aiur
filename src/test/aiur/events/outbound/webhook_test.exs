@@ -62,7 +62,7 @@ defmodule Aiur.Events.Outbound.WebhookTest do
       id: 106,
       topic: "ticket.5695.agent.decision.answered",
       decision_id: "dec_123",
-      decision_version: 2,
+      decision_version: 1,
       question: "Should the change be deployed?",
       options: [%{id: "deploy", label: "Deploy", description: nil, benefits: nil, drawbacks: nil, risk: nil, token: "never-export-this-token"}],
       answer: %{selected_option_id: "deploy", custom_response: nil, rationale: "The checks passed.", token: "never-export-this-token"},

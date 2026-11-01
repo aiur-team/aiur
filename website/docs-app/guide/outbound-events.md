@@ -81,9 +81,13 @@ The supported outbound families are:
 | Cancellation result | `ticket.<id>.cancel.result` |
 
 Each family has a v1 schema for its topic, refs, and attributes. Decision events
-carry a sanitized question and options; answers add the answer. Other decision
-lifecycle topics stay internal. The event bus builds the shared envelope. Treat
-events as refresh signals and re-read the owning API for authoritative state.
+carry a sanitized question and options; answers add the answer.
+
+Other decision lifecycle topics remain available on the pull event feed, but are
+not sent by the outbound webhook.
+
+The event bus builds the shared envelope. Treat events as refresh signals and
+re-read the owning API for authoritative state.
 
 Unknown topics or newer `v` values require a newer contract package; a breaking
 wire change adds another schema version instead of changing v1 in place.

@@ -8,7 +8,7 @@
   "occurred_at": "2026-10-25T00:00:00Z",
   "observed_at": "2026-10-25T00:00:01Z",
   "source": "legacy",
-  "refs": { "ticket": "5695", "decision_id": "dec_123", "decision_version": 2 },
+  "refs": { "ticket": "5695", "decision_id": "dec_123", "decision_version": 1 },
   "attrs": {
     "question": "Should the change be deployed?",
     "options": [{ "id": "deploy", "label": "Deploy", "description": null, "benefits": null, "drawbacks": null, "risk": null }],
