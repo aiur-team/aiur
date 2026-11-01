@@ -8,4 +8,3 @@ BrowserSpec	src/browser/tests/command-answer.browser.spec.mjs	override timeline 
 BrowserSpec	src/browser/tests/command-answer.browser.spec.mjs	override timeline and form fit desktop and mobile after an answer	221	#7393
 BrowserSpec	src/browser/tests/shell-chrome.browser.spec.mjs	B-2 drag clamps to boolean rails, click toggles and resize follows release	51	#7395	2026-11-15
 BrowserSpec	src/browser/tests/shell-chrome.browser.spec.mjs	future regression guard: overlapping navigation choices survive older acknowledgements	231	#7397	2026-11-15
-BrowserSpec	src/browser/tests/executor-view.browser.spec.mjs	390 px: Executor entry point and not-attached setup fit without scrolling sideways	7	#7414	2026-11-15
