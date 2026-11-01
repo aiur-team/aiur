@@ -75,7 +75,7 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
     # Dispatch scores a reading this old as unknown, so a client must not read it as current.
     assert %{"freshness" => "stale", "weekly_percent" => 80, "age_ms" => age_ms} = account(body, "claude", "default")
     assert age_ms >= 3_600_000
-    assert %{"freshness" => "no_oauth_token", "weekly_percent" => nil} = account(body, "claude", "work")
+    assert %{"freshness" => "no_oauth_token", "weekly_percent" => nil, "fix" => "not signed in; run `aiur login claude work`"} = account(body, "claude", "work")
   end
 
   test "without a harness filter every registered backend account is listed" do
@@ -164,7 +164,7 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
   end
 
   defp cli_rows(harness) do
-    output = ExUnit.CaptureIO.capture_io(fn -> :ok = Aiur.AccountsCLI.accounts(true, harness, &UsageReadings.snapshot("claude", &1)) end)
+    output = ExUnit.CaptureIO.capture_io(fn -> :ok = Aiur.AccountsCLI.accounts(true, harness, &UsageReadings.snapshot_for_accounts/1) end)
     output |> String.split("\n", trim: true) |> hd() |> Jason.decode!()
   end
 

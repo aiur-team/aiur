@@ -41,7 +41,7 @@ defmodule Aiur.Accounting.CLI do
   @spec accounts(boolean(), String.t() | nil) :: :ok
   def accounts(json, harness \\ nil) do
     guarded("accounts", fn ->
-      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot_for_accounts/1)
       exit_marker(0)
     end)
   end

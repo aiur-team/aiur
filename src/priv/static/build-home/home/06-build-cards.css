@@ -77,10 +77,8 @@
   max-width: 46ch;
 }
 
-/* C:215 */ .bd-now {
-  position: sticky;
-  top: 46px;
-  bottom: 0;
+/* C:215 */ /* #7446: the band scrolls with the board instead of sticking to the viewport edges. */ .bd-now {
+  position: relative;
   z-index: 7;
   border-block: 1px solid var(--accent-line);
 }

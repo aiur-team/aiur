@@ -62,15 +62,23 @@ shorter `agent.headroom_reading_max_age_seconds` clamps that cadence down to
 the provider's 120-second polling floor. A max age below 120 seconds can become
 stale between probes. Older readings show as `stale`.
 
-When polls fail, Claude rows show `last_error`. After an earlier good reading
-the row is `stale` with that reading's age. Three failures in a row log one
-warning.
+When polls fail, Claude rows show `last_error` and `last_error_at`, the time
+of the latest failed poll. After an earlier good reading the row is `stale`
+with that reading's age.
+
+A signed-out profile (no OAuth token, an expired token, or a 401/403 from the
+usage endpoint) also gets `fix`, such as `aiur login claude work`. The `aiur
+usage` and `aiur status` commands print a failure line for each account.
+
+Three failures in a row raise
+`system.claude_account.<name>.usage_probe_failing`. The next good poll
+resolves the alert.
 
 A running daemon serves the same rows over HTTP, behind dashboard basic auth:
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Per-account rows are limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at`, `age_ms` and, on Claude rows, `last_error`. |
+| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Per-account rows are limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at`, `age_ms` and, on Claude rows, `last_error`, `last_error_at` and `fix`. |
 | `GET /api/v1/usage/accounts?harness=codex` | The same envelope, limited to one harness. |
 
 Every row has a `freshness` value:
@@ -108,6 +116,12 @@ agent:
 `balance` selects the account with the lowest weekly utilization, using
 five-hour utilization to break ties. `priority` uses the first configured
 account. Usage-aware selection currently applies to Claude and Codex.
+
+Removing an account from `agent.accounts` takes effect at the next session
+start once the hot reload is accepted. A session already running stays on its
+account until its run ends, because the agent process holds that profile's
+credentials. The ticket's next session, a new run or a retry, selects again
+among the accounts still configured.
 
 `headroom` looks across backends as well as accounts: each new ticket goes to
 the backend and account with the most usage left, within the routes its
