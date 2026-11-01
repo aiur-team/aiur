@@ -28,19 +28,22 @@ At each dispatch Aiur:
 4. Scores each candidate by the remaining fraction of its **binding window**:
    the most-used of its 5-hour and weekly windows.
 5. Uses the first backend in `agent.priority` that has a non-exhausted
-   candidate. Within that backend, known usage with more than 10% left ranks
-   first, then unknown usage, then known usage with 10% or less left. An
-   exhausted candidate is never picked. Ties keep configured account order.
+   candidate. Within that backend, unknown usage ranks first so an account
+   without a reading can be used and observed; then known usage with more than
+   10% left, then known usage with 10% or less left. An exhausted candidate is
+   never picked. Ties keep configured account order.
 
 If Codex is first in `agent.priority`, Claude's higher headroom does not make
 Claude win while Codex has an available route. When Codex is unavailable or
 all its candidates are exhausted, dispatch falls through to Claude and chooses
 the Claude account with the most headroom.
 
-A missing or stale reading is unknown, not full. Unknown ranks below a healthy
-reading with more than 10% remaining and above a known reading with 10% or less
-remaining. This lets an unobserved account be used when known accounts are
-nearly spent without pretending it has a numeric allowance.
+A missing or stale reading is unknown, not full. Unknown ranks ahead of any
+known reading so an unobserved account is not skipped indefinitely. This is an
+exploration rule, not a claim that the account has more allowance: it may be
+near its limit. The selected account's next usage observation replaces the
+unknown score, and dispatch still never selects an account known to be
+exhausted.
 
 When every candidate is exhausted, the ticket waits for a reset, as an
 exhausted `agent.priority` chain does. A `model:` label still pins the

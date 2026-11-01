@@ -18,14 +18,15 @@ defmodule Aiur.Accounts.Headroom do
 
   Candidates rank in tiers, then by remaining fraction, then by input order:
 
-    1. known usage with more than 10% left;
-    2. unknown usage (no reading). It is never shown as a number;
+    1. unknown usage (no reading). It is never shown as a number and is
+       preferred so the account can be observed rather than skipped forever;
+    2. known usage with more than 10% left;
     3. known usage with 10% or less left;
     4. exhausted (a limited flag, or no usage left). Never chosen.
   """
 
   @low_headroom 0.10
-  @tiers %{known: 0, unknown: 1, low: 2, exhausted: 3}
+  @tiers %{unknown: 0, known: 1, low: 2, exhausted: 3}
 
   @typedoc "One dispatch target. `:backend` and `:account` identify it; other keys are carried through."
   @type candidate :: %{required(:backend) => String.t(), required(:account) => String.t() | nil, optional(atom()) => term()}

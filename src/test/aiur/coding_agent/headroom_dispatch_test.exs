@@ -133,9 +133,12 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert issue.dispatch_selection.summary == "headroom: codex=5%"
     end
 
-    test "an unknown-usage backend never beats a known backend with more than 10% left" do
-      assert {:ok, %Issue{selected_backend: "claude", selected_account: "everdred"}} =
-               select(ticket(), state: %{"backends" => %{}}, usage_snapshot: meters(%{"default" => {100, 0}, "everdred" => {89, 0}}))
+    test "an unknown account is tried before a known account so it can be observed" do
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = issue} =
+               select(ticket(), state: %{"backends" => %{}}, usage_snapshot: meters(%{"everdred" => {89, 0}}))
+
+      assert issue.dispatch_selection.summary =~ "headroom: claude/default=unknown"
+      assert issue.dispatch_selection.summary =~ "claude/everdred=11%"
     end
 
     test "an unknown account beats a known account with 10% or less left" do
@@ -256,7 +259,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
           %{}
       end
 
-      assert {:ok, %Issue{selected_account: "everdred"} = issue} = select(ticket(), usage_snapshot: stale_meter, max_reading_age_seconds: 1800)
+      assert {:ok, %Issue{selected_account: "default"} = issue} = select(ticket(), usage_snapshot: stale_meter, max_reading_age_seconds: 1800)
       assert issue.dispatch_selection.summary =~ "claude/everdred=50% (10m old)"
       assert issue.dispatch_selection.summary =~ "claude/default=unknown (stale, 2h old)"
     end
