@@ -326,14 +326,14 @@ defmodule Aiur.Application.Children do
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
         dashboard_final_children(dashboard?, opts) ++
+        [toolchain_child()] ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
         BuildOrders.child_specs(:label_backfill, opts) ++
         List.wrap(
           if(recording?,
             do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest, {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one}, Aiur.Executor.TranscriptIngest]
           )
-        ) ++
-        [toolchain_child()]
+        )
     )
   end
 
