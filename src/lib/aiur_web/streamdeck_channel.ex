@@ -320,7 +320,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
     if focused_command?(socket, decision_id, identifier) do
       push(socket, "commands", commands_projection(identifier))
-      {:noreply, socket}
+      {:noreply, push_override_status(socket, decision_id)}
     else
       {:noreply, socket}
     end

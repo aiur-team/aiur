@@ -11,15 +11,21 @@ defmodule AiurWeb.Build.ConversationEventsTest do
   @repo "aiur-team/aiur"
 
   defp line(id, suffix, summary \\ "", opts \\ []),
-    do: %{kind: "self", id: id, topic: Keyword.get(opts, :topic, "ticket.12.agent." <> suffix), ts: Keyword.get(opts, :ts, @ts), summary: summary}
+    do: %{kind: "self", id: id, topic: Keyword.get(opts, :topic, topic(suffix)), ts: Keyword.get(opts, :ts, @ts), summary: summary}
+
+  defp topic("agent." <> _ = suffix), do: "ticket.12." <> suffix
+  defp topic(suffix) when suffix in ["pr.opened", "pr.ready_for_review", "branch.push"], do: "ticket.12." <> suffix
+  defp topic(suffix), do: "ticket.12.agent." <> suffix
 
   defp facts(overrides \\ %{}), do: Map.merge(%{deps: %{}, merges: [], decisions: {:ok, []}, pause: nil, by_you_at: nil, repository: @repo}, overrides)
   defp row(overrides), do: Map.merge(%{"id" => "12", "num" => 12, "title" => "Ticket twelve", "deps" => [], "agent" => %{"state" => "active"}}, overrides)
   defp tail(row, facts \\ facts()), do: Events.current_facts(row, facts).tail
 
   describe "log rows" do
-    test "E1 the eight mapped topics map per table and unmapped agent topics give nothing" do
-      mapped = ~w(progress progress.checkin progress.phase phase.review.start phase.review.end blocked unblocked pause.request)
+    test "supported ticket topics map to event rows and unsupported topics are omitted" do
+      mapped =
+        ~w(agent.progress agent.progress.checkin agent.progress.phase agent.phase.review.start agent.phase.review.end agent.blocked agent.unblocked agent.pause.request pr.opened pr.ready_for_review branch.push)
+
       unmapped = ~w(phase.work.end ci.unrelated-failure attention.resolved)
       rows = Enum.with_index(mapped ++ unmapped, &line(&2 + 1, &1))
 
@@ -31,7 +37,10 @@ defmodule AiurWeb.Build.ConversationEventsTest do
                {"review", "Review complete"},
                {"dep", "Blocked"},
                {"dep", "Unblocked"},
-               {"you", "Agent asked to pause"}
+               {"you", "Agent asked to pause"},
+               {"pr", "Opened PR"},
+               {"pr", "PR ready for review"},
+               {"commit", "Commit pushed"}
              ]
     end
 
@@ -135,6 +144,15 @@ defmodule AiurWeb.Build.ConversationEventsTest do
     test "E22 an open PR reads like the design and has no invented time; a failed closed PR is a fail row" do
       assert [%{ev: "pr", label: "Opened PR #8", sub: "Ticket twelve", at: nil}] = tail(row(%{"pr" => %{"num" => 8, "state" => "open"}}))
       assert [%{ev: "fail", label: "PR #8 closed", id: "ev:fail:pr:8"}] = tail(row(%{"pr" => %{"num" => 8, "state" => "closed"}, "status" => "failed"}))
+    end
+
+    test "a logged PR-open event suppresses its duplicate current-fact row" do
+      logged = Events.from_log([line(7, "pr.opened", "PR #8")], "12", %{})
+      row = row(%{"pr" => %{"num" => 8, "state" => "open"}})
+      current = Events.current_facts(row, facts(%{logged_events: logged}))
+
+      opened = Enum.filter(logged ++ current.tail, &(&1.ev == "pr"))
+      assert [%{id: "ev:log:7", label: "Opened PR"}] = opened
     end
 
     test "E12 state rows per agent state" do

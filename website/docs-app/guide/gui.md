@@ -149,6 +149,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | --- | --- |
 | Build | [Sections, views, the ticket modal, usage, and unknown states](/concepts/build-history). |
 | Units | CLI fleet inspection; /units redirects to /. |
+| Executor | `/executor`: the attached Executor session, its history and message composer. |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
@@ -175,6 +176,25 @@ build gate limits verification; they do not automatically change the agent cap.
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
 
+### Executor
+
+Open **Executor** in desktop or tablet navigation, or **Settings → Executor conversation**
+on a phone, to read the instance's one Executor
+conversation at `/executor`. Attach with `aiur executor-attach --harness claude`
+or `aiur executor-attach --harness codex`.
+
+Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-session --json` hint for inspecting the current binding and hook state.
+
+The distinct Executor frame wraps the same paging, event jumps and live history
+as worker conversations; `/executor?pos=N` highlights a recorded position.
+
+Loading, unavailable history, an unreadable transcript and unsupported capture
+stay explicit. Ended or detached sessions keep their recorded history.
+
+A read-only dashboard shows history without a message form. Reasoning stays hidden
+and tool output starts collapsed. See [Conversations](/concepts/conversations)
+for retention and masking.
+
 ## Conversations
 
 See [Conversations](/concepts/conversations) for journal storage, retention,
@@ -197,6 +217,16 @@ On a worker's full conversation page, writable dashboards offer a **Message to
 agent** composer. Its read-only mode indicator shows the effective listener
 mode, or **mode unknown** when it cannot be observed. **Listener unavailable**
 means the specification cannot be used and conversation sends are refused.
+
+The Executor conversation reuses this composer and delivery list. Sending stays
+disabled with a reason when no session is attached, the binding is unreachable,
+or the listener delivery target lacks Executor support. An installed hook alone
+does not establish send support.
+
+Accepted Executor messages show **Waiting until
+the Executor’s next turn** until the matching journal entry arrives; acceptance
+does not wake an idle external session. Pending Executor sends are not retained
+across daemon restarts. The effective mode is read-only.
 
 **Accepted** means the message was accepted for processing. **Queued** means
 the harness queued it (Sync: next boundary), not that the agent read it.
@@ -388,9 +418,11 @@ It starts with the latest 50 entries. **Load older**, **Jump to start**,
 and **Load newer** browse earlier history; **Latest entries** returns to the
 live tail.
 
-Agent prose uses Markdown. Reasoning and command or tool output start collapsed;
-select a summary to expand it. File edits show diffs. Operator bubbles, session
-dividers and gap rows keep the source and continuity visible. See
+Agent prose uses Markdown. Executor reasoning rows are hidden; worker reasoning
+and command or tool output start collapsed. Select a summary to expand it.
+
+File edits show diffs. Operator bubbles, session dividers and gap rows keep the
+source and continuity visible. See
 [Reading entries](/concepts/conversations#reading-entries) for masking and
 truncation details.
 

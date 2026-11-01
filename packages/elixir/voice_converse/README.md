@@ -11,6 +11,16 @@ restricted session. The default `nil` allows all supported tools; an empty list
 disables every tool. The session enforces the list on incoming calls as well as
 the advertised tool specifications.
 
+Hosts may set `host_tools` to a module implementing
+`VoiceConverse.Ports.HostTools`. Its `specs(target)` callback returns
+`{:ok, [%{name: name, description: description, params: json_schema}]}` and
+`call(name, target, params)` returns `{:ok, text}` or `{:error, reason}`. Tool
+names must not overlap built-in tools; a conflict rejects session start with
+`:host_tool_name_conflict`, while malformed specs return `:invalid_host_tools`.
+Calls run under a deadline. Their parameters and
+results use the configured redactor and normal transcript recording.
+`allowed_tools` filters host tools like every other advertised tool.
+
 ## Recording a session summary
 
 The `record_summary` client tool accepts three required string arrays:
@@ -80,3 +90,40 @@ mix voice_converse.transcripts --root /path/to/transcripts vc_aaaaaaaaaaaaaaaaaa
 
 The root is explicit; list limits are 1–100 (default 100). JSON preserves index fields
 or raw complete transcript records. Text output reports torn tails and skipped records.
+
+## Live context
+
+Sessions subscribe through all configured read/channel ports. `BriefingSource` pushes
+`{:briefing, %VoiceConverse.Briefing{}}`; only changed lines reach the provider.
+Ports may also send `{:context_update, text, announce: true}` for a refreshed note,
+`{:command_resolved, id}`, `:target_gone`, or `:live_context_unavailable` when a
+subscription is lost. Consult replies use their existing
+AgentChannel messages and are announced at the next pause.
+
+Context text is redacted and synced to the transcript before provider delivery.
+Bursts coalesce into at most one context update every five seconds, with each event
+retained in the transcript and the latest ten included on reconnect. A resolved
+Command conservatively invalidates proposed instruction drafts composed against the
+old context; sent instructions are unchanged. Unsupported subscriptions report a gap
+and refresh the briefing on tool calls. No host event-bus dependency enters this package.
+
+AgentChannel subscriptions can return `:not_applicable` for targets without an agent
+channel. This does not report an availability gap or enable tool-call refreshes.
+
+## Role pre-context
+
+Supply `Config.roles` as a list of `%{id: "worker", title: "Ticket discussion",
+prompt: "Discuss the ticket"}` maps. Optional `targets` defaults to both
+`["worker", "executor"]`. `Config.roles_dir` adds Markdown files with YAML
+front matter (`id`, `title`, `targets`) and a nonempty prompt body; directory
+roles override inline ids. `Roles.load(config)` returns `%{roles: [...],
+warnings: [...]}`; invalid entries are skipped and duplicate ids warn.
+`Roles.list(config)` lists ids, titles and targets; `Roles.get(config, id)`
+returns a role with `prompt` and lowercase SHA-256 `hash`, or `{:error, :not_found}`.
+
+`Config.glossary` is a list of host-supplied strings appended with blank lines.
+The core ships no host roles or glossary. Sessions select the role matching the
+target's `worker`/`executor` kind by default, or accept `role_id:` explicitly.
+An unknown selection or incompatible target refuses startup. Hosts supplying no
+roles can continue using sessions without a role. The selected prompt is frozen
+for reconnects and its id/hash are recorded in `session_started`.

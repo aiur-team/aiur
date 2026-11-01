@@ -11,6 +11,7 @@ const cases = [
   ['ticket usage', 'ticket-usage-event.v1'],
   ['ticket spend cap reached', 'ticket-spend-cap-reached-event.v1'],
   ['ticket cancel result', 'ticket-cancel-result-event.v1'],
+  ['ticket decision', 'ticket-decision-event.v1'],
 ];
 
 test('outbound event fixtures validate against their v1 schemas', () => {
@@ -43,6 +44,20 @@ test('outbound schemas reject fixtures from a different event family', () => {
   const lifecycle = ajv.compile(read('schemas/ticket-lifecycle-event.v1.schema.json'));
   const progress = read('fixtures/ticket-progress-event.v1.json');
   assert.equal(lifecycle(progress), false);
+});
+
+test('decision schema accepts requests, requires answers, and rejects internal slugs', () => {
+  const ajv = new Ajv2020({ allErrors: true, formats: { 'date-time': true } });
+  ajv.addSchema(read('schemas/outbound-event-envelope.v1.schema.json'));
+  const validate = ajv.compile(read('schemas/ticket-decision-event.v1.schema.json'));
+  const answered = read('fixtures/ticket-decision-event.v1.json');
+  const requested = structuredClone(answered);
+  requested.topic = 'ticket.5695.agent.decision.requested';
+  delete requested.attrs.answer;
+  assert.equal(validate(requested), true, JSON.stringify(validate.errors));
+  assert.equal(validate(answered), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...answered, topic: 'ticket.5695.agent.decision.executor-acknowledged' }), false);
+  assert.equal(validate({ ...answered, attrs: { ...answered.attrs, answer: undefined } }), false);
 });
 
 test('the package is independently publishable', () => {

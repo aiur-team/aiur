@@ -63,6 +63,7 @@ defmodule AiurWeb.StreamdeckCommands do
       "question" => decision.question,
       "short_label" => decision.short_label,
       "answerable_on_deck" => answerable_on_deck(decision),
+      "override_status" => override_status(decision),
       "context" => context(decision.context),
       "options" => Enum.map(decision.options, &option/1),
       "status" => Atom.to_string(decision.decision_status),
@@ -103,6 +104,18 @@ defmodule AiurWeb.StreamdeckCommands do
 
   def answer_reply(%{status: :stale}), do: {:error, %{reason: "stale"}}
   def answer_reply(%{reason: reason}), do: {:error, %{reason: reason_text(reason)}}
+
+  defp override_status(decision) do
+    case List.last(decision.overrides) do
+      nil -> nil
+      %{state: :queued} -> "override queued"
+      %{state: :delivered} -> "override delivered"
+      %{state: :implemented} -> "override implemented"
+      %{state: :failed} -> "override failed"
+      %{state: :superseded} -> "override superseded"
+      _other -> "override status unknown"
+    end
+  end
 
   defp winner(nil), do: nil
 

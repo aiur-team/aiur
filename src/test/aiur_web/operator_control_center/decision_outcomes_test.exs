@@ -28,11 +28,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionOutcomesTest do
   end
 
   test "in-flight is distinct from confirmed delivery and unknown delivery time stays unknown" do
-    assert {:error, "Delivery is in progress. Send a follow-up message instead.", [:follow_up]} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_in_flight})
-    assert {:error, "Already delivered at an unknown time. Send a follow-up message instead.", [:follow_up]} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_delivered})
+    assert {:error, "Delivery is in progress. Use Send correction to override this answer.", []} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_in_flight})
+    assert {:error, "Already delivered at an unknown time. Use Send correction to override this answer.", []} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_delivered})
     at = DateTime.utc_now()
-    assert {:error, text, [:follow_up]} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_delivered, delivered_at: at})
-    assert text == "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}. Send a follow-up message instead."
+    assert {:error, text, []} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_delivered, delivered_at: at})
+    assert text == "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}. Use Send correction to override this answer."
   end
 
   test "withdrawn and stale Commands explain recovery without success" do

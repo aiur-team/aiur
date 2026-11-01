@@ -37,6 +37,11 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     }
   end
 
+  @doc "Renders PCM speech and character alignment using ElevenLabs' timestamped TTS endpoint."
+  @spec render_speech(VoiceConverse.Provider.render_spec()) ::
+          {:ok, VoiceConverse.Provider.render_result()} | {:error, Events.Error.t()}
+  defdelegate render_speech(spec), to: VoiceConverse.Provider.ElevenLabsNarration
+
   @doc "Opens an unlinked daemon-held provider connection."
   @spec open(VoiceConverse.Provider.session_spec()) :: {:ok, pid()} | {:error, Events.Error.t()}
   def open(%{owner: owner, credentials: {credentials, provider_id}} = spec)

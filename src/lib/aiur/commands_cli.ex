@@ -61,7 +61,7 @@ defmodule Aiur.CommandsCLI do
   def build(_opts), do: {:error, "expects command options"}
 
   defp request(opts) do
-    filter = if Keyword.get(opts, :blocking, false), do: :blocking, else: Keyword.get(opts, :filter, :all)
+    filter = if Keyword.get(opts, :blocking, false), do: :blocking, else: Keyword.get(opts, :filter, :open)
     decision_id = Keyword.get(opts, :decision_id)
 
     with {:ok, filter} <- filter(filter),
@@ -103,7 +103,7 @@ defmodule Aiur.CommandsCLI do
         :"needs-you" -> Map.merge(query, %{"lifecycle" => "open", "route" => "needs_you"})
         :"with-executor" -> Map.merge(query, %{"lifecycle" => "open", "route" => "with_executor"})
         :"from-executor" -> Map.merge(query, %{"lifecycle" => "open", "requester" => "executor"})
-        :all -> query |> Map.put("lifecycle", "open") |> maybe_put("ticket", opts[:ticket]) |> maybe_put("search", opts[:search])
+        :all -> query |> maybe_put("ticket", opts[:ticket]) |> maybe_put("search", opts[:search])
       end
 
     {:ok, query}

@@ -24,6 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:global_pause_error, :string, default: nil)
   attr(:pause_state, :map, default: nil)
   # Notices precede page content.
+  slot(:status)
   slot(:banner)
   slot(:inner_block, required: true)
 
@@ -47,6 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               <.pause_item globally_paused={@pause_state.globally_paused} writable={@pause_state.writable} />
               <.theme_item />
               <.palette_button />
+              <a href="/executor" class="ax-mi aiur-shell__menu-item" role="menuitem"><span>Executor conversation</span></a>
               <a href="/voice" class="ax-mi aiur-shell__menu-item" role="menuitem"><span>Talk to Executor</span></a>
             </div>
           </div>
@@ -55,6 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <b id="route-title" role="heading" aria-level="1">{@title || @route.label}</b>
           <span class="status-badge status-badge-offline brand-live"><span class="status-badge-dot"></span>Offline</span>
         </div>
+        {render_slot(@status)}
         <span class={["ax-paused aiur-shell__paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">New starts paused</span>
       </header>
       <div class="app-layout aiur-shell__body">
@@ -161,7 +164,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :patch}
       patch={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>
@@ -171,7 +174,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :navigate}
       navigate={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>
