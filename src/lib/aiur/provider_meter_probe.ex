@@ -43,7 +43,6 @@ defmodule Aiur.ProviderMeterProbe do
   @probe_identifier "usage-probe"
   @backend :app_server
   @batch_timeout_ms 35_000
-  @failure_warning_threshold 3
 
   @type target :: :all | atom()
   @type outcome :: %{provider: atom(), observed?: boolean(), reason: atom() | nil}
@@ -234,9 +233,8 @@ defmodule Aiur.ProviderMeterProbe do
           end
 
         {usage_result, account_observed_at, freshness} = result
-        previous_failures = Map.get(Accounts.UsageReadings.snapshot("claude", [name])[name] || %{}, :consecutive_failures, 0)
         Accounts.UsageReadings.record("claude", name, usage_result, account_observed_at, freshness)
-        alert_if_failing(name, previous_failures, Keyword.get(opts, :alert_fun, &Aiur.Signal.agent_alert/3))
+        Accounts.UsageReadings.alert_if_failing(name, Keyword.get(opts, :alert_fun, &Aiur.Signal.agent_alert/3))
         {name, usage_result}
       end)
 
@@ -259,26 +257,6 @@ defmodule Aiur.ProviderMeterProbe do
       nil ->
         {_name, {:error, reason}} = List.first(results)
         outcome(provider, false, reason)
-    end
-  end
-
-  # One refused probe is routine against a rate-limited endpoint; a streak
-  # means the reading has stopped moving, which nothing else would announce.
-  # Alerted once per streak and resolved by the next good read; `aiur
-  # accounts` keeps showing the error in between.
-  defp alert_if_failing(name, previous_failures, alert_fun) do
-    topic = "system.claude_account.#{name}.usage_probe_failing"
-
-    case Accounts.UsageReadings.snapshot("claude", [name]) do
-      %{^name => %{consecutive_failures: failures, reason: reason} = entry} when failures == @failure_warning_threshold ->
-        Logger.warning("claude usage probe failing account=#{name} failures=#{failures} reason=#{inspect(reason)} last_observed_at=#{inspect(entry[:last_observed_at])}")
-        alert_fun.(topic, "Claude account #{name} usage probe failed #{failures} times in a row (#{Accounts.UsageReadings.failure_text(name, reason)}).", needs_attention: true, severity: "warning")
-
-      %{^name => %{consecutive_failures: 0}} when previous_failures >= @failure_warning_threshold ->
-        alert_fun.(topic <> ".resolved", "Claude account #{name} usage probe recovered.", needs_attention: false, severity: "info")
-
-      _ok ->
-        :ok
     end
   end
 

@@ -64,13 +64,15 @@ stale between probes. Older readings show as `stale`.
 
 When polls fail, Claude rows show `last_error` and `last_error_at`, the time
 of the latest failed poll. After an earlier good reading the row is `stale`
-with that reading's age. A profile that is not signed in (no OAuth token, an
-expired token, or a 401/403 from the usage endpoint) also gets `fix`, for
-example ``not signed in; run `aiur login claude work` ``. `aiur usage` and
-`aiur status` print one `ACCOUNT claude/<name> usage probe failing` line per
-failing account. Three failures in a row raise the attention alert
-`system.claude_account.<name>.usage_probe_failing`; the next good poll
-resolves it.
+with that reading's age.
+
+A signed-out profile (no OAuth token, an expired token, or a 401/403 from the
+usage endpoint) also gets `fix`, such as `aiur login claude work`. The `aiur
+usage` and `aiur status` commands print a failure line for each account.
+
+Three failures in a row raise
+`system.claude_account.<name>.usage_probe_failing`. The next good poll
+resolves the alert.
 
 A running daemon serves the same rows over HTTP, behind dashboard basic auth:
 

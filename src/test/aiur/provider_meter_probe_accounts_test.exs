@@ -113,6 +113,10 @@ defmodule Aiur.ProviderMeterProbeAccountsTest do
     ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: MultiWindowUsageApi, claude_accounts: ["default"], alert_fun: alert))
     assert_received {:alert, "system.claude_account.default.usage_probe_failing.resolved", _message, resolved_opts}
     refute resolved_opts[:needs_attention]
+
+    ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: MultiWindowUsageApi, claude_accounts: ["default"], alert_fun: alert))
+    refute_received {:alert, "system.claude_account.default.usage_probe_failing.resolved", _message, _opts}
+
     assert UsageReadings.failure_lines() == []
   end
 end
