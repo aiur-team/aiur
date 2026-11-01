@@ -41,7 +41,8 @@ defmodule LocalHostTest do
   end
 
   setup do
-    root = Path.join(System.tmp_dir!(), "local-host-4092-#{System.unique_integer([:positive])}")
+    nonce = Base.encode16(:crypto.strong_rand_bytes(8))
+    root = Path.join(System.tmp_dir!(), "local-host-4092-#{nonce}")
     File.mkdir_p!(root)
     File.write!(Path.join(root, "briefing.md"), "# Summary\nBuilding a telescope\n")
     File.write!(Path.join(root, "notes.md"), "Lens specifications")
