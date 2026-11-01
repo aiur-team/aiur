@@ -157,7 +157,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
     candidates = routes |> order_by_priority(opts) |> Enum.flat_map(&expand(&1, &1, opts))
 
-    case Headroom.select(candidates, readings(candidates, opts)) do
+    case select_by_backend(candidates, readings(candidates, opts)) do
       {:ok, chosen, ranked} ->
         {:ok, apply_choice(issue, chosen, ranked, false)}
 
@@ -179,6 +179,22 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
       {:error, :all_exhausted, ranked} ->
         log(issue, nil, ranked)
         {:ok, %{issue | selected_account: nil, dispatch_selection: selection(nil, ranked, true)}}
+    end
+  end
+
+  # Backend order is the configured preference. Headroom chooses an account
+  # only after that backend is selected; exhausted backends fall through.
+  defp select_by_backend(candidates, readings) do
+    ranked =
+      candidates
+      |> Enum.chunk_by(& &1.backend)
+      |> Enum.flat_map(&Headroom.rank(&1, readings))
+      |> Enum.with_index()
+      |> Enum.map(fn {candidate, index} -> %{candidate | index: index} end)
+
+    case Enum.find(ranked, &(&1.status != :exhausted)) do
+      nil -> {:error, :all_exhausted, ranked}
+      chosen -> {:ok, chosen, ranked}
     end
   end
 

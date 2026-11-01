@@ -109,6 +109,24 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert CodingAgent.effort_for(issue) == "high"
     end
 
+    test "Codex preference wins before Claude account headroom is compared" do
+      preferred = opts(priority_backends: ["codex", "claude"], routing_candidates: %{3 => ["codex:gpt-5.5:high", "claude:sonnet"]})
+
+      assert {:ok, %Issue{selected_backend: "codex", selected_account: nil} = issue} =
+               CodingAgent.select_for_dispatch(ticket(), preferred)
+
+      assert issue.dispatch_selection.summary ==
+               "headroom: codex=5%; alternatives claude/default=100%, claude/everdred=64%"
+    end
+
+    test "when Codex is unavailable, chooses the Claude account with most headroom" do
+      preferred = opts(priority_backends: ["codex", "claude"], routing_candidates: %{3 => ["codex:gpt-5.5:high", "claude:sonnet"]})
+      rejected = %{"backends" => %{"codex" => %{"auth_rejected" => true}}}
+
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"}} =
+               CodingAgent.select_for_dispatch(ticket(), Keyword.merge(preferred, state: rejected, usage_snapshot: meters(%{"default" => {0, 0}, "everdred" => {80, 80}})))
+    end
+
     test "with a model:codex label it picks Codex regardless of headroom" do
       assert {:ok, issue} = select(ticket(["complexity:3", "model:codex"]))
 
@@ -123,11 +141,13 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                select(ticket(), state: %{"backends" => %{}}, usage_snapshot: meters(%{"default" => {100, 0}, "everdred" => {89, 0}}))
     end
 
-    test "unknown usage beats a known backend with 10% or less left" do
-      assert {:ok, %Issue{selected_backend: "codex"} = issue} =
-               select(ticket(), state: %{"backends" => %{}}, usage_snapshot: meters(%{"default" => {100, 0}, "everdred" => {95, 0}}))
+    test "an unknown account beats a known account with 10% or less left" do
+      unknown_default = meters(%{"everdred" => {95, 0}})
 
-      assert issue.dispatch_selection.summary =~ "headroom: codex=unknown"
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = issue} =
+               select(ticket(), state: %{"backends" => %{}}, usage_snapshot: unknown_default)
+
+      assert issue.dispatch_selection.summary =~ "headroom: claude/default=unknown"
     end
 
     test "every candidate exhausted parks the claim on the candidate routes" do
@@ -174,7 +194,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                %{windows: %{"weekly" => 95.0}, source: "ledger", age_seconds: 30}
     end
 
-    test "stale Codex remains unknown until its probe refreshes it, then wins the next claim" do
+    test "preferred Codex remains unknown until its probe refreshes its score" do
       old = put_in(@ledger, ["backends", "codex", "observed_at"], "2026-10-07T06:00:00Z")
       path = Path.join(Aiur.TestSupport.tmp_root!("headroom-lock"), "model-usage.json")
       File.mkdir_p!(Path.dirname(path))
@@ -189,8 +209,10 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
 
       claude_at_29 = meters(%{"default" => {71, 0}, "everdred" => {100, 0}})
 
-      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = first} =
-               select(ticket(), state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe)
+      preferred = [priority_backends: ["codex", "claude"]]
+
+      assert {:ok, %Issue{selected_backend: "codex"} = first} =
+               select(ticket(), preferred ++ [state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe])
 
       assert_receive {:probe, "codex", [path: _, now: @now]}, 100
       assert Enum.any?(first.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :unknown and &1.stale and &1.age_seconds == 259_200))
@@ -199,7 +221,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert :ok = ModelAvailability.clear_retry_schedule("codex", path: path)
 
       assert {:ok, %Issue{selected_backend: "codex"} = second} =
-               select(ticket(), state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe)
+               select(ticket(), preferred ++ [state: ModelAvailability.load(path), path: path, usage_snapshot: claude_at_29, probe_fun: probe])
 
       assert Enum.any?(second.dispatch_selection.candidates, &(&1.name == "codex" and &1.status == :known and &1.remaining_percent == 80))
     end
