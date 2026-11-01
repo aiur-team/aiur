@@ -48,9 +48,9 @@ defmodule VoiceConverse.Session.TextTiming do
         played = Map.get(frame, "played_until_ms")
         provider_id = turn(state, id).provider_id
 
-        with {:ok, state} <- write(state, id, played, true) do
-          state = maybe_truncate_provider(state, provider_id, played, id)
+        {state, played} = maybe_truncate_provider(state, provider_id, played, id)
 
+        with {:ok, state} <- write(state, id, played, true) do
           {:ok, resume(state)}
         end
 
@@ -94,12 +94,12 @@ defmodule VoiceConverse.Session.TextTiming do
     if is_integer(played) and not is_nil(state.provider_ref) and
          Map.get(state.provider.capabilities(), :manual_truncation, false) do
       case state.provider.truncate(state.provider_ref, provider_id, played) do
-        :ok -> state
-        {:error, reason} -> record_truncation_error(state, turn_id, reason)
-        other -> record_truncation_error(state, turn_id, {:unexpected_result, other})
+        :ok -> {state, played}
+        {:error, reason} -> {record_truncation_error(state, turn_id, reason), nil}
+        other -> {record_truncation_error(state, turn_id, {:unexpected_result, other}), nil}
       end
     else
-      state
+      {state, played}
     end
   end
 

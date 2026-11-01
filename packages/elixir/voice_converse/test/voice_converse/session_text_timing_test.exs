@@ -67,13 +67,13 @@ defmodule VoiceConverse.SessionTextTimingTest do
     end
   end
 
-  test "provider truncation errors are recorded without ending the session", ctx do
+  test "provider truncation errors preserve full interrupted text and keep the session running", ctx do
     {id, session, ref} = start_session(ctx, FakeProvider, truncate_error: :provider_failed)
     emit_turn(ref)
     interrupt(id, ref)
     report(ctx, id, 100)
 
-    assert [%{"text" => "é", "interrupted?" => true}] = turns(records(ctx, id))
+    assert [%{"text" => "é👩🏽‍💻!", "interrupted?" => true}] = turns(records(ctx, id))
 
     assert Enum.any?(
              records(ctx, id),
