@@ -229,6 +229,7 @@ defmodule AiurWeb.BuildLive do
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}
         data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
+        <div id="bd-partial" class="bd-partial" aria-live="polite"></div>
         <div class="bd-toolbar"><div class="bd-bar-l" id="bd-tools-l"></div><div class="bd-filters" id="bd-filters"></div><div class="bd-bar-r" id="bd-tools"></div></div>
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">
           <div class="bd-lanes"><div class="bd-skel-lanes"><i class="bd-skel-i" style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i></div></div>
