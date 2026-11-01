@@ -92,6 +92,15 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     }
   end
 
+  defp assert_comment_digest(state, event) do
+    digest_items =
+      state.queue_store.items
+      |> Map.values()
+      |> Enum.filter(&(&1.event_type == :events_digest))
+
+    assert Enum.any?(digest_items, &(&1.target_issue_identifier == @issue_number and event in &1.body.events))
+  end
+
   # A body-only `gh pr review --request-changes`: live against the current head,
   # by a trusted author, opening no review thread at all.
   defp changes_requested_review_event(issue, overrides) do
@@ -149,13 +158,14 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
   end
 
   for ticket_state <- ["human-review", "ci-wait"],
+      retained_entry? <- [false, true],
       {author_kind, login, trusted?, merger?} <- [
         {:human_merger, "its-everdred", false, true},
         {:trusted_non_merger, "trusted-reviewer", true, false},
         {:untrusted_non_merger, "outsider", false, false},
         {:agent_own_login, "aiur-bot", false, false}
       ] do
-    test "a blocking COMMENTED review from #{author_kind} in #{ticket_state} routes according to author policy" do
+    test "a blocking COMMENTED review from #{author_kind} in #{ticket_state} with retained_entry=#{retained_entry?} routes according to author policy" do
       issue = human_review_issue()
       issue = %{issue | state: unquote(ticket_state), labels: ["agent:" <> unquote(ticket_state)]}
       Application.put_env(:aiur, :memory_tracker_issues, [issue])
@@ -180,11 +190,20 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
 
       event = Map.put(event, :emit_alert_fun, fn topic, attrs -> send(test_pid, {:gate_alert, topic, attrs}) end)
 
-      CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+      running =
+        if unquote(retained_entry?) do
+          entry = completed_running_entry()
+          put_in(entry, ["2814", :issue], issue)
+        else
+          %{}
+        end
+
+      next_state = CommentWake.maybe_reactivate_on_comment(base_state(running), @issue_number, :pr_review, event)
 
       case unquote(author_kind) do
         :human_merger ->
           assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+          assert_comment_digest(next_state, event)
 
         :trusted_non_merger ->
           assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
@@ -224,9 +243,10 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     running = put_in(running, ["2814", :issue], issue)
     state = base_state(running)
 
-    CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event)
+    next_state = CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event)
 
     refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+    assert_comment_digest(next_state, event)
   end
 
   test "a blocking human-merger review on an idle in-progress ticket does not restart rework" do
@@ -246,9 +266,10 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
         }
       })
 
-    CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+    next_state = CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
 
     refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+    assert_comment_digest(next_state, event)
   end
 
   for ticket_state <- ["human-review", "ci-wait"],
