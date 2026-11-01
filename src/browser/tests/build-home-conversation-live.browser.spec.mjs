@@ -338,13 +338,10 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
     await page.locator('#cv-new').click()
     await expect.poll(() => distance(page)).toBeLessThanOrEqual(1)
     await expect(page.locator('#cv-new')).toBeHidden()
-    await expect(async () => {
-      const pillCall = await page.evaluate(() => window.scrollCalls?.[0])
-      expect(pillCall.behavior).toBe(reducedMotion === 'reduce' ? 'auto' : 'smooth')
-      if (reducedMotion === 'reduce') expect(pillCall.immediate).toBeCloseTo(await log(page).evaluate(el => el.scrollHeight - el.clientHeight), 0)
-      else expect(pillCall.immediate).toBe(pillCall.before)
-    }).toPass()
-    if (reducedMotion !== 'reduce') await expect.poll(() => page.evaluate(() => window.scrollEnds)).toBeGreaterThan(0)
+    const pill = await page.evaluate(() => window.scrollCalls[0])
+    expect(pill.behavior).toBe(reducedMotion === 'reduce' ? 'auto' : 'smooth')
+    if (reducedMotion === 'reduce') expect(pill.immediate).toBeCloseTo(await log(page).evaluate(el => el.scrollHeight - el.clientHeight), 0)
+    else { expect(pill.immediate).toBe(pill.before); await expect.poll(() => page.evaluate(() => window.scrollEnds)).toBeGreaterThan(0) }
     const ended = await page.evaluate(() => window.scrollEnds)
     await page.locator('#cv-mm .mm-e').first().click()
     await expect.poll(() => log(page).evaluate(el => el.scrollTop - Math.max(0, el.querySelector('[data-eid="row:504"]').offsetTop - 16))).toBeCloseTo(0, 0)
