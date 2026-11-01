@@ -221,7 +221,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     end
   end
 
-  test "a single-account operator blocking review routes to rework" do
+  test "future regression guard: a single-account operator blocking review routes to rework" do
     issue = human_review_issue()
 
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", tracker_identity_mode: "single_account")
