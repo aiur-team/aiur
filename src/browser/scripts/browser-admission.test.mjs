@@ -19,7 +19,6 @@ function run(command, environment) {
 }
 
 test('browser and fixture child environments preserve gate hooks and exclude credentials', () => {
-  const npm = { NPM_CONFIG_CACHE: '/host/npm-cache', npm_config_cache: '/host/npm-cache' }
   const admission = {
     BASH_ENV: '/release/agent-shell-environment.bash',
     AIUR_BUILD_GATE_HOOK: '/release/priv/build_gate.bash',
@@ -37,12 +36,11 @@ test('browser and fixture child environments preserve gate hooks and exclude cre
     AIUR_BUILD_GATE_LEASE_TOKEN: 'live-token',
     AIUR_BROWSER_GATE_WORKSPACE: '/workspace'
   }
-  const browser = browserChildEnvironment({ ...admission, ...npm, GITHUB_TOKEN: 'secret', AIUR_SUPERVISOR_TOKEN: 'secret' })
+  const browser = browserChildEnvironment({ ...admission, GITHUB_TOKEN: 'secret', AIUR_SUPERVISOR_TOKEN: 'secret' })
   const fixture = fixtureServerEnvironment(browser)
 
   for (const child of [browser, fixture]) {
     for (const [name, value] of Object.entries(admission)) assert.equal(child[name], value, name)
-    for (const [name, value] of Object.entries(npm)) assert.equal(child[name], value, name)
     assert.equal(child.GITHUB_TOKEN, undefined)
     assert.equal(child.AIUR_SUPERVISOR_TOKEN, undefined)
   }

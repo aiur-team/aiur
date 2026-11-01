@@ -45,10 +45,6 @@ const inheritedRuntimeNames = [
   'MISE_CONFIG_ROOT',
   'MISE_DATA_DIR',
   'MISE_TRUSTED_CONFIG_PATHS',
-  'NPM_CONFIG_CACHE',
-  'npm_config_cache',
-  'NPM_CONFIG_REGISTRY',
-  'npm_config_registry',
   'PATH',
   'PLAYWRIGHT_BROWSERS_PATH',
   'SSL_CERT_FILE',
@@ -103,11 +99,7 @@ const fixtureRuntimeNames = [
   'MISE_TRUSTED_CONFIG_PATHS',
   'MISE_CACHE_DIR',
   'MISE_CONFIG_ROOT',
-  'MISE_DATA_DIR',
-  'NPM_CONFIG_CACHE',
-  'npm_config_cache',
-  'NPM_CONFIG_REGISTRY',
-  'npm_config_registry'
+  'MISE_DATA_DIR'
 ]
 
 export function fixtureServerEnvironment(environment = process.env) {

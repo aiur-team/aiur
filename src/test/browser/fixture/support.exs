@@ -62,6 +62,11 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
 
   def health(conn, _params), do: send_resp(conn, 200, "synthetic fixture ready")
 
+  def dashboard_origin(conn, _params) do
+    port = Application.fetch_env!(:aiur, :browser_dashboard_port)
+    send_resp(conn, 200, "http://127.0.0.1:#{port}")
+  end
+
   def phoenix_html(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_html/phoenix_html.js")
   def phoenix(conn, _params), do: serve_embedded(conn, "/vendor/phoenix/phoenix.js")
   def phoenix_live_view(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")

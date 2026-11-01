@@ -150,6 +150,26 @@ defmodule AiurWeb.FinancialDataAccessTest do
     assert is_map(get_session(authenticated, FinancialDataAccess.session_key()))
   end
 
+  test "browser HTML authentication failures render working recovery controls" do
+    configure_credentials("operator", "secret")
+    configure_endpoint(dashboard_auth_required: true, dashboard_writable: false)
+
+    browser =
+      :get
+      |> conn("/commands")
+      |> put_req_header("accept", "text/html")
+      |> Map.put(:secret_key_base, String.duplicate("s", 64))
+      |> Session.call(@session_options)
+      |> fetch_session()
+      |> FinancialDataAccess.authenticate_request(browser?: true)
+
+    assert browser.status == 401
+    assert browser.halted
+    assert get_resp_header(browser, "www-authenticate") == [~s(Basic realm="Aiur")]
+    assert browser.resp_body =~ ~s(<a href="/">Home</a>)
+    assert browser.resp_body =~ ~s|<button type="button" onclick="location.reload()">Reload</button>|
+  end
+
   test "browser Basic Auth can be disabled without disabling machine Basic Auth" do
     configure_credentials("operator", "secret")
     configure_endpoint(dashboard_auth_required: true, browser_basic_auth: false)
