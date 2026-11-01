@@ -25,6 +25,16 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     %{store: store, decision: decision}
   end
 
+  test "pending Executor answer has one informational notice alongside Replace", ctx do
+    answered = answer(ctx, :executor)
+    {:ok, view, html} = live(build_conn(), "/commands/#{answered.decision_id}")
+    text = html |> Floki.parse_document!() |> Floki.find(".decision-detail") |> Floki.text()
+    assert length(Regex.scan(~r/Already answered by the Executor/, text)) == 1
+    assert has_element?(view, ".decision-replacement p[role=status]", "Already answered by the Executor")
+    refute has_element?(view, ".decision-replacement p.error")
+    assert has_element?(view, "button[phx-click=begin-replace-decision]", "Replace")
+  end
+
   test "confirmed replace records an operator revision through the dashboard", ctx do
     answered = answer(ctx, :executor)
     {:ok, view, html} = live(build_conn(), "/commands/#{answered.decision_id}")

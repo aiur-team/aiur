@@ -35,7 +35,7 @@ defmodule VoiceConverse.TranscriptStore do
   @version 1
   require Logger
   @id_regex ~r/\Avc_[A-Za-z0-9_-]{22}\z/
-  @types ~w(session_started context user_turn assistant_turn tool_call tool_result draft delivery
+  @types ~w(session_started context user_turn assistant_turn tool_call tool_result draft delivery side_query
             provider_conversation cleanup_enqueued session_ended)
   @forbidden_top ~w(audio data_b64 signed_url api_key)
   @forbidden_deep ~w(data_b64 signed_url api_key)
