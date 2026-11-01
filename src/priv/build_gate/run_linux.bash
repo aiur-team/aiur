@@ -1,4 +1,15 @@
 # Loaded by build_gate.bash. Linux flock admission through the detached lease holder.
+aiur_build_gate_reap_orphan_publications() {
+  local gate_dir=$1 python_binary=$2 reaper_path
+  reaper_path="$(dirname "${BASH_SOURCE[0]}")/../build_gate_reaper.py"
+  if [[ -r $reaper_path && -n $python_binary ]]; then
+    "$python_binary" "$reaper_path" "$gate_dir" "${AIUR_BUILD_GATE_LOCK_DIR:-}" ||
+      aiur_build_gate_log "orphan_reaper_failed path=$reaper_path"
+  else
+    aiur_build_gate_log "orphan_reaper_unavailable path=$reaper_path python3=${python_binary:-missing}"
+  fi
+}
+
 aiur_build_gate_check_legacy_state() {
   local gate_dir=$1 queue_dir=$2 path basename
 

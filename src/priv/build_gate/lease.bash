@@ -1,17 +1,4 @@
 # Loaded by build_gate.bash. Phase state, slot and phase-lock reclaim, start pacing and the Linux lease holder handshake.
-aiur_build_gate_reap_orphan_publications() {
-  local gate_dir=$1 python_binary=$2 reaper_path
-  reaper_path="$(dirname "${BASH_SOURCE[0]}")/../build_gate_reaper.py"
-
-  if [[ -r $reaper_path && -n $python_binary ]]; then
-    if ! "$python_binary" "$reaper_path" "$gate_dir" "${AIUR_BUILD_GATE_LOCK_DIR:-}"; then
-      aiur_build_gate_log "orphan_reaper_failed path=$reaper_path"
-    fi
-  else
-    aiur_build_gate_log "orphan_reaper_unavailable path=$reaper_path python3=${python_binary:-missing}"
-  fi
-}
-
 aiur_build_gate_publish_phase_state() {
   local gate_dir=$1 destination=$2 value=$3 candidate
 
