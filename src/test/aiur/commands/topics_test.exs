@@ -108,7 +108,7 @@ defmodule Aiur.Commands.TopicsTest do
                pid
              )
 
-    assert_receive {:event, answered}, 1_000
+    assert_receive {:event, %{topic: "ticket.979.agent.decision.answered"} = answered}, 1_000
     assert answered.topic == "ticket.979.agent.decision.answered"
     assert answered["question"] == "Use [REDACTED:sk]?"
     assert answered["options"] == requested["options"]
