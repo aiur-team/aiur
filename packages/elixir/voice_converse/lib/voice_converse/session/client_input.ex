@@ -4,6 +4,9 @@ defmodule VoiceConverse.Session.ClientInput do
   def handle_cast({:audio, audio}, state, _event) when is_binary(audio),
     do: {:noreply, VoiceConverse.Session.Runtime.enqueue_audio(self(), state, audio, 8)}
 
+  def handle_cast({:client_text, _} = message, %{interrupted_turn: pending} = state, _) when not is_nil(pending),
+    do: {:noreply, update_in(state.timing_deferred, &[{:"$gen_cast", message} | &1])}
+
   def handle_cast({:client_text, text}, state, event) do
     if send_text(state, text) == :ok,
       do: event.(%VoiceConverse.Events.UserTranscript{text: text, final?: true}, state),

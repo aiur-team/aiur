@@ -1,5 +1,9 @@
 {
   "agent": {
+    "native_question": {
+      "label": "Waiting for your answer",
+      "cls": "stuck"
+    },
     "active": {
       "label": "Running",
       "cls": "active"
