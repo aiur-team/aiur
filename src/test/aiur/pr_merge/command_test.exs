@@ -109,6 +109,14 @@ defmodule Aiur.PrMerge.CommandTest do
     end
   end
 
+  defp outputs(acc \\ []) do
+    receive do
+      {:output, line} -> outputs([line | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   test "approves at the head before squash merge and records success with daemon down", ctx do
     assert PrMerge.run(%{ctx.opts | approve_body: "Reviewed"}, deps(ctx)) == 0
     assert {"post", "repos/owner/repo/pulls/1/reviews", %{commit_id: @head, event: "APPROVE"}} = next_write()
@@ -138,7 +146,7 @@ defmodule Aiur.PrMerge.CommandTest do
   test "GitHub merge refusal remains a tool error with its message", ctx do
     api = fn method, path, body -> if method == "put", do: {:error, "GitHub 405: bypass missing"}, else: response(method, path, body) end
     assert PrMerge.run(ctx.opts, deps(ctx, api: api)) == 1
-    assert_received {:output, "ERROR \"GitHub 405: bypass missing\""}
+    assert Enum.any?(outputs(), &(&1 =~ "aiur pr merge: deliver failed: GitHub 405: bypass missing" and &1 =~ "merge outcome may be unknown"))
   end
 
   test "a failed check arriving during premerge prevents the write", ctx do
@@ -187,5 +195,49 @@ defmodule Aiur.PrMerge.CommandTest do
 
     assert PrMerge.run(ctx.opts, deps(ctx, api: api)) == 1
     refute_received {:premerge, _}
+  end
+
+  test "raised failures identify every merge phase and return status 1", ctx do
+    phases = [:settings, :identity_guard, :token, :viewer, :observe, :facts, :merge_result, :approve, :deliver, :record]
+
+    Enum.each(phases, fn phase ->
+      reason = "injected failure at #{phase}"
+      step = fn current, callback -> if current == phase, do: raise(reason), else: callback.() end
+      assert PrMerge.run(%{ctx.opts | approve_body: "Reviewed"}, deps(ctx, step: step)) == 1
+      phase_outputs = outputs()
+      assert Enum.any?(phase_outputs, &(&1 =~ "aiur pr merge: #{phase} failed: #{reason}"))
+      outcome = if phase in [:deliver, :record], do: "merge outcome may be unknown", else: "nothing was merged"
+      assert Enum.any?(phase_outputs, &String.contains?(&1, outcome))
+    end)
+  end
+
+  test "raised exception is logged with stacktrace and token-shaped text is redacted", ctx do
+    token = "ghp_123456789012345678901234567890123456"
+    step = fn current, callback -> if current == :merge_result, do: raise("failed with #{token}"), else: callback.() end
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert PrMerge.run(ctx.opts, deps(ctx, step: step)) == 1
+      end)
+
+    assert log =~ "aiur pr merge: merge_result failed"
+    assert log =~ "command_test.exs"
+    assert log =~ "[REDACTED]"
+    refute log =~ token
+    assert Enum.all?(outputs(), &(not String.contains?(&1, token)))
+    [failure] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
+    assert failure["failed_step"] == "merge_result"
+    assert failure["outcome"] == "not_merged"
+    refute failure["error"] =~ token
+  end
+
+  test "a record failure after delivery keeps the unknown outcome warning", ctx do
+    step = fn current, callback -> if current == :record, do: raise("ledger failed"), else: callback.() end
+
+    assert PrMerge.run(ctx.opts, deps(ctx, step: step)) == 1
+    phase_outputs = outputs()
+    assert Enum.any?(phase_outputs, &(&1 =~ "aiur pr merge: record failed: ledger failed" and &1 =~ "merge outcome may be unknown"))
+    [failure] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
+    assert failure["outcome"] == "unknown"
   end
 end

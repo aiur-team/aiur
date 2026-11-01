@@ -1,28 +1,68 @@
 defmodule Aiur.PrMerge do
   @moduledoc "Standalone, operator-only merge or merge-queue enqueue with policy gates."
   alias Aiur.PrMerge.{Client, Facts, Gate, Identity, MergeResult, Queue, Record}
+  require Logger
 
   @spec run(map(), keyword()) :: non_neg_integer()
   def run(opts, deps \\ []) do
     puts = Keyword.get(deps, :puts, &IO.puts/1)
-    report(execute(opts, deps, puts), puts)
-  rescue
-    _error ->
-      IO.puts(:stderr, "aiur pr merge: unexpected tool failure; merge outcome may be unknown")
-      1
+    state = %{step: :settings, settings: nil, opts: opts, deps: deps, delivered?: false}
+    Process.put({__MODULE__, :state}, state)
+    Process.put({__MODULE__, :step}, :settings)
+
+    try do
+      case execute(opts, deps, puts, state) do
+        {:error, reason} ->
+          error = RuntimeError.exception(format_error(reason))
+          failure(state, error, current_stacktrace(), puts)
+
+        result ->
+          report(result, puts)
+      end
+    rescue
+      error ->
+        failure(state, error, __STACKTRACE__, puts)
+    catch
+      kind, reason ->
+        failure(state, RuntimeError.exception("#{kind}: #{format_error(reason)}"), __STACKTRACE__, puts)
+    after
+      Process.delete({__MODULE__, :state})
+      Process.delete({__MODULE__, :step})
+    end
   end
 
-  defp execute(opts, deps, puts) do
-    with {:ok, settings} <- Keyword.get(deps, :settings, &Aiur.Config.settings_uncached/0).(),
-         :ok <- Identity.guard(settings, Keyword.get(deps, :cwd, File.cwd!()), Keyword.get(deps, :agent_bin, System.get_env("AIUR_AGENT_BIN"))),
-         {:ok, token} <- Keyword.get(deps, :token, &Identity.token/0).(),
+  defp execute(opts, deps, puts, state) do
+    settings = step(state, :settings, fn -> Keyword.get(deps, :settings, &Aiur.Config.settings_uncached/0).() end)
+
+    case settings do
+      {:ok, settings} ->
+        Process.put({__MODULE__, :state}, %{state | settings: settings})
+        execute_with_settings(opts, deps, puts, state, settings)
+
+      other ->
+        other
+    end
+  end
+
+  defp execute_with_settings(opts, deps, puts, state, settings) do
+    with :ok <- step(state, :identity_guard, fn -> Identity.guard(settings, Keyword.get(deps, :cwd, File.cwd!()), Keyword.get(deps, :agent_bin, System.get_env("AIUR_AGENT_BIN"))) end),
+         {:ok, token} <- step(state, :token, fn -> Keyword.get(deps, :token, &Identity.token/0).() end),
          api <- Keyword.get(deps, :api, &Client.request(token, &1, &2, &3)),
-         {:ok, user} <- api.("get", "user", nil),
+         {:ok, user} <- step(state, :viewer, fn -> api.("get", "user", nil) end),
          :ok <- Identity.allowed(user, settings.tracker.github),
-         :ok <- main_note(settings, deps, puts),
-         {:ok, observation} <- Facts.observe(api, settings, opts.number) do
+         :ok <- step(state, :observe, fn -> main_note(settings, deps, puts) end),
+         {:ok, observation} <- step(state, :facts, fn -> Facts.observe(api, settings, opts.number) end) do
       observed(api, observation, settings, opts, token, deps, puts, user)
     end
+  end
+
+  defp step(state, name, fun) do
+    Process.put({__MODULE__, :step}, name)
+    current = Process.get({__MODULE__, :state}, state)
+    Process.put({__MODULE__, :state}, %{current | step: name, delivered?: current.delivered? or name == :deliver})
+
+    run = Keyword.get(state.deps, :step, fn _name, callback -> callback.() end)
+    run.(name, fun)
   end
 
   defp observed(_api, %{merged: true} = pr, settings, opts, _token, deps, puts, _user) do
@@ -58,19 +98,21 @@ defmodule Aiur.PrMerge do
         }
 
         puts.("MERGED ##{pr.number} #{pr.merge_commit_sha}; observed GitHub merge")
-        record(record, root, deps, puts)
+        step(run_state(), :record, fn -> record(record, root, deps, puts) end)
         :ok
     end
   end
 
   defp observed(api, _observation, settings, opts, token, deps, puts, user) do
-    with {:ok, pr} <- Facts.read(api, settings, opts.number, user),
+    state = run_state()
+
+    with {:ok, pr} <- step(state, :facts, fn -> Facts.read(api, settings, opts.number, user) end),
          :ok <- preflight(pr, settings, opts),
-         :ok <- merge_result(pr, settings, token, deps, puts),
-         {:ok, fresh} <- Facts.read(api, settings, opts.number, user),
+         :ok <- step(state, :merge_result, fn -> merge_result(pr, settings, token, deps, puts) end),
+         {:ok, fresh} <- step(state, :facts, fn -> Facts.read(api, settings, opts.number, user) end),
          :ok <- preflight(fresh, settings, opts),
          true <- fresh.base_sha == pr.base_sha or {:refuse, ["base moved during premerge checks; rerun"]} do
-      finish(api, fresh, settings, opts, deps, puts, user)
+      finish(api, fresh, settings, opts, deps, puts, user, run_state())
     end
   end
 
@@ -106,29 +148,31 @@ defmodule Aiur.PrMerge do
     Keyword.get(deps, :merge_result, &MergeResult.check/3).(pr, settings, options)
   end
 
-  defp finish(_api, pr, settings, %{dry_run: true}, _deps, puts, _user) do
+  defp finish(_api, pr, settings, %{dry_run: true}, _deps, puts, _user, _state) do
     puts.("DRY RUN policy ci=#{settings.merge_policy.ci}; pending=#{Enum.join(Gate.pending(pr), ",")}; nothing merged")
     :ok
   end
 
-  defp finish(api, pr, settings, opts, deps, puts, user) do
+  defp finish(api, pr, settings, opts, deps, puts, user, state) do
     root = Keyword.get(deps, :log_root, Path.expand("~/.aiur/logs/pr-merge"))
     repo = settings.tracker.github.repo
 
-    with :ok <- File.mkdir_p(root),
-         :ok <- approve(api, repo, pr, opts.approve_body),
-         {:ok, fresh} <- Facts.read(api, settings, pr.number, user),
+    with :ok <- step(state, :record_setup, fn -> File.mkdir_p(root) end),
+         :ok <- step(state, :approve, fn -> approve(api, repo, pr, opts.approve_body) end),
+         {:ok, fresh} <- step(state, :facts, fn -> Facts.read(api, settings, pr.number, user) end),
          :ok <- gate(fresh, settings, opts),
          true <- fresh.base_sha == pr.base_sha or {:refuse, ["base moved during approval; rerun"]} do
-      deliver(api, fresh, settings, root, deps, puts, user)
+      step(state, :deliver, fn -> deliver(api, fresh, settings, root, deps, puts, user) end)
     end
   end
 
-  defp deliver(api, %{merge_queue: true} = pr, settings, root, _deps, puts, user) do
+  defp deliver(api, %{merge_queue: true} = pr, settings, root, deps, puts, user) do
     with {:ok, entry} <- Queue.enqueue(api, pr) do
       record = record_data(pr, settings, user) |> Map.merge(%{state: "enqueued", queue_entry: entry, enqueued_at: DateTime.to_iso8601(DateTime.utc_now())})
       puts.("ENQUEUED ##{pr.number} #{pr.head}; policy ci=#{record.policy}; pending=#{Enum.join(record.pending, ",")}")
-      if Record.append(record, root) != :ok, do: puts.("WARNING enqueued, but queue ledger write failed")
+
+      step(run_state(), :record, fn -> append_queue_record(record, root, deps, puts) end)
+
       :ok
     end
   end
@@ -140,7 +184,7 @@ defmodule Aiur.PrMerge do
       {:ok, %{"merged" => true, "sha" => sha}} ->
         record = record_data(pr, settings, user) |> Map.merge(%{state: "merged", merged_sha: sha, merged_at: DateTime.to_iso8601(DateTime.utc_now())})
         puts.("MERGED ##{pr.number} #{sha}; policy ci=#{record.policy}; pending=#{Enum.join(record.pending, ",")}")
-        record(record, root, deps, puts)
+        step(run_state(), :record, fn -> record(record, root, deps, puts) end)
         :ok
 
       {:ok, %{"message" => message}} ->
@@ -180,9 +224,17 @@ defmodule Aiur.PrMerge do
   defp merge_body(pr), do: %{merge_method: "squash", sha: pr.head, commit_title: "#{pr.title} (##{pr.number})", commit_message: ""}
 
   defp record(record, root, deps, puts) do
-    if Record.append(record, root) != :ok, do: puts.("WARNING merged, but merge ledger write failed")
+    if append_record(deps).(record, root) != :ok, do: puts.("WARNING merged, but merge ledger write failed")
     if Keyword.get(deps, :notify, &Record.notify/1).(record) != :ok, do: puts.("WARNING merged, but daemon event delivery failed")
   end
+
+  defp append_record(deps), do: Keyword.get(deps, :append_record, &Record.append/2)
+
+  defp append_queue_record(record, root, deps, puts) do
+    if append_record(deps).(record, root) != :ok, do: puts.("WARNING enqueued, but queue ledger write failed")
+  end
+
+  defp run_state, do: Process.get({__MODULE__, :state})
 
   defp report(:ok, _puts), do: 0
 
@@ -194,5 +246,56 @@ defmodule Aiur.PrMerge do
   defp report({:error, reason}, puts) do
     puts.("ERROR " <> inspect(reason))
     1
+  end
+
+  defp failure(state, error, stacktrace, puts) do
+    step_name = Process.get({__MODULE__, :step}, state.step)
+    state = Process.get({__MODULE__, :state}, state)
+    message = Exception.message(error)
+    safe_message = redact_token(message)
+    outcome = if state.delivered?, do: "merge outcome may be unknown", else: "nothing was merged"
+    formatted = Exception.format(:error, error, stacktrace) |> redact_token()
+    Logger.error("aiur pr merge: #{step_name} failed: #{safe_message}; #{outcome}\n#{formatted}")
+    puts.("aiur pr merge: #{step_name} failed: #{safe_message}; #{outcome}")
+    failure_record(state, step_name, safe_message)
+    1
+  end
+
+  defp failure_record(state, step_name, message) do
+    settings = state.settings
+
+    record = %{
+      repo: if(settings, do: settings.tracker.github.repo),
+      pr: state.opts.number,
+      sha: state.opts.reviewed_sha,
+      state: "failed",
+      failed_step: step_name,
+      error: message,
+      outcome: if(state.delivered?, do: "unknown", else: "not_merged"),
+      policy: if(settings, do: settings.merge_policy.ci)
+    }
+
+    root = Keyword.get(state.deps, :log_root, Path.expand("~/.aiur/logs/pr-merge"))
+
+    case Keyword.get(state.deps, :append_record, &Record.append/2).(record, root) do
+      :ok -> :ok
+      {:error, reason} -> Logger.error("aiur pr merge: failure ledger write failed: #{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.error("aiur pr merge: failure ledger write failed: #{Exception.message(error)}")
+  end
+
+  defp redact_token(message) do
+    Regex.replace(~r/(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})/, message, "[REDACTED]")
+  end
+
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
+
+  defp current_stacktrace do
+    case Process.info(self(), :current_stacktrace) do
+      {:current_stacktrace, stacktrace} -> stacktrace
+      _ -> []
+    end
   end
 end
