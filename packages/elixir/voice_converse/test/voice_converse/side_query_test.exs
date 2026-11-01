@@ -37,6 +37,7 @@ defmodule VoiceConverse.SideQueryTest do
       prefix = unquote(prefix)
       _ = :sys.get_state(session)
       assert {:send_context, prefix <> "Prior constraint"} in FakeProvider.calls(provider)
+      assert {:announce, prefix <> "Prior constraint", [when: :idle]} in FakeProvider.calls(provider)
       assert :sys.get_state(session).consult == nil
       assert {:ok, records, _} = TranscriptStore.read(ctx.root, id)
 

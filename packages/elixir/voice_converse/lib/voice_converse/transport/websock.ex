@@ -267,20 +267,7 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       defp event_frame(%Events.AgentText{turn_id: turn_id, text: text, final?: final?}),
         do: %{"v" => 1, "type" => "agent_text", "turn_id" => to_string(turn_id), "text" => text, "final" => final?}
 
-      defp event_frame(%Events.AgentTextTiming{} = event) do
-        frame = %{
-          v: 1,
-          type: "agent_text_timing",
-          turn_id: to_string(event.turn_id),
-          text: event.text,
-          audio_offset_ms: event.audio_offset_ms,
-          estimated: event.estimated
-        }
-
-        if event.chars,
-          do: Map.put(frame, :chars, Enum.map(event.chars, fn {ms, length} -> %{offset_ms: ms, length: length} end)),
-          else: frame
-      end
+      defp event_frame(%Events.AgentTextTiming{} = event), do: hd(VoiceConverse.EventFrames.frames(event))
 
       defp event_frame(%Events.AgentAudio{turn_id: turn_id, format: format, data_b64: data_b64}),
         do: %{
