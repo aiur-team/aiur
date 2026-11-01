@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
   alias Aiur.Orchestrator.CiLifecycle.{ReviewHandoff, Transition}
-  alias Aiur.Orchestrator.TicketTransition
 
   @interrupted_turn_grace_ms 30_000
 
@@ -354,16 +353,15 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   defp handoff_cached_ci_pass(state, issue, result) do
     issue_key = issue.id || issue.identifier
 
-    case TicketTransition.write_state(
-           to_string(issue_key),
-           "human-review",
-           Transition.expected_state_opts(issue)
-           |> Keyword.put(:writer, :ci_lifecycle)
-           |> Keyword.put(:reason_modifiers, [])
-         ) do
-      :ok -> ReviewHandoff.apply_transition(state, :ok, {issue, result})
-      {:error, _reason} -> state
-    end
+    ReviewHandoff.transition_stalled(state, issue, result, fn ->
+      Aiur.Orchestrator.TicketTransition.write_state(
+        to_string(issue_key),
+        "human-review",
+        Transition.expected_state_opts(issue)
+        |> Keyword.put(:writer, :ci_lifecycle)
+        |> Keyword.put(:reason_modifiers, [])
+      )
+    end)
   end
 
   # True when a duration-capped paused entry is WEDGED rather than parked:
