@@ -5,6 +5,7 @@ defmodule VoiceConverse.Session do
     ClientErrors,
     Events,
     ProviderCleanup,
+    Session.Briefing,
     Session.Runtime,
     Session.Start,
     SessionLimits,
@@ -51,7 +52,6 @@ defmodule VoiceConverse.Session do
   @impl true
   def handle_continue(:open_provider, state), do: {:noreply, open_provider_async(state, :initial)}
   def handle_continue(:consult_failed, state), do: stop_unknown(state)
-
   @impl true
   def handle_cast({:audio, audio_b64}, state) when is_binary(audio_b64) do
     {:noreply, Runtime.enqueue_audio(self(), state, audio_b64, @max_queued_audio)}
@@ -68,8 +68,7 @@ defmodule VoiceConverse.Session do
   def handle_call({:unsubscribe, subscriber}, _from, state) when is_pid(subscriber),
     do: {:reply, :ok, remove_subscriber(state, subscriber)}
 
-  def handle_call(:refresh_briefing, from, state),
-    do: VoiceConverse.Session.Briefing.refresh(state, self(), from)
+  def handle_call(:refresh_briefing, from, state), do: Briefing.refresh(state, self(), from)
 
   def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
     do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
@@ -88,9 +87,6 @@ defmodule VoiceConverse.Session do
   def handle_info(:provider_ready, state),
     do: {:noreply, state |> Runtime.flush_consult_context() |> transition(:listening)}
 
-  def handle_info({:briefing_refresh, ref, result}, state),
-    do: VoiceConverse.Session.Briefing.complete_refresh(state, ref, result)
-
   def handle_info({:provider_opened, phase, result}, state), do: handle_provider_opened(phase, result, state)
 
   def handle_info({:provider_closed, {:finish, reason}}, state) do
@@ -105,7 +101,6 @@ defmodule VoiceConverse.Session do
   def handle_info({:audio_pushed, _ref, _result}, state), do: {:noreply, state}
 
   def handle_info({:idle_timeout, token}, %{idle_token: token} = state), do: stop_on_timeout(state, :idle_timeout)
-
   def handle_info({:idle_timeout, _token}, state), do: {:noreply, state}
   def handle_info(:max_duration, state), do: stop_on_timeout(state, :max_duration)
 
@@ -144,7 +139,7 @@ defmodule VoiceConverse.Session do
     end
   end
 
-  def handle_info(message, state), do: VoiceConverse.Session.Consult.handle_info(message, state)
+  def handle_info(message, state), do: Briefing.handle_info(message, state)
   @impl true
   def terminate(reason, %{finished?: false} = state) when reason not in [:normal, :shutdown] do
     state = close_current_provider(state)
@@ -352,7 +347,6 @@ defmodule VoiceConverse.Session do
     do: %{event | params: VoiceConverse.Session.Consult.redact_question(state, params)}
 
   defp redact_tool_call(state, event), do: VoiceConverse.SummaryTool.redact_event(state.config, event)
-
   defp redact_text(state, text) when is_binary(text), do: redact(state, text)
   defp redact_text(_state, text), do: text
 
@@ -365,11 +359,8 @@ defmodule VoiceConverse.Session do
 
   defp begin_finish(%{finished?: true} = state, _reason), do: {:done, state}
   defp begin_finish(%{finishing?: true} = state, _reason), do: {:pending, state}
-
   defp begin_finish(%{provider_ref: nil} = state, reason), do: {:done, finish_after_close(state, reason)}
-
   defp begin_finish(state, reason), do: {:pending, close_provider(%{state | finishing?: true}, {:finish, reason})}
-
   defp finish_after_close(%{finished?: true} = state, _reason), do: state
 
   defp finish_after_close(state, reason) do

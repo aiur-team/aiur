@@ -17,6 +17,10 @@ defmodule VoiceConverse.Session.Briefing do
     {:noreply, %{state | briefing_refreshes: Map.put(state.briefing_refreshes, ref, caller)}}
   end
 
+  def handle_info({:briefing_refresh, ref, result}, state), do: complete_refresh(state, ref, result)
+
+  def handle_info(message, state), do: VoiceConverse.Session.Consult.handle_info(message, state)
+
   def complete_refresh(state, ref, result) do
     case Map.pop(state.briefing_refreshes, ref) do
       {nil, _refreshes} ->
