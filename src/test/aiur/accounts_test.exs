@@ -1,5 +1,6 @@
 defmodule Aiur.AccountsTest do
   use Aiur.TestSupport
+  import ExUnit.CaptureIO
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude
@@ -394,5 +395,23 @@ defmodule Aiur.AccountsTest do
     assert {:ok, ^claude_dir, false} = AccountsCLI.login_decision("claude", "adopted-claude")
     assert {:ok, ^codex_dir, false} = AccountsCLI.login_decision("codex", "adopted-codex")
     assert {:ok, _dir, true} = AccountsCLI.login_decision("claude", "signed-out")
+    assert {:ok, ^claude_dir, false} = AccountsCLI.prepare_login_result("claude", "prepared-claude", claude_dir)
+    assert {:ok, ^signed_out_dir, true} = AccountsCLI.prepare_login_result("claude", "prepared-signed-out", signed_out_dir)
+
+    env_path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(env_path))
+    File.write!(env_path, "DEEPSEEK_API_KEY__WORK=test-key\n")
+    assert {:ok, nil, false} = AccountsCLI.prepare_login_result("deepseek", "work", nil)
+  end
+
+  test "a signed-out profile refuses login when stdin is not a terminal", %{home: home} do
+    signed_out_dir = Path.join(home, "signed-out-login")
+    File.mkdir_p!(signed_out_dir)
+
+    capture_io(fn ->
+      assert {:error, message} = AccountsCLI.login("claude", "signed-out-login", signed_out_dir)
+      assert message =~ "profile is not signed in"
+      assert message =~ "interactive terminal"
+    end)
   end
 end

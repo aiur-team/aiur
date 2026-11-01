@@ -158,7 +158,7 @@ defmodule Aiur.AccountsCLI do
   def prepare_login_result(harness, name, dir) do
     case Accounts.capability(harness) do
       {:ok, %{kind: :api_key}} ->
-        with :ok <- maybe_validate_and_register(harness, name, dir), do: {:ok, nil}
+        with :ok <- maybe_validate_and_register(harness, name, dir), do: {:ok, nil, false}
 
       {:ok, %{reason: reason}} ->
         {:error, {:unsupported_account_backend, reason}}

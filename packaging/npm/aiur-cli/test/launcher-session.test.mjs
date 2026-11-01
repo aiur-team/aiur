@@ -27,6 +27,7 @@ test("Claude login prepares a profile and hands its exact path to the interactiv
   writeFileSync(claude, '#!/usr/bin/env bash\nprintf "%s" "$CLAUDE_CONFIG_DIR" > "$AIUR_LOGIN_ENV_CAPTURE"\n');
   chmodSync(claude, 0o755);
 
+  // The PTY invocation uses util-linux `script` options; CI runs on Ubuntu.
   const result = spawnSync("script", ["-qec", `bash ${JSON.stringify(launcher)} login claude max --dir ${JSON.stringify(profileDir)}`, "/dev/null"], {
     encoding: "utf8",
     env: {
@@ -83,6 +84,36 @@ test("Claude login adopts an already signed-in profile without starting the harn
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("registered claude:adopted (signed in)");
+  expect(existsSync(calledFile)).toBe(false);
+});
+
+test("Claude login refuses a signed-out profile without a TTY and never starts the harness", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const fakeBin = path.join(root, "signed-out-bin");
+  const profileDir = path.join(root, "signed-out-profile");
+  const calledFile = path.join(root, "claude-called-signed-out");
+  mkdirSync(fakeBin, { recursive: true });
+  mkdirSync(profileDir, { recursive: true });
+  const claude = path.join(fakeBin, "claude");
+  writeFileSync(claude, '#!/usr/bin/env bash\nprintf called > "$AIUR_LOGIN_CALLED"\n');
+  chmodSync(claude, 0o755);
+
+  const result = spawnSync("bash", [launcher, "login", "claude", "signed-out", "--dir", profileDir], {
+    encoding: "utf8",
+    input: "",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      AIUR_TEST_PROFILE: `${profileDir}\nlogin`,
+      AIUR_LOGIN_CALLED: calledFile,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+    },
+  });
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain("profile is not signed in");
+  expect(result.stderr).toContain("interactive terminal");
   expect(existsSync(calledFile)).toBe(false);
 });
 
