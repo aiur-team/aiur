@@ -115,7 +115,7 @@ defmodule VoiceConverse.Session.Runtime do
     %{
       owner: owner,
       credentials: {config.credentials, provider_id},
-      system_prompt: "",
+      system_prompt: if(state.role, do: state.role.prompt, else: ""),
       first_message: nil,
       context: context(state),
       tools: Tools.specs(config, state.target),

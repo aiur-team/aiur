@@ -25,7 +25,7 @@ Optional settings for the conversational voice assistant; an absent `voice:` blo
 | `voice.conversation.providers.openai.live_model` | string or nil | nil | OpenAI Live model; nil uses the adapter default. |
 | `voice.conversation.providers.openai.realtime_model` | string or nil | nil | OpenAI Realtime model; nil uses the adapter default. |
 | `voice.conversation.providers.preference` | list of strings | [elevenlabs_agents, openai_live, gemini_live, cascade] | Ordered core registry option ids. Unknown ids fail config loading; unavailable adapters are skipped. |
-| `voice.conversation.roles_dir` | string or nil | nil | Directory of role pre-context files. A relative path resolves against the config file's directory, like `prompt_file`. |
+| `voice.conversation.roles_dir` | string or nil | nil | Directory of Markdown role files overriding shipped roles by id. Relative paths resolve against the config directory. |
 | `voice.conversation.voice_id` | string or nil | nil | OpenAI Realtime voice; nil uses `marin`. ElevenLabs keeps its Agent voice. |
 
 `voice.conversation.llm` and `voice.conversation.cloud_disclosure_accepted` have no default. Aiur loads a config without them, but a voice session refuses to start until both are set, and the error names the missing field.
@@ -214,3 +214,32 @@ missing or unavailable acknowledgment evidence is shown explicitly.
 Received means the wake was acknowledged, not that its contents were approved
 or executed. The acknowledgment timestamp is when Aiur observed the
 acknowledgment. Starting another voice session does not erase earlier receipts.
+
+### Discussion roles
+
+Aiur ships `worker` (Ticket discussion) and `executor` (Project discussion).
+Set `voice.conversation.roles_dir: voice/roles` to author overrides under your
+instance config folder, for example `.aiur/voice/roles/worker.md`:
+
+```markdown
+---
+id: worker
+title: Ticket discussion
+targets: [worker]
+---
+Discuss this ticket, ask questions, and draft instructions for operator review.
+Never claim that discussion has sent an instruction.
+```
+
+`id`, `title`, and a nonempty body are required. `targets` is a nonempty list
+containing `worker`, `executor`, or both.
+
+Directory files override shipped roles
+by id; duplicate ids and invalid files appear in registry warnings. Files load in
+filename order (the last duplicate wins); names beginning with `_` are ignored.
+A missing directory leaves the shipped roles available.
+
+The host appends its
+shared dictated-input glossary. Each session snapshots the resulting prompt and
+records its `role_id` and SHA-256 `role_hash` in `session_started`; edits affect
+new sessions. Reconnecting sessions retain their original prompt.
