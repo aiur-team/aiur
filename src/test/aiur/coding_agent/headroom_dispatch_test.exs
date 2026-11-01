@@ -2,6 +2,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   use Aiur.TestSupport
 
   alias Aiur.Accounts
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.AgentRunner.{DispatchSelectionEvent, SessionLifecycle}
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.HeadroomDispatch
@@ -74,6 +75,12 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
 
   defp select(issue \\ ticket(), overrides \\ []), do: CodingAgent.select_for_dispatch(issue, opts(overrides))
 
+  setup do
+    UsageReadings.reset()
+    on_exit(&UsageReadings.reset/0)
+    :ok
+  end
+
   describe "issue #3960 acceptance" do
     test "an auth-rejected provider is skipped while another backend remains available" do
       state = %{"backends" => %{"claude" => %{"auth_rejected" => true}}}
@@ -133,12 +140,18 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert issue.dispatch_selection.summary == "headroom: codex=5%"
     end
 
-    test "an unknown account is tried before a known account so it can be observed" do
+    test "unknown account gets one exploration before the known account takes the next dispatch" do
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = issue} =
-               select(ticket(), state: %{"backends" => %{}}, usage_snapshot: meters(%{"everdred" => {89, 0}}))
+               select(ticket(), state: %{"backends" => %{}}, usage_snapshot: meters(%{"everdred" => {74, 0}}))
 
       assert issue.dispatch_selection.summary =~ "headroom: claude/default=unknown"
-      assert issue.dispatch_selection.summary =~ "claude/everdred=11%"
+      assert issue.dispatch_selection.summary =~ "claude/everdred=26%"
+
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "everdred"} = next} =
+               select(ticket(), state: %{"backends" => %{}}, usage_snapshot: meters(%{"everdred" => {74, 0}}))
+
+      assert next.dispatch_selection.summary =~ "headroom: claude/everdred=26%"
+      assert next.dispatch_selection.summary =~ "claude/default=unknown (recently dispatched)"
     end
 
     test "an unknown account beats a known account with 10% or less left" do

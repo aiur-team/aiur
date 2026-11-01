@@ -159,7 +159,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
     case select_by_backend(candidates, readings(candidates, opts)) do
       {:ok, chosen, ranked} ->
-        {:ok, apply_choice(issue, chosen, ranked, false)}
+        {:ok, apply_choice(issue, chosen, ranked, false, opts)}
 
       {:error, :all_exhausted, ranked} ->
         log(issue, nil, ranked)
@@ -174,7 +174,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
     case Headroom.select(candidates, readings(candidates, opts)) do
       {:ok, chosen, ranked} ->
-        {:ok, apply_choice(issue, chosen, ranked, true)}
+        {:ok, apply_choice(issue, chosen, ranked, true, opts)}
 
       {:error, :all_exhausted, ranked} ->
         log(issue, nil, ranked)
@@ -206,8 +206,13 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   defp pinned_backend(issue, opts), do: CodingAgent.override_backend(issue, opts)
 
-  defp apply_choice(issue, %{candidate: candidate} = chosen, ranked, pinned?) do
+  defp apply_choice(issue, %{candidate: candidate} = chosen, ranked, pinned?, opts) do
     log(issue, chosen, ranked)
+
+    if chosen.status == :unknown do
+      UsageReadings.mark_explored(account_backend(candidate.backend), candidate.account || "default", Keyword.get(opts, :now, DateTime.utc_now()))
+    end
+
     issue = %{issue | selected_account: candidate.account, dispatch_selection: selection(chosen, ranked, pinned?)}
 
     if pinned?,
@@ -292,7 +297,10 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     per_backend = candidates |> Enum.uniq_by(&{&1.backend, &1.account}) |> Enum.frequencies_by(& &1.backend)
 
     Map.new(candidates, fn candidate ->
-      {Headroom.key(candidate), reading(candidate, state, meters, per_backend, now, opts)}
+      reading = reading(candidate, state, meters, per_backend, now, opts)
+      explored = UsageReadings.recently_explored?(account_backend(candidate.backend), candidate.account || "default", now)
+      reading = if explored, do: Map.put(reading || %{}, :explored, true), else: reading
+      {Headroom.key(candidate), reading}
     end)
   end
 

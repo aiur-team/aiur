@@ -19,9 +19,10 @@ defmodule Aiur.Accounts.Headroom do
   Candidates rank in tiers, then by remaining fraction, then by input order:
 
     1. unknown usage (no reading). It is never shown as a number and is
-       preferred so the account can be observed rather than skipped forever;
+       preferred for one exploration while the account is unobserved;
     2. known usage with more than 10% left;
-    3. known usage with 10% or less left;
+    3. an unknown account already dispatched during the observation window,
+       and known usage with 10% or less left;
     4. exhausted (a limited flag, or no usage left). Never chosen.
   """
 
@@ -43,7 +44,8 @@ defmodule Aiur.Accounts.Headroom do
             optional(:limited) => boolean(),
             optional(:stale) => boolean(),
             optional(:age_seconds) => non_neg_integer(),
-            optional(:source) => String.t()
+            optional(:source) => String.t(),
+            optional(:explored) => boolean()
           }
           | nil
 
@@ -122,6 +124,11 @@ defmodule Aiur.Accounts.Headroom do
   def name(%{backend: backend, account: account}), do: backend <> "/" <> account
 
   defp value(%{status: :exhausted}), do: "exhausted"
+
+  defp value(%{status: :unknown, explored: true, stale: true, age_seconds: age}) when is_integer(age),
+    do: "unknown (recently dispatched, stale, #{age_text(age)} old)"
+
+  defp value(%{status: :unknown, explored: true}), do: "unknown (recently dispatched)"
   defp value(%{status: :unknown, stale: true, age_seconds: age}) when is_integer(age), do: "unknown (stale, #{age_text(age)} old)"
   defp value(%{status: :unknown}), do: "unknown"
   defp value(%{remaining: remaining, age_seconds: age}) when is_integer(age) and age >= 60, do: "#{round(remaining * 100)}% (#{age_text(age)} old)"
@@ -139,6 +146,7 @@ defmodule Aiur.Accounts.Headroom do
       candidate: candidate,
       index: index,
       source: source(reading),
+      explored: reading_field(reading, :explored) == true,
       age_seconds: reading_field(reading, :age_seconds),
       stale: reading_field(reading, :stale) == true,
       binding_window: nil,
@@ -175,5 +183,8 @@ defmodule Aiur.Accounts.Headroom do
   defp source(%{source: source}) when is_binary(source), do: source
   defp source(_reading), do: nil
 
-  defp sort_key(%{status: status, remaining: remaining, index: index}), do: {Map.fetch!(@tiers, status), -(remaining || 0.0), index}
+  defp sort_key(%{status: status, explored: explored, remaining: remaining, index: index}) do
+    tier = if status == :unknown and explored, do: @tiers.low, else: Map.fetch!(@tiers, status)
+    {tier, -(remaining || 0.0), index}
+  end
 end
