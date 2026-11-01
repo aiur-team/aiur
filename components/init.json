@@ -7,7 +7,9 @@
     "src/lib/aiur/init.ex",
     "src/lib/aiur/init/**",
     "src/lib/aiur/upgrade.ex",
-    "src/lib/aiur/upgrade/**"
+    "src/lib/aiur/upgrade/**",
+    "src/lib/aiur/toolchain.ex",
+    "src/lib/aiur/toolchain/**"
   ],
   "facades": [
     "*"
@@ -20,6 +22,7 @@
   "optional": [],
   "owns": {
     "config": [
+      "toolchain",
       "upgrade"
     ],
     "env": [
@@ -41,6 +44,7 @@
     "guide/quick-start.md"
   ],
   "config": [
+    "toolchain",
     "upgrade"
   ],
   "env": [
