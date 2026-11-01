@@ -4,7 +4,7 @@ defmodule Aiur.Events.Catalog.Entry do
   # aiur:event-bus-boundary-member
 
   @type class :: :ephemeral | :live | :ledgered | :logged | :journaled
-  @type attr_type :: {:enum, [String.t()]} | {:list, :id} | :integer | :boolean | :id | :sha
+  @type attr_type :: {:enum, [String.t()]} | {:list, :id} | :integer | :boolean | :id | :sha | :text | :decision_options | :decision_answer
   @type t :: %__MODULE__{
           pattern: String.t(),
           class: class(),

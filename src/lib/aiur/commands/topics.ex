@@ -5,6 +5,7 @@ defmodule Aiur.Commands.Topics do
 
   alias Aiur.Commands.Requester
   alias Aiur.Decision
+  alias Aiur.DecisionProjection
   alias Aiur.Events
   alias Aiur.ExecutorEvents
 
@@ -29,7 +30,7 @@ defmodule Aiur.Commands.Topics do
           ExecutorEvents.publish(topic, scrubbed, source: :internal)
         end
       else
-        Events.publish_persisted(topic, payload, cursor_event_id,
+        Events.publish_persisted(topic, export_payload(decision, slug, payload), cursor_event_id,
           digest_source: :orchestrator,
           identity: Map.get(decision.ticket, :tracker_identity)
         )
@@ -42,4 +43,28 @@ defmodule Aiur.Commands.Topics do
 
     result
   end
+
+  defp export_payload(decision, slug, payload) when slug in ["requested", "answered"] do
+    request = DecisionProjection.to_json_safe(decision)
+
+    payload
+    |> Map.put("decision_id", decision.decision_id)
+    |> Map.put("decision_version", payload_value(payload, :decision_version) || decision.version)
+    |> Map.put("question", request["question"])
+    |> Map.put("options", request["options"])
+    |> maybe_put_answer(slug, payload)
+  end
+
+  defp export_payload(_decision, _slug, payload), do: payload
+
+  defp maybe_put_answer(payload, "answered", event_payload) do
+    case payload_value(event_payload, :data) do
+      answer when is_map(answer) -> Map.put(payload, "answer", answer)
+      _other -> payload
+    end
+  end
+
+  defp maybe_put_answer(payload, _slug, _event_payload), do: payload
+
+  defp payload_value(payload, key), do: Map.get(payload, key, Map.get(payload, Atom.to_string(key)))
 end
