@@ -44,10 +44,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.ReviewHandoff do
   end
 
   @doc false
-  @spec transition_stalled(State.t(), struct(), map(), (() -> term())) :: State.t()
+  @spec transition_stalled(State.t(), struct(), map(), (-> term())) :: State.t()
   def transition_stalled(state, issue, result, write_state) do
     case write_state.() do
-      :ok -> apply_transition_success(state, issue, result)
+      :ok ->
+        apply_transition_success(state, issue, result)
+
       {:error, reason} ->
         Logger.warning("Stalled worker CI review handoff skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
         state
