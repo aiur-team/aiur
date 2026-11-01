@@ -155,7 +155,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
-A worker holding a native question raises a Command; open Commands to answer it.
+A worker holding a native question reads **Waiting for your answer** on its Build card, ticket header, Stream Deck key and `aiur units` output. The hold age appears alongside it; open the linked Command to answer. On the Stream Deck, focus the ticket and use **Open Command**. The waiting state clears when the answer is delivered or the hold is released.
 
 ### Read fleet and build pressure
 
@@ -183,7 +183,7 @@ on a phone, to read the instance's one Executor
 conversation at `/executor`. Attach with `aiur executor-attach --harness claude`
 or `aiur executor-attach --harness codex`.
 
-Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-session --json` hint for inspecting the current binding and hook state.
+Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-attach --check` hint for diagnosing attachment and hook failures.
 
 The distinct Executor frame wraps the same paging, event jumps and live history
 as worker conversations; `/executor?pos=N` highlights a recorded position.

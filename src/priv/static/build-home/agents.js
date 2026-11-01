@@ -2,9 +2,32 @@ import { LOGOS } from './logos.js';
 import { esc } from './dom.js';
 import { agentState, modelLabel } from './now-state.js';
 import { fmtT } from './util.js';
+import { nowMs } from './clock.js';
+import { ctx, onReset } from './state.js';
+let holdTick = false;
+onReset(() => { holdTick = false; });
 
 export function rowState(t) {
-  return t.sec === 'now' ? agentState(t.agent?.state) : null;
+  const state = t.sec === 'now' ? agentState(t.agent?.state) : null;
+  return nativeHold(t) ? { ...state, label: state.label + ' · ' + holdAge(nativeHold(t)?.since) } : state;
+}
+export function nativeHold(t) {
+  return t.sec === 'now' && t.agent?.state === 'native_question' ? t.agent.native_hold : null;
+}
+function holdAge(since) {
+  const now = nowMs();
+  return Number.isFinite(since) && Number.isFinite(now) ? 'for ' + Math.floor(Math.max(0, now - since) / 60000) + ' min' : 'duration unavailable';
+}
+export function holdLinkHTML(t) {
+  const hold = nativeHold(t);
+  if (hold && !holdTick && ctx.life) {
+    ctx.life.every(60000, () => document.querySelectorAll('.bd-hold').forEach(el => {
+      const since = el.dataset.since === '' ? null : Number(el.dataset.since);
+      el.textContent = agentState('native_question').label + ' · ' + holdAge(since);
+    }));
+    holdTick = true;
+  }
+  return hold ? '<a data-since="' + esc(hold.since ?? '') + '" class="bd-hold" href="/commands/' + encodeURIComponent(hold.decision_id) + '">' + esc(rowState(t).label) + '</a>' : '';
 }
 export function modelInfo(key) {
   const k = typeof key === 'string' && key !== '' ? key : null;
