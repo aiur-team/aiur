@@ -318,8 +318,9 @@ class ReconciliationTests(unittest.TestCase):
     def test_invalid_product_groups_fail_before_any_github_request(self) -> None:
         self.ctx.build.pop("product_features")
         client = FakeClient({})
-        with self.assertRaisesRegex(PublicationError, "explicit product_features"):
-            Publisher(client, self.ctx).apply()
+        with patch.object(Publisher, "_check_authority", return_value=None):
+            with self.assertRaisesRegex(PublicationError, "explicit product_features"):
+                Publisher(client, self.ctx).apply()
         self.assertEqual([], client.calls)
 
     def test_foreign_same_number_relationships_fail_before_mutation(self) -> None:
