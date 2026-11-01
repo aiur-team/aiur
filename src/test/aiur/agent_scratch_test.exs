@@ -41,6 +41,13 @@ defmodule Aiur.AgentScratchTest do
       assert (File.stat!(actual_path).mode &&& 0o777) == 0o700
     end
 
+    test "falls back from an overlong runtime directory", %{workspace: workspace} do
+      path = AgentScratch.mcp_socket_dir(workspace, runtime_root: "/#{String.duplicate("r", 120)}", user_id: "1234567890")
+
+      assert path =~ "/tmp/aiur-1234567890/"
+      assert byte_size(Path.join(path, "aiur-mcp-9999999-999.sock")) <= 100
+    end
+
     test "legacy socket estimate includes workspace, repo, maximum issue and suffix" do
       workspace_root = String.duplicate("w", 50)
       length = AgentScratch.legacy_mcp_socket_path_length(workspace_root, "owner/repo")
@@ -49,6 +56,15 @@ defmodule Aiur.AgentScratchTest do
 
       assert length == expected
       assert length > AgentScratch.mcp_socket_path_limit()
+    end
+
+    test "removes the workspace's private MCP socket directory", %{workspace: workspace} do
+      assert [{~c"AIUR_MCP_SOCKET_DIR", path}] = AgentScratch.mcp_socket_env(workspace)
+      socket_dir = List.to_string(path)
+      assert File.dir?(socket_dir)
+
+      assert :ok = AgentScratch.remove_mcp_socket_dir(workspace)
+      refute File.exists?(socket_dir)
     end
 
     test "warning reports the maximum legacy path but ignores a short configured socket path" do

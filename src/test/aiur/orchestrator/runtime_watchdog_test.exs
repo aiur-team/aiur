@@ -134,7 +134,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
 
     state = %State{running: %{"issue-77" => entry}, claimed: MapSet.new(["issue-77"])}
 
-    assert {:noreply, next} = AgentDown.handle_agent_down(state, ref, {:error, {:turn_failed, reason}})
+    assert {:noreply, next} = AgentDown.handle_agent_down(state, ref, {:mcp_socket_launch_failed, reason})
     refute Map.has_key?(next.retry_attempts, "issue-77")
     refute Map.has_key?(next.running, "issue-77")
     refute MapSet.member?(next.claimed, "issue-77")

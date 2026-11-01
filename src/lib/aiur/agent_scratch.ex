@@ -16,7 +16,7 @@ defmodule Aiur.AgentScratch do
 
   require Logger
 
-  alias Aiur.Shell
+  alias Aiur.{Shell, Workspace.Layout}
 
   @relative_path ".aiur-runtime/tmp"
   @mcp_socket_dir_env "AIUR_MCP_SOCKET_DIR"
@@ -32,7 +32,13 @@ defmodule Aiur.AgentScratch do
     runtime_root = Keyword.get(opts, :runtime_root) || runtime_root()
     user_id = Keyword.get(opts, :user_id) || user_id()
     digest = :crypto.hash(:sha256, workspace) |> Base.encode16(case: :lower) |> binary_part(0, 10)
-    Path.join([runtime_root, "aiur-#{user_id}", digest])
+    path = Path.join([runtime_root, "aiur-#{user_id}", digest])
+
+    if byte_size(Path.join(path, "aiur-mcp-9999999-999.sock")) <= 100 do
+      path
+    else
+      Path.join(["/tmp", "aiur-#{user_id}", digest])
+    end
   end
 
   @doc "Maximum legacy Claude MCP socket path length for a workspace root and repo segment."
@@ -40,7 +46,7 @@ defmodule Aiur.AgentScratch do
   def legacy_mcp_socket_path_length(workspace_root, repo_segment)
       when is_binary(workspace_root) and is_binary(repo_segment) do
     workspace_root
-    |> issue_workspace_path(repo_segment)
+    |> Layout.issue_workspace_path("99999", repo_segment)
     |> then(&Path.join([&1, @relative_path, "aiur-mcp-9999999-999.sock"]))
     |> byte_size()
   end
@@ -88,6 +94,7 @@ defmodule Aiur.AgentScratch do
     with :ok <- File.mkdir_p(private_root),
          :ok <- ensure_private_root(private_root),
          :ok <- File.mkdir_p(path),
+         :ok <- ensure_private_directory(path),
          :ok <- File.chmod(path, 0o700) do
       [{String.to_charlist(@mcp_socket_dir_env), String.to_charlist(path)}]
     else
@@ -97,13 +104,51 @@ defmodule Aiur.AgentScratch do
     end
   end
 
+  @doc false
+  @spec remove_mcp_socket_dir(Path.t()) :: :ok | {:error, term()}
+  def remove_mcp_socket_dir(workspace) when is_binary(workspace) do
+    socket_dir = mcp_socket_dir(workspace)
+    private_root = Path.dirname(socket_dir)
+    expected_uid = own_uid()
+
+    case File.lstat(private_root) do
+      {:ok, %{type: :directory, uid: ^expected_uid}} ->
+        case File.rm_rf(socket_dir) do
+          {:ok, _removed} -> :ok
+          {:error, reason, _path} -> {:error, reason}
+        end
+
+      {:error, :enoent} ->
+        :ok
+
+      _other ->
+        {:error, :unsafe_mcp_socket_root}
+    end
+  end
+
   defp ensure_private_root(path) do
-    case File.stat(path) do
-      {:ok, %{mode: mode, uid: uid}} ->
+    case File.lstat(path) do
+      {:ok, %{type: :directory, mode: mode, uid: uid}} ->
         if uid == own_uid(), do: ensure_private_root_mode(path, mode), else: {:error, :not_owned_by_current_user}
 
       {:error, reason} ->
         {:error, reason}
+
+      _other ->
+        {:error, :unsafe_private_root}
+    end
+  end
+
+  defp ensure_private_directory(path) do
+    case File.lstat(path) do
+      {:ok, %{type: :directory, uid: uid}} ->
+        if uid == own_uid(), do: :ok, else: {:error, :not_owned_by_current_user}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _other ->
+        {:error, :unsafe_socket_directory}
     end
   end
 
@@ -111,21 +156,8 @@ defmodule Aiur.AgentScratch do
     if Bitwise.band(mode, 0o777) == 0o700, do: :ok, else: File.chmod(path, 0o700)
   end
 
-  defp issue_workspace_path(root, repo_segment) do
-    trimmed = String.trim_trailing(root, "/")
-
-    if trimmed == repo_segment or String.ends_with?(trimmed, "/" <> repo_segment) do
-      Path.join(trimmed, "99999")
-    else
-      Path.join([trimmed, repo_segment, "99999"])
-    end
-  end
-
   defp own_uid do
-    case user_id() do
-      uid when is_binary(uid) -> String.to_integer(uid)
-      _ -> -1
-    end
+    user_id() |> String.to_integer()
   rescue
     _ -> -1
   end

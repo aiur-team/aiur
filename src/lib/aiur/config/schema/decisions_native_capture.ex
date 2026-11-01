@@ -12,7 +12,7 @@ defmodule Aiur.Config.Schema.Decisions.NativeCapture do
     # @config-detail decisions.native_capture.codex | boolean | true | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Set false to opt out. |
     field(:codex, :boolean, default: true)
     # @config-reference config-configuration-17 decisions.native_capture.claude
-    # @config-detail decisions.native_capture.claude | boolean | true | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.1.1. Older or unversioned siblings remain non-interactive. |
+    # @config-detail decisions.native_capture.claude | boolean | true | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.3.0. Older or unversioned siblings remain non-interactive. |
     field(:claude, :boolean, default: true)
   end
 

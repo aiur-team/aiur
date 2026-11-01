@@ -1,4 +1,5 @@
 defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
+  import Bitwise
   # Not async: every test here mutates process-global `System.put_env` state
   # (including the ELEVENLABS_API_KEY credential case), which raced concurrent
   # BuildGate readers and made `AIUR_BUILD_START_STAGGER_SECONDS` observe another
@@ -123,7 +124,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
     socket_dir = env |> Map.fetch!(~c"AIUR_MCP_SOCKET_DIR") |> to_string()
     tmpdir = env |> Map.fetch!(~c"TMPDIR") |> to_string()
     socket_path = Path.join(socket_dir, "aiur-mcp-9999999-999.sock")
-    assert byte_size(socket_path) <= 100
+    assert byte_size(socket_path) <= 100, socket_path
     assert Path.basename(tmpdir) == "tmp"
     assert tmpdir == Path.join(workspace, ".aiur-runtime/tmp")
   end
@@ -164,12 +165,22 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
 
     test "the export prefix redirects TMPDIR for the SSH-launch path", %{workspace: workspace} do
       prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
+      runtime_root = Path.join("/tmp", "aiur-xdg-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(runtime_root)
+      File.chmod!(runtime_root, 0o700)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(runtime_root) end)
 
       {resolved, 0} =
-        System.cmd("bash", ["-c", "#{prefix} && printf '%s|%s|%s|%s' \"$TMPDIR\" \"$TMP\" \"$TEMP\" \"$TMPPREFIX\""], env: [{"TMPDIR", "/tmp"}])
+        System.cmd("bash", ["-c", "#{prefix} && printf '%s|%s|%s|%s|%s' \"$TMPDIR\" \"$TMP\" \"$TEMP\" \"$TMPPREFIX\" \"$AIUR_MCP_SOCKET_DIR\""],
+          env: [{"TMPDIR", "/tmp"}, {"XDG_RUNTIME_DIR", runtime_root}]
+        )
 
       scratch = Path.join(workspace, ".aiur-runtime/tmp")
-      assert resolved == "#{scratch}|#{scratch}|#{scratch}|#{scratch}/zsh-"
+      [tmpdir, tmp, temp, tmp_prefix, socket_dir] = String.split(resolved, "|")
+      assert [tmpdir, tmp, temp, tmp_prefix] == [scratch, scratch, scratch, "#{scratch}/zsh-"]
+      assert socket_dir =~ ~r|/aiur-xdg-\d+/aiur-\d+/[0-9a-f]{10}$|
+      assert File.dir?(socket_dir)
+      assert (File.stat!(socket_dir).mode &&& 0o777) == 0o700
       assert File.dir?(scratch)
     end
 

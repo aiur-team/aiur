@@ -123,14 +123,8 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
     end
   end
 
-  defp handle_running_agent_down(state, issue_id, running_entry, {:error, {:turn_failed, details}} = reason, session_id)
-       when is_map(details) do
-    handle_mcp_socket_turn_failure(state, issue_id, running_entry, reason, details, session_id)
-  end
-
-  defp handle_running_agent_down(state, issue_id, running_entry, {:turn_failed, details} = reason, session_id)
-       when is_map(details) do
-    handle_mcp_socket_turn_failure(state, issue_id, running_entry, reason, details, session_id)
+  defp handle_running_agent_down(state, issue_id, running_entry, {:mcp_socket_launch_failed, details}, _session_id) do
+    fail_mcp_socket_launch(state, issue_id, running_entry, details)
   end
 
   defp handle_running_agent_down(state, issue_id, running_entry, :normal, session_id) do
@@ -189,26 +183,6 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
 
       Exhaustion.start_mcp_socket_failure_state_write(next, issue_id, identifier, failure, opts)
     end)
-  end
-
-  defp retry_agent_down(state, issue_id, running_entry, reason, session_id) do
-    if State.completed_running_entry?(running_entry) do
-      park_completed_entry(state, issue_id, running_entry)
-    else
-      Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-      state
-      |> remove_stopped_running_entry(issue_id, running_entry)
-      |> Scheduling.schedule_issue_retry(issue_id, exit_retry_attempt(running_entry, reason), exit_retry_metadata(running_entry, reason))
-    end
-  end
-
-  defp handle_mcp_socket_turn_failure(state, issue_id, running_entry, reason, details, session_id) do
-    if RouteFailure.mcp_socket_path_error?(details) do
-      fail_mcp_socket_launch(state, issue_id, running_entry, details)
-    else
-      retry_agent_down(state, issue_id, running_entry, reason, session_id)
-    end
   end
 
   defp handle_startup_failure(state, issue_id, running_entry, reason, session_id) do
