@@ -133,7 +133,7 @@ defmodule Aiur.Executor.Session do
     end
   end
 
-  def handle_call({:checkpoint, binding, offset, format}, _from, state) do
+  def handle_call({:checkpoint, binding, offset, format}, _from, state) when is_integer(offset) and offset >= 0 do
     case offset_binding(state.binding, binding.binding_id, cursor_identity(binding)) do
       :ok -> reply_saved(%{state | binding: Map.merge(state.binding, %{transcript_offset: offset, transcript_format: format})})
       {:error, reason} -> reject(state, reason)
