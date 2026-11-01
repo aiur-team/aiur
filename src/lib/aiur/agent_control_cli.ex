@@ -1,7 +1,6 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
   alias Aiur.Application.StartupChecks
-  alias Aiur.Orchestrator.Client, as: OrchestratorClient
   alias Aiur.Orchestrator.StatusCLI
 
   defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
@@ -92,15 +91,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate pause(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
 
-  @spec redispatch([String.t()], String.t() | nil) :: :ok | {:error, :redispatch_failed}
-  def redispatch(targets, backend) when is_list(targets) do
-    results = Enum.map(targets, &OrchestratorClient.redispatch(&1, backend))
-    Enum.each(results, &print_redispatch_result/1)
-    if Enum.any?(results, &match?({:error, _}, &1)), do: {:error, :redispatch_failed}, else: :ok
-  end
-
-  defp print_redispatch_result({:ok, :redispatched}), do: IO.puts("aiur: redispatch started for ticket")
-  defp print_redispatch_result({:error, reason}), do: IO.puts(:stderr, "aiur: redispatch failed (#{inspect(reason)})")
+  defdelegate redispatch(targets, backend), to: Aiur.AgentControlCLI.Redispatch
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
   defdelegate take(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :take
   defdelegate release(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :release
