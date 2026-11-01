@@ -17,14 +17,14 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     def report, do: %{executor: nil}
   end
 
-  defmodule VanishingExchange do
+  defmodule UnregisteredExchange do
     use GenServer
     def start_link(opts), do: GenServer.start_link(__MODULE__, Keyword.fetch!(opts, :name), opts)
     def init(state), do: {:ok, state}
 
     def handle_call({:subscribe, _pattern, _pid}, _from, state) do
       Process.unregister(state)
-      {:stop, :normal, :ok, state}
+      {:reply, :ok, state}
     end
   end
 
@@ -90,10 +90,12 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     assert :unsupported = LiveContext.subscribe(target, self(), :briefing, exchange: :missing_test_exchange)
   end
 
-  test "Exchange disappearing during subscription is monitored without a nil-pid crash", %{target: target} do
+  test "subscription monitors the same Exchange PID after its name is unregistered", %{target: target} do
     name = Module.concat(__MODULE__, "Vanishing#{System.unique_integer([:positive])}")
-    start_supervised!(Supervisor.child_spec({VanishingExchange, name: name}, restart: :temporary))
+    exchange = start_supervised!(Supervisor.child_spec({UnregisteredExchange, name: name}, restart: :temporary))
     assert :ok = LiveContext.subscribe(target, self(), :briefing, exchange: name)
+    refute_receive :live_context_unavailable, 100
+    GenServer.stop(exchange)
     assert_receive :live_context_unavailable, 1_000
   end
 
