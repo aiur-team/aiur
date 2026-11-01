@@ -165,6 +165,24 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     end
   end
 
+  test "a blocking formal review does not automatically route to rework in single-account mode" do
+    issue = human_review_issue()
+
+    event =
+      changes_requested_review_event(issue, %{
+        comment: %{"state" => "COMMENTED", "body" => "Blocking: fix before merge", "submitted_at" => "2026-09-26T04:09:44Z"},
+        human_merger_allowed_fun: fn _login -> true end,
+        pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      })
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_identity_mode: "single_account")
+
+    CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+    refute_received {:memory_tracker_state_update, @issue_number, "rework"}
+  end
+
   for ticket_state <- ["human-review", "ci-wait"],
       body <- ["No blockers; waiting on CI", "Looks good; no blockers", "All blockers resolved"] do
     test "a trusted clean COMMENTED review #{inspect(body)} in #{ticket_state} does not route to rework" do
