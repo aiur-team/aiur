@@ -74,6 +74,10 @@ For a home-page epic, issue workers use `aiur_set_epic` or `aiur_feature`; Execu
 
 These stay with the Executor and are not copied into ticket workspaces.
 
+`aiur-run` emits `executor.progress` whenever it posts its periodic progress
+table, using only `done`, `total`, and optional `blocked` counts. The event
+provides a conversation jump point; a failed emission does not stop the run.
+
 `aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; it must never run the human-only `aiur answer` command, which only a human operator may use from an interactive terminal; `aiur-handoff` records that policy and watcher state.
 
 `aiur-run` triages `aiur commands --filter with-executor`, acknowledges with `aiur executor-ack`, and answers or escalates before the answer deadline.

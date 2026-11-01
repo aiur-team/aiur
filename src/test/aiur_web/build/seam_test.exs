@@ -57,8 +57,9 @@ defmodule AiurWeb.Build.SeamTest do
     journal_facades = ~w(Aiur.Conversation.History Aiur.Conversation.Ref Aiur.Tracker AiurWeb.Conversation.Presenter)
     # MP-E8-C11-T04 confines the event-row reads (ticket log, merges, Commands,
     # history subscription) to the same wave-0b adapter, which C14-T01 replaces.
+    # Durable ticket history is read through the IssueLog facade.
     events = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b_events.ex")
-    event_facades = ~w(Aiur.AgentEventFeed Aiur.Commands Aiur.RecentMergeStore Aiur.SecretRedactor Aiur.PubSub Aiur.Tracker)
+    event_facades = ~w(Aiur.AgentEventFeed Aiur.Commands Aiur.IssueLog Aiur.RecentMergeStore Aiur.SecretRedactor Aiur.PubSub Aiur.Tracker)
     # C11-T02 confines issue identity lookup to the open-ticket snapshot facade;
     # only the document presenter subscribes to detail updates and renders Markdown.
     document = Path.join(@root, "lib/aiur_web/build/ticket_doc.ex")
