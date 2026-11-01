@@ -86,7 +86,7 @@ Each entry is a **route**, not just a backend name. A route uses the same gramma
 
 A colon-free entry means what it has always meant, so **existing configs need no change**.
 
-If a hot-reloaded `.aiur/config` fails validation, the daemon keeps running on the last good config. It raises a `system.config.reload_rejected` alert, and `aiur status` shows `CONFIG RELOAD REJECTED` until a corrected file loads.
+For reload timing, live and restart-only settings, and recovery from rejected changes, see [Changing config on a running daemon](/reference/configuration#changing-config-on-a-running-daemon).
 
 The effort segment must be one the backend accepts. Headless `claude` takes no effort segment, so write `claude:sonnet`. Append `+remote` to route through the Claude REPL, which accepts `low`, `medium`, `high`, `xhigh` and `max`: `claude:sonnet:medium+remote`.
 
@@ -125,7 +125,9 @@ agent:
 
 #### What happens when a route fails
 
-A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+
+Claude workers also receive `AIUR_MCP_SOCKET_DIR`, a short private MCP socket path. Workspace `TMPDIR` stays isolated.
 
 A Claude reset timestamp that already passed is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
 
@@ -247,9 +249,11 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-04 -->
 | --- | --- | --- | --- |
-| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0. |
+| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0, and short MCP socket directory support requires >= 1.3.1. |
 | `agent.claude.model` | string or nil | nil | Optional Claude model override. |
 | `agent.claude.permission_mode` | string | `bypassPermissions` | Claude permission mode. |
+
+The MCP socket directory override is set for local workers only. Its private, hashed runtime directory is not removed when a workspace is deleted; remote worker exports continue to use the sibling's default temporary directory.
 
 ## agent.codex
 

@@ -199,7 +199,7 @@ defmodule Aiur.InitCase do
         check_agent_auth: fn _kind -> :ok end,
         check_codex_sandbox: fn -> :ok end,
         install_claude_app_server: fn -> :ok end,
-        claude_version: fn -> {:ok, "1.1.0"} end,
+        claude_version: fn -> {:ok, "1.3.0"} end,
         # No installed CLI to ask in the wizard tests; discovery degrading to an
         # error is the offline path, and init must finish through it.
         discover_models: fn _backend -> {:error, :offline} end,
