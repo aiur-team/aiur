@@ -69,14 +69,17 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     end
   end
 
-  # A state swap is add-first, but the open-issue listing and subsequent
-  # authorization read can still straddle concurrent label writes or read a
-  # stale snapshot. Revalidate once before treating an empty state as a
-  # provenance denial; if the label is still absent, keep the denial explicit.
   defp recheck_missing_trigger_label(issue, owner, repo, prefix, allowed_users, opts) do
     case MissingTriggerLabel.recheck(issue, owner, repo, Keyword.put(opts, :label_prefix, prefix)) do
-      {:ok, refreshed} -> authorize_label_applier(refreshed, owner, repo, prefix, allowed_users, opts)
-      {:error, :missing_trigger_label} -> deny_ambiguous(issue, :missing_trigger_label)
+      {:ok, refreshed} ->
+        authorize_label_applier(refreshed, owner, repo, prefix, allowed_users, opts)
+
+      {:error, reason} ->
+        if reason == :missing_trigger_label do
+          maybe_alert_once(issue, reason, &MissingTriggerLabel.alert_missing_trigger_label/2)
+        end
+
+        apply_label_decision({:deferred, MissingTriggerLabel.deferred_reason(reason)}, issue, allowed_users, opts)
     end
   end
 

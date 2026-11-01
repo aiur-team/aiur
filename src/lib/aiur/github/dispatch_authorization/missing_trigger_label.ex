@@ -3,8 +3,10 @@ defmodule Aiur.GitHub.DispatchAuthorization.MissingTriggerLabel do
 
   alias Aiur.GitHub.{Access, Config, Issues}
   alias Aiur.Issue
+  alias Aiur.Signal
 
-  @spec recheck(Issue.t(), String.t(), String.t(), keyword()) :: {:ok, Issue.t()} | {:error, :missing_trigger_label}
+  @spec recheck(Issue.t(), String.t(), String.t(), keyword()) ::
+          {:ok, Issue.t()} | {:error, :missing_trigger_label | {:fetch_failed, term()}}
   def recheck(%Issue{} = issue, owner, repo, opts) do
     read_opts = [
       token: Keyword.get(opts, :token, Config.token()),
@@ -26,17 +28,37 @@ defmodule Aiur.GitHub.DispatchAuthorization.MissingTriggerLabel do
           {:error, :missing_trigger_label}
         end
 
-      {:error, _reason} ->
-        {:error, :missing_trigger_label}
+      {:error, reason} ->
+        {:error, {:fetch_failed, reason}}
     end
   end
 
+  @spec deferred_reason(term()) :: term()
+  def deferred_reason(:missing_trigger_label), do: :missing_trigger_label
+  def deferred_reason({:fetch_failed, reason}), do: {:missing_trigger_label_fetch, reason}
+
+  @spec alert_missing_trigger_label(Issue.t(), term()) :: :ok
+  def alert_missing_trigger_label(issue, :missing_trigger_label) do
+    {message, detail} = alert_message(:missing_trigger_label)
+
+    Signal.agent_alert(
+      "github.dispatch_authorization.missing_trigger_label",
+      "Dispatch deferred for issue #{issue.identifier || issue.id}: #{message}",
+      issue: issue.identifier || issue.id,
+      reason: detail,
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  def alert_missing_trigger_label(_issue, _reason), do: :ok
+
   @spec alert_message(term()) :: {String.t(), String.t()}
   def alert_message(:missing_trigger_label) do
-    {"issue had no agent:* state label at dispatch time; the transition may still be in flight. " <>
-       "Ensure the target state label is added before removing the previous one.",
+    {"issue had no agent:* state label at dispatch time; dispatch will retry on the next poll. " <>
+       "Re-apply the state label with `aiur --todo <n>`.",
      "Issue had no agent:* state label at dispatch time after one fresh re-fetch. " <>
-       "Ensure every state transition adds the target label before removing prior state labels."}
+       "Re-apply the state label with `aiur --todo <n>`; dispatch retries on the next poll."}
   end
 
   def alert_message(reason) do
