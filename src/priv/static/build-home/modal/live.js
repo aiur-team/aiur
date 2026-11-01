@@ -78,12 +78,19 @@ export function wireLive() {
     if (atBottom) log.scrollTop = log.scrollHeight;
     scheduleMap();
   };
-  if (window.visualViewport) life.on(window.visualViewport, 'resize', preservePosition);
-  const composer = $('#cv-in');
-  if (composer && typeof ResizeObserver !== 'undefined') {
-    const resize = new ResizeObserver(preservePosition); resize.observe(composer);
-    life.cleanup(() => resize.disconnect());
+  // Fit the backdrop to the visual viewport so an iOS keyboard does not cover the feed or composer.
+  const vv = window.visualViewport, backdrop = log.closest('.tk-backdrop');
+  if (vv && backdrop) {
+    const fit = () => {
+      Object.assign(backdrop.style, { top: vv.offsetTop + 'px', bottom: 'auto', height: vv.height + 'px' });
+      backdrop.style.setProperty('--cv-vvh', vv.height + 'px');
+      preservePosition();
+    };
+    fit(); life.on(vv, 'resize', fit); life.on(vv, 'scroll', fit);
+    life.cleanup(() => { for (const p of ['top', 'bottom', 'height', '--cv-vvh']) backdrop.style.removeProperty(p); });
   }
+  const composer = $('#cv-in');
+  if (composer && typeof ResizeObserver !== 'undefined') life.observe(composer, preservePosition);
   const { tip } = V;
   log.tabIndex = 0; log.setAttribute('role', 'region'); log.setAttribute('aria-label', 'Conversation');
   life.on(log, 'scroll', () => {

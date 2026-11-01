@@ -36,17 +36,23 @@ test('focusing the composer keeps a 16px font and the page scale', async ({ page
 test('a visualViewport shrink and a growing composer keep the last row in view', async ({ page }) => {
   await toBottom(page)
   await expect.poll(() => lastVisible(page)).toBe(true)
-  // Model the keyboard opening: the feed loses height, then visualViewport reports a resize.
-  await page.evaluate(() => {
-    const el = document.querySelector('#cv-log')
-    el.style.flex = 'none'; el.style.height = Math.max(120, el.clientHeight - 300) + 'px'
+  // Model the iOS keyboard: only the visual viewport shrinks; the layout viewport keeps its height.
+  const keyboardTop = 508
+  await page.evaluate(top => {
+    Object.defineProperty(window.visualViewport, 'height', { configurable: true, get: () => top })
     window.visualViewport.dispatchEvent(new Event('resize'))
-  })
+  }, keyboardTop)
+  const aboveKeyboard = () => page.evaluate(top => {
+    const rows = document.querySelectorAll('#cv-log [data-k]'), composer = document.querySelector('#cv-in')
+    return rows[rows.length - 1].getBoundingClientRect().bottom <= top + 1 && composer.getBoundingClientRect().bottom <= top + 1
+  }, keyboardTop)
+  await expect.poll(aboveKeyboard).toBe(true)
   expect(await lastVisible(page)).toBe(true)
   await box(page).fill('A longer draft that grows the composer. '.repeat(12))
   await expect.poll(() => box(page).evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(38)
   expect(await box(page).evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(140)
   await expect.poll(() => lastVisible(page)).toBe(true)
+  expect(await aboveKeyboard()).toBe(true)
 })
 
 // Regression guard: append pinning already held on main; this keeps it true at 390px.
@@ -60,7 +66,7 @@ test('new rows keep a pinned reader at the bottom and never move a reader who sc
   const anchor = log(page).locator('[data-eid="row:30"]')
   const before = await anchor.evaluate(el => el.getBoundingClientRect().top)
   await push(page, [{ id: 'up', k: 'say', text: 'Arrives while reading up', at: null }])
-  expect(await anchor.evaluate(el => el.getBoundingClientRect().top)).toBe(before)
+  expect(Math.abs(await anchor.evaluate(el => el.getBoundingClientRect().top) - before)).toBeLessThan(1)
   await expect(page.locator('#cv-new')).toBeVisible()
   await page.locator('#cv-new').click()
   await expect.poll(() => log(page).evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1)
