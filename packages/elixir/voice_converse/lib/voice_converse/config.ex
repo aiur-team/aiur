@@ -11,7 +11,7 @@ defmodule VoiceConverse.Config do
   """
 
   @required [:transcript_root, :credentials, :briefing_source]
-  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer]
+  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer, :host_tools]
 
   @default_limits %{
     max_session_seconds: 1_800,
@@ -35,6 +35,7 @@ defmodule VoiceConverse.Config do
             allowed_tools: nil,
             ask_requires_confirm: :first_in_session,
             command_source: nil,
+            host_tools: nil,
             token_issuer: nil,
             transcript_root: nil,
             transcript: :file,
@@ -100,6 +101,29 @@ defmodule VoiceConverse.Config do
       else: check_disclosure(config)
   end
 
+  @doc "Loads and validates target-specific host tools, including reserved built-in names."
+  @spec validate_host_tools(t(), term()) :: {:ok, [map()]} | {:error, %{field: :host_tools, reason: atom()}}
+  def validate_host_tools(%__MODULE__{host_tools: nil}, _target), do: {:ok, []}
+
+  def validate_host_tools(%__MODULE__{host_tools: source}, target) do
+    case VoiceConverse.Ports.call_port(source, :specs, [target], :host_tool) do
+      {:ok, tools} when is_list(tools) ->
+        cond do
+          not Enum.all?(tools, &valid_host_tool?/1) ->
+            {:error, %{field: :host_tools, reason: :invalid_spec}}
+
+          Enum.any?(tools, &reserved_host_tool?/1) ->
+            {:error, %{field: :host_tools, reason: :reserved_name}}
+
+          true ->
+            {:ok, tools}
+        end
+
+      _ ->
+        {:error, %{field: :host_tools, reason: :unavailable}}
+    end
+  end
+
   defp check_disclosure(%__MODULE__{cloud_disclosure_accepted: nil}),
     do: {:error, %{field: :cloud_disclosure_accepted, reason: :missing}}
 
@@ -141,6 +165,14 @@ defmodule VoiceConverse.Config do
 
   defp valid_port?(nil), do: true
   defp valid_port?(mod), do: is_atom(mod)
+
+  defp valid_host_tool?(%{name: name, description: description, params: params}),
+    do: is_binary(name) and name != "" and is_binary(description) and is_map(params)
+
+  defp valid_host_tool?(_tool), do: false
+
+  defp reserved_host_tool?(%{name: name}),
+    do: VoiceConverse.Ports.HostTools.reserved_name?(name)
 
   # A no-transcript config carries no root, so nothing downstream has a place to write.
   defp check_transcript_root(%{transcript: :none, transcript_root: nil}), do: :ok
