@@ -39,7 +39,7 @@ defmodule AiurWeb.ExecutorLiveTest do
     assert has_element?(view, "#executor-frame [data-state=not_opted_in]")
     assert html =~ "aiur executor-attach --harness claude"
     assert html =~ "aiur executor-attach --harness codex"
-    assert has_element?(view, "#executor-frame a[href='https://aiur.team/guide/gui#executor']")
+    assert has_element?(view, "#executor-frame a[href='https://aiur.team/docs/guide/gui#executor']")
     refute html =~ "Idle"
   end
 

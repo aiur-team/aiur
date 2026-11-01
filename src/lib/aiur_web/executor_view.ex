@@ -32,7 +32,7 @@ defmodule AiurWeb.ExecutorView do
       <div :if={@view.state == :not_opted_in}>
         <p>Attach your Executor session to read its conversation here. Transcript capture is opt in.</p>
         <p>Run <code>aiur executor-attach --harness claude</code> or <code>aiur executor-attach --harness codex</code> in your repository.</p>
-        <a href="https://aiur.team/guide/gui#executor">Executor setup and history</a>
+        <a href="https://aiur.team/docs/guide/gui#executor">Executor setup and history</a>
       </div>
       <p :if={@view.state == :awaiting_hook}>Waiting for the Executor session. Run <code>aiur executor-attach --check</code> to check the hook setup.</p>
       <p :if={@view.state == :ended}>Executor session ended or detached. Recorded history remains readable.</p>
