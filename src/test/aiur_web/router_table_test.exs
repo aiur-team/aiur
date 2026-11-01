@@ -73,6 +73,7 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/build-orders", AiurWeb.BuildOrderRedirectController, :catalog, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/", Phoenix.LiveView.Plug, :build, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/executor", Phoenix.LiveView.Plug, :executor, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/conversations/:conversation_id", Phoenix.LiveView.Plug, :show, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/commands", Phoenix.LiveView.Plug, :decisions, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/commands/:decision_id", Phoenix.LiveView.Plug, :decision, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},

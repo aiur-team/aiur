@@ -14,6 +14,17 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:build]
     },
     %{
+      id: :executor,
+      label: "Executor",
+      icon: "E",
+      description: "The attached Executor session and its conversation.",
+      path: "/executor",
+      type: :live,
+      owner: :executor,
+      availability: :available,
+      active_actions: [:executor]
+    },
+    %{
       id: :commands,
       label: "Commands",
       icon: "⌘",

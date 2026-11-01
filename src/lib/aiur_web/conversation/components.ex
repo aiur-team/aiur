@@ -48,6 +48,7 @@ defmodule AiurWeb.Conversation.Components do
     """
   end
 
+  attr(:title, :string, default: "Conversation")
   attr(:state, :atom, required: true)
   attr(:age, :map, required: true)
   attr(:last_entry, :any, default: nil)
@@ -56,7 +57,7 @@ defmodule AiurWeb.Conversation.Components do
   def status(assigns) do
     ~H"""
     <header aria-live="polite" data-state={@state}>
-      <h1>Conversation</h1>
+      <h1>{@title}</h1>
       <p :if={@state == :not_found}>No messages yet</p>
       <p>{Presenter.label(@state)} <span :if={@reason}>· {@reason}</span></p>
       <p :if={@state not in [:loading, :not_found]} data-freshness={@age.freshness}>

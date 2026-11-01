@@ -1,50 +1,13 @@
 defmodule AiurWeb.ConversationLive do
   @moduledoc "Paged durable conversation with a bounded live chronology and listener-mode composer."
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
-  alias Aiur.Conversation.Ref
-  alias AiurWeb.Conversation.{CommandCards, Commands, Components, Composer, ComposerEvents, EventComponents, Navigation, Paging, Presenter}
+  alias AiurWeb.Conversation.{CommandCards, Commands, Components, Composer, ComposerEvents, EventComponents, Navigation, Paging, Session}
 
   @decision_events AiurWeb.OperatorControlCenter.DecisionEvents.events()
 
   @impl true
   def mount(%{"conversation_id" => id}, session, socket) do
-    principal = AiurWeb.Conversation.Access.principal(session, socket)
-
-    socket =
-      socket
-      |> assign(
-        id: id,
-        executor?: id == Ref.conversation_id(Ref.executor()),
-        principal: principal,
-        can_reveal: AiurWeb.Conversation.Access.can_reveal?(principal),
-        state: :loading,
-        page: nil,
-        positions: [],
-        revealed_positions: MapSet.new(),
-        live_head: 0,
-        sessions: [],
-        last_entry: nil,
-        read_error: nil,
-        degraded: false,
-        at_bottom: true,
-        new_below: 0,
-        reason: nil,
-        mode: :tail,
-        highlight_pos: nil,
-        age: Presenter.age(nil, DateTime.utc_now())
-      )
-      |> stream_configure(:entries, dom_id: &"entry-#{&1.pos}")
-      |> stream(:entries, [])
-      |> ComposerEvents.init()
-      |> Navigation.init()
-      |> Commands.init()
-
-    if connected?(socket) do
-      Process.send_after(self(), :age_tick, 30_000)
-      {:ok, socket |> Paging.subscribe() |> Navigation.load() |> Commands.subscribe()}
-    else
-      {:ok, socket}
-    end
+    Session.mount(id, session, socket)
   end
 
   @impl true
@@ -118,10 +81,13 @@ defmodule AiurWeb.ConversationLive do
 
   @impl true
   def render(assigns) do
+    assigns = assign_new(assigns, :executor_frame, fn -> nil end)
+
     ~H"""
     <section id="conversation" class="conversation-page">
       <a href="/">Build</a>
-      <Components.status state={@state} age={@age} reason={@reason} last_entry={@last_entry} />
+      <AiurWeb.ExecutorView.header :if={@executor_frame} view={@executor_frame} writable={@writable} />
+      <Components.status :if={is_nil(@executor_frame)} state={@state} age={@age} reason={@reason} last_entry={@last_entry} />
       <div :if={@state == :loading} role="status" aria-busy="true" class="conversation-skeleton">Loading conversation…</div>
       <p :if={@page && not @page.complete_from_start} role="note">Earlier history is not available</p>
       <nav :if={@page} aria-label="Conversation paging">
@@ -137,7 +103,7 @@ defmodule AiurWeb.ConversationLive do
       <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={:pinned_top} />
       <p :if={@position_notice} id="conversation-position-notice" role="status">{@position_notice}</p>
       <div class="conversation-layout">
-        <EventComponents.event_nav streams={@streams} id={@id} visible_kinds={@visible_kinds} event_start={@event_start} event_has_newer={@event_has_newer} error={@anchor_error} />
+        <EventComponents.event_nav path={if @executor_frame, do: "/executor"} streams={@streams} id={@id} visible_kinds={@visible_kinds} event_start={@event_start} event_has_newer={@event_has_newer} error={@anchor_error} />
         <div id="conversation-scroll" phx-hook="ConversationScroll" class="conversation-scroll" data-highlight={@highlight_pos} data-mode={if is_tuple(@mode), do: "around", else: @mode} data-head={@page && @page.head_pos}>
           <div id="conversation-entries" phx-update="stream">
             <div :for={{id, entry} <- @streams.entries} id={id}
