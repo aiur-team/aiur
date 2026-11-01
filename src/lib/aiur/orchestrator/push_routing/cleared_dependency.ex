@@ -271,8 +271,6 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
       if(is_binary(issue_identifier), do: State.find_running_by_identifier(state.running, issue_identifier))
   end
 
-  defp running_blockee_entry(_state, _blockee), do: nil
-
   defp other_open_blockers?(blockee, cleared_blocker_identifier) do
     blockee
     |> Map.get(:blocked_by, [])
