@@ -28,6 +28,7 @@ defmodule VoiceConverse.Session.Start do
          drafts: Drafts.new(),
          consult: nil,
          consult_confirmed?: false,
+         replay_disclosed?: false,
          last_user_at: started_at,
          pending_consult_context: [],
          provider: provider,
