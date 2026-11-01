@@ -402,6 +402,7 @@ defmodule Aiur.AccountsTest do
     File.mkdir_p!(Path.dirname(env_path))
     File.write!(env_path, "DEEPSEEK_API_KEY__WORK=test-key\n")
     assert {:ok, nil, false} = AccountsCLI.prepare_login_result("deepseek", "work", nil)
+    assert Aiur.CLI.login_prepare_output(nil, false) == "\nregistered\n"
   end
 
   test "a signed-out profile refuses login when stdin is not a terminal", %{home: home} do

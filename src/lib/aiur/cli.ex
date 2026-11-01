@@ -52,12 +52,19 @@ defmodule Aiur.CLI do
   defp prepare_account_login(harness, name, dir) do
     case Aiur.AccountsCLI.prepare_login_result(harness, name, dir) do
       {:ok, profile_dir, login_needed} ->
-        IO.write([profile_dir, "\n", if(login_needed, do: "login", else: "registered"), "\n"])
+        IO.write(login_prepare_output(profile_dir, login_needed))
         System.halt(0)
 
       {:error, reason} ->
         shutdown_with_error("aiur: " <> to_string(reason))
     end
+  end
+
+  @doc false
+  @spec login_prepare_output(Path.t() | nil, boolean()) :: String.t()
+  def login_prepare_output(profile_dir, login_needed) do
+    [profile_dir || "", "\n", if(login_needed, do: "login", else: "registered"), "\n"]
+    |> IO.iodata_to_binary()
   end
 
   @doc false
