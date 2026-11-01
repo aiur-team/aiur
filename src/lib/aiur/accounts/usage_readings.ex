@@ -5,6 +5,22 @@ defmodule Aiur.Accounts.UsageReadings do
   @explored_key {__MODULE__, :headroom_explorations}
   @default_max_reading_age_seconds 1800
   @headroom_exploration_window_seconds 120
+  # Probe failures a fresh `aiur login` fixes, as opposed to a broken endpoint.
+  @signed_out_reasons [:no_oauth_token, :token_expired, :unauthorized, :no_credentials]
+
+  @doc "Whether a probe failure means the profile is not signed in."
+  @spec signed_out?(term()) :: boolean()
+  def signed_out?(reason), do: reason in @signed_out_reasons
+
+  @doc "Operator-facing description of a probe failure, naming the fix for a signed-out profile."
+  @spec failure_text(String.t(), term()) :: String.t()
+  def failure_text(name, reason) do
+    cond do
+      signed_out?(reason) -> "not signed in; run `aiur login claude #{name}`"
+      is_atom(reason) -> Atom.to_string(reason)
+      true -> inspect(reason)
+    end
+  end
 
   @doc """
   Whether an observation is too old to treat as current.
@@ -47,6 +63,15 @@ defmodule Aiur.Accounts.UsageReadings do
   @spec observed_at(map()) :: DateTime.t() | nil
   def observed_at(%{reading: nil} = entry), do: Map.get(entry, :last_observed_at)
   def observed_at(entry), do: Map.get(entry, :observed_at)
+
+  @doc "One line per account whose latest usage probe failed: the failure, its time, and the fix (#7449)."
+  @spec failure_lines() :: [String.t()]
+  def failure_lines do
+    for {{harness, name}, %{reading: nil, reason: reason} = entry} <- Enum.sort(snapshot()), not is_nil(reason) do
+      "ACCOUNT #{harness}/#{name} usage probe failing: #{failure_text(name, reason)} " <>
+        "(last failed #{DateTime.to_iso8601(entry.observed_at)}, #{Map.get(entry, :consecutive_failures, 1)} in a row)"
+    end
+  end
 
   @spec snapshot() :: %{{String.t(), String.t()} => map()}
   def snapshot, do: :persistent_term.get(@key, %{})

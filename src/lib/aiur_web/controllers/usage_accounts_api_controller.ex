@@ -15,7 +15,7 @@ defmodule AiurWeb.UsageAccountsApiController do
   @contract_version 1
   # Only these fields leave the daemon; a new row or shim field stays off the
   # wire until it is added here.
-  @row_fields ~w(name harness email org seat_tier identity usage weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms last_error)a
+  @row_fields ~w(name harness email org seat_tier identity usage weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms last_error last_error_at fix)a
   @identity_fields ~w(email organization seatTier account_id)
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()

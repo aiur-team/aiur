@@ -52,6 +52,11 @@ defmodule Aiur.ProviderMeterProbeAccountsTest do
     end
   end
 
+  defmodule SignedOutUsageApi do
+    @moduledoc false
+    def fetch(_opts), do: {:error, :no_oauth_token}
+  end
+
   setup do
     UsageReadings.reset()
     on_exit(&UsageReadings.reset/0)
@@ -87,5 +92,27 @@ defmodule Aiur.ProviderMeterProbeAccountsTest do
     assert snapshot.summary_label == "default · 1/2 accounts observed"
     assert snapshot.windows["seven_day"].used_percent == 5
     refute snapshot.summary_label =~ "worst"
+  end
+
+  # #7449: a signed-out account used to be skipped with only a log line.
+  test "a signed-out account raises one alert naming the login command after three failures, resolved by a good read", ctx do
+    test_pid = self()
+    alert = fn topic, message, opts -> send(test_pid, {:alert, topic, message, opts}) end
+
+    for _ <- 1..4, do: ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: SignedOutUsageApi, claude_accounts: ["default"], alert_fun: alert))
+
+    assert_received {:alert, "system.claude_account.default.usage_probe_failing", message, opts}
+    assert message =~ "not signed in; run `aiur login claude default`"
+    assert opts[:needs_attention]
+    refute_received {:alert, _topic, _message, _opts}
+
+    [line] = UsageReadings.failure_lines()
+    assert line =~ "ACCOUNT claude/default usage probe failing: not signed in; run `aiur login claude default`"
+    assert line =~ "4 in a row"
+
+    ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: MultiWindowUsageApi, claude_accounts: ["default"], alert_fun: alert))
+    assert_received {:alert, "system.claude_account.default.usage_probe_failing.resolved", _message, resolved_opts}
+    refute resolved_opts[:needs_attention]
+    assert UsageReadings.failure_lines() == []
   end
 end

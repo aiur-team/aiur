@@ -221,9 +221,9 @@ defmodule Aiur.AccountsCLI do
       five_hour_percent: percent(reading.windows, "five_hour"),
       remaining_percent: HeadroomDispatch.remaining_percent(%{windows: %{"seven_day" => percent(reading.windows, "seven_day"), "five_hour" => percent(reading.windows, "five_hour")}}),
       observed_at: DateTime.to_iso8601(observed_at),
-      age_ms: age_ms_since(observed_at),
-      last_error: last_error(Map.get(entry, :reason))
+      age_ms: age_ms_since(observed_at)
     })
+    |> with_failure(entry)
   end
 
   # The probe is failing. After an earlier good reading the row is stale with
@@ -236,17 +236,27 @@ defmodule Aiur.AccountsCLI do
       %DateTime{} = last_observed_at ->
         name
         |> usage_unavailable_row(harness, identity, "stale")
-        |> Map.merge(%{observed_at: DateTime.to_iso8601(last_observed_at), age_ms: age_ms_since(last_observed_at), last_error: last_error(reason)})
+        |> Map.merge(%{observed_at: DateTime.to_iso8601(last_observed_at), age_ms: age_ms_since(last_observed_at)})
+        |> with_failure(entry)
 
       nil ->
-        name |> usage_unavailable_row(harness, identity, freshness(reason)) |> Map.put(:last_error, last_error(reason))
+        name |> usage_unavailable_row(harness, identity, freshness(reason)) |> with_failure(entry)
     end
   end
 
-  defp age_ms_since(observed_at), do: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
+  # A failing probe says when it last failed and, for a signed-out profile,
+  # the command that fixes it (#7449).
+  defp with_failure(row, %{reason: reason} = entry) when not is_nil(reason) do
+    failed_at = if is_nil(Map.get(entry, :reading)), do: Map.get(entry, :observed_at)
 
-  defp last_error(nil), do: nil
-  defp last_error(reason), do: freshness(reason)
+    row
+    |> Map.merge(%{last_error: freshness(reason), last_error_at: failed_at && DateTime.to_iso8601(failed_at)})
+    |> then(&if(Accounts.UsageReadings.signed_out?(reason), do: Map.put(&1, :fix, Accounts.UsageReadings.failure_text(row.name, reason)), else: &1))
+  end
+
+  defp with_failure(row, _entry), do: Map.put(row, :last_error, nil)
+
+  defp age_ms_since(observed_at), do: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
 
   defp identity("claude", dir), do: Claude.identity(dir)
   defp identity("codex", dir), do: Codex.identity(dir)
@@ -332,7 +342,9 @@ defmodule Aiur.AccountsCLI do
     fields =
       if Map.get(row, :identity) == nil,
         do: [:name, :harness, :usage, :remaining_percent],
-        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms] ++ Enum.filter([:last_error], &Map.has_key?(row, &1))
+        else:
+          [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms] ++
+            Enum.filter([:last_error, :last_error_at, :fix], &Map.has_key?(row, &1))
 
     IO.puts(Enum.map_join(fields, "  ", fn key -> "#{key}=#{inspect(Map.get(row, key))}" end))
   end
