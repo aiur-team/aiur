@@ -307,7 +307,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
           handoff_cached_ci_pass(stopped, issue, result)
 
         green_draft_ci_result?(result, running_entry) ->
-          stalled_ci_alert(state, running_entry, identifier, result.head_sha, elapsed_ms, timeout_ms)
+          stalled_ci_alert(state, issue_id, running_entry, identifier, result.head_sha, elapsed_ms, timeout_ms)
 
         true ->
           state
@@ -342,10 +342,10 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     _ -> Map.get(running_entry, :rework_head_sha) == sha
   end
 
-  defp stalled_ci_alert(state, running_entry, identifier, head_sha, elapsed_ms, timeout_ms) do
-    alerted = Map.get(state.ci_lifecycle, :stalled_draft_alerts, MapSet.new())
+  defp stalled_ci_alert(state, issue_id, running_entry, identifier, head_sha, elapsed_ms, timeout_ms) do
+    alerted = Map.get(running_entry, :stalled_draft_alert_heads, MapSet.new())
 
-    if MapSet.member?(alerted, {identifier, head_sha}) do
+    if MapSet.member?(alerted, head_sha) do
       state
     else
       backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
@@ -361,7 +361,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
         )
 
       Logger.warning("Stalled ci-wait issue requires PR readiness: identifier=#{identifier} elapsed_ms=#{elapsed_ms}")
-      %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :stalled_draft_alerts, MapSet.put(alerted, {identifier, head_sha}))}
+      updated_entry = Map.put(running_entry, :stalled_draft_alert_heads, MapSet.put(alerted, head_sha))
+      %{state | running: Map.put(state.running, issue_id, updated_entry)}
     end
   end
 
