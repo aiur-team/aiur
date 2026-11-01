@@ -239,6 +239,7 @@ defmodule VoiceConverse.SessionTest do
     assert_receive {:voice_conversation_state, ^id, :listening}
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     store = :sys.get_state(session).store
+    assert MapSet.member?(:sys.get_state(session).provider_ids, "provider-session")
     test_pid = self()
 
     failing_store = %{
@@ -258,7 +259,7 @@ defmodule VoiceConverse.SessionTest do
     :sys.replace_state(session, &%{&1 | store: failing_store})
     :ok = VoiceConverse.end_session(name, id)
 
-    assert_receive :cleanup_marker_sync_failed
+    assert_receive :cleanup_marker_sync_failed, 1_000
     refute_receive {:voice_conversation, ^id, {:ended, :user_end}}, 100
     refute_receive {:voice_conversation_state, ^id, :ended}, 100
   end
