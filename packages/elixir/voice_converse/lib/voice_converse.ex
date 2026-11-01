@@ -55,11 +55,16 @@ defmodule VoiceConverse do
 
   def push_text(_instance, _id, _text), do: {:error, :invalid_payload}
 
-  @doc "Reports client playback state for interruption context."
-  @spec playback_state(module(), String.t(), String.t()) :: :ok | {:error, atom()}
-  def playback_state(instance, id, state) when state in ["playing", "stopped"] do
-    with {:ok, pid} <- session_pid(instance, id) do
-      GenServer.cast(pid, {:playback_state, state})
+  @doc "Reports playback state, optionally including turn-relative progress for interruption truncation."
+  @spec playback_state(module(), String.t(), String.t() | map()) :: :ok | {:error, atom()}
+  def playback_state(instance, id, status) when status in ["playing", "stopped"],
+    do: playback_state(instance, id, %{"state" => status})
+
+  def playback_state(instance, id, frame) when is_map(frame) do
+    with {:ok, json} <- VoiceConverse.Wire.encode(Map.merge(frame, %{"v" => 1, "type" => "playback_state"})),
+         {:ok, frame} <- VoiceConverse.Wire.decode(json),
+         {:ok, pid} <- session_pid(instance, id) do
+      GenServer.call(pid, {:playback_state, frame})
     end
   end
 
