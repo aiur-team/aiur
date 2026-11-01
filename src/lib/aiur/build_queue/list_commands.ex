@@ -44,9 +44,17 @@ defmodule Aiur.BuildQueue.ListCommands do
   @spec only_deferred_or_satisfied_marks?(list(), map(), String.t()) :: boolean()
   def only_deferred_or_satisfied_marks?(failures, observations, marker) do
     Enum.all?(failures, fn
-      {:mark, _id, {:error, :paced}} -> true
-      {:mark, id, _result} -> marker in Map.get(observations, id, %{labels: []}).labels
-      _ -> false
+      {:mark, _id, {:error, :paced}} ->
+        true
+
+      {:mark, id, _result} ->
+        case Map.get(observations, id) do
+          %{labels: labels} -> marker in labels
+          _ -> false
+        end
+
+      _ ->
+        false
     end)
   end
 

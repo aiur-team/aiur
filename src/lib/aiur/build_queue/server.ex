@@ -324,7 +324,7 @@ defmodule Aiur.BuildQueue.Server do
               {:error, {:marker_write_failed, failures}}
           end
 
-        reply = if state.status == :store_unavailable and failures == [], do: {:error, :store_unavailable}, else: reply
+        reply = if state.status == :store_unavailable, do: {:error, :store_unavailable}, else: reply
         {reply, state}
 
       {:error, _} ->

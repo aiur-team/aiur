@@ -10,7 +10,14 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
     def save(doc) do
       Agent.get_and_update(__MODULE__, fn state ->
-        if state.save_result == :ok, do: {:ok, %{state | document: doc}}, else: {state.save_result, state}
+        case Map.get(state, :save_results, []) do
+          [result | rest] ->
+            state = Map.put(state, :save_results, rest)
+            if result == :ok, do: {:ok, %{state | document: doc}}, else: {result, state}
+
+          [] ->
+            if state.save_result == :ok, do: {:ok, %{state | document: doc}}, else: {state.save_result, state}
+        end
       end)
     end
 
@@ -173,6 +180,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   test "paced marker is reported as queued and retried, while an existing marker counts as success", %{server: pid} do
     Agent.update(Boundary, fn state ->
       Map.put(state, :observation_labels, Map.put(state.labels, "1", %{labels: ["agent:queued"]}))
+      |> Map.put(:marker_result, {:error, :paced})
     end)
 
     output = capture_io(fn -> assert MutationCLI.run(verb: :add, ids: ["1"], queue: "paseo", server: pid) == 0 end)
@@ -206,6 +214,16 @@ defmodule Aiur.BuildQueue.MutationCLITest do
             ]} = MutationCLI.execute(verb: :add, ids: ["1", "2"], at: 0, server: pid)
 
     assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"2", 1}]
+  end
+
+  test "marker failure cannot hide a durable store failure", %{server: pid} do
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:save_results, [:ok, {:error, :disk_full}])
+      |> Map.put(:observation_labels, Map.new(state.labels, fn {id, _} -> {id, %{labels: []}} end))
+    end)
+
+    assert {:ok, [{"#1", {:error, :store_unavailable}}]} = MutationCLI.execute(verb: :add, ids: ["1"], server: pid)
   end
 
   test "rank at list creation persists in a batch and cannot silently reorder an existing set", %{server: pid} do
