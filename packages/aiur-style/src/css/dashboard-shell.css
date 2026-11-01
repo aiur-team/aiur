@@ -44,7 +44,7 @@ html[data-theme="light"] .aiur-shell--dashboard .aiur-shell__theme-icon .aiur-sh
 html[data-theme="light"] .aiur-shell--dashboard .aiur-shell__theme-icon .aiur-shell__moon { display: inline; }
 
 /* ---------- shell ---------- */
-.aiur-shell--dashboard .aiur-shell__topbar { position: sticky; top: 0; z-index: 70; height: 56px; display: flex; align-items: center; gap: .7rem; padding: 0 1rem; border-bottom: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); background: color-mix(in srgb, var(--aiur-shell-bg, var(--aiur-color-bg-app)) 88%, transparent); backdrop-filter: blur(8px); }
+.aiur-shell--dashboard .aiur-shell__topbar { position: sticky; top: 0; z-index: 200; height: 56px; display: flex; align-items: center; gap: .7rem; padding: 0 1rem; border-bottom: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); background: color-mix(in srgb, var(--aiur-shell-bg, var(--aiur-color-bg-app)) 88%, transparent); backdrop-filter: blur(8px); }
 .aiur-shell--dashboard .aiur-shell__topbar .aiur-shell__logo { height: 30px; width: auto; display: block; }
 .aiur-shell--dashboard .aiur-shell__topbar .aiur-shell__wordmark { font-family: "Bungee", sans-serif; font-size: 1.05rem; line-height: 1; color: var(--aiur-shell-fg, var(--aiur-color-fg)); text-transform: uppercase; letter-spacing: .01em; }
 .aiur-shell--dashboard .aiur-shell__icon-button { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--aiur-shell-line-strong, var(--aiur-color-line-strong)); background: var(--aiur-shell-surface, var(--aiur-color-surface)); color: var(--aiur-shell-muted, var(--aiur-color-muted-app)); cursor: pointer; padding: 0; transition: color .15s, border-color .15s, background .15s; }
@@ -81,7 +81,7 @@ html.nav-collapsed .aiur-shell--dashboard .aiur-shell__label { display: inline; 
 .aiur-shell--dashboard .aiur-shell__brand { flex: none; width: 230px; box-sizing: border-box; height: 100%; display: flex; align-items: center; gap: .6rem; padding: 0 .7rem 0 1rem; border-right: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); transition: width .22s ease; }
 html.nav-collapsed .aiur-shell--dashboard .aiur-shell__brand { width: 68px; padding: 0 .5rem; justify-content: center; }
 html.nav-collapsed .aiur-shell--dashboard .aiur-shell__brand .aiur-shell__wordmark, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__settings { display: none; }
-.aiur-shell--dashboard .aiur-shell__settings { position: relative; margin-left: auto; }
+.aiur-shell--dashboard .aiur-shell__settings { position: relative; z-index: 1; margin-left: auto; }
 .aiur-shell--dashboard .aiur-shell__cog { width: 32px; height: 32px; }
 .aiur-shell--dashboard .aiur-shell__settings.open .aiur-shell__cog { color: var(--aiur-shell-fg, var(--aiur-color-fg)); }
 .aiur-shell--dashboard .aiur-shell__menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 80; min-width: 210px; padding: .3rem; border-radius: 12px; background: var(--aiur-shell-surface-2, var(--aiur-color-surface-2)); box-shadow: 0 14px 34px rgba(0,0,0,.4), inset 0 1px 0 color-mix(in srgb, var(--aiur-shell-fg, var(--aiur-color-fg)) 8%, transparent);
