@@ -26,16 +26,25 @@ async function patch(page) {
 
 test('settings reaches Executor while Build is loading on phone and desktop', async ({ page }) => {
   await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.routeWebSocket('**/live/websocket*', ws => {
+    const server = ws.connectToServer()
+    ws.onMessage(message => server.send(message))
+    server.onMessage(message => setTimeout(() => ws.send(message), 500))
+  })
 
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/build-fixture/hold')
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected())).toBe(true)
     await expect(page.locator('.bd-loading')).toHaveText(/Loading build timeline/)
+    await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(0)
 
     await page.locator('#ax-cog').click()
     const menu = page.locator('#ax-menu')
     await expect(menu).toBeVisible()
+    await expect(page.locator('#ax-set')).toHaveClass(/\bopen\b/)
+    await expect(page.locator('#ax-cog')).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
     await expect(page.locator('#ax-set')).toHaveClass(/\bopen\b/)
     await expect(page.locator('#ax-cog')).toHaveAttribute('aria-expanded', 'true')
     // Closed menus remain display:flex with opacity:0; visibility alone does
