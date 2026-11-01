@@ -97,9 +97,9 @@ html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollb
 }
 
 /* Completed history stays distinct from closed-but-not-completed tickets. */
-.bd-card.completed .bd-in,
-.bd-card.bar.completed .bd-in,
-.lr.completed {
+html .bd-card.completed .bd-in,
+html .bd-card.bar.completed .bd-in,
+html .lr.completed {
   background: var(--good-soft);
   color: var(--fg);
 }
