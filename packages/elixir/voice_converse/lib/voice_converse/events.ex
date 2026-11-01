@@ -103,6 +103,7 @@ defmodule VoiceConverse.Events do
   @all [
     UserTranscript,
     AgentText,
+    VoiceConverse.Events.AgentTextTiming,
     AgentAudio,
     Interruption,
     ToolCall,
@@ -114,6 +115,7 @@ defmodule VoiceConverse.Events do
   @type t ::
           UserTranscript.t()
           | AgentText.t()
+          | VoiceConverse.Events.AgentTextTiming.t()
           | AgentAudio.t()
           | Interruption.t()
           | ToolCall.t()

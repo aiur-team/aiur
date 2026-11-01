@@ -53,7 +53,7 @@ defmodule AiurWeb.ExecutorLiveTest do
     {:ok, view, html} = live(build_conn(), "/executor")
     assert has_element?(view, "[data-state=awaiting_hook]")
     assert html =~ "Waiting for the Executor session"
-    assert html =~ "aiur executor-session --json"
+    assert html =~ "aiur executor-attach --check"
     assert {:ok, _} = Session.detach(binding.binding_id, :detached)
     send(view.pid, :age_tick)
     assert has_element?(view, "[data-state=ended]")

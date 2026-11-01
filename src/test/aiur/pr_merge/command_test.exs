@@ -12,7 +12,7 @@ defmodule Aiur.PrMerge.CommandTest do
     settings = %{
       workspace: %{root: Path.join(root, "agents")},
       merge_policy: %{ci: "wait", local_tests: "partial", main_watch: %{enabled: false}, attribution_scan: false, full_ci_labels: ["main-fix"], full_ci_paths: []},
-      tracker: %{base_branch: "main", github: %{repo: "owner/repo", bot_account: "worker", github_app: %{account: "daemon[bot]"}, human_mergers: ["operator"]}}
+      tracker: %{base_branch: "main", github: %{repo: "owner/repo", bot_account: "worker", identity_mode: "separate_account", github_app: %{account: "daemon[bot]"}, human_mergers: ["operator"]}}
     }
 
     opts = %{number: 1, reviewed_sha: @head, approve_body: nil, dry_run: false, inherited: []}
@@ -127,6 +127,57 @@ defmodule Aiur.PrMerge.CommandTest do
     assert record["actor"] == "operator"
     assert record["pending_count"] == 0
     assert_received {:output, "WARNING merged, but daemon event delivery failed"}
+  end
+
+  test "single account self-attests, comments optionally, and records review fields", ctx do
+    settings = put_in(ctx.settings, [:tracker, :github, :identity_mode], "single_account")
+    ctx = %{ctx | settings: settings}
+
+    api = fn method, path, body ->
+      send(self(), {:api, method, path, body})
+
+      case {method, path} do
+        {"get", "repos/owner/repo/pulls/1/reviews?per_page=100&page=1"} -> {:ok, []}
+        {"post", "repos/owner/repo/pulls/1/reviews"} -> {:ok, %{"state" => "COMMENTED", "commit_id" => body.commit_id}}
+        _ -> response(method, path, body)
+      end
+    end
+
+    assert PrMerge.run(%{ctx.opts | approve_body: "Reviewed"}, deps(ctx, api: api)) == 0
+    assert {"post", "repos/owner/repo/pulls/1/reviews", %{commit_id: @head, event: "COMMENT"}} = next_write()
+    record = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list() |> hd()
+    assert record["reviewed_by"] == "operator"
+    assert record["attestation"] == "single_account_self_review"
+    assert record["reviewed_sha"] == @head
+  end
+
+  test "single-account operator can merge their own PR without a GitHub approval", ctx do
+    github = %{ctx.settings.tracker.github | bot_account: "operator", identity_mode: "single_account"}
+    settings = put_in(ctx.settings, [:tracker, :github], github)
+    ctx = %{ctx | settings: settings}
+
+    api = fn method, path, body ->
+      send(self(), {:api, method, path, body})
+
+      case {method, path} do
+        {"get", "repos/owner/repo/pulls/1"} ->
+          {:ok, pr} = response(method, path, body)
+          {:ok, put_in(pr["user"]["id"], 12)}
+
+        {"get", "repos/owner/repo/pulls/1/reviews?per_page=100&page=1"} ->
+          {:ok, []}
+
+        _ ->
+          response(method, path, body)
+      end
+    end
+
+    assert PrMerge.run(ctx.opts, deps(ctx, api: api)) == 0
+    assert {"put", "repos/owner/repo/pulls/1/merge", %{sha: @head}} = next_write()
+    [record] = ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
+    assert record["reviewed_by"] == "operator"
+    assert record["attestation"] == "single_account_self_review"
+    assert record["reviewed_sha"] == @head
   end
 
   test "dry run runs premerge and fresh facts with no approval, merge or ledger", ctx do

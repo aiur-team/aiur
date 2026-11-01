@@ -14,9 +14,9 @@ defmodule Aiur.PrMerge.Identity do
     end
   end
 
-  @spec allowed(map(), map()) :: :ok | {:refuse, [String.t()]}
-  def allowed(%{"login" => login, "type" => "User"}, github) when is_binary(login) do
-    excluded = Enum.reject([github.bot_account, github.github_app.account], &is_nil/1)
+  @spec allowed(map(), map(), String.t()) :: :ok | {:refuse, [String.t()]}
+  def allowed(%{"login" => login, "type" => "User"}, github, identity_mode) when is_binary(login) do
+    excluded = Enum.reject([github.github_app.account, if(identity_mode == "separate_account", do: github.bot_account)], &is_nil/1)
 
     if not Enum.any?(excluded, &(String.downcase(&1) == String.downcase(login))) and
          GitHubConfig.human_merger_allowed?(login, github.human_mergers),
@@ -24,7 +24,7 @@ defmodule Aiur.PrMerge.Identity do
        else: {:refuse, ["identity #{login} must be an operator in tracker.github.human_mergers, never the bot or App"]}
   end
 
-  def allowed(_user, _github), do: {:refuse, ["GitHub identity is not a human user"]}
+  def allowed(_user, _github, _identity_mode), do: {:refuse, ["GitHub identity is not a human user"]}
 
   @spec token() :: {:ok, String.t()} | {:error, String.t()}
   def token do

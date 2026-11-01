@@ -45,15 +45,22 @@ defmodule Aiur.PrMerge do
   end
 
   defp execute_with_settings(opts, deps, puts, state, settings) do
+    opts = Map.put(opts, :identity_mode, settings.tracker.github.identity_mode)
+
     with :ok <- step(state, :identity_guard, fn -> Identity.guard(settings, Keyword.get(deps, :cwd, File.cwd!()), Keyword.get(deps, :agent_bin, System.get_env("AIUR_AGENT_BIN"))) end),
          {:ok, token} <- step(state, :token, fn -> Keyword.get(deps, :token, &Identity.token/0).() end),
          api <- Keyword.get(deps, :api, &Client.request(token, &1, &2, &3)),
-         {:ok, user} <- step(state, :viewer, fn -> api.("get", "user", nil) end),
-         :ok <- Identity.allowed(user, settings.tracker.github),
+         {:ok, user} <- step(state, :viewer, fn -> viewer(api, settings) end),
          :ok <- step(state, :observe, fn -> main_note(settings, deps, puts) end),
          {:ok, observation} <- step(state, :facts, fn -> Facts.observe(api, settings, opts.number) end) do
       observed(api, observation, settings, opts, token, deps, puts, user)
     end
+  end
+
+  defp viewer(api, settings) do
+    with {:ok, user} <- api.("get", "user", nil),
+         :ok <- Identity.allowed(user, settings.tracker.github, settings.tracker.github.identity_mode),
+         do: {:ok, user}
   end
 
   defp step(state, name, fun) do
@@ -130,7 +137,10 @@ defmodule Aiur.PrMerge do
 
   defp preflight(pr, settings, opts) do
     reasons = Gate.refusals(pr, settings.merge_policy, opts)
-    reasons = if opts.approve_body != nil and not opts.dry_run, do: List.delete(reasons, "approval at current head required"), else: reasons
+
+    reasons =
+      if opts.approve_body != nil and not opts.dry_run and settings.tracker.github.identity_mode == "separate_account", do: List.delete(reasons, "approval at current head required"), else: reasons
+
     if reasons == [], do: :ok, else: {:refuse, reasons}
   end
 
@@ -159,17 +169,17 @@ defmodule Aiur.PrMerge do
     repo = settings.tracker.github.repo
 
     with :ok <- step(state, :record_setup, fn -> File.mkdir_p(root) end),
-         :ok <- step(state, :approve, fn -> approve(api, repo, pr, opts.approve_body) end),
+         :ok <- step(state, :approve, fn -> review(api, repo, pr, opts.approve_body, settings.tracker.github.identity_mode) end),
          {:ok, fresh} <- step(state, :facts, fn -> Facts.read(api, settings, pr.number, user) end),
          :ok <- gate(fresh, settings, opts),
          true <- fresh.base_sha == pr.base_sha or {:refuse, ["base moved during approval; rerun"]} do
-      step(state, :deliver, fn -> deliver(api, fresh, settings, root, deps, puts, user) end)
+      step(state, :deliver, fn -> deliver(api, fresh, settings, root, deps, puts, user, opts) end)
     end
   end
 
-  defp deliver(api, %{merge_queue: true} = pr, settings, root, deps, puts, user) do
+  defp deliver(api, %{merge_queue: true} = pr, settings, root, deps, puts, user, opts) do
     with {:ok, entry} <- Queue.enqueue(api, pr) do
-      record = record_data(pr, settings, user) |> Map.merge(%{state: "enqueued", queue_entry: entry, enqueued_at: DateTime.to_iso8601(DateTime.utc_now())})
+      record = record_data(pr, settings, user, opts) |> Map.merge(%{state: "enqueued", queue_entry: entry, enqueued_at: DateTime.to_iso8601(DateTime.utc_now())})
       puts.("ENQUEUED ##{pr.number} #{pr.head}; policy ci=#{record.policy}; pending=#{Enum.join(record.pending, ",")}")
 
       step(run_state(), :record, fn -> append_queue_record(record, root, deps, puts) end)
@@ -178,12 +188,12 @@ defmodule Aiur.PrMerge do
     end
   end
 
-  defp deliver(api, %{merge_queue: false} = pr, settings, root, deps, puts, user) do
+  defp deliver(api, %{merge_queue: false} = pr, settings, root, deps, puts, user, opts) do
     repo = settings.tracker.github.repo
 
     case api.("put", "repos/#{repo}/pulls/#{pr.number}/merge", merge_body(pr)) do
       {:ok, %{"merged" => true, "sha" => sha}} ->
-        record = record_data(pr, settings, user) |> Map.merge(%{state: "merged", merged_sha: sha, merged_at: DateTime.to_iso8601(DateTime.utc_now())})
+        record = record_data(pr, settings, user, opts) |> Map.merge(%{state: "merged", merged_sha: sha, merged_at: DateTime.to_iso8601(DateTime.utc_now())})
         puts.("MERGED ##{pr.number} #{sha}; policy ci=#{record.policy}; pending=#{Enum.join(record.pending, ",")}")
         step(run_state(), :record, fn -> record(record, root, deps, puts) end)
         :ok
@@ -199,7 +209,7 @@ defmodule Aiur.PrMerge do
     end
   end
 
-  defp record_data(pr, settings, user) do
+  defp record_data(pr, settings, user, opts) do
     %{
       repo: settings.tracker.github.repo,
       pr: pr.number,
@@ -210,11 +220,25 @@ defmodule Aiur.PrMerge do
       policy: settings.merge_policy.ci,
       actor: user["login"]
     }
+    |> maybe_attestation(user, opts)
   end
 
-  defp approve(_api, _repo, _pr, nil), do: :ok
+  defp maybe_attestation(record, user, %{identity_mode: "single_account"} = opts),
+    do: Map.merge(record, %{reviewed_by: user["login"], attestation: "single_account_self_review", reviewed_sha: opts.reviewed_sha})
 
-  defp approve(api, repo, pr, body) do
+  defp maybe_attestation(record, _user, _opts), do: record
+
+  defp review(_api, _repo, _pr, nil, _mode), do: :ok
+
+  defp review(api, repo, pr, body, "single_account") do
+    case api.("post", "repos/#{repo}/pulls/#{pr.number}/reviews", %{event: "COMMENT", body: body, commit_id: pr.head}) do
+      {:ok, %{"state" => "COMMENTED", "commit_id" => head}} when head == pr.head -> :ok
+      {:error, _} = error -> error
+      _ -> {:error, "GitHub did not confirm comment review at the reviewed head"}
+    end
+  end
+
+  defp review(api, repo, pr, body, _mode) do
     case api.("post", "repos/#{repo}/pulls/#{pr.number}/reviews", %{event: "APPROVE", body: body, commit_id: pr.head}) do
       {:ok, %{"state" => "APPROVED", "commit_id" => head}} when head == pr.head -> :ok
       {:error, _} = error -> error
@@ -287,6 +311,7 @@ defmodule Aiur.PrMerge do
   end
 
   defp redact_token(message) do
+    # gh auth token returns prefixed tokens; classic 40-hex tokens and arbitrary Authorization headers aren't covered.
     Regex.replace(~r/(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})/, message, "[REDACTED]")
   end
 
