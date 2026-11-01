@@ -165,6 +165,12 @@ and is not atomic, so do not combine them.
 
 ## Pull-request review loop
 
+After any PR review, send the findings to the owning worker with
+`aiur message <ticket> "<findings>"`. This is required even when the ticket
+still shows `agent:in-progress`: review comments are not a reliable mid-turn
+message channel. For a comment-only review, start blocking requests with an
+explicit `Blocking:` line so Aiur can route it to rework.
+
 Branch freshness is an owning-worker responsibility. A pull request reaches
 review-ready state only when all of these are true:
 
