@@ -93,6 +93,21 @@ defmodule VoiceConverse.Session.Briefing do
 
   defp limit(text, budget) do
     max_bytes = budget * 4
-    if byte_size(text) <= max_bytes, do: text, else: binary_part(text, 0, max_bytes)
+
+    if byte_size(text) <= max_bytes do
+      text
+    else
+      take_graphemes(text, max_bytes, [])
+    end
+  end
+
+  defp take_graphemes(text, remaining, acc) do
+    case String.next_grapheme(text) do
+      {grapheme, rest} when byte_size(grapheme) <= remaining ->
+        take_graphemes(rest, remaining - byte_size(grapheme), [grapheme | acc])
+
+      _ ->
+        acc |> Enum.reverse() |> IO.iodata_to_binary()
+    end
   end
 end
