@@ -25,15 +25,15 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     initial = %State{max_concurrent_agents: 16, effective_concurrent_agents: 1, load_envelope_state: EnvelopeResume.boot(Config.settings!().agent)}
     assert Slots.max_concurrent_agent_status(initial).resume_level == 7
     first = dispatch(initial, 1, 2.0)
-    assert first.effective_concurrent_agents == 1
+    assert first.effective_concurrent_agents == 2
     assert Slots.max_concurrent_agent_status(first).resume_level == 7
     assert Slots.max_concurrent_agent_status(first).resume_recorded_ago_seconds in 720..730
     reused = dispatch(first, 1, 2.0)
-    assert reused.effective_concurrent_agents == 1
+    assert reused.effective_concurrent_agents == 2
     boundary = dispatch(reused, 2, 8.0)
-    assert boundary.effective_concurrent_agents == 1
-    states = Enum.scan(3..5, boundary, &dispatch(&2, &1, 7.99))
-    assert Enum.map(states, & &1.effective_concurrent_agents) == [2, 4, 7]
+    assert boundary.effective_concurrent_agents == 2
+    states = Enum.scan(3..4, boundary, &dispatch(&2, &1, 7.99))
+    assert Enum.map(states, & &1.effective_concurrent_agents) == [4, 7]
     assert Slots.max_concurrent_agent_status(List.last(states)).resume_level == nil
   end
 
@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     initial = %State{max_concurrent_agents: 16, effective_concurrent_agents: 1, load_envelope_state: EnvelopeResume.boot(Config.settings!().agent)}
 
     states = Enum.scan(1..3, initial, &dispatch(&2, &1, 7.99))
-    assert Enum.map(states, & &1.effective_concurrent_agents) == [1, 4, 7]
+    assert Enum.map(states, & &1.effective_concurrent_agents) == [4, 7, 10]
 
     final_gap = %{initial | effective_concurrent_agents: 6, load_envelope_state: Map.put(initial.load_envelope_state, :bootstrap_complete?, true)}
     resumed = dispatch(final_gap, 4, 7.99)

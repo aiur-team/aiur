@@ -149,7 +149,9 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   end
 
   defp bootstrap_hold?(effective, previous, target, fresh?),
-    do: fresh? and is_number(target) and effective == 1 and is_nil(previous.last_decrease_ms) and not Map.get(previous, :bootstrap_complete?, false)
+    do:
+      fresh? and is_number(target) and effective == 1 and is_nil(previous.last_decrease_ms) and
+        not is_integer(previous[:resume_level]) and not Map.get(previous, :bootstrap_complete?, false)
 
   defp adjust(_effective, _previous, _pressure, nil, _count, _now, _fresh?, %{limit: limit}), do: {limit, nil}
   defp adjust(effective, previous, _pressure, _target, _count, _now, false, %{limit: limit}), do: {min(effective, limit), previous.last_decrease_ms}
