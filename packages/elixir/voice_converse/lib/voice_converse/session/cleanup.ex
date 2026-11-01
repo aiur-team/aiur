@@ -27,7 +27,7 @@ defmodule VoiceConverse.Session.Cleanup do
 
     case VoiceConverse.TranscriptStore.append(state.store, record) do
       :ok -> {:ok, state}
-      {:error, _reason} -> {:ok, state}
+      {:error, _reason} -> {:error, state}
     end
   end
 end
