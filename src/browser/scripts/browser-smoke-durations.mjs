@@ -12,8 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
-  // Governed local run (2026-11-01): completed tint matrix took 39s; rounded up for startup variance.
-  'test:browser-suite -- build-home-completed-tint': 50,
+  // Governed local run (2026-11-01): completed tint matrix took 52.2s; rounded up for startup variance.
+  'test:browser-suite -- build-home-completed-tint': 60,
   // Governed local run (2026-10-30): 38.557s whole command including fixture startup; refresh from CI.
   'test:browser-suite -- build-home-native-hold': 39,
   // #7319 local two-case run: 21.1s, plus fixture/startup margin; refresh from the first CI shard log.

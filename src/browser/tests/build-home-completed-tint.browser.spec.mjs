@@ -99,12 +99,16 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
     expect(colors.completed.backgroundImage).toContain('linear-gradient')
     expect(colors.completed.backgroundImage).not.toBe(colors.running.backgroundImage)
     expect(colors.completed.backgroundImage).not.toBe(colors.notPlanned.backgroundImage)
-    const titleColors = await completed.locator('.bd-title').evaluate(element => ({
-      foreground: getComputedStyle(element).color,
-      overlay: getComputedStyle(document.documentElement).getPropertyValue('--good-soft').trim(),
-      surface: getComputedStyle(element.closest('.bd-in')).backgroundColor,
-    }))
-    expect(contrastAgainstTint(titleColors.foreground, titleColors.overlay, titleColors.surface)).toBeGreaterThanOrEqual(4.5)
+    const cardTextColors = await completed.locator('.bd-id, .bd-title, .bd-status, .bd-time').evaluateAll(elements =>
+      elements.map(element => ({
+        selector: '.' + element.className.split(' ')[0],
+        foreground: getComputedStyle(element).color,
+        overlay: getComputedStyle(document.documentElement).getPropertyValue('--good-soft').trim(),
+        surface: getComputedStyle(element.closest('.bd-in')).backgroundColor,
+      })))
+    for (const colors of cardTextColors) {
+      expect(contrastAgainstTint(colors.foreground, colors.overlay, colors.surface), `${colors.selector} contrast`).toBeGreaterThanOrEqual(4.5)
+    }
     const rowBackground = await row.evaluate(element => {
       const { backgroundColor, backgroundImage } = getComputedStyle(element)
       return { backgroundColor, backgroundImage }
