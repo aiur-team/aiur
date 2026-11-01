@@ -11,6 +11,16 @@ restricted session. The default `nil` allows all supported tools; an empty list
 disables every tool. The session enforces the list on incoming calls as well as
 the advertised tool specifications.
 
+Hosts may set `host_tools` to a module implementing
+`VoiceConverse.Ports.HostTools`. Its `specs(target)` callback returns
+`{:ok, [%{name: name, description: description, params: json_schema}]}` and
+`call(name, target, params)` returns `{:ok, text}` or `{:error, reason}`. Tool
+names must not overlap built-in tools; a conflict rejects session start with
+`:host_tool_name_conflict`, while malformed specs return `:invalid_host_tools`.
+Calls run under a deadline. Their parameters and
+results use the configured redactor and normal transcript recording.
+`allowed_tools` filters host tools like every other advertised tool.
+
 ## Recording a session summary
 
 The `record_summary` client tool accepts three required string arrays:

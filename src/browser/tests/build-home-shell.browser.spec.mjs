@@ -305,6 +305,55 @@ test('B18 disconnect releases in-flight guard and ignores old reply', async ({ p
   })).toEqual({ calls: 2, inFlight: true, ignored: true, epoch: 'new-reply' })
 })
 
+test('a throttled restart snapshot retries once and applies the latest snapshot', async ({ page }) => {
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') })
+  await ready(page)
+  await page.clock.pauseAt(new Date('2030-01-02T00:00:00Z'))
+  expect(await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js'), { receive } = await import('/build-home/hook.js')
+    let rejectThrottle, rejectSecondThrottle, resolveLatest, calls = 0
+    ctx.push = () => {
+      calls++
+      if (calls === 1) return new Promise(resolve => { rejectThrottle = resolve })
+      if (calls === 2) return new Promise(resolve => { rejectSecondThrottle = resolve })
+      return new Promise(resolve => { resolveLatest = resolve })
+    }
+    const restart = { v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 2,
+      now: ctx.snap.now + 1, upsert: [], remove: [], set: {} }
+    receive(restart)
+    receive({ ...restart, generation: restart.generation + 2 })
+    rejectThrottle({ v: 1, kind: 'error', reason: 'throttled' })
+    await Promise.resolve()
+    window.resyncRetryProbe = { get calls() { return calls }, rejectSecondThrottle: value => rejectSecondThrottle(value),
+      resolveLatest: value => resolveLatest(value),
+      latest: { ...ctx.snap, generation: ctx.proto.generation + 10, now: ctx.snap.now + 10_000 } }
+    return { afterRefusal: calls, pending: ctx.proto.retryPending }
+  })).toEqual({ afterRefusal: 1, pending: true })
+  await page.clock.runFor(1_900)
+  expect(await page.evaluate(() => window.resyncRetryProbe.calls)).toBe(1)
+  await page.clock.runFor(200)
+  expect(await page.evaluate(() => window.resyncRetryProbe.calls)).toBe(2)
+  expect(await page.evaluate(async () => {
+    const { receive } = await import('/build-home/hook.js'), probe = window.resyncRetryProbe
+    probe.rejectSecondThrottle({ v: 1, kind: 'error', reason: 'throttled' })
+    await Promise.resolve()
+    await Promise.resolve()
+    receive({ v: 1, kind: 'error', reason: 'throttled' })
+    return { calls: probe.calls, pending: (await import('/build-home/state.js')).ctx.proto.retryPending }
+  })).toEqual({ calls: 2, pending: true })
+  await page.clock.runFor(4_199)
+  expect(await page.evaluate(() => window.resyncRetryProbe.calls)).toBe(2)
+  await page.clock.runFor(1)
+  expect(await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js'), probe = window.resyncRetryProbe
+    const callsBeforeReply = probe.calls
+    probe.resolveLatest(probe.latest)
+    await Promise.resolve(); await Promise.resolve()
+    return { callsBeforeReply, calls: probe.calls,
+      appliedMatchesLatest: ctx.proto.generation === probe.latest.generation && ctx.snap.now === probe.latest.now }
+  })).toEqual({ callsBeforeReply: 3, calls: 3, appliedMatchesLatest: true })
+})
+
 test('B19 scrollbar geometry, track click, active timer and drag', async ({ page }) => {
   // Install before mount: a native sb-active timeout from a pre-install scroll can't be cleared by the fake clock.
   await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') })
