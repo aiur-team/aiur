@@ -294,7 +294,7 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 
 In `separate_account` mode, the PR needs an APPROVED review at the current head from another identity. `--approve-body-file <file>` posts that approval and reruns the gates.
 
-In `single_account` mode, the reviewed SHA is the operator's explicit self-review attestation because GitHub refuses self-approval. Every merge or enqueue posts a COMMENT review at that head. `--approve-body-file <file>` supplies its body; otherwise Aiur posts `Single-account self-review attestation: reviewed <sha>.` The ledger records `reviewed_by`, `attestation: "single_account_self_review"`, and `reviewed_sha`.
+In `single_account` mode, the reviewed SHA is the operator's self-review attestation; GitHub refuses self-approval. Each merge or enqueue posts a COMMENT at that head, using `--approve-body-file <file>` or a generated SHA attestation. The ledger records the reviewer, attestation type, and SHA.
 
 Repeatable `--inherited <check>` requires watcher verification, currently unavailable.
 
