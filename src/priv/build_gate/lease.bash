@@ -211,7 +211,8 @@ aiur_build_gate_wait_for_phase_start_pid() {
 aiur_build_gate_publish_owner_v2() {
   local gate_dir=$1 owner_path=$2 token=$3 phase=$4 owner_pid=$5 owner_pgid=$6
   local holder_pid=$7 command_pgid=$8 command_pid_namespace=$9
-  local owner_candidate started_at summary command_name file_count
+  local owner_candidate started_at acquired_at summary command_name file_count
+  local line prior_token= prior_acquired_at=
   shift 9
   command_name=$1
   shift
@@ -220,6 +221,20 @@ aiur_build_gate_publish_owner_v2() {
   file_count=${file_count%% files,*}
 
   started_at=$(aiur_build_gate_started_at)
+  # started_at is re-stamped on every publish; acquired_at stays at this
+  # token's first publish so the reaper can protect handshakes made after it.
+  acquired_at=$started_at
+  if [[ -f $owner_path ]]; then
+    while IFS= read -r line; do
+      case $line in
+        token=*) prior_token=${line#token=} ;;
+        acquired_at=*) prior_acquired_at=${line#acquired_at=} ;;
+      esac
+    done 2>/dev/null <"$owner_path" || true
+    if [[ $prior_token == "$token" && $prior_acquired_at =~ ^[0-9]+$ ]]; then
+      acquired_at=$prior_acquired_at
+    fi
+  fi
 
   owner_candidate=$(mktemp "$gate_dir/.owner-v2.XXXXXXXXXX" 2>/dev/null) || {
     aiur_build_gate_fail "owner_candidate_failed" "$gate_dir"
@@ -227,9 +242,9 @@ aiur_build_gate_publish_owner_v2() {
   }
 
   if ! printf \
-    'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\ncommand_pid_namespace=%s\nphase=%s\ncommand=%s\ncommand_hash=%s\ncommand_file_count=%s\nstarted_at=%s\n' \
+    'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\ncommand_pid_namespace=%s\nphase=%s\ncommand=%s\ncommand_hash=%s\ncommand_file_count=%s\nstarted_at=%s\nacquired_at=%s\n' \
     "$token" "$owner_pid" "$owner_pgid" "$holder_pid" "$command_pgid" "$command_pid_namespace" "$phase" "$summary" \
-    "${summary##*sha256=}" "$file_count" "$started_at" \
+    "${summary##*sha256=}" "$file_count" "$started_at" "$acquired_at" \
     >"$owner_candidate"; then
     rm -f "$owner_candidate" 2>/dev/null || true
     aiur_build_gate_fail "owner_write_failed" "$owner_path"

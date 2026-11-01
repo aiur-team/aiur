@@ -20,6 +20,7 @@ HANDSHAKE_PREFIXES = (
     ".status-ack-v2.",
 )
 GRACE_SECONDS = 300
+SKIPPABLE_ERRNOS = (errno.ENOENT, errno.ESRCH, errno.EACCES, errno.EPERM)
 
 
 def process_snapshot(gate_dir):
@@ -60,9 +61,11 @@ def process_snapshot_once(gate_dir):
             namespace = os.readlink(f"{process_path}/ns/pid")
             process_group = int(stat[2])
         except OSError as error:
-            # Processes exiting during the scan are harmless. If one remains,
-            # do not reap against an incomplete process snapshot.
-            if error.errno not in (errno.ENOENT, errno.ESRCH) and os.path.exists(process_path):
+            # Processes exiting during the scan are harmless, and so are
+            # same-uid processes that are not dumpable (systemd --user): gate
+            # writers are dumpable, so EACCES/EPERM marks a process that cannot
+            # hold gate files. Any other error on a live process fails closed.
+            if error.errno not in SKIPPABLE_ERRNOS and os.path.exists(process_path):
                 return None
             continue
         except (ValueError, IndexError):
@@ -84,7 +87,7 @@ def process_snapshot_once(gate_dir):
         try:
             descriptors = os.scandir(f"{process_path}/fd")
         except OSError as error:
-            if error.errno not in (errno.ENOENT, errno.ESRCH) and os.path.exists(process_path):
+            if error.errno not in SKIPPABLE_ERRNOS and os.path.exists(process_path):
                 return None
             continue
         with descriptors:
@@ -92,7 +95,7 @@ def process_snapshot_once(gate_dir):
                 try:
                     opened = os.stat(descriptor.path)
                 except OSError as error:
-                    if error.errno not in (errno.ENOENT, errno.ESRCH):
+                    if error.errno not in SKIPPABLE_ERRNOS:
                         return None
                     continue
                 open_files.add((opened.st_dev, opened.st_ino))
@@ -109,6 +112,7 @@ def read_record(path):
 
 
 def owner_is_live(record, namespaces, processes):
+    # Pid membership only, no start time: pid reuse keeps a file, never reaps a live one.
     namespace = record.get("command_pid_namespace", "")
     pids = {int(record.get(key, "0")) for key in ("pid", "holder_pid") if record.get(key, "0").isdecimal()}
     groups = {int(record.get(key, "0")) for key in ("pgid", "command_pgid") if record.get(key, "0").isdecimal()}
@@ -148,7 +152,10 @@ def active_acquisition_starts(entries, lock_dir):
             continue
         record = read_record(entry.path)
         try:
-            started_at = int(record.get("started_at", ""))
+            # started_at is re-stamped after the handshake files exist;
+            # acquired_at is not. A reaper in another PID namespace cannot see
+            # the holder, so this is the only thing protecting its handshakes.
+            started_at = int(record.get("acquired_at") or record.get("started_at", ""))
         except ValueError:
             continue
         starts.append(started_at)
