@@ -4,6 +4,16 @@ defmodule VoiceConverse.Session.TextTiming do
   alias VoiceConverse.{Events, TranscriptStore}
   alias VoiceConverse.Events.AgentTextTiming
 
+  def redact_for_broadcast(%Events.AgentText{} = event, redactor),
+    do: %{event | text: redactor.(event.text)}
+
+  def redact_for_broadcast(%AgentTextTiming{} = event, redactor) do
+    text = redactor.(event.text)
+    %{event | text: text, chars: if(text == event.text, do: event.chars, else: nil)}
+  end
+
+  def redact_for_broadcast(event, _redactor), do: event
+
   def handle(state, %Events.AgentText{turn_id: id, text: text, final?: final?}) do
     turn = turn(state, id)
     # Final AgentText is the complete turn, partial AgentText contains deltas.
