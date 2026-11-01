@@ -2,15 +2,11 @@ defmodule VoiceConverse.Session do
   use GenServer, restart: :temporary
 
   alias VoiceConverse.{
-    ClientErrors,
     Events,
-    ProviderCleanup,
-    Session.Briefing,
     Session.Runtime,
     Session.Start,
     SessionLimits,
     SessionRegistry,
-    Tools,
     TranscriptStore
   }
 
@@ -66,7 +62,8 @@ defmodule VoiceConverse.Session do
   def handle_call({:unsubscribe, subscriber}, _from, state) when is_pid(subscriber),
     do: {:reply, :ok, remove_subscriber(state, subscriber)}
 
-  def handle_call(:refresh_briefing, from, state), do: Briefing.refresh(state, self(), from)
+  def handle_call(:refresh_briefing, from, state),
+    do: VoiceConverse.LiveContext.refresh_briefing(state, self(), from)
 
   def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
     do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
@@ -86,9 +83,6 @@ defmodule VoiceConverse.Session do
     do:
       {:noreply,
        state |> Runtime.flush_consult_context() |> transition(:listening) |> VoiceConverse.LiveContext.ready()}
-
-  def handle_info({:briefing_refresh, ref, result}, state),
-    do: Briefing.complete_refresh(state, ref, result)
 
   def handle_info({:provider_opened, phase, result}, state), do: handle_provider_opened(phase, result, state)
 
@@ -143,7 +137,7 @@ defmodule VoiceConverse.Session do
   end
 
   def handle_info({:live_target_gone, reason}, state), do: stop_on_timeout(state, reason)
-  def handle_info(message, state), do: Briefing.handle_info(message, state)
+  def handle_info(message, state), do: VoiceConverse.LiveContext.handle_info(message, state)
   @impl true
   def terminate(reason, %{finished?: false} = state) when reason not in [:normal, :shutdown] do
     state = close_current_provider(state)

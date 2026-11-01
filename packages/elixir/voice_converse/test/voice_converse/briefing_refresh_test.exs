@@ -25,6 +25,7 @@ defmodule VoiceConverse.BriefingRefreshTest do
     target = target(self(), "First")
     {:ok, id} = start(name, target)
     assert_receive {:fake_briefing_source, :subscribe, _pid}
+    refute_received {:fake_briefing_source, :subscribe, _pid}
     await_listening(id)
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     provider = :sys.get_state(session).provider_ref
@@ -51,6 +52,7 @@ defmodule VoiceConverse.BriefingRefreshTest do
     target = target(self(), "First")
     {:ok, id} = start(name, target)
     assert_receive {:fake_briefing_source, :subscribe, _pid}
+    refute_received {:fake_briefing_source, :subscribe, _pid}
     await_listening(id)
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     first_provider = :sys.get_state(session).provider_ref
@@ -74,6 +76,7 @@ defmodule VoiceConverse.BriefingRefreshTest do
     target = target(self(), "First")
     {:ok, id} = start(name, target)
     assert_receive {:fake_briefing_source, :subscribe, _pid}
+    refute_received {:fake_briefing_source, :subscribe, _pid}
     await_listening(id)
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     provider = :sys.get_state(session).provider_ref
@@ -96,6 +99,7 @@ defmodule VoiceConverse.BriefingRefreshTest do
     target = target(self(), "First")
     {:ok, id} = start(name, target)
     assert_receive {:fake_briefing_source, :subscribe, _pid}
+    refute_received {:fake_briefing_source, :subscribe, _pid}
     await_listening(id)
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     provider = :sys.get_state(session).provider_ref
