@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync.ClosedIssueCleanupTest do
   alias Aiur.Orchestrator.State
 
   defmodule ClosedIssueTracker do
-    def issue_closure("7388", 0), do: {:ok, %{open?: false, state_reason: "completed"}}
+    def issue_closure("7388", 1), do: {:ok, %{open?: false, state_reason: "completed"}}
 
     def update_issue_state("7388", target, opts) do
       clear = Keyword.fetch!(opts, :clear_terminal_state_labels)

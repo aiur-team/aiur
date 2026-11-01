@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.IssueSync.ClosedIssueCleanup do
   def cleanup(%Issue{} = issue, opts \\ []) do
     if stale_lifecycle_labels?(issue) do
       identifier = issue.identifier || issue.id
-      closure = Keyword.get(opts, :issue_closure_fun, fn id -> Tracker.issue_closure(id, 0) end)
+      closure = Keyword.get(opts, :issue_closure_fun, fn id -> Tracker.issue_closure(id, 1) end)
       update = Keyword.get(opts, :update_state_fun, &write_terminal_state/3)
       prefix = Keyword.get(opts, :label_prefix, Config.label_prefix())
 
