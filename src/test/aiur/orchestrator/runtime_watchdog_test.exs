@@ -108,7 +108,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
     cancel_retry(next_state, "issue-1")
   end
 
-  test "MCP socket path startup failure emits one alert and schedules no retry" do
+  test "a turn failure from an MCP socket path emits one alert, terminalizes, and schedules no retry" do
     original_signal = Application.fetch_env!(:aiur, :signal)
     test_pid = self()
     Application.put_env(:aiur, :signal, alert_sink: LaunchFailureSink)
@@ -118,17 +118,31 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
     ref = make_ref()
     now = DateTime.utc_now()
     reason = %{"error" => "Error: listen EINVAL: invalid argument /tmp/aiur-mcp-1-1.sock"}
-    entry = Map.merge(running_entry(now), %{ref: ref, identifier: "CLAUDE-77", workspace_path: "/work/77"})
-    failed_entry = put_in(entry, [:runtime_terminal_failure], %{kind: :startup_failed, reason: reason, observed_at: now})
-    state = %State{running: %{"issue-77" => failed_entry}, claimed: MapSet.new(["issue-77"])}
 
-    assert {:noreply, next} = AgentDown.handle_agent_down(state, ref, :normal)
+    state_writer = fn identifier, state_name, opts ->
+      send(test_pid, {:state_write, identifier, state_name, opts})
+      :ok
+    end
+
+    entry =
+      Map.merge(running_entry(now), %{
+        ref: ref,
+        identifier: "CLAUDE-77",
+        workspace_path: "/work/77",
+        terminal_policy_state_writer: state_writer
+      })
+
+    state = %State{running: %{"issue-77" => entry}, claimed: MapSet.new(["issue-77"])}
+
+    assert {:noreply, next} = AgentDown.handle_agent_down(state, ref, {:error, {:turn_failed, reason}})
     refute Map.has_key?(next.retry_attempts, "issue-77")
     refute Map.has_key?(next.running, "issue-77")
     refute MapSet.member?(next.claimed, "issue-77")
+    assert next.released_claims["issue-77"].cause == :mcp_socket_launch_failure
     assert_received {:launch_alert, "ticket.CLAUDE-77.agent.launch_failed", nil, opts}
     assert opts[:reason] =~ "listen EINVAL"
     refute_received {:launch_alert, _, _, _}
+    assert_receive {:state_write, "CLAUDE-77", "error", []}, 500
   end
 
   test "production reconciliation consumes projected startup failures" do

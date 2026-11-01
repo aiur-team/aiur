@@ -1,6 +1,7 @@
 defmodule Aiur.AgentScratchTest do
   import Bitwise
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
 
   alias Aiur.{AgentEnvironment, AgentScratch}
   alias Aiur.Config.CodexSandboxPolicy
@@ -25,13 +26,17 @@ defmodule Aiur.AgentScratchTest do
 
   describe "MCP socket directory" do
     test "is short, stable per workspace, and created with private permissions", %{workspace: workspace} do
-      opts = [runtime_root: "/tmp", user_id: "1"]
+      {uid, 0} = System.cmd("id", ["-u"])
+      runtime_root = Path.join("/tmp", "aiur-scratch-#{System.unique_integer([:positive])}")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(runtime_root) end)
+      opts = [runtime_root: runtime_root, user_id: String.trim(uid)]
       path = AgentScratch.mcp_socket_dir(workspace, opts)
       assert byte_size(path) < 80
       assert path == AgentScratch.mcp_socket_dir(workspace, opts)
       assert [{~c"AIUR_MCP_SOCKET_DIR", value}] = AgentScratch.mcp_socket_env(workspace, opts)
       actual_path = to_string(value)
       assert byte_size(actual_path) < 80
+      assert byte_size(Path.join(actual_path, "aiur-mcp-9999999-999.sock")) <= 100
       assert File.dir?(actual_path)
       assert (File.stat!(actual_path).mode &&& 0o777) == 0o700
     end
@@ -39,10 +44,24 @@ defmodule Aiur.AgentScratchTest do
     test "legacy socket estimate includes workspace, repo, maximum issue and suffix" do
       workspace_root = String.duplicate("w", 50)
       length = AgentScratch.legacy_mcp_socket_path_length(workspace_root, "owner/repo")
-      expected = byte_size(Path.join([workspace_root, "owner/repo", "99999", ".aiur-runtime/tmp", "aiur-mcp-9999999-999.sock"]))
+      workspace = Path.join([workspace_root, "owner", "repo", "99999"])
+      expected = byte_size(Path.join([workspace, ".aiur-runtime/tmp", "aiur-mcp-9999999-999.sock"]))
 
       assert length == expected
       assert length > AgentScratch.mcp_socket_path_limit()
+    end
+
+    test "warning reports the maximum legacy path but ignores a short configured socket path" do
+      workspace = Path.join(["/root", String.duplicate("w", 70), "owner", "repo", "17"])
+      expected_length = byte_size(Path.join(["/root", String.duplicate("w", 70), "owner", "repo", "99999", ".aiur-runtime/tmp", "aiur-mcp-9999999-999.sock"]))
+
+      log = capture_log(fn -> AgentScratch.warn_mcp_socket_path(workspace, []) end)
+      assert log =~ "#{expected_length} bytes > 107"
+
+      short_dir = "/tmp/aiur-short"
+      short_env = [{~c"AIUR_MCP_SOCKET_DIR", String.to_charlist(short_dir)}]
+      short_workspace = Path.join(["/root", String.duplicate("w", 70), "owner", "other", "17"])
+      assert capture_log(fn -> AgentScratch.warn_mcp_socket_path(short_workspace, short_env) end) == ""
     end
   end
 

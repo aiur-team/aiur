@@ -306,7 +306,7 @@ An exported value wins, followed by the global file and then the repository file
 | `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
 | `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |
 | `decisions.escalation.urgent_factor` | float | 0.5 | Multiplies both deadlines for urgent Commands; greater than 0 and at most 1. |
-| `decisions.native_capture.claude` | boolean | true | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.1.1. Older or unversioned siblings remain non-interactive. |
+| `decisions.native_capture.claude` | boolean | true | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.3.0. Older or unversioned siblings remain non-interactive. |
 | `decisions.native_capture.codex` | boolean | true | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Set false to opt out. |
 | `decisions.require_suggested_responses` | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |

@@ -35,22 +35,37 @@ defmodule Aiur.AgentScratch do
     Path.join([runtime_root, "aiur-#{user_id}", digest])
   end
 
-  @doc "Maximum historical Claude MCP socket path length for a configured root and repo segment."
+  @doc "Maximum legacy Claude MCP socket path length for a workspace root and repo segment."
   @spec legacy_mcp_socket_path_length(Path.t(), String.t()) :: non_neg_integer()
   def legacy_mcp_socket_path_length(workspace_root, repo_segment)
       when is_binary(workspace_root) and is_binary(repo_segment) do
-    [workspace_root, repo_segment, String.duplicate("9", 5), @relative_path, "aiur-mcp-9999999-999.sock"]
-    |> Path.join()
+    workspace_root
+    |> issue_workspace_path(repo_segment)
+    |> then(&Path.join([&1, @relative_path, "aiur-mcp-9999999-999.sock"]))
     |> byte_size()
   end
 
-  @doc "Warn when the legacy socket path would exceed the Unix-domain socket limit."
-  @spec warn_legacy_mcp_socket_path(Path.t(), String.t()) :: :ok
-  def warn_legacy_mcp_socket_path(workspace_root, repo_segment) do
-    length = legacy_mcp_socket_path_length(workspace_root, repo_segment)
+  @doc "Warn once when the socket path actually passed to Claude exceeds the Unix-domain socket limit."
+  @spec warn_mcp_socket_path(Path.t(), [{charlist(), charlist()}]) :: :ok
+  def warn_mcp_socket_path(workspace, socket_env) do
+    socket_path =
+      case List.keyfind(socket_env, String.to_charlist(@mcp_socket_dir_env), 0) do
+        {_, path} ->
+          Path.join(List.to_string(path), "aiur-mcp-9999999-999.sock")
 
-    if length > @mcp_socket_limit do
-      Logger.warning("Claude MCP bridge legacy socket path may exceed Unix sun_path limit: #{length} bytes > #{@mcp_socket_limit}")
+        nil ->
+          Path.join([Path.dirname(workspace), "99999", @relative_path, "aiur-mcp-9999999-999.sock"])
+      end
+
+    length = byte_size(socket_path)
+    warning_key = {__MODULE__, :mcp_socket_path_warning, Path.dirname(workspace)}
+
+    unless :persistent_term.get(warning_key, false) do
+      :persistent_term.put(warning_key, true)
+
+      if length > @mcp_socket_limit do
+        Logger.warning("Claude MCP bridge socket path may exceed Unix sun_path limit: #{length} bytes > #{@mcp_socket_limit} (#{socket_path})")
+      end
     end
 
     :ok
@@ -84,10 +99,35 @@ defmodule Aiur.AgentScratch do
 
   defp ensure_private_root(path) do
     case File.stat(path) do
-      {:ok, %{mode: mode}} when Bitwise.band(mode, 0o777) == 0o700 -> :ok
-      {:ok, _} -> File.chmod(path, 0o700)
-      {:error, reason} -> {:error, reason}
+      {:ok, %{mode: mode, uid: uid}} ->
+        if uid == own_uid(), do: ensure_private_root_mode(path, mode), else: {:error, :not_owned_by_current_user}
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp ensure_private_root_mode(path, mode) do
+    if Bitwise.band(mode, 0o777) == 0o700, do: :ok, else: File.chmod(path, 0o700)
+  end
+
+  defp issue_workspace_path(root, repo_segment) do
+    trimmed = String.trim_trailing(root, "/")
+
+    if trimmed == repo_segment or String.ends_with?(trimmed, "/" <> repo_segment) do
+      Path.join(trimmed, "99999")
+    else
+      Path.join([trimmed, repo_segment, "99999"])
+    end
+  end
+
+  defp own_uid do
+    case user_id() do
+      uid when is_binary(uid) -> String.to_integer(uid)
+      _ -> -1
+    end
+  rescue
+    _ -> -1
   end
 
   defp runtime_root do

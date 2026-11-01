@@ -24,7 +24,6 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
   def workspace_env(workspace, opts \\ [])
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
-    maybe_warn_legacy_mcp_socket_path(opts, workspace)
     [hex, mix, npm_cache] = package_cache_paths(opts)
     state_path = repo_url(opts) |> Paths.repo_state_path()
     base_branch = configured_base_branch(opts)
@@ -55,6 +54,9 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
         {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
       end)
 
+    mcp_socket_env = AgentScratch.mcp_socket_env(workspace, mcp_socket_opts(opts))
+    AgentScratch.warn_mcp_socket_path(workspace, mcp_socket_env)
+
     workspace_env =
       [
         {~c"HEX_HOME", String.to_charlist(hex)},
@@ -80,7 +82,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
       ] ++
         GitHubPath.port_env(workspace) ++
         scratch_env(workspace) ++
-        AgentScratch.mcp_socket_env(workspace, mcp_socket_opts(opts)) ++
+        mcp_socket_env ++
         GitIdentity.port_env(opts) ++
         Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
@@ -97,23 +99,6 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
   end
 
   def workspace_env(_, _opts), do: []
-
-  defp maybe_warn_legacy_mcp_socket_path(opts, workspace) do
-    workspace_root = Keyword.get(opts, :workspace_root) || configured_workspace_root(workspace)
-    configured_repo_segment = repo_segment(repo_url(opts))
-
-    if configured_repo_segment != "unknown" do
-      AgentScratch.warn_legacy_mcp_socket_path(workspace_root, configured_repo_segment)
-    end
-  rescue
-    _ -> :ok
-  end
-
-  defp configured_workspace_root(fallback) do
-    Config.workspace_root()
-  rescue
-    _ -> fallback
-  end
 
   # Concurrent agents share the host's /tmp. Two agents staging a comment body at
   # the same obvious path (`/tmp/wp_new.md`) silently clobber each other, and the
@@ -316,13 +301,6 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
     end
   end
 
-  defp repo_segment(repo_url) do
-    case URI.parse(repo_url).path do
-      path when is_binary(path) and path != "" -> Path.rootname(Path.basename(path))
-      _ -> "unknown"
-    end
-  end
-
   defp mcp_socket_opts(_opts) do
     {user_id, 0} = System.cmd("id", ["-u"], stderr_to_stdout: true)
     user_id = String.trim(user_id)
@@ -330,7 +308,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
 
     runtime_root =
       if is_binary(runtime_dir) and runtime_dir != "" and writable_directory?(runtime_dir, user_id),
-        do: Path.join(runtime_dir, "aiur-#{user_id}"),
+        do: runtime_dir,
         else: "/tmp"
 
     [runtime_root: runtime_root, user_id: user_id]

@@ -122,7 +122,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
 
     socket_dir = env |> Map.fetch!(~c"AIUR_MCP_SOCKET_DIR") |> to_string()
     tmpdir = env |> Map.fetch!(~c"TMPDIR") |> to_string()
-    socket_path = Path.join(socket_dir, "aiur-mcp-1234567-1.sock")
+    socket_path = Path.join(socket_dir, "aiur-mcp-9999999-999.sock")
     assert byte_size(socket_path) <= 100
     assert Path.basename(tmpdir) == "tmp"
     assert tmpdir == Path.join(workspace, ".aiur-runtime/tmp")

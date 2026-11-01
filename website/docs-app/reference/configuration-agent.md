@@ -249,9 +249,11 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-04 -->
 | --- | --- | --- | --- |
-| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; MCP socket directory and native questions require aiur-claude >= 1.1.1. |
+| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0, and short MCP socket directory support requires >= 1.3.1. |
 | `agent.claude.model` | string or nil | nil | Optional Claude model override. |
 | `agent.claude.permission_mode` | string | `bypassPermissions` | Claude permission mode. |
+
+The MCP socket directory override is set for local workers only. Its private, hashed runtime directory is not removed when a workspace is deleted; remote worker exports continue to use the sibling's default temporary directory.
 
 ## agent.codex
 

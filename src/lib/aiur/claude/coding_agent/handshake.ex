@@ -6,7 +6,7 @@ defmodule Aiur.Claude.CodingAgent.Handshake do
   alias Aiur.Claude.CodingAgent
   alias Aiur.Config
 
-  @minimum_version "1.1.1"
+  @minimum_version "1.3.0"
 
   @spec start(port() | pid(), Path.t()) :: {:ok, String.t(), map()} | {:error, term()}
   def start(port, workspace) do
