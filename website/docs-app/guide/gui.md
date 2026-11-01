@@ -178,10 +178,12 @@ forward, so measuring the gate never perturbs a real build acquisition.
 
 ### Executor
 
-Open **Executor** in dashboard navigation to read the instance's one Executor
+Open **Executor** in desktop or tablet navigation, or **Settings → Executor conversation**
+on a phone, to read the instance's one Executor
 conversation at `/executor`. Attach with `aiur executor-attach --harness claude`
-or `aiur executor-attach --harness codex`. Before the first hook arrives, the
-view shows **Waiting for the Executor session** and an `--check` hint.
+or `aiur executor-attach --harness codex`.
+
+Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-session --json` hint for inspecting the current binding and hook state.
 
 The distinct Executor frame wraps the same paging, event jumps and live history
 as worker conversations; `/executor?pos=N` highlights a recorded position.

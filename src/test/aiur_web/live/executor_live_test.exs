@@ -34,13 +34,18 @@ defmodule AiurWeb.ExecutorLiveTest do
 
   test "no binding is not opted in, never idle; static render loads history" do
     conn = get(build_conn(), "/executor")
-    assert html_response(conn, 200) =~ "Loading Executor history"
+    loading_html = html_response(conn, 200)
+    assert length(Regex.scan(~r/Loading Executor history/, loading_html)) == 1
+    refute loading_html =~ "Loading conversation"
     {:ok, view, html} = live(build_conn(), "/executor")
     assert has_element?(view, "#executor-frame [data-state=not_opted_in]")
     assert html =~ "aiur executor-attach --harness claude"
     assert html =~ "aiur executor-attach --harness codex"
     assert has_element?(view, "#executor-frame a[href='https://aiur.team/docs/guide/gui#executor']")
     refute html =~ "Idle"
+    refute html =~ "not_found"
+    refute html =~ "age unknown"
+    refute has_element?(view, "#executor-frame [data-freshness]")
   end
 
   test "awaiting first hook updates to detached on refresh" do
@@ -48,7 +53,7 @@ defmodule AiurWeb.ExecutorLiveTest do
     {:ok, view, html} = live(build_conn(), "/executor")
     assert has_element?(view, "[data-state=awaiting_hook]")
     assert html =~ "Waiting for the Executor session"
-    assert html =~ "aiur executor-attach --check"
+    assert html =~ "aiur executor-session --json"
     assert {:ok, _} = Session.detach(binding.binding_id, :detached)
     send(view.pid, :age_tick)
     assert has_element?(view, "[data-state=ended]")

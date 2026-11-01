@@ -49,6 +49,8 @@ defmodule AiurWeb.Conversation.Components do
   end
 
   attr(:title, :string, default: "Conversation")
+  attr(:state_label, :string, default: nil)
+  attr(:show_freshness, :boolean, default: true)
   attr(:state, :atom, required: true)
   attr(:age, :map, required: true)
   attr(:last_entry, :any, default: nil)
@@ -59,8 +61,8 @@ defmodule AiurWeb.Conversation.Components do
     <header aria-live="polite" data-state={@state}>
       <h1>{@title}</h1>
       <p :if={@state == :not_found}>No messages yet</p>
-      <p>{Presenter.label(@state)} <span :if={@reason}>· {@reason}</span></p>
-      <p :if={@state not in [:loading, :not_found]} data-freshness={@age.freshness}>
+      <p>{@state_label || Presenter.label(@state)} <span :if={@reason}>· {@reason}</span></p>
+      <p :if={@show_freshness and @state not in [:loading, :not_found]} data-freshness={@age.freshness}>
         Observed <time :if={@age.observed_at} datetime={DateTime.to_iso8601(@age.observed_at)}>{DateTime.to_iso8601(@age.observed_at)}</time>
         · {@age.text} · {@age.freshness}
       </p>

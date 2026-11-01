@@ -21,6 +21,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       path: "/executor",
       type: :live,
       owner: :executor,
+      phone_secondary?: true,
       availability: :available,
       active_actions: [:executor]
     },

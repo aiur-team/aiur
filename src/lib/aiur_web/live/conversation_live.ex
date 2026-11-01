@@ -88,7 +88,7 @@ defmodule AiurWeb.ConversationLive do
       <a href="/">Build</a>
       <AiurWeb.ExecutorView.header :if={@executor_frame} view={@executor_frame} writable={@writable} />
       <Components.status :if={is_nil(@executor_frame)} state={@state} age={@age} reason={@reason} last_entry={@last_entry} />
-      <div :if={@state == :loading} role="status" aria-busy="true" class="conversation-skeleton">Loading conversation…</div>
+      <div :if={@state == :loading and is_nil(@executor_frame)} role="status" aria-busy="true" class="conversation-skeleton">Loading conversation…</div>
       <p :if={@page && not @page.complete_from_start} role="note">Earlier history is not available</p>
       <nav :if={@page} aria-label="Conversation paging">
         <button phx-click="jump_start">Jump to start</button>

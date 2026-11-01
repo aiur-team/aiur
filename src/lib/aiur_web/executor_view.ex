@@ -28,15 +28,14 @@ defmodule AiurWeb.ExecutorView do
   def header(assigns) do
     ~H"""
     <div id="executor-frame" class="executor-frame">
-      <Components.status title="Executor" state={@view.state} age={@view.age} reason={@view.reason} last_entry={@view.last_entry} />
+      <Components.status title="Executor" state={@view.state} age={@view.age} reason={if @view.state != :not_opted_in, do: @view.reason} show_freshness={@view.state != :not_opted_in} state_label={if @view.state == :loading, do: "Loading Executor history…"} last_entry={@view.last_entry} />
       <div :if={@view.state == :not_opted_in}>
         <p>Attach your Executor session to read its conversation here. Transcript capture is opt in.</p>
         <p>Run <code>aiur executor-attach --harness claude</code> or <code>aiur executor-attach --harness codex</code> in your repository.</p>
         <a href="https://aiur.team/docs/guide/gui#executor">Executor setup and history</a>
       </div>
-      <p :if={@view.state == :awaiting_hook}>Waiting for the Executor session. Run <code>aiur executor-attach --check</code> to check the hook setup.</p>
+      <p :if={@view.state == :awaiting_hook}>Waiting for the Executor session. Run <code>aiur executor-session --json</code> to inspect the current session and hook state.</p>
       <p :if={@view.state == :ended}>Executor session ended or detached. Recorded history remains readable.</p>
-      <p :if={@view.state == :loading}>Loading Executor history…</p>
       <p :if={@view.unreadable?} role="alert">Executor transcript unreadable (source_unreadable). Status may still work; check transcript access and the attached session.</p>
       <p :if={@view.capability && @view.capability.state == :unsupported} role="status">Executor transcript unsupported: {@view.capability.reason}. Recorded history remains readable.</p>
       <p :if={not @writable} role="note">Read-only Executor view. History is readable; messages cannot be sent.</p>
