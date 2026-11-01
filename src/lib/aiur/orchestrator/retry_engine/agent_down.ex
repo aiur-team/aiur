@@ -1,10 +1,13 @@
 defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
+  # Cohesion: this module owns terminal and retry decisions at agent exit,
+  # including deterministic MCP bridge startup failures.
   @moduledoc "Retry agent exit handling and orphan reaping."
 
   require Logger
 
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
+  alias Aiur.CodingAgent.RouteFailure
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AgentTeardown
@@ -113,15 +116,11 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
        ) do
     reason = Map.get(failure, :reason)
 
-    Logger.warning("Agent startup failed for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling failure retry")
-
-    state
-    |> remove_stopped_running_entry(issue_id, running_entry)
-    |> Scheduling.schedule_issue_retry(
-      issue_id,
-      Scheduling.next_retry_attempt_from_running(running_entry),
-      runtime_terminal_failure_retry_metadata(running_entry, reason)
-    )
+    if is_map(reason) and RouteFailure.mcp_socket_path_error?(reason) do
+      fail_mcp_socket_launch(state, issue_id, running_entry, reason)
+    else
+      handle_startup_failure(state, issue_id, running_entry, reason, session_id)
+    end
   end
 
   defp handle_running_agent_down(state, issue_id, running_entry, :normal, session_id) do
@@ -149,6 +148,37 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
       |> remove_stopped_running_entry(issue_id, running_entry)
       |> Scheduling.schedule_issue_retry(issue_id, exit_retry_attempt(running_entry, reason), exit_retry_metadata(running_entry, reason))
     end
+  end
+
+  defp fail_mcp_socket_launch(state, issue_id, running_entry, reason) do
+    identifier = Map.get(running_entry, :identifier, issue_id)
+    message = Map.get(reason, "error") || Map.get(reason, "message") || inspect(reason)
+
+    Aiur.Signal.alert("ticket.#{identifier}.agent.launch_failed",
+      issue: identifier,
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "Claude MCP socket launch failed: #{message}",
+      needs_attention: true,
+      severity: "critical"
+    )
+
+    state
+    |> remove_stopped_running_entry(issue_id, running_entry)
+    |> RetryEngine.release_issue_claim(issue_id)
+    |> then(fn next -> %{next | retry_attempts: Map.delete(next.retry_attempts, issue_id)} end)
+  end
+
+  defp handle_startup_failure(state, issue_id, running_entry, reason, session_id) do
+    Logger.warning("Agent startup failed for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling failure retry")
+
+    state
+    |> remove_stopped_running_entry(issue_id, running_entry)
+    |> Scheduling.schedule_issue_retry(
+      issue_id,
+      Scheduling.next_retry_attempt_from_running(running_entry),
+      runtime_terminal_failure_retry_metadata(running_entry, reason)
+    )
   end
 
   # A local GitHub budget hold in an agent exit reason is definitionally

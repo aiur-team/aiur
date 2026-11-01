@@ -1,8 +1,23 @@
 defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
+  # Cohesion: startup lifecycle, exit handling, and retry state are exercised
+  # together to ensure terminal worker failures release the right resources.
   use Aiur.TestSupport
+
+  defmodule LaunchFailureSink do
+    def emit_system(topic, opts) do
+      send(Application.fetch_env!(:aiur, :launch_failure_test_pid), {:launch_alert, topic, nil, opts})
+      :ok
+    end
+
+    def emit_custom(topic, message, opts) do
+      send(Application.fetch_env!(:aiur, :launch_failure_test_pid), {:launch_alert, topic, message, opts})
+      :ok
+    end
+  end
 
   alias Aiur.Events.Exchange
   alias Aiur.Issue
+  alias Aiur.Orchestrator.RetryEngine.AgentDown
 
   alias Aiur.Orchestrator.{
     PauseResume,
@@ -91,6 +106,29 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
 
     assert next_state.retry_attempts["issue-1"].last_failure_at == now
     cancel_retry(next_state, "issue-1")
+  end
+
+  test "MCP socket path startup failure emits one alert and schedules no retry" do
+    original_signal = Application.fetch_env!(:aiur, :signal)
+    test_pid = self()
+    Application.put_env(:aiur, :signal, alert_sink: LaunchFailureSink)
+    Application.put_env(:aiur, :launch_failure_test_pid, test_pid)
+    on_exit(fn -> Application.put_env(:aiur, :signal, original_signal) end)
+
+    ref = make_ref()
+    now = DateTime.utc_now()
+    reason = %{"error" => "Error: listen EINVAL: invalid argument /tmp/aiur-mcp-1-1.sock"}
+    entry = Map.merge(running_entry(now), %{ref: ref, identifier: "CLAUDE-77", workspace_path: "/work/77"})
+    failed_entry = put_in(entry, [:runtime_terminal_failure], %{kind: :startup_failed, reason: reason, observed_at: now})
+    state = %State{running: %{"issue-77" => failed_entry}, claimed: MapSet.new(["issue-77"])}
+
+    assert {:noreply, next} = AgentDown.handle_agent_down(state, ref, :normal)
+    refute Map.has_key?(next.retry_attempts, "issue-77")
+    refute Map.has_key?(next.running, "issue-77")
+    refute MapSet.member?(next.claimed, "issue-77")
+    assert_received {:launch_alert, "ticket.CLAUDE-77.agent.launch_failed", nil, opts}
+    assert opts[:reason] =~ "listen EINVAL"
+    refute_received {:launch_alert, _, _, _}
   end
 
   test "production reconciliation consumes projected startup failures" do

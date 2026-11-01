@@ -108,6 +108,26 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
     end
   end
 
+  test "agent port environment carries the MCP socket directory and workspace TMPDIR" do
+    workspace = Aiur.TestSupport.tmp_root!("mcp-socket-env")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    env =
+      AgentEnvironment.workspace_env(workspace,
+        repo_url: "https://github.com/owner/repo.git",
+        workspace_root: String.duplicate("w", 140)
+      )
+      |> Map.new()
+
+    socket_dir = env |> Map.fetch!(~c"AIUR_MCP_SOCKET_DIR") |> to_string()
+    tmpdir = env |> Map.fetch!(~c"TMPDIR") |> to_string()
+    socket_path = Path.join(socket_dir, "aiur-mcp-1234567-1.sock")
+    assert byte_size(socket_path) <= 100
+    assert Path.basename(tmpdir) == "tmp"
+    assert tmpdir == Path.join(workspace, ".aiur-runtime/tmp")
+  end
+
   # Concurrent agents share the host's /tmp, so two of them staging a comment
   # body at the same generic path clobber each other and one publishes the
   # other ticket's workpad (#1763).

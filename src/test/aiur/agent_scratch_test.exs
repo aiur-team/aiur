@@ -1,4 +1,5 @@
 defmodule Aiur.AgentScratchTest do
+  import Bitwise
   use ExUnit.Case, async: true
 
   alias Aiur.{AgentEnvironment, AgentScratch}
@@ -19,6 +20,29 @@ defmodule Aiur.AgentScratchTest do
       assert first == "/work/aiur/1573/.aiur-runtime/tmp"
       assert second == "/work/aiur/1583/.aiur-runtime/tmp"
       refute first == second
+    end
+  end
+
+  describe "MCP socket directory" do
+    test "is short, stable per workspace, and created with private permissions", %{workspace: workspace} do
+      opts = [runtime_root: "/tmp", user_id: "1"]
+      path = AgentScratch.mcp_socket_dir(workspace, opts)
+      assert byte_size(path) < 80
+      assert path == AgentScratch.mcp_socket_dir(workspace, opts)
+      assert [{~c"AIUR_MCP_SOCKET_DIR", value}] = AgentScratch.mcp_socket_env(workspace, opts)
+      actual_path = to_string(value)
+      assert byte_size(actual_path) < 80
+      assert File.dir?(actual_path)
+      assert (File.stat!(actual_path).mode &&& 0o777) == 0o700
+    end
+
+    test "legacy socket estimate includes workspace, repo, maximum issue and suffix" do
+      workspace_root = String.duplicate("w", 50)
+      length = AgentScratch.legacy_mcp_socket_path_length(workspace_root, "owner/repo")
+      expected = byte_size(Path.join([workspace_root, "owner/repo", "99999", ".aiur-runtime/tmp", "aiur-mcp-9999999-999.sock"]))
+
+      assert length == expected
+      assert length > AgentScratch.mcp_socket_path_limit()
     end
   end
 
