@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Remove abandoned build-gate publication files without touching live writers."""
 
+import errno
 import fcntl
 import os
 import re
@@ -42,16 +43,20 @@ def process_snapshot(gate_dir):
             process_stat = os.stat(process_path)
             if process_stat.st_uid != os.geteuid():
                 continue
-            namespace = os.readlink(f"{process_path}/ns/pid")
             with open(f"{process_path}/stat", encoding="ascii") as stat_file:
                 stat = stat_file.read().rsplit(")", 1)[1].split()
+            if stat[0] == "Z":
+                continue
+            namespace = os.readlink(f"{process_path}/ns/pid")
             process_group = int(stat[2])
-        except (OSError, ValueError, IndexError):
+        except OSError as error:
             # Processes exiting during the scan are harmless. If one remains,
             # do not reap against an incomplete process snapshot.
-            if os.path.exists(process_path):
+            if error.errno not in (errno.ENOENT, errno.ESRCH) and os.path.exists(process_path):
                 return None
             continue
+        except (ValueError, IndexError):
+            return None
 
         namespaces.setdefault(namespace, set()).add(pid)
         processes[pid] = (namespace, process_group)
@@ -68,16 +73,16 @@ def process_snapshot(gate_dir):
             pass
         try:
             descriptors = os.scandir(f"{process_path}/fd")
-        except OSError:
-            if os.path.exists(process_path):
+        except OSError as error:
+            if error.errno not in (errno.ENOENT, errno.ESRCH) and os.path.exists(process_path):
                 return None
             continue
         with descriptors:
             for descriptor in descriptors:
                 try:
                     opened = os.stat(descriptor.path)
-                except OSError:
-                    if os.path.exists(descriptor.path):
+                except OSError as error:
+                    if error.errno not in (errno.ENOENT, errno.ESRCH):
                         return None
                     continue
                 open_files.add((opened.st_dev, opened.st_ino))
