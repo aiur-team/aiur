@@ -109,7 +109,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert CodingAgent.effort_for(issue) == "high"
     end
 
-    test "Codex preference wins before Claude account headroom is compared" do
+    test "Codex preference wins, then falls back to the Claude account with most headroom" do
       preferred = opts(priority_backends: ["codex", "claude"], routing_candidates: %{3 => ["codex:gpt-5.5:high", "claude:sonnet"]})
 
       assert {:ok, %Issue{selected_backend: "codex", selected_account: nil} = issue} =
@@ -117,10 +117,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
 
       assert issue.dispatch_selection.summary ==
                "headroom: codex=5%; alternatives claude/default=100%, claude/everdred=64%"
-    end
 
-    test "when Codex is unavailable, chooses the Claude account with most headroom" do
-      preferred = opts(priority_backends: ["codex", "claude"], routing_candidates: %{3 => ["codex:gpt-5.5:high", "claude:sonnet"]})
       rejected = %{"backends" => %{"codex" => %{"auth_rejected" => true}}}
 
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"}} =
