@@ -243,9 +243,10 @@ Attached Claude sessions capture their validated JSONL transcript into the durab
 Executor conversation, including history from the first record. Capture resumes
 from a saved byte offset after daemon restarts.
 
-The Executor view hides reasoning rows. Journal capture retains the original
-text; history reads mask known credentials and URLs by default. Explicit raw
-reveal remains restricted to a writable loopback session.
+Attached Claude capture excludes reasoning and redacts known credentials from
+message bodies and tool output before journal writes. Ordinary URLs remain in
+storage; history reads also mask URLs by default. Explicit raw reveal remains
+restricted to a writable loopback session and cannot restore removed secrets.
 
 Typed prompts and Remote Control
 prompts appear as Executor operator messages; Remote Control retains its origin.

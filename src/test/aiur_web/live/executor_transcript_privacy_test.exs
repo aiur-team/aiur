@@ -24,7 +24,7 @@ defmodule AiurWeb.ExecutorTranscriptPrivacyTest do
     Map.put(context, :tail_supervisor, supervisor)
   end
 
-  test "Executor view hides captured reasoning and masks reads without changing journal bytes", context do
+  test "Executor capture excludes reasoning and credentials through history and display", context do
     token = "ghp_" <> String.duplicate("a", 36)
     thought = "private reasoning fixture"
     path = Path.join([context.root, ".claude/projects/project", "session.jsonl"])
@@ -45,28 +45,28 @@ defmodule AiurWeb.ExecutorTranscriptPrivacyTest do
 
     [segment] = Path.wildcard(Path.join(context.dir, "entries.*.jsonl"))
     bytes = File.read!(segment)
-    assert bytes =~ token
-    assert bytes =~ thought
+    refute bytes =~ token
+    refute bytes =~ thought
     assert {:ok, internal} = History.list_entries(Ref.executor(), from_start: true, principal: :internal)
-    assert Enum.map(internal.entries, & &1.kind) == ["reasoning", "message", "operator_message", "tool_result"]
-    assert Enum.at(internal.entries, 1).body == "answer #{token}"
+    assert Enum.map(internal.entries, & &1.kind) == ["message", "operator_message", "tool_result"]
+    assert hd(internal.entries).body == "answer [REDACTED:ghp]"
 
-    # Existing masking is a deliberate regression guard: capture must not bypass History.mask_for/2.
+    # Device reads must also preserve the capture privacy policy.
     assert {:ok, device} = History.list_entries(Ref.executor(), from_start: true, principal: {:device, "paired"})
-    assert Enum.map(device.entries, & &1.body) == [thought, "answer [REDACTED:ghp]", "prompt [REDACTED:ghp]", "tool result"]
+    assert Enum.map(device.entries, & &1.body) == ["answer [REDACTED:ghp]", "prompt [REDACTED:ghp]", "tool result"]
     assert List.last(device.entries).output == "output [REDACTED:ghp]"
     refute Jason.encode!(device.entries) =~ token
 
     conn = %{build_conn() | remote_ip: {192, 0, 2, 1}}
     conn = Plug.Conn.put_private(conn, :live_view_connect_info, %{peer_data: %{address: {192, 0, 2, 1}}})
     assert {:ok, view, html} = live(conn, "/conversations/#{Ref.conversation_id(context.ref)}")
-    assert has_element?(view, "#entry-2", "answer [REDACTED:ghp]")
+    assert has_element?(view, "#entry-1", "answer [REDACTED:ghp]")
     assert has_element?(view, ".conversation-divider", "Session 1")
     refute has_element?(view, ".conversation-reasoning")
     refute html =~ thought
     refute html =~ token
     refute html =~ "Show raw"
-    refute render_click(view, "reveal_entry", %{"pos" => "2"}) =~ token
+    refute render_click(view, "reveal_entry", %{"pos" => "1"}) =~ token
     assert File.read!(segment) == bytes
   end
 end
