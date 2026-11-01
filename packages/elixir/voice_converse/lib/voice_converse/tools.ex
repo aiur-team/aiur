@@ -8,19 +8,25 @@ defmodule VoiceConverse.Tools do
   """
 
   alias VoiceConverse.{Briefing, Config, Events, Ports, SummaryTool}
+  alias VoiceConverse.Ports.HostTools
 
   @max_summary_chars 1_500
+  @type host_tool_spec :: %{name: String.t(), description: String.t(), params: map()}
 
   @type result :: %{text: String.t(), is_error: boolean(), end?: boolean()}
 
   @spec specs(Config.t(), term()) :: [VoiceConverse.Provider.tool_spec()]
-  def specs(%Config{} = config, target) do
+  def specs(%Config{} = config, target), do: specs(config, target, load_host_specs(config, target))
+
+  @doc false
+  @spec specs(Config.t(), term(), [host_tool_spec()]) :: [VoiceConverse.Provider.tool_spec()]
+  def specs(%Config{} = config, target, host_tool_specs) do
     specs =
       [status_spec()] ++
         detail_specs(config.briefing_source, target) ++
         command_specs(config) ++
         [propose_instruction_spec()] ++
-        ask_specs(config, target) ++ summary_specs(config) ++ [end_spec()]
+        ask_specs(config, target) ++ summary_specs(config) ++ [end_spec()] ++ normalize_host_specs(host_tool_specs)
 
     Enum.filter(specs, &allowed?(config, &1.name))
   end
@@ -36,7 +42,49 @@ defmodule VoiceConverse.Tools do
   defp dispatch_allowed(state, %Events.ToolCall{name: "record_summary", params: params}, _handler),
     do: SummaryTool.handle(state, params)
 
+  defp dispatch_allowed(
+         %{config: %{host_tools: source}, host_tool_specs: host_tool_specs, target: target} = state,
+         event,
+         handler
+       ) do
+    if source && host_tool?(host_tool_specs, event.name) do
+      case Ports.call_port(source, :call, [event.name, target, event.params], :host_tool) do
+        {:ok, text} when is_binary(text) -> {result(text, state.config), state}
+        _ -> {result("Host tool unavailable.", state.config, is_error: true), state}
+      end
+    else
+      handler.(state, event)
+    end
+  end
+
   defp dispatch_allowed(state, event, handler), do: handler.(state, event)
+
+  defp load_host_specs(%Config{host_tools: nil}, _target), do: []
+
+  defp load_host_specs(%Config{host_tools: source}, target) do
+    case Ports.call_port(source, :specs, [target], :host_tool) do
+      {:ok, specs} when is_list(specs) ->
+        specs
+
+      _ ->
+        []
+    end
+  end
+
+  defp normalize_host_specs(specs) do
+    Enum.flat_map(specs, fn
+      %{name: name, description: description, params: params}
+      when is_binary(name) and name != "" and is_binary(description) and is_map(params) ->
+        if HostTools.reserved_name?(name), do: [], else: [%{name: name, description: description, parameters: params}]
+
+      _invalid ->
+        []
+    end)
+  end
+
+  defp host_tool?(specs, name) do
+    not HostTools.reserved_name?(name) and Enum.any?(specs, &match?(%{name: ^name}, &1))
+  end
 
   defp summary_specs(%Config{allowed_tools: tools}) when is_list(tools),
     do: if("record_summary" in tools, do: [SummaryTool.spec()], else: [])

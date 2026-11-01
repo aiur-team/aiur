@@ -8,7 +8,7 @@ defmodule Aiur.Conversation.Entry do
   @kinds ~w(message reasoning command diff tool_result operator_message system gap)
   @roles ~w(agent tool operator executor_operator provider_input system)
   @ref_keys ~w(provider_msg_id provider_item_id tool_call_id turn_id delivery_id)a
-  @meta_keys ~w(exit_code cwd tool success provider_role alert)a
+  @meta_keys ~w(exit_code cwd tool success provider_role alert origin)a
 
   defstruct v: 1,
             pos: nil,
@@ -161,8 +161,8 @@ defmodule Aiur.Conversation.Entry do
     {kind, "tool", %{tool: get(payload, :tool), success: get(payload, :success)}}
   end
 
-  defp mapping("user", _payload, subject) when subject in [:executor, "executor"],
-    do: {"operator_message", "executor_operator", %{}}
+  defp mapping("user", payload, subject) when subject in [:executor, "executor"],
+    do: {"operator_message", "executor_operator", if(get(payload, :origin) == :remote, do: %{origin: "remote_control"}, else: %{})}
 
   defp mapping("user", payload, _subject) do
     if present?(get(payload, :delivery_id)),
