@@ -51,8 +51,17 @@ defmodule Aiur.VoiceConverse.Host.ExecutorLiveContextTest do
     card = %Briefing{summary: %{value: "Pushed Executor status", observed_at: DateTime.utc_now(), max_age_s: 30}}
     send(session, {:briefing, card})
     assert :sys.get_state(session).live_context.briefing == card
+    mfa = {BriefingSource, :brief, 1}
+    {:match_spec, previous_trace} = :erlang.trace_info(mfa, :match_spec)
+    :erlang.trace_pattern(mfa, true, [:local])
+    on_exit(fn -> :erlang.trace_pattern(mfa, previous_trace, [:local]) end)
+    :erlang.trace(session, true, [:call, :set_on_spawn, {:tracer, self()}])
     FakeProvider.emit(state.provider_ref, %Events.ToolCall{call_id: "probe", name: "unknown", params: %{}})
     assert_receive {:fake_provider, :tool_result, "probe", _}, 1_000
     assert :sys.get_state(session).live_context.briefing == card
+    delivered = :erlang.trace_delivered(:all)
+    assert_receive {:trace_delivered, :all, ^delivered}, 1_000
+    refute_received {:trace, _, :call, {BriefingSource, :brief, [:executor]}}
+    :erlang.trace(session, false, [:call, :set_on_spawn])
   end
 end
