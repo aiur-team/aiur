@@ -241,8 +241,9 @@ that pending binding and print config for manual installation.
 
 Attached Claude sessions capture their validated JSONL transcript into the durable
 Executor conversation, including history from the first record. Capture resumes
-from a saved byte offset after daemon restarts. Reasoning text is excluded from
-the Executor journal. Known credential patterns in messages and tool text are
+from a saved byte offset after daemon restarts.
+
+Reasoning text is excluded from the Executor journal. Known credential patterns in messages and tool text are
 redacted before writing; ordinary links remain intact.
 
 Typed prompts and Remote Control
