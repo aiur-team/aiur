@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.IssueSync.DependencyCapacityTest do
   alias Aiur.Orchestrator.PushRouting
   alias Aiur.Orchestrator.State
 
-  test "issue sync resumes a dependency-paused worker when its blocker clears" do
+  test "regression: issue sync resumes a dependency-paused worker when its blocker clears" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
     receive_barrier({:agent_started, ^agent})

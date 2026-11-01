@@ -183,7 +183,7 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
            "expected started_at shifted by ~5s, got #{shift_seconds}s"
   end
 
-  test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
+  test "regression: resuming a paused agent into its reserved slot succeeds at full capacity" do
     orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     parent = self()
