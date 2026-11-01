@@ -35,6 +35,7 @@
     "build-queue",
     "commands",
     "conversations",
+    "executor-attention",
     "github",
     "github-access",
     "streamdeck-server",

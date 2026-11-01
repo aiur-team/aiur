@@ -29,6 +29,7 @@
     "event-bus",
     "identity",
     "kernel",
+    "listener-modes",
     "signal"
   ],
   "optional": [
