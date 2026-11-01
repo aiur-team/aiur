@@ -80,6 +80,47 @@ defmodule Aiur.Commands.TopicsTest do
     GenServer.stop(pid)
   end
 
+  test "worker request and answer publications carry only the decision contract fields", %{dir: dir} do
+    pid = start_store!(dir)
+    :ok = Exchange.subscribe("ticket.979.agent.decision.#")
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               question: "Use sk-abcdefghijklmnopqrstuvwxyz?",
+               blocking: false,
+               options: [%{id: "yes", label: "Yes"}]
+             })
+
+    id = decision.decision_id
+    assert_receive {:event, requested}, 1_000
+    assert requested.topic == "ticket.979.agent.decision.requested"
+    assert requested["question"] == "Use [REDACTED:sk]?"
+    assert requested["options"] == [%{"id" => "yes", "label" => "Yes", "description" => nil, "benefits" => nil, "drawbacks" => nil, "risk" => nil}]
+    assert requested["decision_id"] == id
+    assert requested["decision_version"] == 1
+    refute Map.has_key?(requested, "token")
+
+    assert {:ok, _answer} =
+             DecisionStore.answer(
+               id,
+               %{expected_version: 1, option_id: "yes", rationale: "go", idempotency_key: "answer-decision"},
+               [actor: %{kind: :operator, id: "operator"}],
+               pid
+             )
+
+    assert_receive {:event, answered}, 1_000
+    assert answered.topic == "ticket.979.agent.decision.answered"
+    assert answered["question"] == "Use [REDACTED:sk]?"
+    assert answered["options"] == requested["options"]
+    assert answered["answer"]["selected_option_id"] == "yes"
+    assert answered["answer"]["rationale"] == "go"
+    assert answered["decision_id"] == id
+    assert answered["decision_version"] == 1
+    refute Map.has_key?(answered, "token")
+
+    GenServer.stop(pid)
+  end
+
   test "Executor journal failure leaves request writable and schedules retry", %{dir: dir} do
     journal_dir = Path.join(dir, "unavailable")
     File.write!(journal_dir, "not a directory")

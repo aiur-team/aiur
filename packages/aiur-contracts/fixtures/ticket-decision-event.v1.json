@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "instance": "host/default",
+  "seq": 6,
+  "id": 106,
+  "topic": "ticket.5695.agent.decision.answered",
+  "class": "journaled",
+  "occurred_at": "2026-10-25T00:00:00Z",
+  "observed_at": "2026-10-25T00:00:01Z",
+  "source": "legacy",
+  "refs": { "ticket": "5695", "decision_id": "dec_123", "decision_version": 2 },
+  "attrs": {
+    "question": "Should the change be deployed?",
+    "options": [{ "id": "deploy", "label": "Deploy", "description": null, "benefits": null, "drawbacks": null, "risk": null }],
+    "answer": { "selected_option_id": "deploy", "custom_response": null, "rationale": "The checks passed." }
+  },
+  "payload_version": 1,
+  "anchor": null
+}

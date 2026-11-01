@@ -102,6 +102,12 @@ defmodule Aiur.Events.Outbound.EventTest do
              })
   end
 
+  test "exports only requested and answered decision topics" do
+    assert Event.exportable_topic?("ticket.5695.agent.decision.requested")
+    assert Event.exportable_topic?("ticket.5695.agent.decision.answered")
+    refute Event.exportable_topic?("ticket.5695.agent.decision.executor-acknowledged")
+  end
+
   defp external(topic, payload, id, identity, run_id, expected, opts \\ []) do
     source = Keyword.get(opts, :source, %{kind: :legacy, name: "outbound_source"})
     occurred_at = timestamp(expected, "occurred_at")
