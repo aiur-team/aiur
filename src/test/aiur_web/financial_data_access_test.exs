@@ -205,19 +205,18 @@ defmodule AiurWeb.FinancialDataAccessTest do
              "/voice",
              "/build",
              "/analytics",
+             "/experiments",
+             "/experiments/:id",
              "/instances",
              "/post-deploy",
-             "/streamdeck",
-             "/experiments",
-             "/experiments/:id"
+             "/streamdeck"
            ]
 
     for route <- live_routes do
       {_view, _action, _route_opts, %{name: session_name, extra: %{on_mount: [%{id: {AiurWeb.DashboardPagesGate, :default}}, %{id: {FinancialDataAccess, :default}}]}}} =
         route.metadata.phoenix_live_view
 
-      expected_session = if String.starts_with?(route.path, "/experiments"), do: :experiments, else: :dashboard
-      assert session_name == expected_session
+      assert session_name == :dashboard
     end
   end
 
