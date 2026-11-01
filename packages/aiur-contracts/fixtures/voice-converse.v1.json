@@ -14,5 +14,9 @@
   {"v":1,"type":"delivery","draft_id":"draft-1","message_id":"message-1","status":"delivered"},
   {"v":1,"type":"context_gap","source":"briefing","message":"Context is stale."},
   {"v":1,"type":"error","code":"provider_error","message":"Provider error."},
-  {"v":1,"type":"ended","reason":"user_end"}
+  {"v":1,"type":"ended","reason":"user_end"},
+  {"v": 1, "type": "agent_text_timing", "turn_id": "turn-1", "text": "é👋", "chars": [{"offset_ms": 0, "length": 1}, {"offset_ms": 50, "length": 1}], "audio_offset_ms": 0, "estimated": false},
+  {"v": 1, "type": "agent_text_timing", "turn_id": "turn-1", "text": "x", "audio_offset_ms": 0, "estimated": true},
+  {"v": 1, "type": "playback_state", "state": "stopped"},
+  {"v": 1, "type": "playback_state", "state": "stopped", "turn_id": "turn-1", "played_until_ms": 50}
 ]

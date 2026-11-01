@@ -138,7 +138,7 @@ defmodule AiurWeb.Build.IndexReader do
         work_state: Map.get(summary, :work_state, :working),
         usage_limit_reset_at: Map.get(summary, :usage_limit_reset_at) || get_in(summary, [:runtime, :usage_limit_reset_at])
       },
-      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
+      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason), native_hold: Map.get(running, :native_hold)},
       timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),
       priority: Map.get(summary, :priority),
