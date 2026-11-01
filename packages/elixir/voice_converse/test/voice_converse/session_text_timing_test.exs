@@ -87,6 +87,32 @@ defmodule VoiceConverse.SessionTextTimingTest do
     assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
   end
 
+  test "assistant text is redacted in timing and text broadcasts and transcript", ctx do
+    secret = "Bearer abcdefgh12345"
+    {id, _, ref} = start_session(ctx)
+
+    :ok =
+      FakeProvider.emit(ref, %Events.AgentTextTiming{
+        turn_id: "t",
+        text: secret,
+        chars: [{0, String.length(secret)}],
+        audio_offset_ms: 0,
+        estimated: false
+      })
+
+    assert_receive {:voice_conversation, ^id, %Events.AgentTextTiming{text: "[redacted]", chars: nil}},
+                   1_000
+
+    :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "t", text: secret, final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{text: "[redacted]", final?: true}}, 1_000
+
+    interrupt(id, ref)
+    report(ctx, id, 100)
+
+    assert [%{"text" => "[redacted]"}] = turns(records(ctx, id))
+    refute Enum.any?(records(ctx, id), &String.contains?(Jason.encode!(&1), "abcdefgh12345"))
+  end
+
   test "unexpected provider truncation results are recorded without ending the session", ctx do
     {id, session, ref} = start_session(ctx, FakeProvider, truncate_result: :unexpected)
     emit_turn(ref)

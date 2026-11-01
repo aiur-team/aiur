@@ -262,7 +262,7 @@ defmodule VoiceConverse.Session do
        when kind in [Events.AgentText, Events.AgentTextTiming, Events.AgentAudio, Events.Interruption] do
     case TextTiming.handle(state, event) do
       {:ok, state} ->
-        broadcast(state, event)
+        broadcast(state, redact_assistant_text(state, event))
 
         next =
           if match?(%Events.Interruption{}, event) or match?(%Events.AgentText{final?: true}, event),
@@ -487,6 +487,16 @@ defmodule VoiceConverse.Session do
   end
 
   defp broadcast(state, event), do: state.event_broadcast.(state.subscribers, state.id, event)
+
+  defp redact_assistant_text(state, %Events.AgentText{} = event),
+    do: %{event | text: redact(state, event.text)}
+
+  defp redact_assistant_text(state, %Events.AgentTextTiming{} = event) do
+    text = redact(state, event.text)
+    %{event | text: text, chars: if(text == event.text, do: event.chars, else: nil)}
+  end
+
+  defp redact_assistant_text(_state, event), do: event
 
   defp broadcast_state(state, name),
     do: Enum.each(Map.keys(state.subscribers), &send(&1, {:voice_conversation_state, state.id, name}))
