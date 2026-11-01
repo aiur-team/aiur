@@ -147,8 +147,10 @@ defmodule VoiceConverse.Session.Runtime do
 
   defp context(%{reconnects: 0, context: context}), do: context
 
-  defp context(state),
-    do: transcript_tail(state) <> "\nRecent milestones:\n" <> Enum.join(state.live_context.events, "\n")
+  defp context(%{live_context: %{events: events}} = state),
+    do: transcript_tail(state) <> "\nRecent milestones:\n" <> Enum.join(events, "\n")
+
+  defp context(state), do: transcript_tail(state)
 
   defp provider_code(:provider_quota), do: :provider_quota
   defp provider_code(code) when code in [:provider_auth, :provider_unavailable, :privacy_preflight_failed], do: code
