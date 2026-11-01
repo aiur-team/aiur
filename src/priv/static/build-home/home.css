@@ -95,6 +95,19 @@ html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollb
 @media (prefers-reduced-motion: reduce) {
   .bd-root.rm .bd-in { transition-duration: .14s, .14s, .14s, .14s !important; }
 }
+
+/* Completed history stays distinct from closed-but-not-completed tickets. */
+html .bd-card.completed .bd-in,
+html .bd-card.bar.completed .bd-in,
+html .lr.completed {
+  background: linear-gradient(var(--good-soft), var(--good-soft)), var(--surface-2);
+  color: var(--fg);
+}
+html .bd-card.completed .bd-in :is(.bd-id, .bd-title, .bd-status, .bd-time, .bd-badges, .bd-badges *) {
+  color: var(--fg) !important;
+}
+html .bd-card.completed .bd-cx { color: var(--fg) !important; }
+html .lr.completed :is(.c-id, .c-tt, .c-ep, .lr-mu, .c-ag) { color: var(--fg) !important; }
 /* Keep C:142's phone filter scrolling above later desktop overflow overrides. */
 @container bd (max-width: 640px) { .bd-toolbar .bd-filters { overflow-x: auto !important; } }
 

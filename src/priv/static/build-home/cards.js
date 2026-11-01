@@ -104,6 +104,7 @@ export function makeCard(it) {
   el.className = 'bd-card ' + det + ' ' + t.sec + (t.status === 'failed' ? ' failed' : '') + (cls.ag ? ' ' + cls.ag : '') +
     (startUnknown ? ' start-unknown' : '') + (estUnknown ? ' est-unknown' : '') + (it.ghost ? ' ghost' : '') + (e.unsorted ? ' unsorted' : '') + (it.gantt ? ' gplan' : '') +
     (t.sec === 'plan' && (t.cue?.failed || t.cue?.blockedChain) ? ' blk' : '') + (cls.hasAg ? ' has-ag' : '') + (t.status === 'not_planned' ? ' np' : '');
+  if (t.sec === 'hist' && t.status === 'done') el.classList.add('completed');
   const hue = finite(e.hue, 0, 360);
   if (hue !== null) el.style.setProperty('--h', hue);
   if (e.unsorted && hue === null) el.style.setProperty('--ec', 'var(--muted)');
