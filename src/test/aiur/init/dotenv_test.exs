@@ -22,23 +22,87 @@ defmodule Aiur.Init.DotenvTest do
 
   describe "load/0" do
     @tag :not_async
-    test "sets env from file, existing env wins" do
+    test "loads machine token only and respects dotenv precedence" do
       dir = Aiur.TestSupport.tmp_root!("dotenv-test")
-      File.mkdir_p!(dir)
-      File.write!(Path.join(dir, ".env"), "LOADED_ONLY=fromfile\nPRESET=fromfile\n")
+      home = Path.join(dir, "home")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.write!(Path.join(home, ".aiur/.env"), "GITHUB_TOKEN=machine-token\n")
 
-      System.put_env("PRESET", "fromenv")
-
-      on_exit(fn ->
-        System.delete_env("LOADED_ONLY")
-        System.delete_env("PRESET")
-        Aiur.TestCleanup.rm_rf!(dir)
+      with_isolated_env(dir, home, %{}, fn ->
+        File.cd!(dir, fn -> Dotenv.load() end)
+        assert System.get_env("GITHUB_TOKEN") == "machine-token"
       end)
 
-      File.cd!(dir, fn -> Dotenv.load() end)
+      dir = Aiur.TestSupport.tmp_root!("dotenv-test")
+      home = Path.join(dir, "home")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=repo-token\n")
+      File.write!(Path.join(home, ".aiur/.env"), "GITHUB_TOKEN=machine-token\nGITHUB_APP_ID=machine-app\n")
 
-      assert System.get_env("LOADED_ONLY") == "fromfile"
-      assert System.get_env("PRESET") == "fromenv"
+      with_isolated_env(dir, home, %{}, fn ->
+        File.cd!(dir, fn -> Dotenv.load() end)
+        assert System.get_env("GITHUB_TOKEN") == "repo-token"
+        assert System.get_env("GITHUB_APP_ID") == nil
+      end)
+
+      dir = Aiur.TestSupport.tmp_root!("dotenv-test")
+      home = Path.join(dir, "home")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=repo-token\n")
+      File.write!(Path.join(home, ".aiur/.env"), "GITHUB_TOKEN=machine-token\n")
+
+      with_isolated_env(dir, home, %{"GITHUB_TOKEN" => "shell-token"}, fn ->
+        File.cd!(dir, fn -> Dotenv.load() end)
+        assert System.get_env("GITHUB_TOKEN") == "shell-token"
+      end)
+    end
+
+    @tag :not_async
+    test "local token excludes a machine App id and environment-only mode skips files" do
+      dir = Aiur.TestSupport.tmp_root!("dotenv-test")
+      home = Path.join(dir, "home")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=repo-token\n")
+      File.write!(Path.join(home, ".aiur/.env"), "GITHUB_APP_ID=machine-app\n")
+
+      with_isolated_env(dir, home, %{}, fn ->
+        File.cd!(dir, fn -> Dotenv.load() end)
+        assert System.get_env("GITHUB_APP_ID") == nil
+      end)
+
+      dir = Aiur.TestSupport.tmp_root!("dotenv-test")
+      home = Path.join(dir, "home")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.write!(Path.join(dir, ".env"), "FROM_REPO=yes\n")
+      File.write!(Path.join(home, ".aiur/.env"), "FROM_MACHINE=yes\n")
+
+      with_isolated_env(dir, home, %{"AIUR_SECRETS_FROM_ENV" => "1"}, fn ->
+        File.cd!(dir, fn -> Dotenv.load() end)
+        assert System.get_env("FROM_REPO") == nil
+        assert System.get_env("FROM_MACHINE") == nil
+      end)
+    end
+
+    @tag :not_async
+    test "token instructions name both dotenv files" do
+      source = File.read!(Path.expand("../../../lib/aiur/init.ex", __DIR__))
+      assert source =~ "Set GITHUB_TOKEN in ~/.aiur/.env"
+      assert source =~ "or ./.env"
+    end
+  end
+
+  defp with_isolated_env(dir, home, env, fun) do
+    keys = ["HOME", "AIUR_SECRETS_FROM_ENV", "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_APP_PRIVATE_KEY", "FROM_REPO", "FROM_MACHINE"]
+    previous = Map.new(keys, &{&1, System.get_env(&1)})
+    Enum.each(keys, &System.delete_env/1)
+    System.put_env("HOME", home)
+    Enum.each(env, fn {key, value} -> System.put_env(key, value) end)
+
+    try do
+      fun.()
+    after
+      Enum.each(previous, fn {key, value} -> if value, do: System.put_env(key, value), else: System.delete_env(key) end)
+      Aiur.TestCleanup.rm_rf!(dir)
     end
   end
 end
