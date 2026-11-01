@@ -137,7 +137,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   end
 
   @spec message(String.t()) :: map() | nil
-  def message("snapshot"), do: Map.merge(envelope(), Map.put(blocks(), "sections", object(Map.new(~w(hist now plan nq), &{&1, list(:row)}))))
+  def message("snapshot"), do: Map.merge(envelope(), Map.put(blocks(), "sections", object(Map.new(~w(hist now plan nq), &{&1, list(:row)})))) |> Map.put("unavailable_rows", :nonnegative)
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
 

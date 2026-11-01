@@ -8,6 +8,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
 
   alias Aiur.{AgentEventFeed, Commands, RecentMergeStore, SecretRedactor, TrackerIdentity}
   alias Aiur.BuildOrder.TicketHistoryProvider
+  alias Aiur.IssueLog
   alias AiurWeb.Build.ConversationEvents
   alias AiurWeb.EndpointConfig
 
@@ -30,11 +31,25 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bEvents do
      }}
   end
 
-  @doc "The ticket's event log: by tracker identity when it is joinable, else by the configured repository's identifier."
+  @doc "The ticket's durable event history when joinable, else its configured repository event log."
   @spec log(String.t(), TrackerIdentity.t() | nil) :: {:ok, [map()]} | {:error, term()}
-  def log(id, identity) do
+  def log(id, %TrackerIdentity{} = identity) do
     opts = [kinds: @kinds, limit: ConversationEvents.log_limit()]
-    AgentEventFeed.ticket_events(id, identity, opts)
+
+    if TrackerIdentity.joinable?(identity) do
+      durable_log(identity, opts)
+    else
+      AgentEventFeed.ticket_events(id, nil, opts)
+    end
+  end
+
+  def log(id, _identity), do: AgentEventFeed.ticket_events(id, nil, kinds: @kinds, limit: ConversationEvents.log_limit())
+
+  defp durable_log(identity, opts) do
+    case IssueLog.event_history_tail(identity, opts) do
+      {:ok, events} -> {:ok, events}
+      error -> error
+    end
   end
 
   @doc "Subscribes the caller to the ticket's history updates; returns the topic to release later."

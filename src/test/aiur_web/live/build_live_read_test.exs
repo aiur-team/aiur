@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLiveReadTest do
 
   alias Aiur.TestSupport.EndpointStubs
 
-  for {mode, reason} <- [raise: "read_failed", exit: "read_failed", invalid: "invalid_data", error: "read_failed"] do
+  for {mode, reason} <- [raise: "read_failed", exit: "read_failed", error: "read_failed"] do
     test "resync safely rejects #{mode} source and remains alive" do
       source(mode: unquote(mode))
       {:ok, view, _} = live(build_conn(), "/build")
@@ -81,14 +81,31 @@ defmodule AiurWeb.BuildLiveReadTest do
     assert reply["sections"]["plan"] == []
   end
 
-  test "invalid source validation logs paths without values" do
+  test "one invalid planned row is dropped while the rest of the snapshot remains available" do
     source(mode: :invalid)
     {:ok, view, _} = live(build_conn(), "/build")
     LiveViewAsync.render_when_complete(view)
     log = capture_log(fn -> render_hook(view, "build-resync", %{}) end)
-    assert_reply(view, %{"reason" => "invalid_data"})
-    assert log =~ "sections.now.0.pct"
-    refute log =~ "sensitive-source-value"
+    assert_reply(view, %{"kind" => "snapshot"} = snapshot)
+    assert length(snapshot["sections"]["plan"]) == length(data()["sections"]["plan"]) - 1
+    assert snapshot["unavailable_rows"] == 1
+    assert log =~ "path=sections.plan.0"
+    assert log =~ "wave"
+  end
+
+  test "a dropped row recovery restarts the client snapshot to restore cross-row references" do
+    source(mode: :invalid)
+    {:ok, view, _} = live(build_conn(), "/build")
+    LiveViewAsync.render_when_complete(view)
+    render_hook(view, "build-resync", %{})
+    assert_reply(view, %{"kind" => "snapshot", "unavailable_rows" => 1})
+
+    recovered = hd(data()["sections"]["plan"])
+    send(view.pid, {:build_changes, change(recovered)})
+    render(view)
+
+    assert_push_event(view, "build-diff", %{"generation" => 2, "upsert" => [], "remove" => [], "set" => %{}})
+    assert Process.alive?(view.pid)
   end
 
   test "malformed changes request a resync without killing the view" do

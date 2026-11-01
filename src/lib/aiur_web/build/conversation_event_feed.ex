@@ -130,8 +130,8 @@ defmodule AiurWeb.Build.ConversationEventFeed do
     with {:ok, facts} <- ConversationSource.call(socket.assigns.conversation_source, :events, [ref]) do
       row = ref.row || %{}
       deps = Map.new(row_value(row, :deps) || [], &{&1, dep_row(socket, &1)})
-      current = ConversationEvents.current_facts(row, Map.merge(facts, %{deps: deps, by_you_at: nil}))
       {log, unreadable, truncated} = log(facts, ref.id)
+      current = ConversationEvents.current_facts(row, Map.merge(facts, %{deps: deps, by_you_at: nil, logged_events: log}))
       {:ok, %{log: log, deps: current.deps, tail: current.tail, unreadable: unreadable, truncated: truncated, identity: facts[:identity]}}
     end
   end

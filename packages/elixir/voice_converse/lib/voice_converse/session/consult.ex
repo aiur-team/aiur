@@ -104,7 +104,11 @@ defmodule VoiceConverse.Session.Consult do
       case Ports.call_port(
              channel,
              :fork_query,
-             [state.target, fork_question, [ref: draft.draft_id, origin: :voice_assistant]],
+             [
+               state.target,
+               fork_question,
+               [ref: draft.draft_id, origin: :voice_assistant, reply_to: self(), lock_key: state.id, timeout_ms: 60_000]
+             ],
              :ask
            ) do
         {:ok, ref} ->
@@ -119,6 +123,11 @@ defmodule VoiceConverse.Session.Consult do
           {:ok, draft, set_state(state, :consulting)}
 
         _ ->
+          state =
+            if match?(%{ask: true}, capabilities),
+              do: Runtime.consult_context(state, "The side question could not start; asking the agent instead."),
+              else: state
+
           fallback_question(state, draft, channel, capabilities)
       end
     else
@@ -218,14 +227,21 @@ defmodule VoiceConverse.Session.Consult do
 
   def event(
         {:fork_answer, ref, text},
-        %{consult: %{id: id, delivery_id: ref, phase: :fork_waiting, fork_mode: mode}} = state
+        %{consult: %{delivery_id: ref, phase: :fork_waiting, fork_mode: mode}} = state
       )
       when is_binary(text) do
+    event({:fork_answer, ref, text, mode, %{}}, state)
+  end
+
+  def event(
+        {:fork_answer, ref, text, mode, usage},
+        %{consult: %{id: id, delivery_id: ref, phase: :fork_waiting}} = state
+      )
+      when is_binary(text) and mode in [:native, :history_copy, :replay] and is_map(usage) do
     text = state.config.redactor.(text)
     persist_answer!(state, id, text, :fork)
     state = transition(state, id, :sent) |> transition(id, :delivered)
-    prefix = if mode == :replay, do: "The agent's summary says: ", else: "Here is what the agent's notes say: "
-    state = state |> Runtime.consult_context(prefix <> text) |> VoiceConverse.LiveContext.announce(prefix <> text)
+    state = VoiceConverse.Session.SideQuery.answer(state, id, ref, text, mode, usage)
     state |> Map.put(:consult, nil) |> set_state(:listening)
   end
 
@@ -297,6 +313,8 @@ defmodule VoiceConverse.Session.Consult do
       state
     end
   end
+
+  def event({:fork_failed, ref, reason}, state), do: event({:fork_error, ref, reason}, state)
 
   def event({:fork_error, ref, _reason}, %{consult: %{id: id, delivery_id: ref, phase: :fork_waiting}} = state),
     do: event({:consult_fork_timeout, id, ref}, state)

@@ -88,6 +88,8 @@ html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollb
 .cv-cmd .st { margin: .5rem 0 0; font: .72rem "JetBrains Mono", monospace; color: var(--muted); }
 .cv-cmd .st.bad { color: var(--block-ink); }
 .bd-opt > .ax-mono { width: 14px; height: 14px; border-radius: 50%; font-size: .5rem; }
+.bd-partial { padding: .35rem .75rem; color: var(--attn-ink); font: .68rem/1.4 "JetBrains Mono", monospace; }
+.bd-partial[hidden] { display: none; }
 
 /* C:232 keeps inner color/border transitions under reduced motion; outer card fades stay disabled. */
 @media (prefers-reduced-motion: reduce) {

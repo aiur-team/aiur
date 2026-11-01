@@ -18,6 +18,8 @@ On `/build`, epic columns follow matching DAG tickets visible after filters and 
 
 Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = epic”.
 
+If individual Build rows fail validation, Aiur omits those rows and shows how many are unavailable; the remaining board is marked partial.
+
 Planned and running estimates use complexity defaults of 1, 2, 4, 7 and 11 hours. A recorded override takes precedence and shows its reason. Unknown estimates display `—`.
 
 The Live band ETA sums planned hours and divides by the observed runtime agent cap; `≥` marks running work, a partial queue or missing estimates. A stale cap is labelled. Use [`aiur ticket estimate`](../reference/cli.md#decisions-executor-events-and-findings) to inspect or correct an estimate.

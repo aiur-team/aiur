@@ -90,3 +90,18 @@ the briefing.
 
 Live Executor context reads presence after capability notifications and reports the number
 of tickets affected by a failed queue prerequisite, plus when that prerequisite clears.
+
+### Read-only side questions
+
+Hosts that advertise a fork can answer `ask_agent` history or reasoning questions from
+an isolated read-only session while the parent keeps working. Questions needing fresh
+state or action use checkpoint delivery.
+
+A fork has a 60-second deadline and only one
+question can wait per voice session; failure falls back to checkpoint delivery when available.
+
+Replay answers are identified as coming from a summary once per session.
+
+The voice transcript
+records `side_query` with the fork mode, child session ID and cost when supplied by the host;
+missing identity or cost remains unknown. Host support determines whether this path is available.

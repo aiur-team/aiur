@@ -5,7 +5,7 @@
     {"argv": ["usage"], "expression": "Aiur.Usage.CLI.rpc(nil, false)"},
     {"argv": ["agents"], "expression": "Aiur.AgentControlCLI.agents()"},
     {"argv": ["accounts"], "expression": "Aiur.Usage.CLI.legacy_accounts(false, nil)"},
-    {"argv": ["commands"], "expression": "Aiur.AgentControlCLI.commands([filter: :all])"},
+    {"argv": ["commands"], "expression": "Aiur.AgentControlCLI.commands([filter: :open])"},
     {"argv": ["units"], "expression": "Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"},
     {"argv": ["queue", "show"], "expression": "Aiur.AgentControlCLI.queue([])"},
     {"argv": ["queue", "order"], "expression": "Aiur.AgentControlCLI.queue([verb: :order, caller_agent_workspace: Base.decode64!(\"\")])"},
