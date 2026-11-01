@@ -208,6 +208,87 @@ defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
   end
 
   describe "stall watchdog skips paused / deactivated entries" do
+    test "stalled ci-wait worker with green exact-head CI hands off and does not retry" do
+      issue_id = "stall-ci-ready"
+      identifier = "STALL-CI-READY"
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+      issue = %Issue{id: issue_id, identifier: identifier, state: "ci-wait"}
+
+      entry = %{
+        pid: spawn(fn -> Process.sleep(:infinity) end),
+        ref: nil,
+        identifier: identifier,
+        issue: issue,
+        started_at: stale_at,
+        last_codex_timestamp: stale_at,
+        rework_head_sha: "head-green",
+        session_execution: %{backend: "claude"},
+        control: %{status: :working},
+        lifecycle_fence: %{pending_item_ids: MapSet.new([1]), authoritative_state: "ci-wait"}
+      }
+
+      state = %Orchestrator.State{
+        running: %{issue_id => entry},
+        claimed: MapSet.new([issue_id]),
+        retry_attempts: %{},
+        ci_lifecycle: %{poll_cache: %{identifier => %{decision: :passed, draft?: false, pr_number: 41, head_sha: "head-green", reviewed_head?: false}}}
+      }
+
+      previous_client = Application.get_env(:aiur, :github_client_module)
+      Application.put_env(:aiur, :github_client_module, Aiur.CiLifecycleTestSupport.RecordingGitHubClient)
+      Aiur.CiLifecycleTestSupport.RecordingGitHubClient.record_to(self())
+
+      on_exit(fn ->
+        if previous_client, do: Application.put_env(:aiur, :github_client_module, previous_client), else: Application.delete_env(:aiur, :github_client_module)
+      end)
+
+      on_exit(fn -> for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern) end)
+
+      next = RuntimeWatchdog.apply_stall_check(state, 1)
+
+      refute Map.has_key?(next.running, issue_id)
+      refute Map.has_key?(next.retry_attempts, issue_id)
+      assert next.retry_attempts == %{}
+      assert_received {:tracker_update, ^issue_id, "human-review", _opts}
+    end
+
+    test "stalled ci-wait worker with green draft CI alerts once and does not hand off" do
+      issue_id = "stall-ci-draft"
+      identifier = "STALL-CI-DRAFT"
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.stalled")
+      on_exit(fn -> for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern) end)
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+      issue = %Issue{id: issue_id, identifier: identifier, state: "ci-wait"}
+      entry = %{pid: nil, ref: nil, identifier: identifier, issue: issue, started_at: stale_at, last_codex_timestamp: stale_at, rework_head_sha: "head-draft", control: %{status: :working}}
+
+      state = %Orchestrator.State{
+        running: %{issue_id => entry},
+        ci_lifecycle: %{poll_cache: %{identifier => %{decision: :passed, draft?: true, pr_number: 42, head_sha: "head-draft"}}},
+        retry_attempts: %{}
+      }
+
+      next = RuntimeWatchdog.apply_stall_check(state, 1)
+
+      assert Map.has_key?(next.running, issue_id)
+      assert next.retry_attempts == %{}
+      assert_received {:event, %{topic: "ticket.STALL-CI-DRAFT.agent.stalled"} = event}
+      assert event["message"] == "worker stalled before marking PR ready; CI passed but PR is still a draft"
+    end
+
+    test "stalled ci-wait worker with pending CI keeps waiting" do
+      issue_id = "stall-ci-pending"
+      identifier = "STALL-CI-PENDING"
+      stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
+      issue = %Issue{id: issue_id, identifier: identifier, state: "ci-wait"}
+      entry = %{pid: nil, ref: nil, identifier: identifier, issue: issue, started_at: stale_at, last_codex_timestamp: stale_at, control: %{status: :working}}
+      state = %Orchestrator.State{running: %{issue_id => entry}, ci_lifecycle: %{poll_cache: %{identifier => %{decision: :pending, pending_reason: :checks_pending}}}, retry_attempts: %{}}
+
+      next = RuntimeWatchdog.apply_stall_check(state, 1)
+
+      assert Map.has_key?(next.running, issue_id)
+      assert next.retry_attempts == %{}
+    end
+
     test "paused entry with stale last_codex_timestamp is NOT restarted" do
       issue_id = "issue-stall-paused"
       identifier = "STALL-P"

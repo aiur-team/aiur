@@ -8,6 +8,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
+  alias Aiur.Orchestrator.CiLifecycle.{ReviewHandoff, Transition}
+  alias Aiur.Orchestrator.TicketTransition
 
   @interrupted_turn_grace_ms 30_000
 
@@ -263,7 +265,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # should not consume a retry even if its last activity is old. It sits
       # below the wedged-overcap kill so a runaway still gets force-terminated.
       ci_wait_issue?(running_entry) ->
-        state
+        maybe_handoff_stalled_ci_wait(state, issue_id, running_entry, now, timeout_ms)
 
       # Paused agents are INTENTIONALLY idle — the agent emitted
       # pause.request because it declared a blocker and has nothing to
@@ -290,6 +292,79 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   defp ci_wait_issue?(%{issue: issue}), do: CiLifecycle.ci_wait_state?(Map.get(issue, :state))
   defp ci_wait_issue?(_running_entry), do: false
+
+  defp maybe_handoff_stalled_ci_wait(state, issue_id, running_entry, now, timeout_ms) do
+    elapsed_ms = stall_elapsed_ms(running_entry, now)
+
+    if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
+      issue = Map.get(running_entry, :issue)
+      identifier = Map.get(running_entry, :identifier, issue_id)
+      result = ci_wait_result(state, issue)
+
+      cond do
+        ready_ci_result_for_worker?(result, running_entry) ->
+          stopped = AgentTeardown.terminate_running_issue(state, issue_id, false)
+          handoff_cached_ci_pass(stopped, issue, result)
+
+        green_draft_ci_result?(result, running_entry) ->
+          stalled_ci_alert(running_entry, identifier, elapsed_ms, timeout_ms, "worker stalled before marking PR ready; CI passed but PR is still a draft")
+
+        true ->
+          state
+      end
+    else
+      state
+    end
+  end
+
+  defp ci_wait_result(state, %Issue{} = issue), do: get_in(state.ci_lifecycle, [:poll_cache, CiLifecycle.ci_target_for_issue(issue)])
+  defp ci_wait_result(_state, _issue), do: nil
+
+  defp ready_ci_result_for_worker?(%{decision: :passed, draft?: false, pr_number: number, head_sha: sha}, running_entry)
+       when is_integer(number) and is_binary(sha) and sha != "",
+       do: worker_head_matches?(running_entry, sha)
+
+  defp ready_ci_result_for_worker?(_result, _running_entry), do: false
+
+  defp green_draft_ci_result?(%{decision: :passed, draft?: true, pr_number: number, head_sha: sha}, running_entry)
+       when is_integer(number) and is_binary(sha) and sha != "",
+       do: worker_head_matches?(running_entry, sha)
+
+  defp green_draft_ci_result?(_result, _running_entry), do: false
+
+  defp worker_head_matches?(running_entry, sha) do
+    Map.get(running_entry, :rework_head_sha) == sha
+  end
+
+  defp stalled_ci_alert(running_entry, identifier, elapsed_ms, timeout_ms, message) do
+    backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
+
+    Signal.agent_alert("ticket.#{identifier}.agent.stalled", message,
+      issue: Map.get(running_entry, :issue),
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: "#{backend} backend exceeded the #{timeout_ms}ms no-progress window with green CI",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    Logger.warning("Stalled ci-wait issue requires PR readiness: identifier=#{identifier} elapsed_ms=#{elapsed_ms}")
+  end
+
+  defp handoff_cached_ci_pass(state, issue, result) do
+    issue_key = issue.id || issue.identifier
+
+    case TicketTransition.write_state(
+           to_string(issue_key),
+           "human-review",
+           Transition.expected_state_opts(issue)
+           |> Keyword.put(:writer, :ci_lifecycle)
+           |> Keyword.put(:reason_modifiers, [])
+         ) do
+      :ok -> ReviewHandoff.apply_transition(state, :ok, {issue, result})
+      {:error, _reason} -> state
+    end
+  end
 
   # True when a duration-capped paused entry is WEDGED rather than parked:
   # it kept streaming codex after the cooperative `{:pause_agent}` was sent
