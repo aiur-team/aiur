@@ -262,9 +262,6 @@ defmodule Aiur.Application.Children do
       # Seed the fail-closed admission table before the Orchestrator can perform
       # its initial dispatch.
       Aiur.Orchestrator.SpendCap.Store,
-      # Probes worker CLIs at boot and hourly; dispatch reads its snapshot (#7443).
-      # Off wherever the boot dispatch poll is off (the shared test app).
-      {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
@@ -335,9 +332,15 @@ defmodule Aiur.Application.Children do
           if(recording?,
             do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest, {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one}, Aiur.Executor.TranscriptIngest]
           )
-        )
+        ) ++
+        [toolchain_child()]
     )
   end
+
+  # Probes worker CLIs at boot and hourly (#7443). Dispatch reads its snapshot
+  # and holds nothing until the first probe lands. Off wherever the boot
+  # dispatch poll is off (the shared test app).
+  defp toolchain_child, do: {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++

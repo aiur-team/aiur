@@ -13,8 +13,6 @@ defmodule Aiur.Toolchain.Probe do
     * `:missing` — not on PATH.
   """
 
-  alias Aiur.Init.ClaudeAdapter
-
   @version_timeout_ms 15_000
   @npm_timeout_ms 60_000
   @install_timeout_ms 300_000
@@ -133,7 +131,7 @@ defmodule Aiur.Toolchain.Probe do
   end
 
   defp version(path, runner) do
-    case ClaudeAdapter.bounded_command(fn -> runner.(path, ["--version"], stderr_to_stdout: true) end, @version_timeout_ms) do
+    case bounded(fn -> runner.(path, ["--version"], stderr_to_stdout: true) end, @version_timeout_ms) do
       {output, 0} when is_binary(output) -> parse_version(output)
       _failed -> nil
     end
@@ -167,7 +165,24 @@ defmodule Aiur.Toolchain.Probe do
         {:error, "npm not found on PATH"}
 
       npm ->
-        ClaudeAdapter.bounded_command(fn -> System.cmd(npm, args, stderr_to_stdout: true) end, timeout_ms) |> npm_result()
+        bounded(fn -> System.cmd(npm, args, stderr_to_stdout: true) end, timeout_ms) |> npm_result()
+    end
+  end
+
+  # The OS process is not killed on timeout; the caller only stops waiting.
+  defp bounded(fun, timeout_ms) do
+    task =
+      Task.async(fn ->
+        try do
+          fun.()
+        rescue
+          error -> {:error, Exception.message(error)}
+        end
+      end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      _timed_out -> {:error, :timeout}
     end
   end
 
