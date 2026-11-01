@@ -92,7 +92,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   end
 
   defp configured_human_review?(event) do
-    changes_requested_review?(event) and human_merger_review?(event)
+    blocking_review_submission?(event) and human_merger_review?(event)
   end
 
   defp configured_human_blocking_comment?(event) do
