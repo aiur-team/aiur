@@ -238,7 +238,7 @@ defmodule VoiceConverse.Session do
   defp handle_provider_event(%Events.UserTranscript{final?: true, text: text} = event, state) do
     state = %{state | last_user_at: state.clock.()}
 
-    with {:ok, state} <- TextTiming.flush_completed(state) do
+    with {:ok, state} <- TextTiming.flush_before_user(state) do
       persist_and_broadcast(
         state,
         %{type: "user_turn", turn_id: "user", text: redact(state, text), at: now(state)},

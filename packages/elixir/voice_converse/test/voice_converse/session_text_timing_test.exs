@@ -11,7 +11,7 @@ defmodule VoiceConverse.SessionTextTimingTest do
     defdelegate send_context(ref, text), to: FakeProvider
   end
 
-  setup do
+  setup tags do
     root = Path.join(System.tmp_dir!(), "vc_timing_#{System.unique_integer([:positive])}")
     name = Module.concat([VoiceConverse, "Timing#{System.unique_integer([:positive])}"])
     File.mkdir_p!(root)
@@ -23,6 +23,7 @@ defmodule VoiceConverse.SessionTextTimingTest do
       Config.new(
         name: name,
         limits: %{max_sessions: 2},
+        providers: %{mode: if(tags[:text_only], do: :text, else: :voice)},
         transcript_root: root,
         credentials: StaticCredentials,
         briefing_source: FakeBriefingSource,
@@ -150,6 +151,18 @@ defmodule VoiceConverse.SessionTextTimingTest do
     report(ctx, id, 0)
     assert [%{"text" => "é👩🏽‍💻!"}] = turns(records(ctx, id))
     refute Enum.any?(FakeProvider.calls(ref), &match?({:truncate, _, _}, &1))
+  end
+
+  @tag text_only: true
+  test "text-only finals persist immediately and a new user turn saves an interrupted partial", ctx do
+    {id, _, ref} = start_session(ctx)
+    :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "done", text: "final", final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{final?: true}}, 1_000
+    assert [%{"text" => "final"}] = turns(records(ctx, id))
+    :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "partial", text: "so far", final?: false})
+    :ok = FakeProvider.emit(ref, %Events.UserTranscript{text: "stop", final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
+    assert [%{"text" => "final"}, %{"text" => "so far", "interrupted?" => true}] = turns(records(ctx, id))
   end
 
   defp start_session(ctx, provider \\ FakeProvider) do

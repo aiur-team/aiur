@@ -69,19 +69,14 @@ defmodule VoiceConverse.Session.TextTiming do
 
   def timeout(state, _id, _token), do: {:ok, state}
 
-  def flush_completed(state) do
-    flush(state, fn turn -> turn.final? end)
-  end
+  def flush_before_user(state), do: flush(state, :user)
+  def finish(state), do: flush(state, :finish)
 
-  def finish(state), do: flush(state, fn _ -> true end)
+  defp flush(state, reason) do
+    Enum.reduce_while(state.assistant_turns, {:ok, state}, fn {id, turn}, {:ok, state} ->
+      interrupted? = match?({^id, _, _}, state.interrupted_turn) or (reason == :user and not turn.final?)
 
-  defp flush(state, selected?) do
-    Enum.reduce_while(state.assistant_turns, {:ok, state}, fn {id, _}, {:ok, state} ->
-      interrupted? = match?({^id, _, _}, state.interrupted_turn)
-
-      result = if selected?.(turn(state, id)), do: write(state, id, nil, interrupted?), else: {:ok, state}
-
-      case result do
+      case write(state, id, nil, interrupted?) do
         {:ok, state} -> {:cont, {:ok, state}}
         error -> {:halt, error}
       end
