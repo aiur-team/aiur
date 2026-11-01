@@ -20,8 +20,6 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
         return element
       }
       card(completed, 'completed-fixture-card')
-      running.sec = 'hist'
-      running.status = 'closed'
       card(running, 'running-fixture-card')
       const { stClass } = await import('/build-home/list.js')
       const row = document.createElement('div')
