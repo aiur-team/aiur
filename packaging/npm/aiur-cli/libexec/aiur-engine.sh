@@ -99,7 +99,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-reclassify <decision-id> --expected-version <n> --rationale <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
-       aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
+       aiur queue show [--queue NAME] [--json]  read queue; queue add also accepts --json for per-ticket outcomes
+       aiur queue add <ids…> [--json]           add tickets; other mutations steer the queue
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]

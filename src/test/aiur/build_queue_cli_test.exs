@@ -234,6 +234,40 @@ defmodule Aiur.BuildQueueCLITest do
     end
   end
 
+  test "queue add JSON returns versioned per-ticket outcomes" do
+    pid = start_supervised!({Aiur.BuildQueueCLITest.JsonMutationServer, []})
+    output = capture_io(fn -> assert BuildQueueCLI.run(server: pid, verb: :add, ids: ["1", "3"], json: true, caller_agent_workspace: "") == 1 end)
+
+    assert %{
+             "schema_version" => 1,
+             "command" => "queue add",
+             "results" => [
+               %{"id" => "#1", "status" => "ok", "outcome" => "added", "message" => "ok"},
+               %{"id" => "#3", "status" => "error", "outcome" => "closed", "message" => "closed"}
+             ]
+           } = Jason.decode!(output)
+  end
+
+  test "queue add Build Order JSON includes each accepted member" do
+    pid = start_supervised!({Aiur.BuildQueueCLITest.BuildOrderJsonMutationServer, []})
+
+    output = capture_io(fn -> assert BuildQueueCLI.run(server: pid, verb: :add, build_order: 99, json: true) == 0 end)
+
+    assert %{
+             "schema_version" => 1,
+             "command" => "queue add",
+             "results" => [
+               %{"id" => "Build Order #99", "status" => "ok", "outcome" => "added"},
+               %{"id" => "#1", "status" => "ok", "outcome" => "added"},
+               %{"id" => "#2", "status" => "ok", "outcome" => "added"}
+             ]
+           } = Jason.decode!(output)
+
+    human_pid = start_supervised!({Aiur.BuildQueueCLITest.BuildOrderJsonMutationServer, []}, id: :build_order_json_human)
+    human_output = capture_io(fn -> assert BuildQueueCLI.run(server: human_pid, verb: :add, build_order: 99) == 0 end)
+    assert human_output == "Build Order #99: ok\n"
+  end
+
   @spec document() :: map()
   def document do
     queue = %Model.Queue{id: "q", name: "paseo", kind: :list, root: nil, held: true, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
@@ -255,5 +289,25 @@ defmodule Aiur.BuildQueueCLITest do
     def init(opts), do: {:ok, Keyword.fetch!(opts, :model)}
     @impl true
     def handle_call(:read_model, _from, model), do: {:reply, model, model}
+  end
+
+  defmodule JsonMutationServer do
+    use GenServer
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+    @impl true
+    def init(_opts), do: {:ok, nil}
+    @impl true
+    def handle_call({:mutate, {:add, ["1"], _opts}}, _from, state), do: {:reply, :ok, state}
+    def handle_call({:mutate, {:add, ["3"], _opts}}, _from, state), do: {:reply, {:error, :closed}, state}
+  end
+
+  defmodule BuildOrderJsonMutationServer do
+    use GenServer
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+    @impl true
+    def init(_opts), do: {:ok, %{queues: [%{root: 99, items: [%{number: 1}, %{number: 2}]}]}}
+    @impl true
+    def handle_call({:mutate, {:adopt, 99, nil}}, _from, state), do: {:reply, {:ok, []}, state}
+    def handle_call(:read_model, _from, state), do: {:reply, state, state}
   end
 end
