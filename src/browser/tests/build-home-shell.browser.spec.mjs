@@ -35,9 +35,9 @@ test('settings reaches Executor while Build is loading on phone and desktop', as
 
     await page.locator('#ax-cog').click()
     await expect(page.locator('#ax-menu')).toBeVisible()
-    await page.getByRole('menuitem', { name: 'Talk to Executor', exact: true }).click()
-    await expect(page).toHaveURL(/\/voice$/)
-    await expect(page.locator('#executor-voice-heading')).toHaveText('Talk to Executor')
+    await page.getByRole('menuitem', { name: 'Executor conversation', exact: true }).click()
+    await expect(page).toHaveURL(/\/executor$/)
+    await expect(page.locator('#executor-frame h1')).toHaveText('Executor')
   }
 })
 
