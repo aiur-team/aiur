@@ -276,10 +276,10 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.target_load_average | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
     field(:target_load_average, :float, default: 1.0)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.load_resume_max_age_seconds | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one, holding the first fresh sample. |
-    field(:load_resume_max_age_seconds, :integer, default: 21_600)
+    # @config-reference config-configuration-agent-00 agent.load_resume_max_age_seconds | integer | 3600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one; without a valid saved level, the first fresh sample holds. A shorter lifetime avoids resuming into a different load picture but may cold-start after a long downtime. |
+    field(:load_resume_max_age_seconds, :integer, default: 3_600)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.load_ramp_step | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
+    # @config-reference config-configuration-agent-00 agent.load_ramp_step | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). With a valid saved safe level, each ramp poll adds at least this step while accelerating toward the level; a configured step above 3 can exceed +3. Without a valid saved level, the first fresh sample holds. Above 80%, fast probing requires below half target before a sustained decrease. |
     field(:load_ramp_step, :integer, default: 1)
     # @config-reference config-configuration-agent-00 agent.load_cooldown_seconds | integer | 60 | Minimum interval between adaptive capacity reductions. |
     field(:load_cooldown_seconds, :integer, default: 60)
