@@ -87,6 +87,24 @@ defmodule AiurWeb.VoiceConverseChannelTest do
     end
   end
 
+  test "a stale authentication generation refuses the join before starting a session", ctx do
+    start_core(ctx)
+    current = client()
+    authority = current.assigns.voice_authority
+    stale = Phoenix.Socket.assign(current, :voice_authority, %{authority | configuration_generation: "stale-" <> authority.configuration_generation})
+
+    for _ <- 1..3 do
+      assert {:error, %{reason_code: "auth_changed"}} = subscribe_and_join(stale, "voice:converse", payload())
+    end
+
+    assert DynamicSupervisor.count_children(VoiceConverse.SessionSupervisor.name(ctx.name)).active == 0
+    assert :sys.get_state(VoiceSessionLimiter).leases == %{}
+
+    for id <- ["first", "second"] do
+      assert {:ok, _, _} = subscribe_and_join(current, "voice:converse", Map.put(payload(), "client_session_id", id))
+    end
+  end
+
   test "a stopped agent cannot be a converse target", ctx do
     start_core(ctx)
     previous = Application.fetch_env(:aiur, :voice_target_resolver)
