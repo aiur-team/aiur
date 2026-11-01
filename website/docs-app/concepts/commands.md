@@ -380,7 +380,7 @@ Codex native capture is on by default; set `decisions.native_capture.codex` to
 using the same routing and authority rules.
 
 Claude capture is on by default; set `decisions.native_capture.claude` to `false`
-to opt out. It requires aiur-claude 1.3.0 or newer. Questions are deferred
+to opt out. It requires aiur-claude 1.1.1 or newer. Questions are deferred
 until answered. Questions the sibling cannot defer are recorded and released
 immediately; their answers arrive as messages.
 See the [configuration reference](/reference/configuration-daemon#decisions).
