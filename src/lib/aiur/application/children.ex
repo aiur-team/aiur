@@ -263,7 +263,8 @@ defmodule Aiur.Application.Children do
       # its initial dispatch.
       Aiur.Orchestrator.SpendCap.Store,
       # Probes worker CLIs at boot and hourly; dispatch reads its snapshot (#7443).
-      {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :toolchain_probe?, true)},
+      # Off wherever the boot dispatch poll is off (the shared test app).
+      {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
