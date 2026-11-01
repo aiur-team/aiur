@@ -286,6 +286,10 @@
   min-height: 0;
 }
 
+.tk-body > #cv-panel-conversation { flex: 1; min-height: 0; overflow: hidden; display: flex; }
+.tk-body > #cv-panel-timeline { flex: 1; min-height: 0; overflow: auto; padding: 1rem 1.2rem; }
+#cv-panel-conversation[hidden], .tk-body > [role="tabpanel"][hidden] { display: none; }
+
 /* C:506 */ .cv-main {
   position: relative;
   flex: 1;

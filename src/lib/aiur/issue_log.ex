@@ -107,7 +107,6 @@ defmodule Aiur.IssueLog do
 
   @doc """
   Reads a bounded, newest-first page from the durable JSONL transcript.
-
   `:before` is the exclusive byte offset returned as `:next_cursor` by the
   previous call. It is intentionally a file offset rather than an event id:
   transcript producers do not share an event-id sequence. The read is capped
@@ -176,6 +175,16 @@ defmodule Aiur.IssueLog do
   def event_history_page(%TrackerIdentity{} = identity, opts \\ []) do
     if TrackerIdentity.joinable?(identity) do
       EventHistory.read_event_page(Paths.timeline_event_log_path(identity), opts)
+    else
+      {:error, :invalid_identity}
+    end
+  end
+
+  @doc "Reads the latest bounded set of events from the durable ticket event log."
+  @spec event_history_tail(TrackerIdentity.t(), keyword()) :: {:ok, [map()]} | {:error, event_history_error()}
+  def event_history_tail(%TrackerIdentity{} = identity, opts \\ []) do
+    if TrackerIdentity.joinable?(identity) do
+      EventHistory.read_event_tail(Paths.timeline_event_log_path(identity), opts)
     else
       {:error, :invalid_identity}
     end

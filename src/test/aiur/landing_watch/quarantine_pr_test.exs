@@ -75,6 +75,90 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     refute contents =~ "\t#7020\nBrowserSpec\tsrc/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs\t#7020"
   end
 
+  test "inserts an ExUnit row in sorted position and quarantines suite-wide ambiguous names by module" do
+    root = Aiur.TestSupport.tmp_root!("quarantine-suite")
+    tests_root = Path.join(root, "test")
+    File.mkdir_p!(tests_root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    File.write!(
+      Path.join(tests_root, "a_test.exs"),
+      "defmodule Aiur.ATest do\n  test \"alpha\", do: :ok\nend\n"
+    )
+
+    File.write!(
+      Path.join(tests_root, "m_test.exs"),
+      "defmodule Aiur.MTest do\n  describe \"group\" do\n    test \"shared name\", do: :ok\n    test \"middle\", do: :ok\n  end\n  defmodule ChildTest do\n    describe \"group\" do\n      test \"shared name\", do: :ok\n    end\n  end\nend\n"
+    )
+
+    File.write!(
+      Path.join(tests_root, "z_test.exs"),
+      "defmodule Aiur.ZTest do\n  test \"omega\", do: :ok\nend\n"
+    )
+
+    expiry = Date.add(Date.utc_today(), 2)
+    contents = "# Existing entries\nAiur.ATest\talpha\t#1\t#{expiry}\nAiur.ZTest\tomega\t#2\t#{expiry}\n"
+
+    assert {:ok, sorted} =
+             QuarantinePR.entry("Aiur.MTest :: group middle", 7021, contents, expiry, tests_root)
+
+    assert {:ok, entries} = Aiur.TestQuarantine.parse(sorted)
+
+    assert Enum.map(entries, &Aiur.TestQuarantine.sort_key/1) ==
+             [{"Aiur.ATest", "alpha"}, {"Aiur.MTest", "group middle"}, {"Aiur.ZTest", "omega"}]
+
+    assert {:ok, ambiguous} =
+             QuarantinePR.entry("Aiur.MTest :: group shared name", 7022, contents, expiry, tests_root)
+
+    assert ambiguous =~ "Aiur.MTest\t*\t#7022\t#{expiry}\n"
+    assert {:ok, ambiguous_entries} = Aiur.TestQuarantine.parse(ambiguous)
+    assert Enum.any?(ambiguous_entries, &(&1.module == "Aiur.MTest" and &1.name == "*"))
+
+    python = """
+    import importlib.util, pathlib, sys
+    from datetime import date
+    sys.dont_write_bytecode = True
+    script_path, list_path, tests_path, today_text, expiry_text = sys.argv[1:]
+    spec = importlib.util.spec_from_file_location("run_quarantined_tests", script_path)
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    listed = validator.entries(pathlib.Path(list_path), grandfathered=frozenset(), today=date.fromisoformat(today_text))
+    selected = validator.selectors(pathlib.Path(tests_path), listed=listed)
+    assert ("Aiur.MTest", "*", "#7022", expiry_text) in listed
+    assert selected == ["test/a_test.exs:2", "test/m_test.exs:3", "test/m_test.exs:4", "test/z_test.exs:2"]
+    """
+
+    list_path = Path.join(root, "quarantine.txt")
+    File.write!(list_path, ambiguous)
+    validator_path = Path.expand("../../../../scripts/run-quarantined-tests.py", __DIR__)
+
+    assert {output, 0} =
+             System.cmd(
+               "python3",
+               [
+                 "-c",
+                 python,
+                 validator_path,
+                 list_path,
+                 tests_root,
+                 Date.to_iso8601(Date.utc_today()),
+                 Date.to_iso8601(Date.add(Date.utc_today(), 2))
+               ],
+               stderr_to_stdout: true,
+               cd: root
+             )
+
+    assert output == ""
+  end
+
+  test "an existing module-wide ExUnit quarantine row makes retries idempotent" do
+    expiry = Date.add(Date.utc_today(), 2)
+    contents = "Aiur.MTest\t*\t#2\t#{expiry}\n"
+
+    assert {:error, :already_quarantined} =
+             QuarantinePR.entry("Aiur.MTest :: shared name", 7023, contents, expiry)
+  end
+
   test "same per-test row is already listed and legacy whole-spec row covers it" do
     identity = "BrowserSpec :: src/browser/tests/example.browser.spec.mjs :: skips one test :: 187"
     per_test = "BrowserSpec\tsrc/browser/tests/example.browser.spec.mjs\tskips one test\t187\t#7020\n"
@@ -232,7 +316,7 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
 
     assert {:ok, %{"number" => 901}} =
              QuarantinePR.open(
-               %{identity: "Aiur.ExampleTest :: fails repeatedly", observations: []},
+               %{identity: @reaper, observations: []},
                900,
                Keyword.put(opts(parent, listed, nil), :quarantine_expires_on, Date.add(Date.utc_today(), 90))
              )
@@ -240,8 +324,8 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     assert_received {:request, :post, @api <> "/git/blobs", %{"content" => updated}}
 
     assert updated ==
-             String.trim_trailing(contents) <>
-               "\nAiur.ExampleTest\tfails repeatedly\t#900\t" <>
+             contents <>
+               "Aiur.Claude.Repl.ReaperTest\tstop_session/1 reports cleanup unknown while the process group remains alive\t#900\t" <>
                Date.to_iso8601(Date.add(Date.utc_today(), 14)) <> "\n"
   end
 

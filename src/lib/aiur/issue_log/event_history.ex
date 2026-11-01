@@ -64,6 +64,50 @@ defmodule Aiur.IssueLog.EventHistory do
     end
   end
 
+  @spec read_event_tail(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def read_event_tail(path, opts) do
+    limit = Keyword.get(opts, :limit, 200)
+    kinds = opts |> Keyword.get(:kinds, [:emit, :emit_alert, :self, :consumed, :command]) |> Enum.map(&Atom.to_string/1) |> MapSet.new()
+
+    with true <- is_integer(limit) and limit in 1..500,
+         {:ok, %{size: size, type: :regular}} <- File.stat(path, time: :posix),
+         {:ok, events} <- read_matching_tail(path, size, limit, kinds) do
+      {:ok, events}
+    else
+      false -> {:error, :invalid_page}
+      {:error, :enoent} -> {:ok, []}
+      {:ok, %{type: :directory}} -> {:error, {:unavailable, :eisdir}}
+      {:ok, _stat} -> {:error, {:unavailable, :einval}}
+      {:error, reason} -> {:error, {:unavailable, reason}}
+    end
+  end
+
+  defp read_matching_tail(_path, 0, _limit, _kinds), do: {:ok, []}
+
+  defp read_matching_tail(path, size, limit, kinds) do
+    read_matching_tail(path, size, limit, kinds, min(size, max(limit, 50) * (Encoding.max_record_bytes() + 1)))
+  end
+
+  defp read_matching_tail(path, size, limit, kinds, bytes) do
+    start = max(size - bytes, 0)
+
+    with {:ok, content} <- read_page_chunk(path, start, size - start) do
+      events =
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse_event_line/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.filter(&MapSet.member?(kinds, &1.kind))
+        |> Enum.sort_by(& &1.id)
+
+      if length(events) >= limit or start == 0 do
+        {:ok, Enum.take(events, -limit)}
+      else
+        read_matching_tail(path, size, limit, kinds, min(size, bytes * 2))
+      end
+    end
+  end
+
   defp page_start(_size, 0, _limit), do: 0
   defp page_start(size, _after_id, limit), do: max(size - (Encoding.max_record_bytes() + 1) * limit * 2, 0)
 
