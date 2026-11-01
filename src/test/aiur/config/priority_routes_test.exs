@@ -1,4 +1,6 @@
 defmodule Aiur.Config.PriorityRoutesTest do
+  # Cohesion: route classification and disposition are tested together because
+  # their combined result determines retry and alert behavior.
   @moduledoc """
   `agent.priority` as an ordered list of routes (#1923).
 
@@ -197,6 +199,9 @@ defmodule Aiur.Config.PriorityRoutesTest do
       assert RouteFailure.classify(:unauthorized) == :auth_rejected
       assert RouteFailure.classify({:turn_failed, %{"provider_error" => %{"api_error_status" => 401}}}) == :auth_rejected
       assert RouteFailure.classify({:turn_failed, %{"message" => "request failed with status 401 in unrelated text"}}) == :fatal
+      assert RouteFailure.classify({:turn_failed, %{"error" => "Error: listen EINVAL: invalid argument /tmp/aiur-mcp-123-1.sock"}}) == :launch_failed
+      assert RouteFailure.classify({:turn_failed, %{"error" => "ENAMETOOLONG aiur-mcp-123-1.sock"}}) == :launch_failed
+      assert RouteFailure.classify({:turn_failed, %{"error" => "listen EINVAL unrelated.sock"}}) == :fatal
       refute RouteFailure.advance?(:auth_rejected)
       refute RouteFailure.record_limit?(:auth_rejected)
     end

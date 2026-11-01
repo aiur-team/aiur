@@ -12,7 +12,6 @@ defmodule Aiur.Init.GitHub do
   alias Aiur.GitHub.Labels
 
   @config_file_name ".aiur/config"
-  @env_file_name ".env"
   @token_url "https://github.com/settings/tokens"
 
   @spec create_labels(map(), [String.t()]) :: :ok | {:error, String.t()}
@@ -209,7 +208,7 @@ defmodule Aiur.Init.GitHub do
   def require_github_token do
     case github_token() do
       token when is_binary(token) and token != "" -> {:ok, token}
-      _ -> {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
+      _ -> {:error, "GITHUB_TOKEN not set — set it in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) (#{@token_url})"}
     end
   end
 
