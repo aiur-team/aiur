@@ -333,7 +333,9 @@ After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_a
 
 ### iPhone Home Screen
 
-Use an HTTPS dashboard URL, sign in with Google or a registered passkey, then in Safari choose **Share → Add to Home Screen**. Open Aiur from its Home Screen icon; the browser session cookie is HttpOnly, SameSite=Lax, and lasts for the configured `dashboard_auth.session_max_age_days` (30 days by default). It survives app relaunches until it expires or you sign out. For standalone use, disable the browser Basic Auth prompt with `dashboard_auth.browser_basic_auth: false` after confirming Google or passkey sign-in. Basic Auth remains available to CLI and API clients. The Home and Reload controls remain available in standalone mode and when the LiveView disconnects.
+Use an HTTPS dashboard URL, sign in with Google or a registered passkey, then in Safari choose **Share → Add to Home Screen**. Open Aiur from its icon. The HttpOnly, SameSite=Lax session cookie survives relaunches until sign-out or expiry; its default lifetime is 30 days, controlled by `dashboard_auth.session_max_age_days`.
+
+For standalone use, disable the browser Basic Auth prompt with `dashboard_auth.browser_basic_auth: false` after confirming cookie sign-in. Basic Auth remains available to CLI and API clients. Home and Reload controls stay visible in standalone mode and appear after a LiveView disconnect.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
