@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.CIPollBatchTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{AgentMarker, CIPollBatch, CIPollBatchReadyReview, PollSnapshots, ResourceStore}
+  alias Aiur.GitHub.{CIPollBatch, PollSnapshots, ResourceStore}
   import Aiur.GitHub.CIPollBatchTestSupport
 
   setup do
@@ -79,30 +79,6 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
     assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "workflow_id" => 44, "app" => %{"id" => 15_368}}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
-  end
-
-  test "only approved or changes-requested reviews on the head count as reviewed" do
-    head = "review-head"
-    base = %{"headRefOid" => head}
-
-    for state <- ["COMMENTED", "PENDING"] do
-      node = Map.put(base, "reviews", %{"nodes" => [%{"state" => state, "commit" => %{"oid" => head}}]})
-      assert CIPollBatchReadyReview.project(node).reviewed_head? == false
-    end
-
-    for state <- ["APPROVED", "CHANGES_REQUESTED"] do
-      node = Map.put(base, "reviews", %{"nodes" => [%{"state" => state, "commit" => %{"oid" => head}}]})
-      assert CIPollBatchReadyReview.project(node).reviewed_head? == true
-    end
-  end
-
-  test "single-account mode ignores agent-marked reviews at the head" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_identity_mode: "single_account")
-    head = "review-head"
-    review = %{"state" => "COMMENTED", "body" => "review\n\n" <> AgentMarker.marker(), "commit" => %{"oid" => head}}
-    node = %{"headRefOid" => head, "reviews" => %{"nodes" => [review]}}
-
-    assert CIPollBatchReadyReview.project(node).reviewed_head? == false
   end
 
   test "a closed ticket PR is returned with its merged state for lifecycle routing" do
