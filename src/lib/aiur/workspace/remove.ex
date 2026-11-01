@@ -75,8 +75,7 @@ defmodule Aiur.Workspace.Remove do
     with :clean <- precheck,
          :ok <- destroy_guard(opts) do
       maybe_run_before_remove_hook(workspace, worker_host)
-      script = if discard?, do: "rm -rf \"$workspace\"", else: remote_dirty_check() <> "\nrm -rf \"$workspace\""
-      script = script <> " && " <> remote_mcp_socket_cleanup(workspace)
+      script = remote_remove_script(workspace, discard?)
       remote_removed(run_remote(workspace, worker_host, script), workspace, worker_host, discard?, opts)
     else
       :dirty -> remote_dirty(workspace, worker_host, opts)
@@ -139,6 +138,17 @@ defmodule Aiur.Workspace.Remove do
       "fi"
     ]
     |> Enum.join("\n")
+  end
+
+  @doc false
+  @spec remote_remove_script(Path.t(), boolean()) :: String.t()
+  def remote_remove_script(workspace, discard?) do
+    remove_command =
+      if discard?,
+        do: "rm -rf \"$workspace\" || exit $?\n",
+        else: remote_dirty_check() <> "\nrm -rf \"$workspace\" || exit $?\n"
+
+    remove_command <> remote_mcp_socket_cleanup(workspace)
   end
 
   defp remote_dirty(workspace, worker_host, opts) do
