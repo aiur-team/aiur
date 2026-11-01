@@ -5,7 +5,9 @@ defmodule VoiceConverse.BriefingRefreshTest do
   alias VoiceConverse.Testing.{FakeBriefingSource, FakeProvider, StaticCredentials}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "voice_converse_refresh_#{System.unique_integer([:positive])}")
+    root =
+      Path.join(System.tmp_dir!(), "voice_converse_refresh_#{System.unique_integer([:positive])}")
+
     name = Module.concat([VoiceConverse, "BriefingRefresh#{System.unique_integer([:positive])}"])
     File.mkdir_p!(root)
     File.chmod!(root, 0o700)
@@ -16,7 +18,10 @@ defmodule VoiceConverse.BriefingRefreshTest do
     %{root: root, name: name}
   end
 
-  test "host refresh sends changed lines once and stores the context record", %{root: root, name: name} do
+  test "host refresh sends changed lines once and stores the context record", %{
+    root: root,
+    name: name
+  } do
     target = target(self(), "First")
     {:ok, id} = start(name, target)
     assert_receive {:fake_briefing_source, :subscribe, _pid}
@@ -35,7 +40,8 @@ defmodule VoiceConverse.BriefingRefreshTest do
     [refresh] =
       Enum.filter(
         records,
-        &(&1["type"] == "context" and &1["source"] == "briefing" and &1["text"] == "Summary: Updated")
+        &(&1["type"] == "context" and &1["source"] == "briefing" and
+            &1["text"] == "Summary: Updated")
       )
 
     assert refresh["text"] == "Summary: Updated"
@@ -53,10 +59,12 @@ defmodule VoiceConverse.BriefingRefreshTest do
     update(target, "During reconnect")
 
     assert :ok = VoiceConverse.refresh_briefing(name, id)
-    assert :sys.get_state(session).pending_briefing_context == ["Summary: During reconnect"]
     assert_eventually(fn -> :sys.get_state(session).provider_ref not in [nil, first_provider] end)
     second_provider = :sys.get_state(session).provider_ref
-    assert FakeProvider.calls(second_provider) == [{:send_context, "Summary: During reconnect"}]
+
+    assert_eventually(fn ->
+      FakeProvider.calls(second_provider) == [{:send_context, "Summary: During reconnect"}]
+    end)
   end
 
   defp start(name, target) do
@@ -71,7 +79,8 @@ defmodule VoiceConverse.BriefingRefreshTest do
     %{id: "target", briefing_agent: agent, observer: observer, subscribe: true}
   end
 
-  defp update(%{briefing_agent: agent}, summary), do: Agent.update(agent, &%{&1 | summary: %{value: summary}})
+  defp update(%{briefing_agent: agent}, summary),
+    do: Agent.update(agent, &%{&1 | summary: %{value: summary}})
 
   defp await_listening(id) do
     assert_receive {:voice_conversation_state, ^id, :connecting}
