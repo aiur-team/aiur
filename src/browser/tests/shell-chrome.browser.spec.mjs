@@ -329,7 +329,7 @@ test('B-9 phone ignores stored collapse and shows each route in its fixed bottom
     return { position: style.position, bottom: style.bottom }
   })
   expect(position).toEqual({ position: 'fixed', bottom: '0px' })
-  const paths = await page.locator('a.snav').evaluateAll(nodes => nodes.map(node => node.getAttribute('href')))
+  const paths = await page.locator('a.snav:visible').evaluateAll(nodes => nodes.map(node => node.getAttribute('href')))
   expect(paths).toEqual(['/', '/commands', '/analytics', '/streamdeck'])
   for (const path of paths) {
     const route = page.locator(`a.snav[href="${path}"]`)

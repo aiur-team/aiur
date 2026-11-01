@@ -49,6 +49,26 @@ function firstPaint() {
   if (activeFeature()) loadFeatureSpan(S.feature);
 }
 function repaint() { renderChrome(); fx.relayout(); fx.update(); if (activeFeature()) loadFeatureSpan(S.feature); }
+function clearResyncRetry(resetAttempt = false) {
+  ctx.proto.retrySeq = (ctx.proto.retrySeq || 0) + 1;
+  ctx.proto.retryPending = false;
+  if (resetAttempt) ctx.proto.retryAttempt = 0;
+}
+function retryThrottledResync() {
+  if (!ctx.life || ctx.proto.retryPending) return;
+  const attempt = ctx.proto.retryAttempt || 0;
+  const delay = Math.min(2_100 * 2 ** attempt, 8_400);
+  const seq = (ctx.proto.retrySeq || 0) + 1;
+  ctx.proto.retrySeq = seq;
+  ctx.proto.retryAttempt = attempt + 1;
+  ctx.proto.retryPending = true;
+  const life = ctx.life;
+  life.later('build-resync-retry', delay, () => {
+    if (ctx.life !== life || life.disposed || ctx.proto.retrySeq !== seq) return;
+    ctx.proto.retryPending = false;
+    resync(true);
+  });
+}
 function reloadOnce() {
   try {
     if (!sessionStorage.getItem('aiur-build-reloaded')) {
@@ -58,7 +78,11 @@ function reloadOnce() {
   fx.renderUnavailable('version');
 }
 export function receive(msg) {
-  if (msg.kind === 'error') { if (!ctx.snap) fx.renderUnavailable(msg.reason); return; }
+  if (msg.kind === 'error') {
+    if (msg.reason === 'throttled') retryThrottledResync();
+    else if (!ctx.snap) fx.renderUnavailable(msg.reason);
+    return;
+  }
   switch (decide({ ...ctx.proto, resyncing: ctx.proto.inFlight }, msg)) {
     case 'reload': reloadOnce(); break;
     case 'resync': resync(); break;
@@ -71,6 +95,7 @@ export function receive(msg) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
         return;
       }
+      clearResyncRetry(true);
       fx.tickCardAges();
       if (msg.kind === 'snapshot') {
         renderPartialNotice(msg.unavailable_rows);
@@ -91,8 +116,9 @@ function renderPartialNotice(count) {
   host.hidden = n === 0;
   if (n) host.setAttribute('role', 'status'); else host.removeAttribute('role');
 }
-export function resync() {
+export function resync(retry = false) {
   if (ctx.proto.inFlight) return;
+  clearResyncRetry(!retry);
   ctx.proto.inFlight = true;
   const seq = ++ctx.resyncSeq, life = ctx.life;
   const current = () => ctx.life === life && !life.disposed && seq === ctx.resyncSeq;

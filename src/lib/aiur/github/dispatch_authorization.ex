@@ -15,6 +15,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # reference-counted and GC-agnostic. Only the small fingerprint/decision/alert
   # caches stay in `:persistent_term` (#2298 rework B4).
   @max_cache_entries 1_000
+  @deferred_authorization_ttl_ms 60_000
   @deferral_alert_threshold 5
 
   @spec authorize(Issue.t(), String.t(), String.t(), String.t(), keyword()) :: Issue.t()
@@ -47,6 +48,15 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     :ok
   end
 
+  @doc false
+  @spec cache_snapshot_for_test() :: :not_set | map()
+  def cache_snapshot_for_test, do: :persistent_term.get(@cache_key, :not_set)
+
+  @doc false
+  @spec restore_cache_for_test(:not_set | map()) :: :ok
+  def restore_cache_for_test(:not_set), do: :persistent_term.erase(@cache_key)
+  def restore_cache_for_test(snapshot) when is_map(snapshot), do: :persistent_term.put(@cache_key, snapshot)
+
   defp authorize_label_applier(issue, owner, repo, prefix, allowed_users, opts) do
     case trigger_label(issue, prefix) do
       {:ok, label} ->
@@ -65,7 +75,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp trigger_label(_issue, _prefix), do: :error
 
   defp label_applier_decision(issue, label, prefix, owner, repo, opts) do
-    cached_decision(issue, label) || fetch_decision(issue, label, prefix, owner, repo, opts)
+    cached_decision(issue, label) || cached_deferred_authorization(issue, label, opts) || fetch_decision(issue, label, prefix, owner, repo, opts)
   end
 
   # The trigger label is the issue's CURRENT state label, and Aiur moves that
@@ -184,10 +194,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       case Timeline.fetch(request_fun, token, owner, repo, issue, opts) do
         {:ok, events, new_etag, single_page?, per_page} ->
           TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page)
-          decide_fetched_timeline(issue, label, prefix, events, owner, repo)
+          decide_fetched_timeline(issue, label, prefix, events, owner, repo, opts)
 
         {:reused, events} ->
-          decide_fetched_timeline(issue, label, prefix, events, owner, repo)
+          decide_fetched_timeline(issue, label, prefix, events, owner, repo, opts)
 
         # The timeline could not be fetched or parsed — a budget hold, rate
         # limit, transport failure, or pagination/truncation limit. None of
@@ -198,19 +208,29 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         # `timeline_decision` over a fetched timeline, which this branch never
         # reaches (#2409).
         {:error, reason} ->
-          {:deferred, reason}
+          deferred_fetch_result(issue, label, reason, opts)
       end
     else
       {:ambiguous, :missing_github_token}
     end
   end
 
-  defp decide_fetched_timeline(issue, label, prefix, events, owner, repo) do
+  defp deferred_fetch_result(issue, label, :timeline_page_limit_exceeded = reason, opts) do
+    cache_deferred_authorization(issue, label, reason, opts, :until_issue_update)
+    {:deferred, reason}
+  end
+
+  defp deferred_fetch_result(_issue, _label, reason, _opts), do: {:deferred, reason}
+
+  defp decide_fetched_timeline(issue, label, prefix, events, owner, repo, opts) do
     decision = Timeline.decision(issue, label, prefix, events)
 
     case decision do
       {:verified, _actor, event_id, _prefix_appliers, _label_actors} ->
         cache_decision(issue, label, event_id, decision)
+
+      {:deferred, reason} ->
+        cache_deferred_authorization(issue, label, reason, opts)
 
       _other ->
         :ok
@@ -266,13 +286,14 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       fingerprints: Map.put(cache.fingerprints, fingerprint, event_id),
       decisions: Map.put(cache.decisions, {id, label, event_id}, decision),
       alerted: cache.alerted,
-      deferrals: cache.deferrals
+      deferrals: cache.deferrals,
+      deferred_authorizations: cache.deferred_authorizations
     }
 
     :persistent_term.put(
       @cache_key,
       if(map_size(updated.decisions) > @max_cache_entries,
-        do: %{fingerprints: %{}, decisions: %{}, alerted: %{}, deferrals: cache.deferrals},
+        do: %{fingerprints: %{}, decisions: %{}, alerted: %{}, deferrals: cache.deferrals, deferred_authorizations: cache.deferred_authorizations},
         else: updated
       )
     )
@@ -327,8 +348,48 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp maybe_alert_once(issue, reason, emit), do: emit.(issue, reason)
 
   defp cache do
-    :persistent_term.get(@cache_key, %{fingerprints: %{}, decisions: %{}, alerted: %{}, deferrals: %{}})
+    defaults = %{fingerprints: %{}, decisions: %{}, alerted: %{}, deferrals: %{}, deferred_authorizations: %{}}
+    Map.merge(defaults, :persistent_term.get(@cache_key, %{}))
   end
+
+  defp cached_deferred_authorization(%Issue{id: id, updated_at: updated_at}, label, opts) when is_binary(id) do
+    key = {id, label, updated_at}
+    now = authorization_now_ms(opts)
+
+    case Map.get(cache().deferred_authorizations, key) do
+      %{reason: reason, expires_at_ms: :until_issue_update} -> {:deferred, reason}
+      %{reason: reason, expires_at_ms: expires_at_ms} when now < expires_at_ms -> {:deferred, reason}
+      _expired_or_missing -> nil
+    end
+  end
+
+  defp cached_deferred_authorization(_issue, _label, _opts), do: nil
+
+  defp cache_deferred_authorization(issue, label, reason, opts, expiry \\ :cooldown)
+
+  defp cache_deferred_authorization(%Issue{id: id, updated_at: updated_at}, label, reason, opts, expiry) when is_binary(id) do
+    cache = cache()
+    key = {id, label, updated_at}
+
+    expires_at_ms =
+      case expiry do
+        :until_issue_update -> :until_issue_update
+        :cooldown -> authorization_now_ms(opts) + @deferred_authorization_ttl_ms
+      end
+
+    entry = %{reason: reason, expires_at_ms: expires_at_ms}
+
+    deferred_authorizations =
+      cache.deferred_authorizations
+      |> then(fn entries -> if map_size(entries) >= @max_cache_entries, do: %{}, else: entries end)
+      |> Map.put(key, entry)
+
+    :persistent_term.put(@cache_key, %{cache | deferred_authorizations: deferred_authorizations})
+  end
+
+  defp cache_deferred_authorization(_issue, _label, _reason, _opts, _expiry), do: :ok
+
+  defp authorization_now_ms(opts), do: Keyword.get(opts, :authorization_now_ms, System.monotonic_time(:millisecond))
 
   defp note_deferral(%Issue{id: id} = issue, cause, reason) when is_binary(id) do
     cache = cache()

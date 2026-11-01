@@ -23,6 +23,7 @@ export const ticketProgressEventSchema = read('schemas/ticket-progress-event.v1.
 export const ticketUsageEventSchema = read('schemas/ticket-usage-event.v1.schema.json');
 export const ticketSpendCapReachedEventSchema = read('schemas/ticket-spend-cap-reached-event.v1.schema.json');
 export const ticketCancelResultEventSchema = read('schemas/ticket-cancel-result-event.v1.schema.json');
+export const ticketDecisionEventSchema = read('schemas/ticket-decision-event.v1.schema.json');
 export const voiceConverseSchema = read('schemas/voice-converse.v1.schema.json');
 export const report = read('fixtures/capabilities.v1.json');
 export const error = read('fixtures/capability-error.v1.json');
@@ -42,6 +43,7 @@ export const ticketProgressEvent = read('fixtures/ticket-progress-event.v1.json'
 export const ticketUsageEvent = read('fixtures/ticket-usage-event.v1.json');
 export const ticketSpendCapReachedEvent = read('fixtures/ticket-spend-cap-reached-event.v1.json');
 export const ticketCancelResultEvent = read('fixtures/ticket-cancel-result-event.v1.json');
+export const ticketDecisionEvent = read('fixtures/ticket-decision-event.v1.json');
 const ajv = new Ajv2020({ allErrors: true, formats: { 'date-time': true } });
 for (const schema of [
   eventsSchema,
@@ -61,6 +63,7 @@ for (const schema of [
   ticketUsageEventSchema,
   ticketSpendCapReachedEventSchema,
   ticketCancelResultEventSchema,
+  ticketDecisionEventSchema,
   voiceConverseSchema,
 ]) {
   ajv.addSchema(schema);
@@ -83,6 +86,7 @@ export const validateTicketProgressEvent = ajv.getSchema(ticketProgressEventSche
 export const validateTicketUsageEvent = ajv.getSchema(ticketUsageEventSchema.$id);
 export const validateTicketSpendCapReachedEvent = ajv.getSchema(ticketSpendCapReachedEventSchema.$id);
 export const validateTicketCancelResultEvent = ajv.getSchema(ticketCancelResultEventSchema.$id);
+export const validateTicketDecisionEvent = ajv.getSchema(ticketDecisionEventSchema.$id);
 const validateVoiceConverseFrame = ajv.getSchema(voiceConverseSchema.$id);
 export const validateVoiceConverse = (frames) => Array.isArray(frames) && frames.every(validateVoiceConverseFrame);
 
@@ -100,6 +104,7 @@ export const contractCases = [
   { name: 'ticket spend cap reached', schema: ticketSpendCapReachedSchema, fixture: ticketSpendCapReached, validate: validateTicketSpendCapReached },
   { name: 'ticket spend cap reached event', schema: ticketSpendCapReachedEventSchema, fixture: ticketSpendCapReachedEvent, validate: validateTicketSpendCapReachedEvent, marker: 'v', version: 'v', additive: false },
   { name: 'ticket cancel result event', schema: ticketCancelResultEventSchema, fixture: ticketCancelResultEvent, validate: validateTicketCancelResultEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'ticket decision event', schema: ticketDecisionEventSchema, fixture: ticketDecisionEvent, validate: validateTicketDecisionEvent, marker: 'v', version: 'v', additive: false },
 ];
 
 for (const [validate, fixture] of [

@@ -91,8 +91,10 @@ new journal for that subject; deletion is not a recording opt-out.
 
 ## Reading entries
 
-The full conversation chronology renders agent messages as Markdown. Reasoning
-and command or tool output start collapsed; select their summaries to expand.
+The full conversation chronology renders agent messages as Markdown. Executor
+reasoning rows are hidden; worker reasoning and command or tool output start
+collapsed. Select a summary to expand it.
+
 Commands show their exit code when nonzero, and tools distinguish success,
 failure and unknown status. File edits show unified diffs, with lines after the
 first 200 under an expandable summary.

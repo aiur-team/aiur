@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.IndexReaderTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
-  alias AiurWeb.Build.Freshness
+  alias AiurWeb.Build.{ConversationEvents, Freshness}
   alias AiurWeb.Build.IndexReader
 
   defmodule SlowOpenServer do
@@ -72,7 +72,8 @@ defmodule AiurWeb.Build.IndexReaderTest do
         repository_fun: fn -> {:ok, {"aiur-team", "aiur"}} end,
         units_fun: fn -> %{status: :empty, snapshot: %{rows: []}} end,
         orchestrator: server,
-        running_rows_fun: &Freshness.read_running_rows/1
+        running_rows_fun: &Freshness.read_running_rows/1,
+        pr_lookup: fn "12" -> %{pr_number: 88, stage: nil, closed_unmerged?: false} end
       )
 
     assert Map.has_key?(read.now.rows, "12")
@@ -86,6 +87,73 @@ defmodule AiurWeb.Build.IndexReaderTest do
     assert index.all["12"].agent.name == "Claude"
     assert index.all["12"].agent.effort == "high"
     assert index.all["12"].pct == 64
+    assert index.all["12"].pr == %{num: 88, state: "open", ci: nil}
+
+    events = ConversationEvents.current_facts(index.all["12"], %{})
+    assert [%{ev: "pr", label: "Opened PR #88"}] = events.tail
+  end
+
+  test "catalogue running rows carry draft PR facts into the build index" do
+    {:ok, identity} =
+      Aiur.TrackerIdentity.from_github(%{"node_id" => "I_kwDOExample22", "number" => 22}, {"aiur-team", "aiur"}, {"aiur-team", "aiur"})
+
+    catalog = %{
+      status: :ready,
+      snapshot: %{
+        rows: [
+          %{
+            identity: identity,
+            terminal?: false,
+            replacement_boundary?: false,
+            runtime: %{bucket: :running, work_state: :working},
+            reasons: %{},
+            open_command_count: 0
+          }
+        ]
+      }
+    }
+
+    read =
+      IndexReader.read(:all, parts(),
+        repository_fun: fn -> {:ok, {"aiur-team", "aiur"}} end,
+        units_fun: fn -> catalog end,
+        pr_lookup: fn "22" -> %{pr_number: 90, stage: nil, closed_unmerged?: false} end
+      )
+
+    assert read.now.rows["22"].pr == %{num: 90, state: "open", ci: nil}
+    assert {:ok, index} = assemble(read)
+    assert index.all["22"].pr == %{num: 90, state: "open", ci: nil}
+    assert [%{label: "Opened PR #90"}] = ConversationEvents.current_facts(index.all["22"], %{}).tail
+  end
+
+  test "merged, closed and missing PR facts are excluded from running rows" do
+    {:ok, identity} =
+      Aiur.TrackerIdentity.from_github(%{"node_id" => "I_kwDOExample23", "number" => 23}, {"aiur-team", "aiur"}, {"aiur-team", "aiur"})
+
+    snapshot = %{
+      statuses: [%{identifier: "23", tracker_identity: identity, work_state: :working, state: :running}],
+      running: [%{identifier: "23", started_at: DateTime.utc_now()}]
+    }
+
+    server = start_supervised!({UnpublishedFleetServer, snapshot})
+
+    for pr_fact <- [
+          %{pr_number: 91, stage: :pr_merged, closed_unmerged?: false},
+          %{pr_number: 92, stage: nil, closed_unmerged?: true},
+          nil
+        ] do
+      read =
+        IndexReader.read(:all, parts(),
+          repository_fun: fn -> {:ok, {"aiur-team", "aiur"}} end,
+          units_fun: fn -> %{status: :empty, snapshot: %{rows: []}} end,
+          orchestrator: server,
+          running_rows_fun: &Freshness.read_running_rows/1,
+          pr_lookup: fn "23" -> pr_fact end
+        )
+
+      assert read.now.rows["23"].pr == nil
+      assert ConversationEvents.current_facts(read.now.rows["23"], %{}).tail == []
+    end
   end
 
   test "queued todo ticket without a live agent stays out of the running band" do

@@ -4,6 +4,15 @@ defmodule Aiur.BrowserHarness.ConversationFixture do
   alias Aiur.BrowserHarness.Fixtures
   alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref}
 
+  def reset(conn, %{"empty" => "true"}) do
+    id = Ref.conversation_id(Ref.executor())
+    for {pid, _} <- Registry.lookup(Aiur.Conversation.Registry, id), do: DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+    dir = Path.join(Application.fetch_env!(:aiur, :conversation_state_dir), id)
+    Aiur.TestCleanup.rm_rf!(dir)
+    :ets.delete(:aiur_conversation_heads, {dir, id})
+    Plug.Conn.send_resp(conn, 200, "empty")
+  end
+
   def reset(conn, _params) do
     # Stop the cached writer before replacing its on-disk head and sessions.
     id = Ref.conversation_id(Ref.executor())

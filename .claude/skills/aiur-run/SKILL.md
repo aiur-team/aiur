@@ -190,6 +190,18 @@ observer. Registration never acknowledges wakes or advances the shared cursor;
 only `executor-wait` does that. If you are acting as the Executor, launch with
 `--executor`; there is no valid Executor launch without it.
 
+Offer Executor conversation attachment as a separate opt-in; never attach the
+user's session merely because you operate the run. Before using
+`aiur executor-attach --harness claude` or `--harness codex`, explain that Aiur
+may read that session's transcript and retain a local, owner-only journal until
+deleted. Device pairing is not available yet; when it ships, pairing a phone or
+watch will grant full access, including the Executor transcript, with no separate
+transcript toggle. Claude installs marked project-local hooks;
+Codex prints configuration for manual merge and `/hooks` trust. Explain
+`aiur executor-detach` and that existing recordings remain. Attachment alone
+does not enable dashboard chat in attach-only builds. See
+[Executor opt-in and privacy](../../../website/docs-app/concepts/executor.md#talk-to-the-executor-from-the-dashboard).
+
 For a multi-instance fleet, run one Executor from one machine. Stop the
 per-machine Executors, then use `aiur --instance all executor-wait --as
 <executor-id> --json` in its loop. The CLI waits on every registered instance

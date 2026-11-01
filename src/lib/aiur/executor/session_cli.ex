@@ -1,6 +1,6 @@
 defmodule Aiur.Executor.SessionCLI do
   @moduledoc false
-  alias Aiur.Executor.{HarnessSession, Session, SessionIngest}
+  alias Aiur.Executor.{HarnessSession, Session, SessionIngest, TranscriptIngest}
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec rpc(keyword()) :: :ok
@@ -17,6 +17,7 @@ defmodule Aiur.Executor.SessionCLI do
       end
 
     status = Map.merge(binding, age(binding, now))
+    status = Map.merge(status, transcript_status())
     status = Map.merge(status, rejection_status())
     status = Map.put(status, :observed_at, DateTime.to_iso8601(now))
     status = Map.put(status, :harness_session, HarnessSession.current(Keyword.take(opts, [:now, :path])))
@@ -36,6 +37,12 @@ defmodule Aiur.Executor.SessionCLI do
     end
   end
 
+  defp transcript_status do
+    TranscriptIngest.status()
+  catch
+    :exit, {reason, _call} when reason in [:noproc, :timeout] -> %{transcript_rejection: :unknown}
+  end
+
   defp rejection_status do
     counts = SessionIngest.rejected_counts()
     %{recording?: true, foreign_session_count: Map.get(counts, :foreign_session, 0), not_attached_count: Map.get(counts, :not_attached, 0)}
@@ -48,6 +55,7 @@ defmodule Aiur.Executor.SessionCLI do
     "#{String.upcase(status.state)} binding=#{Map.get(status, :binding_id, "-")} harness=#{Map.get(status, :harness, "-")} live=#{status.live?}\n" <>
       "observed_at=#{status.observed_at} age_ms=#{status.age_ms || "unknown"} freshness=#{status.freshness}\n" <>
       "recording=#{status.recording?} foreign_session=#{status.foreign_session_count || "unknown"} not_attached=#{status.not_attached_count || "unknown"}\n" <>
+      "transcript_rejection=#{status.transcript_rejection || "none"}\n" <>
       "harness_session=#{Jason.encode!(status.harness_session)}"
   end
 end
