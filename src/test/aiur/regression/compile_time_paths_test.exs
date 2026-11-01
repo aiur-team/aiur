@@ -91,6 +91,11 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@executor_handoff_example_path Path.expand(\"../../../../.aiur/examples/executor-handoff.md.example\", __DIR__)",
       "@external_resource Path.relative_to(@executor_handoff_example_path, File.cwd!(), force: true)"
     ],
+    # Glossary bytes are embedded at compilation; runtime never reads the skill path.
+    "aiur/voice_converse/host/roles.ex" => [
+      "@glossary_path Path.expand(\"../../../../../.claude/skills/aiur-agent/dictated-input.md\", __DIR__)",
+      "@external_resource @glossary_path"
+    ],
     "aiur/prompt_builder.ex" => [
       "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)",
       "@external_resource @shared_prompt_path"

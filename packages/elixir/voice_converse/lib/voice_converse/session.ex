@@ -9,7 +9,7 @@ defmodule VoiceConverse.Session do
     Session.Start,
     SessionLimits,
     SessionRegistry,
-    Tools,
+    Redact,
     TranscriptStore
   }
 
@@ -262,7 +262,7 @@ defmodule VoiceConverse.Session do
     case persist(state, record) do
       {:ok, state} ->
         broadcast(state, broadcast_event)
-        {result, state} = Tools.dispatch(state, event, &handle_tool/2)
+        {result, state} = VoiceConverse.Tools.dispatch(state, event, &handle_tool/2)
 
         result_record = %{
           type: "tool_result",
@@ -332,7 +332,7 @@ defmodule VoiceConverse.Session do
   defp handle_tool(state, %Events.ToolCall{name: "ask_agent", params: params}),
     do: VoiceConverse.Session.Consult.tool(state, params)
 
-  defp handle_tool(state, event), do: {Tools.handle(state, event), state}
+  defp handle_tool(state, event), do: {VoiceConverse.Tools.handle(state, event), state}
 
   defp redact_tool_call(state, %Events.ToolCall{name: "propose_instruction", params: params} = event) do
     %{event | params: Map.update(params, "text", "", &redact_text(state, &1))}
@@ -341,7 +341,7 @@ defmodule VoiceConverse.Session do
   defp redact_tool_call(state, %Events.ToolCall{name: "ask_agent", params: params} = event),
     do: %{event | params: VoiceConverse.Session.Consult.redact_question(state, params)}
 
-  defp redact_tool_call(state, event), do: VoiceConverse.SummaryTool.redact_event(state.config, event)
+  defp redact_tool_call(state, event), do: %{event | params: Redact.redact_value(event.params, state.config.redactor)}
 
   defp redact_text(state, text) when is_binary(text), do: redact(state, text)
   defp redact_text(_state, text), do: text
