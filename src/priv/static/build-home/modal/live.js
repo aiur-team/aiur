@@ -24,13 +24,13 @@ export function updateTyping() {
 }
 export function appendLive(entries) {
   if (!V || !MS.t) return [];
-  const { log } = V, stick = atBottom && log.scrollHeight - log.scrollTop - log.clientHeight < STICK;
-  const anchor = stick ? null : [...log.children].find(el => el.hasAttribute('data-k') && el.getBoundingClientRect().bottom > log.getBoundingClientRect().top);
-  const offset = anchor ? anchor.getBoundingClientRect().top : 0, eid = anchor?.dataset.eid;
+  const { log } = V, stick = log.scrollHeight - log.scrollTop - log.clientHeight < STICK;
+  const anchor = stick ? null : [...log.children].find(el => el.offsetTop + el.offsetHeight > log.scrollTop);
+  const offset = anchor ? anchor.offsetTop - log.scrollTop : 0, eid = anchor?.dataset.eid;
   const fresh = appendEntries(entries);
   if (!stick) {
     const retained = anchor?.isConnected ? anchor : [...log.children].find(el => eid && el.dataset.eid === eid);
-    if (retained) log.scrollTop += retained.getBoundingClientRect().top - offset;
+    if (retained) log.scrollTop = retained.offsetTop - offset;
   }
   if (fresh.length) {
     fresh.forEach(el => el.classList.add('in'));

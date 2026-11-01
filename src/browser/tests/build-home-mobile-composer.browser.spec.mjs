@@ -49,6 +49,7 @@ test('a visualViewport shrink and a growing composer keep the last row in view',
   await expect.poll(() => lastVisible(page)).toBe(true)
 })
 
+// Regression guard: append pinning already held on main; this keeps it true at 390px.
 test('new rows keep a pinned reader at the bottom and never move a reader who scrolled up', async ({ page }) => {
   await toBottom(page)
   await push(page, [{ id: 'pinned', k: 'say', text: 'Arrives while pinned', at: null }])
