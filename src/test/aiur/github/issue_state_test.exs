@@ -113,6 +113,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       refute_received {:queue_request, %{method: :delete}}
     end
 
+    # Future regression guard: the shared TicketTransition caller must preserve the existing add-first swap.
     test "adds the new state label first, then removes the old one (no zero-label window)" do
       calls = :ets.new(:calls, [:set, :public])
       :ets.insert(calls, {:requests, []})

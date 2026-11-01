@@ -241,6 +241,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     assert Agent.get(calls, & &1) == 1
   end
 
+  # Future regression guard: recovered labels must keep using the trusted-applier check.
   test "rechecked label applied by an outsider is denied after provenance verification" do
     denied =
       DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
