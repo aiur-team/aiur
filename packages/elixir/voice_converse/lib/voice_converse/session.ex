@@ -4,7 +4,6 @@ defmodule VoiceConverse.Session do
   alias VoiceConverse.{
     ClientErrors,
     Events,
-    ProviderCleanup,
     Session.Runtime,
     Session.Start,
     SessionLimits,
@@ -375,39 +374,13 @@ defmodule VoiceConverse.Session do
     with {:ok, state} <- VoiceConverse.Session.Consult.note_session_end(state),
          {:ok, state} <-
            persist(state, %{type: "session_ended", reason: to_string(reason), at: now(state), duration_s: duration_s}),
-         {:ok, state} <- enqueue_cleanup(state) do
+         {:ok, state} <- VoiceConverse.Session.Cleanup.enqueue(state) do
       broadcast(state, {:ended, reason})
       broadcast_state(state, :ended)
       TranscriptStore.close(state.store)
       %{state | state: :ended, finished?: true, finishing?: false, provider_ref: nil}
     else
       {:error, state} -> %{state | finished?: true, finishing?: false, provider_ref: nil}
-    end
-  end
-
-  defp enqueue_cleanup(state) do
-    if is_nil(state.config.cleanup_root) and state.config.transcript == :none and not state.config.provider_cleanup do
-      {:ok, state}
-    else
-      cleanup = Module.concat(state.config.name, ProviderCleanup)
-
-      Enum.reduce_while(state.provider_ids, {:ok, state}, fn provider_id, {:ok, state} ->
-        with :ok <- ProviderCleanup.enqueue(cleanup, provider_id, state.id),
-             {:ok, state} <- persist_cleanup_marker(state, provider_id) do
-          {:cont, {:ok, state}}
-        else
-          _ -> {:halt, {:error, state}}
-        end
-      end)
-    end
-  end
-
-  defp persist_cleanup_marker(%{config: %{transcript: :none}} = state, _provider_id), do: {:ok, state}
-
-  defp persist_cleanup_marker(state, provider_id) do
-    case persist(state, %{type: "cleanup_enqueued", provider_id: provider_id, at: now(state)}) do
-      {:ok, state} -> {:ok, state}
-      {:error, state} -> {:ok, state}
     end
   end
 
