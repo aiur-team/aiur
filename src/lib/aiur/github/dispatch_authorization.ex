@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
+  alias Aiur.GitHub.{Access, Config, Issues, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
   alias Aiur.GitHub.DispatchAuthorization.Timeline
   alias Aiur.{Issue, Signal}
 
@@ -65,6 +65,35 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         |> apply_label_decision(issue, allowed_users, opts)
 
       :error ->
+        recheck_missing_trigger_label(issue, owner, repo, prefix, allowed_users, opts)
+    end
+  end
+
+  # A state swap is add-first, but the open-issue listing and subsequent
+  # authorization read can still straddle concurrent label writes or read a
+  # stale snapshot. Revalidate once before treating an empty state as a
+  # provenance denial; if the label is still absent, keep the denial explicit.
+  defp recheck_missing_trigger_label(issue, owner, repo, prefix, allowed_users, opts) do
+    read_opts = [
+      token: Keyword.get(opts, :token, Config.token()),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
+      unconditional: true,
+      caller: "dispatch_authorization_missing_trigger_label",
+      repository: {owner, repo}
+    ]
+
+    case Issues.fetch_issue_raw_conditional(issue.id, read_opts) do
+      {:ok, body, _outcome} ->
+        labels = Enum.map(body["labels"] || [], &Map.get(&1, "name", ""))
+        refreshed = %{issue | state: Issues.extract_state(body, labels, prefix), state_labels: Issues.extract_state_labels(labels, prefix)}
+
+        if is_binary(refreshed.state) and refreshed.state != "" do
+          authorize_label_applier(refreshed, owner, repo, prefix, allowed_users, opts)
+        else
+          deny_ambiguous(issue, :missing_trigger_label)
+        end
+
+      {:error, _reason} ->
         deny_ambiguous(issue, :missing_trigger_label)
     end
   end
@@ -453,11 +482,23 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp bounded_alert_cache(alerted), do: alerted
 
   defp alert_ambiguity(issue, reason) do
+    {message, detail} =
+      case reason do
+        :missing_trigger_label ->
+          {"issue had no agent:* state label at dispatch time; the transition may still be in flight. " <>
+             "Ensure the target state label is added before removing the previous one.",
+           "Issue had no agent:* state label at dispatch time after one fresh re-fetch. " <>
+             "Ensure every state transition adds the target label before removing prior state labels."}
+
+        _other ->
+          {"label provenance could not be verified (#{inspect(reason)}).", "GitHub dispatch authorization requires verified trigger-label provenance: #{inspect(reason)}"}
+      end
+
     Signal.agent_alert(
       "github.dispatch_authorization.ambiguous",
-      "Dispatch denied for issue #{issue.identifier || issue.id}: label provenance could not be verified (#{inspect(reason)}).",
+      "Dispatch denied for issue #{issue.identifier || issue.id}: #{message}",
       issue: issue.identifier || issue.id,
-      reason: "GitHub dispatch authorization requires verified trigger-label provenance: #{inspect(reason)}",
+      reason: detail,
       needs_attention: true,
       severity: "warning"
     )

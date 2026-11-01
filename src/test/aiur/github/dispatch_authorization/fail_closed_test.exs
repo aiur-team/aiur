@@ -193,9 +193,41 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
       DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
         allowed_users: ["trusted"],
         token: "test-token",
-        request_fun: fn _ -> flunk("unlabeled issue must not query the timeline") end
+        request_fun: fn
+          %{url: "https://api.github.com/repos/owner/repo/issues/42"} ->
+            {:ok, %{status: 200, body: %{"number" => 42, "labels" => []}}}
+
+          %{url: url} ->
+            flunk("unlabeled issue must not query timeline: #{url}")
+        end
       )
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :denied
+  end
+
+  test "re-fetches a missing trigger label once and authorizes after the add-first transition completes" do
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    request_fun = fn
+      %{url: "https://api.github.com/repos/owner/repo/issues/42"} ->
+        {:ok, %{status: 200, body: %{"number" => 42, "labels" => [%{"name" => "agent:todo"}]}}}
+
+      %{url: url} ->
+        assert url =~ "/issues/42/timeline"
+        Agent.update(counter, &(&1 + 1))
+        {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]}}
+    end
+
+    authorized =
+      DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
+    assert Agent.get(counter, & &1) == 1
   end
 end
