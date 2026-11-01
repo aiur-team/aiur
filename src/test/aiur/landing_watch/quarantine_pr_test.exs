@@ -6,7 +6,8 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
   @api "https://api.github.com/repos/test-org/test-repo"
   @commit String.duplicate("c", 40)
   @base String.duplicate("b", 40)
-  @reaper "Aiur.Claude.Repl.ReaperTest :: stop_session/1 reports cleanup unknown while the process group remains alive"
+  @reaper_name "stop_session/1 reports cleanup unknown while the process group remains alive"
+  @reaper "Aiur.Claude.Repl.ReaperTest :: " <> @reaper_name
 
   test "creates one list-entry commit, opens a PR with the ticket and run links, and enables auto-merge" do
     parent = self()
@@ -64,7 +65,8 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
                  flunk("already listed test must not make a GitHub request")
                end,
                token: "test-gh-token",
-               quarantine_list_fun: fn -> {:ok, list} end
+               quarantine_list_fun: fn -> {:ok, list} end,
+               tests_root: tests_root()
              )
   end
 
@@ -156,7 +158,7 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     contents = "Aiur.MTest\t*\t#2\t#{expiry}\n"
 
     assert {:error, :already_quarantined} =
-             QuarantinePR.entry("Aiur.MTest :: shared name", 7023, contents, expiry)
+             QuarantinePR.entry("Aiur.MTest :: shared name", 7023, contents, expiry, tests_root())
   end
 
   test "same per-test row is already listed and legacy whole-spec row covers it" do
@@ -260,6 +262,22 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     refute_received {:request, :patch, _, _}
   end
 
+  test "open/3 checks name uniqueness in the injected tests root, not the real suite" do
+    parent = self()
+    root = tests_root()
+    File.write!(Path.join(root, "other_test.exs"), "defmodule Aiur.OtherTest do\n  test \"#{@reaper_name}\", do: :ok\nend\n")
+
+    assert {:ok, %{"number" => 901}} =
+             QuarantinePR.open(
+               %{identity: @reaper, observations: []},
+               4786,
+               Keyword.put(opts(parent, &response/2, fn -> {:ok, "# Existing entries\n"} end), :tests_root, root)
+             )
+
+    assert_received {:request, :post, @api <> "/git/blobs", %{"content" => contents}}
+    assert contents =~ "Aiur.Claude.Repl.ReaperTest\t*\t#4786\t"
+  end
+
   test "a Playwright spec goes to the browser quarantine list, created on first use" do
     parent = self()
 
@@ -335,8 +353,19 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
       responder.(method, url)
     end
 
-    base = [request_fun: request, token: "test-gh-token", base_branch: "main"]
+    base = [request_fun: request, token: "test-gh-token", base_branch: "main", tests_root: tests_root()]
     if list_fun, do: Keyword.put(base, :quarantine_list_fun, list_fun), else: base
+  end
+
+  # A one-file suite: without it each open/3 scans every real *_test.exs for name uniqueness (#7383).
+  defp tests_root do
+    root = Path.join(Aiur.TestSupport.tmp_root!("quarantine-pr-tests"), "test")
+    File.mkdir_p!(root)
+
+    # One-line source: a heredoc here would itself match the real-suite scanner's defmodule/test patterns.
+    File.write!(Path.join(root, "reaper_test.exs"), "defmodule Aiur.Claude.Repl.ReaperTest do\n  test \"#{@reaper_name}\", do: :ok\nend\n")
+
+    root
   end
 
   defp response(:get, @api <> "/git/ref/heads/aiur/quarantine/" <> _),

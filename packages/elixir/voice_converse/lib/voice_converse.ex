@@ -94,25 +94,51 @@ defmodule VoiceConverse do
     end
   end
 
-  # Startup order is intentional: the durable cleanup queue comes up first, then reconciliation
-  # seals any interrupted transcripts and appends cleanup work before later session children may
-  # accept a new conversation.
+  # Startup order is intentional: the durable cleanup queue comes up first. File mode then seals
+  # interrupted transcripts before later session children may accept a new conversation.
   defp children(%Config{} = config) do
     session_children = [
       {Registry, keys: :unique, name: SessionRegistry.name(config.name)},
       {SessionSupervisor, config}
     ]
 
-    transcript_children(config) ++ session_children
+    cleanup_children(config) ++ transcript_children(config) ++ session_children
+  end
+
+  defp cleanup_children(%Config{cleanup_root: nil} = config) do
+    if config.transcript == :file, do: file_cleanup_child(config), else: []
+  end
+
+  defp cleanup_children(%Config{cleanup_root: root} = config), do: cleanup_child(config, root)
+
+  defp file_cleanup_child(%Config{name: name, credentials: credentials, transcript_root: root} = config) do
+    cleanup = Module.concat(name, ProviderCleanup)
+
+    [
+      {ProviderCleanup,
+       Keyword.merge(config.cleanup_options,
+         name: cleanup,
+         transcript_root: root,
+         credentials: {credentials, :elevenlabs}
+       )}
+    ]
+  end
+
+  defp cleanup_child(%Config{name: name, credentials: credentials, cleanup_options: options}, root) do
+    cleanup = Module.concat(name, ProviderCleanup)
+
+    [
+      {ProviderCleanup,
+       Keyword.merge(options, name: cleanup, cleanup_root: root, credentials: {credentials, :elevenlabs})}
+    ]
   end
 
   defp transcript_children(%Config{transcript: :none}), do: []
 
-  defp transcript_children(%Config{transcript: :file, name: name, transcript_root: root, credentials: credentials}) do
+  defp transcript_children(%Config{transcript: :file, name: name, transcript_root: root}) do
     cleanup = Module.concat(name, ProviderCleanup)
 
     [
-      {ProviderCleanup, name: cleanup, transcript_root: root, credentials: {credentials, :elevenlabs}},
       {BootReconciler, transcript_root: root, cleanup: cleanup}
     ]
   end

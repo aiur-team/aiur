@@ -4,7 +4,6 @@ defmodule VoiceConverse.Session do
   alias VoiceConverse.{
     ClientErrors,
     Events,
-    ProviderCleanup,
     Session.Runtime,
     Session.Start,
     SessionLimits,
@@ -375,7 +374,7 @@ defmodule VoiceConverse.Session do
     with {:ok, state} <- VoiceConverse.Session.Consult.note_session_end(state),
          {:ok, state} <-
            persist(state, %{type: "session_ended", reason: to_string(reason), at: now(state), duration_s: duration_s}),
-         {:ok, state} <- enqueue_cleanup(state) do
+         {:ok, state} <- VoiceConverse.Session.Cleanup.enqueue(state) do
       broadcast(state, {:ended, reason})
       broadcast_state(state, :ended)
       TranscriptStore.close(state.store)
@@ -383,19 +382,6 @@ defmodule VoiceConverse.Session do
     else
       {:error, state} -> %{state | finished?: true, finishing?: false, provider_ref: nil}
     end
-  end
-
-  defp enqueue_cleanup(state) do
-    cleanup = Module.concat(state.config.name, ProviderCleanup)
-
-    Enum.reduce_while(state.provider_ids, {:ok, state}, fn provider_id, {:ok, state} ->
-      with :ok <- ProviderCleanup.enqueue(cleanup, provider_id, state.id),
-           {:ok, state} <- persist(state, %{type: "cleanup_enqueued", provider_id: provider_id, at: now(state)}) do
-        {:cont, {:ok, state}}
-      else
-        _ -> {:halt, {:error, state}}
-      end
-    end)
   end
 
   defp close_after_start_failure(%{store: store} = state, code) do
