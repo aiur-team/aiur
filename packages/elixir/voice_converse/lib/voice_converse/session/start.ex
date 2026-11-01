@@ -11,6 +11,7 @@ defmodule VoiceConverse.Session.Start do
     with {:ok, config} <- Config.validate(config),
          :ok <- Config.check_session_start(config),
          :ok <- target_alive?(config, target),
+         {:ok, host_tool_specs} <- Config.validate_host_tools(config, target),
          {:ok, descriptor} <- describe_target(config, target),
          {:ok, role} <- select_role(config, descriptor, opts),
          {:ok, provider, provider_opts} <- provider(config, opts),
@@ -24,6 +25,7 @@ defmodule VoiceConverse.Session.Start do
          id: id,
          config: config,
          target: target,
+         host_tool_specs: host_tool_specs,
          draft_target: descriptor,
          drafts: Drafts.new(),
          consult: nil,
@@ -61,6 +63,8 @@ defmodule VoiceConverse.Session.Start do
          started_at: started_at
        }}
     else
+      {:error, %{field: :host_tools, reason: :reserved_name}} -> {:error, :host_tool_name_conflict}
+      {:error, %{field: :host_tools, reason: :invalid_spec}} -> {:error, :invalid_host_tools}
       {:error, %{field: field}} -> {:error, field}
       {:error, code} when is_atom(code) -> {:error, code}
       _ -> {:error, :unknown}
