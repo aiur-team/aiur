@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReviewRelay do
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.ReviewFindings
 
+  @spec for_running_worker?(map(), map()) :: boolean()
   def for_running_worker?(running_entry, event) do
     get_in(running_entry, [:control, Access.key(:status)]) == :working and
       Aiur.Orchestrator.DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)])) ==
@@ -12,6 +13,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReviewRelay do
       (review_submission?(event) or blocking_pr_comment?(event))
   end
 
+  @spec enqueue(Aiur.Orchestrator.State.t(), String.t() | integer(), map()) :: Aiur.Orchestrator.State.t()
   def enqueue(state, issue_number, event) do
     {text, message_id} = review_relay_message(event, issue_number)
     payload = %{body: text, origin: :internal, delivery_policy: :checkpoint, message_id: message_id}
