@@ -179,6 +179,7 @@
   white-space: nowrap;
   font: inherit;
 }
+/* Red (--block-ink) means one thing: the tool failed (non-zero exit or success=false). The status only renders on failed rows. */
 .cv-tool-status { flex: none; color: var(--block-ink); font: inherit; }
 .cv-time, .cv-meta { flex: none; color: var(--faint); font: .62rem/1.35 "JetBrains Mono", monospace; }
 .cv-tool-detail {
@@ -200,7 +201,6 @@
   font: inherit;
   color: var(--muted);
 }
-.cv-tool-row.bad .cv-tool-status { color: var(--block-ink); }
 .cv-sys { display: flex; align-items: center; gap: .45rem; }
 .cv-op .cv-meta { display: flex; align-items: center; gap: .3rem; }
 

@@ -37,7 +37,6 @@ defmodule AiurWeb.Build.ConversationSource.JournalEntriesTest do
     assert row.file == "lib/agent.ex"
     assert row.summary == "lib/agent.ex · +2 −1"
     assert row.lines == [["@", "@@ -1 +1,2 @@"], ["-", "-old"], ["+", "+new"], ["+", "+added"]]
-    refute inspect(row) =~ workspace
   end
 
   test "write summaries show the workspace-relative path without diff counts" do

@@ -63,19 +63,19 @@ defmodule AiurWeb.Build.ConversationSource.JournalEntries do
   defp diff_lines(diff), do: diff |> String.split("\n") |> Enum.map(fn line -> [String.slice(line, 0, 1), line] end)
 
   defp line_counts(diff) do
-    lines = String.split(diff || "", "\n")
+    lines = String.split(diff, "\n")
     {Enum.count(lines, &(String.starts_with?(&1, "+") and not String.starts_with?(&1, "+++"))), Enum.count(lines, &(String.starts_with?(&1, "-") and not String.starts_with?(&1, "---")))}
   end
 
   defp diff_path(output, workspace) do
-    case Regex.run(~r/(?:Update|Add|Delete) File:\s*(.+)/, output || "") do
+    case Regex.run(~r/(?:Update|Add|Delete) File:\s*(.+)/, output) do
       [_, path] -> relative_path(path, workspace)
       _ -> unified_diff_path(output, workspace)
     end
   end
 
   defp unified_diff_path(output, workspace) do
-    case Regex.run(~r/^\+\+\+ b\/(.+)$/m, output || "") do
+    case Regex.run(~r/^\+\+\+ b\/(.+)$/m, output) do
       [_, path] -> relative_path(path, workspace)
       _ -> "Edited file"
     end
