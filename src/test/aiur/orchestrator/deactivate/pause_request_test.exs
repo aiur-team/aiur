@@ -1,11 +1,13 @@
 defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
   use Aiur.TestSupport
 
+  alias Aiur.CiLifecycleTestSupport.RecordingGitHubClient
   alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{EventTopics, PushRouting}
   alias Aiur.Orchestrator.RuntimeWatchdog
+  alias Aiur.Workflow
 
   describe "pause-request topic parser (subscriber wiring)" do
     test "extracts the identifier from a valid agent.pause.request topic" do
@@ -235,8 +237,9 @@ defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
       }
 
       previous_client = Application.get_env(:aiur, :github_client_module)
-      Application.put_env(:aiur, :github_client_module, Aiur.CiLifecycleTestSupport.RecordingGitHubClient)
-      Aiur.CiLifecycleTestSupport.RecordingGitHubClient.record_to(self())
+      Application.put_env(:aiur, :github_client_module, RecordingGitHubClient)
+      RecordingGitHubClient.record_to(self())
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
 
       on_exit(fn ->
         if previous_client, do: Application.put_env(:aiur, :github_client_module, previous_client), else: Application.delete_env(:aiur, :github_client_module)
@@ -249,7 +252,7 @@ defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
       refute Map.has_key?(next.running, issue_id)
       refute Map.has_key?(next.retry_attempts, issue_id)
       assert next.retry_attempts == %{}
-      assert_received {:tracker_update, ^issue_id, "human-review", _opts}
+      assert_receive {:tracker_update, ^issue_id, "human-review", _opts}, 1_000
     end
 
     test "stalled ci-wait worker with green draft CI alerts once and does not hand off" do
@@ -273,6 +276,10 @@ defmodule Aiur.Orchestrator.Deactivate.PauseRequestTest do
       assert next.retry_attempts == %{}
       assert_received {:event, %{topic: "ticket.STALL-CI-DRAFT.agent.stalled"} = event}
       assert event["message"] == "worker stalled before marking PR ready; CI passed but PR is still a draft"
+
+      repeated = RuntimeWatchdog.apply_stall_check(next, 1)
+      assert repeated == next
+      refute_received {:event, %{topic: "ticket.STALL-CI-DRAFT.agent.stalled"}}
     end
 
     test "stalled ci-wait worker with pending CI keeps waiting" do

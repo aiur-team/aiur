@@ -7,7 +7,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   require Logger
 
   alias Aiur.{Config, Issue, Signal}
-  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
+  alias Aiur.Events.BranchRefStore
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State, TicketTransition}
   alias Aiur.Orchestrator.CiLifecycle.{ReviewHandoff, Transition}
 
   @interrupted_turn_grace_ms 30_000
@@ -306,7 +307,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
           handoff_cached_ci_pass(stopped, issue, result)
 
         green_draft_ci_result?(result, running_entry) ->
-          stalled_ci_alert(running_entry, identifier, elapsed_ms, timeout_ms, "worker stalled before marking PR ready; CI passed but PR is still a draft")
+          stalled_ci_alert(state, running_entry, identifier, result.head_sha, elapsed_ms, timeout_ms)
 
         true ->
           state
@@ -332,29 +333,43 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   defp green_draft_ci_result?(_result, _running_entry), do: false
 
   defp worker_head_matches?(running_entry, sha) do
-    Map.get(running_entry, :rework_head_sha) == sha
+    issue = Map.get(running_entry, :issue)
+    identifier = Map.get(running_entry, :identifier) || Map.get(issue || %{}, :identifier)
+
+    Map.get(running_entry, :rework_head_sha) == sha or
+      (is_binary(identifier) and match?(%{sha: ^sha}, BranchRefStore.latest(identifier)))
+  rescue
+    _ -> Map.get(running_entry, :rework_head_sha) == sha
   end
 
-  defp stalled_ci_alert(running_entry, identifier, elapsed_ms, timeout_ms, message) do
-    backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
+  defp stalled_ci_alert(state, running_entry, identifier, head_sha, elapsed_ms, timeout_ms) do
+    alerted = Map.get(state.ci_lifecycle, :stalled_draft_alerts, MapSet.new())
 
-    Signal.agent_alert("ticket.#{identifier}.agent.stalled", message,
-      issue: Map.get(running_entry, :issue),
-      workspace: Map.get(running_entry, :workspace_path),
-      worker_host: Map.get(running_entry, :worker_host),
-      reason: "#{backend} backend exceeded the #{timeout_ms}ms no-progress window with green CI",
-      needs_attention: true,
-      severity: "warning"
-    )
+    if MapSet.member?(alerted, {identifier, head_sha}) do
+      state
+    else
+      backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
 
-    Logger.warning("Stalled ci-wait issue requires PR readiness: identifier=#{identifier} elapsed_ms=#{elapsed_ms}")
+      _ =
+        Signal.agent_alert("ticket.#{identifier}.agent.stalled", "worker stalled before marking PR ready; CI passed but PR is still a draft",
+          issue: Map.get(running_entry, :issue),
+          workspace: Map.get(running_entry, :workspace_path),
+          worker_host: Map.get(running_entry, :worker_host),
+          reason: "#{backend} backend exceeded the #{timeout_ms}ms no-progress window with green CI",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      Logger.warning("Stalled ci-wait issue requires PR readiness: identifier=#{identifier} elapsed_ms=#{elapsed_ms}")
+      %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :stalled_draft_alerts, MapSet.put(alerted, {identifier, head_sha}))}
+    end
   end
 
   defp handoff_cached_ci_pass(state, issue, result) do
     issue_key = issue.id || issue.identifier
 
     ReviewHandoff.transition_stalled(state, issue, result, fn ->
-      Aiur.Orchestrator.TicketTransition.write_state(
+      TicketTransition.write_state(
         to_string(issue_key),
         "human-review",
         Transition.expected_state_opts(issue)
