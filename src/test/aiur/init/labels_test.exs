@@ -117,7 +117,9 @@ defmodule Aiur.Init.LabelsTest do
     assert "agent:queued" in created
     assert Enum.all?(~w(priority:1 priority:2 priority:3), &(&1 in created))
     assert Aiur.GitHub.Labels.describe("agent:queued") != "queued"
-    assert Enum.all?(~w(priority:1 priority:2 priority:3), &(Aiur.GitHub.Labels.describe(&1) != ""))
+    assert Aiur.GitHub.Labels.describe("priority:1") == "build priority 1 (1 is highest)"
+    assert Aiur.GitHub.Labels.describe("priority:2") == "build priority 2 (1 is highest)"
+    assert Aiur.GitHub.Labels.describe("priority:3") == "build priority 3 (1 is highest)"
 
     assert :ok = InitLabels.setup_labels(io(parent, answers), deps, tracker, [])
     refute_received {:create_called, _labels}
