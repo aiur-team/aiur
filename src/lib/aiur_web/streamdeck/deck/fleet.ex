@@ -6,7 +6,7 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
 
   @categories [
     {:active, "Active", ["active", :unknown]},
-    {:command, "Needs command", ["command"]},
+    {:command, "Needs command", ["command", "native_question"]},
     {:error, "Error / retrying", ["error", "retrying"]},
     {:ci_wait, "Waiting for CI", ["ci_wait"]},
     {:usage_limited, "Usage limited", ["usage_limited"]},
