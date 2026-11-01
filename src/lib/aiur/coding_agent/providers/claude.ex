@@ -24,6 +24,8 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       default_command: "aiur-claude",
       model_catalog: &ModelCatalog.extract_claude/1,
       install_hint: "install it with: npm install -g aiur-claude",
+      # Below this, the toolchain check holds dispatch to this backend (#7443).
+      minimum_version: Aiur.Claude.CodingAgent.Handshake.minimum_version(),
       # app-server stdio; OperatorDelivery serializes turns; CodingAgent exposes dynamic tools.
       delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
       hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},

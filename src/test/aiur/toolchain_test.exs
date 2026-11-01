@@ -61,6 +61,14 @@ defmodule Aiur.ToolchainTest do
 
   defp attentions, do: Enum.filter(AlertFeed.list(needs_attention: true), &(&1["topic"] == Toolchain.alert_name()))
 
+  test "aiur-claude carries the handshake's minimum and the launcher is never auto-updated" do
+    tools = Map.new(Toolchain.tools(), &{&1.name, &1})
+
+    assert tools["aiur-claude"].minimum == Aiur.Claude.CodingAgent.Handshake.minimum_version()
+    assert tools["aiur-claude"].backends == ["claude"]
+    refute tools["aiur"].auto_update?
+  end
+
   describe "probing a fake PATH" do
     test "an old install, a current install and an npm link are told apart", %{root: root, path: path} do
       npm_install!(root, "aiur-claude", "aiur-claude", "1.1.0")

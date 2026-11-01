@@ -21,7 +21,6 @@ defmodule Aiur.Toolchain do
   require Logger
 
   alias Aiur.{AlertFeed, CodingAgent, Config, Signal}
-  alias Aiur.Claude.CodingAgent.Handshake
   alias Aiur.Toolchain.Probe
 
   @alert "system.toolchain.below_minimum"
@@ -52,7 +51,7 @@ defmodule Aiur.Toolchain do
   @spec tools() :: [map()]
   def tools do
     [
-      %{name: "aiur-claude", exe: executable("claude"), package: "aiur-claude", backends: ["claude"], minimum: Handshake.minimum_version(), auto_update?: true},
+      %{name: "aiur-claude", exe: executable("claude"), package: "aiur-claude", backends: ["claude"], minimum: get_in(CodingAgent.backends(), ["claude", :minimum_version]), auto_update?: true},
       %{name: "claude", exe: executable("claude-repl"), package: "@anthropic-ai/claude-code", backends: ["claude-repl"], minimum: nil, auto_update?: true},
       %{name: "codex", exe: executable("codex"), package: "@openai/codex", backends: ["codex"], minimum: nil, auto_update?: true},
       # Replacing the launcher under a live daemon is a restart, not an update.
