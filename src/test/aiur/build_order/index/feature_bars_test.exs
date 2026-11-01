@@ -14,12 +14,12 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
 
   defp parts(rows, opts \\ []) do
     registry = %{features: Map.new(Keyword.get(opts, :registry, []), fn {slug, label} -> {slug, %{label: label}} end), owners: Keyword.get(opts, :owners, %{})}
-    %{history: {:ok, %{rows: rows}}, features: {:ok, registry}, settings: {:ok, %{build_order: %{feature_order: Keyword.get(opts, :order, [])}}}}
+    %{history: {:ok, %{rows: rows}}, features: {:ok, registry}, settings: {:ok, %{build_order: %{feature_order: Keyword.get(opts, :order, [])}}}, labels: Keyword.get(opts, :labels)}
   end
 
-  test "labelled tickets form a feature; merged counts merged PRs and PR-less completions, closed-unmerged leave the total" do
+  test "labelled tickets form a named feature; merged counts merged PRs and PR-less completions" do
     rows = %{
-      1 => closed(["feature:mp-e2"], :completed, merged_at: ago(1), pr_number: 50),
+      1 => closed(["feature:mp-e2 (Feature collection: MP-E2 Commands)"], :completed, merged_at: ago(1), pr_number: 50),
       2 => closed(["feature:mp-e2"], :completed, merged_at: :none, pr_number: :none),
       3 => closed(["feature:mp-e2"], :completed, merged_at: :none, pr_number: 51),
       4 => closed(["feature:mp-e2"], :not_planned),
@@ -27,7 +27,8 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
       6 => open(["feature:Bad Slug"])
     }
 
-    assert FeatureBars.compute(parts(rows), @now) == [%{key: "mp-e2", label: "mp-e2", merged: 2, total: 3}]
+    labels = {:ok, %{"42" => %{label_descriptions: %{"feature:mp-e2" => "Feature collection: MP-E2 Commands"}}}, @now}
+    assert FeatureBars.compute(parts(rows, labels: labels), @now) == [%{key: "mp-e2", label: "MP-E2 Commands", merged: 2, total: 3}]
   end
 
   test "registry members and labels join under one slug; registry label wins and empty features are hidden" do
@@ -37,12 +38,12 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
     assert FeatureBars.compute(parts, @now) == [%{key: "bo-7", label: "BO: Seven", merged: 1, total: 2}]
   end
 
-  test "a label-only feature shows while recently active and drops out once long finished" do
+  test "a finished label-only feature remains after 30 days" do
     recent = %{1 => closed(["feature:newsletter"], :completed, merged_at: ago(1))}
     stale = %{1 => closed(["feature:newsletter"], :completed, merged_at: ago(60), closed_at: ago(60))}
 
     assert [%{key: "newsletter", merged: 1, total: 1}] = FeatureBars.compute(parts(recent), @now)
-    assert FeatureBars.compute(parts(stale), @now) == []
+    assert [%{key: "newsletter", label: "newsletter", merged: 1, total: 1}] = FeatureBars.compute(parts(stale), @now)
   end
 
   test "configured goal order comes first, then features by their oldest ticket" do

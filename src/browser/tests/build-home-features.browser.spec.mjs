@@ -68,10 +68,10 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   // pag and khala are registry features in the fixture; the rest come only from feature:<slug> labels.
   const bars = [
     { key: 'pag', label: 'Events pagination', merged: 9, total: 13 },
-    { key: 'mp-e2', label: 'mp-e2', merged: 0, total: 4 },
-    { key: 'newsletter', label: 'newsletter', merged: 6, total: 6 },
-    { key: 'mp-e3', label: 'mp-e3', merged: 14, total: 23 },
-    { key: 'streamdeck-redesign', label: 'streamdeck-redesign', merged: 25, total: 30 },
+    { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
+    { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 },
+    { key: 'mp-e3', label: 'MP-E3', merged: 14, total: 23 },
+    { key: 'streamdeck-redesign', label: 'Stream Deck Redesign', merged: 25, total: 30 },
     { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
     { key: 'mp-n1', label: 'mp-n1', merged: 1, total: 10 }
   ]
@@ -84,6 +84,9 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   await expect(rows).toHaveCount(7)
   expect(await rows.evaluateAll(els => els.map(el => [...el.children].map(child => child.className)))).toEqual(bars.map(b => ['fp-name', b.merged === b.total ? 'fp-bar done' : 'fp-bar', 'fp-count']))
   expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual(bars.map(b => `${b.label}${b.merged}/${b.total}`))
+  const visibleNames = await rows.locator('.fp-name').allTextContents()
+  expect(new Set(visibleNames).size).toBe(visibleNames.length)
+  expect(visibleNames).not.toContain('mp-e2')
   await expect(rows.first().locator('.fp-bar i')).toHaveAttribute('style', /width:69\.23/)
   await expect(rows.nth(1).locator('.fp-bar i')).toHaveAttribute('style', 'width:0%')
   await expect(page.locator('.fp-head h1')).toHaveText(/ - build progress$/)
@@ -113,7 +116,11 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
 
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
-  expect(await rows.evaluateAll(els => els.filter(el => el.getBoundingClientRect().bottom <= innerHeight).length)).toBeGreaterThanOrEqual(6)
+  expect(await rows.evaluateAll(els => {
+    const nav = document.querySelector('.sidenav')
+    const usableBottom = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+    return els.filter(el => el.getBoundingClientRect().bottom <= usableBottom).length
+  })).toBeGreaterThanOrEqual(6)
   await page.locator('.fp-row[data-feature="pag"]').press('Enter')
   await expect(page).toHaveURL(/feature=pag/)
 })

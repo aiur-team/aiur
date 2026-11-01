@@ -1,7 +1,9 @@
 defmodule Aiur.Tracker.IssueTracker do
   @moduledoc "Issue-tracker reads, writes and locally delivered ticket evidence."
 
-  @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
+  @type open_issue_label_map :: %{
+          String.t() => %{optional(:labels) => [String.t()], optional(:updated_at) => DateTime.t() | nil, optional(:label_descriptions) => %{optional(String.t()) => String.t()}}
+        }
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
 
   @type ticket_pull_request_result :: Aiur.Tracker.ticket_pull_request_result()

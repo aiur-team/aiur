@@ -37,6 +37,7 @@ defmodule Aiur.BuildOrder.History.BackfillQueryTest do
     assert event.fields.blocked_by == [%{owner: "other-org", repository: "lib", number: 5}]
     assert event.fields.parent == %{owner: "acme", repository: "widgets", number: 1}
     assert event.fields.node_id == "I_7"
+    assert "feature:home (Feature collection: Home)" in event.fields.labels
     assert event.fields.updated_at == ~U[2026-10-08 10:00:00Z]
     assert event.fields.last_closed_at == ~U[2026-10-08 10:00:00Z]
     assert event.fields.merged_at == ~U[2026-10-08 10:00:00Z]

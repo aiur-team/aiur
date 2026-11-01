@@ -13,7 +13,7 @@ defmodule Aiur.BuildOrder.History.BackfillQuery do
           nodes {
             id number title state stateReason createdAt updatedAt closedAt
             parent { number repository { name owner { login } } }
-            labels(first: 100) { totalCount nodes { name } }
+            labels(first: 100) { totalCount nodes { name description } }
             blockedBy(first: 100) { totalCount pageInfo { hasNextPage endCursor }
               nodes { number repository { name owner { login } } } }
             timelineItems(first: 100, itemTypes: [LABELED_EVENT, UNLABELED_EVENT,
@@ -123,6 +123,12 @@ defmodule Aiur.BuildOrder.History.BackfillQuery do
 
   defp timeline_item(type, %{"label" => %{"name" => label}} = node, at, prefix, facts) when type in ["LabeledEvent", "UnlabeledEvent"] and is_binary(label) do
     if String.starts_with?(label, "feature:") or label == prefix <> ":in-progress" do
+      label =
+        case get_in(node, ["label", "description"]) do
+          description when is_binary(description) and description != "" -> label <> " (" <> description <> ")"
+          _ -> label
+        end
+
       event = %{label: label, action: if(type == "LabeledEvent", do: :labeled, else: :unlabeled), at: at, actor: get_in(node, ["actor", "login"]) || :unknown}
       {:ok, %{facts | labels: facts.labels ++ [event]}}
     else

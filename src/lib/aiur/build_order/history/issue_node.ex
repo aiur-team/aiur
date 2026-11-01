@@ -71,7 +71,15 @@ defmodule Aiur.BuildOrder.History.IssueNode do
   end
 
   defp labels(%{"nodes" => nodes, "totalCount" => count}) when is_list(nodes) and is_integer(count) and count >= 0 do
-    names = Enum.map(nodes, fn node -> if is_map(node), do: node["name"] end)
+    names =
+      Enum.map(nodes, fn node ->
+        if is_map(node) do
+          name = node["name"]
+          description = node["description"]
+          if is_binary(name) and is_binary(description) and description != "" and String.starts_with?(name, "feature:"), do: name <> " (" <> description <> ")", else: name
+        end
+      end)
+
     if Enum.all?(names, &is_binary/1), do: {:ok, names, count == length(nodes)}, else: {:error, :invalid_labels}
   end
 

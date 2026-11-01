@@ -111,17 +111,19 @@ selection is kept in the `list` link parameter; `tickets` is the default and
 omitted.
 
 The Features list has one row per feature: its name, a progress bar, and
-merged/total tickets. A feature is every registry feature plus every
-`feature:<slug>` label with open work or a ticket closed in the last 30 days.
+merged/total tickets. A feature is every registry feature and every
+`feature:<slug>` label found in history. Finished features remain in the list.
+
 A ticket counts as merged when it closed with a merged PR, or closed as done
 with no PR. Tickets closed without merging are left out of the total. A
-finished feature's bar is green, and a partly done feature's bar is blue. The
-amber **All features** row sums every row. The rows follow goal order
-([`feature_order`](../reference/configuration-build-order.md)); **Sort** can
-switch to most done or most left, and the choice is kept in the `fsort` link
-parameter. The feature filter shows the same merged percentage. If history is
-unavailable, the list says so rather than showing zero. Selecting a registry
-feature's row opens that feature's focus in Tickets view.
+finished feature's bar is green; a partly done one is blue. The amber **All
+features** row sums every row.
+
+Rows follow goal order ([`feature_order`](../reference/configuration-build-order.md)).
+**Sort** can switch to most done or most left, with the choice kept in the
+`fsort` link parameter. The feature filter shows the same merged percentage.
+If history is unavailable, the list says so rather than showing zero. Selecting
+a registry feature's row opens its focus in Tickets view.
 
 Epics counts matching general epics, including feature-owned tickets, so totals
 overlap. Sort is remaining, then name; age is shown. Footer counts unmatched

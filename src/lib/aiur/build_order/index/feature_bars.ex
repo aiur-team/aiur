@@ -10,8 +10,6 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
   """
   alias Aiur.BuildOrder.Features.FeatureData
 
-  @recent_ms 30 * 86_400_000
-
   @spec compute(map(), integer()) :: [map()] | nil
   def compute(parts, now) do
     case parts[:history] do
@@ -21,7 +19,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
 
         rows
         |> members(registry)
-        |> Enum.map(fn {slug, numbers} -> bar(slug, Enum.map(numbers, &Map.get(rows, &1)), registry, now) end)
+        |> Enum.map(fn {slug, numbers} -> bar(slug, Enum.map(numbers, &Map.get(rows, &1)), registry, parts[:labels]) end)
         |> Enum.reject(&is_nil/1)
         |> Enum.sort_by(fn bar -> {Enum.find_index(order, &(&1 == bar.key)) || length(order), bar.since || now, bar.key} end)
         |> Enum.map(&Map.delete(&1, :since))
@@ -39,22 +37,22 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
 
   defp members(rows, registry) do
     owned = Enum.map(registry.owners, fn {number, owner} -> {owner.feature, number} end)
-    labelled = for {number, %{labels: labels}} <- rows, is_list(labels), "feature:" <> slug <- labels, FeatureData.slug?(slug), do: {slug, number}
+    labelled = for {number, %{labels: labels}} <- rows, is_list(labels), label <- labels, slug <- [label_slug(label)], FeatureData.slug?(slug), do: {slug, number}
 
     (owned ++ labelled)
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
     |> Map.new(fn {slug, numbers} -> {slug, Enum.uniq(numbers)} end)
   end
 
-  defp bar(slug, rows, registry, now) do
+  defp bar(slug, rows, registry, label_snapshot) do
     counted = Enum.reject(rows, &closed_unmerged?/1)
     total = length(counted)
     registered = registry.features[slug]
 
-    if total > 0 and (registered != nil or Enum.any?(rows, &current?(&1, now))) do
+    if total > 0 do
       %{
         key: slug,
-        label: if(registered, do: registered.label, else: slug),
+        label: if(registered, do: registered.label, else: label_name(slug, rows, label_snapshot)),
         merged: Enum.count(counted, &merged?/1),
         total: total,
         since: rows |> Enum.map(&created_ms/1) |> Enum.reject(&is_nil/1) |> Enum.min(fn -> nil end)
@@ -72,10 +70,33 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
   defp unmerged_pr?(%{pr_number: number, merged_at: :none}) when is_integer(number), do: true
   defp unmerged_pr?(_row), do: false
 
-  # A label-only feature appears while it has open work or closed a ticket in the last 30 days.
-  defp current?(%{lifecycle: %{state: :closed}, closed_at: %DateTime{} = at}, now), do: now - DateTime.to_unix(at, :millisecond) <= @recent_ms
-  defp current?(%{lifecycle: %{state: :closed}}, _now), do: false
-  defp current?(row, _now), do: is_map(row)
+  defp label_name(slug, rows, label_snapshot) do
+    current_description = current_label_description(slug, label_snapshot)
+    labels = Enum.flat_map(rows, &Map.get(&1, :labels, []))
+    current_description || Enum.find_value(labels, slug, fn label -> if label_slug(label) == slug, do: label_name(label) end)
+  end
+
+  defp current_label_description(slug, {:ok, issues, _observed_at}) do
+    description = issues |> Map.values() |> Enum.find_value(fn issue -> get_in(issue, [:label_descriptions, "feature:" <> slug]) end)
+    display_description(description)
+  end
+
+  defp current_label_description(_slug, _snapshot), do: nil
+  defp display_description("Feature collection: " <> rest), do: rest
+  defp display_description(value) when is_binary(value) and value != "", do: value
+  defp display_description(_value), do: nil
+
+  defp label_slug("feature:" <> rest), do: rest |> String.split([" (", " — "], parts: 2) |> hd()
+  defp label_slug(_label), do: nil
+
+  defp label_name("feature:" <> rest) do
+    case String.split(rest, " (", parts: 2) do
+      [_slug, description] -> String.replace_suffix(description, ")", "") |> String.replace_prefix("Feature collection: ", "")
+      _ -> nil
+    end
+  end
+
+  defp label_name(_label), do: nil
 
   defp created_ms(%{created_at: %DateTime{} = at}), do: DateTime.to_unix(at, :millisecond)
   defp created_ms(_row), do: nil
