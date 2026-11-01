@@ -177,7 +177,7 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   defp ramp(effective, previous, pressure, target, limit) do
     resume = EnvelopeResume.level(previous, target)
     fast? = is_integer(resume) and (effective < resume or (not Map.get(previous, :sustained_decrease?, false) and is_nil(previous.last_decrease_ms) and pressure < target / 2))
-    ceiling = if is_integer(resume) and effective < resume, do: min(resume, limit), else: limit
+    ceiling = if is_integer(resume) and effective < resume, do: min(max(resume, effective + Config.load_ramp_step()), limit), else: limit
     next = if fast?, do: min(max(effective + Config.load_ramp_step(), min(effective * 2, effective + 3)), ceiling), else: min(effective + Config.load_ramp_step(), limit)
     {next, if(next == limit, do: nil, else: previous.last_decrease_ms)}
   end
