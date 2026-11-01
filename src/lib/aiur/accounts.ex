@@ -409,16 +409,9 @@ defmodule Aiur.Accounts do
   defp write_entry({harness, name}, entry) do
     entries = normalize_registry(registry())
 
-    entries = preserve_legacy_entry(entries, harness, name)
+    entries = Map.delete(entries, name)
 
     write_registry(Map.put(entries, registry_key(harness, name), entry))
-  end
-
-  defp preserve_legacy_entry(entries, harness, name) do
-    case Map.pop(entries, registry_key(harness, name)) do
-      {nil, _entries} -> entries
-      {old, rest} -> Map.put(rest, name, Map.put(old, "harness", harness))
-    end
   end
 
   defp registry_key(harness, name), do: harness <> ":" <> name

@@ -181,6 +181,35 @@ defmodule Aiur.AccountsTest do
     assert Map.has_key?(entries, "claude:new")
   end
 
+  test "re-registering a Claude account replaces its prefixed entry", %{home: home} do
+    path = Path.join(home, ".aiur/machine")
+    old_dir = Path.join(home, "profiles/old")
+    new_dir = Path.join(home, "profiles/new")
+    File.mkdir_p!(old_dir)
+    File.mkdir_p!(new_dir)
+
+    assert :ok = Accounts.register("claude", "second", old_dir)
+    assert :ok = Accounts.register("claude", "second", new_dir)
+
+    assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
+    assert Map.keys(entries) == ["claude:second"]
+    assert [%{profile_dir: ^new_dir}] = Accounts.list("claude") |> Enum.filter(&(&1.name == "second"))
+  end
+
+  test "registering a Claude account migrates its legacy bare entry", %{home: home} do
+    path = Path.join(home, ".aiur/machine")
+    legacy_dir = Path.join(home, "profiles/legacy")
+    new_dir = Path.join(home, "profiles/new")
+    File.mkdir_p!(new_dir)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(%{"accounts" => %{"second" => %{"harness" => "claude", "profile_dir" => legacy_dir}}}))
+
+    assert :ok = Accounts.register("claude", "second", new_dir)
+
+    assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
+    assert Map.keys(entries) == ["claude:second"]
+  end
+
   test "profile purge refuses adopted paths outside the account root", %{home: home} do
     adopted = Path.join(home, "adopted-claude")
     File.mkdir_p!(adopted)
