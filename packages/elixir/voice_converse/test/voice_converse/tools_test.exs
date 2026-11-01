@@ -1,7 +1,17 @@
 defmodule VoiceConverse.ToolsTest do
   use ExUnit.Case, async: false
 
-  alias VoiceConverse.{Briefing, Config, Drafts, Events, SessionRegistry, TranscriptStore}
+  defmacrop receive_barrier(pattern) do
+    quote do
+      receive do
+        unquote(pattern) = message -> message
+      after
+        5_000 -> flunk("timed out waiting for a voice-converse message")
+      end
+    end
+  end
+
+  alias VoiceConverse.{Briefing, Config, Drafts, Events, SessionRegistry, Tools, TranscriptStore}
   alias VoiceConverse.Testing.{FakeCommandSource, FakeProvider, StaticCredentials}
 
   setup do
@@ -65,6 +75,151 @@ defmodule VoiceConverse.ToolsTest do
     :ok = FakeProvider.emit(provider, tool_call("not_a_tool"))
 
     assert_receive {:fake_provider, :tool_result, "call-1", %{text: "Unknown tool.", is_error: true}}
+  end
+
+  test "host tools are exposed, called, redacted and recorded", %{root: root, name: name} do
+    target = %{id: "target", observer: self()}
+
+    id =
+      start!(root, name, target,
+        host_tools: FakeHostTools,
+        redactor: fn _ -> "[redacted]" end,
+        fake: [open_observer: self()]
+      )
+
+    provider = provider(name, id)
+
+    assert {:fake_provider, :open_spec, %{tools: tools}} =
+             receive_barrier({:fake_provider, :open_spec, %{tools: _tools}})
+
+    assert Enum.find(tools, &(&1.name == "budget_estimate")) == %{
+             name: "budget_estimate",
+             description: "Estimate a budget.",
+             parameters: %{
+               "type" => "object",
+               "properties" => %{"amount" => %{"type" => "number"}},
+               "required" => ["amount"]
+             }
+           }
+
+    :ok =
+      FakeProvider.emit(
+        provider,
+        tool_call("budget_estimate", %{"amount" => 50, "token" => "Bearer host-param-secret"})
+      )
+
+    assert {:host_tool_call, "budget_estimate", %{"amount" => 50, "token" => "Bearer host-param-secret"}} =
+             receive_barrier({:host_tool_call, "budget_estimate", _params})
+
+    assert {:fake_provider, :tool_result, "call-1", %{text: "[redacted]", is_error: false}} =
+             receive_barrier({:fake_provider, :tool_result, "call-1", _result})
+
+    :ok = FakeProvider.emit(provider, %Events.ToolCall{call_id: "built-in", name: "get_status", params: %{}})
+
+    assert {:fake_provider, :tool_result, "built-in", %{is_error: false}} =
+             receive_barrier({:fake_provider, :tool_result, "built-in", _result})
+
+    assert {:ok, records, _meta} = TranscriptStore.read(root, id)
+
+    assert Enum.any?(records, fn record ->
+             record["type"] == "tool_result" and record["call_id"] == "call-1" and
+               record["name"] == "budget_estimate" and record["is_error"] == false and
+               record["summary"] == "[redacted]"
+           end)
+
+    assert Enum.any?(records, fn record ->
+             record["type"] == "tool_call" and record["call_id"] == "call-1" and
+               record["name"] == "budget_estimate" and record["params"]["token"] == "[redacted]"
+           end)
+
+    refute inspect(records) =~ "host-param-secret"
+  end
+
+  test "host tool collision is rejected before provider start", %{root: root, name: name} do
+    {:ok, config} = config(root, name, host_tools: FakeHostTools)
+    start_supervised!(VoiceConverse.child_spec(config))
+    assert {:error, :host_tool_name_conflict} = VoiceConverse.start_session(name, %{id: "collision"}, client: self())
+  end
+
+  test "invalid host tool specs are rejected separately from name conflicts", %{root: root, name: name} do
+    {:ok, config} = config(root, name, host_tools: FakeHostTools)
+    start_supervised!(VoiceConverse.child_spec(config))
+    assert {:error, :invalid_host_tools} = VoiceConverse.start_session(name, %{id: "invalid"}, client: self())
+  end
+
+  test "host tool timeout returns an error result", %{root: root, name: name} do
+    id = start!(root, name, %{id: "slow"}, host_tools: FakeHostTools)
+    provider = provider(name, id)
+
+    :ok = FakeProvider.emit(provider, tool_call("budget_estimate"))
+
+    assert {:fake_provider, :tool_result, "call-1", %{text: "Host tool unavailable.", is_error: true}} =
+             receive_barrier({:fake_provider, :tool_result, "call-1", _result})
+  end
+
+  test "host tool exit returns an error result", %{root: root, name: name} do
+    id = start!(root, name, %{id: "exit"}, host_tools: FakeHostTools)
+    provider = provider(name, id)
+
+    :ok = FakeProvider.emit(provider, tool_call("budget_estimate"))
+
+    assert {:fake_provider, :tool_result, "call-1", %{text: "Host tool unavailable.", is_error: true}} =
+             receive_barrier({:fake_provider, :tool_result, "call-1", _result})
+  end
+
+  test "session reuses the host tool catalog resolved at startup", %{root: root, name: name} do
+    counter = start_supervised!({Agent, fn -> 0 end})
+    target = %{id: "changing", observer: self(), specs_counter: counter}
+
+    id =
+      start!(root, name, target,
+        host_tools: FakeHostTools,
+        redactor: fn text -> text end,
+        fake: [open_observer: self()]
+      )
+
+    provider = provider(name, id)
+
+    assert {:fake_provider, :open_spec, %{tools: tools}} =
+             receive_barrier({:fake_provider, :open_spec, %{tools: _tools}})
+
+    assert Enum.any?(tools, &(&1.name == "budget_estimate"))
+    assert :host_tool_specs_loaded = receive_barrier(:host_tool_specs_loaded)
+    assert Agent.get(counter, & &1) == 1
+
+    :ok = FakeProvider.emit(provider, tool_call("budget_estimate"))
+
+    assert {:fake_provider, :tool_result, "call-1", %{text: "Bearer host-secret", is_error: false}} =
+             receive_barrier({:fake_provider, :tool_result, "call-1", _result})
+
+    assert Agent.get(counter, & &1) == 1
+  end
+
+  test "allowed_tools excludes host tools from specs and dispatch", %{root: root, name: name} do
+    target = %{id: "target", observer: self()}
+    {:ok, unrestricted} = config(root, name, host_tools: FakeHostTools)
+    assert Enum.any?(Tools.specs(unrestricted, target), &(&1.name == "budget_estimate"))
+
+    id =
+      start!(root, name, target,
+        host_tools: FakeHostTools,
+        allowed_tools: ["get_status"],
+        fake: [open_observer: self()]
+      )
+
+    provider = provider(name, id)
+
+    assert {:fake_provider, :open_spec, %{tools: tools}} =
+             receive_barrier({:fake_provider, :open_spec, %{tools: _tools}})
+
+    refute Enum.any?(tools, &(&1.name == "budget_estimate"))
+
+    :ok = FakeProvider.emit(provider, tool_call("budget_estimate"))
+
+    assert {:fake_provider, :tool_result, "call-1", %{is_error: true}} =
+             receive_barrier({:fake_provider, :tool_result, "call-1", _result})
+
+    refute_received {:host_tool_call, "budget_estimate", _params}
   end
 
   test "host allowlist refuses instruction tools before creating a draft", %{root: root, name: name} do
@@ -207,19 +362,7 @@ defmodule VoiceConverse.ToolsTest do
   end
 
   defp start!(root, name, target, opts \\ []) do
-    {:ok, config} =
-      Config.new(
-        name: name,
-        transcript_root: root,
-        credentials: StaticCredentials,
-        briefing_source: ToolBriefingSource,
-        command_source: Keyword.get(opts, :command_source),
-        provider: {FakeProvider, []},
-        allowed_tools: Keyword.get(opts, :allowed_tools),
-        llm: "test-model",
-        cloud_disclosure_accepted: true,
-        redactor: Keyword.get(opts, :redactor, &VoiceConverse.Redact.redact/1)
-      )
+    {:ok, config} = config(root, name, opts)
 
     start_supervised!(VoiceConverse.child_spec(config))
 
@@ -241,6 +384,22 @@ defmodule VoiceConverse.ToolsTest do
     id
   end
 
+  defp config(root, name, opts) do
+    Config.new(
+      name: name,
+      transcript_root: root,
+      credentials: StaticCredentials,
+      briefing_source: ToolBriefingSource,
+      command_source: Keyword.get(opts, :command_source),
+      host_tools: Keyword.get(opts, :host_tools),
+      provider: {FakeProvider, []},
+      allowed_tools: Keyword.get(opts, :allowed_tools),
+      llm: "test-model",
+      cloud_disclosure_accepted: true,
+      redactor: Keyword.get(opts, :redactor, &VoiceConverse.Redact.redact/1)
+    )
+  end
+
   defp provider(name, id) do
     {:ok, session} = SessionRegistry.lookup(name, id)
     :sys.get_state(session).provider_ref
@@ -252,6 +411,59 @@ defmodule VoiceConverse.ToolsTest do
   end
 
   defp tool_call(name, params \\ %{}), do: %Events.ToolCall{call_id: "call-1", name: name, params: params}
+end
+
+defmodule FakeHostTools do
+  @behaviour VoiceConverse.Ports.HostTools
+
+  @impl true
+  def specs(%{id: "collision"}) do
+    {:ok, [%{name: "get_status", description: "Collision", params: %{"type" => "object"}}]}
+  end
+
+  def specs(%{id: "invalid"}) do
+    {:ok, [%{name: "budget_estimate", description: "Missing params"}]}
+  end
+
+  def specs(%{id: "changing", specs_counter: counter} = target) do
+    case Agent.get_and_update(counter, fn count -> {count, count + 1} end) do
+      0 ->
+        if observer = target[:observer], do: send(observer, :host_tool_specs_loaded)
+        {:ok, [budget_spec()]}
+
+      _later_call ->
+        {:error, :unavailable}
+    end
+  end
+
+  def specs(_target) do
+    {:ok, [budget_spec()]}
+  end
+
+  @impl true
+  def call("budget_estimate", %{id: "slow"}, _params) do
+    Process.sleep(500)
+    {:ok, "too late"}
+  end
+
+  def call("budget_estimate", %{id: "exit"}, _params), do: exit(:boom)
+
+  def call(name, target, params) do
+    if observer = target[:observer], do: send(observer, {:host_tool_call, name, params})
+    {:ok, "Bearer host-secret"}
+  end
+
+  defp budget_spec do
+    %{
+      name: "budget_estimate",
+      description: "Estimate a budget.",
+      params: %{
+        "type" => "object",
+        "properties" => %{"amount" => %{"type" => "number"}},
+        "required" => ["amount"]
+      }
+    }
+  end
 end
 
 defmodule ToolBriefingSource do

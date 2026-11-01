@@ -4,7 +4,7 @@ defmodule Aiur.VoiceConverse.Host.Config do
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.VoiceConversationProviders
   alias Aiur.VoiceConversation.Provider
-  alias Aiur.VoiceConverse.Host.{AgentChannel, BriefingSource, CommandSource, Credentials}
+  alias Aiur.VoiceConverse.Host.{AgentChannel, BriefingSource, CommandSource, Credentials, Roles}
 
   @limit_keys [:max_session_seconds, :idle_timeout_seconds, :daily_minutes_cap, :context_token_budget]
 
@@ -37,6 +37,8 @@ defmodule Aiur.VoiceConverse.Host.Config do
       transcript_root: transcript_root,
       llm: settings.llm,
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
+      roles: Roles.defaults(),
+      glossary: [Roles.glossary()],
       roles_dir: settings.roles_dir,
       redactor: &redact/1,
       limits: Map.take(settings, @limit_keys),

@@ -11,7 +11,7 @@ defmodule VoiceConverse.Config do
   """
 
   @required [:transcript_root, :credentials, :briefing_source]
-  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer]
+  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer, :host_tools]
 
   @default_limits %{
     max_session_seconds: 1_800,
@@ -35,6 +35,7 @@ defmodule VoiceConverse.Config do
             allowed_tools: nil,
             ask_requires_confirm: :first_in_session,
             command_source: nil,
+            host_tools: nil,
             token_issuer: nil,
             transcript_root: nil,
             cleanup_root: nil,
@@ -88,6 +89,7 @@ defmodule VoiceConverse.Config do
          :ok <- check_roots(config),
          :ok <- check_session_settings(config),
          :ok <- check_limits(config),
+         :ok <- check_roles(config),
          :ok <- VoiceConverse.ProviderConfig.validate(config.providers),
          :ok <- VoiceConverse.ProviderPolicy.validate(config.privacy) do
       {:ok, config}
@@ -103,6 +105,29 @@ defmodule VoiceConverse.Config do
     if is_nil(llm) or String.trim(llm) == "",
       do: {:error, %{field: :llm, reason: :missing}},
       else: check_disclosure(config)
+  end
+
+  @doc "Loads and validates target-specific host tools, including reserved built-in names."
+  @spec validate_host_tools(t(), term()) :: {:ok, [map()]} | {:error, %{field: :host_tools, reason: atom()}}
+  def validate_host_tools(%__MODULE__{host_tools: nil}, _target), do: {:ok, []}
+
+  def validate_host_tools(%__MODULE__{host_tools: source}, target) do
+    case VoiceConverse.Ports.call_port(source, :specs, [target], :host_tool) do
+      {:ok, tools} when is_list(tools) ->
+        cond do
+          not Enum.all?(tools, &valid_host_tool?/1) ->
+            {:error, %{field: :host_tools, reason: :invalid_spec}}
+
+          Enum.any?(tools, &reserved_host_tool?/1) ->
+            {:error, %{field: :host_tools, reason: :reserved_name}}
+
+          true ->
+            {:ok, tools}
+        end
+
+      _ ->
+        {:error, %{field: :host_tools, reason: :unavailable}}
+    end
   end
 
   defp check_disclosure(%__MODULE__{cloud_disclosure_accepted: nil}),
@@ -157,6 +182,14 @@ defmodule VoiceConverse.Config do
   defp valid_port?(nil), do: true
   defp valid_port?(mod), do: is_atom(mod)
 
+  defp valid_host_tool?(%{name: name, description: description, params: params}),
+    do: is_binary(name) and name != "" and is_binary(description) and is_map(params)
+
+  defp valid_host_tool?(_tool), do: false
+
+  defp reserved_host_tool?(%{name: name}),
+    do: VoiceConverse.Ports.HostTools.reserved_name?(name)
+
   defp check_roots(%{transcript: :none, transcript_root: nil, cleanup_root: nil, provider_cleanup: false}), do: :ok
 
   defp check_roots(%{
@@ -208,6 +241,22 @@ defmodule VoiceConverse.Config do
   end
 
   defp check_session_settings(_config), do: :ok
+
+  defp check_roles(config) do
+    cond do
+      not is_list(config.roles) ->
+        {:error, %{field: :roles, reason: :invalid}}
+
+      not (is_nil(config.roles_dir) or is_binary(config.roles_dir)) ->
+        {:error, %{field: :roles_dir, reason: :invalid}}
+
+      not (is_list(config.glossary) and Enum.all?(config.glossary, &is_binary/1)) ->
+        {:error, %{field: :glossary, reason: :invalid}}
+
+      true ->
+        :ok
+    end
+  end
 
   defp check_limits(%{limits: limits}) do
     case Enum.find(limits, fn {key, value} -> not valid_limit?(key, value) end) do
