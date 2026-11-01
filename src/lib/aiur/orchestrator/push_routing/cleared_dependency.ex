@@ -249,9 +249,9 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
   # and nothing else still blocks it".
   defp cleared_dependency_match(%State{} = state, blockee, blocker)
        when is_map(blockee) and is_map(blocker) do
-    with blockee_identifier when is_binary(blockee_identifier) <- Map.get(blockee, :identifier),
+    with entry when is_map(entry) <- running_blockee_entry(state, blockee),
+         blockee_identifier when is_binary(blockee_identifier) <- Map.get(entry, :identifier),
          blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier(blocker),
-         entry when is_map(entry) <- State.find_running_by_identifier(state.running, blockee_identifier),
          {:ok, _generation} <- matching_blocker_pause_generation(entry, blocker_identifier),
          false <- cleared_dependency_resume_pending?(entry),
          false <- other_open_blockers?(blockee, blocker_identifier) do
@@ -262,6 +262,16 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
   end
 
   defp cleared_dependency_match(%State{}, _blockee, _blocker), do: :error
+
+  defp running_blockee_entry(%State{} = state, blockee) do
+    issue_id = Map.get(blockee, :id)
+    issue_identifier = Map.get(blockee, :identifier)
+
+    Map.get(state.running, to_string(issue_id || "")) ||
+      if(is_binary(issue_identifier), do: State.find_running_by_identifier(state.running, issue_identifier))
+  end
+
+  defp running_blockee_entry(_state, _blockee), do: nil
 
   defp other_open_blockers?(blockee, cleared_blocker_identifier) do
     blockee

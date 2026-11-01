@@ -80,7 +80,8 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
 
     assert State.reserved_paused_running_count(state.running) == 1
     assert Slots.available_slots(state) == 1
-    assert {:reply, {:error, :reservation_not_held}, ^state} = Parking.park_agent_call(state, ci_wait.identifier)
+    assert {:reply, {:ok, :pending}, parked} = Parking.park_agent_call(state, ci_wait.identifier)
+    assert parked.running[ci_wait.id].issue.parked
   end
 
   test "resuming a non-reserving ci-wait pause counts other reserved pauses against the cap" do
@@ -131,8 +132,8 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
     assert PauseResume.resume_paused_issue_preflight(state, entry) == :ok
   end
 
-  test "parks only pause reasons that currently hold fleet capacity" do
-    for reason <- [:operator, :agent_pause_request, :input_required] do
+  test "every paused reason can be parked to release its claim" do
+    for reason <- [:operator, :agent_pause_request, :input_required, :blocker_dependency, :ci_wait, :max_agent_duration, :usage_limit_exhausted] do
       issue = %Issue{id: "#{reason}", identifier: "repo##{reason}", state: "in-progress", paused: true}
       entry = %{issue: issue, identifier: issue.identifier, pid: nil, ref: nil, paused_reason: reason, control: %{status: :paused}}
 
@@ -141,14 +142,5 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
       assert_receive {:memory_tracker_add_label, issue_id, "agent:parked"}, 1000
       assert issue_id == issue.identifier
     end
-
-    issue = %Issue{id: "duration", identifier: "repo#duration", state: "in-progress", paused: true}
-    entry = %{issue: issue, identifier: issue.identifier, pid: nil, ref: nil, paused_reason: :max_agent_duration, control: %{status: :paused}}
-
-    assert {:reply, {:error, :reservation_not_held}, unchanged} =
-             Parking.park_agent_call(%State{running: %{issue.id => entry}}, issue.identifier)
-
-    assert unchanged.running[issue.id] == entry
-    refute_received {:memory_tracker_add_label, "duration", "agent:parked"}
   end
 end

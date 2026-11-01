@@ -161,7 +161,7 @@ defmodule Aiur.ControlCLI.Reasons do
         park_marker_clear_failed: "park marker could not be cleared",
         agent_not_paused: "agent is not paused; pause it first",
         resume_pending: "a resume is pending for this agent",
-        reservation_not_held: "its pause (CI wait, dependency, duration or usage limit) does not hold a slot",
+        reservation_not_held: "this operation requires an active fleet reservation",
         worker_not_running: "the agent is registered as working but its worker process is gone; the next poll reconciles it, then resume",
         worker_not_started: "the agent's replacement worker is still starting; retry once it is running",
         waiting_for_dependencies: "ticket is waiting for dependencies",

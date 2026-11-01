@@ -115,9 +115,6 @@ defmodule Aiur.Orchestrator.Parking do
       match?(%{action: :resume}, ControlLifecycle.current_pending(state.control_lifecycle, issue.id)) ->
         {:reply, {:error, :resume_pending}, state}
 
-      State.reserved_paused_running_count(%{issue.id => entry}) == 0 ->
-        {:reply, {:error, :reservation_not_held}, state}
-
       Issue.parked?(issue) ->
         {:reply, {:ok, :already_parked}, park_paused_entry(state, issue)}
 
