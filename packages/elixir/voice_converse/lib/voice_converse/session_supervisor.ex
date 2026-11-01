@@ -25,12 +25,28 @@ defmodule VoiceConverse.SessionSupervisor do
       config == :missing or is_nil(Process.whereis(name(instance))) ->
         {:error, :not_installed}
 
+      resumed = resume(instance, target, opts) ->
+        resumed
+
       count(instance) >= config.limits.max_sessions ->
         {:error, :session_limit}
 
       true ->
         start_child(instance, config, target, opts)
     end
+  end
+
+  defp resume(instance, target, opts) do
+    with key when not is_nil(key) <- Keyword.get(opts, :client_session_key),
+         {:ok, pid, id, ^target} <- VoiceConverse.SessionRegistry.client(instance, key),
+         client when is_pid(client) <- Keyword.get(opts, :client),
+         :ok <- Session.subscribe(pid, client) do
+      {:ok, id}
+    else
+      _ -> nil
+    end
+  catch
+    :exit, _ -> nil
   end
 
   @impl true

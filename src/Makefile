@@ -69,7 +69,7 @@ coverage-report:
 
 dialyzer:
 	bash ../scripts/retry-mix-deps-get.sh $(MIX) deps.get
-	$(MIX) dialyzer --format short
+	$(MIX) dialyzer --force-check --format short
 
 e2e:
 	AIUR_RUN_LIVE_E2E=1 $(MIX) test test/aiur/live_e2e_test.exs

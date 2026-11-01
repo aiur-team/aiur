@@ -115,6 +115,14 @@ Read per-feature progress from Build home at `/?view=list&list=features`.
   real).
 - A table on every wake is exactly the noise this section exists to remove.
 
+Whenever you post this table, also run
+`"$AIUR_CMD" executor-emit executor.progress --payload '{"done":N,"total":M}'`,
+replacing `N` and `M` with observed completed and total ticket counts for the
+same run scope. Allow only `done`, `total`, and optional `blocked` counts in
+the payload; include no prose. The event provides a navigation aid to the
+progress table, not a report. If emission fails (including when no daemon is
+running), continue the run without it; keep the table's existing cadence.
+
 ### Returning is a transition
 
 When a human message arrives after an unattended stretch, lead with a compact
