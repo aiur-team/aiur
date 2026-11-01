@@ -43,7 +43,10 @@
   ],
   "owns": {
     "config": [],
-    "env": [],
+    "env": [
+      "AIUR_MCP_SOCKET_DIR",
+      "XDG_RUNTIME_DIR"
+    ],
     "state": [
       "agent_compaction_state_dir"
     ],
@@ -62,7 +65,10 @@
     "concepts/ticket-lifecycle.md"
   ],
   "config": [],
-  "env": [],
+  "env": [
+    "AIUR_MCP_SOCKET_DIR",
+    "XDG_RUNTIME_DIR"
+  ],
   "capabilities": [],
   "goal": "run-agents"
 }

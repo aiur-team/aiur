@@ -8,7 +8,6 @@ defmodule Aiur.AgentRunner do
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BeforeRun, BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain, WorkspaceGuard}
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
-  alias Aiur.CodingAgent.RouteFailure
   alias Aiur.Config.HostedAuthPolicy
   alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -80,6 +79,8 @@ defmodule Aiur.AgentRunner do
   @doc false
   @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
   def handle_run_error(issue, reason) do
+    Aiur.AgentRunner.McpSocketFailure.exit_if_launch_failure(reason)
+
     cond do
       match?({:ok, _refusal}, HostedAuthPolicy.refusal(reason)) ->
         {:ok, refusal} = HostedAuthPolicy.refusal(reason)
@@ -98,26 +99,12 @@ defmodule Aiur.AgentRunner do
         Logger.warning("Agent run deferred by local GitHub budget hold for #{issue_context(issue)}: #{inspect(reason)}; retrying after the hold resets")
         exit(reason)
 
-      mcp_socket_launch_failure?(reason) ->
-        exit({:mcp_socket_launch_failed, mcp_socket_failure_details(reason)})
-
       true ->
         message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
         Logger.error(message)
         raise RuntimeError, message
     end
   end
-
-  defp mcp_socket_launch_failure?({:error, {:turn_failed, details}}) when is_map(details),
-    do: RouteFailure.mcp_socket_path_error?(details)
-
-  defp mcp_socket_launch_failure?({:turn_failed, details}) when is_map(details),
-    do: RouteFailure.mcp_socket_path_error?(details)
-
-  defp mcp_socket_launch_failure?(_reason), do: false
-
-  defp mcp_socket_failure_details({:error, {:turn_failed, details}}), do: details
-  defp mcp_socket_failure_details({:turn_failed, details}), do: details
 
   # Matched by shape: agent-runner may not depend on the github or orchestration
   # components; `RetryEngine.AgentDown` does the full hold classification.
