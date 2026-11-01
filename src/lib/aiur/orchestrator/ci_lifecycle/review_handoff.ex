@@ -60,6 +60,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.ReviewHandoff do
   @spec apply_transition(State.t(), term(), {struct(), map()}) :: State.t()
   def apply_transition(current, :ok, {issue, result}), do: apply_transition_success(current, issue, result)
 
+  def apply_transition(current, {:error, reason}, {issue, _result}) do
+    Logger.warning("CI review handoff skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+    current
+  end
+
   defp apply_transition_success(current, issue, result) do
     review_issue = %{issue | state: @human_review_state}
 

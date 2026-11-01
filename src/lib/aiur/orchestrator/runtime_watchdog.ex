@@ -320,9 +320,9 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   defp ci_wait_result(state, %Issue{} = issue), do: get_in(state.ci_lifecycle, [:poll_cache, CiLifecycle.ci_target_for_issue(issue)])
   defp ci_wait_result(_state, _issue), do: nil
 
-  defp ready_ci_result_for_worker?(%{decision: :passed, draft?: false, pr_number: number, head_sha: sha}, running_entry)
-       when is_integer(number) and is_binary(sha) and sha != "",
-       do: worker_head_matches?(running_entry, sha)
+  defp ready_ci_result_for_worker?(%{decision: :passed} = result, running_entry) do
+    ReviewHandoff.ready_unreviewed_head?(result) and worker_head_matches?(running_entry, result.head_sha)
+  end
 
   defp ready_ci_result_for_worker?(_result, _running_entry), do: false
 
