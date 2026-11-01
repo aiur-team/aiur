@@ -338,7 +338,7 @@ defmodule Aiur.Init.AgentsAndClosingTest do
       dir: dir,
       target: target
     } do
-      required = Labels.label_set("agent", ["claude"])
+      required = Labels.label_set("agent", ["claude"]) ++ ["priority:1", "priority:2", "priority:3"]
 
       deps =
         deps(self(), dir, target, %{
@@ -375,7 +375,7 @@ defmodule Aiur.Init.AgentsAndClosingTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
-      assert Enum.sort(labels_created()) == Enum.sort(["agent:rework", "complexity:5"])
+      assert Enum.sort(labels_created()) == Enum.sort(["agent:rework", "complexity:5", "priority:1", "priority:2", "priority:3"])
 
       # Required labels (agent:rework missing) re-prompt the Enter gate; complexity
       # (complexity:5 missing) re-asks its confirm. Fully-present stages do not.
@@ -414,7 +414,15 @@ defmodule Aiur.Init.AgentsAndClosingTest do
 
       created = labels_created()
       assert created != []
-      required = ["flake"] ++ Labels.state_labels("agent") ++ Labels.reason_modifier_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+
+      required =
+        ["flake"] ++
+          Labels.state_labels("agent") ++
+          Labels.queued_labels("agent") ++
+          Labels.reason_modifier_labels("agent") ++
+          Labels.required_rate_limit_fallback_labels("agent") ++
+          ~w(priority:1 priority:2 priority:3)
+
       assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
       assert "model:claude" in created
@@ -434,7 +442,7 @@ defmodule Aiur.Init.AgentsAndClosingTest do
     end
 
     test "the missing-label gh fallback lists only the missing labels", %{dir: dir, target: target} do
-      required = Labels.label_set("agent", ["claude"])
+      required = Labels.label_set("agent", ["claude"]) ++ ["priority:1", "priority:2", "priority:3"]
       present = required -- ["complexity:5"]
 
       deps =
@@ -448,6 +456,7 @@ defmodule Aiur.Init.AgentsAndClosingTest do
 
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/gh label create 'complexity:5'/))
+      refute Enum.any?(log, &(&1 =~ ~r/gh label create 'priority:1'/))
       refute Enum.any?(log, &(&1 =~ ~r/gh label create 'agent:todo'/))
     end
   end

@@ -215,6 +215,7 @@ defmodule Aiur.GitHub.Labels do
   @spec describe(String.t()) :: String.t()
   def describe("flake"), do: "known intermittent test failure"
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
+  def describe("priority:" <> n), do: "build priority #{n} (1 is highest)"
   def describe("model:remote"), do: "Supports claude remote-control"
 
   def describe("model:" <> spec = label) do

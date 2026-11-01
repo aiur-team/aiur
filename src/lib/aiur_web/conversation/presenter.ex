@@ -52,6 +52,8 @@ defmodule AiurWeb.Conversation.Presenter do
   defp timestamp(_), do: nil
 
   @spec label(atom()) :: String.t()
+  def label(:not_opted_in), do: "Executor not attached"
+  def label(:awaiting_hook), do: "Waiting for the Executor session"
   def label(:loading), do: "Loading conversation…"
   def label(:not_found), do: "Conversation not found"
   def label(:unavailable), do: "Conversation unavailable"

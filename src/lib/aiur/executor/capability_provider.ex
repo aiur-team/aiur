@@ -16,7 +16,7 @@ defmodule Aiur.Executor.CapabilityProvider do
 
     %{
       "executor.wakes" => if(lookup.(Aiur.ExecutorWakeInbox), do: %{state: :available}, else: %{state: :unavailable, reason: :not_running}),
-      "executor.conversation" => %{state: :unavailable, reason: :executor_not_managed}
+      "executor.conversation" => %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
     }
   end
 

@@ -260,3 +260,19 @@ entries beyond the 400 ms poll interval.
 
 If capture is busy with a large backfill or unavailable, `executor-session`
 retains the hook-derived binding and age and reports `transcript_rejection: "unknown"`.
+
+`executor-session --json` includes `transcript_format`: generation totals by record
+class (`mapped`, `ignored_known`, `unknown`) and version (`tested`, `untested`,
+`absent`), the last untested version, and an alert latch.
+
+Counters checkpoint
+with the transcript cursor (at most every two seconds while polling), survive
+restarts, and reset on a new attachment generation. Older bindings have null
+diagnostics until capture starts.
+
+Tested versions are 2.1.287–2.1.299. After at
+least 200 records, more than 2% unknown records or any untested version emits
+one `system.executor.transcript.drift` attention per generation.
+
+Missing versions
+alone do not alert. Diagnostics contain counts and version numbers, never content.

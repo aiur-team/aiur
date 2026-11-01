@@ -5,8 +5,8 @@ for file <- ~w(earlier_control scale unfiled_fixture fixture_source fixture_conv
 
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
-Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
+Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/streamdeck_build_fixture.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/streamdeck_transcript.ex", __DIR__)

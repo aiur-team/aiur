@@ -31,7 +31,7 @@ minimum versions; an empty map imposes no minimum. Clients below a listed minimu
 must block writes and request an update.
 
 Cache by `(instance_id, boot_id, revision)`. `boot_id` changes on daemon restart;
-`revision` increases within that boot when capabilities change and is not persisted.
+`revision` increases within that boot when capabilities or Executor presence change and is not persisted.
 Refetch on reconnect, a new boot, `system.capabilities.changed`, and before a write.
 
 `observed_at` records computation time. `age_ms` is computed at read time using the

@@ -61,3 +61,13 @@ runs:
         path: src/browser/.artifacts-run-*/
         if-no-files-found: ignore
         include-hidden-files: true
+    - name: Upload browser failure traces
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: browser-failure-traces-${{ github.run_id }}-${{ inputs.shard }}
+        # Traces may contain committed fixture credentials and cookies; browser specs must never use real credentials.
+        path: src/browser/.artifacts-run-*/**/trace.zip
+        if-no-files-found: ignore
+        include-hidden-files: true
+        retention-days: 14

@@ -12,6 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // #7319 local two-case run: 21.1s, plus fixture/startup margin; refresh from the first CI shard log.
+  'test:executor-view': 60,
   // Local run (2026-10-30): one focused tab-preservation case, rounded up with fixture startup.
   'test:browser-suite -- build-home-running-ticket-timeline': 12,
   // Governed local run (2026-10-30): expanded 11-case suite took 31.029s including fixture startup; refresh from CI.

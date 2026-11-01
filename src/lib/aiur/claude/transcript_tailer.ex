@@ -41,6 +41,7 @@ defmodule Aiur.Claude.TranscriptTailer do
           | {:on_turn_end, (turn_end_signal() -> any())}
           | {:turn_id, String.t() | nil}
           | {:from, :start | :end | non_neg_integer() | {:offset, non_neg_integer()}}
+          | {:on_record, (map() -> any())}
           | {:on_offset, (non_neg_integer() -> any())}
           | {:on_status, (:readable | :unreadable | :reset -> any())}
           | {:backfill_until, non_neg_integer()}
@@ -85,6 +86,7 @@ defmodule Aiur.Claude.TranscriptTailer do
     state = %{
       path: path,
       offset: offset,
+      on_record: Keyword.get(opts, :on_record, fn _ -> :ok end),
       on_offset: Keyword.get(opts, :on_offset, fn _ -> :ok end),
       on_status: Keyword.get(opts, :on_status, fn _ -> :ok end),
       on_message: on_message,
@@ -218,6 +220,7 @@ defmodule Aiur.Claude.TranscriptTailer do
 
       case decode(line) do
         {:ok, record} ->
+          state.on_record.(record)
           events = Transcript.extract_disk_record(record, state.turn_id)
           Enum.each(events, callback)
           maybe_fire_turn_end(state, record)

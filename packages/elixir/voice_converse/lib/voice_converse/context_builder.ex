@@ -28,7 +28,7 @@ defmodule VoiceConverse.ContextBuilder do
     gaps = command_gaps
     gap_block = if gaps == [], do: nil, else: block("gaps", descriptor, now, "Gaps: " <> Enum.join(gaps, "; "))
     remaining = remaining_budget(config, [identity, commands, gap_block])
-    {briefing, briefing_gaps} = briefing_block(config, target, descriptor, now, remaining)
+    {briefing, briefing_gaps} = briefing_block(config, target, descriptor, now, remaining, opts)
     gaps = gaps ++ briefing_gaps
     gap_block = if gaps == [], do: nil, else: block("gaps", descriptor, now, "Gaps: " <> Enum.join(gaps, "; "))
 
@@ -37,8 +37,11 @@ defmodule VoiceConverse.ContextBuilder do
     %{text: text, blocks: blocks, gaps: gaps, tokens: estimate(text)}
   end
 
-  defp briefing_block(config, target, descriptor, now, budget) do
-    case Ports.call_port(config.briefing_source, :brief, [target], :brief) do
+  defp briefing_block(config, target, descriptor, now, budget, opts) do
+    result =
+      Keyword.get_lazy(opts, :briefing, fn -> Ports.call_port(config.briefing_source, :brief, [target], :brief) end)
+
+    case result do
       {:ok, %Briefing{} = briefing} ->
         {text, _meta} = Briefing.render(briefing, budget: min(config.limits.briefing_token_budget, budget), now: now)
         {block("briefing", descriptor, now, text), []}

@@ -312,7 +312,7 @@ order does not change the result.
 | `accounting.meters` | The meter projection is running and at least one provider API or management key is configured. Credential presence does not prove upstream connectivity. |
 | `conversations.read` | HTTP is bound. A missing live conversation process is degraded because disk history remains readable. |
 | `executor.wakes` | The Executor wake inbox is running. |
-| `executor.conversation` | Reports `executor_not_managed` until managed conversation support is installed. |
+| `executor.conversation` | Links to `/executor`; reports `executor_not_managed` until managed conversation support is installed. |
 
 Unavailable dependencies carry their capability IDs in `depends_on`. When settings
 cannot be read, writable-gated operations report `unknown/unknown` rather than assume

@@ -9,7 +9,7 @@ defmodule Aiur.Executor.TranscriptIngest do
   use GenServer
   alias Aiur.Claude.TranscriptTailer
   alias Aiur.Conversation.{Ingest, Ref}
-  alias Aiur.Executor.{Session, SessionIngest, TranscriptPath}
+  alias Aiur.Executor.{Session, SessionIngest, TranscriptFormat, TranscriptPath}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -27,6 +27,7 @@ defmodule Aiur.Executor.TranscriptIngest do
 
     state = %{
       capture: nil,
+      emit_alert: Keyword.get(opts, :emit_alert, &Aiur.Alerts.emit_system/2),
       error: nil,
       error_binding: nil,
       home: Keyword.get(opts, :home),
@@ -78,6 +79,11 @@ defmodule Aiur.Executor.TranscriptIngest do
 
   def handle_info({:executor_hook, _event}, state), do: {:noreply, step(state)}
 
+  def handle_info({token, {:record, record}}, %{capture: %{token: token} = capture} = state) do
+    format = capture.format |> TranscriptFormat.count(record) |> TranscriptFormat.alert(capture.binding, state.emit_alert)
+    {:noreply, %{state | capture: %{capture | format: format}}}
+  end
+
   def handle_info({token, {:event, event}}, %{capture: %{token: token} = capture} = state) do
     {:noreply, %{state | capture: %{capture | pending: [event | capture.pending]}}}
   end
@@ -113,7 +119,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     checkpoint(capture, true)
     if capture.gap, do: Ingest.gap(Ref.executor(), :source_unreadable, capture.gap, DateTime.utc_now())
     Ingest.end_session(Ref.executor(), capture.binding.provider_session_id, capture.reason)
-    {:noreply, start_capture(%{state | capture: nil})}
+    {:noreply, carry_format(start_capture(%{state | capture: nil}), capture)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -219,6 +225,7 @@ defmodule Aiur.Executor.TranscriptIngest do
       path: binding.transcript_path,
       from: {:offset, offset},
       interval_ms: nil,
+      on_record: fn record -> send(owner, {token, {:record, record}}) end,
       on_message: fn event -> send(owner, {token, {:event, event}}) end,
       on_offset: fn cursor -> send(owner, {token, {:offset, cursor}}) end,
       on_status: fn status -> send(owner, {token, {:status, status}}) end
@@ -244,6 +251,7 @@ defmodule Aiur.Executor.TranscriptIngest do
       written_at: nil,
       gap: nil,
       pending: [],
+      format: Map.get(binding, :transcript_format) || TranscriptFormat.new(),
       closing: false,
       reason: nil,
       supervisor: state.supervisor,
@@ -253,6 +261,13 @@ defmodule Aiur.Executor.TranscriptIngest do
 
     %{state | capture: capture, error: nil, error_binding: nil}
   end
+
+  defp carry_format(%{capture: %{binding: binding} = next} = state, previous) do
+    same_generation? = Map.take(binding, [:binding_id, :generation]) == Map.take(previous.binding, [:binding_id, :generation])
+    if same_generation?, do: %{state | capture: %{next | format: previous.format}}, else: state
+  end
+
+  defp carry_format(state, _previous), do: state
 
   defp reconcile_detach do
     case Session.current() do
@@ -273,7 +288,7 @@ defmodule Aiur.Executor.TranscriptIngest do
       with :ok <- GenServer.call(capture.writer, :flush, :infinity),
            {:ok, binding} <- Session.current(),
            true <- identity(binding) == identity(capture.binding),
-           {:ok, _} <- Session.record_offset(capture.binding, capture.offset) do
+           {:ok, _} <- Session.record_checkpoint(capture.binding, capture.offset, capture.format) do
         %{capture | written_at: now}
       else
         _ -> capture

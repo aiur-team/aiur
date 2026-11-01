@@ -3,7 +3,7 @@ defmodule Aiur.VoiceConverse.Host.CommandSource do
   @behaviour VoiceConverse.Ports.CommandSource
 
   alias Aiur.Commands
-  alias Aiur.VoiceConverse.Host.Worker
+  alias Aiur.VoiceConverse.Host.{LiveContext, Worker}
 
   @impl true
   def open(target), do: open(target, [])
@@ -28,5 +28,9 @@ defmodule Aiur.VoiceConverse.Host.CommandSource do
   def answer(_target, _id, _choice, _idempotency_key), do: {:error, :unsupported}
 
   @impl true
-  def subscribe(_target, _pid), do: :unsupported
+  def subscribe(target, pid), do: subscribe(target, pid, [])
+
+  @doc false
+  @spec subscribe(term(), pid(), keyword()) :: :ok | :unsupported
+  def subscribe(target, pid, opts), do: LiveContext.subscribe(target, pid, :commands, opts)
 end

@@ -3,6 +3,7 @@ defmodule AiurWeb.Conversation.EventComponents do
   use Phoenix.Component
   alias Aiur.Conversation.JumpPoints
 
+  attr(:path, :string, default: nil)
   attr(:streams, :map, required: true)
   attr(:id, :string, required: true)
   attr(:visible_kinds, :list, required: true)
@@ -21,7 +22,7 @@ defmodule AiurWeb.Conversation.EventComponents do
       <button :if={@event_has_newer} id="events-latest" phx-click="latest_events">Latest events</button>
       <ul id="event-list" phx-update="stream">
         <li :for={{dom_id, anchor} <- @streams.events} id={dom_id} data-kind={anchor["kind"]} data-precision={anchor["precision"]}>
-          <.event_item anchor={anchor} conversation_id={@id} />
+          <.event_item anchor={anchor} conversation_id={@id} path={@path} />
         </li>
       </ul>
       <p :if={is_nil(@error)} class="events-empty">No events match these filters</p>
@@ -43,6 +44,7 @@ defmodule AiurWeb.Conversation.EventComponents do
     """
   end
 
+  attr(:path, :string, default: nil)
   attr(:anchor, :map, required: true)
   attr(:conversation_id, :string, required: true)
 
@@ -52,7 +54,7 @@ defmodule AiurWeb.Conversation.EventComponents do
 
     ~H"""
     <time>{@anchor["event"]["observed_at"]}</time>
-    <.link :if={is_integer(@anchor["pos"])} patch={"/conversations/#{@conversation_id}?pos=#{@anchor["pos"]}#{if @anchor["placement"] == "after", do: "&placement=after&event=#{@anchor["event"]["event_id"]}&kind=#{@anchor["kind"]}", else: ""}"}>
+    <.link :if={is_integer(@anchor["pos"])} patch={"#{@path || "/conversations/#{@conversation_id}"}?pos=#{@anchor["pos"]}#{if @anchor["placement"] == "after", do: "&placement=after&event=#{@anchor["event"]["event_id"]}&kind=#{@anchor["kind"]}", else: ""}"}>
       {@anchor["label"] || JumpPoints.label(@anchor["kind"], %{})}
     </.link>
     <span :if={is_nil(@anchor["pos"])}>{@anchor["label"] || JumpPoints.label(@anchor["kind"], %{})} — Not linked to a position</span>

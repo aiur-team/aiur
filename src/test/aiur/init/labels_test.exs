@@ -31,7 +31,17 @@ defmodule Aiur.Init.LabelsTest do
   end
 
   defp all_lifecycle_labels do
-    ["flake"] ++ Labels.state_labels("agent") ++ Labels.reason_modifier_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+    ["flake"] ++
+      Labels.state_labels("agent") ++
+      Labels.queued_labels("agent") ++ Labels.reason_modifier_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent") ++ ~w(priority:1 priority:2 priority:3)
+  end
+
+  defp collect_created_labels(acc \\ []) do
+    receive do
+      {:create_called, labels} -> collect_created_labels(acc ++ labels)
+    after
+      0 -> acc
+    end
   end
 
   test "all labels already present: prints created status, no create_labels call" do
@@ -85,6 +95,36 @@ defmodule Aiur.Init.LabelsTest do
     assert_received {:input_label, "Press Enter to create them"}
   end
 
+  test "required queue and priority labels are created once and described" do
+    parent = self()
+    existing = Agent.start_link(fn -> [] end) |> elem(1)
+
+    deps = %{
+      list_labels: fn _tracker -> {:ok, Agent.get(existing, & &1)} end,
+      discover_models: fn _backend -> {:error, :offline} end,
+      create_labels: fn _tracker, labels ->
+        send(parent, {:create_called, labels})
+        Agent.update(existing, &Enum.uniq(&1 ++ labels))
+        :ok
+      end
+    }
+
+    tracker = %{kind: "github", repo: "o/r"}
+    answers = %{confirm: %{"Create the complexity labels?" => false, "Create the model labels?" => false, "Create the effort labels?" => false}}
+
+    assert :ok = InitLabels.setup_labels(io(parent, answers), deps, tracker, [])
+    created = collect_created_labels()
+    assert "agent:queued" in created
+    assert Enum.all?(~w(priority:1 priority:2 priority:3), &(&1 in created))
+    assert Aiur.GitHub.Labels.describe("agent:queued") != "queued"
+    assert Aiur.GitHub.Labels.describe("priority:1") == "build priority 1 (1 is highest)"
+    assert Aiur.GitHub.Labels.describe("priority:2") == "build priority 2 (1 is highest)"
+    assert Aiur.GitHub.Labels.describe("priority:3") == "build priority 3 (1 is highest)"
+
+    assert :ok = InitLabels.setup_labels(io(parent, answers), deps, tracker, [])
+    refute_received {:create_called, _labels}
+  end
+
   test "codex-only setup provisions fallback labels with the configured prefix" do
     parent = self()
 
@@ -108,7 +148,7 @@ defmodule Aiur.Init.LabelsTest do
     tracker = %{kind: "github", repo: "o/r", label_prefix: "team"}
     assert :ok = InitLabels.setup_labels(io(parent, answers), deps, tracker, ["codex"])
 
-    assert_received {:create_called, required}
+    required = collect_created_labels()
     assert "team:todo" in required
     assert "team:rate-limit-fallback" in required
     assert "model:claude" in required
@@ -132,7 +172,7 @@ defmodule Aiur.Init.LabelsTest do
 
     assert :ok = InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"], {"claude", "codex"})
 
-    assert_received {:create_called, required}
+    required = collect_created_labels()
     assert "model:codex" in required
     refute "model:claude-repl" in required
   end
@@ -178,7 +218,7 @@ defmodule Aiur.Init.LabelsTest do
     }
 
     InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
-    assert_received {:create_called, created}
+    created = collect_created_labels()
     assert Enum.all?(Labels.complexity_labels(), &(&1 in created))
   end
 
@@ -204,7 +244,7 @@ defmodule Aiur.Init.LabelsTest do
     }
 
     InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
-    assert_received {:create_called, created}
+    created = collect_created_labels()
     assert Enum.all?(Labels.effort_labels(), &(&1 in created))
   end
 
@@ -250,7 +290,7 @@ defmodule Aiur.Init.LabelsTest do
       assert :ok =
                InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      assert_received {:create_called, created}
+      created = collect_created_labels()
 
       # `model:claude` is already a required rate-limit-fallback label, so it is
       # offered but not re-created.
@@ -275,7 +315,7 @@ defmodule Aiur.Init.LabelsTest do
 
       InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      assert_received {:create_called, created}
+      created = collect_created_labels()
       refute "model:claude-opus-4-8" in created
       refute_received {:delete_called, _labels}
     end
@@ -295,7 +335,7 @@ defmodule Aiur.Init.LabelsTest do
       assert :ok =
                InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["codex"])
 
-      assert_received {:create_called, created}
+      created = collect_created_labels()
       assert "model:sol" in created
       refute Enum.any?(created, &(&1 =~ ~r/\d/))
     end

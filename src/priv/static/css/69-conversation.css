@@ -44,3 +44,6 @@
   .conversation-events { max-height: 20vh; }
   .conversation-scroll { height: 40vh; }
 }
+
+.executor-frame { padding: 16px; margin: 16px 0; border: 1px solid var(--aiur-color-line); background: var(--aiur-color-surface); overflow-wrap: anywhere; }
+.executor-frame h1 { color: var(--aiur-color-accent, var(--aiur-color-fg)); }

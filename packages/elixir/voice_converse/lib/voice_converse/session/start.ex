@@ -12,6 +12,7 @@ defmodule VoiceConverse.Session.Start do
          :ok <- Config.check_session_start(config),
          :ok <- target_alive?(config, target),
          {:ok, host_tool_specs} <- Config.validate_host_tools(config, target),
+         :ok <- VoiceConverse.SessionRegistry.register_client(config.name, opts, id, target),
          {:ok, descriptor} <- describe_target(config, target),
          {:ok, role} <- select_role(config, descriptor, opts),
          {:ok, provider, provider_opts} <- provider(config, opts),
@@ -36,6 +37,7 @@ defmodule VoiceConverse.Session.Start do
          provider: provider,
          provider_opts: provider_opts,
          context: context.text,
+         initial_briefing: context.initial_briefing,
          role: role,
          provider_ref: nil,
          provider_ids: MapSet.new(),
@@ -92,6 +94,7 @@ defmodule VoiceConverse.Session.Start do
     %{
       config
       | llm: Keyword.get(opts, :llm, config.llm),
+        allowed_tools: Keyword.get(opts, :allowed_tools, config.allowed_tools),
         providers:
           if(Keyword.has_key?(opts, :provider),
             do: %{config.providers | on_missing_credential: :refuse},
@@ -151,14 +154,15 @@ defmodule VoiceConverse.Session.Start do
   end
 
   defp build_context(config, target, store, now) do
-    context = ContextBuilder.build(config, target, now: now)
+    briefing = VoiceConverse.Ports.call_port(config.briefing_source, :brief, [target], :brief)
+    context = ContextBuilder.build(config, target, now: now, briefing: briefing)
 
     case Enum.reduce_while(context.blocks, :ok, fn block, :ok ->
            record = Map.merge(block, %{type: "context"})
            if TranscriptStore.append(store, record) == :ok, do: {:cont, :ok}, else: {:halt, :error}
          end) do
       :ok ->
-        {:ok, context}
+        {:ok, Map.put(context, :initial_briefing, briefing)}
 
       :error ->
         _ = TranscriptStore.close(store)

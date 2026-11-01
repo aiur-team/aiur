@@ -29,6 +29,23 @@ field, and appends to `revision[custom_response]`. Capture stops at the field's
 reviews the text, supplies a reason, and submits through `revise-decision`.
 Dictation does not submit a revision or bypass revision delivery guards.
 
+## Converse transport
+
+`voice:converse` on `/voice` requires a versioned join with `mode: "converse"`
+and `surface: "conversation_panel"`, targeting a running worker or the Executor.
+The target is validated by the same rules as its composer. Command targets
+remain outside this channel. `/voice/device` belongs to MP-E5-C8-T01/T02.
+
+The channel uses `VoiceConverse.Wire` for frame validation and
+`VoiceConverse.EventFrames` for session events. Phoenix event names preserve
+`assistant_text` and `audio`; their payloads retain the core `agent_text` and
+`agent_audio` type names. `audio` adds `data` alongside `data_b64`; errors add
+`reason_code` alongside `code`. `client_text` maps to a core `text` frame;
+`playback_state` maps to a core `state` frame in the client direction.
+`audio_done` marks session audio completion, not an inferred per-turn boundary.
+Reconnect keys include authentication generation, connection, target and client id.
+Only loss of the last subscriber starts the core's ten-second transport grace.
+
 ## Mic choice handoff
 
 `open-voice-conversation` carries `surface` and a JSON-encoded `target` from

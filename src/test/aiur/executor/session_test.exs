@@ -81,6 +81,8 @@ defmodule Aiur.Executor.SessionTest do
     assert {:error, :invalid_harness} = Session.attach(%{harness: "other"})
     assert {:error, :invalid_consumer_id} = Session.attach(%{harness: "claude", consumer_id: 1})
     assert {:error, :invalid_request} = Session.record_offset(binding.binding_id, -1)
+    assert {:error, :invalid_request} = Session.record_checkpoint(binding, -1, %{})
+    assert {:error, :invalid_request} = Session.record_checkpoint(binding, "1", %{})
     assert Session.rejected_counts()[:foreign_session] == 3
     assert {:ok, ^binding} = Session.current()
   end

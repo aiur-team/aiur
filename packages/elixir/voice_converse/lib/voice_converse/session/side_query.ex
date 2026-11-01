@@ -12,7 +12,7 @@ defmodule VoiceConverse.Session.SideQuery do
         do: "The agent's summary says: ",
         else: "Here is what the agent's notes say: "
 
-    state = Runtime.consult_context(state, prefix <> text)
+    state = state |> Runtime.consult_context(prefix <> text) |> VoiceConverse.LiveContext.announce(prefix <> text)
     %{state | replay_disclosed?: state.replay_disclosed? or mode == :replay}
   end
 
