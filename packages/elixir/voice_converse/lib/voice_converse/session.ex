@@ -63,6 +63,9 @@ defmodule VoiceConverse.Session do
   def handle_call({:unsubscribe, subscriber}, _from, state) when is_pid(subscriber),
     do: {:reply, :ok, remove_subscriber(state, subscriber)}
 
+  def handle_call(:refresh_briefing, from, state),
+    do: VoiceConverse.LiveContext.refresh_briefing(state, self(), from)
+
   def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
     do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
 

@@ -65,6 +65,14 @@ defmodule VoiceConverse do
 
   def playback_state(_, _, _), do: {:error, :invalid_payload}
 
+  @doc "Refreshes a live conversation's briefing and sends changed lines as context."
+  @spec refresh_briefing(module(), String.t()) :: :ok | {:error, :not_found | :unavailable}
+  def refresh_briefing(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
+      GenServer.call(pid, :refresh_briefing)
+    end
+  end
+
   @doc "Ends a live conversation with one stable end reason."
   @spec end_session(module(), String.t(), atom()) :: :ok | {:error, :not_found}
   def end_session(instance, conversation_id, reason \\ :user_end) do
@@ -162,7 +170,11 @@ defmodule VoiceConverse do
 
   defp transcript_children(%Config{transcript: :none}), do: []
 
-  defp transcript_children(%Config{transcript: :file, name: name, transcript_root: root}) do
+  defp transcript_children(%Config{
+         transcript: :file,
+         name: name,
+         transcript_root: root
+       }) do
     cleanup = Module.concat(name, ProviderCleanup)
 
     [
