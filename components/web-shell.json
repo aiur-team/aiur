@@ -11,6 +11,7 @@
     "src/lib/aiur_web/control_body_limit.ex",
     "src/lib/aiur_web/control_body_reader.ex",
     "src/lib/aiur_web/control_token_auth.ex",
+    "src/lib/aiur_web/api/memory_issue_controller.ex",
     "src/lib/aiur_web/controllers/*api*.ex",
     "src/lib/aiur_web/controllers/control_controller.ex",
     "src/lib/aiur_web/controllers/events_controller.ex",

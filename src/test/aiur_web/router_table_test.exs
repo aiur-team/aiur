@@ -49,6 +49,8 @@ defmodule AiurWeb.RouterTableTest do
     {:*, "/api/v1/decisions/:decision_id/*path", AiurWeb.DecisionApiController, :not_found, [:supervisor_auth], :debug},
     {:post, "/api/v1/control", AiurWeb.ControlController, :run, [:control_token, :require_writable], :debug},
     {:*, "/api/v1/control", AiurWeb.ControlController, :method_not_allowed, [:control_token, :require_writable], :debug},
+    {:post, "/api/v1/memory/issues", AiurWeb.Api.MemoryIssueController, :create, [:client_token_write, :api_write], :debug},
+    {:*, "/api/v1/memory/issues", AiurWeb.Api.MemoryIssueController, :method_not_allowed, [:client_token_write, :api_write], :debug},
     {:get, "/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/time-brush-hook.js", AiurWeb.StaticAssetController, :time_brush_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
