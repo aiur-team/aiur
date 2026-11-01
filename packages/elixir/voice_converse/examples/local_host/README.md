@@ -91,8 +91,7 @@ mix test --max-cases 4
 Tests launch the actual Bandit router and use the core JavaScript client over a
 real WebSocket. They inject fake provider events, prove the confirmation/outbox
 boundary, verify file updates/replies and transcript persistence, and measure
-fake session startup without recording (at most 300 ms). The separate
-latency guard excludes the transcript store’s host-wide `sync(1)` creation
-barrier; the WebSocket test keeps real transcript recording enabled. They use no microphone, paid provider,
+fake session startup with recording enabled (at most 300 ms). Transcript
+creation fsyncs the directory and its parents, without an external `sync` command. They use no microphone, paid provider,
 real API key, Claude Code, or Codex executable. The TypeScript client integration
 is pending its package in #5690; the JavaScript check does not substitute for it.

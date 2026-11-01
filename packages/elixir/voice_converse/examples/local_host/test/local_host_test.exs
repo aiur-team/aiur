@@ -146,7 +146,7 @@ defmodule LocalHostTest do
     assert Enum.any?(transcript, &(&1["type"] == "session_ended"))
   end
 
-  test "fake session without recording reaches listening within 300 ms and loads no host application",
+  test "fake session reaches listening within 300 ms and loads no host application",
        %{root: root} do
     previous_path = System.fetch_env!("PATH")
     System.put_env("PATH", root)
@@ -156,8 +156,6 @@ defmodule LocalHostTest do
     assert :code.which(Aiur.Application) == :non_existing
     refute Enum.any?(Application.loaded_applications(), fn {app, _, _} -> app == :aiur end)
     {:ok, config} = LocalHost.voice_config()
-    # Isolate the provider startup budget from the transcript store's host-wide sync(1).
-    config = %{config | transcript: :none, transcript_root: nil}
     start_supervised!(VoiceConverse.child_spec(config))
     start = System.monotonic_time(:millisecond)
     assert {:ok, id} = VoiceConverse.start_session(LocalHost.Voice, "local", client: self())
