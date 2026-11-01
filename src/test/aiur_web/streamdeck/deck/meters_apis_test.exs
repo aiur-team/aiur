@@ -35,6 +35,7 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
     assert svg =~ "core 79% left"
     assert svg =~ "gql 8% ⏸ held until 13:00"
     assert svg =~ ~s(width="142.2")
+    refute svg =~ " old"
     assert Enum.at(frame.strip, 1).svg =~ "codex 79% left"
     {_, _, scrolled} = FrameUpdates.frame(%Nav{view: :fleet, scroll: 999}, %{agents: []}, usage)
     assert Enum.at(scrolled.strip, 1) == Enum.at(frame.strip, 1)
@@ -59,27 +60,33 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
     assert svg =~ "core —"
     assert svg =~ "gql —"
     assert svg =~ "GitHub budget meter unavailable"
+    assert svg =~ "never"
     refute svg =~ "progress-fill"
     refute svg =~ "0%"
   end
 
-  test "observed ElevenLabs credits and expired GitHub windows retain Build semantics" do
+  test "observed ElevenLabs credits render while expired GitHub windows show a dash with their age" do
     elevenlabs = %{state: :observed, observed_at: I.now(), window: %{used_percent: 25, remaining: 750, reset_at: DateTime.add(I.now(), 3600)}}
     quota = I.quota(3950, 400)
     quota = %{quota | windows: Map.new(quota.windows, fn {name, window} -> {name, %{window | reset_at: DateTime.add(I.now(), -1)}} end)}
-    usage = read(%{github: {:ok, quota}, elevenlabs: elevenlabs})
-    assert [%{stale: true, lines: [_, %{hold_until: nil}]}, %{name: "ElevenLabs", lines: [credits]}] = usage["apis"]
+    usage = read(%{github: {:ok, quota}, elevenlabs: elevenlabs}, DateTime.add(I.now(), 840))
+    assert [%{stale: true, age_seconds: 840, lines: [core, %{hold_until: nil}]}, %{name: "ElevenLabs", lines: [credits]}] = usage["apis"]
+    assert core.remaining_percent == 79
     assert credits.remaining_percent == 75
     {_, _, frame} = FrameUpdates.frame(%Nav{view: :fleet}, %{agents: []}, usage)
     svg = Enum.at(frame.strip, 2).svg
     assert svg =~ "E credits 75% left"
-    assert svg =~ ~s(opacity="0.45")
+    assert svg =~ "core —"
+    assert svg =~ "gql —"
+    assert svg =~ "840s old"
+    refute svg =~ "core 79%"
+    refute svg =~ "gql 8%"
     refute svg =~ "held until"
   end
 
-  defp read(overrides) do
+  defp read(overrides, now \\ I.now()) do
     inputs = I.inputs(overrides)
     EndpointStubs.put(streamdeck_usage_load_fun: fn :streamdeck, _opts -> inputs end)
-    Meters.read(now: I.now())
+    Meters.read(now: now)
   end
 end

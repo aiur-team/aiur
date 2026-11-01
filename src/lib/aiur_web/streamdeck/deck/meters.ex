@@ -14,22 +14,24 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
   def read(opts \\ []) do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
     inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
-    block = Usage.block({:ok, :streamdeck}, inputs, Keyword.get(opts, :now, DateTime.utc_now()))
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    block = Usage.block({:ok, :streamdeck}, inputs, now)
 
     inputs.families
     |> Usage.order_families()
     |> Enum.zip(block.providers)
     |> Map.new(fn {family, row} -> {Atom.to_string(family), meter(family, row, inputs.accounts)} end)
-    |> Map.put("apis", Enum.map(block.apis, &api/1))
+    |> Map.put("apis", Enum.map(block.apis, &api(&1, DateTime.to_unix(now, :millisecond))))
   end
 
-  defp api(row) do
+  defp api(row, now_ms) do
     lines =
       Enum.map(row.lines, fn line ->
         %{tag: line.tag, remaining_percent: remaining(line, 0), reset_at: line.reset_at, hold_until: line.hold_until, tip: Enum.map_join(line.tip, " · ", &Enum.join(&1, ": "))}
       end)
 
-    %{name: row.name, lines: lines, stale: row.stale, observed_at: row.observed_at}
+    age = if is_integer(row.observed_at), do: max(div(now_ms - row.observed_at, 1000), 0)
+    %{name: row.name, lines: lines, stale: row.stale, observed_at: row.observed_at, age_seconds: age}
   end
 
   @spec detail(String.t(), keyword()) :: map()
