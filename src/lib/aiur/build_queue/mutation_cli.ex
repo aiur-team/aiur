@@ -6,7 +6,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   def run(opts) do
     case execute(opts) do
       {:ok, results} ->
-        Enum.each(results, fn {id, result} -> IO.puts("#{id}: #{message(result)}") end)
+        if Keyword.get(opts, :json, false), do: print_json(results), else: print_results(results)
 
         cond do
           Enum.any?(results, &match?({_, {:error, :outcome_unknown}}, &1)) -> 124
@@ -51,7 +51,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
   defp allowed_options(verb) do
     case verb do
-      :add -> [:ids, :queue, :after, :at, :build_order, :start_on, :rank]
+      :add -> [:ids, :queue, :after, :at, :build_order, :start_on, :rank, :json]
       :set -> [:queue, :start_on]
       :recover -> [:force]
       :clear -> [:remove_markers, :yes]
@@ -106,12 +106,30 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
     results =
       case result do
-        {:ok, refusals} -> [{"Build Order ##{root}", :ok} | Enum.map(refusals, fn {id, reason} -> {"##{id}", {:error, owning_queue(reason, id, opts)}} end)]
-        error -> [{"Build Order ##{root}", error}]
+        {:ok, refusals} ->
+          accepted = accepted_member_rows(root, opts)
+          refused = Enum.map(refusals, fn {id, reason} -> {"##{id}", {:error, owning_queue(reason, id, opts)}} end)
+          [{"Build Order ##{root}", :ok} | accepted ++ refused]
+
+        error ->
+          [{"Build Order ##{root}", error}]
       end
 
     {:ok, results}
   end
+
+  defp accepted_member_rows(root, opts) do
+    if Keyword.get(opts, :json, false) do
+      BuildQueue.show(server(opts)).queues
+      |> Enum.find(&(&1.root == root))
+      |> accepted_member_rows()
+    else
+      []
+    end
+  end
+
+  defp accepted_member_rows(%{items: items}), do: Enum.map(items, &{"##{&1.number}", :ok})
+  defp accepted_member_rows(_queue), do: []
 
   defp confirm(opts) do
     if opts[:verb] == :clear and opts[:yes] != true, do: {:error, :confirmation_required}, else: :ok
@@ -231,4 +249,23 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:ok, unobserved}) when is_list(unobserved), do: "released; no observation for ##{Enum.join(unobserved, ", #")}"
   defp message({:error, reason}) when is_atom(reason), do: reason |> Atom.to_string() |> String.replace("_", " ")
   defp message({:error, reason}), do: inspect(reason)
+
+  defp print_results(results), do: Enum.each(results, fn {id, result} -> IO.puts("#{id}: #{message(result)}") end)
+
+  defp print_json(results) do
+    rows = Enum.map(results, fn {id, result} -> %{id: id, status: status(result), outcome: outcome(result), message: message(result)} end)
+    IO.puts(Jason.encode!(Aiur.JSONSafe.normalize(%{schema_version: 1, command: "queue add", results: rows})))
+  end
+
+  defp status({:error, :outcome_unknown}), do: :unknown
+  defp status(result), do: if(successful?({nil, result}), do: :ok, else: :error)
+
+  defp outcome(:ok), do: :added
+  defp outcome({:ok, {:not_observed, _ids}}), do: :queued_pending
+  defp outcome({:error, {:already_queued, _queue}}), do: :already_queued
+  defp outcome({:error, :batch_aborted}), do: :batch_aborted
+  defp outcome({:error, :outcome_unknown}), do: :outcome_unknown
+  defp outcome({:error, reason}) when is_atom(reason), do: reason
+  defp outcome({:error, _reason}), do: :refused
+  defp outcome({:ok, _}), do: :added
 end
