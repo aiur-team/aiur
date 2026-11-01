@@ -2,7 +2,6 @@ defmodule VoiceConverse.Session do
   use GenServer, restart: :temporary
 
   alias VoiceConverse.{
-    ClientErrors,
     Events,
     Session.Runtime,
     Session.Start,
@@ -38,6 +37,7 @@ defmodule VoiceConverse.Session do
 
     case Start.state(config, target, id, opts) do
       {:ok, state} ->
+        state = VoiceConverse.LiveContext.attach(state)
         state = if client = Keyword.get(opts, :client), do: add_subscriber(state, client), else: state
         {:ok, state, {:continue, :open_provider}}
 
@@ -70,7 +70,7 @@ defmodule VoiceConverse.Session do
   def handle_call(:await_started, from, state), do: {:noreply, update_in(state.start_waiters, &[from | &1])}
 
   def handle_call({:end, reason}, _from, state) do
-    case begin_finish(state, valid_end_reason(reason)) do
+    case begin_finish(state, Runtime.end_reason(reason)) do
       {:done, state} -> {:stop, :normal, :ok, state}
       {:pending, state} -> {:reply, :ok, state}
     end
@@ -78,7 +78,9 @@ defmodule VoiceConverse.Session do
 
   @impl true
   def handle_info(:provider_ready, state),
-    do: {:noreply, state |> Runtime.flush_consult_context() |> transition(:listening)}
+    do:
+      {:noreply,
+       state |> Runtime.flush_consult_context() |> transition(:listening) |> VoiceConverse.LiveContext.ready()}
 
   def handle_info({:provider_opened, phase, result}, state), do: handle_provider_opened(phase, result, state)
 
@@ -133,7 +135,8 @@ defmodule VoiceConverse.Session do
     end
   end
 
-  def handle_info(message, state), do: VoiceConverse.Session.Consult.handle_info(message, state)
+  def handle_info({:live_target_gone, reason}, state), do: stop_on_timeout(state, reason)
+  def handle_info(message, state), do: VoiceConverse.LiveContext.handle_info(message, state)
   @impl true
   def terminate(reason, %{finished?: false} = state) when reason not in [:normal, :shutdown] do
     state = close_current_provider(state)
@@ -261,7 +264,7 @@ defmodule VoiceConverse.Session do
     case persist(state, record) do
       {:ok, state} ->
         broadcast(state, broadcast_event)
-        {result, state} = VoiceConverse.Tools.dispatch(state, event, &handle_tool/2)
+        {result, state} = VoiceConverse.Tools.dispatch(VoiceConverse.LiveContext.refresh(state), event, &handle_tool/2)
 
         result_record = %{
           type: "tool_result",
@@ -475,8 +478,4 @@ defmodule VoiceConverse.Session do
   defp provider_code(:provider_quota), do: :provider_quota
   defp provider_code(code) when code in [:provider_auth, :provider_unavailable, :privacy_preflight_failed], do: code
   defp provider_code(_), do: :provider_error
-
-  defp valid_end_reason(reason) do
-    if Enum.any?(ClientErrors.table(), &(&1.code == reason and :end_reason in &1.kinds)), do: reason, else: :unknown
-  end
 end

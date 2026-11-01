@@ -8,7 +8,7 @@ defmodule Aiur.VoiceConverse.Host.BriefingSource do
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
   alias Aiur.VoiceConversation.BriefingSource, as: Executor
-  alias Aiur.VoiceConverse.Host.{Conversation, Worker}
+  alias Aiur.VoiceConverse.Host.{Conversation, LiveContext, Worker}
   alias VoiceConverse.Briefing
 
   @impl true
@@ -44,7 +44,11 @@ defmodule Aiur.VoiceConverse.Host.BriefingSource do
   def sections(%Worker{}), do: [%{id: "conversation", description: "Recent worker conversation"}]
 
   @impl true
-  def subscribe(_target, _pid), do: :unsupported
+  def subscribe(target, pid), do: subscribe(target, pid, [])
+
+  @doc false
+  @spec subscribe(term(), pid(), keyword()) :: :ok | :unsupported
+  def subscribe(target, pid, opts), do: LiveContext.subscribe(target, pid, :briefing, opts)
 
   @impl true
   def alive?(target), do: alive?(target, [])
