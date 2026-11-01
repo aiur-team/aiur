@@ -49,6 +49,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur command request <question> --context-file PATH` | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | `aiur command request 'Ship?' --context-file release.md` |
 | `aiur command request <question> --recommend ID` | Moves the named supplied option first; omitted by default. | `aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes` |
 | `aiur command request <question> --short-summary TEXT` | Adds a concise Command title; omitted by default. | `aiur command request 'Ship?' --short-summary 'Beta release'` |
+| `aiur executor-attach --check [--json]` | Diagnose Executor attachment without changing it; exit 1 for fail or unknown. | `aiur executor-attach --check --json` |
 | `aiur executor-attach --harness claude` | Required: explicitly select claude or codex. | `aiur executor-attach --harness claude` |
 | `aiur executor-attach --harness claude --print-config` | Prints hooks instead of installing them; Codex always prints. | `aiur executor-attach --harness claude --print-config` |
 | `aiur executor-attach --harness claude --takeover` | Replaces a live binding; off by default. | `aiur executor-attach --harness claude --takeover` |
