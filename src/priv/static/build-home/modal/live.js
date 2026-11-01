@@ -5,11 +5,11 @@ import { MS, onModalClose } from './frame.js';
 import { appendEntries, trimmedBottom, requestTail } from './conversation.js';
 
 const STICK = 60;
-let V = null, life = null, live = false, detach = null;
+let V = null, life = null, live = false, detach = null, atBottom = true;
 export function disposeLive() {
   const off = detach; detach = null;
   life?.dispose(); life = null; V = null; live = false;
-  off?.();
+  off?.(); atBottom = true;
 }
 onReset(disposeLive); onModalClose(disposeLive);
 export function typingVisible(t, conversationLive, linkLive) {
@@ -34,7 +34,7 @@ export function appendLive(entries) {
   }
   if (fresh.length) {
     fresh.forEach(el => el.classList.add('in'));
-    if (stick) { log.scrollTop = log.scrollHeight; $('#cv-new').hidden = true; }
+    if (stick) { log.scrollTop = log.scrollHeight; atBottom = true; $('#cv-new').hidden = true; }
     else $('#cv-new').hidden = false;
   } else if (trimmedBottom() && entries.length) $('#cv-new').hidden = false;
   scheduleMap(); return fresh;
@@ -73,11 +73,30 @@ export function wireLive() {
   const log = $('#cv-log'), map = $('#cv-map'); if (!log || !map) return;
   life = createLife(); detach = ctx.life.cleanup(disposeLive);
   V = { log, map, mm: $('#cv-mm'), vw: $('#cv-vw'), tip: $('#cv-tip'), s: 1 };
+  atBottom = true;
+  const preservePosition = () => {
+    if (atBottom) log.scrollTop = log.scrollHeight;
+    scheduleMap();
+  };
+  // Fit the backdrop to the visual viewport so an iOS keyboard does not cover the feed or composer.
+  const vv = window.visualViewport, backdrop = log.closest('.tk-backdrop');
+  if (vv && backdrop) {
+    const fit = () => {
+      Object.assign(backdrop.style, { top: vv.offsetTop + 'px', bottom: 'auto', height: vv.height + 'px' });
+      backdrop.style.setProperty('--cv-vvh', vv.height + 'px');
+      preservePosition();
+    };
+    fit(); life.on(vv, 'resize', fit); life.on(vv, 'scroll', fit);
+    life.cleanup(() => { for (const p of ['top', 'bottom', 'height', '--cv-vvh']) backdrop.style.removeProperty(p); });
+  }
+  const composer = $('#cv-in');
+  if (composer && typeof ResizeObserver !== 'undefined') life.observe(composer, preservePosition);
   const { tip } = V;
   log.tabIndex = 0; log.setAttribute('role', 'region'); log.setAttribute('aria-label', 'Conversation');
   life.on(log, 'scroll', () => {
     syncView();
-    if (!trimmedBottom() && log.scrollHeight - log.scrollTop - log.clientHeight < STICK) $('#cv-new').hidden = true;
+    atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < STICK;
+    if (!trimmedBottom() && atBottom) $('#cv-new').hidden = true;
   }, { passive: true });
   life.on($('#cv-new'), 'click', () => {
     if (trimmedBottom()) requestTail();
