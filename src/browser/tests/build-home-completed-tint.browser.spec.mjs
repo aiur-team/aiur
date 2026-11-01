@@ -48,22 +48,46 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
     await expect(completed.locator('.bd-status')).toContainText('Merged')
     await expect(notPlanned.locator('.bd-status')).toContainText('Not planned')
     const colors = await page.evaluate(() => ({
-      token: getComputedStyle(document.querySelector('#completed-fixture-card .bd-in')).backgroundColor,
-      expected: getComputedStyle(document.documentElement).getPropertyValue('--good-soft').trim(),
-      running: getComputedStyle(document.querySelector('#running-fixture-card .bd-in')).backgroundColor,
-      notPlanned: getComputedStyle(document.querySelector('#not-planned-fixture-card .bd-in')).backgroundColor,
+      completed: (() => {
+        const { backgroundColor, backgroundImage } = getComputedStyle(document.querySelector('#completed-fixture-card .bd-in'))
+        return { backgroundColor, backgroundImage }
+      })(),
+      expected: (() => {
+        const probe = document.createElement('div')
+        probe.style.background = 'linear-gradient(var(--good-soft), var(--good-soft)), var(--surface-2)'
+        document.body.append(probe)
+        const { backgroundColor, backgroundImage } = getComputedStyle(probe)
+        return { backgroundColor, backgroundImage }
+      })(),
+      running: (() => {
+        const { backgroundColor, backgroundImage } = getComputedStyle(document.querySelector('#running-fixture-card .bd-in'))
+        return { backgroundColor, backgroundImage }
+      })(),
+      notPlanned: (() => {
+        const { backgroundColor, backgroundImage } = getComputedStyle(document.querySelector('#not-planned-fixture-card .bd-in'))
+        return { backgroundColor, backgroundImage }
+      })(),
+      surface: (() => {
+        const probe = document.createElement('div')
+        probe.style.backgroundColor = 'var(--surface-2)'
+        document.body.append(probe)
+        return getComputedStyle(probe).backgroundColor
+      })(),
     }))
-    expect(colors.token).not.toBe(colors.running)
-    expect(colors.token).not.toBe(colors.notPlanned)
-    expect(colors.token).toBe(await page.evaluate(() => {
-      const probe = document.createElement('div')
-      probe.style.backgroundColor = 'color-mix(in srgb, var(--good-soft) 75%, var(--surface-2))'
-      document.body.append(probe)
-      return getComputedStyle(probe).backgroundColor
-    }))
-    expect(colors.expected).not.toBe('')
-    const rowBackground = await row.evaluate(element => getComputedStyle(element).backgroundColor)
-    expect(rowBackground).toBe(colors.token)
-    expect(await notPlannedRow.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(colors.token)
+    expect(colors.completed).toEqual(colors.expected)
+    expect(colors.completed.backgroundColor).toBe(colors.surface)
+    expect(colors.completed.backgroundImage).toContain('linear-gradient')
+    expect(colors.completed.backgroundImage).not.toBe(colors.running.backgroundImage)
+    expect(colors.completed.backgroundImage).not.toBe(colors.notPlanned.backgroundImage)
+    const rowBackground = await row.evaluate(element => {
+      const { backgroundColor, backgroundImage } = getComputedStyle(element)
+      return { backgroundColor, backgroundImage }
+    })
+    expect(rowBackground).toEqual(colors.completed)
+    const notPlannedBackground = await notPlannedRow.evaluate(element => {
+      const { backgroundColor, backgroundImage } = getComputedStyle(element)
+      return { backgroundColor, backgroundImage }
+    })
+    expect(notPlannedBackground).not.toEqual(colors.completed)
   })
 }

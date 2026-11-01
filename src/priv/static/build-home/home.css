@@ -100,7 +100,7 @@ html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollb
 html .bd-card.completed .bd-in,
 html .bd-card.bar.completed .bd-in,
 html .lr.completed {
-  background: color-mix(in srgb, var(--good-soft) 75%, var(--surface-2));
+  background: linear-gradient(var(--good-soft), var(--good-soft)), var(--surface-2);
   color: var(--fg);
 }
 html .bd-card.completed .bd-cx { color: var(--fg) !important; }
