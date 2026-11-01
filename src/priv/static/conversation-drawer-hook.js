@@ -6,13 +6,31 @@
       this.origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       this.onKeydown = this.handleKeydown.bind(this);
       this.onScroll = this.updateJump.bind(this);
+      this.onViewportResize = this.handleViewportResize.bind(this);
+      this.onComposerInput = this.resizeComposer.bind(this);
       this.onJumpClick = () => {
         this.scrollToBottom();
         this.updateJump();
       };
 
       this.el.addEventListener("keydown", this.onKeydown);
+      window.visualViewport?.addEventListener("resize", this.onViewportResize);
+      window.visualViewport?.addEventListener("scroll", this.onViewportResize);
       this.bindScrollElements();
+      this.bindComposer();
+      this.onDrawerFocusIn = (event) => {
+        if (event.target?.matches?.("[data-chat-composer]")) {
+          this.syncComposerFocus();
+          this.handleViewportResize();
+        }
+      };
+      this.onDrawerFocusOut = (event) => {
+        if (event.target?.matches?.("[data-chat-composer]") && !this.el.querySelector(".agent-chat-composer")?.contains(event.relatedTarget)) {
+          this.el.classList.remove("is-chat-composer-focused");
+        }
+      };
+      this.el.addEventListener("focusin", this.onDrawerFocusIn);
+      this.el.addEventListener("focusout", this.onDrawerFocusOut);
       this.voice = new window.AiurConversationVoiceController(this);
       this.voice.mount();
       this.executorVoice = new window.AiurExecutorVoiceController(this.el);
@@ -21,6 +39,8 @@
 
       requestAnimationFrame(() => {
         this.scrollToBottom();
+        this.resizeComposer();
+        this.handleViewportResize();
         this.updateJump();
       });
     },
@@ -32,18 +52,28 @@
     updated() {
       this.readDataset();
       this.bindScrollElements();
+      this.bindComposer();
+      this.syncComposerFocus();
       this.voice.bindElements();
       this.executorVoice.bindElements();
 
       if (this.wasAtBottom) this.scrollToBottom();
       this.updateJump();
+      this.wasAtBottom = undefined;
       this.restoreActiveFocus();
     },
     destroyed() {
       this.el.removeEventListener("keydown", this.onKeydown);
+      this.el.removeEventListener("focusin", this.onDrawerFocusIn);
+      this.el.removeEventListener("focusout", this.onDrawerFocusOut);
+      window.visualViewport?.removeEventListener("resize", this.onViewportResize);
+      window.visualViewport?.removeEventListener("scroll", this.onViewportResize);
       this.unbindScrollElements();
+      this.unbindComposer();
       this.voice.destroy();
       this.executorVoice.destroy();
+      if (this.viewportFrame !== undefined) cancelAnimationFrame(this.viewportFrame);
+      this.viewportFrame = undefined;
 
       requestAnimationFrame(() => {
         const explicitOrigin = this.originId ? document.getElementById(this.originId) : null;
@@ -71,6 +101,44 @@
         this.jump?.removeEventListener("click", this.onJumpClick);
         this.jump = jump;
         this.jump?.addEventListener("click", this.onJumpClick);
+      }
+    },
+    bindComposer() {
+      const composer = this.el.querySelector("[data-chat-composer]");
+      if (composer === this.composer) return;
+      this.unbindComposer();
+      this.composer = composer;
+      this.composer?.addEventListener("input", this.onComposerInput);
+      this.resizeComposer();
+    },
+    unbindComposer() {
+      this.composer?.removeEventListener("input", this.onComposerInput);
+      this.composer = null;
+    },
+    resizeComposer() {
+      if (!this.composer) return;
+      this.composer.style.height = "auto";
+      const styles = getComputedStyle(this.composer);
+      const maxHeight = parseFloat(styles.maxHeight) || 140;
+      this.composer.style.height = `${Math.min(this.composer.scrollHeight, maxHeight)}px`;
+      this.composer.style.overflowY = this.composer.scrollHeight > maxHeight ? "auto" : "hidden";
+      this.handleViewportResize();
+    },
+    handleViewportResize() {
+      const viewport = window.visualViewport;
+      if (viewport) {
+        this.el.style.setProperty("--conversation-viewport-height", `${viewport.height}px`);
+        this.el.style.setProperty("--conversation-viewport-offset-top", `${viewport.offsetTop}px`);
+      }
+      if (this.following ?? this.isAtBottom()) {
+        this.following = true;
+        if (this.viewportFrame !== undefined) return;
+        this.viewportFrame = requestAnimationFrame(() => {
+          this.viewportFrame = undefined;
+          if (!this.el.isConnected || !this.following) return;
+          this.scrollToBottom();
+          this.updateJump();
+        });
       }
     },
     unbindScrollElements() {
@@ -119,6 +187,10 @@
         (heading || this.el).focus();
       });
     },
+    syncComposerFocus() {
+      const composer = this.el.querySelector("[data-chat-composer]");
+      this.el.classList.toggle("is-chat-composer-focused", composer === document.activeElement);
+    },
     restoreActiveFocus() {
       const focusKey = this.activeFocusKey;
       this.activeFocusKey = undefined;
@@ -143,6 +215,7 @@
       if (!this.scroll) return;
 
       const atBottom = this.isAtBottom();
+      this.following = atBottom;
       this.scroll.dataset.live = atBottom ? "true" : "false";
 
       if (!this.jump) return;

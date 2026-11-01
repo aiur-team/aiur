@@ -377,8 +377,25 @@
 
   .conversation-drawer-panel {
     width: 100%;
-    max-height: 100vh;
+    height: var(--conversation-viewport-height, 100dvh);
+    max-height: var(--conversation-viewport-height, 100dvh);
+    transform: translateY(var(--conversation-viewport-offset-top, 0px));
     border-radius: 0;
+  }
+
+  .conversation-drawer-panel.is-chat-composer-focused {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .conversation-drawer-panel.is-chat-composer-focused > .conversation-drawer-summary,
+  .conversation-drawer-panel.is-chat-composer-focused > .conversation-drawer-metadata,
+  .conversation-drawer-panel.is-chat-composer-focused > .agent-usage-snapshot,
+  .conversation-drawer-panel.is-chat-composer-focused [data-executor-voice] {
+    display: none;
+  }
+
+  .conversation-drawer-footer {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
 }
 

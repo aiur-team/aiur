@@ -387,3 +387,72 @@ test('Voice drawer dictation recovers when the voice connection closes while cap
   expect(await page.evaluate(() => window.__voiceTrackStops)).toBe(1)
   expect(await page.evaluate(() => window.__openAudioContexts)).toBe(0)
 })
+
+test('Mobile conversation drawer avoids focus zoom and follows new rows only while pinned', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openVoice(page)
+  await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
+  const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
+  const composer = drawer.getByLabel('Message agent')
+  const scroll = drawer.locator('[data-conversation-scroll]')
+  const rows = scroll.locator('.conversation-drawer-messages > li')
+  const lastMessage = () => rows.last()
+  await scroll.evaluate((element) => { element.style.height = '32px'; element.style.minHeight = '0' })
+
+  await expect(composer).toHaveCSS('font-size', '16px')
+  const scaleBefore = await page.evaluate(() => visualViewport.scale)
+  await composer.focus()
+  expect(await page.evaluate(() => visualViewport.scale)).toBe(scaleBefore)
+
+  await composer.fill(`${'A long message that wraps onto several lines. '.repeat(10)}`)
+  await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(38)
+  await expect.poll(() => composer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(140)
+  expect(await composer.evaluate((element) => element.scrollHeight)).toBeGreaterThan(await composer.evaluate((element) => element.clientHeight))
+  await expect(drawer).toHaveClass(/is-chat-composer-focused/)
+  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(24)
+
+  await page.evaluate(() => {
+    const viewport = window.visualViewport
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 400 })
+    viewport.dispatchEvent(new Event('resize'))
+  })
+  await expect.poll(() => page.evaluate(() => {
+    const viewport = window.visualViewport
+    const rect = document.querySelector('[data-conversation-scroll] .conversation-drawer-messages > li:last-child').getBoundingClientRect()
+    return rect.top >= viewport.offsetTop && rect.bottom <= viewport.offsetTop + viewport.height
+  })).toBe(true)
+  expect(await composer.evaluate((element) => element.getBoundingClientRect().bottom)).toBeLessThanOrEqual(400)
+
+  await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  const countBeforePinnedAppend = await rows.count()
+  await page.locator('[phx-click="complete-voice-reply"]').evaluate((button) => button.click())
+  await expect(lastMessage()).toContainText('Voice reply from the agent.')
+  await expect(rows).toHaveCount(countBeforePinnedAppend + 1)
+  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(24)
+
+  await drawer.getByRole('button', { name: 'Close' }).click()
+  await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
+  await expect(drawer).toBeVisible()
+  await scroll.evaluate((element) => { element.style.height = '32px'; element.style.minHeight = '0'; element.scrollTop = 0 })
+  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(24)
+  await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')) })
+  await page.evaluate(() => {
+    const requestFrame = window.requestAnimationFrame
+    window.__queuedViewportFrame = null
+    window.requestAnimationFrame = (callback) => { window.__queuedViewportFrame = callback; return 321 }
+    window.visualViewport.dispatchEvent(new Event('resize'))
+    window.requestAnimationFrame = requestFrame
+  })
+  await scroll.evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
+  expect(await page.evaluate(() => typeof window.__queuedViewportFrame)).toBe('function')
+  await page.evaluate(() => window.__queuedViewportFrame?.())
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(0)
+  await composer.fill(`${'A long message that wraps onto several lines. '.repeat(10)}`)
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(0)
+  const countBeforeHistoryAppend = await rows.count()
+  await page.locator('[phx-click="complete-voice-reply"]').evaluate((button) => button.click())
+  await expect(lastMessage()).toContainText('Voice reply from the agent.')
+  await expect(rows).toHaveCount(countBeforeHistoryAppend + 1)
+  expect(await scroll.evaluate((element) => element.scrollTop)).toBe(0)
+  await expect(drawer.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
+})
