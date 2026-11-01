@@ -241,7 +241,11 @@ defmodule AiurWeb.Build.NowRows do
   # The Units reading becomes the RootSummary progress contract and is rendered
   # by ProgressRenderer; an unknown or out-of-range reading stays unknown (nil).
   defp pct(row), do: row |> progress_contract() |> ProgressRenderer.json() |> Map.fetch!("progress")
-  defp progress_observed_at(row), do: get_in(row, [:progress, :observed_at]) |> timestamp()
+
+  defp progress_observed_at(%{progress: progress}) when is_map(progress),
+    do: Map.get(progress, :observed_at) |> timestamp()
+
+  defp progress_observed_at(_row), do: nil
 
   defp progress_contract(%{progress: %{status: :known, percent: value}}) when is_number(value) and value >= 0 and value <= 100,
     do: %{progress: round(value), progress_resolution: :resolved}
