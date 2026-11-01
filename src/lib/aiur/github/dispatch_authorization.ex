@@ -464,17 +464,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp bounded_alert_cache(alerted), do: alerted
 
   defp alert_ambiguity(issue, reason) do
-    {message, detail} =
-      case reason do
-        :missing_trigger_label ->
-          {"issue had no agent:* state label at dispatch time; the transition may still be in flight. " <>
-             "Ensure the target state label is added before removing the previous one.",
-           "Issue had no agent:* state label at dispatch time after one fresh re-fetch. " <>
-             "Ensure every state transition adds the target label before removing prior state labels."}
-
-        _other ->
-          {"label provenance could not be verified (#{inspect(reason)}).", "GitHub dispatch authorization requires verified trigger-label provenance: #{inspect(reason)}"}
-      end
+    {message, detail} = MissingTriggerLabel.alert_message(reason)
 
     Signal.agent_alert(
       "github.dispatch_authorization.ambiguous",
