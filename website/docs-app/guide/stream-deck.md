@@ -114,14 +114,7 @@ The strip shows daemon state and heartbeat age, capacity (including staleness),
 and global pause state. Unknown capacity shows `—`; a stale daemon stays
 labelled stale. Fleet only displays global pause.
 
-Beside the provider meters, Fleet shows GitHub `core` requests and `gql` points
-remaining, plus ElevenLabs `credits` when configured. Unknown readings show `—`;
-reset-expired bars dim. A `⏸ held until HH:MM` marker uses UTC when GitHub holds
-dispatch. The bar tips carry the Build page API readings.
-
-Fleet flushes refresh
-usage at most once per minute, using the existing quota snapshots.
-See [GitHub API budgets](/apis/github-budgets) for what the numbers mean.
+Fleet adds GitHub `core`/`gql` and configured ElevenLabs `credits` remaining bars beside providers. Unknowns show `—`; expired bars dim; `⏸ held until HH:MM` uses UTC. Tips match Build. Fleet flushes refresh cached usage at most once a minute. See [GitHub budgets](/apis/github-budgets).
 
 ## Read ticket conversation turns
 
