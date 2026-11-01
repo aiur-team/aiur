@@ -63,6 +63,9 @@ defmodule VoiceConverse.Session do
   def handle_call({:unsubscribe, subscriber}, _from, state) when is_pid(subscriber),
     do: {:reply, :ok, remove_subscriber(state, subscriber)}
 
+  def handle_call(:refresh_briefing, from, state),
+    do: VoiceConverse.Session.Briefing.refresh(state, self(), from)
+
   def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
     do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
 
@@ -81,6 +84,9 @@ defmodule VoiceConverse.Session do
     do:
       {:noreply,
        state |> Runtime.flush_consult_context() |> transition(:listening) |> VoiceConverse.LiveContext.ready()}
+
+  def handle_info({:briefing_refresh, ref, result}, state),
+    do: VoiceConverse.Session.Briefing.complete_refresh(state, ref, result)
 
   def handle_info({:provider_opened, phase, result}, state), do: handle_provider_opened(phase, result, state)
 
