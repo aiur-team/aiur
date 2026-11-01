@@ -33,6 +33,7 @@ defmodule Aiur.Executor.SessionRecord do
       detached_at: nil,
       end_reason: nil,
       transcript_offset: 0,
+      transcript_format: nil,
       pid: nil,
       start_reason: "start"
     }
