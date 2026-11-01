@@ -229,6 +229,40 @@ defmodule VoiceConverse.SessionTest do
     assert_end_and_cleanup(root, id, "user_end")
   end
 
+  test "a failed cleanup marker append does not broadcast ended", %{root: root, name: name} do
+    StaticCredentials.put(%{fake: "test-secret", elevenlabs: "test-cleanup-secret"})
+    config = config!(root, name, provider_cleanup: true)
+    start_instance(config)
+
+    {:ok, id} = start!(name)
+    assert_receive {:voice_conversation_state, ^id, :connecting}
+    assert_receive {:voice_conversation_state, ^id, :listening}
+    {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    store = :sys.get_state(session).store
+    test_pid = self()
+
+    failing_store = %{
+      store
+      | datasync: fn fd ->
+          case File.read!(store.path) |> String.split("\n", trim: true) |> List.last() |> Jason.decode!() do
+            %{"type" => "cleanup_enqueued"} ->
+              send(test_pid, :cleanup_marker_sync_failed)
+              {:error, :eio}
+
+            _record ->
+              store.datasync.(fd)
+          end
+        end
+    }
+
+    :sys.replace_state(session, &%{&1 | store: failing_store})
+    :ok = VoiceConverse.end_session(name, id)
+
+    assert_receive :cleanup_marker_sync_failed
+    refute_receive {:voice_conversation, ^id, {:ended, :user_end}}, 100
+    refute_receive {:voice_conversation_state, ^id, :ended}, 100
+  end
+
   test "state transitions follow the session state table", %{root: root, name: name} do
     config = config!(root, name)
     start_instance(config)
