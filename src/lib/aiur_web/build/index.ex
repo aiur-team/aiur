@@ -148,6 +148,8 @@ defmodule AiurWeb.Build.Index do
   # Answers while the index still loads, so a mount can show the last daemon reading at once (#4915).
   def handle_call(:daemon, _from, state), do: {:reply, state.daemon, state}
 
+  def handle_call(:last_agent_snapshot, _from, state), do: {:reply, AiurWeb.Build.Index.LastAgents.snapshot(state), state}
+
   def handle_call({:earlier, before, zone, days}, _from, state) do
     reply = with {:ok, index} <- state.index, do: Core.earlier(index, before, zone, days)
     {:reply, reply, state}

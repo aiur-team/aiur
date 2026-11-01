@@ -97,10 +97,10 @@ defmodule AiurWeb.BuildLive do
   end
 
   def handle_async(:build_snapshot, {:ok, {:error, reason}}, %{assigns: %{build_state: :loading}} = socket),
-    do: {:noreply, unavailable(socket, reason_tag(reason))}
+    do: {:noreply, snapshot_unavailable(socket, reason_tag(reason))}
 
   def handle_async(:build_snapshot, {:exit, _reason}, %{assigns: %{build_state: :loading}} = socket),
-    do: {:noreply, unavailable(socket, "crashed")}
+    do: {:noreply, snapshot_unavailable(socket, "crashed")}
 
   def handle_async({:queue_add, id}, result, socket), do: {:noreply, QueueAdd.result(socket, id, result)}
 
@@ -109,7 +109,7 @@ defmodule AiurWeb.BuildLive do
 
   @impl true
   def handle_info(:build_snapshot_timeout, %{assigns: %{build_state: :loading}} = socket),
-    do: {:noreply, socket |> cancel_async(:build_snapshot) |> unavailable("timeout")}
+    do: {:noreply, socket |> cancel_async(:build_snapshot) |> snapshot_unavailable("timeout")}
 
   def handle_info({:build_changes, changes} = message, socket), do: {:noreply, socket |> Protocol.changes(changes, source_opts(socket)) |> Controls.refresh() |> Conversation.info(message)}
 
@@ -204,6 +204,37 @@ defmodule AiurWeb.BuildLive do
     Logger.warning("build home snapshot unavailable reason=#{tag}")
     assign(socket, :build_state, {:unavailable, tag})
   end
+
+  defp snapshot_unavailable(socket, tag) do
+    case DataSource.last_agents(socket.assigns.build_source, source_opts(socket)) do
+      {:ok, %{sections: %{now: rows}, sources: %{agents: agents}, observed_at: observed_at}} when is_list(rows) and is_map(agents) and is_integer(observed_at) ->
+        Logger.warning("build home snapshot stale reason=#{tag}")
+        data = stale_agent_source(socket.assigns[:build_snapshot] || empty_snapshot(), rows, agents, tag)
+        socket |> assign(:build_state, :ready) |> Protocol.store(data)
+
+      {:error, _reason} ->
+        unavailable(socket, tag)
+
+      _invalid ->
+        unavailable(socket, tag)
+    end
+  end
+
+  defp empty_snapshot, do: %{"sections" => %{"now" => []}, "sources" => %{}}
+
+  defp stale_agent_source(data, rows, source, tag) do
+    sources = Map.get(data, :sources, Map.get(data, "sources", %{}))
+    observed_at = Map.get(source, :observed_at) || Map.get(source, "observed_at")
+    agents = source |> Map.put(:state, "stale") |> Map.put(:reason, tag) |> Map.put(:observed_at, observed_at)
+
+    sections = Map.get(data, :sections, Map.get(data, "sections", %{}))
+    sections = Map.put(sections, key_for(sections, :now), rows)
+    data = Map.put(data, if(Map.has_key?(data, :sections), do: :sections, else: "sections"), sections)
+
+    Map.put(data, if(Map.has_key?(data, :sources), do: :sources, else: "sources"), Map.put(sources, key_for(sources, :agents), agents))
+  end
+
+  defp key_for(map, key), do: if(Map.has_key?(map, Atom.to_string(key)), do: Atom.to_string(key), else: key)
 
   defp reason_tag(:not_wired), do: "not_wired"
   defp reason_tag(:timeout), do: "timeout"

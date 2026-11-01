@@ -33,6 +33,9 @@ defmodule AiurWeb.BuildLiveTest do
         result -> result
       end
     end
+
+    @impl true
+    def last_agents(opts), do: Keyword.get(opts, :last_agents, {:error, :unavailable})
   end
 
   setup do
@@ -130,6 +133,42 @@ defmodule AiurWeb.BuildLiveTest do
     socket = %Phoenix.LiveView.Socket{assigns: %{build_state: {:unavailable, "timeout"}}}
     assert {:noreply, ^socket} = BuildLive.handle_async(:build_snapshot, {:ok, {:ok, %{}}}, socket)
     assert {:noreply, ^socket} = BuildLive.handle_async(:build_snapshot, {:exit, :late}, socket)
+  end
+
+  test "first snapshot timeout renders retained agent rows with their observation age" do
+    name = __MODULE__.FirstLoadTimeout
+    observed_at = IndexParts.now()
+    observed_now = fn -> observed_at end
+    parts = IndexParts.parts() |> put_in([:now, :rows], %{"11" => IndexParts.now_row(11)})
+
+    start_supervised!(
+      {Index,
+       name: name,
+       subscribe: fn -> :ok end,
+       read: fn _, _, _ -> parts end,
+       daemon_read: fn _ -> %{state: "live", heartbeat_at: observed_at, observed_at: observed_at} end,
+       daemon_timer: fn _, _, _ -> make_ref() end,
+       clock: observed_now}
+    )
+
+    source(server: name, index_subscribe: fn -> :ok end)
+    send(name, :flush)
+    assert {:ok, %{index_generation: generation}} = Index.window(name, "Etc/UTC")
+    assert generation > 0
+    assert {:ok, %{sections: %{now: [_]}, observed_at: ^observed_at} = retained} = IndexSource.last_agents(server: name, index_subscribe: fn -> :ok end)
+    source(result: :hold, last_agents: {:ok, retained}, server: name, index_subscribe: fn -> :ok end)
+    {:ok, view, _} = live(build_conn(), "/build")
+    assert_receive {:snapshot, task}, 1_000
+    monitor = Process.monitor(task)
+
+    send(view.pid, :build_snapshot_timeout)
+    LiveViewAsync.render_when_complete(view)
+
+    assert_receive {:DOWN, ^monitor, :process, ^task, _}, 1_000
+    assert has_element?(view, "#build-root[data-build-state=ready]")
+    assert Enum.map(:sys.get_state(view.pid).socket.assigns.build_snapshot["sections"]["now"], & &1["id"]) == ["11"], inspect(:sys.get_state(view.pid).socket.assigns.build_snapshot)
+    assert :sys.get_state(view.pid).socket.assigns.build_snapshot["sources"]["agents"]["state"] == "stale"
+    assert :sys.get_state(view.pid).socket.assigns.build_snapshot["sources"]["agents"]["observed_at"] == observed_at
   end
 
   test "a timeout after ready is ignored" do
