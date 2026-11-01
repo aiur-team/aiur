@@ -87,6 +87,24 @@ defmodule VoiceConverse.SessionTextTimingTest do
     assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
   end
 
+  test "unexpected provider truncation results are recorded without ending the session", ctx do
+    {id, session, ref} = start_session(ctx, FakeProvider, truncate_result: :unexpected)
+    emit_turn(ref)
+    interrupt(id, ref)
+    report(ctx, id, 100)
+
+    assert [%{"text" => "é👩🏽‍💻!", "interrupted?" => true}] = turns(records(ctx, id))
+
+    assert Enum.any?(records(ctx, id), fn record ->
+             record["type"] == "provider_truncation_error" and
+               record["error"] =~ "unexpected_result"
+           end)
+
+    assert Process.alive?(session)
+    :ok = FakeProvider.emit(ref, %Events.UserTranscript{text: "still here", final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
+  end
+
   test "missing playback report uses real two-second grace and retains full text", ctx do
     {id, _, ref} = start_session(ctx)
     emit_turn(ref)

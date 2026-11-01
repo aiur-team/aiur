@@ -67,6 +67,7 @@ defmodule VoiceConverse.Testing.FakeProvider do
               owner: owner,
               calls: [],
               truncate_error: fake_opt(spec, :truncate_error),
+              truncate_result: fake_opt(spec, :truncate_result),
               call_observer: fake_opt(spec, :call_observer),
               tool_result_observer: fake_opt(spec, :tool_result_observer)
             }
@@ -111,9 +112,10 @@ defmodule VoiceConverse.Testing.FakeProvider do
   def truncate(ref, turn_id, played_until_ms) do
     record(ref, {:truncate, turn_id, played_until_ms})
 
-    case Agent.get(ref, & &1.truncate_error) do
-      nil -> :ok
-      reason -> {:error, reason}
+    case Agent.get(ref, &{&1.truncate_result, &1.truncate_error}) do
+      {result, _reason} when not is_nil(result) -> result
+      {_result, nil} -> :ok
+      {_result, reason} -> {:error, reason}
     end
   end
 
