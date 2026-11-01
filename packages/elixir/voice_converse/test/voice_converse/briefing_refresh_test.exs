@@ -67,8 +67,7 @@ defmodule VoiceConverse.BriefingRefreshTest do
   end
 
   defp target(observer, summary) do
-    {:ok, agent} = Agent.start_link(fn -> %Briefing{summary: %{value: summary}} end)
-    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
+    agent = start_supervised!({Agent, fn -> %Briefing{summary: %{value: summary}} end})
     %{id: "target", briefing_agent: agent, observer: observer, subscribe: true}
   end
 
