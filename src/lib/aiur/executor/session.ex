@@ -37,6 +37,8 @@ defmodule Aiur.Executor.Session do
   @spec record_offset(String.t() | binding(), non_neg_integer()) :: result()
   def record_offset(%{binding_id: id} = binding, offset), do: GenServer.call(__MODULE__, {:offset, id, offset, cursor_identity(binding)})
   def record_offset(id, offset), do: GenServer.call(__MODULE__, {:offset, id, offset, nil})
+  @spec record_checkpoint(binding(), non_neg_integer(), map()) :: result()
+  def record_checkpoint(binding, offset, format), do: GenServer.call(__MODULE__, {:checkpoint, binding, offset, format})
   @spec public(binding()) :: map()
   def public(binding), do: Map.drop(binding, [:transcript_path, :cwd, :pid])
   @spec rejected_counts() :: map()
@@ -128,6 +130,13 @@ defmodule Aiur.Executor.Session do
 
       {:error, reason} ->
         reject(state, reason)
+    end
+  end
+
+  def handle_call({:checkpoint, binding, offset, format}, _from, state) do
+    case offset_binding(state.binding, binding.binding_id, cursor_identity(binding)) do
+      :ok -> reply_saved(%{state | binding: Map.merge(state.binding, %{transcript_offset: offset, transcript_format: format})})
+      {:error, reason} -> reject(state, reason)
     end
   end
 
