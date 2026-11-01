@@ -204,8 +204,6 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               aria-label="Message agent"
               enterkeyhint="send"
               data-voice-input
-              data-chat-composer
-              data-conversation-focus="composer"
             >{@drafts[@composer_key] || ""}</textarea>
             <.voice_input conversation_error={@voice_conversation_error} delivery={AiurWeb.Components.VoiceDelivery.receipt(@receipts, @composer_key, @errors)} id={"#{@id}-voice"} capabilities={@voice_capabilities} surface="agent_composer" target={%{kind: "worker", ticket: to_string(Map.get(@composer || %{}, :issue_identifier, @composer_key))}} />
             <div class="agent-chat-actions">
