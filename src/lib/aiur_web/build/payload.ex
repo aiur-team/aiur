@@ -9,7 +9,8 @@ defmodule AiurWeb.Build.Payload do
   epic_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
-  usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
+  usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at),
+  unavailable_rows (optional count of invalid rows omitted from this snapshot).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
   Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,

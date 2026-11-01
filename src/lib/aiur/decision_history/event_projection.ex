@@ -80,6 +80,18 @@ defmodule Aiur.DecisionHistory.EventProjection do
     |> Map.merge(%{action_id: data.action_id, actor: data.actor, acknowledgement_result: type})
   end
 
+  def record(%DecisionEvent{type: type, data: data}, base, _revisions) when type in [:routed, :escalated],
+    do: Map.put(base, :actor, data.actor)
+
+  def record(%DecisionEvent{type: :executor_acknowledged, data: data}, base, _revisions),
+    do: Map.put(base, :actor, %{kind: :executor, id: data.executor_id})
+
+  def record(%DecisionEvent{type: :human_needed}, base, _revisions),
+    do: Map.put(base, :actor, %{kind: :system, id: "aiur"})
+
+  def record(%DecisionEvent{type: type}, base, _revisions) when type in [:pending_for_session, :answer_comment_published],
+    do: Map.put(base, :actor, %{kind: :system, id: "decision-store"})
+
   def record(_event, base, _revisions), do: base
 
   defp action_context(%Aiur.DecisionAnswer{} = answer), do: %{answer: answer}

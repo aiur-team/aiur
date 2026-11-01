@@ -223,7 +223,7 @@ cmd_agents() {
 # `aiur commands` — read the dashboard's retained Decision projection without
 # exposing any dispatch or answer mutation path.
 cmd_commands() {
-  local filter="all" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+  local filter="open" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -253,7 +253,7 @@ cmd_commands() {
   done
 
   case "$filter" in all|open|blocking|resolved|needs-you|with-executor|from-executor) ;; *) echo "aiur: commands --filter accepts all, open, blocking, resolved, needs-you, with-executor, or from-executor" >&2; exit 64 ;; esac
-  [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
+  [ -z "$limit" ] || { [[ "$limit" =~ ^[1-9][0-9]{0,2}$ ]] && [ "$limit" -le 100 ]; } || { echo "aiur: commands --limit must be between 1 and 100" >&2; exit 64; }
   [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
   [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
 
