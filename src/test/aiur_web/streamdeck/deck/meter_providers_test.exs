@@ -2,7 +2,7 @@ defmodule AiurWeb.Streamdeck.Deck.MeterProvidersTest do
   use ExUnit.Case, async: true
   alias AiurWeb.Streamdeck.Deck.{MeterPage, Meters, Nav}
 
-  test "API credits never become provider account keys" do
+  test "future regression guard: API credits never become provider account keys" do
     usage = %{"claude" => %{"summary_label" => "personal"}, "apis" => [%{name: "GitHub", lines: [%{tag: "core", remaining_percent: 9}]}]}
     assert Meters.providers(usage) == %{"claude" => %{"summary_label" => "personal"}}
     assert Meters.providers(%{}) == %{}
