@@ -192,6 +192,22 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     refute output =~ "{:"
   end
 
+  test "paced adds advance an explicit insertion position", %{server: pid} do
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:marker_result, {:error, :paced})
+      |> Map.put(:observation_labels, Map.new(state.labels, fn {id, _} -> {id, %{labels: []}} end))
+    end)
+
+    assert {:ok,
+            [
+              {"#1", {:ok, {:marker_deferred, ["1"]}}},
+              {"#2", {:ok, {:marker_deferred, ["2"]}}}
+            ]} = MutationCLI.execute(verb: :add, ids: ["1", "2"], at: 0, server: pid)
+
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"2", 1}]
+  end
+
   test "rank at list creation persists in a batch and cannot silently reorder an existing set", %{server: pid} do
     run(pid, :add, ids: ["1"], queue: "first")
     run(pid, :add, ids: ["2", "3"], queue: "second", rank: 0)

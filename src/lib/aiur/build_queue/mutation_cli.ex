@@ -166,6 +166,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
   defp inserted?(:ok), do: true
   defp inserted?({:ok, {:not_observed, ids}}) when is_list(ids), do: true
+  defp inserted?({:ok, {:marker_deferred, ids}}) when is_list(ids), do: true
   defp inserted?({:error, {:marker_write_failed, _}}), do: true
   defp inserted?(_), do: false
 
