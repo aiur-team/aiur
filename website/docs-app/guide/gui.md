@@ -398,9 +398,11 @@ It starts with the latest 50 entries. **Load older**, **Jump to start**,
 and **Load newer** browse earlier history; **Latest entries** returns to the
 live tail.
 
-Agent prose uses Markdown. Reasoning and command or tool output start collapsed;
-select a summary to expand it. File edits show diffs. Operator bubbles, session
-dividers and gap rows keep the source and continuity visible. See
+Agent prose uses Markdown. Executor reasoning rows are hidden; worker reasoning
+and command or tool output start collapsed. Select a summary to expand it.
+
+File edits show diffs. Operator bubbles, session dividers and gap rows keep the
+source and continuity visible. See
 [Reading entries](/concepts/conversations#reading-entries) for masking and
 truncation details.
 

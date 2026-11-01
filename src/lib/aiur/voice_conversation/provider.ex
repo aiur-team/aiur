@@ -27,7 +27,7 @@ defmodule Aiur.VoiceConversation.Provider do
   @impl true
   def open(spec) do
     agent_id = spec |> Map.get(:fake, []) |> Keyword.get(:agent_id)
-    spec |> Map.put(:agent_id, agent_id) |> Map.put(:system_prompt, @prompt) |> ElevenLabsAgents.open()
+    spec |> Map.put(:agent_id, agent_id) |> Map.update(:system_prompt, @prompt, fn prompt -> if prompt in [nil, ""], do: @prompt, else: prompt end) |> ElevenLabsAgents.open()
   end
 
   @impl true
