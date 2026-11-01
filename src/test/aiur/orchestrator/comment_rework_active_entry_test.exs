@@ -293,6 +293,70 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     end
   end
 
+  for ticket_state <- ["human-review", "ci-wait"] do
+    test "a non-blocking, non-benign COMMENTED review from a human merger in #{ticket_state} does not route to rework" do
+      issue = %{human_review_issue() | state: unquote(ticket_state), labels: ["agent:" <> unquote(ticket_state)]}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+      event =
+        changes_requested_review_event(issue, %{
+          comment: %{
+            "state" => "COMMENTED",
+            "body" => "Consider renaming this later",
+            "submitted_at" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+            "user" => %{"login" => "its-everdred"}
+          },
+          author: "its-everdred",
+          author_trusted?: false,
+          human_merger_allowed_fun: fn login -> login == "its-everdred" end,
+          pull_request: %{
+            "review_decision" => "REVIEW_REQUIRED",
+            "head_committed_at" => DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.to_iso8601()
+          },
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        })
+
+      CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+      refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+      assert {:ok, [%Issue{state: state}]} = Aiur.Tracker.fetch_issue_states_by_ids([@issue_number])
+      assert state == unquote(ticket_state)
+    end
+  end
+
+  for {description, decision} <- [
+        {"an approved PR", "APPROVED"},
+        {"a review older than the head", "REVIEW_REQUIRED"}
+      ] do
+    test "a blocking COMMENTED review from a human merger on #{description} does not route to rework" do
+      issue = human_review_issue()
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
+      head_committed_at = DateTime.utc_now() |> DateTime.add(-30, :second) |> DateTime.to_iso8601()
+      submitted_at_offset = if unquote(decision) == "APPROVED", do: -10, else: -120
+      submitted_at = DateTime.utc_now() |> DateTime.add(submitted_at_offset, :second) |> DateTime.to_iso8601()
+
+      event =
+        changes_requested_review_event(issue, %{
+          comment: %{
+            "state" => "COMMENTED",
+            "body" => "Blocking: update this before merge",
+            "submitted_at" => submitted_at,
+            "user" => %{"login" => "its-everdred"}
+          },
+          author: "its-everdred",
+          author_trusted?: false,
+          human_merger_allowed_fun: fn login -> login == "its-everdred" end,
+          pull_request: %{"review_decision" => unquote(decision), "head_committed_at" => head_committed_at},
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        })
+
+      CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+      refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+      assert {:ok, [%Issue{state: "human-review"}]} = Aiur.Tracker.fetch_issue_states_by_ids([@issue_number])
+    end
+  end
+
   test "a transient gate failure on a completed running entry is retried, not dropped" do
     issue = human_review_issue()
 
