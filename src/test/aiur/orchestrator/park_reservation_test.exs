@@ -52,6 +52,20 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
     refute_received {:memory_tracker_remove_label, "repo#2952", "agent:parked"}
   end
 
+  test "a landed park marker releases a replacement paused entry's reservation" do
+    issue = %Issue{id: "2953", identifier: "repo#2953", state: "in-progress", labels: ["agent:in-progress"], paused: true}
+    original = %{issue: issue, identifier: issue.identifier, pid: self(), ref: make_ref(), paused_reason: :operator, control: %{status: :paused}}
+    replacement = %{original | pid: nil, ref: nil}
+    state = %State{max_concurrent_agents: 1, running: %{issue.id => replacement}}
+
+    parked = Parking.apply_park_result(state, original, issue, :ok)
+
+    assert parked.running[issue.id].issue.parked
+    assert parked.running[issue.id].control.status == :deactivated
+    assert State.reserved_paused_running_count(parked.running) == 0
+    assert Slots.available_slots(parked) == 1
+  end
+
   test "an Executor pause on a ci-wait ticket does not hold a fleet slot" do
     paused = %{pid: nil, ref: nil, paused_reason: :operator, control: %{status: :paused}}
     ci_wait = %Issue{id: "4672", identifier: "repo#4672", state: "ci-wait", paused: true}

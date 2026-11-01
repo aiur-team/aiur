@@ -39,8 +39,8 @@ defmodule Aiur.ControlCLI.Reasons do
     do: "optimistic share full (#{running}/#{cap})"
 
   def format_reason({:max_concurrent_agents_reached, %{used: used, active: active, paused_holds: holds, limit: limit, max: max}}) do
-    envelope = if limit < max, do: "; load envelope limit #{limit} is below max-agents #{max}", else: ""
-    "max concurrent agents reached: #{used} of #{limit} slots used (#{active} active, #{holds} held by paused entries)#{envelope}"
+    binding = if limit < max, do: "AIMD envelope=#{limit} (configured cap=#{max})", else: "configured cap=#{max}"
+    "max concurrent agents reached: #{used} of #{limit} slots used (#{active} active, #{holds} held by paused entries; binding: #{binding})"
   end
 
   def format_reason({:blocked_on_decision, %{decision_ids: [_ | _] = ids}}),

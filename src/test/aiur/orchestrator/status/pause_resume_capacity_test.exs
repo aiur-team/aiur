@@ -199,7 +199,9 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
         state
         | session_max_concurrent_agents: 1,
           running: %{
-            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+            "issue-paused" =>
+              running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+              |> Map.put(:paused_reason, :agent_pause_request)
           }
       }
     end)
@@ -239,7 +241,7 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
       }
     end)
 
-    assert {:error, :max_concurrent_agents_reached} =
+    assert {:error, :no_worker_capacity} =
              Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED-A")
 
     refute_receive {:resume_agent, _request_id}, 100

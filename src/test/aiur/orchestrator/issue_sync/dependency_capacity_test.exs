@@ -10,6 +10,46 @@ defmodule Aiur.Orchestrator.IssueSync.DependencyCapacityTest do
   alias Aiur.Orchestrator.PushRouting
   alias Aiur.Orchestrator.State
 
+  test "issue sync resumes a dependency-paused worker when its blocker clears" do
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    receive_barrier({:agent_started, ^agent})
+
+    blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
+    previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
+    current = %{previous | blocked_by: [%{blocker | state: "done"}]}
+
+    blockee = %{
+      pid: agent,
+      identifier: previous.identifier,
+      issue: previous,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    resumed =
+      IssueSync.sync_polled_issue_state(
+        %State{
+          last_polled_issues: %{previous.id => previous},
+          running: %{previous.id => blockee},
+          max_concurrent_agents: 1
+        },
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    control_agent_barrier(agent)
+    assert_received {:resume_agent, _request_id}
+    assert get_in(resumed.running, [previous.id, :control, :status]) == :working
+    refute Map.has_key?(resumed.running[previous.id], :pending_auto_resume)
+  end
+
   test "reports waiting for capacity, not a blocker pause, when a cleared dependency resume is deferred" do
     Publisher.set_tracked_fn(fn _ -> true end)
 
@@ -65,6 +105,7 @@ defmodule Aiur.Orchestrator.IssueSync.DependencyCapacityTest do
 
     assert_received {:event, %{topic: ^deferred_topic} = alert}
     assert alert["reason"] =~ "waiting for a dispatch slot"
+    assert alert["reason"] =~ "binding: configured cap=1"
     assert alert["needs_attention"] in [false, nil]
 
     mailbox_barrier()
