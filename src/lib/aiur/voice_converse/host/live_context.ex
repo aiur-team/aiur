@@ -20,9 +20,11 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
     monitor = Process.monitor(subscriber)
 
     try do
-      Enum.each(patterns(target), &Events.subscribe(&1, exchange))
+      exchange_pid = GenServer.whereis(exchange)
+      if not is_pid(exchange_pid), do: exit(:exchange_unavailable)
+      Enum.each(patterns(target), &Events.subscribe(&1, exchange_pid))
       subscribe_live(target, kind, opts)
-      {:ok, %{target: target, subscriber: subscriber, monitor: monitor, kind: kind, opts: opts, exchange_monitor: Process.monitor(GenServer.whereis(exchange))}}
+      {:ok, %{target: target, subscriber: subscriber, monitor: monitor, kind: kind, opts: opts, exchange_monitor: Process.monitor(exchange_pid)}}
     catch
       :exit, _ -> {:stop, :exchange_unavailable}
     end
@@ -80,8 +82,6 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
     notify(state, {:context_update, "Phase: #{phase}", []})
     notify(state, {:briefing, briefing(state)})
   end
-
-  defp dispatch("agent.ended", _event, %{kind: :briefing} = state), do: notify(state, :target_gone)
 
   defp dispatch(topic, event, %{target: :executor, kind: :briefing} = state) do
     cond do

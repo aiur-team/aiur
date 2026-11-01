@@ -3,7 +3,8 @@ defmodule VoiceConverse.LiveContext do
   Session-owned live context, independent of the host event bus.
 
   Ports send `{:briefing, %Briefing{}}`, `{:context_update, text, opts}` (with
-  `announce: true` for refreshed notes), `{:command_resolved, id}`, or `:target_gone`
+  `announce: true` for refreshed notes), `{:command_resolved, id}`, `:target_gone`,
+  or `:live_context_unavailable` when an established subscription is lost
   to their subscribed pid. Unknown messages are left to the consult handler.
   Every update is redacted and appended before delivery. Provider updates are
   coalesced over five seconds; the last ten milestones remain available in state.
@@ -37,7 +38,7 @@ defmodule VoiceConverse.LiveContext do
       timer: nil,
       last_sent: nil,
       events: [],
-      fallback?: Enum.any?(results, &(&1 != :ok))
+      fallback?: Enum.any?(results, &(&1 not in [:ok, :not_applicable]))
     }
 
     state = Map.put(state, :live_context, live)

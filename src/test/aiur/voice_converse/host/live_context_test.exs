@@ -17,6 +17,13 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     def report, do: %{executor: nil}
   end
 
+  defmodule VanishingExchange do
+    use GenServer
+    def start_link(opts), do: GenServer.start_link(__MODULE__, nil, opts)
+    def init(state), do: {:ok, state}
+    def handle_call({:subscribe, _pattern, _pid}, _from, state), do: {:stop, :normal, :ok, state}
+  end
+
   setup do
     exchange = start_supervised!({Exchange, []})
     {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I_42", "number" => 42}, {"org", "repo"}, {"org", "repo"})
@@ -45,8 +52,6 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     refute_receive {:briefing, _}, 100
     publish(ctx.exchange, "ticket.42.agent.phase.work.end", %{})
     assert_receive {:context_update, "Phase: work.end", []}, 1_000
-    publish(ctx.exchange, "ticket.42.agent.ended", %{})
-    assert_receive :target_gone, 1_000
   end
 
   test "executor subscribes to system and executor namespaces", %{exchange: exchange} do
@@ -79,6 +84,13 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
 
   test "missing Exchange degrades to unsupported", %{target: target} do
     assert :unsupported = LiveContext.subscribe(target, self(), :briefing, exchange: :missing_test_exchange)
+  end
+
+  test "Exchange disappearing during subscription is monitored without a nil-pid crash", %{target: target} do
+    name = Module.concat(__MODULE__, "Vanishing#{System.unique_integer([:positive])}")
+    start_supervised!({VanishingExchange, name: name})
+    assert :ok = LiveContext.subscribe(target, self(), :briefing, exchange: name)
+    assert_receive :live_context_unavailable, 1_000
   end
 
   test "Exchange loss reports unavailable instead of silently retaining a dead subscription", ctx do
