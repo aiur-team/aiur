@@ -235,6 +235,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
 
       {name, value} ->
         normalized = normalize_value(value, replacements)
+        normalized = if name == "AIUR_MCP_SOCKET_DIR", do: "<mcp-socket>", else: normalized
         # Main may publish the same build hook into its trusted, content-addressed directory.
         normalized = Regex.replace(~r"<root>/build-gate\.hooks/[a-f0-9]{64}/build_gate\.bash", normalized, "<priv>/build_gate.bash")
         {name, Regex.replace(~r"<root>/build-gate/\.agent-shell-hooks/[a-f0-9]{64}/agent_shell_environment\.bash", normalized, "<priv>/agent_shell_environment.bash")}
