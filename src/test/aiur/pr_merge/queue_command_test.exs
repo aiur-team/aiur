@@ -144,6 +144,10 @@ defmodule Aiur.PrMerge.QueueCommandTest do
 
   defp ledger(ctx), do: ctx.root |> Path.join("logs/merges.ndjson") |> Aiur.Jsonl.stream() |> Enum.to_list()
 
+  defp assert_failed(ctx, step, outcome) do
+    assert [%{"state" => "failed", "failed_step" => ^step, "outcome" => ^outcome}] = ledger(ctx)
+  end
+
   test "queue base enqueues pinned head and records enqueue without merged event", ctx do
     assert run(ctx) == 0
     assert_received {:api, "post", "graphql", %{variables: %{input: %{pullRequestId: "PR_1", expectedHeadOid: @head}}}}
@@ -163,7 +167,7 @@ defmodule Aiur.PrMerge.QueueCommandTest do
     assert run(ctx, enqueue_error: true) == 1
     refute_received {:api, "put", _, _}
     refute_received {:notify, _}
-    refute File.exists?(Path.join(ctx.root, "logs/merges.ndjson"))
+    assert_failed(ctx, "deliver", "unknown")
   end
 
   test "planned approval must be observed before enqueue", ctx do
@@ -235,12 +239,12 @@ defmodule Aiur.PrMerge.QueueCommandTest do
     assert run(ctx, wrong_queue_head: true) == 1
     refute_received {:api, "put", _, _}
     refute_received {:notify, _}
-    refute File.exists?(Path.join(ctx.root, "logs/merges.ndjson"))
+    assert_failed(ctx, "deliver", "unknown")
   end
 
   test "inconsistent merged but open observation records nothing", ctx do
     assert run(ctx, merged: true, raw_state: "open") == 1
     refute_received {:notify, _}
-    refute File.exists?(Path.join(ctx.root, "logs/merges.ndjson"))
+    assert_failed(ctx, "facts", "not_merged")
   end
 end
