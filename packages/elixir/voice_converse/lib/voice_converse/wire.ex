@@ -100,6 +100,7 @@ defmodule VoiceConverse.Wire do
   defp stringify_value(value) when is_map(value), do: stringify_keys(value)
   defp stringify_value(value) when is_list(value), do: Enum.map(value, &stringify_value/1)
   defp stringify_value(value) when is_boolean(value), do: value
+  defp stringify_value(nil), do: nil
   defp stringify_value(value) when is_atom(value), do: Atom.to_string(value)
   defp stringify_value(value), do: value
 end

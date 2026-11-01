@@ -22,6 +22,15 @@ defmodule VoiceConverse.TextTimingWireTest do
         "audio_offset_ms" => 0,
         "estimated" => true
       },
+      %{
+        "v" => 1,
+        "type" => "agent_text_timing",
+        "turn_id" => "t",
+        "text" => "x",
+        "chars" => nil,
+        "audio_offset_ms" => 0,
+        "estimated" => true
+      },
       %{"v" => 1, "type" => "playback_state", "state" => "stopped"},
       %{"v" => 1, "type" => "playback_state", "state" => "stopped", "turn_id" => "t", "played_until_ms" => 0}
     ]
