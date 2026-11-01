@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   require Logger
 
   alias Aiur.Alerts.ClosedTicket
-  alias Aiur.{Config, DecisionStore, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
+  alias Aiur.{Commands, Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
   alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.{ClosedTicketTranscriptArchive, DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
@@ -100,7 +100,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   defp moot_closed_ticket_decisions(cleanups, opts) do
     tickets = MapSet.new(cleanups, fn {{ticket, _, _}, _} -> ticket end)
-    store = Keyword.get(opts, :decision_store, DecisionStore)
+    store = Keyword.get(opts, :decision_store)
 
     case moot_closed_ticket_decisions_once(tickets, store) do
       :ok -> :ok
@@ -113,11 +113,10 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   end
 
   defp moot_closed_ticket_decisions_once(tickets, store) do
-    store
-    |> DecisionStore.list()
+    list_closed_ticket_decisions(store)
     |> Enum.filter(&(MapSet.member?(tickets, &1.ticket.identifier) and &1.decision_status in [:open, :deferred]))
     |> Enum.reduce_while(:ok, fn decision, :ok ->
-      case DecisionStore.moot(
+      case moot_closed_ticket_decision(
              decision.decision_id,
              %{
                "reason_class" => "ticket_closed",
@@ -135,6 +134,15 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   catch
     kind, reason -> {:error, {kind, reason}}
   end
+
+  defp list_closed_ticket_decisions(nil), do: Commands.list_decisions()
+  defp list_closed_ticket_decisions(store), do: Commands.list_decisions(store)
+
+  defp moot_closed_ticket_decision(decision_id, payload, opts, nil),
+    do: Commands.moot(decision_id, payload, opts)
+
+  defp moot_closed_ticket_decision(decision_id, payload, opts, store),
+    do: Commands.moot(decision_id, payload, opts, store)
 
   defp retry_closed_ticket_decision_mooting(tickets, store, _reason, [delay | delays]) do
     Process.sleep(delay)
