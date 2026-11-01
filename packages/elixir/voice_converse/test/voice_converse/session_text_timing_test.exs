@@ -68,17 +68,18 @@ defmodule VoiceConverse.SessionTextTimingTest do
   end
 
   test "provider truncation errors preserve full interrupted text and keep the session running", ctx do
-    {id, session, ref} = start_session(ctx, FakeProvider, truncate_error: :provider_failed)
+    {id, session, ref} =
+      start_session(ctx, FakeProvider, truncate_error: "Bearer abcdefgh12345")
+
     emit_turn(ref)
     interrupt(id, ref)
     report(ctx, id, 100)
 
     assert [%{"text" => "é👩🏽‍💻!", "interrupted?" => true}] = turns(records(ctx, id))
 
-    assert Enum.any?(
-             records(ctx, id),
-             &(&1["type"] == "provider_truncation_error" and &1["error"] =~ "provider_failed")
-           )
+    error_record = Enum.find(records(ctx, id), &(&1["type"] == "provider_truncation_error"))
+    assert error_record["error"] =~ "[redacted]"
+    refute error_record["error"] =~ "abcdefgh12345"
 
     assert Process.alive?(session)
 

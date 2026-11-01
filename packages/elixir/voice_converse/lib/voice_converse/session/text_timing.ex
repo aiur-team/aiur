@@ -104,12 +104,13 @@ defmodule VoiceConverse.Session.TextTiming do
   end
 
   defp record_truncation_error(state, turn_id, reason) do
-    Logger.warning("Voice provider truncation failed for turn #{turn_id}: #{inspect(reason)}")
+    error = state.config.redactor.(inspect(reason))
+    Logger.warning("Voice provider truncation failed for turn #{turn_id}: #{error}")
 
     record = %{
       type: "provider_truncation_error",
       turn_id: turn_id,
-      error: inspect(reason),
+      error: error,
       at: DateTime.to_iso8601(state.clock.())
     }
 
