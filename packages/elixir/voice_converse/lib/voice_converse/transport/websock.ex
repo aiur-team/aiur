@@ -160,6 +160,10 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       def handle_info({:voice_conversation_state, conversation_id, name}, %{conversation_id: conversation_id} = state),
         do: push(%{"v" => 1, "type" => "state", "state" => to_string(name)}, state)
 
+      # An ended session may already be gone when the browser closes its socket.
+      def handle_info({:voice_conversation, id, {:ended, _reason} = event}, %{conversation_id: id} = state),
+        do: push(event_frame(event), %{state | conversation_id: nil})
+
       def handle_info({:voice_conversation, conversation_id, event}, %{conversation_id: conversation_id} = state) do
         case event_frame(event) do
           nil -> {:ok, state}
