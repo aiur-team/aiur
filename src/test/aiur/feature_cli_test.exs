@@ -35,6 +35,36 @@ defmodule Aiur.FeatureCLITest do
     assert length(journal) == 1
   end
 
+  test "feature epic icons persist through create and edit", %{context: context, pid: pid} do
+    epics = [
+      %{key: "lane-runtime", label: "Runtime", icon: "command-line"},
+      %{key: "lane-ui", label: "UI", icon: "window"}
+    ]
+
+    assert {:ok, %{outcome: :created}} = op(:create, context, label: "A", epics: epics)
+    assert {:ok, _} = op(:edit, context, epic_icons: [%{key: "lane-ui", icon: "beaker"}])
+    assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
+    assert Enum.map(feature.epics, & &1.icon) == ["command-line", "beaker"]
+    assert length(Enum.uniq(Enum.map(feature.epics, & &1.icon))) == 2
+
+    assert {:error, {:unknown_epic, "missing"}} =
+             op(:edit, context, epic_icons: [%{key: "missing", icon: "beaker"}])
+
+    assert {:error, :invalid_epics} =
+             FeatureCLI.apply_op(
+               %{
+                 op: :create,
+                 slug: "b",
+                 label: "Other",
+                 epics: [
+                   %{key: "one", label: "One", icon: "command-line"},
+                   %{key: "two", label: "Two", icon: "command-line"}
+                 ]
+               },
+               context
+             )
+  end
+
   test "add reruns and conflicts preserve atomic membership and report moved owner", %{context: context, pid: pid} do
     create(context)
     assert {:ok, %{results: [%{outcome: :added, label: "unknown"}]}} = op(:add, context, ids: [12])

@@ -233,11 +233,7 @@ def _approved_ticket_titles(
             continue
         logical_id = ticket.get("id")
         manifest_title = ticket.get("title")
-        expected = (
-            f"BO: {logical_id} — {manifest_title}"
-            if isinstance(logical_id, str) and valid_issue_title(manifest_title)
-            else None
-        )
+        expected = manifest_title if valid_issue_title(manifest_title) else None
         _approved_document_title(
             output, root, approved, pack_dir, logical_id,
             ticket.get("document"), expected, label, report,

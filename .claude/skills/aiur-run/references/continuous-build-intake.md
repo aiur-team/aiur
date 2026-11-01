@@ -11,6 +11,13 @@ Keep the collection's finite acceptance boundary and research/design evidence.
 2. Choose a new feature slug and create its collection with
    `aiur feature create <slug> --label "<display label>"`. New work in an existing
    feature uses that collection. Never create a standalone Build Order root.
+   For build-order publication, issue titles stay plain; plan IDs belong in the
+   body and receipt. Create the collection with its lane epics and assign each
+   issue to the epic for its planned lane. Set each epic's icon from that
+   workstream (`--epic-icon <key>=<heroicon>` on create/edit); use distinct,
+   non-default icons. A build order's `product_features`
+   list defines one collection per product group; its ticket IDs must partition
+   all published members exactly once. Lanes remain epics within each group.
 3. Ensure the `feature:<slug>` GitHub label exists, then create each issue with
    that label, complexity, priority, and disposition in the same request.
    With the queue enabled, use `agent:queued` for new members so incomplete

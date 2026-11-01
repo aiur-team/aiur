@@ -252,7 +252,7 @@ class PublicationBodyLimitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ticket.md"
             path.write_text(
-                "# BO-001 — Oversized\n\n**Kind:** umbrella\n" +
+                "# Oversized\n\n**Kind:** umbrella\n" +
                 "x" * (MAX_ISSUE_BODY_CHARACTERS + 1),
                 encoding="utf-8",
             )
@@ -268,7 +268,7 @@ class PublicationBodyLimitTests(unittest.TestCase):
         approved = "a" * 40
         repository = "example/repo"
         preamble = authority_preamble(repository, "BO-001", 1, approved)
-        prefix = "# BO-001 — Oversized\n\n**Kind:** umbrella\n"
+        prefix = "# Oversized\n\n**Kind:** umbrella\n"
         source = prefix + "x" * (
             MAX_ISSUE_BODY_CHARACTERS - len(preamble) - len(prefix) + 1
         )
@@ -290,7 +290,7 @@ class PublicationBodyLimitTests(unittest.TestCase):
         approved = "a" * 40
         repository = "example/repo"
         preamble = authority_preamble(repository, "BO-001", 1, approved)
-        prefix = "# BO-001 — Oversized\r\n\r\n**Kind:** umbrella\r\n"
+        prefix = "# Oversized\r\n\r\n**Kind:** umbrella\r\n"
         source = prefix + "x" * (
             MAX_ISSUE_BODY_CHARACTERS - len(preamble) - len(prefix) + 1
         )

@@ -1,4 +1,4 @@
-# BO-004 — Group integration tickets
+# Group integration tickets
 
 **Kind:** umbrella
 

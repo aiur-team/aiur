@@ -14,7 +14,6 @@ def publication_extension() -> dict[str, object]:
             "labels": ["human:todo"],
         },
         "external_edges_field": "external_blocker_relations",
-        "feature_title_prefix": "BO:",
         "additional_title_must_be_unprefixed": True,
         "reconciliation_comment": True,
         "creatable_labels": {

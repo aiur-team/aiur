@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from publication_operator_case import (
     APPROVED,
@@ -21,7 +22,7 @@ from publication_operator_case import (
     SKILL,
     ValidationFreePublisher,
 )
-from publication_operator import PublicationError
+from publication_operator import PublicationError, Publisher
 from publication_comment import render_pending_comment
 
 
@@ -305,13 +306,21 @@ class ReconciliationTests(unittest.TestCase):
         responses[("GET", f"{base}/issues/comments/44")] = comment
         client = FakeClient(responses)
 
-        result = ValidationFreePublisher(client, self.ctx).apply()
+        with patch.object(Publisher, "_run_cli"):
+            result = ValidationFreePublisher(client, self.ctx).apply()
 
         self.assertEqual(result["mode"], "apply-pending")
         self.assertEqual(result["issues"], 56)
         self.assertEqual(result["members"], 54)
         self.assertEqual(result["blocked_by_edges"], 107)
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    def test_invalid_product_groups_fail_before_any_github_request(self) -> None:
+        self.ctx.build.pop("product_features")
+        client = FakeClient({})
+        with self.assertRaisesRegex(PublicationError, "explicit product_features"):
+            Publisher(client, self.ctx).apply()
+        self.assertEqual([], client.calls)
 
     def test_foreign_same_number_relationships_fail_before_mutation(self) -> None:
         mappings = {

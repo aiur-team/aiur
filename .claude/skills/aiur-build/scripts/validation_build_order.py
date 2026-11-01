@@ -40,6 +40,7 @@ from validation_records import (
     validate_record_refs,
 )
 from validation_tickets import validate_tickets
+from validation_product_features import validate_product_features
 from validation_icons import configured_epics, repository_root, validate_icon_collisions
 
 
@@ -67,6 +68,7 @@ def validate_data(
     design = validate_design_evidence(data, base_dir, report)
     decisions = validate_decisions(data, report)
     by_id = validate_tickets(data, base_dir, report)
+    validate_product_features(data, by_id, report)
     validate_icon_collisions(
         data, by_id, general_epics if general_epics is not None
         else configured_epics(repository_root(base_dir)), report,

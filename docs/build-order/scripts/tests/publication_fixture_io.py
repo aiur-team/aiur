@@ -224,7 +224,7 @@ def _ticket_text(ticket: dict[str, object]) -> str:
         f"**Requirements:** {', '.join(requirements)}\n\n" if requirements else ""
     )
     return (
-        f"# BO: {ticket['id']} — {ticket.get('title')}\n\n"
+        f"# {ticket.get('title')}\n\n"
         "**Kind:** executable\n\n"
         f"**Complexity:** {ticket.get('complexity_points')} — Test\n\n"
         f"**Depends on:** {dependency_text}\n\n"
