@@ -123,12 +123,6 @@ defmodule Aiur.BuildOrder.History.BackfillQuery do
 
   defp timeline_item(type, %{"label" => %{"name" => label}} = node, at, prefix, facts) when type in ["LabeledEvent", "UnlabeledEvent"] and is_binary(label) do
     if String.starts_with?(label, "feature:") or label == prefix <> ":in-progress" do
-      label =
-        case get_in(node, ["label", "description"]) do
-          description when is_binary(description) and description != "" -> label <> " (" <> description <> ")"
-          _ -> label
-        end
-
       event = %{label: label, action: if(type == "LabeledEvent", do: :labeled, else: :unlabeled), at: at, actor: get_in(node, ["actor", "login"]) || :unknown}
       {:ok, %{facts | labels: facts.labels ++ [event]}}
     else

@@ -7,7 +7,7 @@ defmodule Aiur.BuildOrder.History.IssueNode do
     with {:ok, created} <- datetime(node["createdAt"]),
          {:ok, updated} <- datetime(node["updatedAt"]),
          {:ok, closed} <- nullable_datetime(node["closedAt"]),
-         {:ok, labels, labels_complete} <- labels(node["labels"]),
+         {:ok, labels, labels_complete, label_descriptions} <- labels(node["labels"]),
          {:ok, parent} <- reference(node["parent"]),
          {:ok, blockers, info} <- blockers(node["blockedBy"]) do
       fields = %{
@@ -19,6 +19,7 @@ defmodule Aiur.BuildOrder.History.IssueNode do
         closed_at: closed,
         labels: labels,
         labels_complete: labels_complete,
+        label_descriptions: label_descriptions,
         parent: parent,
         blocked_by: blockers,
         blocked_by_complete: not info["hasNextPage"]
@@ -71,16 +72,10 @@ defmodule Aiur.BuildOrder.History.IssueNode do
   end
 
   defp labels(%{"nodes" => nodes, "totalCount" => count}) when is_list(nodes) and is_integer(count) and count >= 0 do
-    names =
-      Enum.map(nodes, fn node ->
-        if is_map(node) do
-          name = node["name"]
-          description = node["description"]
-          if is_binary(name) and is_binary(description) and description != "" and String.starts_with?(name, "feature:"), do: name <> " (" <> description <> ")", else: name
-        end
-      end)
+    names = Enum.map(nodes, fn node -> if is_map(node), do: node["name"] end)
+    descriptions = for %{"name" => "feature:" <> _ = name, "description" => description} <- nodes, is_binary(description) and description != "", into: %{}, do: {String.downcase(name), description}
 
-    if Enum.all?(names, &is_binary/1), do: {:ok, names, count == length(nodes)}, else: {:error, :invalid_labels}
+    if Enum.all?(names, &is_binary/1), do: {:ok, names, count == length(nodes), descriptions}, else: {:error, :invalid_labels}
   end
 
   defp labels(_value), do: {:error, :invalid_labels}

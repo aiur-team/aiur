@@ -166,6 +166,7 @@ export function featureListHTML(D, state, now) {
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
   if (S.list === 'features') {
+    const firstFeaturePaint = !vp.querySelector('.fp-card');
     ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
     vp.innerHTML = listHTML(ctx.D, S, H, ctx.snap, nowMs());
     bindOnce(vp); return;

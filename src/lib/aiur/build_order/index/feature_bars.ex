@@ -52,7 +52,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
     if total > 0 do
       %{
         key: slug,
-        label: if(registered, do: registered.label, else: label_name(slug, rows, label_snapshot)),
+        label: if(registered, do: display_feature_label(registered.label), else: label_name(slug, rows, label_snapshot)),
         merged: Enum.count(counted, &merged?/1),
         total: total,
         since: rows |> Enum.map(&created_ms/1) |> Enum.reject(&is_nil/1) |> Enum.min(fn -> nil end)
@@ -72,8 +72,14 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
 
   defp label_name(slug, rows, label_snapshot) do
     current_description = current_label_description(slug, label_snapshot)
-    labels = Enum.flat_map(rows, &Map.get(&1, :labels, []))
-    current_description || Enum.find_value(labels, slug, fn label -> if label_slug(label) == slug, do: label_name(label) end)
+
+    historical_description =
+      Enum.find_value(rows, fn row ->
+        descriptions = Map.get(row, :label_descriptions)
+        if is_map(descriptions), do: descriptions["feature:" <> slug]
+      end)
+
+    display_description(current_description || historical_description) || slug
   end
 
   defp current_label_description(slug, {:ok, issues, _observed_at}) do
@@ -89,14 +95,14 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
   defp label_slug("feature:" <> rest), do: rest |> String.split([" (", " — "], parts: 2) |> hd()
   defp label_slug(_label), do: nil
 
-  defp label_name("feature:" <> rest) do
-    case String.split(rest, " (", parts: 2) do
-      [_slug, description] -> String.replace_suffix(description, ")", "") |> String.replace_prefix("Feature collection: ", "")
-      _ -> nil
+  defp display_feature_label("BO: " <> label) do
+    case String.split(label, " — ", parts: 2) do
+      [_program, feature] -> String.replace(feature, ~r/\s+\(wave \d+\)$/, "")
+      _ -> "BO: " <> label
     end
   end
 
-  defp label_name(_label), do: nil
+  defp display_feature_label(label), do: label
 
   defp created_ms(%{created_at: %DateTime{} = at}), do: DateTime.to_unix(at, :millisecond)
   defp created_ms(_row), do: nil

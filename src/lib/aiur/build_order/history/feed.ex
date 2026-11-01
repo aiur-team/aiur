@@ -63,29 +63,18 @@ defmodule Aiur.BuildOrder.History.Feed do
   end
 
   defp label_fields(fields, held, labels, updated) when is_list(labels) do
-    labels = labels |> Enum.map(&label_name/1) |> Enum.filter(&is_binary/1) |> Enum.map(&normalize_label/1) |> Enum.uniq() |> Enum.sort()
+    descriptions = for %{"name" => "feature:" <> _ = name, "description" => description} <- labels, is_binary(description) and description != "", into: %{}, do: {String.downcase(name), description}
+    labels = labels |> Enum.map(&label_name/1) |> Enum.filter(&is_binary/1) |> Enum.map(&String.downcase/1) |> Enum.uniq() |> Enum.sort()
     fields = Map.put(fields, :labels, labels)
+    fields = if map_size(descriptions) > 0, do: Map.put(fields, :label_descriptions, descriptions), else: fields
     old = if held, do: held.labels, else: :unknown
     label_changes(fields, old, labels, updated)
   end
 
   defp label_fields(fields, _held, _labels, _updated), do: fields
 
-  defp label_name(%{"name" => name, "description" => description}) when is_binary(name) and is_binary(description) and description != "" do
-    if String.starts_with?(name, "feature:"), do: name <> " (" <> description <> ")", else: name
-  end
-
   defp label_name(label) when is_map(label), do: label["name"]
   defp label_name(label), do: label
-
-  defp normalize_label("feature:" <> rest = label) do
-    case String.split(rest, " (", parts: 2) do
-      [slug, description] -> "feature:" <> String.downcase(slug) <> " (" <> description
-      _ -> String.downcase(label)
-    end
-  end
-
-  defp normalize_label(label), do: String.downcase(label)
 
   defp label_changes(fields, old, labels, %DateTime{} = updated) when is_list(old) do
     changes = for {action, set} <- [labeled: labels -- old, unlabeled: old -- labels], label <- set, do: %{label: label, action: action, at: updated, actor: :unknown}

@@ -67,7 +67,7 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   await page.getByRole('tab', { name: 'Features' }).click()
   // pag and khala are registry features in the fixture; the rest come only from feature:<slug> labels.
   const bars = [
-    { key: 'pag', label: 'Events pagination', merged: 9, total: 13 },
+    { key: 'pag', label: 'MP-E1 build queue', merged: 9, total: 13 },
     { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
     { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 },
     { key: 'mp-e3', label: 'MP-E3', merged: 14, total: 23 },
@@ -87,6 +87,10 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   const visibleNames = await rows.locator('.fp-name').allTextContents()
   expect(new Set(visibleNames).size).toBe(visibleNames.length)
   expect(visibleNames).not.toContain('mp-e2')
+  expect(await rows.locator('.fp-name').evaluateAll(els => els.every(el => {
+    const style = getComputedStyle(el)
+    return style.textOverflow !== 'ellipsis' && style.whiteSpace === 'normal'
+  }))).toBe(true)
   await expect(rows.first().locator('.fp-bar i')).toHaveAttribute('style', /width:69\.23/)
   await expect(rows.nth(1).locator('.fp-bar i')).toHaveAttribute('style', 'width:0%')
   await expect(page.locator('.fp-head h1')).toHaveText(/ - build progress$/)
@@ -118,9 +122,11 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   expect(await rows.evaluateAll(els => {
     const nav = document.querySelector('.sidenav')
-    const usableBottom = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
-    return els.filter(el => el.getBoundingClientRect().bottom <= usableBottom).length
-  })).toBeGreaterThanOrEqual(6)
+    const usableTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+    const top = els[0].getBoundingClientRect().top
+    const rowHeight = Math.max(...els.slice(0, 6).map(el => el.getBoundingClientRect().bottom - el.getBoundingClientRect().top))
+    return usableTop - top >= 6 * rowHeight
+  })).toBe(true)
   await page.locator('.fp-row[data-feature="pag"]').press('Enter')
   await expect(page).toHaveURL(/feature=pag/)
 })
