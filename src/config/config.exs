@@ -251,6 +251,9 @@ if config_env() == :test do
   # (#6474). Tests that exercise them start their own named instances.
   config :aiur, :repository_services?, false
 
+  # The toolchain probe runs real `--version` and `npm view` commands.
+  config :aiur, :toolchain_probe?, false
+
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and
   # Aiur.Events.IdGenerator persists <log_root>/<repo>.event_id during

@@ -171,6 +171,7 @@ defmodule Aiur.ControlCLI.Reasons do
         no_worker_capacity: "no worker capacity",
         dispatch_retry_scheduled: "dispatch failed and a retry was scheduled",
         all_model_backends_limited: "all configured model backends are usage-limited",
+        toolchain_hold: "the backend's CLI is below Aiur's minimum version or updating; see TOOLCHAIN in aiur status",
         thrash_circuit_open: "dispatch restart circuit is open",
         dispatch_not_started: "dispatch did not start; inspect the ticket attention feed",
         lifetime_dispatch_latch: "lifetime dispatch latch (run `aiurdev reset-budget <id>` to clear; resume cannot)",

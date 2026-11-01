@@ -145,6 +145,10 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     end
   end
 
+  # The system attention names the binary; the decline names the held ticket.
+  def maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, :toolchain_hold),
+    do: record_dispatch_decline(state, issue, :toolchain_hold, "Ticket #{issue.identifier} held: #{Aiur.Toolchain.hold_detail(issue)}", false)
+
   def maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, _reason),
     do: clear_dispatch_decline(state, issue)
 

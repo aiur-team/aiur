@@ -262,6 +262,8 @@ defmodule Aiur.Application.Children do
       # Seed the fail-closed admission table before the Orchestrator can perform
       # its initial dispatch.
       Aiur.Orchestrator.SpendCap.Store,
+      # Probes worker CLIs at boot and hourly; dispatch reads its snapshot (#7443).
+      {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :toolchain_probe?, true)},
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),

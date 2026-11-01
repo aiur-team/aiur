@@ -205,6 +205,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
       build_gate: &Diagnostics.print_build_gate_status/0,
       hold_pressure: fn -> if Config.tracker_kind() == "github", do: HoldPressure.print_status() end,
       prewarm: &Diagnostics.print_prewarm_status/0,
+      toolchain: &Aiur.Toolchain.print_status/0,
       operator_asks: fn -> Watch.print_blocking_asks(opts) end
     ]
   end
