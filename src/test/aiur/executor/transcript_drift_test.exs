@@ -72,6 +72,32 @@ defmodule Aiur.Executor.TranscriptDriftTest do
     assert next[:exchange_payload].counts["total"] == 200
   end
 
+  test "clear carries uncheckpointed counters and latch across files in the same generation", context do
+    timer = start_supervised!({Agent, fn -> 0 end})
+    opts = Keyword.put(context.opts, :clock, fn -> Agent.get(timer, & &1) end)
+    path = bind(context, "old")
+    append(path, List.duplicate(%{"type" => "system"}, 199))
+    start_supervised!({TranscriptIngest, opts})
+    TranscriptIngest.poll()
+    append(path, List.duplicate(%{"type" => "new"}, 5))
+    TranscriptIngest.poll()
+    assert_received {:drift, _, _}
+    {:ok, binding} = Session.current()
+    assert binding.transcript_format["total"] == 199
+    {:ok, _} = Session.prepare_clear_rebind(binding.binding_id, %{event: "SessionEnd", reason: "clear", harness: "claude", session_id: "old", pid: "123"})
+    next_path = Path.join(Path.dirname(path), "new.jsonl")
+    File.write!(next_path, "")
+    {:ok, _} = Session.rebind_on_session_start(binding.binding_id, %{session_id: "new", harness: "claude", transcript_path: next_path, pid: "123", source: "clear"})
+    TranscriptIngest.poll()
+    TranscriptIngest.poll()
+    append(next_path, List.duplicate(%{"type" => "new"}, 200))
+    TranscriptIngest.poll()
+    stop_supervised!(TranscriptIngest)
+    assert format()["total"] == 404
+    assert format()["alerted"]
+    refute_received {:drift, _, _}
+  end
+
   test "exactly two percent and absent versions do not alert; an untested version does", context do
     path = bind(context, "version")
     append(path, List.duplicate(%{"type" => "system", "version" => "2.1.291"}, 196) ++ List.duplicate(%{"type" => "new"}, 4))
@@ -98,7 +124,7 @@ defmodule Aiur.Executor.TranscriptDriftTest do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, "")
     {:ok, binding} = Session.attach(%{harness: "claude", takeover?: true})
-    {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: id, transcript_path: path})
+    {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: id, transcript_path: path, pid: "123"})
     path
   end
 

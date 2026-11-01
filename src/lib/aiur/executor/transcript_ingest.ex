@@ -119,7 +119,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     checkpoint(capture, true)
     if capture.gap, do: Ingest.gap(Ref.executor(), :source_unreadable, capture.gap, DateTime.utc_now())
     Ingest.end_session(Ref.executor(), capture.binding.provider_session_id, capture.reason)
-    {:noreply, start_capture(%{state | capture: nil})}
+    {:noreply, carry_format(start_capture(%{state | capture: nil}), capture)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -261,6 +261,13 @@ defmodule Aiur.Executor.TranscriptIngest do
 
     %{state | capture: capture, error: nil, error_binding: nil}
   end
+
+  defp carry_format(%{capture: %{binding: binding} = next} = state, previous) do
+    same_generation? = Map.take(binding, [:binding_id, :generation]) == Map.take(previous.binding, [:binding_id, :generation])
+    if same_generation?, do: %{state | capture: %{next | format: previous.format}}, else: state
+  end
+
+  defp carry_format(state, _previous), do: state
 
   defp reconcile_detach do
     case Session.current() do
