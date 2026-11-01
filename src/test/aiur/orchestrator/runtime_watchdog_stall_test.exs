@@ -16,7 +16,15 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogStallTest do
       issue = %Issue{id: issue_id, identifier: identifier, state: "ci-wait"}
 
       entry = %{
-        pid: spawn(fn -> Process.sleep(:infinity) end),
+        pid:
+          start_supervised!(
+            {Task,
+             fn ->
+               receive do
+                 :stop -> :ok
+               end
+             end}
+          ),
         ref: nil,
         identifier: identifier,
         issue: issue,
@@ -182,7 +190,15 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogStallTest do
       state = %Orchestrator.State{
         running: %{
           issue_id => %{
-            pid: spawn_link(fn -> Process.sleep(:infinity) end),
+            pid:
+              start_supervised!(
+                {Task,
+                 fn ->
+                   receive do
+                     :stop -> :ok
+                   end
+                 end}
+              ),
             ref: nil,
             identifier: identifier,
             issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
@@ -249,7 +265,15 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogStallTest do
 
       stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
 
-      worker_pid = spawn(fn -> Process.sleep(:infinity) end)
+      worker_pid =
+        start_supervised!(
+          {Task,
+           fn ->
+             receive do
+               :stop -> :ok
+             end
+           end}
+        )
 
       state = %Orchestrator.State{
         running: %{
@@ -293,7 +317,16 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogStallTest do
       identifier = "STALL-HOOK"
 
       stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
-      worker_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      worker_pid =
+        start_supervised!(
+          {Task,
+           fn ->
+             receive do
+               :stop -> :ok
+             end
+           end}
+        )
 
       state = %Orchestrator.State{
         running: %{
