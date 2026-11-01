@@ -110,10 +110,6 @@ Transcripts can contain secrets printed by an agent or tool. Treat the raw
 journal as sensitive even with owner-only permissions. Never commit or share
 the directory.
 
-Attached Claude Executor capture excludes reasoning and redacts known credentials
-from message bodies and tool output before journal writes. This does not
-rewrite earlier journal entries or change worker capture.
-
 The full conversation display masks likely secrets by default. Entries changed
 by masking show **masked**. **Show raw** re-reads one entry and is available only
 for loopback dashboard sessions with dashboard writing enabled. Device principals
