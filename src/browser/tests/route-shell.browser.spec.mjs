@@ -30,6 +30,33 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   expect(pageErrors).toEqual([])
 })
 
+test('standalone shell recovery controls remain available after a LiveView disconnect', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.matchMedia.bind(window)
+    window.matchMedia = query => {
+      if (query === '(display-mode: standalone)') {
+        const media = original(query)
+        media.matches = true
+        return media
+      }
+      return original(query)
+    }
+  })
+  await openFixture(page)
+  await page.goto('/route-shell')
+  await expect(page.locator('[data-dashboard-recovery]')).toBeVisible()
+  await page.locator('[data-dashboard-recovery]').evaluate(node => {
+    node.dataset.reloadCount = '0'
+    node.querySelector('[data-recovery-reload]').addEventListener('click', () => { node.dataset.reloadCount = String(Number(node.dataset.reloadCount) + 1) })
+  })
+  const reload = page.locator('[data-recovery-reload]')
+  await page.evaluate(() => window.liveSocket.disconnect())
+  await expect(page.locator('[data-dashboard-recovery]')).toBeVisible()
+  await reload.click()
+  await expect(page.locator('[data-dashboard-recovery]')).toHaveAttribute('data-reload-count', '1')
+  await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('href', '/')
+})
+
 test('legacy Commands URLs redirect permanently to the canonical route', async ({ page }) => {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)

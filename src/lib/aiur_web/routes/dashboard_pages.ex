@@ -49,6 +49,8 @@ defmodule AiurWeb.Routes.DashboardPages do
           live("/voice", AiurWeb.DashboardLive, :voice)
           live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
+          live("/experiments", AiurWeb.ExperimentsLive, :experiments)
+          live("/experiments/:id", AiurWeb.ExperimentsLive, :experiment)
           live("/instances", AiurWeb.InstanceRosterLive, :instances)
           live("/post-deploy", AiurWeb.PostDeployLive, :index)
           live("/streamdeck", AiurWeb.StreamdeckLive, :streamdeck)
