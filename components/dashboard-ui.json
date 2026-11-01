@@ -54,7 +54,7 @@
     "WEB"
   ],
   "dependency_kind": "optional",
-  "summary": "Shows run status, durable conversation entries and diffs, Commands and usage in a browser.",
+  "summary": "Shows run status, worker and Executor conversations, Commands and usage in a browser.",
   "status": "optional",
   "install": {
     "type": "included"
