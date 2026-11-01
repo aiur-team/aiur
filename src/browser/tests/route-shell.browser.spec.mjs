@@ -6,7 +6,7 @@ import { nextPaint } from './support/measurements.mjs'
 
 async function dashboardOrigin(page) {
   const fixtureOrigin = new URL(page.url()).origin
-  const response = await page.request.get(`${fixtureOrigin}/dashboard-origin`)
+  const response = await page.request.get(`${fixtureOrigin}/health?dashboard_origin=1`)
   expect(response.status()).toBe(200)
   return response.text()
 }

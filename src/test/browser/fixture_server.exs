@@ -45,7 +45,6 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     post("/conversation-fixture/reset", Aiur.BrowserHarness.ConversationFixture, :reset)
     get("/conversation-fixture/append", Aiur.BrowserHarness.ConversationFixture, :append)
     get("/health", Aiur.BrowserHarness.FixtureAssets, :health)
-    get("/dashboard-origin", Aiur.BrowserHarness.FixtureAssets, :dashboard_origin)
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
     get("/assets/phoenix_live_view.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_live_view)
@@ -222,8 +221,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         strategy: :one_for_one
       )
 
-    {:ok, {_ip, dashboard_port}} = Bandit.PhoenixAdapter.server_info(AiurWeb.Endpoint, :http)
-    Application.put_env(:aiur, :browser_dashboard_port, dashboard_port)
+    Aiur.BrowserHarness.DashboardEndpoint.record_bound_port()
 
     conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}")
     Application.put_env(:aiur, :conversation_state_dir, conversation_root)
@@ -255,7 +253,6 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     endpoint_config = Application.fetch_env!(:aiur, FixtureEndpoint)
     Application.put_env(:aiur, FixtureEndpoint, Keyword.update!(endpoint_config, :url, &Keyword.put(&1, :port, port)))
     IO.puts("AIUR_BROWSER_FIXTURE_PORT=#{port}")
-    IO.puts("AIUR_BROWSER_DASHBOARD_PORT=#{dashboard_port}")
     Process.sleep(:infinity)
   end
 
@@ -448,14 +445,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   defp configure_forwarded_dashboard do
     config =
-      :aiur
-      |> Application.get_env(AiurWeb.Endpoint, [])
+      Aiur.BrowserHarness.DashboardEndpoint.forwarded_config()
       |> Keyword.merge(
-        server: true,
-        http: [ip: {127, 0, 0, 1}, port: 0],
-        url: [host: "127.0.0.1", port: 0],
-        allowed_hosts: ["127.0.0.1", "localhost"],
-        check_origin: false,
         dashboard_auth_required: true,
         # Stays read-only by default so incidental key presses in other specs
         # cannot mutate the shared fixture fleet. The operator-flow spec opts its
