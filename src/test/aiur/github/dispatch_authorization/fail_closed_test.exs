@@ -41,6 +41,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     denied =
       DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
         allowed_users: ["trusted"],
+        label_prefix: "agent",
         token: "test-token",
         request_fun: fn _request -> {:error, :timeout} end
       )
@@ -188,10 +189,11 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     assert denied.dispatch_authorization == :deferred
   end
 
-  test "fails closed before timeline lookup when the issue has no trigger label" do
+  test "freshly re-fetches a missing label and keeps an empty issue denied" do
     denied =
       DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
         allowed_users: ["trusted"],
+        label_prefix: "agent",
         token: "test-token",
         request_fun: fn
           %{url: "https://api.github.com/repos/owner/repo/issues/42"} ->
@@ -206,7 +208,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     assert denied.dispatch_authorization == :denied
   end
 
-  test "re-fetches a missing trigger label once and authorizes after the add-first transition completes" do
+  test "freshly re-fetches a missing trigger label once and authorizes the recovered issue" do
     counter = start_supervised!({Agent, fn -> 0 end})
 
     request_fun = fn
@@ -222,6 +224,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     authorized =
       DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
         allowed_users: ["trusted"],
+        label_prefix: "agent",
         token: "test-token",
         request_fun: request_fun
       )

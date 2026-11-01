@@ -3,8 +3,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Access, Config, Issues, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
-  alias Aiur.GitHub.DispatchAuthorization.Timeline
+  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
+  alias Aiur.GitHub.DispatchAuthorization.{MissingTriggerLabel, Timeline}
   alias Aiur.{Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
@@ -74,27 +74,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # stale snapshot. Revalidate once before treating an empty state as a
   # provenance denial; if the label is still absent, keep the denial explicit.
   defp recheck_missing_trigger_label(issue, owner, repo, prefix, allowed_users, opts) do
-    read_opts = [
-      token: Keyword.get(opts, :token, Config.token()),
-      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
-      unconditional: true,
-      caller: "dispatch_authorization_missing_trigger_label",
-      repository: {owner, repo}
-    ]
-
-    case Issues.fetch_issue_raw_conditional(issue.id, read_opts) do
-      {:ok, body, _outcome} ->
-        labels = Enum.map(body["labels"] || [], &Map.get(&1, "name", ""))
-        refreshed = %{issue | state: Issues.extract_state(body, labels, prefix), state_labels: Issues.extract_state_labels(labels, prefix)}
-
-        if is_binary(refreshed.state) and refreshed.state != "" do
-          authorize_label_applier(refreshed, owner, repo, prefix, allowed_users, opts)
-        else
-          deny_ambiguous(issue, :missing_trigger_label)
-        end
-
-      {:error, _reason} ->
-        deny_ambiguous(issue, :missing_trigger_label)
+    case MissingTriggerLabel.recheck(issue, owner, repo, Keyword.put(opts, :label_prefix, prefix)) do
+      {:ok, refreshed} -> authorize_label_applier(refreshed, owner, repo, prefix, allowed_users, opts)
+      {:error, :missing_trigger_label} -> deny_ambiguous(issue, :missing_trigger_label)
     end
   end
 
