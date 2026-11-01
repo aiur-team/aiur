@@ -165,22 +165,30 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     end
   end
 
-  test "a blocking formal review does not automatically route to rework in single-account mode" do
+  test "a single-account operator blocking review routes to rework" do
     issue = human_review_issue()
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", tracker_identity_mode: "single_account")
 
     event =
       changes_requested_review_event(issue, %{
-        comment: %{"state" => "COMMENTED", "body" => "Blocking: fix before merge", "submitted_at" => "2026-09-26T04:09:44Z"},
-        human_merger_allowed_fun: fn _login -> true end,
-        pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
-        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+        human_merger_allowed_fun: fn _login -> true end
       })
 
-    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_identity_mode: "single_account")
+    comment =
+      Map.merge(event.comment, %{
+        "state" => "COMMENTED",
+        "body" => "Blocking: fix before merge",
+        "user" => %{"login" => "operator"}
+      })
+
+    pull_request = Map.put(event.pull_request, "review_decision", "REVIEW_REQUIRED")
+    event = %{event | author_trusted?: false, comment: comment, pull_request: pull_request}
 
     CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
 
-    refute_received {:memory_tracker_state_update, @issue_number, "rework"}
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
   for ticket_state <- ["human-review", "ci-wait"],

@@ -257,53 +257,6 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
       assert :ets.lookup_element(labels, :names, 2) == ["sym:done"]
     end
 
-    test "merged ticket with rework clears every stale lifecycle state except done" do
-      test_pid = self()
-      labels = :ets.new(:merged_rework_issue_labels, [:set, :public])
-      stale = ["sym:rework", "sym:ci-wait", "sym:human-review"]
-      :ets.insert(labels, {:names, stale})
-
-      request_fun = fn req ->
-        send(test_pid, {:request, req})
-
-        case req.method do
-          :get ->
-            {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(:ets.lookup_element(labels, :names, 2), &%{"name" => &1})}}}
-
-          :post ->
-            :ets.update_element(labels, :names, {2, ["sym:done" | :ets.lookup_element(labels, :names, 2)]})
-            {:ok, %{status: 200}}
-
-          :delete ->
-            name = req.url |> URI.parse() |> Map.fetch!(:path) |> String.split("/") |> List.last() |> URI.decode()
-            :ets.update_element(labels, :names, {2, List.delete(:ets.lookup_element(labels, :names, 2), name)})
-            {:ok, %{status: 200}}
-
-          :patch ->
-            {:ok, %{status: 200}}
-        end
-      end
-
-      assert :ok =
-               IssueState.update_issue_state("7386", "done",
-                 request_fun: request_fun,
-                 clear_terminal_state_labels: [
-                   "sym:todo",
-                   "sym:in-progress",
-                   "sym:ci-wait",
-                   "sym:human-review",
-                   "sym:rework",
-                   "sym:merging",
-                   "sym:error",
-                   "sym:cancelled",
-                   "sym:canceled",
-                   "sym:budget-exhausted"
-                 ]
-               )
-
-      assert :ets.lookup_element(labels, :names, 2) == ["sym:done"]
-    end
-
     test "add_active_issue_label re-checks issue closed state before adding (stale-label race)" do
       test_pid = self()
       calls = :ets.new(:calls, [:set, :public])

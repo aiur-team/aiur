@@ -91,7 +91,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   end
 
   defp configured_human_review?(event) do
-    changes_requested_review?(event) and human_merger_review?(event)
+    blocking_review_submission?(event) and human_merger_review?(event)
   end
 
   defp human_merger_review?(event) do
@@ -206,12 +206,8 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   defp blocking_review_submission?(event) do
     case {comment_review_state(event), CommentWake.comment_body(event)} do
       {state, body} when is_binary(state) ->
-        single_account? = Map.get(event, :single_account?, Config.single_account?())
-        operator_review? = single_account? and human_merger_review?(event)
-
-        not operator_review? and
-          (String.upcase(state) == "CHANGES_REQUESTED" or
-             (String.upcase(state) == "COMMENTED" and ReviewFindings.blocking_body?(body)))
+        String.upcase(state) == "CHANGES_REQUESTED" or
+          (String.upcase(state) == "COMMENTED" and ReviewFindings.blocking_body?(body))
 
       _other ->
         false
