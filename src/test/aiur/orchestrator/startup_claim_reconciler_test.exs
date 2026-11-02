@@ -101,7 +101,20 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   test "a duration-capped paused registry entry is not an orphan claim" do
     issue = issue("2076", "in-progress")
-    state = %State{running: %{"runtime-key" => %{identifier: issue.identifier, issue: issue, pid: nil, control: %{status: :paused}, paused_reason: :max_agent_duration}}}
+    {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
+
+    state = %State{
+      running: %{
+        "runtime-key" => %{
+          identifier: issue.identifier,
+          issue: issue,
+          pid: dead_pid,
+          control: %{status: :paused},
+          paused_reason: :max_agent_duration
+        }
+      }
+    }
 
     {result, [retained]} =
       reconcile(state, [issue],
