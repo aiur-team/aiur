@@ -134,7 +134,10 @@ export function wireLive() {
   });
   for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) life.on(map, event, () => { drag = false; });
   life.on(map, 'pointerleave', () => tip.classList.remove('show'));
-  life.observe(log, scheduleMap); life.observe(log.querySelector('.cv-preamble'), scheduleMap); life.observe(map, scheduleMap);
+  life.observe(log, scheduleMap);
+  const preamble = log.querySelector('.cv-preamble');
+  if (preamble) life.observe(preamble, scheduleMap);
+  life.observe(map, scheduleMap);
   scheduleMap();
 }
 Object.assign(fx, { appendLive, appendItem, conversationApplied, scheduleMap, updateTyping, disposeLive });
