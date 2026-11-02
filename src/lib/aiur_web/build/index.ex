@@ -445,8 +445,7 @@ defmodule AiurWeb.Build.Index do
     {parts, history_at} =
       HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
 
-    now_unavailable? = RefreshState.needs_agent_retry?(parts[:now])
-    parts = RefreshState.retain_unavailable_agents(parts, state.parts)
+    {parts, now_unavailable?} = RefreshState.retain_unavailable_agents(parts, state.parts)
 
     next = Core.assemble(parts, now: clock(state))
 

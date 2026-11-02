@@ -21,21 +21,23 @@ defmodule AiurWeb.Build.Index.RefreshState do
   end
 
   @doc false
-  @spec retain_unavailable_agents(map(), map()) :: map()
+  @spec retain_unavailable_agents(map(), map()) :: {map(), boolean()}
   def retain_unavailable_agents(parts, previous) do
     case {parts[:now], previous[:now]} do
       {current, %{rows: rows, source: source}}
       when is_map(rows) and is_map(source) ->
-        if not needs_agent_retry?(current) or not usable_agents?(previous[:now]) do
-          parts
+        retry? = needs_agent_retry?(current)
+
+        if not retry? or not usable_agents?(previous[:now]) do
+          {parts, retry?}
         else
           reason = current_agent_reason(current)
           retained = %{rows: rows, source: %{source | state: "stale", reason: reason}}
-          Map.put(parts, :now, retained)
+          {Map.put(parts, :now, retained), retry?}
         end
 
       _ ->
-        parts
+        {parts, needs_agent_retry?(parts[:now])}
     end
   end
 
