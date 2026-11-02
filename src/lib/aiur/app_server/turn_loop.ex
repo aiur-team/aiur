@@ -6,6 +6,7 @@ defmodule Aiur.AppServer.TurnLoop do
   alias Aiur.AgentRunner.Handoff
   alias Aiur.AppServer.{Adapter, Interrupts, Messages, NativeReplies, OperatorDelivery, Rpc, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
+  alias Aiur.Codex.{CodingAgent, LivenessProbe}
   alias Aiur.Commands.NativeCapture
 
   @spec receive_loop(map(), map()) :: term()
@@ -71,6 +72,22 @@ defmodule Aiur.AppServer.TurnLoop do
       {:DOWN, _ref, :port, ^port, reason} ->
         port_exit_failure(session, state, reason)
 
+      :codex_liveness_probe when state.backend == CodingAgent ->
+        case Map.get(state, :liveness_probe_pending?, false) do
+          true -> LivenessProbe.timeout(session, state)
+          false -> handle_liveness_probe(session, state)
+        end
+
+      :codex_liveness_probe ->
+        receive_loop(session, state)
+
+      {^port, {:data, {:eol, chunk}}} ->
+        complete_line = state.pending_line <> to_string(chunk)
+        # Callbacks may wait for nested RPC responses from this same relay.
+        :ok = Transport.acknowledge(port)
+        result = handle_incoming(session, %{state | pending_line: ""}, complete_line)
+        continue_or_return(session, result)
+
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         continue_or_return(
           session,
@@ -115,6 +132,16 @@ defmodule Aiur.AppServer.TurnLoop do
     end
   end
 
+  defp handle_liveness_probe(session, state) do
+    case LivenessProbe.run(session, state) do
+      {:continue, next_state} ->
+        receive_loop(session, next_state)
+
+      other ->
+        other
+    end
+  end
+
   defp continue_or_return(session, {:continue, next_state}), do: receive_loop(session, next_state)
   defp continue_or_return(_session, result), do: result
 
@@ -145,6 +172,10 @@ defmodule Aiur.AppServer.TurnLoop do
   defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)
        when request_id == state.pending_interrupt_request_id do
     state.backend.handle_interrupt_error(state, error)
+  end
+
+  defp handle_decoded_incoming(session, %{liveness_probe_pending?: true} = state, %{"id" => 6} = payload, payload_string, _port, _on_message) do
+    state.backend.handle_method(session, state, payload, payload_string, "liveness_probe")
   end
 
   defp handle_decoded_incoming(session, state, %{"id" => request_id, "result" => _} = payload, payload_string, _port, _on_message)

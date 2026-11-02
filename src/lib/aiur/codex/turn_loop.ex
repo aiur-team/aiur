@@ -6,10 +6,32 @@ defmodule Aiur.Codex.TurnLoop do
   require Logger
 
   alias Aiur.AppServer.{Messages, NativeReplies, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
-  alias Aiur.Codex.{Approvals, NotificationPolicy, Notifications, TurnEvents}
+  alias Aiur.Codex.{Approvals, LivenessProbe, NotificationPolicy, Notifications, TurnEvents}
   alias Aiur.Commands.NativeCapture
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
+  def handle_method(session, %{liveness_probe_pending?: true} = state, %{"id" => id} = payload, _payload_string, _method)
+      when id == 6 do
+    case LivenessProbe.handle_response(session, state, payload) do
+      {:continue, next_state} ->
+        timer = Map.get(next_state, :liveness_probe_timer)
+        if is_reference(timer), do: Process.cancel_timer(timer)
+        {:continue, next_state |> Map.delete(:liveness_probe_pending?) |> Map.delete(:liveness_probe_timer) |> LivenessProbe.schedule()}
+
+      {:error, reason} ->
+        Rpc.retain_late_sensitive_response(session.port, id)
+        {:error, reason}
+
+      {:paused, _pause} = result ->
+        timer = Map.get(state, :liveness_probe_timer)
+        if is_reference(timer), do: Process.cancel_timer(timer)
+        result
+
+      other ->
+        other
+    end
+  end
+
   def handle_method(
         session,
         state,
