@@ -21,6 +21,12 @@ Calls run under a deadline. Their parameters and
 results use the configured redactor and normal transcript recording.
 `allowed_tools` filters host tools like every other advertised tool.
 
+Assistant text broadcasts redact across provider chunk boundaries. The stream
+holds at most seven graphemes (the longest configured redaction prefix) and
+releases that tail on the next text chunk, the complete final event, an
+interruption, or session finish. This bounds added delay to one provider text
+chunk while keeping the withheld text to seven graphemes.
+
 ## Hosted agents
 
 An adapter whose descriptor family is `:hosted_agent` talks through an agent object the host

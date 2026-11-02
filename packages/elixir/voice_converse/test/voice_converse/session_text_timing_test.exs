@@ -113,6 +113,32 @@ defmodule VoiceConverse.SessionTextTimingTest do
     refute Enum.any?(records(ctx, id), &String.contains?(Jason.encode!(&1), "abcdefgh12345"))
   end
 
+  test "split bearer tokens stay masked through two and three streamed chunks", ctx do
+    for chunks <- [["hello Bear", "er abcdefgh12345"], ["hello Be", "arer abc", "defgh12345"]] do
+      {id, _, ref} = start_session(ctx)
+      Enum.each(chunks, fn chunk -> :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: chunk, final?: false}) end)
+      complete = Enum.join(chunks)
+      :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: complete, final?: true})
+      messages = collect_text_messages(id, [])
+      refute Enum.any?(messages, &String.contains?(&1, "abcdefgh12345"))
+      stored = List.last(messages)
+      assert List.last(messages) == stored
+      assert stored == "hello [redacted]"
+      :ok = FakeProvider.emit(ref, %Events.Interruption{turn_id: "split"})
+      assert_receive {:voice_conversation, ^id, %Events.Interruption{turn_id: "split"}}, 1_000
+      :ok = VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped", "turn_id" => "split"})
+      assert [%{"text" => ^stored}] = turns(records(ctx, id))
+      :ok = VoiceConverse.end_session(ctx.name, id)
+    end
+  end
+
+  test "streaming redaction holdback has a measured seven-grapheme upper bound" do
+    assert VoiceConverse.Redact.broadcast_holdback_graphemes() == 7
+    assert VoiceConverse.Redact.holdback("hello Bear") == 4
+    assert VoiceConverse.Redact.holdback("") == 0
+    assert VoiceConverse.Redact.holdback("hello Bearer ") == 7
+  end
+
   test "unexpected provider truncation results are recorded without ending the session", ctx do
     {id, session, ref} = start_session(ctx, FakeProvider, truncate_result: :unexpected)
     emit_turn(ref)
@@ -308,4 +334,12 @@ defmodule VoiceConverse.SessionTextTimingTest do
   end
 
   defp turns(records), do: Enum.filter(records, &(&1["type"] == "assistant_turn"))
+
+  defp collect_text_messages(id, acc) do
+    receive do
+      {:voice_conversation, ^id, %Events.AgentText{text: text}} -> collect_text_messages(id, acc ++ [text])
+    after
+      50 -> acc
+    end
+  end
 end

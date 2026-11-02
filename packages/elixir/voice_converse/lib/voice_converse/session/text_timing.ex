@@ -14,6 +14,41 @@ defmodule VoiceConverse.Session.TextTiming do
 
   def redact_for_broadcast(event, _redactor), do: event
 
+  def stream_text(state, %Events.AgentText{} = event) do
+    id = to_string(event.turn_id)
+    previous = Map.get(state.broadcast_tails, id, "")
+
+    if event.final? do
+      final_event = %{event | text: state.config.redactor.(event.text)}
+      tail_event = if previous == "", do: nil, else: %Events.AgentText{turn_id: event.turn_id, text: state.config.redactor.(previous), final?: false}
+      {Map.delete(state.broadcast_tails, id), [tail_event, final_event] |> Enum.reject(&is_nil/1)}
+    else
+      combined = previous <> event.text
+      {safe, tail} = split_safe_prefix(combined)
+      tails = put_tail(state.broadcast_tails, id, tail)
+      outgoing = if safe == "", do: [], else: [%{event | text: state.config.redactor.(safe)}]
+      {tails, outgoing}
+    end
+  end
+
+  defp split_safe_prefix(text) do
+    graphemes = String.graphemes(text)
+    held = VoiceConverse.Redact.holdback(text)
+    {Enum.take(graphemes, length(graphemes) - held) |> Enum.join(), Enum.take(graphemes, -held) |> Enum.join()}
+  end
+
+  defp put_tail(tails, id, ""), do: Map.delete(tails, id)
+  defp put_tail(tails, id, tail), do: Map.put(tails, id, tail)
+
+  def flush_stream_text(state, id) do
+    key = to_string(id)
+
+    case Map.pop(state.broadcast_tails, key) do
+      {nil, tails} -> {%{state | broadcast_tails: tails}, []}
+      {tail, tails} -> {%{state | broadcast_tails: tails}, [%Events.AgentText{turn_id: id, text: state.config.redactor.(tail), final?: false}]}
+    end
+  end
+
   def handle(state, %Events.AgentText{turn_id: id, text: text, final?: final?}) do
     turn = turn(state, id)
     # Final AgentText is the complete turn, partial AgentText contains deltas.
