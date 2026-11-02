@@ -75,9 +75,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         Candidates.emit_dispatch_attempt_decline(state, issue, :instance_not_owner, false)
 
       {:unavailable, reason} ->
-        Logger.warning(
-          "Instance ownership unavailable (#{reason}) for #{State.issue_context(issue)}; holding dispatch"
-        )
+        Logger.warning("Instance ownership unavailable (#{reason}) for #{State.issue_context(issue)}; holding dispatch")
 
         Candidates.emit_dispatch_attempt_decline(
           state,
@@ -122,9 +120,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_held, false)
 
       {:error, {:shared_lease_unavailable, reason}} ->
-        Logger.warning(
-          "Shared ticket lease unavailable for #{State.issue_context(issue)}: #{inspect(reason)}; holding dispatch"
-        )
+        Logger.warning("Shared ticket lease unavailable for #{State.issue_context(issue)}: #{inspect(reason)}; holding dispatch")
 
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_unavailable, true)
     end
@@ -145,9 +141,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
          :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
          {:ok, selected_issue} <-
-           Toolchain.select_for_dispatch(
-             force_backend(prepared, Keyword.get(opts, :forced_backend))
-           ) do
+           Toolchain.select_for_dispatch(force_backend(prepared, Keyword.get(opts, :forced_backend))) do
       state = %{
         state
         | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)
@@ -167,14 +161,12 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         else
           Signal.alert("ticket.#{issue.identifier}.agent.model_fallback_waiting",
             issue: issue.identifier,
-            reason:
-              "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
+            reason: "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
             needs_attention: true,
             severity: "warning"
           )
 
-          {:hold,
-           %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}}
+          {:hold, %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}}
         end
     end
   end
