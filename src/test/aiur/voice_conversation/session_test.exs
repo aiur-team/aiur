@@ -48,7 +48,9 @@ defmodule Aiur.VoiceConversation.SessionTest do
     provider = :sys.get_state(session).provider_ref
     FakeProvider.emit(provider, %Events.UserTranscript{text: "Check builds", final?: true})
     FakeProvider.emit(provider, %Events.AgentText{turn_id: "a", text: "Bearer abcdefgh12345", final?: true})
-    receive_barrier({:executor_voice, %Events.AgentText{}})
+    receive_barrier({:executor_voice, %Events.AgentText{text: broadcast_text}})
+    assert broadcast_text =~ "[redacted]"
+    refute broadcast_text =~ "abcdefgh12345"
     Session.stop(monitor)
     receive_barrier({:delivered, ^id, [%{role: "user", text: "Check builds"}, %{role: "agent", text: text}], :user_end})
     assert text =~ "[redacted]"

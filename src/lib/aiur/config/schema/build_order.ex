@@ -73,6 +73,9 @@ defmodule Aiur.Config.Schema.BuildOrder do
     # @config-reference config-configuration-build-order-00 build_order.graph_max_inflight
     # @config-detail build_order.graph_max_inflight | integer | 4 | Maximum concurrent graph refreshes. |
     field(:graph_max_inflight, :integer, default: 4)
+    # @config-reference config-configuration-build-order-00 build_order.feature_order
+    # @config-detail build_order.feature_order | array | `[]` | Feature slugs in goal order for the Features list. Unlisted features follow, oldest first. |
+    field(:feature_order, {:array, :string}, default: [])
     # @config-reference config-configuration-build-order-00 build_order.general_epics
     # @config-detail build_order.general_epics | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
     embeds_many(:general_epics, GeneralEpic, on_replace: :delete)
@@ -97,7 +100,8 @@ defmodule Aiur.Config.Schema.BuildOrder do
         :graph_catalog_labels_refresh_ms,
         :graph_refresh_timeout_ms,
         :graph_max_selected_roots,
-        :graph_max_inflight
+        :graph_max_inflight,
+        :feature_order
       ],
       empty_values: []
     )
@@ -112,6 +116,7 @@ defmodule Aiur.Config.Schema.BuildOrder do
     |> validate_number(:graph_refresh_timeout_ms, greater_than: 0, less_than_or_equal_to: 120_000)
     |> validate_number(:graph_max_selected_roots, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:graph_max_inflight, greater_than: 0, less_than_or_equal_to: 16)
+    |> validate_length(:feature_order, max: 200)
     |> validate_labels_cadence()
     |> cast_embed(:general_epics, with: &GeneralEpic.changeset/2)
     |> validate_unique_epics()
