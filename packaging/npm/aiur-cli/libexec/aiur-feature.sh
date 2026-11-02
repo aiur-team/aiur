@@ -24,30 +24,31 @@ cmd_feature() {
       --move) [ "$op" = add ] || feature_usage_error '--move requires feature add'; flags="$flags, move: true" ;;
       --remove) [ "$op" = also ] || feature_usage_error '--remove requires feature also'; flags="$flags, remove: true" ;;
       --replace) [ "$op" = baseline ] || feature_usage_error '--replace requires feature baseline'; flags="$flags, replace: true" ;;
-      --as|--label|--hue|--epic|--epic-hue|--add-epic|--end|--source)
+      --epic-hue)
+        [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != --* ]] || feature_usage_error '--epic-hue requires a value'
+        value="$2"; shift
+        [[ "$op" == create || "$op" == edit || "$op" == add ]] || feature_usage_error '--epic-hue requires feature create, edit or add'
+        [[ "$value" == *=* && -n "${value%%=*}" && -n "${value#*=}" ]] || feature_usage_error '--epic-hue requires key=gruvbox-name or key=0-359'
+        hue_value="${value#*=}"
+        if [[ "$hue_value" =~ ^[0-9]{1,3}$ ]]; then
+          [ "$((10#$hue_value))" -le 359 ] || feature_usage_error 'epic hue must be 0 to 359 or a Gruvbox name'
+          hue_value="$((10#$hue_value))"
+        fi
+        [ -n "$epic_hues" ] && epic_hues="$epic_hues, "
+        if [[ "$hue_value" =~ ^[0-9]{1,3}$ ]]; then
+          epic_hues="$epic_hues$(feature_rpc_string "${value%%=*}") => $hue_value"
+        else
+          epic_hues="$epic_hues$(feature_rpc_string "${value%%=*}") => $(feature_rpc_string "$hue_value")"
+        fi
+        edits=$((edits + 1)); shift ;;
+      --as|--label|--hue|--epic|--add-epic|--end|--source)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != --* ]] || feature_usage_error "$arg requires a value"
         value="$2"; shift
         case "$arg" in
           --as) [ "$op" != show ] || feature_usage_error '--as requires a feature write'; who="$value" ;;
-          --label|--hue|--epic-hue|--end|--add-epic)
-            [[ "$op" == create || "$op" == edit || "$arg" == --epic-hue ]] || feature_usage_error "$arg requires feature create or edit"
+          --label|--hue|--end|--add-epic)
+            [[ "$op" == create || "$op" == edit ]] || feature_usage_error "$arg requires feature create or edit"
             [[ "$arg" != --end && "$arg" != --add-epic || "$op" == edit ]] || feature_usage_error "$arg requires feature edit"
-            if [ "$arg" = --epic-hue ]; then
-              [[ "$op" == create || "$op" == edit || "$op" == add ]] || feature_usage_error '--epic-hue requires feature create, edit or add'
-              [[ "$value" == *=* && -n "${value%%=*}" && -n "${value#*=}" ]] || feature_usage_error '--epic-hue requires key=gruvbox-name or key=0-359'
-              hue_value="${value#*=}"
-              if [[ "$hue_value" =~ ^[0-9]{1,3}$ ]]; then
-                [ "$((10#$hue_value))" -le 359 ] || feature_usage_error 'epic hue must be 0 to 359 or a Gruvbox name'
-                hue_value="$((10#$hue_value))"
-              fi
-              [ -n "$epic_hues" ] && epic_hues="$epic_hues, "
-              if [[ "$hue_value" =~ ^[0-9]{1,3}$ ]]; then
-                epic_hues="$epic_hues$(feature_rpc_string "${value%%=*}") => $hue_value"
-              else
-                epic_hues="$epic_hues$(feature_rpc_string "${value%%=*}") => $(feature_rpc_string "$hue_value")"
-              fi
-              edits=$((edits + 1)); shift; shift; continue
-            fi
             edits=$((edits + 1))
             case "$arg" in
               --label) label_set=1; flags="$flags, label: $(feature_rpc_string "$value")" ;;
