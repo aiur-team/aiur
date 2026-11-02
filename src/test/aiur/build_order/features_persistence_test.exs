@@ -28,6 +28,25 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
     refute_received {:alert, _, _, _}
   end
 
+  test "assigned epic hues and names survive journal replay", %{dir: dir} do
+    pid = start_store(dir)
+
+    assert {:ok, _} =
+             Features.create(
+               "palette",
+               %{label: "Palette", epics: [%{key: "first", label: "First"}, %{key: "second", label: "Second"}]},
+               meta(pid)
+             )
+
+    assert {:ok, before_restart} = Features.snapshot(server: pid)
+    assert Enum.map(before_restart.features["palette"].epics, &{&1.color, &1.hue}) == [{"green", 120}, {"yellow", 55}]
+    GenServer.stop(pid)
+
+    replayed = start_store(dir)
+    assert {:ok, after_restart} = Features.snapshot(server: replayed)
+    assert after_restart.features["palette"].epics == before_restart.features["palette"].epics
+  end
+
   test "V-8 newer newline-terminated journal versions remain untouched", %{dir: dir} do
     pid = seeded(dir)
     GenServer.stop(pid)
@@ -128,7 +147,7 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
     replayed = start_store(dir, general_epics: [%{key: "f-api", hue: 10}])
     assert ProviderHealth.usable?(Features.health(server: replayed))
     assert {:ok, snapshot} = Features.snapshot(server: replayed)
-    assert snapshot.features["a"].epics == [%{key: "f-api", label: "API"}]
+    assert Map.take(hd(snapshot.features["a"].epics), [:key, :label]) == %{key: "f-api", label: "API"}
     assert {:error, {:epic_key_taken, "f-api"}} = Features.create("b", %{label: "B", epics: [%{key: "f-api", label: "API"}]}, meta(replayed))
   end
 

@@ -1,6 +1,7 @@
 defmodule Aiur.BuildOrder.Index.Catalogue do
   @moduledoc false
   alias Aiur.BuildOrder.{Epic, FeatureDefaults, FeatureStats, SourceFreshness}
+  alias Aiur.BuildOrder.Features.FeatureData
   alias Aiur.BuildOrder.Index.Rows
   alias Aiur.Heroicons
   @statuses Map.new(~w(done failed not_planned closed running queued open)a, &{Atom.to_string(&1), &1})
@@ -27,7 +28,7 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
     feature_metadata = feature_metadata(parts)
     feature_rows = feature_rows(sorted, feature_metadata, stats, fn slug -> oldest(slug, registry, rows) end)
     epics = general_epics(general)
-    feature_epics = feature_epics(sorted, feature_metadata)
+    feature_epics = feature_epics(sorted, feature_metadata, general)
     order = Enum.map(general, & &1.key) ++ Enum.flat_map(sorted, fn {_, f} -> Enum.map(f.epics, & &1.key) end) ++ ["unsorted"]
     %{features: feature_rows, epics: epics |> Map.merge(feature_epics) |> Map.put("unsorted", Epic.unsorted()), order: order}
   end
@@ -55,13 +56,30 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
   end
 
   defp general_epics(general) do
-    Map.new(general, fn epic ->
-      {epic.key, epic |> Map.take([:key, :label, :hue, :icon]) |> Map.put(:svg, Heroicons.svg(epic.icon)) |> Map.put(:general, true)}
+    palette =
+      ~w(red green yellow blue purple aqua orange bright-red bright-green bright-yellow bright-blue bright-purple bright-aqua bright-orange faded-red faded-green faded-yellow faded-blue faded-purple faded-aqua faded-orange)
+
+    general
+    |> Enum.with_index()
+    |> Map.new(fn {epic, index} ->
+      color = Enum.at(palette, index)
+      {:ok, hue} = FeatureData.palette_hue(color)
+      {epic.key, epic |> Map.take([:key, :label, :icon]) |> Map.put(:hue, hue) |> Map.put(:svg, Heroicons.svg(epic.icon)) |> Map.put(:general, true)}
     end)
   end
 
-  defp feature_epics(sorted, metadata_by_id) do
-    for {slug, feature} <- sorted, epic <- feature.epics, into: %{}, do: {epic.key, feature_epic(slug, feature, epic, metadata_by_id)}
+  defp feature_epics(sorted, metadata_by_id, general) do
+    initial_colors = FeatureData.used_epic_colors(general, %{})
+
+    sorted
+    |> Enum.sort_by(fn {slug, feature} -> {Map.get(feature, :created_at, Map.get(feature, :from)), slug} end)
+    |> Enum.reduce({%{}, initial_colors}, fn {slug, feature}, {epics_by_key, used_colors} ->
+      assigned = FeatureData.assign_epic_colors(feature.epics, used_colors)
+      new_colors = Enum.map(assigned, &FeatureData.epic_palette_name/1) |> Enum.filter(&is_binary/1)
+      entries = Map.new(assigned, &{&1.key, feature_epic(slug, feature, &1, metadata_by_id)})
+      {Map.merge(epics_by_key, entries), used_colors ++ new_colors}
+    end)
+    |> elem(0)
   end
 
   defp feature_epic(slug, feature, epic, metadata_by_id) do
@@ -71,7 +89,7 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
     %{
       key: epic.key,
       label: epic.label,
-      hue: feature.hue,
+      hue: epic[:hue] || feature.hue,
       icon: epic[:icon] || Map.get(metadata, "icon") || Heroicons.generic_name(),
       svg: Heroicons.svg(epic[:icon] || Map.get(metadata, "icon")),
       summary: Map.get(metadata, "summary"),

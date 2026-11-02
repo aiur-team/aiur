@@ -9,7 +9,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
@@ -19,16 +18,6 @@ sys.path.insert(0, str(SCRIPT_DIR / "publication"))
 
 from helpers import umbrella  # noqa: E402
 from publish_build_order import load_driver  # noqa: E402
-from publication_operator import Publisher  # noqa: E402
-
-
-def apply_without_cli(driver):
-    """Keep GitHub integration tests isolated from the live local registry."""
-    with (
-        patch.object(Publisher, "_run_cli"),
-        patch.object(Publisher, "_resolve_cli", return_value="aiur"),
-    ):
-        return driver.apply()
 
 
 class FakeGitHub:
@@ -161,11 +150,6 @@ def prepare_example_pack(
                 ["BO-001", "BO-002"],
             )
         )
-    build["product_features"] = [{
-        "slug": "operator-dashboard",
-        "label": "Operator dashboard",
-        "ticket_ids": [ticket["id"] for ticket in build["tickets"]],
-    }]
     publication = json.loads(
         (REFERENCES / "publication.example.json").read_text(encoding="utf-8")
     )
@@ -262,7 +246,7 @@ class PersistedPointerOwnershipTests(unittest.TestCase):
             )
             hijacked_driver.client = client
             with self.assertRaisesRegex(Exception, expected):
-                apply_without_cli(hijacked_driver)
+                hijacked_driver.apply()
 
             self.assertEqual([], client.mutations)
             self.assertEqual(
@@ -307,7 +291,7 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             }
             client = FakeGitHub(build["repository"], approved, labels)
             driver.client = client
-            apply_without_cli(driver)
+            driver.apply()
             materialized = json.loads(build_path.read_text(encoding="utf-8"))
             umbrella_mapping = materialized["tickets"][2]["github"]
 
@@ -325,10 +309,6 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             build = json.loads(
                 (REFERENCES / "build-order.example.json").read_text(encoding="utf-8")
             )
-            build["product_features"] = [{
-                "slug": "operator-dashboard", "label": "Operator dashboard",
-                "ticket_ids": [ticket["id"] for ticket in build["tickets"]],
-            }]
             publication = json.loads(
                 (REFERENCES / "publication.example.json").read_text(encoding="utf-8")
             )
@@ -390,7 +370,7 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             }
             client = FakeGitHub(build["repository"], approved, labels)
             driver.client = client
-            result = apply_without_cli(driver)
+            result = driver.apply()
             self.assertEqual("apply-pending", result["mode"])
             self.assertNotIn("pending_comment", result)
             materialized = json.loads(build_path.read_text(encoding="utf-8"))
@@ -412,10 +392,6 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             build = json.loads(
                 (REFERENCES / "build-order.example.json").read_text(encoding="utf-8")
             )
-            build["product_features"] = [{
-                "slug": "operator-dashboard", "label": "Operator dashboard",
-                "ticket_ids": [ticket["id"] for ticket in build["tickets"]],
-            }]
             publication = json.loads(
                 (REFERENCES / "publication.example.json").read_text(encoding="utf-8")
             )
@@ -475,7 +451,7 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             client = FailOnceGitHub(build["repository"], approved, labels)
             driver.client = client
             with self.assertRaisesRegex(RuntimeError, "mid-loop"):
-                apply_without_cli(driver)
+                driver.apply()
             partial = json.loads(build_path.read_text(encoding="utf-8"))
             self.assertIsNotNone(partial["tickets"][0]["github"])
             self.assertIsNone(partial["tickets"][1]["github"])
@@ -488,7 +464,7 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
                 fresh_driver.context.build["tickets"][0]["github"],
             )
             fresh_driver.client = client
-            result = apply_without_cli(fresh_driver)
+            result = fresh_driver.apply()
             self.assertEqual("apply-pending", result["mode"])
             self.assertEqual(3, len(client.issues))
 

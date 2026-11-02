@@ -203,7 +203,7 @@ def validate_document(
             f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
             f"issue body limit by {rendered_length - MAX_ISSUE_BODY_CHARACTERS:,}"
         )
-    expected_heading = f"# {ticket.get('title')}"
+    expected_heading = f"# BO: {ticket_id} — {ticket.get('title')}"
     if not text.splitlines() or text.splitlines()[0] != expected_heading:
         report.error(
             f"{ticket_id}.document heading must equal {expected_heading!r}"

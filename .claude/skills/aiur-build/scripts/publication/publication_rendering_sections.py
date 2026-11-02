@@ -134,7 +134,6 @@ def authority_preamble(
     return (
         f"> Approved planning authority: [`{approved}`]"
         f"({approved_link(repository, approved)})\n\n"
-        f"Plan id: {logical_id}\n\n"
         f"<!-- {MARKER_NAME}\n{marker}\n-->\n\n"
     )
 
@@ -234,7 +233,11 @@ def _approved_ticket_titles(
             continue
         logical_id = ticket.get("id")
         manifest_title = ticket.get("title")
-        expected = manifest_title if valid_issue_title(manifest_title) else None
+        expected = (
+            f"BO: {logical_id} — {manifest_title}"
+            if isinstance(logical_id, str) and valid_issue_title(manifest_title)
+            else None
+        )
         _approved_document_title(
             output, root, approved, pack_dir, logical_id,
             ticket.get("document"), expected, label, report,

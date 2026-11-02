@@ -84,8 +84,8 @@ class IssueRenderingTests(unittest.TestCase):
         self.assertEqual([], report.errors)
         assert titles is not None
         self.assertEqual("BO: Test root", titles[ROOT_ID])
-        self.assertEqual("Build Order ticket 1", titles["BO-001"])
-        self.assertEqual("First companion", titles["DASH-001"])
+        self.assertEqual("BO: BO-001 — Build Order ticket 1", titles["BO-001"])
+        self.assertEqual("BO: DASH-001 — First companion", titles["DASH-001"])
         self.assertEqual("Test skill", titles["SKILL-DELIVERY-001"])
         self.assertEqual(46, len(titles))
 

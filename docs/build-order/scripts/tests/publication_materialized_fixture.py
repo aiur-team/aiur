@@ -75,14 +75,14 @@ def materialized_pack() -> tuple[dict, dict]:
         "expected_issue_titles": {
             ROOT_ID: "BO: Test root",
             **{
-                ticket["id"]: ticket["title"]
+                ticket["id"]: f"BO: {ticket['id']} — {ticket['title']}"
                 for ticket in build["tickets"]
             },
         },
         "observed_issue_titles": {
             ROOT_ID: "BO: Test root",
             **{
-                ticket["id"]: ticket["title"]
+                ticket["id"]: f"BO: {ticket['id']} — {ticket['title']}"
                 for ticket in build["tickets"]
             },
         },

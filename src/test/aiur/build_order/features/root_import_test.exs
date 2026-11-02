@@ -134,8 +134,8 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
     p = RootImport.plan(h, snapshot, j)
     update = Enum.find(p.updates, &(&1.slug == "bo-2573"))
     assert update.label == "Renamed"
-    assert %{key: "f-bo-2573-runtime", label: "Renamed · Runtime"} in update.epics
-    assert %{key: "custom", label: "Operator epic"} in update.epics
+    assert %{key: "f-bo-2573-runtime", label: "Renamed · Runtime", color: "green", hue: 120} in update.epics
+    assert %{key: "custom", label: "Operator epic", color: "purple", hue: 280} in update.epics
     assert {"bo-2573", %{key: "f-bo-2573-platform", label: "Renamed · Platform"}} in p.new_epics
     assert :ok = RootImportWrites.apply(p, writer)
     assert {:ok, owner} = Features.owner(10, server: pid)

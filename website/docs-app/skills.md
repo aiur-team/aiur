@@ -100,10 +100,6 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | Executor handoff | Boot document for the next Executor. |
 | [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
 
-Build-order publication runs the product `aiur` command from `PATH`. Set
-`AIUR_FEATURE_CLI` to an executable `aiur` or `aiurdev` path when it is not
-available there or you need to select a particular runtime instance.
-
 `aiur-handoff`, `aiur-meta`, and `release` are Claude-only.
 
 `aiur-build` creates waiting members with `agent:queued` and adopts their root; `aiur-run` audits queue status, holds and attentions. A disabled queue uses todo labels instead.

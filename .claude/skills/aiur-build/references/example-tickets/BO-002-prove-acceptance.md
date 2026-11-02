@@ -1,4 +1,4 @@
-# Prove merged feature acceptance
+# BO-002 — Prove merged feature acceptance
 
 **Kind:** capstone
 

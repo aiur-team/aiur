@@ -18,6 +18,7 @@ defmodule Aiur.BuildOrder.Features.JournalValidation do
     created_at: :date,
     updated_at: :date
   }
+  @epic %{key: :key, label: :label, hue: :hue, color: :color, icon: :icon}
   @changes Map.take(@feature, [:label, :hue, :hue_source, :epics, :from, :to, :public_ref])
   @events %{
     "feature.created" => %{data: :feature},
@@ -67,14 +68,8 @@ defmodule Aiur.BuildOrder.Features.JournalValidation do
 
   defp field(value, :feature), do: object(value, @feature)
   defp field(value, :changes), do: object(value, @changes, true)
-
-  defp field(%{"key" => _, "label" => _} = value, :epic) when map_size(value) == 2,
-    do: object(value, %{key: :key, label: :label})
-
-  defp field(%{"key" => _, "label" => _, "icon" => _} = value, :epic) when map_size(value) == 3,
-    do: object(value, %{key: :key, label: :label, icon: :icon})
-
-  defp field(_value, :epic), do: {:error, :invalid_record}
+  defp field(%{"key" => _, "label" => _} = value, :epic), do: object(value, @epic, true)
+  defp field(_, :epic), do: {:error, :invalid_record}
   defp field("none", :baseline), do: {:ok, :none}
 
   defp field(value, :baseline) do
@@ -104,6 +99,7 @@ defmodule Aiur.BuildOrder.Features.JournalValidation do
   defp field(value, :label), do: checked(value, FeatureData.text?(value, 80))
   defp field(value, :actor), do: checked(value, FeatureData.text?(value, 100))
   defp field(value, :hue), do: checked(value, FeatureData.hue?(value))
+  defp field(value, :color), do: checked(value, match?({:ok, _}, FeatureData.palette_hue(value)))
   defp field(value, :number) when is_integer(value) and value > 0 and value < 2_147_483_648, do: {:ok, value}
   defp field(value, :positive) when is_integer(value) and value > 0, do: {:ok, value}
   defp field(value, :boolean) when is_boolean(value), do: {:ok, value}

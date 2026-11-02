@@ -30,7 +30,7 @@ defmodule AiurWeb.Streamdeck.Render.Key do
         fill: "#ffffff",
         "fill-opacity": "0.08"
       ),
-      Marks.epic(field(face, :icon), style.accent),
+      Marks.epic(field(face, :icon), field(face, :accent, style.accent)),
       Marks.provider(field(face, :vendor), 41, 14, 18, field(face, :vendor_logo)),
       text(ticket_number(identifier), 111, 29, 14, "text-anchor": "end"),
       if(field(face, :priority, false), do: text("★", 66, 14, 9, fill: "#ffcf87"), else: []),

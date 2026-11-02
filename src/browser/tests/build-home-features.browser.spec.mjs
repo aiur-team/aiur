@@ -47,6 +47,16 @@ test('header uses whole-index figures, mode buttons and clear restore the board'
   await expect(page.locator('.bd-card.dim, .bd-card.feat-on, .bd-card.also, .bd-card.ghost')).toHaveCount(0)
   await expect(page).not.toHaveURL(/feature=/)
 })
+test('epic chips use the stored hue for each epic', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    const { ctx, fx } = m
+    const epic = ctx.D.epics[ctx.D.features.pag.epics[0]]
+    epic.hue = 13
+    fx.renderFeatures()
+  })
+  await expect(page.locator('#bd-fh .bd-chip').first()).toHaveAttribute('style', /oklch\(\.7 \.13 13\)/)
+})
 test('unknown stats, baseline, missing stats and labels update through live diffs', async ({ page }) => {
   await open(page)
   const stats = await page.evaluate(() => m.ctx.D.features.pag.stats)

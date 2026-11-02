@@ -97,7 +97,7 @@ class PublicationEvidenceTests(unittest.TestCase):
             with self.subTest(field=field):
                 def mutate(build, _manifest, field=field):
                     build["github_reconciliation"][field]["DASH-001"] = (
-                        "Changed companion"
+                        "First companion"
                     )
 
                 self.assertIn(expected, "\n".join(self.report(mutate).errors))

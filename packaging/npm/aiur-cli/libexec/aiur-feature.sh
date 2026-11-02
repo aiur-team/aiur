@@ -15,7 +15,7 @@ cmd_feature() {
   esac
   opts="op: :$op"
   [ -n "$slug" ] && opts="$opts, slug: $(feature_rpc_string "$slug")"
-  local flags="" epics="" add_epics="" epic_icons="" label_set=0 json=0
+  local flags="" epics="" add_epics="" epic_hues="" epic_icons="" hue_value label_set=0 json=0
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -24,6 +24,23 @@ cmd_feature() {
       --move) [ "$op" = add ] || feature_usage_error '--move requires feature add'; flags="$flags, move: true" ;;
       --remove) [ "$op" = also ] || feature_usage_error '--remove requires feature also'; flags="$flags, remove: true" ;;
       --replace) [ "$op" = baseline ] || feature_usage_error '--replace requires feature baseline'; flags="$flags, replace: true" ;;
+      --epic-hue)
+        [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != --* ]] || feature_usage_error '--epic-hue requires a value'
+        value="$2"; shift
+        [[ "$op" == create || "$op" == edit || "$op" == add ]] || feature_usage_error '--epic-hue requires feature create, edit or add'
+        [[ "$value" == *=* && -n "${value%%=*}" && -n "${value#*=}" ]] || feature_usage_error '--epic-hue requires key=gruvbox-name or key=0-359'
+        hue_value="${value#*=}"
+        if [[ "$hue_value" =~ ^[0-9]{1,3}$ ]]; then
+          [ "$((10#$hue_value))" -le 359 ] || feature_usage_error 'epic hue must be 0 to 359 or a Gruvbox name'
+          hue_value="$((10#$hue_value))"
+        fi
+        [ -n "$epic_hues" ] && epic_hues="$epic_hues, "
+        if [[ "$hue_value" =~ ^[0-9]{1,3}$ ]]; then
+          epic_hues="$epic_hues$(feature_rpc_string "${value%%=*}") => $hue_value"
+        else
+          epic_hues="$epic_hues$(feature_rpc_string "${value%%=*}") => $(feature_rpc_string "$hue_value")"
+        fi
+        edits=$((edits + 1)); shift ;;
       --as|--label|--hue|--epic|--add-epic|--epic-icon|--end|--source)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != --* ]] || feature_usage_error "$arg requires a value"
         value="$2"; shift
@@ -87,6 +104,7 @@ cmd_feature() {
   opts="$opts$flags"
   [ -n "$epics" ] && opts="$opts, epics: [$epics]"
   [ -n "$add_epics" ] && opts="$opts, add_epics: [$add_epics]"
+  [ -n "$epic_hues" ] && opts="$opts, epic_hues: %{$epic_hues}"
   [ -n "$epic_icons" ] && opts="$opts, epic_icons: [$epic_icons]"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   local AIUR_CONTROL_ATTEMPT_CONTEXT="feature $op $slug for $count tickets"
