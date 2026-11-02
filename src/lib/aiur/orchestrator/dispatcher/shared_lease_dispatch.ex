@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
+  alias Aiur.CodingAgent
   alias Aiur.Handoff
   alias Aiur.Instance
   alias Aiur.Instance.DispatchClaim
