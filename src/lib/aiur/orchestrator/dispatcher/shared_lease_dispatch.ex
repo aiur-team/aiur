@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
-  alias Aiur.CodingAgent
   alias Aiur.Handoff
   alias Aiur.Instance
   alias Aiur.Instance.DispatchClaim
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
   alias Aiur.Signal
+  alias Aiur.Toolchain
 
   @spec dispatch(State.t(), Issue.t(), term(), term(), keyword(), function()) :: State.t()
   def dispatch(state, issue, attempt, worker_host, opts, dispatch_to_worker) do
@@ -113,7 +113,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     with false <- Handoff.dispatch_held?(),
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
          :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
-         {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
+         {:ok, selected_issue} <- Toolchain.select_for_dispatch(prepared) do
       state = %{
         state
         | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)

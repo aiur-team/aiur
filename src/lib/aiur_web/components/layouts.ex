@@ -53,6 +53,47 @@ defmodule AiurWeb.Layouts do
               .querySelector("meta[name='csrf-token']")
               ?.getAttribute("content");
 
+            // The loading shell is server-rendered before LiveView joins. Keep
+            // Settings interactive during that gap instead of waiting for its hook.
+            var axMenuOpen = false;
+            var setAxMenuOpen = (open) => {
+              axMenuOpen = open;
+              var settings = document.getElementById("ax-set");
+              var cog = settings?.querySelector("#ax-cog");
+              var menu = settings?.querySelector("#ax-menu");
+              if (!settings || !cog || !menu) return;
+              settings.classList.toggle("open", open);
+              cog.setAttribute("aria-expanded", String(open));
+              menu.inert = !open;
+            };
+            document.addEventListener("click", (e) => {
+              var settings = document.getElementById("ax-set");
+              var cog = settings?.querySelector("#ax-cog");
+              if (!settings || !cog) return;
+              if (cog.contains(e.target)) setAxMenuOpen(!axMenuOpen);
+              else if (!settings.contains(e.target)) setAxMenuOpen(false);
+            });
+            document.addEventListener("keydown", (e) => {
+              var settings = document.getElementById("ax-set");
+              var cog = settings?.querySelector("#ax-cog");
+              var menu = settings?.querySelector("#ax-menu");
+              if (!settings || !cog || !menu || !settings.contains(e.target)) return;
+              var items = Array.from(menu.querySelectorAll("button:not(:disabled)"));
+              var index = items.indexOf(document.activeElement);
+              var onCog = cog.contains(e.target);
+              if (e.key === "Escape") { e.preventDefault(); setAxMenuOpen(false); cog.focus(); return; }
+              if (e.key === "Tab") { setAxMenuOpen(false); return; }
+              if (onCog && ["Enter", " ", "ArrowDown", "ArrowUp"].includes(e.key)) {
+                e.preventDefault(); setAxMenuOpen(true);
+                items[e.key === "ArrowUp" ? items.length - 1 : 0]?.focus();
+              } else if (!onCog && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+                e.preventDefault();
+                var next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 :
+                  (index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+                items[next]?.focus();
+              }
+            });
+
             if (!window.Phoenix || !window.LiveView) return;
 
             var Hooks = {ConversationScroll: window.AiurConversationScrollHook};
@@ -62,6 +103,7 @@ defmodule AiurWeb.Layouts do
               mounted: function () {
                 this.cog = this.el.querySelector("#ax-cog");
                 this.menu = this.el.querySelector("#ax-menu");
+                this.open = axMenuOpen || this.el.classList.contains("open");
                 this.fitMenu = () => {
                   if (window.innerWidth <= 480) {
                     var available = Math.max(0, window.innerWidth - 32), minimum = Math.min(210, available);
@@ -78,38 +120,17 @@ defmodule AiurWeb.Layouts do
                 window.addEventListener("resize", this.onResize);
                 this.brandObserver = new ResizeObserver(this.fitMenu);
                 this.brandObserver.observe(this.el.closest(".ax-brand"));
-                this.onClick = (e) => {
-                  if (this.cog.contains(e.target)) this.setOpen(!this.el.classList.contains("open"));
-                  else if (!this.el.contains(e.target)) this.setOpen(false);
-                };
-                this.onKey = (e) => {
-                  if (!this.el.contains(e.target)) return;
-                  var items = Array.from(this.menu.querySelectorAll("button:not(:disabled)"));
-                  var index = items.indexOf(document.activeElement);
-                  var onCog = this.cog.contains(e.target);
-                  if (e.key === "Escape") { e.preventDefault(); this.setOpen(false); this.cog.focus(); return; }
-                  if (e.key === "Tab") { this.setOpen(false); return; }
-                  if (onCog && ["Enter", " ", "ArrowDown", "ArrowUp"].includes(e.key)) {
-                    e.preventDefault(); this.setOpen(true);
-                    items[e.key === "ArrowUp" ? items.length - 1 : 0]?.focus();
-                  } else if (!onCog && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
-                    e.preventDefault();
-                    var next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 :
-                      (index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-                    items[next]?.focus();
-                  }
-                };
-                document.addEventListener("click", this.onClick);
-                document.addEventListener("keydown", this.onKey);
+                this.setOpen(this.open);
               },
+              updated: function () { this.setOpen(axMenuOpen); },
               setOpen: function (open) {
+                this.open = open;
+                setAxMenuOpen(open);
                 this.el.classList.toggle("open", open);
                 this.cog.setAttribute("aria-expanded", String(open));
                 this.menu.inert = !open;
               },
               destroyed: function () {
-                document.removeEventListener("click", this.onClick);
-                document.removeEventListener("keydown", this.onKey);
                 window.removeEventListener("resize", this.onResize);
                 this.brandObserver.disconnect();
               }

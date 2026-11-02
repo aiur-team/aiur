@@ -150,8 +150,10 @@ versioned design captures, evidence, decisions, ticket drafts, typed graph,
 wave/critical-path analysis, validation report, and approved planning SHA in the
 reviewable planning pack. These remain durable intent, not live runtime state.
 
-Record the feature slug, display label, member logical IDs, optional feature
-epics, and links to existing build tickets. Keep real prerequisites separate
+Record each product feature group in `product_features` with a stable slug,
+display label, and a complete, non-overlapping `ticket_ids` partition. Its lane
+epics stay inside that product feature. Also record links to existing build
+tickets. Keep real prerequisites separate
 from scheduling preferences. On promotion, record tracker-number mappings,
 `feature:<slug>` label verification, queue name and rank, and placement evidence.
 A collection is not a separate run or a new acceptance boundary for the repository.
@@ -194,6 +196,16 @@ Use `agent:queued` in the same creation request for executable members; the queu
 promotes ready members to `agent:todo`. Never create first and label later.
 
 **Give promoted members a home-page epic through their feature collection.** Follow continuous-build intake below, defining feature epics and assigning members with `aiur feature add <slug> <ids…> --epic <epic>` when needed. Choose column names using the lane guidance in [decomposition workflow](references/decomposition-workflow.md); new collections need no Build Order root. Existing legacy roots retain their sub-issue and `build-lane:<lane>` mapping. Tickets filed outside the collection follow the [Executor home-page epic rule](../aiur-run/references/executor.md).
+
+Publication creates plain GitHub issue titles from the plan title; logical IDs
+remain in the ticket body and publication receipt. It registers one feature
+collection per `product_features` group, with that group's lane epics and
+workstream icons, then assigns every published issue to exactly one collection
+and its planned lane epic. Re-running publication reconciles the same
+collections and membership.
+The publisher runs the product `aiur` command from `PATH`; set
+`AIUR_FEATURE_CLI` to an executable `aiur` or `aiurdev` path when it is not on
+`PATH` or the package's runtime instance must be selected explicitly.
 
 Promotion is deliberately not machinery: the Executor creates each issue with
 the corresponding `tickets/<ID>.md` content verbatim, records the returned
