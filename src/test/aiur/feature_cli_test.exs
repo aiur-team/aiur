@@ -158,6 +158,19 @@ defmodule Aiur.FeatureCLITest do
     assert Output.render(listed) =~ "ended"
   end
 
+  test "edit can assign an icon to an epic added in the same call", %{context: context, pid: pid} do
+    create(context)
+
+    assert {:ok, _} =
+             op(:edit, context,
+               add_epics: [%{key: "extra", label: "Extra"}],
+               epic_icons: [%{key: "extra", icon: "beaker"}]
+             )
+
+    assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
+    assert Enum.find(feature.epics, &(&1.key == "extra")) == %{key: "extra", label: "Extra", icon: "beaker"}
+  end
+
   test "unavailable registry is an error in human and JSON output" do
     opts = [op: :show, server: :missing_feature_cli_test, error_fun: fn message -> send(self(), {:error_text, message}) end]
     text = capture_io(fn -> assert FeatureCLI.run(opts) == 1 end)

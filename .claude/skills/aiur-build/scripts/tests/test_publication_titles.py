@@ -2,7 +2,8 @@
 
 import sys
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from unittest.mock import patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -10,6 +11,8 @@ sys.path.insert(0, str(SCRIPT_DIR / "publication"))
 
 from publication_titles import has_logical_id_prefix  # noqa: E402
 from publication_context import feature_epics, product_features, published_feature_slug  # noqa: E402
+from publication_rendering_sections import _approved_ticket_titles, authority_preamble  # noqa: E402
+from publication_common import Report  # noqa: E402
 
 
 class PublicationTitlesTest(unittest.TestCase):
@@ -35,6 +38,49 @@ class PublicationTitlesTest(unittest.TestCase):
         self.assertEqual(["window", "command-line"], icons)
         self.assertNotIn("squares-2x2", icons)
         self.assertEqual(len(icons), len(set(icons)))
+
+    def test_published_epics_reject_default_missing_and_duplicate_icons(self) -> None:
+        cases = [
+            ([{"id": "runtime", "title": "Runtime", "icon": "squares-2x2"}],
+             [{"workstream": "runtime"}]),
+            ([{"id": "runtime", "title": "Runtime"}],
+             [{"workstream": "runtime"}]),
+            *(
+                ([{"id": "runtime", "title": "Runtime", "icon": icon}],
+                 [{"workstream": "runtime"}])
+                for icon in ("", None, 17)
+            ),
+            ([{"id": "runtime", "title": "Runtime", "icon": "command-line"},
+              {"id": "dashboard", "title": "Dashboard", "icon": "command-line"}],
+             [{"workstream": "runtime"}, {"workstream": "dashboard"}]),
+        ]
+        for workstreams, tickets in cases:
+            with self.subTest(workstreams=workstreams):
+                with self.assertRaises(ValueError):
+                    feature_epics({
+                        "workstreams": workstreams,
+                        "tickets": tickets,
+                        "build_order_id": "example/repo:game-maker",
+                    })
+
+    def test_rendered_ticket_body_carries_the_plain_plan_id(self) -> None:
+        preamble = authority_preamble("example/repo", "OGM-024", 1, "a" * 40)
+        self.assertIn("Plan id: OGM-024", preamble)
+
+    def test_approved_ticket_title_matches_plain_manifest_title(self) -> None:
+        report = Report()
+        titles: dict[str, str] = {}
+        manifest_title = "Phaser wrapper"
+        with patch("publication_rendering_sections._git_show", return_value=f"# {manifest_title}\n"):
+            _approved_ticket_titles(
+                titles, Path("."), "a" * 40, PurePosixPath("docs/build-order"),
+                {"tickets": [{"id": "OGM-024", "title": manifest_title,
+                              "document": "tickets/OGM-024.md"}]},
+                "build", report,
+            )
+
+        self.assertEqual([], report.errors)
+        self.assertEqual({"OGM-024": manifest_title}, titles)
 
     def test_registration_creates_each_product_group_and_assigns_all_tickets(self) -> None:
         from types import SimpleNamespace
@@ -87,3 +133,18 @@ class PublicationTitlesTest(unittest.TestCase):
     def test_published_feature_slug_obeys_aiur_limit(self) -> None:
         slug = published_feature_slug("a" * 42, "product-capability")
         self.assertLessEqual(len(slug), 42)
+
+    def test_feature_cli_runs_the_product_command_resolved_on_path(self) -> None:
+        from publication_operator import Publisher
+
+        publisher = Publisher.__new__(Publisher)
+        with (
+            patch("publication_operator.shutil.which", return_value="/usr/local/bin/aiur") as which,
+            patch("publication_operator.subprocess.run") as run,
+        ):
+            run.return_value.returncode = 0
+            publisher._run_cli(["feature", "show"], "feature inspection")
+
+        which.assert_called_once_with("aiur")
+        self.assertEqual("/usr/local/bin/aiur", run.call_args.args[0][0])
+        self.assertEqual(["feature", "show"], run.call_args.args[0][1:])

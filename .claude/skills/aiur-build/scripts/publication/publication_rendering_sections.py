@@ -134,6 +134,7 @@ def authority_preamble(
     return (
         f"> Approved planning authority: [`{approved}`]"
         f"({approved_link(repository, approved)})\n\n"
+        f"Plan id: {logical_id}\n\n"
         f"<!-- {MARKER_NAME}\n{marker}\n-->\n\n"
     )
 

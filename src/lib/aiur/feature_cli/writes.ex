@@ -58,11 +58,16 @@ defmodule Aiur.FeatureCLI.Writes do
   defp write(%{op: :edit} = args, snapshot, meta, context) do
     attrs = Map.take(args, [:label, :hue])
     attrs = if args[:end], do: Map.put(attrs, :to, end_time(args.end, context)), else: attrs
+    current_epics = snapshot.features[args.slug].epics
+    add_epics = Map.get(args, :add_epics, [])
+    all_epics = current_epics ++ add_epics
 
-    with :ok <- valid_epic_icons(snapshot.features[args.slug].epics, args[:epic_icons]),
-         attrs <- apply_epic_icons(attrs, args[:epic_icons], snapshot.features[args.slug].epics),
+    with :ok <- valid_epic_icons(all_epics, args[:epic_icons]),
+         attrs <- apply_epic_icons(attrs, args[:epic_icons], current_epics),
          {:ok, initial} <- Features.update_feature(args.slug, attrs, meta) do
-      Enum.reduce_while(Map.get(args, :add_epics, []), {:ok, initial}, &add_epic(&1, &2, args.slug, meta))
+      add_epics
+      |> put_icons(args[:epic_icons] || [])
+      |> Enum.reduce_while({:ok, initial}, &add_epic(&1, &2, args.slug, meta))
     end
   end
 

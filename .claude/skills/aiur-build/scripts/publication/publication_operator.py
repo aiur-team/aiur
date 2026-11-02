@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -94,6 +95,8 @@ class Publisher:
             validate_product_feature_publication(self.context.build)
         except (KeyError, ValueError) as exc:
             raise PublicationError(str(exc)) from None
+        if self.context.build.get("product_features"):
+            self._resolve_cli()
         self._persisted_mappings()
         self._check_authority()
         self._validate_persisted_ownership()
@@ -200,8 +203,9 @@ class Publisher:
 
     def _run_cli(self, arguments: list[str], label: str) -> None:
         try:
+            command = self._resolve_cli()
             result = subprocess.run(
-                [str(self.context.root / "scripts" / "aiurdev"), *arguments],
+                [command, *arguments],
                 check=False, capture_output=True,
                 text=True, timeout=60,
             )
@@ -210,6 +214,15 @@ class Publisher:
         if result.returncode:
             detail = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
             raise PublicationError(f"{label} failed:\n{detail}")
+
+    @staticmethod
+    def _resolve_cli() -> str:
+        command = shutil.which("aiur")
+        if command is None:
+            raise PublicationError(
+                "feature publication requires the product `aiur` command on PATH"
+            )
+        return command
 
     def finalize(self, receipt_commit: str, receipt_url: str) -> dict[str, Any]:
         if not self.context.reconciliation_comment:
