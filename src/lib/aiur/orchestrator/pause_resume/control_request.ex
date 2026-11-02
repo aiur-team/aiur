@@ -89,10 +89,10 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
           {{:error, capacity_reason(state, running_entry, requester)}, state}
 
         not DispatchPolicy.state_slots_available?(Map.get(running_entry, :issue), state) ->
-          {{:error, :max_concurrent_agents_reached}, state}
+          {{:error, {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)]))}}, state}
 
         not Slots.resume_worker_slot_available?(state, Map.get(running_entry, :worker_host)) ->
-          {{:error, :max_concurrent_agents_reached}, state}
+          {{:error, :no_worker_capacity}, state}
 
         true ->
           submit_control_request(

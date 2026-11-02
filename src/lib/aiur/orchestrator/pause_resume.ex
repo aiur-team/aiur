@@ -218,7 +218,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defdelegate resume_paused_issue(state, running_entry, operator? \\ true), to: Resume
 
   @doc false
-  @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, :max_concurrent_agents_reached}
+  @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, term()}
   defdelegate resume_paused_issue_preflight(state, running_entry), to: Resume
 
   @doc false
