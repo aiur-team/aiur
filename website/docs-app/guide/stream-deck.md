@@ -118,8 +118,8 @@ Fleet adds GitHub `core`/`gql` and configured ElevenLabs `credits` remaining bar
 
 ## Read ticket conversation turns
 
-The keys and strip use the same conversation source, entry IDs and chronological
-order as the desktop Build modal, including retained messages after a daemon restart.
+The keys and strip share the Build modal's conversation source, IDs, order and
+retained messages. Each milestone is a selectable key that jumps the strip there.
 
 Press a ticket key to read its conversation.
 

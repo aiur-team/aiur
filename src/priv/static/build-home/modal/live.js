@@ -57,7 +57,7 @@ export function buildMap() {
   V.s = s;
   let html = '';
   for (let i = 0; i < log.children.length; i++) {
-    const el = log.children[i], k = el.dataset.k; if (!k) continue;
+    const el = log.children[i], k = el.dataset.k || el.dataset.mapKind; if (!k) continue;
     const top = (el.offsetTop * s).toFixed(1);
     if (k === 'ev') html += '<button type="button" tabindex="-1" class="mm-e' + (el.classList.contains('bad') ? ' bad' : '') + '" data-i="' + i + '" style="top:' + top + 'px;--eh:' + esc(el.style.getPropertyValue('--eh')) + '" aria-label="' + esc(el.dataset.label) + '"></button>';
     else {
