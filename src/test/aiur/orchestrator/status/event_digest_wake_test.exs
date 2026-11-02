@@ -51,7 +51,7 @@ defmodule Aiur.Orchestrator.Status.EventDigestWakeTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     parent = self()
     identifier = "MT-ASYNC-EVENT"
-    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+    {:ok, worker_pid} = supervised_operator_message_probe(parent)
 
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
 

@@ -425,7 +425,9 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       try do
         output = capture_io(fn -> AgentControlCLI.agents(snapshot_timeout_ms: 1) end)
 
-        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: agents query timed out after 1ms; outcome is unknown"
+        assert output =~
+                 "__AIUR_CONTROL_ERROR__:aiur: agents query timed out after 1ms; daemon is alive but busy or not reachable. Outcome is unknown."
+
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after
         :sys.resume(pid)
