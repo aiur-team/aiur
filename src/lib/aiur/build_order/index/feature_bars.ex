@@ -19,6 +19,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
 
         rows
         |> members(registry)
+        |> Enum.reject(fn {slug, _numbers} -> String.starts_with?(slug, "bo-") end)
         |> Enum.map(fn {slug, numbers} -> bar(slug, Enum.map(numbers, &Map.get(rows, &1)), registry, parts[:labels]) end)
         |> Enum.reject(&is_nil/1)
         |> Enum.sort_by(fn bar -> {Enum.find_index(order, &(&1 == bar.key)) || length(order), bar.since || now, bar.key} end)
@@ -79,7 +80,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
         if is_map(descriptions), do: descriptions["feature:" <> slug]
       end)
 
-    display_description(current_description || historical_description) || slug
+    display_description(current_description || historical_description) || title_slug(slug)
   end
 
   defp current_label_description(slug, {:ok, issues, _observed_at}) do
@@ -103,7 +104,14 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
     end
   end
 
+  defp display_feature_label("MP-" <> _ = label), do: label |> String.replace(~r/^MP-E\d+\s+/, "") |> title_words()
   defp display_feature_label(label), do: label
+
+  defp title_words(label), do: label |> String.split(" ") |> Enum.map_join(" ", &String.capitalize/1)
+
+  defp title_slug(slug) do
+    slug |> String.split("-") |> Enum.map_join(" ", &String.capitalize/1)
+  end
 
   defp created_ms(%{created_at: %DateTime{} = at}), do: DateTime.to_unix(at, :millisecond)
   defp created_ms(_row), do: nil

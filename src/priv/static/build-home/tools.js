@@ -5,6 +5,7 @@ import { I } from './icons.js';
 
 const VIEWS = [['graph', 'Timeline'], ['gantt', 'Gantt'], ['list', 'List']];
 const LISTS = [['tickets', 'Tickets', 'ticket'], ['features', 'Features', 'feature'], ['epics', 'Epics', 'layers']];
+const FSORTS = [['goal', 'Goal order'], ['pct', 'Most done'], ['left', 'Most left']];
 let lastKey = null, bound = false;
 onReset(() => { lastKey = null; bound = false; });
 
@@ -52,7 +53,8 @@ function renderControls() {
   lastKey = key;
   left.innerHTML = '<div class="bd-seg vw" role="tablist" aria-label="View">' + VIEWS.map(viewButton).join('') + '</div>' +
     (S.view === 'list' ? '<span class="bd-list-label">List shows</span><div class="bd-seg bd-list-shows" role="tablist" aria-label="List shows">' + LISTS.map(listButton).join('') + '</div>' : '');
-  right.innerHTML = '<button class="bd-live" type="button" id="bd-nowbtn" title="Jump to live"><i></i>Live</button>' + span;
+  right.innerHTML = '<button class="bd-live" type="button" id="bd-nowbtn" title="Jump to live"><i></i>Live</button>' +
+    (S.view === 'list' && S.list === 'features' ? `<label class="fp-sort">Sort <select data-fsort>${FSORTS.map(([key, label]) => `<option value="${key}"${(S.fsort || 'goal') === key ? ' selected' : ''}>${label}</option>`).join('')}</select></label>` : '') + span;
   if (span) fx.wireSpanTools(right);
   if (focused) $(`[data-${focused[0]}="${focused[1]}"]`, left)?.focus();
 }

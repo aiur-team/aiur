@@ -45,7 +45,8 @@ test('feature list rows carry only name, bar and merged/total; registry rows are
   resetState(); S.list = 'features';
   const bars = [{ key: 'pag', label: 'Pagination', merged: 3, total: 4 }, { key: 'mp-e2', label: 'mp-e2', merged: 2, total: 2 }];
   const html = listHTML({ features: { pag: { label: 'Pagination' } }, feature_progress: { bars }, repo: { url: 'https://github.com/o/aiur/' } }, S, {}, {}, Date.UTC(2026, 10, 1));
-  assert.match(html, /<h1>aiur - build progress<\/h1><p>5 of 6 tickets merged - 2026-11-01<\/p>/);
+  assert.match(html, /<h1>aiur - build progress<\/h1><p>5 of 6 tickets merged - 2026-10-31<\/p>/);
+  assert.ok(!html.includes('data-fsort'));
   assert.match(html, /<button type="button" class="fp-row" data-feature="pag" aria-label="Focus Pagination feature"><span class="fp-name" title="Pagination">Pagination<\/span><span class="fp-bar" role="img" aria-label="3 of 4 merged"><i style="width:75%"><\/i><\/span><span class="fp-count">3\/4<\/span><\/button>/);
   assert.match(html, /<div class="fp-row" data-feature="mp-e2"><span class="fp-name" title="mp-e2">mp-e2<\/span><span class="fp-bar done"/);
   assert.match(html, /<div class="fp-row fp-all"><span class="fp-name">All features<\/span><span class="fp-bar all" role="img" aria-label="5 of 6 merged">/);
@@ -55,8 +56,15 @@ test('feature list rows carry only name, bar and merged/total; registry rows are
 test('unavailable feature bars render no invented totals', () => {
   resetState(); S.list = 'features';
   const html = listHTML({ features: {}, feature_progress: { bars: null } }, S, {}, {}, 0);
-  assert.match(html, /<p>Feature progress unavailable - 1970-01-01<\/p>/);
+  assert.match(html, /<p>Feature progress unavailable - 1969-12-31<\/p>/);
   assert.ok(!html.includes('fp-all')); assert.ok(!html.includes('0 of 0'));
+});
+test('feature subtitle uses the viewer local date and keeps sorting outside the card', () => {
+  resetState(); S.list = 'features'; S.view = 'list';
+  const now = Date.UTC(2026, 10, 1, 2);
+  const html = listHTML({ features: {}, feature_progress: { bars: [] } }, S, {}, {}, now);
+  assert.match(html, /tickets merged - 2026-10-31/);
+  assert.ok(!html.includes('data-fsort'));
 });
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';
