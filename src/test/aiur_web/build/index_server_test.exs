@@ -333,7 +333,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     assert {:ok, first} = Index.window(pid, "Etc/UTC")
     assert first.sources.agents.state == "unavailable"
     assert first.sources.agents.observed_at == nil
-    assert_receive {:cold_timer, ^pid, :flush, _delay}
+    assert_receive {:cold_timer, ^pid, :flush, _delay}, 1_000
 
     send(pid, :flush)
     receive_barrier({:cold_read, retry_worker, retry_dirty})
