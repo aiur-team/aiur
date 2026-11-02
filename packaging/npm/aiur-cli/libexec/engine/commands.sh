@@ -101,6 +101,39 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
+cmd_redispatch() {
+  local backend=""
+  local backend_seen=0
+  local targets=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --backend)
+        [ "$backend_seen" -eq 0 ] || { echo "aiur: --backend may be specified once" >&2; exit 64; }
+        [ "$#" -ge 2 ] || { echo "aiur: --backend requires a configured backend name" >&2; exit 64; }
+        backend="$2"
+        backend_seen=1
+        shift 2
+        ;;
+      *) targets+=("$1"); shift ;;
+    esac
+  done
+  if [ "${#targets[@]}" -eq 0 ] || ! parse_issue_targets "${targets[@]}" || [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: redispatch expects explicit issue IDs (e.g. aiur redispatch 44 45 --backend codex)" >&2
+    exit 64
+  fi
+  if [ "$backend_seen" -eq 1 ] && [[ ! "$backend" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    echo "aiur: --backend expects a backend name using letters, digits, dots, or dashes" >&2
+    exit 64
+  fi
+  local literal
+  literal="$(elixir_list_literal "${parsed_targets[@]}")"
+  if [ "$backend_seen" -eq 1 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.redispatch($literal, \"$backend\")"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.redispatch($literal, nil)"
+  fi
+}
+
 cmd_executor_ownership() {
   local command="$1"
   shift

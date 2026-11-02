@@ -93,6 +93,7 @@ Continue with the [GUI](/guide/gui) guide.
 | `aiur watch` | Show a one-shot board of tickets, state, and what each agent is doing; add `--interval <secs>` to refresh continuously. |
 | `aiur pause <ids…>` / `aiur pause --all` | Cooperatively pause agents by issue id. |
 | `aiur resume <ids…>` / `aiur resume --all` | Resume paused agents by issue id. |
+| `aiur redispatch <ids…> [--backend <backend>]` | Restart a live ticket on current routing or pin it to an exact configured backend name, keeping its workspace, branch, PR, and workpad. The old session stops immediately, so save important output into the workspace first; unsaved output held only in that session is lost. |
 | `aiur stop` | Stop this instance's session (BEAM + tmux). |
 | `aiur restart` | Stop the session, refresh the release, and start it again detached. Add `--no-build` to bounce on the release already on disk. |
 | `aiur --max-agents <n>` | Override the concurrent-agent cap at launch. |

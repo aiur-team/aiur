@@ -3,10 +3,12 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
   Orchestrator call handlers for per-ticket pause, control requests, and control expiry.
   """
 
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Orchestrator.PauseResume.ControlRequest
   alias Aiur.Orchestrator.PauseResume.PauseRequest
+  alias Aiur.Orchestrator.RemoteControlMode
   alias Aiur.Orchestrator.State
   alias Aiur.Signal
   alias Aiur.TrackerIdentity
@@ -17,6 +19,18 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
     guard_control_call(state, :pause, issue_identifier, fn ->
       {reply, state} = PauseRequest.pause_agent_reply(state, issue_identifier)
       {:reply, reply, state}
+    end)
+  end
+
+  @doc false
+  @spec redispatch_call(State.t(), String.t(), String.t() | nil) :: {:reply, term(), State.t()}
+  def redispatch_call(%State{} = state, identifier, backend) do
+    guard_control_call(state, :redispatch, identifier, fn ->
+      if Orchestrator.TrackerTasks.running?(state, {:redispatch, identifier}) do
+        {:reply, {:error, :redispatch_in_progress}, state}
+      else
+        RemoteControlMode.redispatch_call_unchecked(state, identifier, backend)
+      end
     end)
   end
 

@@ -34,6 +34,7 @@ defmodule Aiur.CLI do
   defp dispatch({:version, version}), do: IO.puts(version_line(version, System.get_env("AIUR_CLI_VERSION")))
   defp dispatch({:init, opts}), do: run_init_command(opts)
   defp dispatch({:todo, issue_ids, opts}), do: Subcommands.run_todo(issue_ids, opts)
+  defp dispatch({:redispatch, issue_ids, backend}), do: command_result(Aiur.AgentControlCLI.redispatch(issue_ids, backend))
   defp dispatch({:findings, opts}), do: Subcommands.run_findings(opts)
   defp dispatch({:asks, command}), do: Subcommands.run_asks(command)
   defp dispatch({:accounts, json, harness}), do: command_result(Aiur.AccountsCLI.accounts(json, harness))
@@ -120,6 +121,7 @@ defmodule Aiur.CLI do
           | {:version, String.t()}
           | {:init, %{force: boolean()}}
           | {:todo, [String.t()], %{only: boolean()}}
+          | {:redispatch, [String.t()], String.t() | nil}
           | {:findings, %{unfiled: boolean(), slugs: boolean(), scope: String.t() | nil}}
           | {:findings, %{record: String.t(), repo: String.t()}}
           | {:findings, %{digest: true, scope: String.t() | nil}}
@@ -135,9 +137,12 @@ defmodule Aiur.CLI do
   def evaluate(["token" | rest], _deps), do: {:client_token, rest}
 
   def evaluate(args, deps) do
-    case OptionParser.parse(args, strict: ReferenceOptions.strict_switches()) do
+    duplicate_backend? = duplicate_switch?(args, "--backend")
+
+    case OptionParser.parse(args, strict: ReferenceOptions.strict_switches(), aliases: [b: :backend]) do
       {opts, positional, []} ->
         cond do
+          duplicate_backend? and "redispatch" in positional -> {:error, usage_message()}
           Subcommands.todo_switch?(opts) -> Subcommands.evaluate_todo(opts, positional)
           Subcommands.findings_switch?(opts) and not match?(["findings" | _], positional) -> {:error, usage_message()}
           true -> evaluate_standard(opts, positional, deps)
@@ -147,6 +152,8 @@ defmodule Aiur.CLI do
         {:error, usage_message()}
     end
   end
+
+  defp duplicate_switch?(args, switch), do: Enum.count(args, &(&1 == switch)) > 1
 
   @doc false
   @spec reference_options() :: [%{name: atom(), type: atom(), syntax: String.t(), description: String.t(), example: String.t()}]
@@ -167,6 +174,12 @@ defmodule Aiur.CLI do
   defp evaluate_standard(opts, ["findings" | rest], _deps), do: Subcommands.evaluate_findings(opts, rest)
   defp evaluate_standard(opts, ["ask" | rest], _deps), do: Subcommands.evaluate_ask(opts, rest)
   defp evaluate_standard(opts, ["asks" | rest], _deps), do: Subcommands.evaluate_asks(opts, rest)
+
+  defp evaluate_standard(opts, ["redispatch" | rest], _deps) do
+    if Enum.count(opts, &(elem(&1, 0) == :backend)) <= 1,
+      do: Subcommands.evaluate_redispatch(opts, rest),
+      else: {:error, usage_message()}
+  end
 
   defp evaluate_standard(opts, ["accounts"], _deps) do
     if Enum.all?(Keyword.keys(opts), &(&1 in [:json, :all])), do: {:accounts, opts[:json] || false, nil}, else: {:error, usage_message()}

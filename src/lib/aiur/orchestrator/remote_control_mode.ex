@@ -8,7 +8,8 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   alias Aiur.{CodingAgent, Config}
   alias Aiur.HttpServer
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, RetryEngine, State, StatusReport, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, Redispatch, RetryEngine, State, StatusReport, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.PauseResume.ControlCalls
   require Logger
 
   @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
@@ -20,6 +21,27 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   def set_remote_control(server, issue_identifier, on?)
       when is_binary(issue_identifier) and is_boolean(on?),
       do: control_api_call(server, {:set_remote_control, issue_identifier, on?}, 10_000)
+
+  @doc false
+  @spec redispatch(String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
+  def redispatch(identifier, backend \\ nil), do: redispatch(Aiur.Orchestrator, identifier, backend)
+
+  @spec redispatch(GenServer.server(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
+  def redispatch(server, identifier, backend)
+      when is_binary(identifier) and (is_nil(backend) or is_binary(backend)),
+      do: control_api_call(server, {:redispatch, identifier, backend}, 120_000)
+
+  @doc false
+  @spec redispatch_call(State.t(), String.t(), String.t() | nil) :: {term(), State.t()}
+  def redispatch_call(%State{} = state, identifier, backend) do
+    ControlCalls.redispatch_call(state, identifier, backend)
+  end
+
+  @doc false
+  @spec redispatch_call_unchecked(State.t(), String.t(), String.t() | nil, keyword()) :: {term(), State.t()}
+  def redispatch_call_unchecked(state, identifier, backend, opts \\ []) do
+    Redispatch.call(state, identifier, backend, opts)
+  end
 
   @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
   def ensure_remote_control_trust(workspace),
@@ -254,7 +276,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     ensure_redispatch_started(state, running_entry, issue, opts)
   end
 
-  defp ensure_redispatch_started(state, running_entry, issue, opts) do
+  defp ensure_redispatch_started(state, running_entry, issue, opts, retry_metadata \\ %{}) do
     if live_running_entry?(Map.get(state.running, issue.id)) or
          Map.has_key?(state.retry_attempts, issue.id) do
       state
@@ -262,14 +284,20 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       schedule_retry = Keyword.get(opts, :schedule_retry_fun, &RetryEngine.schedule_issue_retry/4)
       next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
 
-      schedule_retry.(state, issue.id, next_attempt, %{
-        identifier: issue.identifier,
-        tracker_identity: Issue.tracker_identity(issue),
-        error: "remote-control redispatch did not start",
-        prior_work: Config.agent_prior_work_continuation?(),
-        worker_host: Map.get(running_entry, :worker_host),
-        workspace_path: Map.get(running_entry, :workspace_path)
-      })
+      schedule_retry.(
+        state,
+        issue.id,
+        next_attempt,
+        %{
+          identifier: issue.identifier,
+          tracker_identity: Issue.tracker_identity(issue),
+          error: "remote-control redispatch did not start",
+          prior_work: Config.agent_prior_work_continuation?(),
+          worker_host: Map.get(running_entry, :worker_host),
+          workspace_path: Map.get(running_entry, :workspace_path)
+        }
+        |> Map.merge(retry_metadata)
+      )
     end
   end
 

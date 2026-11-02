@@ -179,6 +179,15 @@ defmodule Aiur.Orchestrator.Calls do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:redispatch, identifier, backend}, _from, state)
+      when is_binary(identifier) and (is_nil(backend) or is_binary(backend)) do
+    {reply, next} = RC.redispatch_call(state, identifier, backend)
+    {:reply, reply, next}
+  end
+
+  def handle_call({:redispatch, _identifier, _backend}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
+
   def handle_call({:ensure_remote_control_trust, workspace}, from, state)
       when is_binary(workspace),
       do: RC.ensure_remote_control_trust_call(state, workspace, from)
