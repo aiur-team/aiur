@@ -260,15 +260,16 @@ defmodule VoiceConverse.Session do
 
   defp handle_provider_event(%kind{} = event, state)
        when kind in [Events.AgentText, Events.AgentTextTiming, Events.AgentAudio, Events.Interruption] do
-    {state, flushed} = if match?(%Events.Interruption{}, event), do: flush_interrupted_text(state, event), else: {state, []}
+    {state, flushed} =
+      if match?(%Events.Interruption{}, event),
+        do: TextTiming.flush_stream_text(state, event.turn_id),
+        else: {state, []}
+
     Enum.each(flushed, &broadcast(state, &1))
 
     case TextTiming.handle(state, event) do
       {:ok, state} ->
-        {state, outgoing} =
-          if match?(%Events.Interruption{}, event),
-            do: {state, [event]},
-            else: outgoing_event(state, event)
+        {state, outgoing} = TextTiming.broadcast_event(state, event)
         Enum.each(outgoing, &broadcast(state, &1))
 
         next =
@@ -348,22 +349,6 @@ defmodule VoiceConverse.Session do
 
   defp handle_provider_event(%Events.Closed{}, state), do: stop_provider_error(state)
 
-  defp outgoing_event(state, %Events.AgentText{} = event) do
-    if not is_nil(state.interrupted_turn) do
-      {state, [%{event | text: state.config.redactor.(event.text)}]}
-    else
-      {tails, outgoing} = TextTiming.stream_text(state, event)
-      {%{state | broadcast_tails: tails}, outgoing}
-    end
-  end
-
-  defp outgoing_event(state, event), do: {state, [TextTiming.redact_for_broadcast(event, state.config.redactor)]}
-
-  defp flush_interrupted_text(state, %Events.Interruption{turn_id: id}) do
-    {state, outgoing} = TextTiming.flush_stream_text(state, id)
-    {state, outgoing}
-  end
-
   defp persist_and_broadcast(state, record, event, next_state, reset_idle? \\ true) do
     case persist(state, record) do
       {:ok, state} ->
@@ -405,7 +390,8 @@ defmodule VoiceConverse.Session do
   defp finish_after_close(%{finished?: true} = state, _reason), do: state
 
   defp finish_after_close(state, reason) do
-    state = flush_all_stream_text(state)
+    {state, flushed} = TextTiming.flush_all_stream_text(state)
+    Enum.each(flushed, &broadcast(state, &1))
     Runtime.cancel_timer(state.idle_timer)
     Runtime.cancel_timer(state.max_timer)
     Runtime.cancel_timer(state.transport_timer)
@@ -423,14 +409,6 @@ defmodule VoiceConverse.Session do
     else
       {:error, state} -> %{state | finished?: true, finishing?: false, provider_ref: nil}
     end
-  end
-
-  defp flush_all_stream_text(state) do
-    Enum.reduce(Map.keys(state.broadcast_tails), state, fn id, state ->
-      {state, event} = TextTiming.flush_stream_text(state, id)
-      Enum.each(event, &broadcast(state, &1))
-      state
-    end)
   end
 
   defp close_after_start_failure(%{store: store} = state, code) do

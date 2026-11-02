@@ -14,13 +14,33 @@ defmodule VoiceConverse.Session.TextTiming do
 
   def redact_for_broadcast(event, _redactor), do: event
 
+  @spec broadcast_event(map(), term()) :: {map(), [term()]}
+  def broadcast_event(state, %Events.Interruption{} = event), do: {state, [event]}
+
+  def broadcast_event(state, %Events.AgentText{} = event) do
+    if not is_nil(state.interrupted_turn) do
+      {state, [%{event | text: state.config.redactor.(event.text)}]}
+    else
+      {tails, outgoing} = stream_text(state, event)
+      {%{state | broadcast_tails: tails}, outgoing}
+    end
+  end
+
+  def broadcast_event(state, event), do: {state, [redact_for_broadcast(event, state.config.redactor)]}
+
+  @spec stream_text(map(), Events.AgentText.t()) :: {map(), [Events.AgentText.t()]}
   def stream_text(state, %Events.AgentText{} = event) do
     id = to_string(event.turn_id)
     previous = Map.get(state.broadcast_tails, id, "")
 
     if event.final? do
       final_event = %{event | text: state.config.redactor.(event.text)}
-      tail_event = if previous == "", do: nil, else: %Events.AgentText{turn_id: event.turn_id, text: state.config.redactor.(previous), final?: false}
+
+      tail_event =
+        if previous == "",
+          do: nil,
+          else: %Events.AgentText{turn_id: event.turn_id, text: state.config.redactor.(previous), final?: false}
+
       {Map.delete(state.broadcast_tails, id), [tail_event, final_event] |> Enum.reject(&is_nil/1)}
     else
       combined = previous <> event.text
@@ -40,13 +60,26 @@ defmodule VoiceConverse.Session.TextTiming do
   defp put_tail(tails, id, ""), do: Map.delete(tails, id)
   defp put_tail(tails, id, tail), do: Map.put(tails, id, tail)
 
+  @spec flush_stream_text(map(), term()) :: {map(), [Events.AgentText.t()]}
   def flush_stream_text(state, id) do
     key = to_string(id)
 
     case Map.pop(state.broadcast_tails, key) do
-      {nil, tails} -> {%{state | broadcast_tails: tails}, []}
-      {tail, tails} -> {%{state | broadcast_tails: tails}, [%Events.AgentText{turn_id: id, text: state.config.redactor.(tail), final?: false}]}
+      {nil, tails} ->
+        {%{state | broadcast_tails: tails}, []}
+
+      {tail, tails} ->
+        {%{state | broadcast_tails: tails},
+         [%Events.AgentText{turn_id: id, text: state.config.redactor.(tail), final?: false}]}
     end
+  end
+
+  @spec flush_all_stream_text(map()) :: {map(), [Events.AgentText.t()]}
+  def flush_all_stream_text(state) do
+    Enum.reduce(Map.keys(state.broadcast_tails), {state, []}, fn id, {state, events} ->
+      {state, flushed} = flush_stream_text(state, id)
+      {state, events ++ flushed}
+    end)
   end
 
   def handle(state, %Events.AgentText{turn_id: id, text: text, final?: final?}) do

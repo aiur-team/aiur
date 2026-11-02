@@ -116,7 +116,11 @@ defmodule VoiceConverse.SessionTextTimingTest do
   test "split bearer tokens stay masked through two and three streamed chunks", ctx do
     for chunks <- [["hello Bear", "er abcdefgh12345"], ["hello Be", "arer abc", "defgh12345"]] do
       {id, _, ref} = start_session(ctx)
-      Enum.each(chunks, fn chunk -> :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: chunk, final?: false}) end)
+
+      Enum.each(chunks, fn chunk ->
+        :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: chunk, final?: false})
+      end)
+
       complete = Enum.join(chunks)
       :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: complete, final?: true})
       messages = collect_text_messages(id, [])

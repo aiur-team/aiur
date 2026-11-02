@@ -24,7 +24,9 @@ defmodule VoiceConverse.Redact do
     graphemes = String.graphemes(text)
 
     case length(graphemes) do
-      0 -> 0
+      0 ->
+        0
+
       count ->
         1..min(count, @broadcast_tail_graphemes)
         |> Enum.reduce(0, fn length, longest ->
