@@ -62,6 +62,17 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
       assert is_integer(port) and port > 0
     end
 
+    test "an ended session releases its socket binding before the browser closes" do
+      state = WebSock.socket_state([], true) |> Map.put(:conversation_id, "ended-session")
+
+      assert {:push, {:text, json}, released} =
+               Socket.handle_info({:voice_conversation, "ended-session", {:ended, :user_end}}, state)
+
+      assert released.conversation_id == nil
+      assert {:ok, %{"type" => "ended", "reason" => "user_end"}} = VoiceConverse.Wire.decode(json)
+      assert :ok = Socket.terminate(:normal, released)
+    end
+
     test "direct socket callbacks retain the frame-size guard" do
       state = WebSock.socket_state([], true)
 

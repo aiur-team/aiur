@@ -133,6 +133,10 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       def handle_in({payload, _opcode}, state) when is_binary(payload) and byte_size(payload) > @max_frame_bytes,
         do: error(state, "frame_too_large", "Frame exceeds 400000 bytes.")
 
+      # Bandit/WebSock passes keyword metadata; retain atom input for direct callers.
+      def handle_in({payload, metadata}, state) when is_list(metadata),
+        do: handle_in({payload, Keyword.fetch!(metadata, :opcode)}, state)
+
       def handle_in({payload, :text}, state) do
         with {:ok, frame} <- Wire.decode(payload) do
           dispatch(frame, state)
@@ -155,6 +159,10 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       @impl WebSock
       def handle_info({:voice_conversation_state, conversation_id, name}, %{conversation_id: conversation_id} = state),
         do: push(%{"v" => 1, "type" => "state", "state" => to_string(name)}, state)
+
+      # An ended session may already be gone when the browser closes its socket.
+      def handle_info({:voice_conversation, id, {:ended, _reason} = event}, %{conversation_id: id} = state),
+        do: push(event_frame(event), %{state | conversation_id: nil})
 
       def handle_info({:voice_conversation, conversation_id, event}, %{conversation_id: conversation_id} = state) do
         case event_frame(event) do
