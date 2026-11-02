@@ -6,6 +6,7 @@ defmodule Aiur.Codex.UsageLimitTest do
   alias Aiur.AgentRunner.TurnAlerts
   alias Aiur.AppServer.TurnLoop
   alias Aiur.Codex.CodingAgent, as: CodexAgent
+  alias Aiur.Codex.ExhaustedReset
   alias Aiur.Codex.LivenessProbe
   alias Aiur.ModelAvailability
   alias Aiur.Orchestrator
@@ -174,6 +175,25 @@ defmodule Aiur.Codex.UsageLimitTest do
     assert state.liveness_probe_pending?
     assert elapsed >= LivenessProbe.probe_timeout_ms()
     assert elapsed < 15_000
+    Port.close(port)
+  end
+
+  test "silent app-server with exhausted allowance reports a usage limit promptly" do
+    port = open_probe_port("#!/bin/sh\ncat >/dev/null\n")
+    session = %{port: port, clock: fn -> @observed_at end}
+
+    :ok = ExhaustedReset.observe(session, %{"primary" => %{"usedPercent" => 100, "resetsAt" => @resets_at_epoch}})
+
+    result =
+      TurnLoop.receive_loop(session, %{
+        backend: CodexAgent,
+        timeout_ms: 15_000,
+        pending_line: "",
+        liveness_probe_pending?: true,
+        liveness_probe_timer: Process.send_after(self(), :codex_liveness_probe, LivenessProbe.probe_timeout_ms())
+      })
+
+    assert {:paused, %{kind: :usage_limit_exhausted, reset_at: @reset_at}} = result
     Port.close(port)
   end
 

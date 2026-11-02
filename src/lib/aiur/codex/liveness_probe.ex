@@ -114,11 +114,6 @@ defmodule Aiur.Codex.LivenessProbe do
   end
 
   defp usage_limit_reset(session, now) do
-    with %DateTime{} = reset <- ExhaustedReset.latest(session, now),
-         true <- DateTime.diff(reset, now, :second) <= 86_400 do
-      reset
-    else
-      _ -> nil
-    end
+    ExhaustedReset.latest(session, now)
   end
 end
