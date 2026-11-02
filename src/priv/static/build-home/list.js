@@ -203,10 +203,6 @@ function bindOnce(vp) {
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
     const feature = e.target.closest('button.fp-row'); if (feature) focusFeature(feature.dataset.feature);
   });
-  ctx.life.on(vp, 'change', e => {
-    if (!e.target.matches('[data-fsort]')) return;
-    S.fsort = e.target.value; writeURL(); fx.renderList();
-  });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;
     const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { e.preventDefault(); chooseEpic(epic.dataset.epic); return; }

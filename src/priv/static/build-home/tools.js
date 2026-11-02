@@ -21,6 +21,10 @@ function bindOnce(host, right) {
   if (bound) return;
   bound = true;
   ctx.life.on(right, 'click', e => { if (e.target.closest('#bd-nowbtn')) fx.jumpNow(false); });
+  ctx.life.on(right, 'change', e => {
+    if (!e.target.matches('[data-fsort]')) return;
+    S.fsort = e.target.value; writeURL(); fx.renderList();
+  });
   ctx.life.on(host, 'click', e => {
     const button = e.target.closest('[data-v]');
     if (button) setView(button.dataset.v);
