@@ -262,7 +262,7 @@ defmodule VoiceConverse.Session do
        when kind in [Events.AgentText, Events.AgentTextTiming, Events.AgentAudio, Events.Interruption] do
     case TextTiming.handle(state, event) do
       {:ok, state} ->
-        broadcast(state, event)
+        broadcast(state, TextTiming.redact_for_broadcast(event, state.config.redactor))
 
         next =
           if match?(%Events.Interruption{}, event) or match?(%Events.AgentText{final?: true}, event),

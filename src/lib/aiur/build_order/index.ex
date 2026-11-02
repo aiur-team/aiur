@@ -18,6 +18,7 @@ defmodule Aiur.BuildOrder.Index do
       parts = Map.put(parts, :packs, packs)
       sources = Sources.build(parts, now)
       complete? = sources.history.state not in ["unavailable", "incomplete"]
+      feature_parts = Map.put(feature_parts, :labels, parts[:labels])
       feature_progress = FeatureProgress.compute(feature_parts, all, catalogue.features, complete?, now)
       all = PackRows.merge(all, packs)
       counts = if complete?, do: counts(all, catalogue.order)

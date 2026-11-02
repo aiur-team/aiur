@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
   require Logger
 
   alias Aiur.{Issue, Signal}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, Slots, State, TicketTransition, TrackerTasks}
 
   @doc false
   @spec maybe_resume_blockee_on_cleared_dependency(
@@ -249,9 +249,9 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
   # and nothing else still blocks it".
   defp cleared_dependency_match(%State{} = state, blockee, blocker)
        when is_map(blockee) and is_map(blocker) do
-    with blockee_identifier when is_binary(blockee_identifier) <- Map.get(blockee, :identifier),
+    with entry when is_map(entry) <- running_blockee_entry(state, blockee),
+         blockee_identifier when is_binary(blockee_identifier) <- Map.get(entry, :identifier),
          blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier(blocker),
-         entry when is_map(entry) <- State.find_running_by_identifier(state.running, blockee_identifier),
          {:ok, _generation} <- matching_blocker_pause_generation(entry, blocker_identifier),
          false <- cleared_dependency_resume_pending?(entry),
          false <- other_open_blockers?(blockee, blocker_identifier) do
@@ -262,6 +262,14 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
   end
 
   defp cleared_dependency_match(%State{}, _blockee, _blocker), do: :error
+
+  defp running_blockee_entry(%State{} = state, blockee) do
+    issue_id = Map.get(blockee, :id)
+    issue_identifier = Map.get(blockee, :identifier)
+
+    Map.get(state.running, to_string(issue_id || "")) ||
+      if(is_binary(issue_identifier), do: State.find_running_by_identifier(state.running, issue_identifier))
+  end
 
   defp other_open_blockers?(blockee, cleared_blocker_identifier) do
     blockee
@@ -295,7 +303,7 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
       {{:error, reason}, next_state} ->
         Logger.warning("Auto-resume after cleared blocker dependency deferred: blockee=#{blockee_identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
 
-        emit_deferred_cleared_dependency_alert(blockee, entry, blocker, reason)
+        emit_deferred_cleared_dependency_alert(next_state, blockee, entry, blocker, reason)
         stamp_cleared_dependency_resume(next_state, blockee_identifier, blocker_identifier)
     end
   end
@@ -360,19 +368,34 @@ defmodule Aiur.Orchestrator.PushRouting.ClearedDependency do
     )
   end
 
-  defp emit_deferred_cleared_dependency_alert(blockee, entry, blocker, reason) do
+  defp emit_deferred_cleared_dependency_alert(state, blockee, entry, blocker, reason) do
     blocker_identifier = blocker_identifier(blocker)
 
     Signal.alert("ticket.#{Map.get(blockee, :identifier)}.agent.auto_resume_deferred",
       issue: Map.get(blockee, :identifier),
       workspace: Map.get(entry, :workspace_path),
       worker_host: Map.get(entry, :worker_host),
-      reason: "Blocker #{blocker_identifier} is clear; the automatic resume is waiting for a dispatch slot (#{inspect(reason)}).",
+      reason: "Blocker #{blocker_identifier} is clear; the automatic resume is #{deferred_resume_reason(state, entry, reason)}.",
       needs_attention: false,
       severity: "info",
       central: true
     )
   end
+
+  defp deferred_resume_reason(state, entry, :max_concurrent_agents_reached) do
+    %{used: used, active: active, paused_holds: holds, limit: limit, max: max} = Slots.fleet_capacity_detail(state, entry)
+    binding = if limit < max, do: "AIMD envelope=#{limit} (configured cap=#{max})", else: "configured cap=#{max}"
+    "waiting for a dispatch slot: #{used}/#{limit} slots used (#{active} active, #{holds} held by paused entries; binding: #{binding})"
+  end
+
+  defp deferred_resume_reason(_state, _entry, {:state_concurrency_limit_reached, issue_state}),
+    do: "waiting for the state concurrency gate for #{issue_state}"
+
+  defp deferred_resume_reason(_state, _entry, :no_worker_capacity),
+    do: "waiting for worker-host capacity"
+
+  defp deferred_resume_reason(_state, _entry, reason),
+    do: "waiting for a dispatch slot (#{inspect(reason)})"
 
   defp cleared_dependency_reason(blocker_identifier, blocker_state, :terminal),
     do: "Blocker #{blocker_identifier} reached terminal state #{blocker_state}; automatic resume requested."

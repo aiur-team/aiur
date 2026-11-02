@@ -37,15 +37,16 @@ test('model options include selected unloaded keys but never null models', () =>
   assert.deepEqual(opts.map(o => o[0]), ['claude', 'codex', 'deepseek', 'kimi', 'muse', 'openrouter', 'unloaded', 'zz-new']);
   assert.deepEqual(opts.slice(4).map(o => [o[2], o[5]]), [[null, 'M'], [null, 'O'], [null, 'U'], [null, 'Z']]);
 });
-test('feature options sort independently of map order and preserve unknown progress', () => {
+test('feature options sort independently of map order and read merged/total from the Features bars', () => {
   init('dense'); S.feature = 'd0'; ctx.D.features = Object.fromEntries(Object.entries(ctx.D.features).reverse());
-  ctx.D.features.d9.stats = { ...ctx.D.features.d9.stats, pct: null, pct_min: 40, reasons: ['progress'] };
-  ctx.D.features.d8.stats = null;
+  ctx.D.features.d9.stats = { ...ctx.D.features.d9.stats, pct: 90 };
+  ctx.D.feature_progress = { bars: [{ key: 'd9', label: 'Notifications', merged: 2, total: 5 }] };
   const opts = FOPTS().feature.opts;
   assert.deepEqual(opts.map(o => o[0]), ['d6', 'd7', 'd8', 'd9', 'khala', 'pag', 'd0']);
-  assert.equal(opts.find(o => o[0] === 'd9')[1], 'Notifications  —');
-  assert.equal(opts.find(o => o[0] === 'd9')[6], 'at least 40% weighted · unknown: progress');
+  assert.equal(opts.find(o => o[0] === 'd9')[1], 'Notifications  40%');
+  assert.equal(opts.find(o => o[0] === 'd9')[6], '2 of 5 merged');
   assert.equal(opts.find(o => o[0] === 'd8')[1].endsWith('  —'), true);
+  assert.equal(opts.find(o => o[0] === 'd8')[6], 'unknown');
 });
 
 test('unknown epic counts keep defined options; known zero counts stay excluded', () => {

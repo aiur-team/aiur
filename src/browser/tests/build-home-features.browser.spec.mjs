@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import AxeBuilder from '@axe-core/playwright'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 test.beforeEach(async ({ page }) => {
@@ -71,99 +72,88 @@ test('unknown stats, baseline, missing stats and labels update through live diff
   await expect(page.locator('.bd-kv b')).toHaveText(['—', '—', '—'])
   await expect(page.locator('.sp polyline')).toHaveCount(0)
 })
-test('feature list shows a proportional bar for known membership', async ({ page }) => {
-  await open(page, '?view=list')
-  await expect(page.locator('.bd-list')).toBeVisible()
-  await page.getByRole('tab', { name: 'Features' }).click()
-  const progress = {
-    features: {
-      'f-pag-api': { feature: 'pag', closed: 1, open: 2, ci_wait: 1, unpublished: 0, total: 4, observed_at: Date.now(), wave: '0', summary: 'Pagination work', icon: 'layers', code: 'MP-E8', plan_version: 'v1', extras: 0, reason: null },
-      'f-pag-client': { feature: 'pag', closed: 2, open: 3, ci_wait: 1, unpublished: 0, total: 6, observed_at: Date.now(), wave: '0', summary: null, icon: null, code: null, plan_version: 'v1', extras: 0, reason: null }
-    }, observed_at: Date.now(), plan_version: 'v1', extras: 0
-  }
-  await page.evaluate(async progress => {
-    const { ctx, fx } = await import('/build-home/state.js')
-    ctx.D.feature_progress = progress
-    ctx.D.order = ['f-pag-api', 'f-pag-client']
-    ctx.D.epics = { 'f-pag-api': { feature: 'pag', label: 'Pagination · API' }, 'f-pag-client': { feature: 'pag', label: 'Pagination · client' } }
-    ctx.D.features = { pag: { label: 'Events pagination', hue: 272, epics: ['f-pag-api', 'f-pag-client'], to: Infinity } }
-    ctx.snap.order = ctx.D.order
-    ctx.snap.epics = ctx.D.epics
-    ctx.snap.features = ctx.D.features
-    ctx.snap.feature_progress = progress
-    fx.renderList()
-  }, progress)
-  const row = page.locator('.fp-row')
-  await expect(row).toHaveCount(1)
-  await expect(row).toContainText('3 / 10')
-  await expect(row).toContainText('MP-E8')
-  await expect(row).toContainText('Pagination · API: 1 / 4 · Pagination · client: 2 / 6')
-  const closed = row.locator('.fp-closed')
-  await expect(closed).toBeVisible()
-  await expect(closed).toHaveAttribute('style', /width:30%/)
-})
-test('feature list keeps known closed progress solid when other counts are unknown', async ({ page }) => {
+test('Features list rows hold only name, bar and merged/total, with an all-features total and a URL sort', async ({ page }) => {
   await open(page, '?view=list')
   await page.getByRole('tab', { name: 'Features' }).click()
-  const entries = [
-    ['f-part-2', 'part2', 'Wave 1 refactor (part 2/3)', '1', 88, 6, 0, 94],
-    ['f-part-3', 'part3', 'Wave 1 refactor (part 3/3)', '1', 49, 20, 0, 71],
-    ['f-other', 'other', 'Other work', '2', 298, 32, 0, 330],
-    ['f-bo-6368', 'unassigned', 'Unassigned tickets', '2', 0, 0, 0, 0]
+  // pag and khala are registry features in the fixture; the rest come only from feature:<slug> labels.
+  const bars = [
+    { key: 'pag', label: 'MP-E1 build queue', merged: 9, total: 13 },
+    { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
+    { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 },
+    { key: 'mp-e3', label: 'MP-E3', merged: 14, total: 23 },
+    { key: 'streamdeck-redesign', label: 'Stream Deck redesign with dials, keys, paging modes and the phone emulator', merged: 25, total: 30 },
+    { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
+    { key: 'mp-n1', label: 'mp-n1', merged: 1, total: 10 }
   ]
-  const features = Object.fromEntries(entries.map(([epic, slug, label]) => [slug, { label, hue: 272, epics: [epic] }]))
-  const epics = Object.fromEntries(entries.map(([key, , label]) => [key, { key, feature: entries.find(entry => entry[0] === key)[1], label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]))
-  const progress = {
-    features: Object.fromEntries(entries.map(([key, slug, summary, wave, closed, open, unpublished, total]) => [key, {
-      feature: slug, closed, open, ci_wait: slug === 'part3' || slug === 'part2' ? null : 0,
-      unpublished, total, observed_at: Date.now(), wave, summary, extras: 0, reason: null
-    }])),
-    observed_at: Date.now(), plan_version: 'v1', extras: 0
-  }
-  await page.evaluate(({ features, epics, progress }) => {
+  await page.evaluate(bars => {
     const { ctx, fx } = window.m
-    ctx.D.features = features
-    ctx.D.epics = epics
-    ctx.D.feature_progress = progress
-    ctx.snap.features = features
-    ctx.snap.epics = epics
-    ctx.snap.feature_progress = progress
+    ctx.D.feature_progress = { ...ctx.D.feature_progress, bars }
     fx.renderList()
-  }, { features, epics, progress })
-
-  const overall = page.locator('.fp-total')
-  await expect(page.locator('.fp-overall')).toContainText('435 / 495')
-  await expect(page.locator('.fp-overall')).toContainText('CI state unknown')
-  await expect(overall.locator('.fp-closed')).toHaveAttribute('style', /width:87\.8/)
-  await expect(overall.locator('.fp-open')).toHaveAttribute('style', /width:11\.717/)
-  await expect(overall.locator('.fp-unknown')).toHaveAttribute('style', /width:0\.404/)
-  const accent = await page.locator('.fp-legend .closed').evaluate(el => getComputedStyle(el).backgroundColor)
-  await expect(overall.locator('.fp-closed')).toHaveCSS('background-color', accent)
-  const part2 = page.locator('.fp-row').filter({ hasText: 'Wave 1 refactor (part 2/3)' })
-  const part3 = page.locator('.fp-row').filter({ hasText: 'Wave 1 refactor (part 3/3)' })
-  await expect(part2.locator('.fp-closed')).toHaveAttribute('style', /width:93\.6/)
-  await expect(part3.locator('.fp-closed')).toHaveAttribute('style', /width:69\.0/)
-  await expect(part3.locator('.fp-open')).toHaveAttribute('style', /width:28\.169/)
-  await expect(part3.locator('.fp-unknown')).toHaveAttribute('style', /width:2\.8169/)
-  await expect(part3.locator('.fp-closed')).toHaveCSS('background-color', accent)
-  await expect(part3.locator('.fp-unknown')).toHaveCSS('background-image', /repeating-linear-gradient/)
-  await expect(page.locator('.fp-row', { hasText: 'Unassigned: 0 / 0' })).toHaveCount(0)
-  const empty = page.locator('.fp-row[data-feature="unassigned"] .fp-bar')
-  await expect(empty).toHaveAttribute('aria-label', 'No tickets to count')
-  await expect(empty.locator('.fp-unknown')).toHaveCount(0)
-
-  await page.evaluate(() => {
-    const { ctx, fx } = window.m
-    ctx.D.features.unknown = { label: 'Unknown closed count', hue: 272, epics: ['f-bo-6369-core'] }
-    ctx.D.epics['f-bo-6369-core'] = { key: 'f-bo-6369-core', feature: 'unknown', label: 'Build Order 6369 · Core' }
-    ctx.D.feature_progress.features['f-bo-6369-core'] = { feature: 'unknown', closed: null, open: 3, ci_wait: 0, unpublished: 0, total: 10, observed_at: Date.now(), wave: '3', reason: 'states unavailable' }
-    fx.renderList()
+  }, bars)
+  const rows = page.locator('.fp-rows .fp-row')
+  await expect(rows).toHaveCount(7)
+  expect(await rows.evaluateAll(els => els.map(el => [...el.children].map(child => child.className)))).toEqual(bars.map(b => ['fp-name', b.merged === b.total ? 'fp-bar done' : 'fp-bar', 'fp-count']))
+  expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual(bars.map(b => `${b.label}${b.merged}/${b.total}`))
+  const visibleNames = await rows.locator('.fp-name').allTextContents()
+  expect(new Set(visibleNames).size).toBe(visibleNames.length)
+  expect(visibleNames).not.toContain('mp-e2')
+  // Each name is one line; a cut name ends in an ellipsis and keeps the full name in its title.
+  const oneLine = () => rows.locator('.fp-name').evaluateAll(els => els.map(el => {
+    const style = getComputedStyle(el)
+    return { oneLine: el.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1, title: el.title === el.textContent, cut: el.scrollWidth > el.clientWidth, ellipsis: style.textOverflow === 'ellipsis' }
+  }))
+  const desk = await oneLine()
+  expect(desk.every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  expect(desk.map(n => n.cut)).toEqual(bars.map(b => b.key === 'streamdeck-redesign'))
+  await expect(rows.first().locator('.fp-bar i')).toHaveAttribute('style', /width:69\.23/)
+  await expect(rows.nth(1).locator('.fp-bar i')).toHaveAttribute('style', 'width:0%')
+  await expect(page.locator('.fp-head h1')).toHaveText(/ - build progress$/)
+  await expect(page.locator('.fp-head p')).toHaveText(/^57 of 89 tickets merged - \d{4}-\d{2}-\d{2}$/)
+  await expect(page.locator('.fp-all')).toHaveText('All features57/89')
+  await expect(page.locator('.fp-all .fp-bar i')).toHaveAttribute('style', /width:64\.04/)
+  const colors = await page.evaluate(() => {
+    const probe = token => { const el = document.createElement('i'); el.style.background = `var(${token})`; document.querySelector('.fp-card').append(el); const value = getComputedStyle(el).backgroundColor; el.remove(); return value }
+    const fill = selector => getComputedStyle(document.querySelector(selector)).backgroundColor
+    return { done: [fill('.fp-bar.done i'), probe('--good')], partial: [fill('.fp-rows .fp-row .fp-bar:not(.done) i'), probe('--accent')], all: [fill('.fp-bar.all i'), probe('--attention')] }
   })
-  const unknown = page.locator('.fp-row[data-feature="unknown"] .fp-bar')
-  await expect(unknown.locator('.fp-open')).toHaveAttribute('style', /width:30%/)
-  await expect(unknown.locator('.fp-unknown')).toHaveAttribute('style', /width:70%/)
-  await expect(unknown.locator('.fp-unknown')).toHaveCSS('background-image', /repeating-linear-gradient/)
-  await expect(unknown.locator('.fp-closed')).toHaveCount(0)
+  for (const [actual, token] of Object.values(colors)) expect(actual).toBe(token)
+  expect(new Set(Object.values(colors).map(([actual]) => actual)).size).toBe(3)
+
+  await expect(rows.nth(1)).not.toHaveJSProperty('tagName', 'BUTTON')
+  expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
+  await page.emulateMedia({ colorScheme: 'light' })
+  expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
+  await page.locator('[data-fsort]').selectOption('left')
+  await expect(page).toHaveURL(/fsort=left/)
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['mp-e3', 'mp-n1', 'streamdeck-redesign', 'pag', 'mp-e2', 'khala', 'newsletter'])
+  await page.locator('[data-fsort]').selectOption('pct')
+  await expect(page).toHaveURL(/fsort=pct/)
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['newsletter', 'streamdeck-redesign', 'pag', 'khala', 'mp-e3', 'mp-n1', 'mp-e2'])
+  await page.locator('[data-fsort]').selectOption('goal')
+  await expect(page).not.toHaveURL(/fsort=/)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  expect((await oneLine()).every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  const gaps = await rows.evaluateAll(els => els.slice(1).map((el, i) => el.getBoundingClientRect().top - els[i].querySelector('.fp-bar').getBoundingClientRect().bottom))
+  expect(Math.min(...gaps)).toBeGreaterThanOrEqual(8)
+  expect(await rows.evaluateAll(els => {
+    const nav = document.querySelector('.sidenav')
+    const usableTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+    const top = els[0].getBoundingClientRect().top
+    const rowHeight = Math.max(...els.slice(0, 6).map(el => el.getBoundingClientRect().bottom - el.getBoundingClientRect().top))
+    return usableTop - top >= 6 * rowHeight
+  })).toBe(true)
+  await page.locator('.fp-row[data-feature="pag"]').press('Enter')
+  await expect(page).toHaveURL(/feature=pag/)
+})
+test('Features list says progress is unavailable instead of inventing a zero total', async ({ page }) => {
+  await open(page, '?view=list&list=features&fsort=pct')
+  await expect(page.locator('[data-fsort]')).toHaveValue('pct')
+  await page.evaluate(() => { const { ctx, fx } = window.m; ctx.D.feature_progress = { ...ctx.D.feature_progress, bars: null }; fx.renderList() })
+  await expect(page.locator('.fp-head p')).toHaveText(/^Feature progress unavailable - /)
+  await expect(page.locator('.fp-all')).toHaveCount(0)
+  await expect(page.locator('.fp-rows .fp-row')).toHaveCount(0)
 })
 for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} stays inactive in graph, compact and list`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))

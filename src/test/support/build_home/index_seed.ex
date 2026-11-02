@@ -41,7 +41,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
       repository_fun: fn -> {:ok, {"example", "aiur-fixture"}} end
     ]
 
-    core = Index.read_core_parts(MapSet.new(~w(history health features overrides settings repository)a), opts)
+    core = Index.read_core_parts(MapSet.new(~w(history health features overrides settings repository labels)a), opts)
     source = %{state: "ok", observed_at: data["now"], reason: nil}
     now = Enum.map(data["sections"]["now"], &facts(&1, ~w(id num sec status ord start start_src pct agent pr)))
     planned = Enum.map(data["sections"]["plan"], &facts(&1, ~w(id num sec status ord deps wave qpos cue)))

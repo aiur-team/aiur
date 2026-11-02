@@ -1,6 +1,7 @@
 defmodule Aiur.BuildOrder.Index.FeatureProgress do
   @moduledoc "Aggregates feature progress from indexed rows and local Build Order manifests."
   alias Aiur.BuildOrder.{Features.RootImportMapping, Metadata}
+  alias Aiur.BuildOrder.Index.FeatureBars
 
   @spec compute(map(), map(), map(), boolean(), integer()) :: map()
   def compute(parts, all, features, complete?, now) do
@@ -17,7 +18,15 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
 
     registry_known? = match?({:ok, _registry}, parts[:features])
     extras = if registry_known?, do: sum_extras(values)
-    %{features: values, observed_at: now, plan_version: common_version(values), extras: extras, reason: if(registry_known?, do: nil, else: "states unavailable · planned count unavailable")}
+
+    %{
+      features: values,
+      bars: FeatureBars.compute(parts, now),
+      observed_at: now,
+      plan_version: common_version(values),
+      extras: extras,
+      reason: if(registry_known?, do: nil, else: "states unavailable · planned count unavailable")
+    }
   end
 
   defp epic_progress(context) do

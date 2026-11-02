@@ -18,10 +18,10 @@ export const setLastKey = key => { lastKey = key; };
 onReset(() => { lastKey = ''; });
 const selected = k => k === 'feature' ? (S.feature ? [S.feature] : []) : S.f[k];
 const ticketOptions = [['merged', 'Merged', 'merged'], ['failed', 'Failed', 'failed'], ['in progress', 'In progress', 'active'], ['queued', 'Queued', 'queued'], ['held', 'Held', 'held'], ['blocked', 'Blocked', 'blocked'], ['open', 'Not queued', 'open']];
-function featureOption(f) {
-  const s = f.stats, known = Number.isInteger(s?.pct) && s.pct >= 0 && s.pct <= 100;
-  const title = known ? null : (s?.pct_min == null ? 'unknown' : 'at least ' + s.pct_min + '% weighted · unknown: ' + (s.reasons || []).join(', '));
-  return [f.key, f.label + '  ' + (known ? s.pct + '%' : '—'), null, f.hue, null, null, title];
+// Same merged/total source as the Features list rows.
+function featureOption(f, bars) {
+  const bar = bars?.find(b => b.key === f.key);
+  return [f.key, f.label + '  ' + (bar ? Math.floor(bar.merged * 100 / bar.total) + '%' : '—'), null, f.hue, null, null, bar ? bar.merged + ' of ' + bar.total + ' merged' : 'unknown'];
 }
 // shortcut: row-only diffs refresh open options on the next render; revisit for live option updates.
 export function FOPTS() {
@@ -38,7 +38,7 @@ export function FOPTS() {
   if (D.hist.some(t => t.status === 'not_planned') || S.f.tstate.includes(NP)) tickets.push([NP, 'Not planned', 'np']);
   return {
     model: { label: 'Model', opts: Object.keys(LOGOS).map(k => [k, modelInfo(k).name, LOGOS[k].src]).concat(models.map(k => [k, modelInfo(k).name, null, null, null, modelInfo(k).mono])) },
-    feature: { label: 'Feature', opts: recent.map(featureOption).concat(S.feature && !current ? [[S.feature, S.feature]] : []) },
+    feature: { label: 'Feature', opts: recent.map(f => featureOption(f, D.feature_progress?.bars)).concat(S.feature && !current ? [[S.feature, S.feature]] : []) },
     epic: { label: 'Epic', opts: epics.map(k => [k, D.epics[k]?.label ?? k, null, D.epics[k]?.unsorted ? null : D.epics[k]?.hue]) },
     tstate: { label: 'Ticket', opts: tickets.map(o => [o[0], o[1], null, null, o[2]]) },
     astate: { label: 'Agent', opts: Object.keys(AST).map(v => [v, AST[v].label, null, null, AST[v].cls]).concat([['none', 'No agent', null, null, 'open']]) },

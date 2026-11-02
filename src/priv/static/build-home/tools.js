@@ -45,6 +45,7 @@ function renderControls() {
   bindOnce(left, right);
   const span = S.view === 'list' ? '' : fx.spanToolsHTML();
   const key = S.view + '|' + S.list + '|' + S.span + '|' + span;
+  ctx.root.classList.toggle('feature-list', S.view === 'list' && S.list === 'features');
   if (lastKey === key) return;
   const active = left.contains(document.activeElement) ? document.activeElement.closest('[data-v], [data-list]') : null;
   const focused = active?.dataset.v ? ['v', active.dataset.v] : active?.dataset.list ? ['list', active.dataset.list] : null;

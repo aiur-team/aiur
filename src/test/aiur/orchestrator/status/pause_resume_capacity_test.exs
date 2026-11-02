@@ -183,7 +183,7 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
            "expected started_at shifted by ~5s, got #{shift_seconds}s"
   end
 
-  test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
+  test "regression: resuming a paused agent into its reserved slot succeeds at full capacity" do
     orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     parent = self()
@@ -199,7 +199,9 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
         state
         | session_max_concurrent_agents: 1,
           running: %{
-            "issue-paused" => running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+            "issue-paused" =>
+              running_entry("issue-paused", "MT-PAUSED", :paused, parent)
+              |> Map.put(:paused_reason, :agent_pause_request)
           }
       }
     end)
@@ -239,7 +241,7 @@ defmodule Aiur.Orchestrator.Status.PauseResumeCapacityTest do
       }
     end)
 
-    assert {:error, :max_concurrent_agents_reached} =
+    assert {:error, :no_worker_capacity} =
              Orchestrator.resume_agent(orchestrator_name, "MT-PAUSED-A")
 
     refute_receive {:resume_agent, _request_id}, 100
