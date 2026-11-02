@@ -306,6 +306,22 @@ cmd_set() {
   encoded_caller_agent_workspace_env="$(printf '%s' "$caller_agent_workspace_env" | base64 | tr -d '\n')"
 
   case "$key" in
+    --help)
+      cat <<'EOF'
+Usage: aiur set <key> <json> | --list [--json] | --unset <key>
+       aiur set max-agents <n>
+
+Store or remove an allowlisted runtime setting for this Aiur instance.
+Runtime settings persist across restarts and apply live. `max-agents` is a
+session-only concurrent-agent cap and resets when the daemon restarts.
+
+To change `.aiur/config`, edit the file directly. The running daemon checks it
+about once a second and reloads valid changes without a restart. Confirm with
+`aiur status`; rejected changes keep the last good config and show
+`CONFIG RELOAD REJECTED` until a corrected file reloads.
+EOF
+      exit 0
+      ;;
     max-agents)
       local n="${1:-}"
       if [ -z "$n" ] || [[ ! "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ]; then

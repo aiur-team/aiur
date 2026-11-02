@@ -16,7 +16,7 @@ defmodule AiurWeb.Build.URLState do
     stuck: ~w(error retries command native_question)
   }
   @ticket_presets %{active: ["in progress"], alert: ["in progress"], paused: ["in progress"], stuck: ["in progress"], queued: ~w(queued held blocked), finished: ~w(merged failed)}
-  @defaults %{view: "graph", list: "tickets", span: 1, feature: nil, fmode: "focus", epic: [], model: [], tstate: [], astate: [], live_min: false, trees: false, ticket: nil}
+  @defaults %{view: "graph", list: "tickets", span: 1, feature: nil, fmode: "focus", fsort: "goal", epic: [], model: [], tstate: [], astate: [], live_min: false, trees: false, ticket: nil}
 
   @type t :: %{
           view: String.t(),
@@ -24,6 +24,7 @@ defmodule AiurWeb.Build.URLState do
           span: pos_integer(),
           feature: String.t() | nil,
           fmode: String.t(),
+          fsort: String.t(),
           epic: [String.t()],
           model: [String.t()],
           tstate: [String.t()],
@@ -46,6 +47,7 @@ defmodule AiurWeb.Build.URLState do
       span: span(params["span"]),
       feature: feature,
       fmode: if(feature && params["fmode"] == "compact", do: "compact", else: "focus"),
+      fsort: if(params["fsort"] in ~w(pct left), do: params["fsort"], else: "goal"),
       epic: items(params["epic"], &(valid_string(&1, @slug) != nil)),
       model: items(params["model"], &(&1 != "none" and valid_string(&1, @model_key) != nil)),
       tstate: items(params["tstate"], &(&1 in @tstates)),
@@ -61,6 +63,7 @@ defmodule AiurWeb.Build.URLState do
     [
       {"view", if(state.view != "graph", do: state.view)},
       {"list", if(state.list != "tickets", do: state.list)},
+      {"fsort", if(state.fsort != "goal", do: state.fsort)},
       {"trees", if(state.trees, do: "1")},
       {"live", if(state.live_min, do: "min")},
       {"span", if(state.span != 1, do: Integer.to_string(state.span))},

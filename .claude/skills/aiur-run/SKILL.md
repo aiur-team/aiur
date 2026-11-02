@@ -162,6 +162,11 @@ From the repository root:
    needs an explicit clean checkpoint; ordinary local launches rebuild stale
    sources, and installed `aiur` has no shim-only `build` command.
 
+When changing capacity on a running daemon, edit `.aiur/config` and let the
+one-second config poll reload it. Do not run `aiur stop` and relaunch just to
+change `agent.max_concurrent_agents`, `agent.target_cpu_pressure`, or
+`agent.max_cpu_pressure`; confirm the result with `"$AIUR_CMD" status`.
+
 Preflight also covers the Executor wake path. The listener is armed on **every**
 run now, with or without `--executor`, so `LISTENER absent` no longer means "no
 Executor was intended" — it always means the recording path is broken and this
@@ -180,6 +185,11 @@ in consumer repositories. Equivalent background forms are:
 "$AIUR_CMD" run --bg --executor --debug --max-agents <n>
 "$AIUR_CMD" --bg --executor --debug --max-agents <n>
 ```
+
+For a capacity adjustment after launch, change the relevant live setting in
+`.aiur/config` and verify it with `"$AIUR_CMD" status`. Do not stop and relaunch
+the daemon for this; accepted config edits reload within about one second while
+agent turns continue.
 
 `--executor` is required for every Executor-owned run, but what it now declares
 is **authority**, not recording. Every run records the wake stream and every run

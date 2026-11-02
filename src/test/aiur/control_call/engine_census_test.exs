@@ -91,7 +91,9 @@ defmodule Aiur.ControlCall.EngineCensusTest do
   @guarded_wrappers %{
     "cmd_queue" => ~s|Aiur.AgentControlCLI.queue(verb: :add, caller_agent_workspace: "")|,
     "cmd_operator_answer" => ~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|,
-    "cmd_alerts" => ~s|Aiur.AgentControlCLI.alerts(argv: ["ack", "ticket.1.agent.attention.test", "--executor-id", "operator"])|
+    "cmd_alerts" => ~s|Aiur.AgentControlCLI.alerts(argv: ["ack", "ticket.1.agent.attention.test", "--executor-id", "operator"])|,
+    "run_account_login" => ~s|System.cmd("codex", [])|,
+    "run_claude_login" => ~s|System.cmd("claude", [])|
   }
 
   test "every public AgentControlCLI function has an explicit classification" do
@@ -151,8 +153,11 @@ defmodule Aiur.ControlCall.EngineCensusTest do
            "guarded engine wrappers changed: expected #{inspect(expected)}, found #{inspect(guarded)}"
 
     for {wrapper, expression} <- @guarded_wrappers do
-      assert {:error, :denied_remote} = ControlCall.parse(expression),
-             "#{wrapper} has a local-only guard but its RPC is not denied"
+      assert {:error, reason} = ControlCall.parse(expression),
+             "#{wrapper} has a local-only guard but its RPC was accepted"
+
+      assert reason in [:denied_remote, :not_allowlisted],
+             "#{wrapper} has a local-only guard but parsed as #{inspect(reason)}"
     end
   end
 

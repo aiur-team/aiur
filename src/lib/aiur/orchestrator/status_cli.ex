@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.StatusCLI do
   @moduledoc false
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.ControlCLI.CiWait
@@ -129,6 +130,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
+    Enum.each(UsageReadings.failure_lines(), &IO.puts/1)
     print_github_budget_scope()
     print_polling_status(Map.get(snapshot, :polling))
     footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
@@ -205,6 +207,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
       build_gate: &Diagnostics.print_build_gate_status/0,
       hold_pressure: fn -> if Config.tracker_kind() == "github", do: HoldPressure.print_status() end,
       prewarm: &Diagnostics.print_prewarm_status/0,
+      toolchain: &Aiur.Toolchain.print_status/0,
       operator_asks: fn -> Watch.print_blocking_asks(opts) end
     ]
   end

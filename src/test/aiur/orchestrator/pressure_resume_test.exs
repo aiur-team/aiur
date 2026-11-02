@@ -25,16 +25,31 @@ defmodule Aiur.Orchestrator.PressureResumeTest do
     initial = %State{max_concurrent_agents: 16, effective_concurrent_agents: 1, load_envelope_state: EnvelopeResume.boot(Config.settings!().agent)}
     assert Slots.max_concurrent_agent_status(initial).resume_level == 7
     first = dispatch(initial, 1, 2.0)
-    assert first.effective_concurrent_agents == 1
+    assert first.effective_concurrent_agents == 2
     assert Slots.max_concurrent_agent_status(first).resume_level == 7
     assert Slots.max_concurrent_agent_status(first).resume_recorded_ago_seconds in 720..730
     reused = dispatch(first, 1, 2.0)
-    assert reused.effective_concurrent_agents == 1
+    assert reused.effective_concurrent_agents == 2
     boundary = dispatch(reused, 2, 8.0)
-    assert boundary.effective_concurrent_agents == 1
-    states = Enum.scan(3..5, boundary, &dispatch(&2, &1, 7.99))
-    assert Enum.map(states, & &1.effective_concurrent_agents) == [2, 4, 7]
+    assert boundary.effective_concurrent_agents == 2
+    states = Enum.scan(3..4, boundary, &dispatch(&2, &1, 7.99))
+    assert Enum.map(states, & &1.effective_concurrent_agents) == [4, 7]
     assert Slots.max_concurrent_agent_status(List.last(states)).resume_level == nil
+  end
+
+  test "PSI stale resume grows by configured ramp step on every under-target poll" do
+    workflow = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(workflow, String.replace(File.read!(workflow), "agent:\n", "agent:\n  load_ramp_step: 3\n"))
+    :ok = Aiur.WorkflowStore.force_reload()
+    assert :ok = EnvelopeStore.save(7, System.schedulers_online(), DateTime.add(DateTime.utc_now(), -1_800))
+    initial = %State{max_concurrent_agents: 16, effective_concurrent_agents: 1, load_envelope_state: EnvelopeResume.boot(Config.settings!().agent)}
+
+    states = Enum.scan(1..3, initial, &dispatch(&2, &1, 7.99))
+    assert Enum.map(states, & &1.effective_concurrent_agents) == [4, 7, 10]
+
+    final_gap = %{initial | effective_concurrent_agents: 6, load_envelope_state: Map.put(initial.load_envelope_state, :bootstrap_complete?, true)}
+    resumed = dispatch(final_gap, 4, 7.99)
+    assert resumed.effective_concurrent_agents == 9
   end
 
   test "PSI persists five fresh occupied samples and lowers the saved level after sustained pressure", %{path: path} do

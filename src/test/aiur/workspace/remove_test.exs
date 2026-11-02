@@ -114,6 +114,28 @@ defmodule Aiur.Workspace.RemoveTest do
     assert File.dir?(workspace)
   end
 
+  test "remote removal preserves a failed rm status before socket cleanup", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    fake_bin = Path.join(test_root, "bin")
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(fake_bin)
+    fake_rm = Path.join(fake_bin, "rm")
+    File.write!(fake_rm, "#!/bin/sh\nexit 1\n")
+    File.chmod!(fake_rm, 0o755)
+
+    {_output, status} =
+      System.cmd("bash", ["-c", Remove.remote_remove_script(workspace, true)],
+        env: [
+          {"workspace", workspace},
+          {"PATH", fake_bin <> ":" <> System.get_env("PATH")}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status == 1
+    assert File.dir?(workspace)
+  end
+
   test "remote HEAD query failure exits closed", %{test_root: test_root} do
     workspace = Path.join(test_root, "remote-workspace")
     fake_bin = Path.join(test_root, "bin")

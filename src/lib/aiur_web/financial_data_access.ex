@@ -69,12 +69,20 @@ defmodule AiurWeb.FinancialDataAccess do
   defp authenticate_without_session(conn, opts) do
     case Proof.configuration(opts, @version) do
       {:ok, config} ->
-        authenticate_configured_request(conn, config)
+        authenticate_configured_request(conn, config, opts)
 
       {:error, :authentication_required} ->
-        conn
-        |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
-        |> halt()
+        if browser_html_request?(conn, opts) do
+          conn
+          |> put_resp_header("www-authenticate", ~s(Basic realm="Aiur"))
+          |> put_resp_content_type("text/html")
+          |> send_resp(401, recovery_response(conn))
+          |> halt()
+        else
+          conn
+          |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
+          |> halt()
+        end
 
       {:error, :authentication_not_configured} ->
         conn
@@ -83,13 +91,27 @@ defmodule AiurWeb.FinancialDataAccess do
     end
   end
 
+  defp browser_html_request?(conn, opts) do
+    Keyword.get(opts, :browser?, false) and
+      Enum.any?(get_req_header(conn, "accept"), &String.contains?(&1, "text/html"))
+  end
+
+  defp recovery_response(_conn) do
+    """
+    <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard unavailable</title>
+    <style>body{font:16px system-ui,sans-serif;margin:2rem;color:#222}nav{display:flex;gap:.75rem}a,button{min-height:44px;padding:.6rem 1rem;border:1px solid #888;border-radius:999px;background:white;color:inherit;font:inherit}</style>
+    <main><h1>Dashboard unavailable</h1><p>Sign in or reload the dashboard to continue.</p><nav aria-label="Recovery"><a href="/">Home</a><button type="button" onclick="location.reload()">Reload</button></nav></main>
+    </html>
+    """
+  end
+
   defp browser_basic_auth? do
     AiurWeb.EndpointConfig.get(:browser_basic_auth) != false
   rescue
     _ -> true
   end
 
-  defp authenticate_configured_request(conn, config) do
+  defp authenticate_configured_request(conn, config, opts) do
     # Credentials present means the request must prove them, regardless of the
     # `required?` setting. `required?` only distinguishes how an *unconfigured*
     # request fails (401 challenge vs 503 refusal); it must never turn a
@@ -101,10 +123,14 @@ defmodule AiurWeb.FinancialDataAccess do
         realm: "Aiur"
       )
 
-    if authenticated.halted do
-      authenticated
+    if authenticated.halted and browser_html_request?(conn, opts) do
+      %{authenticated | resp_body: recovery_response(conn)}
     else
-      put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
+      if authenticated.halted do
+        authenticated
+      else
+        put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
+      end
     end
   end
 

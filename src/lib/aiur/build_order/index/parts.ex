@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.Index.Parts do
   alias Aiur.BuildOrder.{EpicOverrides, Features, History}
   alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   require Logger
-  @keys ~w(history health catch_up features overrides settings repository open queue estimates capacity pack_metadata)a
+  @keys ~w(history health catch_up features overrides settings repository open labels queue estimates capacity pack_metadata)a
 
   @spec read(MapSet.t() | :all, keyword()) :: map()
   def read(dirty, opts) do
@@ -42,6 +42,7 @@ defmodule Aiur.BuildOrder.Index.Parts do
   defp read_part(:overrides, opts), do: Keyword.get(opts, :overrides, EpicOverrides).all(Keyword.get(opts, :overrides_opts, []))
   defp read_part(:settings, opts), do: Keyword.get(opts, :settings_fun, &Aiur.Config.settings/0).()
   defp read_part(:repository, opts), do: Keyword.get(opts, :repository_fun, &Aiur.GitHub.Config.configured_repo/0).()
+  defp read_part(:labels, opts), do: Keyword.get(opts, :labels_fun, fn -> Aiur.Tracker.open_issue_labels(120_000) end).()
 
   defp read_part(:open, opts) do
     source = Keyword.get(opts, :open_source, Aiur.OpenTicketSource)

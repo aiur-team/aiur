@@ -7,6 +7,12 @@
 .aiur-shell--dashboard .aiur-shell__item { min-height: 0; line-height: inherit; }
 .aiur-shell--dashboard .aiur-shell__count { display: inline; height: auto; margin-left: 0; }
 .aiur-shell--dashboard .aiur-shell__state { margin-left: 0; }
+.standalone-recovery { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 100; display: flex; gap: 8px; }
+.standalone-recovery[hidden] { display: none !important; }
+.standalone-recovery a, .standalone-recovery button { min-height: 44px; padding: 0 14px; border: 1px solid var(--aiur-color-line); border-radius: 999px; background: var(--aiur-color-surface); color: var(--aiur-color-fg); font: inherit; }
+@media (display-mode: standalone) {
+  .standalone-recovery[hidden] { display: flex !important; }
+}
 /* Shell (ported from design build.css v10) */
 .aiur-shell--dashboard .aiur-page { display: grid; gap: 1rem; min-width: 0; }
 .aiur-shell--dashboard .aiur-page > * { min-width: 0; }

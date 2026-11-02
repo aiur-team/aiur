@@ -18,6 +18,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.error.tokens_exhausted", "agent-runner"},
     # aiur/executor_sweep/wake.ex
     {"ticket.*.agent.executor-sweep.finding", "executor-attention"},
+    # aiur/orchestrator/retry_engine/agent_down.ex
+    {"ticket.*.agent.launch_failed", "orchestration"},
     # aiur/orchestrator/issue_sync/transition_alerts.ex
     {"ticket.*.agent.handoff.human_review", "orchestration"},
     # aiur/orchestrator/lifecycle_fence_expiry.ex

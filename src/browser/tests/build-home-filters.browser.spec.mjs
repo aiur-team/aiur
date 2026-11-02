@@ -75,18 +75,17 @@ test('F2 F3 not planned removes layout space, toggles via URL and hides incoming
   expect(await page.evaluate(() => m.ctx.L.secs.hist.items.some(i => ['9010', '9020', '9021'].includes(i.t.id)))).toBe(false)
   await expect(option(page, 'not planned')).toBeVisible()
 })
-test('F4 F8 features sort by date, retain selection and show unknown percentages', async ({ page }) => {
+test('F4 F8 features sort by date, retain selection and show merged percentages from the Features bars', async ({ page }) => {
   await open(page, 'dense', '?feature=d0')
   await page.evaluate(() => {
     m.ctx.D.features = Object.fromEntries(Object.entries(m.ctx.D.features).reverse())
-    m.ctx.D.features.d9.stats = { ...m.ctx.D.features.d9.stats, pct: null, pct_min: 40, reasons: ['progress'] }
-    m.ctx.D.features.d8.stats = null
+    m.ctx.D.feature_progress = { bars: [{ key: 'd9', label: 'Notifications', merged: 2, total: 5 }] }
   })
   await group(page, 'feature').click()
   expect(await page.locator('.bd-opt').evaluateAll(els => els.map(e => e.dataset.o))).toEqual(['d6', 'd7', 'd8', 'd9', 'khala', 'pag', 'd0'])
   await expect(option(page, 'd0')).toHaveAttribute('aria-pressed', 'true')
-  await expect(option(page, 'd9')).toContainText('  —')
-  await expect(option(page, 'd9')).toHaveAttribute('title', 'at least 40% weighted · unknown: progress')
+  await expect(option(page, 'd9')).toContainText('  40%')
+  await expect(option(page, 'd9')).toHaveAttribute('title', '2 of 5 merged')
   await expect(option(page, 'd8')).toContainText('  —')
   await option(page, 'd9').click()
   await expect(group(page, 'feature')).toBeFocused()

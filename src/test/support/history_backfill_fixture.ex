@@ -20,7 +20,7 @@ defmodule Aiur.HistoryBackfillFixture do
         "updatedAt" => @time,
         "closedAt" => @time,
         "parent" => nil,
-        "labels" => %{"nodes" => [%{"name" => "feature:home"}], "totalCount" => 1},
+        "labels" => %{"nodes" => [%{"name" => "feature:home", "description" => "Feature collection: Home"}], "totalCount" => 1},
         "blockedBy" => blockers([]),
         "timelineItems" => timeline([label("feature:home"), label("agent:in-progress")])
       },

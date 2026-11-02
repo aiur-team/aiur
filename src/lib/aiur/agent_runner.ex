@@ -7,6 +7,7 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BeforeRun, BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain, WorkspaceGuard}
+  alias Aiur.AgentRunner.McpSocketFailure
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Config.HostedAuthPolicy
   alias Aiur.GitHub.Access
@@ -71,14 +72,13 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  # A local budget hold (for example on the workspace auth preflight) exits
-  # with the structured reason instead of raising: a raise hides it inside a
-  # message string, so the retry engine booked a consuming failure retry and
-  # repeated holds exhausted into `agent:error` (#4679). With the raw reason,
-  # `RetryEngine.AgentDown` schedules a non-consuming retry after `reset_at`.
+  # A local budget hold exits with its structured reason so AgentDown can defer
+  # the retry without consuming attempts (#4679).
   @doc false
   @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
   def handle_run_error(issue, reason) do
+    McpSocketFailure.exit_if_launch_failure(reason)
+
     cond do
       match?({:ok, _refusal}, HostedAuthPolicy.refusal(reason)) ->
         {:ok, refusal} = HostedAuthPolicy.refusal(reason)

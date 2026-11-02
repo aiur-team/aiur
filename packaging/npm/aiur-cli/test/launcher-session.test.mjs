@@ -27,7 +27,8 @@ test("Claude login prepares a profile and hands its exact path to the interactiv
   writeFileSync(claude, '#!/usr/bin/env bash\nprintf "%s" "$CLAUDE_CONFIG_DIR" > "$AIUR_LOGIN_ENV_CAPTURE"\n');
   chmodSync(claude, 0o755);
 
-  const result = spawnSync("bash", [launcher, "login", "claude", "max", "--dir", profileDir], {
+  // The PTY invocation uses util-linux `script` options; CI runs on Ubuntu.
+  const result = spawnSync("script", ["-qec", `bash ${JSON.stringify(launcher)} login claude max --dir ${JSON.stringify(profileDir)}`, "/dev/null"], {
     encoding: "utf8",
     env: {
       ...process.env,

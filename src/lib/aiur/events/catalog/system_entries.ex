@@ -10,6 +10,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   @alerts [
     {"system.feature_supply_low", "orchestration"},
     {"system.feature_supply_low.resolved", "orchestration"},
+    {"system.claude_account.*.usage_probe_failing", "executor-attention"},
+    {"system.claude_account.*.usage_probe_failing.resolved", "executor-attention"},
     # aiur/agent_resource_guard.ex
     {"system.agent.synthetic_load_cap", "agent-sandbox"},
     # aiur/build_gate_hold_monitor.ex
@@ -180,6 +182,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.supervision.degraded", "telemetry"},
     # aiur/supervision_health.ex
     {"system.supervision.degraded.resolved", "telemetry"},
+    # aiur/toolchain.ex
+    {"system.toolchain.below_minimum", "orchestration"},
+    # aiur/toolchain.ex
+    {"system.toolchain.below_minimum.resolved", "orchestration"},
     # aiur/orchestrator/toolchain_preflight.ex
     {"system.toolchain.erlang_missing", "orchestration"},
     # aiur/executor_bindings.ex
