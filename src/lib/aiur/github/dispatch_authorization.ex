@@ -76,7 +76,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
       {:error, reason} ->
         if reason == :missing_trigger_label do
-          maybe_alert_once(issue, reason, &MissingTriggerLabel.alert_missing_trigger_label/2)
+          maybe_alert_ambiguity(issue, reason)
         end
 
         apply_label_decision({:deferred, MissingTriggerLabel.deferred_reason(reason)}, issue, allowed_users, opts)
@@ -471,7 +471,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
     Signal.agent_alert(
       "github.dispatch_authorization.ambiguous",
-      "Dispatch denied for issue #{issue.identifier || issue.id}: #{message}",
+      "Dispatch authorization could not be confirmed for issue #{issue.identifier || issue.id}: #{message}",
       issue: issue.identifier || issue.id,
       reason: detail,
       needs_attention: true,

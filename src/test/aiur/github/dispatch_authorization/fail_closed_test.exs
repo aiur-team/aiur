@@ -225,6 +225,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     issue = %{issue() | state: nil}
     calls = start_supervised!({Agent, fn -> 0 end})
     :ok = AgentPubSub.subscribe_agent("42")
+    assert MissingTriggerLabel.deferred_reason({:fetch_failed, :timeout}) == {:missing_trigger_label_fetch, :timeout}
 
     log =
       capture_log(fn ->
@@ -245,7 +246,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
 
     assert log =~ "reason={:missing_trigger_label_fetch, {:github, :timeout,"
     assert Agent.get(calls, & &1) == 1
-    refute_receive {:alert, %{name: "github.dispatch_authorization.missing_trigger_label"}}, 50
+    refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 50
   end
 
   # Future regression guard: recovered labels must keep using the trusted-applier check.
@@ -297,7 +298,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
 
     refute denied.dispatch_authorized?
     assert denied.dispatch_authorization == :deferred
-    assert_receive {:alert, %{name: "github.dispatch_authorization.missing_trigger_label", message: message}}, 500
+    assert_receive {:alert, %{name: "github.dispatch_authorization.ambiguous", message: message}}, 500
     assert message =~ "aiur --todo <n>"
   end
 
