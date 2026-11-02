@@ -15,7 +15,7 @@ cmd_feature() {
   esac
   opts="op: :$op"
   [ -n "$slug" ] && opts="$opts, slug: $(feature_rpc_string "$slug")"
-  local flags="" epics="" add_epics="" epic_hues="" hue_value label_set=0 json=0
+  local flags="" epics="" add_epics="" epic_hues="" epic_icons="" hue_value label_set=0 json=0
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -41,7 +41,7 @@ cmd_feature() {
           epic_hues="$epic_hues$(feature_rpc_string "${value%%=*}") => $(feature_rpc_string "$hue_value")"
         fi
         edits=$((edits + 1)); shift ;;
-      --as|--label|--hue|--epic|--add-epic|--end|--source)
+      --as|--label|--hue|--epic|--add-epic|--epic-icon|--end|--source)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != --* ]] || feature_usage_error "$arg requires a value"
         value="$2"; shift
         case "$arg" in
@@ -69,6 +69,12 @@ cmd_feature() {
               [ -n "$epics" ] && epics="$epics, "
               epics="$epics%{key: $(feature_rpc_string "${value%%=*}"), label: $(feature_rpc_string "${value#*=}")}"
             fi ;;
+          --epic-icon)
+            [[ "$op" == create || "$op" == edit ]] || feature_usage_error '--epic-icon requires feature create or edit'
+            [[ "$value" == *=* && -n "${value%%=*}" && -n "${value#*=}" ]] || feature_usage_error '--epic-icon requires key=heroicon'
+            [ "$op" = create ] || edits=$((edits + 1))
+            [ -n "$epic_icons" ] && epic_icons="$epic_icons, "
+            epic_icons="$epic_icons%{key: $(feature_rpc_string "${value%%=*}"), icon: $(feature_rpc_string "${value#*=}")}" ;;
           --source)
             [ "$op" = add ] && [ "$value" = backfill-agent ] || feature_usage_error '--source accepts only backfill-agent on feature add'
             flags="$flags, source: $(feature_rpc_string "$value")" ;;
@@ -99,6 +105,7 @@ cmd_feature() {
   [ -n "$epics" ] && opts="$opts, epics: [$epics]"
   [ -n "$add_epics" ] && opts="$opts, add_epics: [$add_epics]"
   [ -n "$epic_hues" ] && opts="$opts, epic_hues: %{$epic_hues}"
+  [ -n "$epic_icons" ] && opts="$opts, epic_icons: [$epic_icons]"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   local AIUR_CONTROL_ATTEMPT_CONTEXT="feature $op $slug for $count tickets"
   run_control_rpc "Aiur.AgentControlCLI.feature([$opts])"

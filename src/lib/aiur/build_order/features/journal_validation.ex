@@ -18,7 +18,7 @@ defmodule Aiur.BuildOrder.Features.JournalValidation do
     created_at: :date,
     updated_at: :date
   }
-  @epic %{key: :key, label: :label, hue: :hue, color: :color}
+  @epic %{key: :key, label: :label, hue: :hue, color: :color, icon: :icon}
   @changes Map.take(@feature, [:label, :hue, :hue_source, :epics, :from, :to, :public_ref])
   @events %{
     "feature.created" => %{data: :feature},
@@ -94,6 +94,7 @@ defmodule Aiur.BuildOrder.Features.JournalValidation do
 
   defp field(value, :slug), do: checked(value, FeatureData.slug?(value))
   defp field(value, :key), do: checked(value, FeatureData.epic_key?(value))
+  defp field(value, :icon), do: checked(value, Aiur.Heroicons.valid?(value))
   defp field(value, :source), do: checked(value, FeatureData.source?(value))
   defp field(value, :label), do: checked(value, FeatureData.text?(value, 80))
   defp field(value, :actor), do: checked(value, FeatureData.text?(value, 100))

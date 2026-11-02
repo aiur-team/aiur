@@ -33,7 +33,8 @@ defmodule Aiur.FeatureCLI.Writes do
     existing = snapshot.features[args.slug]
     attrs = Map.take(args, [:label, :hue, :epics])
     epics = attrs[:epics] || [%{key: "f-" <> args.slug, label: args.label}]
-    attrs = if map_size(args[:epic_hues] || %{}) > 0, do: Map.put(attrs, :epics, decorate_epics(epics, args[:epic_hues])), else: attrs
+    epics = epics |> decorate_epics(args[:epic_hues] || %{}) |> put_icons(args[:epic_icons] || [])
+    attrs = Map.put(attrs, :epics, epics)
 
     cond do
       is_nil(existing) -> with {:ok, result} <- Features.create(args.slug, attrs, meta), do: {:ok, Map.put(result, :outcome, :created)}
@@ -60,12 +61,18 @@ defmodule Aiur.FeatureCLI.Writes do
   defp write(%{op: :edit} = args, snapshot, meta, context) do
     attrs = Map.take(args, [:label, :hue])
     attrs = if args[:end], do: Map.put(attrs, :to, end_time(args.end, context)), else: attrs
+    current_epics = snapshot.features[args.slug].epics
+    add_epics = Map.get(args, :add_epics, [])
+    all_epics = current_epics ++ add_epics
 
-    initial = if map_size(attrs) == 0, do: {:ok, %{generation: snapshot.generation}}, else: Features.update_feature(args.slug, attrs, meta)
-
-    with {:ok, initial} <- initial,
+    with :ok <- valid_epic_icons(all_epics, args[:epic_icons]),
+         initial <- if(map_size(attrs) == 0, do: {:ok, %{generation: snapshot.generation}}, else: Features.update_feature(args.slug, attrs, meta)),
+         {:ok, initial} <- initial,
          {:ok, updated} <- update_existing_epics(args, snapshot, initial, meta) do
-      args |> Map.get(:add_epics, []) |> decorate_epics(args[:epic_hues] || %{}) |> Enum.reduce_while({:ok, updated}, &add_epic(&1, &2, args.slug, meta))
+      add_epics
+      |> decorate_epics(args[:epic_hues] || %{})
+      |> put_icons(args[:epic_icons] || [])
+      |> Enum.reduce_while({:ok, updated}, &add_epic(&1, &2, args.slug, meta))
     end
   end
 
@@ -103,25 +110,43 @@ defmodule Aiur.FeatureCLI.Writes do
 
   defp update_existing_epics(args, snapshot, previous, meta) do
     hues = args[:epic_hues] || %{}
+    icons = args[:epic_icons] || []
     feature = snapshot.features[args.slug]
-    changes = Map.keys(hues) |> Enum.reject(&Enum.any?(args[:add_epics] || [], fn epic -> epic.key == &1 end))
+    added_keys = MapSet.new(Enum.map(args[:add_epics] || [], & &1.key))
+    changed_keys = (Map.keys(hues) ++ Enum.map(icons, & &1.key)) |> Enum.uniq() |> Enum.reject(&MapSet.member?(added_keys, &1))
     known = MapSet.new(Enum.map(feature.epics, & &1.key))
 
     cond do
-      not MapSet.subset?(MapSet.new(changes), known) ->
-        {:error, {:unknown_epic, Enum.find(changes, &(&1 not in known))}}
+      not MapSet.subset?(MapSet.new(changed_keys), known) ->
+        {:error, {:unknown_epic, Enum.find(changed_keys, &(&1 not in known))}}
 
-      changes == [] ->
+      changed_keys == [] ->
         {:ok, previous}
 
       true ->
-        epics = feature.epics |> replace_selected_epic_hues(hues) |> decorate_epics(hues)
+        epics = feature.epics |> replace_selected_epic_hues(hues) |> decorate_epics(hues) |> put_icons(icons)
         Features.update_feature(args.slug, %{epics: epics}, meta)
     end
   end
 
   defp replace_selected_epic_hues(epics, hues), do: Enum.map(epics, &replace_selected_epic_hue(&1, hues))
   defp replace_selected_epic_hue(epic, hues), do: if(Map.has_key?(hues, epic.key), do: Map.drop(epic, [:hue, :color]), else: epic)
+
+  defp put_icons(epics, icons) do
+    Enum.map(epics, fn epic ->
+      case Enum.find(icons, &(&1.key == epic.key)) do
+        nil -> epic
+        icon -> Map.put(epic, :icon, icon.icon)
+      end
+    end)
+  end
+
+  defp valid_epic_icons(_epics, nil), do: :ok
+
+  defp valid_epic_icons(epics, icons) do
+    unknown = Enum.find(icons, fn icon -> not Enum.any?(epics, &(&1.key == icon.key)) end)
+    if unknown, do: {:error, {:unknown_epic, unknown.key}}, else: :ok
+  end
 
   defp same_create?(feature, attrs, slug) do
     epics = Map.get(attrs, :epics, [%{key: "f-" <> slug, label: attrs.label}])
@@ -130,7 +155,7 @@ defmodule Aiur.FeatureCLI.Writes do
       Enum.zip(feature.epics, epics)
       |> Enum.all?(fn {stored, requested} ->
         stored.key == requested.key and stored.label == requested.label and
-          Enum.all?([:hue, :color], &(not Map.has_key?(requested, &1) or stored[&1] == requested[&1]))
+          Enum.all?([:hue, :color, :icon], &(not Map.has_key?(requested, &1) or stored[&1] == requested[&1]))
       end) and (not Map.has_key?(attrs, :hue) or feature.hue == attrs.hue)
   end
 

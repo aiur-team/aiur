@@ -1,5 +1,6 @@
 defmodule Aiur.BuildOrder.Features.FeatureData do
   @moduledoc false
+  alias Aiur.Heroicons
   @hues [175, 55, 285, 128, 232, 18, 330, 80, 250, 150, 272]
   @palette [
     {"red", 8},
@@ -52,10 +53,12 @@ defmodule Aiur.BuildOrder.Features.FeatureData do
   end
 
   @spec epic?(term()) :: boolean()
-  def epic?(%{key: key, label: label} = epic),
-    do:
-      Map.keys(epic) -- [:key, :label, :hue, :color] == [] and epic_key?(key) and text?(label, 80) and (not Map.has_key?(epic, :hue) or hue?(epic.hue)) and
-        (not Map.has_key?(epic, :color) or gruvbox_hue(epic.color) != :error)
+  def epic?(%{key: key, label: label} = epic) do
+    Map.keys(epic) -- [:key, :label, :hue, :color, :icon] == [] and epic_key?(key) and text?(label, 80) and
+      (not Map.has_key?(epic, :hue) or hue?(epic.hue)) and
+      (not Map.has_key?(epic, :color) or gruvbox_hue(epic.color) != :error) and
+      (not Map.has_key?(epic, :icon) or Heroicons.valid?(epic.icon))
+  end
 
   def epic?(_), do: false
 
@@ -261,7 +264,15 @@ defmodule Aiur.BuildOrder.Features.FeatureData do
   end
 
   defp relabel(_, _), do: {:error, :invalid_epics}
-  defp epics?(epics), do: is_list(epics) and epics != [] and Enum.all?(epics, &epic?/1) and length(Enum.uniq_by(epics, & &1.key)) == length(epics)
+
+  defp epics?(epics) when is_list(epics) do
+    icons = for %{icon: icon} <- epics, do: icon
+
+    epics != [] and Enum.all?(epics, &epic?/1) and length(Enum.uniq_by(epics, & &1.key)) == length(epics) and
+      length(Enum.uniq(icons)) == length(icons)
+  end
+
+  defp epics?(_), do: false
   defp matches?(value, regex), do: is_binary(value) and String.valid?(value) and Regex.match?(regex, value)
   defp check(true, _), do: :ok
   defp check(false, error), do: {:error, error}
