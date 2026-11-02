@@ -14,6 +14,10 @@ function sub(o) {
 // The dependency's number, from its label ("Dependency #N …"), else its id.
 const depNum = o => (/#(\d+)/.exec(o.label || '') || [])[1] || o.go;
 export function eventHTML(o) {
+  if (o.ev === 'milestone') {
+    const time = o.at == null ? '<time title="Time unknown">—</time>' : '<time datetime="' + new Date(o.at).toISOString() + '">' + fmtT(o.at) + '</time>';
+    return '<div class="cv-breakpoint" data-k="ev" data-eid="' + esc(o.id) + '" data-label="' + esc(o.label) + '" data-at="' + (o.at == null ? '—' : fmtT(o.at)) + '" data-ev="milestone"><span></span><b>' + esc(o.label) + '</b>' + (o.sub ? '<small>' + esc(o.sub) + '</small>' : '') + time + '</div>';
+  }
   const kind = EVK[o.ev] || EVK.comment, s = sub(o), at = o.at == null ? '—' : fmtT(o.at);
   const cls = ['fail', 'cmd'].includes(o.ev) ? ' bad' : o.ev === 'you' || !known(o) ? ' mute' : '';
   const time = o.at == null ? '<time title="Time unknown">—</time>' : '<time datetime="' + new Date(o.at).toISOString() + '">' + at + '</time>';

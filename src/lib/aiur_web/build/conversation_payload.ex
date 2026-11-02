@@ -60,7 +60,7 @@ defmodule AiurWeb.Build.ConversationPayload do
 
   def entry("ev") do
     {Map.merge(entry_base("ev"), %{
-       "ev" => {:enum, ~w(dep commit prog pr review comment merge fail cmd you)},
+       "ev" => {:enum, ~w(dep commit prog pr review comment merge fail cmd you milestone)},
        "label" => @text,
        "sub" => @text,
        "go" => {:nullable, :string},

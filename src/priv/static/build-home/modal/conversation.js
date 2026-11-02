@@ -21,7 +21,7 @@ function close() {
   if (previous && ctx.socket === 'up') ctx.push('conversation-close', { id: previous.id }).catch(() => {});
 }
 onModalClose(close); onReset(() => { open?.renderOff?.(); open?.offs.forEach(off => off()); open = null; sequence++; });
-function rows() { return Array.from($('#cv-log')?.children || []).filter(el => el.hasAttribute('data-k')); }
+function rows() { return Array.from($('#cv-log')?.querySelectorAll('[data-k]') || []); }
 function trim(from) {
   const items = rows();
   while (items.length > MAX_DOM) (from === 'top' ? items.shift() : items.pop()).remove();
@@ -36,11 +36,38 @@ export function appendEntries(entries) {
   for (const entry of entries) {
     const el = itemEl(entry, ref.model); if (!el) continue;
     const existing = find(entry.id) || (entry.k === 'op' ? fx.claimLocalOp(entry) : null);
-    if (existing) existing.replaceWith(el); else { log.append(el); added.push(el); }
+    if (existing) existing.replaceWith(el); else {
+      if (entry.ev === 'milestone' && !log.querySelector('.cv-preamble')) collapsePreamble(log);
+      log.append(el); added.push(el);
+    }
   }
   if (rows().length > MAX_DOM) trim('top');
   if (rows().length) log.querySelector('[data-empty]')?.remove();
   fx.scheduleMap(); return added;
+}
+function collapsePreamble(log) {
+  if (!log.children.length) return;
+  if (!log.querySelector('.cv-preamble')) wrapPreamble(log, Array.from(log.children));
+}
+function rebuildPreamble(log) {
+  const existing = log.querySelector('.cv-preamble');
+  if (existing) {
+    const content = existing.querySelector('.cv-preamble-content');
+    existing.replaceWith(...Array.from(content.children));
+  }
+  const children = Array.from(log.children);
+  const firstBreakpoint = children.findIndex(el => el.dataset.ev === 'milestone');
+  const preambleEnd = firstBreakpoint < 0 ? children.length : firstBreakpoint;
+  if (preambleEnd) wrapPreamble(log, children.slice(0, preambleEnd));
+}
+function wrapPreamble(log, children) {
+  if (!children.length) return;
+  const details = document.createElement('details'); details.className = 'cv-preamble'; details.dataset.mapKind = 'preamble';
+  const summary = document.createElement('summary'); summary.textContent = 'Reading ticket';
+  const content = document.createElement('div'); content.className = 'cv-preamble-content';
+  log.insertBefore(details, children[0]);
+  children.forEach(child => content.append(child));
+  details.append(summary, content);
 }
 export const appendItem = entry => fx.appendEntries([entry]);
 function prependEntriesImpl(msg) {
@@ -48,7 +75,7 @@ function prependEntriesImpl(msg) {
   const height = log.scrollHeight, top = log.scrollTop, fragment = document.createDocumentFragment();
   for (const entry of msg.entries) { if (!find(entry.id)) { const el = itemEl(entry, open.model); if (el) fragment.append(el); } }
   open.loadingRow?.remove(); open.loadingRow = null;
-  log.prepend(fragment); open.before = msg.before; open.more = msg.more;
+  log.prepend(fragment); rebuildPreamble(log); open.before = msg.before; open.more = msg.more;
   const anchored = top + log.scrollHeight - height;
   if (rows().length > MAX_DOM) { trim('bottom'); open.trimmed = true; }
   log.scrollTop = anchored; fx.scheduleMap();
@@ -81,9 +108,10 @@ export function renderConversation(msg, t = open?.ticket, model = open?.model) {
     '<div class="cv-typing" id="cv-typing" hidden><i></i><i></i><i></i>' + esc(model.name) + ' is working</div><div id="cv-footer"></div></div>' +
     '<div class="cv-map" id="cv-map" title=""><div class="mm" id="cv-mm"></div><div class="mm-vw" id="cv-vw"></div><div class="mm-tip" id="cv-tip"></div></div></div></section><section class="bm-body cv-timeline" role="tabpanel" id="cv-panel-timeline" aria-labelledby="cv-tab-timeline"' + (tab !== 'timeline' ? ' hidden' : '') + '>' + timelineHTMLValue + '</section>';
   open.pending = false; open.failed = false; open.trimmed = false; open.before = msg.before; open.more = msg.more; open.msg = msg;
-  const fragment = document.createDocumentFragment();
-  for (const entry of msg.entries) { const el = itemEl(entry, model); if (el) fragment.append(el); }
-  $('#cv-log').append(fragment); renderNote(msg); if (rows().length > MAX_DOM) trim('top'); state(msg);
+  appendEntries(msg.entries);
+  const log = $('#cv-log');
+  if (msg.entries.every(entry => entry.ev !== 'milestone') && rows().length && !log.querySelector('.cv-preamble')) collapsePreamble(log);
+  renderNote(msg); if (rows().length > MAX_DOM) trim('top'); state(msg);
   fx.renderComposer(t, msg);
   body.querySelectorAll('[data-tab]').forEach(button => {
     button.addEventListener('click', () => {

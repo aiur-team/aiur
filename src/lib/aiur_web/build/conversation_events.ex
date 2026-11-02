@@ -36,6 +36,119 @@ defmodule AiurWeb.Build.ConversationEvents do
     end)
   end
 
+  @doc "Derives the shared conversation breakpoints from the ticket's persisted event history."
+  @spec breakpoints([map()], String.t(), %{optional(pos_integer()) => 0..100}) :: [map()]
+  def breakpoints(rows, identifier, percents), do: breakpoints(rows, identifier, percents, [])
+
+  @spec breakpoints([map()], String.t(), %{optional(pos_integer()) => 0..100}, [map()]) :: [map()]
+  def breakpoints(rows, identifier, percents, transcript) do
+    relevant = relevant_rows(rows, identifier, percents)
+    started = implementation_start(relevant, transcript)
+    progress = progress_breakpoints(relevant)
+    milestones = lifecycle_breakpoints(relevant)
+
+    (started ++ progress ++ milestones)
+    |> Enum.sort_by(&{&1.at, &1.source_id})
+  end
+
+  defp relevant_rows(rows, identifier, percents) do
+    prefix = "ticket." <> identifier <> "."
+
+    rows
+    |> Enum.flat_map(&relevant_row(&1, prefix, percents))
+    |> Enum.sort_by(&{&1.at, &1.id})
+  end
+
+  defp relevant_row(row, prefix, percents) do
+    with topic when is_binary(topic) <- row[:topic],
+         true <- String.starts_with?(topic, prefix),
+         {:ok, at} <- millis(row[:ts]) do
+      [%{id: row[:id], topic: String.replace_prefix(topic, prefix, ""), summary: row[:summary] || "", at: at, pct: percents[row[:id]] || row[:percent], review_state: row[:review_state]}]
+    else
+      _ -> []
+    end
+  end
+
+  defp implementation_start(relevant, transcript) do
+    start =
+      Enum.find(relevant, &(&1.topic in ["agent.phase.work.start", "phase.work.start"])) ||
+        Enum.find(relevant, &file_edit?/1) ||
+        Enum.find_value(transcript, &transcript_file_edit/1)
+
+    if start, do: [breakpoint(:implementation_started, "Implementation started", start)], else: []
+  end
+
+  defp progress_breakpoints(relevant) do
+    Enum.flat_map([{25, :progress_25}, {50, :progress_50}, {75, :progress_75}], fn {threshold, kind} ->
+      case Enum.find(relevant, &(&1.topic in @progress and is_integer(&1.pct) and &1.pct >= threshold)) do
+        nil -> []
+        row -> [breakpoint(kind, "Progress #{threshold}%", row)]
+      end
+    end)
+  end
+
+  defp lifecycle_breakpoints(relevant), do: Enum.flat_map(relevant, &lifecycle_breakpoint/1)
+
+  defp lifecycle_breakpoint(%{topic: topic} = row) do
+    cond do
+      topic in ["agent.phase.work.end", "phase.work.end"] -> [breakpoint(:implementation_finished, "Implementation finished", row)]
+      topic == "pr.opened" -> [breakpoint(:pr_opened, "PR opened", row)]
+      topic in ["pr.review_comment", "pr.reviewed", "pr.review.posted"] -> review_breakpoint(row)
+      topic == "pr.merged" -> [breakpoint(:pr_merged, "PR merged", row)]
+      pause_label(topic, row.summary) -> [breakpoint(:pause, pause_label(topic, row.summary), row)]
+      resume_topic?(topic) -> [breakpoint(:resumed, "Resumed", row)]
+      true -> []
+    end
+  end
+
+  defp review_breakpoint(row) do
+    case review_detail(row) do
+      nil -> []
+      verdict -> [breakpoint(:pr_reviewed, "PR reviewed · " <> verdict, row)]
+    end
+  end
+
+  defp breakpoint(kind, label, row), do: %{kind: kind, label: label, at: row.at, detail: clean(row.summary), source_id: row.id}
+
+  defp file_edit?(%{topic: topic, summary: summary}) do
+    topic in ["agent.file.edit", "agent.file_edit", "agent.tool_call"] and
+      (String.contains?(String.downcase(summary), "edit") or String.contains?(String.downcase(summary), "write"))
+  end
+
+  defp transcript_file_edit(%{k: "diff", id: id, at: at} = entry) when is_integer(at),
+    do: %{id: id, at: at, summary: entry[:file] || "", topic: "transcript.file.edit"}
+
+  defp transcript_file_edit(%{k: "tool", id: id, at: at} = entry) when is_integer(at) do
+    if entry[:name] in ["Edit", "Write", "edit", "write", "apply_patch"],
+      do: %{id: id, at: at, summary: entry[:arg] || entry[:name], topic: "transcript.file.edit"}
+  end
+
+  defp transcript_file_edit(_entry), do: nil
+
+  defp review_detail(%{review_state: "APPROVED"}), do: "approved"
+  defp review_detail(%{review_state: "CHANGES_REQUESTED"}), do: "changes requested"
+  defp review_detail(%{review_state: state}) when is_binary(state), do: nil
+
+  defp review_detail(%{summary: summary}) do
+    case Regex.run(~r/\b(approved|changes requested)\b/i, summary) do
+      [_, verdict] -> String.downcase(verdict)
+      _ -> nil
+    end
+  end
+
+  defp pause_label(topic, summary) do
+    detail = clean(summary)
+
+    cond do
+      topic == "agent.pause.request" -> if(detail == "", do: "Pause requested", else: "Pause requested · " <> detail)
+      topic in ["agent.paused", "agent.paused.resolved"] -> if(detail == "", do: "Paused", else: "Paused · " <> detail)
+      String.contains?(topic, "parked") -> if(detail == "", do: "Parked", else: "Parked · " <> detail)
+      true -> nil
+    end
+  end
+
+  defp resume_topic?(topic), do: topic in ["agent.unblocked", "agent.unpaused", "agent.auto_resumed"]
+
   defp log_kind(topic, pct) when topic in @progress and is_integer(pct), do: {"prog", "Progress · #{pct}%", pct}
   defp log_kind(topic, _pct) when topic in @progress, do: {"prog", "Progress updated", nil}
   defp log_kind("pr.opened", _), do: {"pr", "Opened PR", nil}

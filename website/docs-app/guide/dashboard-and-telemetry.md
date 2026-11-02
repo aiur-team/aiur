@@ -67,6 +67,11 @@ tick to jump and highlight that event; hover for its label and time. Focus the
 conversation to scroll with the keyboard. The working indicator appears only
 for an active agent with live conversation state and a live dashboard link.
 
+Dividers mark work start/end, first progress reports at or above 25%, 50% and
+75%, PR open/reviews/merge, and each pause or resume. Earlier entries collapse
+under **Reading ticket**. Persisted events restore them after restart; a missing
+start alert falls back to the first file edit.
+
 ### Conversation event navigation
 
 At `/conversations/:id`, use the Events rail to jump to progress, pushes,

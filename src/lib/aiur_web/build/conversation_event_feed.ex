@@ -38,7 +38,8 @@ defmodule AiurWeb.Build.ConversationEventFeed do
     socket = if mode == :first, do: assign(socket, conversation_event_ids: MapSet.new(), conversation_events_upper: :infinity), else: socket
 
     with false <- view[:state] in @silent,
-         {:ok, built} <- build(socket, ref) do
+         transcript = if(view.more?, do: [], else: view.entries),
+         {:ok, built} <- build(socket, ref, transcript) do
       first? = mode == :first
       lead = if view.more?, do: [], else: built.deps ++ List.wrap(built.truncated)
       tail = if first?, do: built.tail, else: []
@@ -126,21 +127,26 @@ defmodule AiurWeb.Build.ConversationEventFeed do
     end
   end
 
-  defp build(socket, ref) do
+  defp build(socket, ref, transcript \\ []) do
     with {:ok, facts} <- ConversationSource.call(socket.assigns.conversation_source, :events, [ref]) do
       row = ref.row || %{}
       deps = Map.new(row_value(row, :deps) || [], &{&1, dep_row(socket, &1)})
-      {log, unreadable, truncated} = log(facts, ref.id)
+      {log, unreadable, truncated} = log(facts, ref.id, transcript)
       current = ConversationEvents.current_facts(row, Map.merge(facts, %{deps: deps, by_you_at: nil, logged_events: log}))
       {:ok, %{log: log, deps: current.deps, tail: current.tail, unreadable: unreadable, truncated: truncated, identity: facts[:identity]}}
     end
   end
 
-  defp log(facts, id) do
+  defp log(facts, id, transcript) do
     case facts[:log] do
       {:ok, rows} ->
         truncated = if length(rows) >= ConversationEvents.log_limit(), do: ConversationEvents.sys("ev:sys:truncated", "Earlier ticket events not shown", nil)
-        {ConversationEvents.from_log(rows, id, ConversationEvents.progress_index(facts[:history])), nil, truncated}
+        percents = ConversationEvents.progress_index(facts[:history])
+        breakpoints = ConversationEvents.breakpoints(rows, id, percents, transcript)
+        breakpoint_ids = MapSet.new(breakpoints, & &1.source_id)
+        events = Enum.reject(ConversationEvents.from_log(rows, id, percents), &log_event_for?(&1, breakpoint_ids))
+        entries = Enum.map(breakpoints, &breakpoint_entry/1)
+        {Enum.sort_by(events ++ entries, &{&1.at || -1, &1.id}), nil, truncated}
 
       {:error, :missing_source} ->
         {[], nil, nil}
@@ -148,6 +154,20 @@ defmodule AiurWeb.Build.ConversationEventFeed do
       _ ->
         {[], ConversationEvents.sys("ev:sys:unreadable", "Ticket events could not be read", facts[:read_at]), nil}
     end
+  end
+
+  defp log_event_for?(%{id: "ev:log:" <> id}, ids), do: MapSet.member?(ids, parse_id(id))
+  defp log_event_for?(_event, _ids), do: false
+
+  defp parse_id(id) do
+    case Integer.parse(id) do
+      {number, ""} -> number
+      _ -> id
+    end
+  end
+
+  defp breakpoint_entry(bp) do
+    %{id: "ev:breakpoint:#{bp.source_id}:#{bp.kind}", k: "ev", ev: "milestone", label: bp.label, sub: bp.detail, at: bp.at, pct: nil}
   end
 
   defp dep_row(socket, id) do
