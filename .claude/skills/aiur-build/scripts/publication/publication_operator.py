@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +32,11 @@ import publication_mappings
 import publication_materialize
 import publication_pending
 import publication_relationships
+from publication_context import (
+    feature_epics,
+    published_feature_slug,
+    validate_product_feature_publication,
+)
 from publication_client import (  # noqa: F401
     AUTHORITY_CHECKPOINT_MUTATIONS,
     Budget,
@@ -85,6 +92,12 @@ class Publisher:
         # batch operation: report every oversized member before labels or
         # issues can leave the pack in a partial state.
         self._validate_body_lengths()
+        try:
+            validate_product_feature_publication(self.context.build)
+        except (KeyError, ValueError) as exc:
+            raise PublicationError(str(exc)) from None
+        if self.context.build.get("product_features"):
+            self._resolve_cli()
         self._persisted_mappings()
         self._check_authority()
         self._validate_persisted_ownership()
@@ -110,6 +123,7 @@ class Publisher:
                 raise PublicationError(
                     "publication did not materialize every planned identity"
                 )
+            self._ensure_feature(mappings)
             self._ensure_relationships(mappings)
             comment = (
                 self._ensure_pending_comment(mappings[self.context.root_id])
@@ -154,6 +168,64 @@ class Publisher:
         })
         if error is not None:
             raise PublicationError(error)
+
+    def _ensure_feature(self, mappings: dict[str, dict[str, Any]]) -> None:
+        from publication_context import product_features
+
+        root_slug = self.context.root_id.removeprefix(f"{self.context.repository}:")
+        tickets = {item["id"]: item for item in self.context.build["tickets"]}
+        workstreams = {item["id"]: item for item in self.context.build["workstreams"]}
+        for product in product_features(self.context.build):
+            slug = published_feature_slug(root_slug, product["slug"])
+            group_tickets = [tickets[ticket_id] for ticket_id in product["ticket_ids"]]
+            lanes = sorted({ticket["workstream"] for ticket in group_tickets})
+            epics = feature_epics({
+                "build_order_id": f"{self.context.repository}:{slug}",
+                "workstreams": [workstreams[lane] for lane in lanes],
+                "tickets": group_tickets,
+            })
+            create_args = ["feature", "create", slug, "--label", product["label"]]
+            for epic in epics:
+                create_args.extend(("--epic", f"{epic['key']}={epic['label']}"))
+                create_args.extend(("--epic-icon", f"{epic['key']}={epic['icon']}"))
+            self._run_cli(create_args, "feature registration")
+            for epic in epics:
+                lane = epic["lane"]
+                grouped = [
+                    str(mappings[ticket_id]["number"])
+                    for ticket_id in product["ticket_ids"]
+                    if tickets[ticket_id]["workstream"] == lane
+                ]
+                for offset in range(0, len(grouped), 200):
+                    self._run_cli(
+                        ["feature", "add", slug, *grouped[offset:offset + 200], "--epic", epic["key"]],
+                        "feature membership",
+                    )
+
+    def _run_cli(self, arguments: list[str], label: str) -> None:
+        try:
+            command = self._resolve_cli()
+            result = subprocess.run(
+                [command, *arguments],
+                check=False, capture_output=True,
+                text=True, timeout=60,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise PublicationError(f"{label} failed: {exc}") from None
+        if result.returncode:
+            detail = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
+            raise PublicationError(f"{label} failed:\n{detail}")
+
+    @staticmethod
+    def _resolve_cli() -> str:
+        requested = os.environ.get("AIUR_FEATURE_CLI") or "aiur"
+        command = shutil.which(requested)
+        if command is None:
+            raise PublicationError(
+                "feature publication requires an executable aiur command on PATH; "
+                "set AIUR_FEATURE_CLI to override it"
+            )
+        return command
 
     def finalize(self, receipt_commit: str, receipt_url: str) -> dict[str, Any]:
         if not self.context.reconciliation_comment:

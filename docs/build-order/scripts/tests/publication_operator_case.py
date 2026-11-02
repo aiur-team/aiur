@@ -57,7 +57,7 @@ def context(tmp: Path) -> Context:
             ("model:codex-gpt-5.6-terra", "build-lane:runtime", "phase:1", "complexity:2"),
             "ticket",
         )
-        tickets.append({"id": logical_id, "github": None, "depends_on": []})
+        tickets.append({"id": logical_id, "github": None, "depends_on": [], "workstream": "runtime"})
     # The production guard expects 107 unique blocker edges.  The exact graph
     # shape is irrelevant to collision/read tests, but the count remains real.
     ids = [item["id"] for item in tickets]
@@ -66,6 +66,8 @@ def context(tmp: Path) -> Context:
     build = {
         "repository": REPOSITORY, "plan_version": 1, "build_order_id": ROOT,
         "tickets": tickets, "github_root": None, "github_reconciliation": None,
+        "workstreams": [{"id": "runtime", "title": "Runtime", "icon": "command-line"}],
+        "product_features": [{"slug": "runtime", "label": "Runtime", "ticket_ids": ids}],
     }
     publication = {
         "repository": REPOSITORY, "plan_version": 1,

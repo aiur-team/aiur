@@ -31,6 +31,7 @@ defmodule Aiur.FeatureCLI.Writes do
   defp write(%{op: :create} = args, snapshot, meta, _context) do
     existing = snapshot.features[args.slug]
     attrs = Map.take(args, [:label, :hue, :epics])
+    attrs = apply_epic_icons(attrs, args[:epic_icons])
 
     cond do
       is_nil(existing) -> with {:ok, result} <- Features.create(args.slug, attrs, meta), do: {:ok, Map.put(result, :outcome, :created)}
@@ -54,12 +55,19 @@ defmodule Aiur.FeatureCLI.Writes do
     end
   end
 
-  defp write(%{op: :edit} = args, _snapshot, meta, context) do
+  defp write(%{op: :edit} = args, snapshot, meta, context) do
     attrs = Map.take(args, [:label, :hue])
     attrs = if args[:end], do: Map.put(attrs, :to, end_time(args.end, context)), else: attrs
+    current_epics = snapshot.features[args.slug].epics
+    add_epics = Map.get(args, :add_epics, [])
+    all_epics = current_epics ++ add_epics
 
-    with {:ok, initial} <- Features.update_feature(args.slug, attrs, meta) do
-      Enum.reduce_while(Map.get(args, :add_epics, []), {:ok, initial}, &add_epic(&1, &2, args.slug, meta))
+    with :ok <- valid_epic_icons(all_epics, args[:epic_icons]),
+         attrs <- apply_epic_icons(attrs, args[:epic_icons], current_epics),
+         {:ok, initial} <- Features.update_feature(args.slug, attrs, meta) do
+      add_epics
+      |> put_icons(args[:epic_icons] || [])
+      |> Enum.reduce_while({:ok, initial}, &add_epic(&1, &2, args.slug, meta))
     end
   end
 
@@ -71,6 +79,32 @@ defmodule Aiur.FeatureCLI.Writes do
       {:ok, result} -> {:cont, {:ok, result}}
       error -> {:halt, error}
     end
+  end
+
+  defp apply_epic_icons(attrs, nil), do: attrs
+
+  defp apply_epic_icons(attrs, icons) do
+    epics = Map.get(attrs, :epics, [])
+    Map.put(attrs, :epics, put_icons(epics, icons))
+  end
+
+  defp apply_epic_icons(attrs, nil, _epics), do: attrs
+  defp apply_epic_icons(attrs, icons, epics), do: Map.put(attrs, :epics, put_icons(epics, icons))
+
+  defp put_icons(epics, icons) do
+    Enum.map(epics, fn epic ->
+      case Enum.find(icons, &(&1.key == epic.key)) do
+        nil -> epic
+        icon -> Map.put(epic, :icon, icon.icon)
+      end
+    end)
+  end
+
+  defp valid_epic_icons(_epics, nil), do: :ok
+
+  defp valid_epic_icons(epics, icons) do
+    unknown = Enum.find(icons, fn icon -> not Enum.any?(epics, &(&1.key == icon.key)) end)
+    if unknown, do: {:error, {:unknown_epic, unknown.key}}, else: :ok
   end
 
   defp same_create?(feature, attrs, slug) do
