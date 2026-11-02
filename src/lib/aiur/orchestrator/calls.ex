@@ -18,17 +18,6 @@ defmodule Aiur.Orchestrator.Calls do
       when is_binary(identifier) and is_list(events),
       do: OM.enqueue_event_digest_batch_call(state, identifier, events)
 
-  @spec handle_cast(term(), Aiur.Orchestrator.State.t()) :: {:noreply, Aiur.Orchestrator.State.t()}
-  def handle_cast({:enqueue_event_digest_async, identifier, event, %{subscribed_to: subs}}, state)
-      when is_binary(identifier) and is_map(event) and is_list(subs) do
-    {:noreply, OM.enqueue_event_digest_item(state, identifier, [event], event, subscribed_to: subs)}
-  end
-
-  def handle_cast({:enqueue_event_digest_batch_async, identifier, events}, state)
-      when is_binary(identifier) and is_list(events) do
-    {:noreply, OM.enqueue_event_digest_item(state, identifier, events, %{events: events})}
-  end
-
   def handle_call({:read_held_messages, identifier, max, deadline}, _from, state),
     do: HeldReads.handle_call(state, identifier, max, deadline: deadline)
 
@@ -296,6 +285,17 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:fail_delivered_queue_items, issue_identifier, reason}, _from, state)
       when is_binary(issue_identifier),
       do: OM.fail_delivered_queue_items_call(state, issue_identifier, reason)
+
+  @spec handle_cast(term(), Aiur.Orchestrator.State.t()) :: {:noreply, Aiur.Orchestrator.State.t()}
+  def handle_cast({:enqueue_event_digest_async, identifier, event, %{subscribed_to: subs}}, state)
+      when is_binary(identifier) and is_map(event) and is_list(subs) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, [event], event, subscribed_to: subs)}
+  end
+
+  def handle_cast({:enqueue_event_digest_batch_async, identifier, events}, state)
+      when is_binary(identifier) and is_list(events) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, events, %{events: events})}
+  end
 
   # Republish a collapsed timer wake so status shows its new countdown (#2640).
   # Coalesced requests do not change the countdown.
