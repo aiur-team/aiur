@@ -1,14 +1,28 @@
 defmodule VoiceConverse.Session.TextTiming do
   @moduledoc false
+  require Logger
   alias VoiceConverse.{Events, TranscriptStore}
   alias VoiceConverse.Events.AgentTextTiming
+
+  def redact_for_broadcast(%Events.AgentText{} = event, redactor),
+    do: %{event | text: redactor.(event.text)}
+
+  def redact_for_broadcast(%AgentTextTiming{} = event, redactor) do
+    text = redactor.(event.text)
+    %{event | text: text, chars: if(text == event.text, do: event.chars, else: nil)}
+  end
+
+  def redact_for_broadcast(event, _redactor), do: event
 
   def handle(state, %Events.AgentText{turn_id: id, text: text, final?: final?}) do
     turn = turn(state, id)
     # Final AgentText is the complete turn, partial AgentText contains deltas.
     turn = %{turn | text: if(final?, do: text, else: turn.text <> text), final?: final?}
     state = put_turn(state, id, turn)
-    if final? and state.config.providers.mode == :text, do: write(state, id, nil, false), else: {:ok, state}
+
+    if final? and state.config.providers.mode == :text,
+      do: write(state, id, nil, false),
+      else: {:ok, state}
   end
 
   def handle(state, %AgentTextTiming{turn_id: id} = event) do
@@ -44,12 +58,9 @@ defmodule VoiceConverse.Session.TextTiming do
         played = Map.get(frame, "played_until_ms")
         provider_id = turn(state, id).provider_id
 
-        with {:ok, state} <- write(state, id, played, true) do
-          if (is_integer(played) and state.provider_ref) &&
-               Map.get(state.provider.capabilities(), :manual_truncation, false) do
-            :ok = state.provider.truncate(state.provider_ref, provider_id, played)
-          end
+        {state, played} = maybe_truncate_provider(state, provider_id, played, id)
 
+        with {:ok, state} <- write(state, id, played, true) do
           {:ok, resume(state)}
         end
 
@@ -74,7 +85,8 @@ defmodule VoiceConverse.Session.TextTiming do
 
   defp flush(state, reason) do
     Enum.reduce_while(state.assistant_turns, {:ok, state}, fn {id, turn}, {:ok, state} ->
-      interrupted? = match?({^id, _, _}, state.interrupted_turn) or (reason == :user and not turn.final?)
+      interrupted? =
+        match?({^id, _, _}, state.interrupted_turn) or (reason == :user and not turn.final?)
 
       case write(state, id, nil, interrupted?) do
         {:ok, state} -> {:cont, {:ok, state}}
@@ -88,6 +100,41 @@ defmodule VoiceConverse.Session.TextTiming do
     %{state | interrupted_turn: nil, timing_deferred: []}
   end
 
+  defp maybe_truncate_provider(state, provider_id, played, turn_id) do
+    if is_integer(played) and not is_nil(state.provider_ref) and
+         Map.get(state.provider.capabilities(), :manual_truncation, false) do
+      case state.provider.truncate(state.provider_ref, provider_id, played) do
+        :ok -> {state, played}
+        {:error, reason} -> {record_truncation_error(state, turn_id, reason), nil}
+        other -> {record_truncation_error(state, turn_id, {:unexpected_result, other}), nil}
+      end
+    else
+      {state, played}
+    end
+  end
+
+  defp record_truncation_error(state, turn_id, reason) do
+    error = state.config.redactor.(inspect(reason))
+    Logger.warning("Voice provider truncation failed for turn #{turn_id}: #{error}")
+
+    record = %{
+      type: "provider_truncation_error",
+      turn_id: turn_id,
+      error: error,
+      at: DateTime.to_iso8601(state.clock.())
+    }
+
+    case TranscriptStore.append(state.store, record) do
+      :ok ->
+        state
+
+      {:error, append_reason} ->
+        Logger.warning("Could not record voice provider truncation failure: #{inspect(append_reason)}")
+
+        state
+    end
+  end
+
   defp turn(state, id) do
     Map.get(state.assistant_turns, to_string(id), %{
       text: "",
@@ -99,7 +146,8 @@ defmodule VoiceConverse.Session.TextTiming do
     })
   end
 
-  defp put_turn(state, id, turn), do: put_in(state.assistant_turns[to_string(id)], Map.put_new(turn, :provider_id, id))
+  defp put_turn(state, id, turn),
+    do: put_in(state.assistant_turns[to_string(id)], Map.put_new(turn, :provider_id, id))
 
   defp write(state, id, played, interrupted?) do
     turn = turn(state, id)
@@ -109,7 +157,9 @@ defmodule VoiceConverse.Session.TextTiming do
     else
       text = if turn.text == "", do: turn.timed_text, else: turn.text
       spans = if turn.timed_text == text and turn.chars != [], do: turn.chars
-      text = if is_integer(played), do: AgentTextTiming.heard_prefix(text, spans, played), else: text
+
+      text =
+        if is_integer(played), do: AgentTextTiming.heard_prefix(text, spans, played), else: text
 
       record = %{
         type: "assistant_turn",

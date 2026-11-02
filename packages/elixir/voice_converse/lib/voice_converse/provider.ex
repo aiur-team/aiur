@@ -75,7 +75,8 @@ defmodule VoiceConverse.Provider do
   @callback announce(ref(), text :: String.t(), opts :: [when: :idle | :now]) :: :ok
 
   @doc "Tells the provider how much of a turn was heard; only for `manual_truncation: true`."
-  @callback truncate(ref(), turn_id :: term(), played_until_ms :: non_neg_integer()) :: :ok
+  @callback truncate(ref(), turn_id :: term(), played_until_ms :: non_neg_integer()) ::
+              :ok | {:error, term()}
   @callback close(ref()) :: :ok
 
   @typedoc """
