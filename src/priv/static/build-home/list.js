@@ -151,7 +151,7 @@ export function featureListHTML(D, state, now) {
   const merged = sorted.reduce((sum, b) => sum + b.merged, 0), total = sorted.reduce((sum, b) => sum + b.total, 0);
   const bar = (m, t, cls) => `<span class="fp-bar${cls}" role="img" aria-label="${m} of ${t} merged"><i style="width:${t > 0 ? m / t * 100 : 0}%"></i></span>`;
   const row = b => {
-    const cells = `<span class="fp-name">${esc(b.label)}</span>${bar(b.merged, b.total, b.merged === b.total ? ' done' : '')}<span class="fp-count">${b.merged}/${b.total}</span>`;
+    const cells = `<span class="fp-name" title="${esc(b.label)}">${esc(b.label)}</span>${bar(b.merged, b.total, b.merged === b.total ? ' done' : '')}<span class="fp-count">${b.merged}/${b.total}</span>`;
     return Object.hasOwn(D.features, b.key)
       ? `<button type="button" class="fp-row" data-feature="${esc(b.key)}" aria-label="Focus ${esc(b.label)} feature">${cells}</button>`
       : `<div class="fp-row" data-feature="${esc(b.key)}">${cells}</div>`;
@@ -166,7 +166,6 @@ export function featureListHTML(D, state, now) {
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
   if (S.list === 'features') {
-    const firstFeaturePaint = !vp.querySelector('.fp-card');
     ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
     vp.innerHTML = listHTML(ctx.D, S, H, ctx.snap, nowMs());
     bindOnce(vp); return;

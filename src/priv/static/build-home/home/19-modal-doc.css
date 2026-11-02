@@ -66,10 +66,10 @@
 .fp-head p { margin: .3rem 0 0; color: var(--muted); font-size: .85rem; }
 .fp-sort { display: flex; gap: .4rem; align-items: center; color: var(--muted); font-size: .75rem; }
 .fp-sort select { color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .2rem .35rem; font: inherit; }
-.fp-row { box-sizing: border-box; width: 100%; display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr 4.5rem; gap: 1.25rem; align-items: center; padding: .6rem .25rem; color: inherit; background: none; border: 0; border-radius: 6px; font: inherit; text-align: left; }
+.fp-row { box-sizing: border-box; width: 100%; display: grid; grid-template-columns: minmax(10rem, 20rem) 1fr 4.5rem; gap: 1.25rem; align-items: center; padding: .55rem .25rem; color: inherit; background: none; border: 0; border-radius: 6px; font: inherit; text-align: left; }
 button.fp-row { cursor: pointer; }
 button.fp-row:hover, button.fp-row:focus-visible { background: color-mix(in srgb, var(--accent) 8%, transparent); outline: 2px solid var(--accent); outline-offset: -2px; }
-.fp-name { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: .95rem; }
+.fp-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .95rem; line-height: 1.4; }
 .fp-bar { display: block; overflow: hidden; height: 14px; border-radius: 999px; background: var(--line-strong); }
 .fp-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
 .fp-bar.done i { background: var(--good); }
@@ -86,7 +86,7 @@ button.fp-row:hover, button.fp-row:focus-visible { background: color-mix(in srgb
   .fp-head p { margin-top: .15rem; font-size: .7rem; }
   .fp-sort { gap: .2rem; font-size: .68rem; }
   .fp-sort select { padding: .1rem .2rem; }
-  .fp-row { grid-template-columns: minmax(0, 1fr) 1.3fr 3.4rem; gap: .6rem; padding: 0; line-height: 1.15; }
+  .fp-row { grid-template-columns: minmax(0, 1.15fr) 1fr 3.4rem; gap: .6rem; padding: .4rem 0; }
   .fp-name { font-size: .8rem; }.fp-count { font-size: .75rem; }
   .fp-bar { height: 9px; }
   .fp-all { margin-top: .5rem; padding-top: .5rem; }

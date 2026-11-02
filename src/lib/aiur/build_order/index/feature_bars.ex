@@ -88,8 +88,9 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
   end
 
   defp current_label_description(_slug, _snapshot), do: nil
-  defp display_description("Feature collection: " <> rest), do: rest
-  defp display_description(value) when is_binary(value) and value != "", do: value
+  # The row shows one short line: the description up to its first " (" detail.
+  defp display_description("Feature collection: " <> rest), do: display_description(rest)
+  defp display_description(value) when is_binary(value) and value != "", do: value |> String.split(" (", parts: 2) |> hd()
   defp display_description(_value), do: nil
 
   defp label_slug("feature:" <> rest), do: rest |> String.split([" (", " — "], parts: 2) |> hd()
@@ -97,7 +98,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
 
   defp display_feature_label("BO: " <> label) do
     case String.split(label, " — ", parts: 2) do
-      [_program, feature] -> String.replace(feature, ~r/\s+\(wave \d+\)$/, "")
+      [_program, feature] -> String.replace(feature, ~r/\s+\(wave \w+\)$/, "")
       _ -> "BO: " <> label
     end
   end

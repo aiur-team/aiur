@@ -71,7 +71,7 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
     { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
     { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 },
     { key: 'mp-e3', label: 'MP-E3', merged: 14, total: 23 },
-    { key: 'streamdeck-redesign', label: 'Stream Deck Redesign', merged: 25, total: 30 },
+    { key: 'streamdeck-redesign', label: 'Stream Deck redesign with dials, keys, paging modes and the phone emulator', merged: 25, total: 30 },
     { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
     { key: 'mp-n1', label: 'mp-n1', merged: 1, total: 10 }
   ]
@@ -87,10 +87,14 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   const visibleNames = await rows.locator('.fp-name').allTextContents()
   expect(new Set(visibleNames).size).toBe(visibleNames.length)
   expect(visibleNames).not.toContain('mp-e2')
-  expect(await rows.locator('.fp-name').evaluateAll(els => els.every(el => {
+  // Each name is one line; a cut name ends in an ellipsis and keeps the full name in its title.
+  const oneLine = () => rows.locator('.fp-name').evaluateAll(els => els.map(el => {
     const style = getComputedStyle(el)
-    return style.textOverflow !== 'ellipsis' && style.whiteSpace === 'normal'
-  }))).toBe(true)
+    return { oneLine: el.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1, title: el.title === el.textContent, cut: el.scrollWidth > el.clientWidth, ellipsis: style.textOverflow === 'ellipsis' }
+  }))
+  const desk = await oneLine()
+  expect(desk.every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  expect(desk.map(n => n.cut)).toEqual(bars.map(b => b.key === 'streamdeck-redesign'))
   await expect(rows.first().locator('.fp-bar i')).toHaveAttribute('style', /width:69\.23/)
   await expect(rows.nth(1).locator('.fp-bar i')).toHaveAttribute('style', 'width:0%')
   await expect(page.locator('.fp-head h1')).toHaveText(/ - build progress$/)
@@ -120,6 +124,9 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
 
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  expect((await oneLine()).every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  const gaps = await rows.evaluateAll(els => els.slice(1).map((el, i) => el.getBoundingClientRect().top - els[i].querySelector('.fp-bar').getBoundingClientRect().bottom))
+  expect(Math.min(...gaps)).toBeGreaterThanOrEqual(8)
   expect(await rows.evaluateAll(els => {
     const nav = document.querySelector('.sidenav')
     const usableTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight

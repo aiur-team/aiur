@@ -20,7 +20,8 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
 
   test "labelled tickets form a named feature; merged counts merged PRs and PR-less completions" do
     rows = %{
-      1 => closed(["feature:mp-e2"], :completed, merged_at: ago(1), pr_number: 50, label_descriptions: %{"feature:mp-e2" => "Feature collection: MP-E2 Commands"}),
+      1 =>
+        closed(["feature:mp-e2"], :completed, merged_at: ago(1), pr_number: 50, label_descriptions: %{"feature:mp-e2" => "Feature collection: MP-E2 Commands (routing, escalation, native questions)"}),
       2 => closed(["feature:mp-e2"], :completed, merged_at: :none, pr_number: :none),
       3 => closed(["feature:mp-e2"], :completed, merged_at: :none, pr_number: 51),
       4 => closed(["feature:mp-e2"], :not_planned),
@@ -45,6 +46,8 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
     parts = parts(rows, registry: [{"bo-7", "BO: Platform program 2026-10 — MP-E1 build queue (wave 0)"}])
 
     assert [%{label: "MP-E1 build queue"}] = FeatureBars.compute(parts, @now)
+    lettered = parts(rows, registry: [{"bo-7", "BO: Platform program 2026-10 — MP-E8 home page (wave 0b)"}])
+    assert [%{label: "MP-E8 home page"}] = FeatureBars.compute(lettered, @now)
   end
 
   test "a legacy persisted history row decodes without label descriptions" do
