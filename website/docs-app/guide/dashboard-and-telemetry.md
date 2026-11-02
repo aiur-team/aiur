@@ -446,6 +446,11 @@ contributes only to the default cap. Scheduler-based admission diagnostics use
 the host's online scheduler count. Cgroup paths are resolved for each sample
 file read rather than cached, which adds small per-tick overhead.
 
+Keep the CPU PSI hard ceiling below saturation so the daemon retains scheduler
+time for control commands and event delivery. At 86–90% PSI, `status` took 8–11
+seconds and `alerts` timed out. Start with a 70–80% ceiling and lower the
+adaptive target if the daemon remains CPU-bound.
+
 With a readable cgroup memory limit, dispatch uses
 `memory.current - inactive_file` against `agent.cgroup_memory_threshold`.
 This container memory gate replaces `agent.min_free_memory_mb`. Without a

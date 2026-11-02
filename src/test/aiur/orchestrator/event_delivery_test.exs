@@ -8,8 +8,8 @@ defmodule Aiur.Orchestrator.EventDeliveryTest do
     @impl true
     def init(test_pid), do: {:ok, test_pid}
     @impl true
-    def handle_call(message, from, test_pid) do
-      send(test_pid, {:call, from, message})
+    def handle_cast(message, test_pid) do
+      send(test_pid, {:cast, message})
       {:noreply, test_pid}
     end
   end
@@ -61,28 +61,21 @@ defmodule Aiur.Orchestrator.EventDeliveryTest do
     assert EventDelivery.enqueue("42", %{id: 100}, %{subscribed_to: []}) == {:error, :no_orchestrator}
   end
 
-  test "default adapter forwards bindings and preserves return mappings" do
+  test "default adapter forwards bindings without waiting for the orchestrator" do
     pid = start_supervised!({Receiver, self()})
     Process.register(pid, Aiur.Orchestrator)
     context = %{subscribed_to: [%{"topic" => "ticket.42.#"}]}
     event = %{id: 100}
 
-    for {reply, expected} <- [{:ok, :ok}, {{:error, :busy}, {:error, :busy}}, {:unexpected, {:error, {:unexpected_return, :unexpected}}}] do
-      task = Task.async(fn -> EventDelivery.enqueue("42", event, context) end)
-
-      receive do
-        {:call, from, {:enqueue_event_digest, "42", ^event, ^context}} -> GenServer.reply(from, reply)
-      end
-
-      assert Task.await(task) == expected
-    end
+    assert :ok = EventDelivery.enqueue("42", event, context)
+    assert_receive {:cast, {:enqueue_event_digest_async, "42", ^event, ^context}}, 1_000
   end
 
-  test "default adapter keeps the 1000 ms enqueue timeout and exit mapping" do
+  test "default adapter reports an orchestrator that exits before enqueue" do
     pid = start_supervised!({Receiver, self()})
     Process.register(pid, Aiur.Orchestrator)
+    GenServer.stop(pid)
 
-    assert {:error, {:exit, {:timeout, {GenServer, :call, [^pid, {:enqueue_event_digest, "42", %{id: 100}, %{subscribed_to: []}}, 1_000]}}}} =
-             EventDelivery.enqueue("42", %{id: 100}, %{subscribed_to: []})
+    assert EventDelivery.enqueue("42", %{id: 100}, %{subscribed_to: []}) == {:error, :no_orchestrator}
   end
 end

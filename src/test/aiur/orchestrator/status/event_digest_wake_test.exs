@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Status.EventDigestWakeTest do
   import Aiur.OrchestratorStatusSupport
 
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.Orchestrator.EventDelivery
   alias Aiur.Orchestrator.OperatorMessages
 
   test "event digest wakes a sleeping agent task" do
@@ -43,6 +44,31 @@ defmodule Aiur.Orchestrator.Status.EventDigestWakeTest do
               body: %{events: [%{message: "please fix", comment: %{"body" => "please fix"}}]},
               delivery: %{interrupt_requested: true, priority: :now}
             }} = OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-SLEEP")
+  end
+
+  test "subscription delivery casts into the orchestrator and queues the event digest" do
+    orchestrator_name = Module.concat(__MODULE__, :AsyncEventDigestOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+    identifier = "MT-ASYNC-EVENT"
+    worker_pid = spawn(fn -> operator_message_probe(parent) end)
+
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-async" => running_entry("issue-async", identifier, :sleeping, worker_pid)}}
+    end)
+
+    Application.put_env(:aiur, :event_delivery_orchestrator, orchestrator_name)
+
+    try do
+      assert :ok = EventDelivery.enqueue(identifier, %{id: 987_654, topic: "ticket.MT-ASYNC-EVENT.pr.review_comment", message: "fix"}, %{subscribed_to: []})
+
+      assert_receive {:agent_queue_updated, ^identifier, item_id, true}, 1_000
+      assert {:ok, %{id: ^item_id, body: %{events: [%{id: 987_654}]}}} = OperatorMessages.claim_next_queue_item(orchestrator_name, identifier)
+    after
+      Application.delete_env(:aiur, :event_delivery_orchestrator)
+    end
   end
 
   test "event digest does not auto-wake a manually paused agent task" do

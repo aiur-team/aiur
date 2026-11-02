@@ -141,10 +141,9 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   defp enqueue_bootstrap_if_any(identifier, events, cursor) do
     Logger.info("aiur_bootstrap_digest identifier=#{identifier} since_id=#{cursor} count=#{length(events)}")
 
-    # One batched GenServer.call carries every missed event in one
-    # queue item, so an agent waking from a long offline window with
-    # hundreds of missed events doesn't serialize that many calls
-    # through the orchestrator mailbox.
+    # One cast carries every missed event in one queue item, so an agent
+    # waking from a long offline window does not wait behind the orchestrator
+    # mailbox. Event IDs are deduplicated by the queue when it handles the cast.
     case enqueue_bootstrap_batch(identifier, events) do
       :ok ->
         :ok
@@ -157,8 +156,9 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   end
 
   defp enqueue_bootstrap_batch(identifier, events) do
-    GenServer.call(Aiur.Orchestrator, {:enqueue_event_digest_batch, identifier, events}, 5_000)
-  catch
-    :exit, reason -> {:error, reason}
+    case Process.whereis(Aiur.Orchestrator) do
+      nil -> {:error, :no_orchestrator}
+      pid -> GenServer.cast(pid, {:enqueue_event_digest_batch_async, identifier, events})
+    end
   end
 end

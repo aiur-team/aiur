@@ -81,7 +81,7 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     # aiur/orchestrator/startup_claim_reconciler.ex
     {"ticket.*.agent.attention.startup_claim_reconciliation_failed", "orchestration"},
     # aiur/orchestrator/startup_claim_reconciler.ex
-    {"ticket.*.agent.attention.startup_orphan_claim_released", "orchestration"},
+    {"ticket.*.agent.attention.orphan_claim_released", "orchestration"},
     # aiur/orchestrator/issue_sync/missing_labels.ex
     {"ticket.*.agent.attention.state-label-missing", "orchestration"},
     # aiur/orchestrator/issue_sync/missing_labels.ex

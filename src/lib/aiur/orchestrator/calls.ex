@@ -286,6 +286,17 @@ defmodule Aiur.Orchestrator.Calls do
       when is_binary(issue_identifier),
       do: OM.fail_delivered_queue_items_call(state, issue_identifier, reason)
 
+  @spec handle_cast(term(), Aiur.Orchestrator.State.t()) :: {:noreply, Aiur.Orchestrator.State.t()}
+  def handle_cast({:enqueue_event_digest_async, identifier, event, %{subscribed_to: subs}}, state)
+      when is_binary(identifier) and is_map(event) and is_list(subs) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, [event], event, subscribed_to: subs)}
+  end
+
+  def handle_cast({:enqueue_event_digest_batch_async, identifier, events}, state)
+      when is_binary(identifier) and is_list(events) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, events, %{events: events})}
+  end
+
   # Republish a collapsed timer wake so status shows its new countdown (#2640).
   # Coalesced requests do not change the countdown.
   defp publish_collapsed_poll({:reply, %{coalesced: false} = result, state}) do
