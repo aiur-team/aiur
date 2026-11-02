@@ -29,6 +29,38 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
     refute Enum.any?(sampled.dispatch_capacity_constraints, &(&1.kind in [:load, :run_queue, :build_queue]))
   end
 
+  test "PSI envelope continues ramping after a sustained pressure episode" do
+    state = %State{
+      max_concurrent_agents: 12,
+      effective_concurrent_agents: 12,
+      load_envelope_state: %{last_decrease_ms: nil, bootstrap_complete?: true, signal: :cpu_pressure}
+    }
+
+    pressured = Enum.reduce(1..3, state, fn poll, current -> update(current, 11.0, poll * 120_000) end)
+    assert pressured.effective_concurrent_agents == 6
+    assert pressured.load_envelope_state.sustained_decrease?
+
+    recovered = Enum.scan(1..6, pressured, fn poll, current -> update(current, 7.0, (poll + 3) * 120_000) end)
+    assert Enum.map(recovered, & &1.effective_concurrent_agents) == [7, 8, 9, 10, 11, 12]
+  end
+
+  test "AIMD status reports the last change and current pressure hold reason" do
+    initial = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12}
+    decreased = Enum.reduce(1..3, initial, fn poll, current -> update(current, 11.0, poll * 120_000) end)
+    status = Slots.max_concurrent_agent_status(decreased)
+
+    assert status.effective == 6
+    assert status.envelope_last_change_at_ms == 360_000
+    assert status.envelope_last_change_reason == "CPU pressure above target; envelope reduced to 6"
+    assert status.envelope_hold_reason == "CPU pressure above target; envelope reduced to 6"
+
+    recovered = update(decreased, 7.0, 480_000)
+    recovered_status = Slots.max_concurrent_agent_status(recovered)
+    assert recovered_status.envelope_last_change_at_ms == 480_000
+    assert recovered_status.envelope_last_change_reason == "CPU pressure below ramp threshold; envelope increased to 7"
+    assert recovered_status.envelope_hold_reason == "CPU pressure below ramp threshold; envelope increased to 7"
+  end
+
   test "normal dispatch selection admits the configured 20 model-waiting agents" do
     issues = for id <- 1..25, do: %Issue{id: "#{id}", identifier: "repo##{id}", title: "waiting", state: "todo"}
 
