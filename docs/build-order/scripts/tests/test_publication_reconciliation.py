@@ -306,7 +306,9 @@ class ReconciliationTests(unittest.TestCase):
         responses[("GET", f"{base}/issues/comments/44")] = comment
         client = FakeClient(responses)
 
-        with patch.object(Publisher, "_run_cli"):
+        with patch.object(Publisher, "_resolve_cli", return_value="aiur"), patch.object(
+            Publisher, "_run_cli"
+        ):
             result = ValidationFreePublisher(client, self.ctx).apply()
 
         self.assertEqual(result["mode"], "apply-pending")
