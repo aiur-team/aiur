@@ -102,6 +102,16 @@ Continue with the [GUI](/guide/gui) guide.
 
 See [CLI and control commands](/reference/cli) for the complete operational surface.
 
+After any pull request review, send its findings to the ticket's worker with
+`aiur message <ticket> "<findings>"`, including when the worker is still
+`agent:in-progress`. For a comment-only review to trigger rework, begin the
+request with an explicit `Blocking:` line.
+
+Trusted review submissions, including `COMMENTED` reviews, are relayed to a
+running in-progress worker unless they are benign approval or “looks good”
+passes. Plain PR conversation comments are relayed only when their body has an
+explicit blocking line.
+
 ## Running two daemons against one repository
 
 Set shared `AIUR_LEASE_DATABASE_URL`. `primary` instances are equally eligible

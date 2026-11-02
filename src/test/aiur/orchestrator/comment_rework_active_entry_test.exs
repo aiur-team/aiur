@@ -272,6 +272,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     next_state = CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event)
 
     refute_receive {:memory_tracker_state_update, @issue_number, "rework"}, 100
+
     assert_comment_digest(next_state, event)
   end
 

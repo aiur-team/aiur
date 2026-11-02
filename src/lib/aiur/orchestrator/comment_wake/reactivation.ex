@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake
+  alias Aiur.Orchestrator.CommentWake.ReviewRelay
   alias Aiur.Orchestrator.CommentWake.ReworkRetries
   alias Aiur.Orchestrator.CommentWake.ReworkTransition
   alias Aiur.Orchestrator.Dispatcher
@@ -47,6 +48,9 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
 
       CommentWake.benign_review_pass_comment?(event) ->
         state
+
+      ReviewRelay.for_running_worker?(running_entry, event) ->
+        ReviewRelay.enqueue(state, issue_number, event)
 
       ReworkTransition.human_merger_blocking_comment?(event) and
           DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)])) == "in-progress" ->
