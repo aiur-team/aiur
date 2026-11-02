@@ -26,9 +26,6 @@ defmodule Aiur.Codex.TurnLoop do
         timer = Map.get(state, :liveness_probe_timer)
         if is_reference(timer), do: Process.cancel_timer(timer)
         result
-
-      other ->
-        other
     end
   end
 
