@@ -40,6 +40,7 @@ defmodule Aiur.Config.Schema do
     PrHealth,
     PrWatch,
     Server,
+    Toolchain,
     Tracker,
     Upgrade,
     Usage,
@@ -119,6 +120,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
     embeds_one(:voice, Voice, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:toolchain, Toolchain, on_replace: :update, defaults_to_struct: true)
     embeds_one(:usage, Usage, on_replace: :update, defaults_to_struct: true)
     embeds_one(:netlify, Netlify, on_replace: :update, defaults_to_struct: true)
     # Keep the Executor sweep settings in the same parsed settings snapshot.
@@ -261,6 +263,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
     |> cast_embed(:voice, with: &Voice.changeset/2)
     |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
+    |> cast_embed(:toolchain, with: &Toolchain.changeset/2)
     |> cast_embed(:usage, with: &Usage.changeset/2)
     |> cast_embed(:netlify, with: &Netlify.changeset/2)
   end

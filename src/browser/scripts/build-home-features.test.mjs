@@ -41,66 +41,22 @@ test('known figures and sparkline keep exact design coordinates without titles',
   assert.match(html, /10 → 12 <em>\+2<\/em>/); assert.match(html, /points="1.0,20.0 38.0,11.0 75.0,2.0"/); assert.ok(!html.includes('title='));
   assert.match(figuresHTML({ ...s, spark: [12] }, 42), /points="0.0,10.0"/);
 });
-test('feature progress keeps known closed ratios and hatches only the unknown remainder', () => {
+test('feature list rows carry only name, bar and merged/total; registry rows are buttons', () => {
   resetState(); S.list = 'features';
-  const rows = [
-    ['f-part-2', 'part2', 'Wave 1 refactor (part 2/3)', '1', 88, 6, 0, 94],
-    ['f-part-3', 'part3', 'Wave 1 refactor (part 3/3)', '1', 49, 20, 0, 71],
-    ['f-other', 'other', 'Other work', '2', 298, 32, 0, 330],
-    ['f-bo-6368', 'unassigned', 'Unassigned tickets', '2', 0, 0, 0, 0]
-  ];
-  const epics = Object.fromEntries(rows.map(([key, feature, label]) => [key, { key, feature, label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]));
-  const features = Object.fromEntries(rows.map(([key, feature, label]) => [feature, { label, epics: [key] }]));
-  const progress = {
-    features: Object.fromEntries(rows.map(([key, feature, summary, wave, closed, open, unpublished, total]) => [key, {
-      feature, closed, open, ci_wait: ['part2', 'part3'].includes(feature) ? null : 0,
-      unpublished, total, wave, summary, reason: null
-    }])),
-    observed_at: Date.now(), plan_version: 'v1', extras: 0
-  };
-  const html = listHTML({ features, epics, feature_progress: progress }, S, {}, {}, Date.now());
-  assert.match(html, /435 \/ 495 tickets closed/);
-  assert.match(html, /class="fp-closed" style="width:87\.8787/);
-  assert.match(html, /class="fp-open" style="width:11\.7171/);
-  assert.match(html, /class="fp-unknown" style="width:0\.4040/);
-  assert.match(html, /class="fp-closed" style="width:93\.6170/);
-  assert.match(html, /class="fp-closed" style="width:69\.0140/);
-  assert.match(html, /class="fp-open" style="width:28\.1690/);
-  assert.match(html, /class="fp-unknown" style="width:0\.4040/);
-  assert.ok(!html.includes('Unassigned: 0 / 0'));
-  const emptyRow = html.split('<button type="button" class="fp-row" data-feature="unassigned"')[1].split('</button>')[0];
-  assert.match(emptyRow, /class="fp-bar fp-meter" role="img" aria-label="No tickets to count"/);
-  assert.ok(!emptyRow.includes('fp-unknown'));
-  const unknownFeatures = { unknown: { label: 'Unknown closed count', epics: ['f-bo-6369-core'] } };
-  const unknownEpics = { 'f-bo-6369-core': { key: 'f-bo-6369-core', feature: 'unknown', label: 'Build Order 6369 · Core' } };
-  const unknownProgress = { features: { 'f-bo-6369-core': { feature: 'unknown', closed: null, open: 3, ci_wait: 0, unpublished: 0, total: 10, wave: '3' } } };
-  const unknownHtml = listHTML({ features: unknownFeatures, epics: unknownEpics, feature_progress: unknownProgress }, S, {}, {}, Date.now());
-  const unknownRow = unknownHtml.split('<button type="button" class="fp-row" data-feature="unknown"')[1].split('</button>')[0];
-  assert.match(unknownRow, /class="fp-bar fp-meter unknown"/);
-  assert.match(unknownRow, /class="fp-unknown"/);
-  assert.ok(!unknownRow.includes('fp-closed'));
-  assert.match(unknownRow, /class="fp-open" style="width:30%/);
+  const bars = [{ key: 'pag', label: 'Pagination', merged: 3, total: 4 }, { key: 'mp-e2', label: 'mp-e2', merged: 2, total: 2 }];
+  const html = listHTML({ features: { pag: { label: 'Pagination' } }, feature_progress: { bars }, repo: { url: 'https://github.com/o/aiur/' } }, S, {}, {}, Date.UTC(2026, 10, 1));
+  assert.match(html, /<h1>aiur - build progress<\/h1><p>5 of 6 tickets merged - 2026-11-01<\/p>/);
+  assert.match(html, /<button type="button" class="fp-row" data-feature="pag" aria-label="Focus Pagination feature"><span class="fp-name" title="Pagination">Pagination<\/span><span class="fp-bar" role="img" aria-label="3 of 4 merged"><i style="width:75%"><\/i><\/span><span class="fp-count">3\/4<\/span><\/button>/);
+  assert.match(html, /<div class="fp-row" data-feature="mp-e2"><span class="fp-name" title="mp-e2">mp-e2<\/span><span class="fp-bar done"/);
+  assert.match(html, /<div class="fp-row fp-all"><span class="fp-name">All features<\/span><span class="fp-bar all" role="img" aria-label="5 of 6 merged">/);
+  S.fsort = 'pct';
+  assert.ok(listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('mp-e2') < listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('"pag"'));
 });
-test('compacted feature progress reads icon, wave, and summary from lane epics', () => {
+test('unavailable feature bars render no invented totals', () => {
   resetState(); S.list = 'features';
-  const payload = {
-    icons: { cpu: '<svg data-icon="cpu-chip"></svg>' },
-    features: { kernel: { key: 'kernel', label: 'Kernel', icon: 'cpu', epics: ['f-kernel-core'] } },
-    epics: { 'f-kernel-core': { key: 'f-kernel-core', feature: 'kernel', label: 'Kernel · core', icon: 'cpu', wave: '0b', summary: 'Scheduler and memory work', hue: 210 } },
-    feature_progress: {
-      features: {
-        'f-kernel-core': { feature: 'kernel', label: 'Kernel · core', closed: 2, open: 1, ci_wait: 0, unpublished: 0, total: 3 }
-      },
-      observed_at: Date.now(),
-      plan_version: 'v1',
-      extras: 0
-    }
-  };
-
-  const rendered = listHTML(payload, S, {}, {}, Date.now());
-  assert.match(rendered, /<h2>Wave 0b<\/h2>/);
-  assert.match(rendered, /data-icon="cpu-chip"/);
-  assert.match(rendered, /Scheduler and memory work/);
+  const html = listHTML({ features: {}, feature_progress: { bars: null } }, S, {}, {}, 0);
+  assert.match(html, /<p>Feature progress unavailable - 1970-01-01<\/p>/);
+  assert.ok(!html.includes('fp-all')); assert.ok(!html.includes('0 of 0'));
 });
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';

@@ -132,7 +132,8 @@ defmodule Aiur.BuildOrder.HistoryTest do
     start(dir)
     History.apply([event(%{title: "x"})], opts)
     r = row(opts)
-    for field <- Row.fields() -- [:title, :lifecycle, :clamped], do: assert(Map.fetch!(r, field) == :unknown)
+    for field <- Row.fields() -- [:title, :lifecycle, :clamped, :label_descriptions], do: assert(Map.fetch!(r, field) == :unknown)
+    assert r.label_descriptions == %{}
     History.flush(opts)
     assert Jason.decode!(File.read!(path))["rows"] |> hd() |> Map.fetch!("merged_at") == "unknown"
     restart(dir)

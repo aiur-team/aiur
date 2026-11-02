@@ -13,7 +13,7 @@ defmodule Aiur.BuildOrder.History.BackfillQuery do
           nodes {
             id number title state stateReason createdAt updatedAt closedAt
             parent { number repository { name owner { login } } }
-            labels(first: 100) { totalCount nodes { name } }
+            labels(first: 100) { totalCount nodes { name description } }
             blockedBy(first: 100) { totalCount pageInfo { hasNextPage endCursor }
               nodes { number repository { name owner { login } } } }
             timelineItems(first: 100, itemTypes: [LABELED_EVENT, UNLABELED_EVENT,

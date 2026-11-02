@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   require Logger
 
   alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
-  alias Aiur.GitHub.DispatchAuthorization.Timeline
+  alias Aiur.GitHub.DispatchAuthorization.{MissingTriggerLabel, Timeline}
   alias Aiur.{Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
@@ -65,7 +65,21 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         |> apply_label_decision(issue, allowed_users, opts)
 
       :error ->
-        deny_ambiguous(issue, :missing_trigger_label)
+        recheck_missing_trigger_label(issue, owner, repo, prefix, allowed_users, opts)
+    end
+  end
+
+  defp recheck_missing_trigger_label(issue, owner, repo, prefix, allowed_users, opts) do
+    case MissingTriggerLabel.recheck(issue, owner, repo, Keyword.put(opts, :label_prefix, prefix)) do
+      {:ok, refreshed} ->
+        authorize_label_applier(refreshed, owner, repo, prefix, allowed_users, opts)
+
+      {:error, reason} ->
+        if reason == :missing_trigger_label do
+          maybe_alert_ambiguity(issue, reason)
+        end
+
+        apply_label_decision({:deferred, MissingTriggerLabel.deferred_reason(reason)}, issue, allowed_users, opts)
     end
   end
 
@@ -453,11 +467,13 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp bounded_alert_cache(alerted), do: alerted
 
   defp alert_ambiguity(issue, reason) do
+    {message, detail} = MissingTriggerLabel.alert_message(reason)
+
     Signal.agent_alert(
       "github.dispatch_authorization.ambiguous",
-      "Dispatch denied for issue #{issue.identifier || issue.id}: label provenance could not be verified (#{inspect(reason)}).",
+      "Dispatch authorization could not be confirmed for issue #{issue.identifier || issue.id}: #{message}",
       issue: issue.identifier || issue.id,
-      reason: "GitHub dispatch authorization requires verified trigger-label provenance: #{inspect(reason)}",
+      reason: detail,
       needs_attention: true,
       severity: "warning"
     )

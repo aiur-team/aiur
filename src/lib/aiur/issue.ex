@@ -61,6 +61,7 @@ defmodule Aiur.Issue do
     queued: false,
     blocked_by: [],
     labels: [],
+    label_descriptions: %{},
     assigned_to_worker: true,
     created_at: nil,
     updated_at: nil
@@ -103,6 +104,7 @@ defmodule Aiur.Issue do
           executor_owner: String.t() | nil,
           queued: boolean(),
           labels: [String.t()],
+          label_descriptions: %{optional(String.t()) => String.t()},
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil

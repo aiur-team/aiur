@@ -75,6 +75,8 @@ collector never substitutes the current checkout's commit or file time.
 
 ### Fleet status and messages
 
+`aiur status` prints a `TOOLCHAIN observed_at=… age_ms=…` section with one row per worker CLI: version, install kind, path, and `current`, `WARNING behind <latest>; update: …`, `BELOW MINIMUM <min>, <backend> dispatch held` or `latest unknown`. Before the first check it reads `TOOLCHAIN unavailable (not checked yet)`.
+
 Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason, owner and elapsed age, for example `· backing_off · RetryEngine · 45s`. `aiur agents` summarizes ordinary idle tickets in one count; use `aiur agents --all` to print every idle row.
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.

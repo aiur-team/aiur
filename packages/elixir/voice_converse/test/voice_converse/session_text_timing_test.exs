@@ -67,6 +67,70 @@ defmodule VoiceConverse.SessionTextTimingTest do
     end
   end
 
+  test "provider truncation errors preserve full interrupted text and keep the session running", ctx do
+    {id, session, ref} =
+      start_session(ctx, FakeProvider, truncate_error: "Bearer abcdefgh12345")
+
+    emit_turn(ref)
+    interrupt(id, ref)
+    report(ctx, id, 100)
+
+    assert [%{"text" => "é👩🏽‍💻!", "interrupted?" => true}] = turns(records(ctx, id))
+
+    error_record = Enum.find(records(ctx, id), &(&1["type"] == "provider_truncation_error"))
+    assert error_record["error"] =~ "[redacted]"
+    refute error_record["error"] =~ "abcdefgh12345"
+
+    assert Process.alive?(session)
+
+    :ok = FakeProvider.emit(ref, %Events.UserTranscript{text: "still here", final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
+  end
+
+  test "assistant text is redacted in timing and text broadcasts and transcript", ctx do
+    secret = "Bearer abcdefgh12345"
+    {id, _, ref} = start_session(ctx)
+
+    :ok =
+      FakeProvider.emit(ref, %Events.AgentTextTiming{
+        turn_id: "t",
+        text: secret,
+        chars: [{0, String.length(secret)}],
+        audio_offset_ms: 0,
+        estimated: false
+      })
+
+    assert_receive {:voice_conversation, ^id, %Events.AgentTextTiming{text: "[redacted]", chars: nil}},
+                   1_000
+
+    :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "t", text: secret, final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{text: "[redacted]", final?: true}}, 1_000
+
+    interrupt(id, ref)
+    report(ctx, id, 100)
+
+    assert [%{"text" => "[redacted]"}] = turns(records(ctx, id))
+    refute Enum.any?(records(ctx, id), &String.contains?(Jason.encode!(&1), "abcdefgh12345"))
+  end
+
+  test "unexpected provider truncation results are recorded without ending the session", ctx do
+    {id, session, ref} = start_session(ctx, FakeProvider, truncate_result: :unexpected)
+    emit_turn(ref)
+    interrupt(id, ref)
+    report(ctx, id, 100)
+
+    assert [%{"text" => "é👩🏽‍💻!", "interrupted?" => true}] = turns(records(ctx, id))
+
+    assert Enum.any?(records(ctx, id), fn record ->
+             record["type"] == "provider_truncation_error" and
+               record["error"] =~ "unexpected_result"
+           end)
+
+    assert Process.alive?(session)
+    :ok = FakeProvider.emit(ref, %Events.UserTranscript{text: "still here", final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
+  end
+
   test "missing playback report uses real two-second grace and retains full text", ctx do
     {id, _, ref} = start_session(ctx)
     emit_turn(ref)
@@ -77,7 +141,8 @@ defmodule VoiceConverse.SessionTextTimingTest do
     refute Enum.any?(FakeProvider.calls(ref), &match?({:truncate, _, _}, &1))
   end
 
-  test "without timings all partial text survives and automatic providers are not truncated", ctx do
+  test "without timings all partial text survives and automatic providers are not truncated",
+       ctx do
     {id, _, ref} = start_session(ctx, AutomaticProvider)
     :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "t", text: "untimed", final?: false})
     interrupt(id, ref)
@@ -93,7 +158,11 @@ defmodule VoiceConverse.SessionTextTimingTest do
       :ok =
         FakeProvider.emit(
           ref,
-          Events.AgentTextTiming.from_text_deltas(text, turn_id: "t", audio_offset_ms: offset, duration_ms: 200)
+          Events.AgentTextTiming.from_text_deltas(text,
+            turn_id: "t",
+            audio_offset_ms: offset,
+            duration_ms: 200
+          )
         )
     end
 
@@ -111,34 +180,55 @@ defmodule VoiceConverse.SessionTextTimingTest do
     report(ctx, id, 999)
     report(ctx, id, 999)
     assert [%{"text" => "é👩🏽‍💻!"}] = turns(records(ctx, id))
-    :ok = FakeProvider.emit(ref, Events.AgentTextTiming.from_text_deltas("tail", turn_id: "other"))
+
+    :ok =
+      FakeProvider.emit(ref, Events.AgentTextTiming.from_text_deltas("tail", turn_id: "other"))
+
     assert_receive {:voice_conversation, ^id, %Events.AgentTextTiming{turn_id: "other"}}, 1_000
     :ok = VoiceConverse.end_session(ctx.name, id)
     assert_receive {:voice_conversation, ^id, {:ended, :user_end}}, 1_000
-    assert Enum.sort(Enum.map(turns(records(ctx, id)), & &1["text"])) == Enum.sort(["é👩🏽‍💻!", "tail"])
+
+    assert Enum.sort(Enum.map(turns(records(ctx, id)), & &1["text"])) ==
+             Enum.sort(["é👩🏽‍💻!", "tail"])
   end
 
-  test "final text before audio can still be interrupted and integer provider ids survive the wire", ctx do
+  test "final text before audio can still be interrupted and integer provider ids survive the wire",
+       ctx do
     {id, _, ref} = start_session(ctx)
     :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: 7, text: "ab", final?: true})
-    :ok = FakeProvider.emit(ref, Events.AgentTextTiming.from_text_deltas("ab", turn_id: 7, duration_ms: 200))
+
+    :ok =
+      FakeProvider.emit(
+        ref,
+        Events.AgentTextTiming.from_text_deltas("ab", turn_id: 7, duration_ms: 200)
+      )
+
     :ok = FakeProvider.emit(ref, %Events.Interruption{turn_id: 7})
     assert_receive {:voice_conversation, ^id, %Events.Interruption{turn_id: 7}}, 1_000
 
     :ok =
-      VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped", "turn_id" => "7", "played_until_ms" => 100})
+      VoiceConverse.playback_state(ctx.name, id, %{
+        "state" => "stopped",
+        "turn_id" => "7",
+        "played_until_ms" => 100
+      })
 
     assert [%{"text" => "a", "interrupted?" => true}] = turns(records(ctx, id))
     assert {:truncate, 7, 100} in FakeProvider.calls(ref)
   end
 
-  test "a report for another turn cannot settle interruption and an old frame retains full text", ctx do
+  test "a report for another turn cannot settle interruption and an old frame retains full text",
+       ctx do
     {id, session, ref} = start_session(ctx)
     emit_turn(ref)
     interrupt(id, ref)
 
     :ok =
-      VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped", "turn_id" => "other", "played_until_ms" => 0})
+      VoiceConverse.playback_state(ctx.name, id, %{
+        "state" => "stopped",
+        "turn_id" => "other",
+        "played_until_ms" => 0
+      })
 
     assert turns(records(ctx, id)) == []
     :ok = VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped"})
@@ -154,19 +244,30 @@ defmodule VoiceConverse.SessionTextTimingTest do
   end
 
   @tag text_only: true
-  test "text-only finals persist immediately and a new user turn saves an interrupted partial", ctx do
+  test "text-only finals persist immediately and a new user turn saves an interrupted partial",
+       ctx do
     {id, _, ref} = start_session(ctx)
     :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "done", text: "final", final?: true})
     assert_receive {:voice_conversation, ^id, %Events.AgentText{final?: true}}, 1_000
     assert [%{"text" => "final"}] = turns(records(ctx, id))
-    :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "partial", text: "so far", final?: false})
+
+    :ok =
+      FakeProvider.emit(ref, %Events.AgentText{turn_id: "partial", text: "so far", final?: false})
+
     :ok = FakeProvider.emit(ref, %Events.UserTranscript{text: "stop", final?: true})
     assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
-    assert [%{"text" => "final"}, %{"text" => "so far", "interrupted?" => true}] = turns(records(ctx, id))
+
+    assert [%{"text" => "final"}, %{"text" => "so far", "interrupted?" => true}] =
+             turns(records(ctx, id))
   end
 
-  defp start_session(ctx, provider \\ FakeProvider) do
-    {:ok, id} = VoiceConverse.start_session(ctx.name, %{id: "target"}, client: self(), provider: {provider, []})
+  defp start_session(ctx, provider \\ FakeProvider, fake_opts \\ []) do
+    {:ok, id} =
+      VoiceConverse.start_session(ctx.name, %{id: "target"},
+        client: self(),
+        provider: {provider, fake_opts}
+      )
+
     assert_receive {:voice_conversation_state, ^id, :connecting}, 1_000
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(ctx.name, id)
     ref = :sys.get_state(session).provider_ref
@@ -195,7 +296,11 @@ defmodule VoiceConverse.SessionTextTimingTest do
 
   defp report(ctx, id, played),
     do:
-      VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped", "turn_id" => "t", "played_until_ms" => played})
+      VoiceConverse.playback_state(ctx.name, id, %{
+        "state" => "stopped",
+        "turn_id" => "t",
+        "played_until_ms" => played
+      })
 
   defp records(ctx, id) do
     {:ok, records, _} = TranscriptStore.read(ctx.root, id)

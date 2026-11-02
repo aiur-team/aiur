@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Budgets do
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Toolchain
 
   @doc false
   @spec redispatch_ready?(State.t(), Issue.t(), String.t() | nil, keyword()) ::
@@ -50,7 +51,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Budgets do
     end
   end
 
-  defp redispatch_backend(issue), do: CodingAgent.select_for_dispatch(issue)
+  defp redispatch_backend(issue), do: Toolchain.select_for_dispatch(issue)
 
   defp known_redispatch_backend(issue) do
     backend = CodingAgent.backend_for(issue)

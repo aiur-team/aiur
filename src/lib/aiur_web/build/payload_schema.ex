@@ -101,37 +101,41 @@ defmodule AiurWeb.Build.PayloadSchema do
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
       "feature_progress" =>
-        object(%{
-          "features" =>
-            {:dictionary,
-             object(
-               %{
-                 "feature" => :string,
-                 "label" => nullable(:string),
-                 "closed" => nullable(:nonnegative),
-                 "open" => nullable(:nonnegative),
-                 "ci_wait" => nullable(:nonnegative),
-                 "unpublished" => nullable(:nonnegative),
-                 "total" => nullable(:nonnegative),
-                 "observed_at" => nullable(:integer),
-                 "wave" => nullable(:string),
-                 "summary" => nullable(:string),
-                 "icon" => nullable(:string),
-                 "code" => nullable(:string),
-                 "plan_version" => nullable(:string),
-                 "extras" => nullable(:nonnegative),
-                 "root_number" => nullable(:positive),
-                 "root_title" => nullable(:string),
-                 "start_date" => nullable(:string),
-                 "reason" => nullable(:string)
-               },
-               ~w(feature label observed_at plan_version icon summary wave)
-             )},
-          "observed_at" => nullable(:integer),
-          "plan_version" => nullable(:string),
-          "extras" => nullable(:nonnegative),
-          "reason" => nullable(:string)
-        }),
+        object(
+          %{
+            "features" =>
+              {:dictionary,
+               object(
+                 %{
+                   "feature" => :string,
+                   "label" => nullable(:string),
+                   "closed" => nullable(:nonnegative),
+                   "open" => nullable(:nonnegative),
+                   "ci_wait" => nullable(:nonnegative),
+                   "unpublished" => nullable(:nonnegative),
+                   "total" => nullable(:nonnegative),
+                   "observed_at" => nullable(:integer),
+                   "wave" => nullable(:string),
+                   "summary" => nullable(:string),
+                   "icon" => nullable(:string),
+                   "code" => nullable(:string),
+                   "plan_version" => nullable(:string),
+                   "extras" => nullable(:nonnegative),
+                   "root_number" => nullable(:positive),
+                   "root_title" => nullable(:string),
+                   "start_date" => nullable(:string),
+                   "reason" => nullable(:string)
+                 },
+                 ~w(feature label observed_at plan_version icon summary wave)
+               )},
+            "bars" => nullable(list(object(%{"key" => :string, "label" => :string, "merged" => :nonnegative, "total" => :positive}))),
+            "observed_at" => nullable(:integer),
+            "plan_version" => nullable(:string),
+            "extras" => nullable(:nonnegative),
+            "reason" => nullable(:string)
+          },
+          ["bars"]
+        ),
       "history" => object(history()),
       "sources" => object(sources()),
       "usage" => :usage,

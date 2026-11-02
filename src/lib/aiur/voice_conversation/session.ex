@@ -127,5 +127,9 @@ defmodule Aiur.VoiceConversation.Session do
   end
 
   defp record(state, _event), do: state
+
+  defp notify(state, %Events.AgentText{text: text} = event),
+    do: send(state.owner, {:executor_voice, %{event | text: Redact.redact(text)}})
+
   defp notify(state, event), do: send(state.owner, {:executor_voice, event})
 end

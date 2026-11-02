@@ -6,6 +6,7 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-build-order-00 -->
 | --- | --- | --- | --- |
+| `build_order.feature_order` | array | `[]` | Feature slugs in goal order for the Features list. Unlisted features follow, oldest first. |
 | `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
 | `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
 | `build_order.general_epics.icon` | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
