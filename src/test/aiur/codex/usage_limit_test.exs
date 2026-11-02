@@ -4,7 +4,10 @@ defmodule Aiur.Codex.UsageLimitTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.TurnAlerts
+  alias Aiur.AppServer.TurnLoop
   alias Aiur.Codex.CodingAgent, as: CodexAgent
+  alias Aiur.Codex.ExhaustedReset
+  alias Aiur.Codex.LivenessProbe
   alias Aiur.ModelAvailability
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{RateLimitFallback, WaitingReason}
@@ -39,6 +42,7 @@ defmodule Aiur.Codex.UsageLimitTest do
       agent_kind: "codex",
       command: "#{binary} app-server",
       agent_turn_timeout_ms: @turn_timeout_ms,
+      codex_read_timeout_ms: 5_000,
       # Khala's app-server host printed the reset text in Pacific time.
       codex_reset_time_zone: "America/Los_Angeles"
     )
@@ -84,7 +88,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     # 4. Assistant and tool text that quotes the refusal is not a refusal.
     assert {:ok, _session} = CodexAgent.run_turn(session, "quote the banner", issue, on_message: on_message)
 
-    # 5. A turn that goes silent is surfaced within the no-progress bound.
+    # 5. A turn that goes silent is surfaced within the bounded turn timeout.
     started = System.monotonic_time(:millisecond)
     assert {:error, :turn_timeout} = CodexAgent.run_turn(session, "silent", issue, on_message: on_message)
     elapsed = System.monotonic_time(:millisecond) - started
@@ -151,6 +155,72 @@ defmodule Aiur.Codex.UsageLimitTest do
     assert_received {:resume_agent, _request_id}
     assert resumed.running[issue.id].control.status == :working
     assert resumed.running[issue.id].retry_attempt == 2
+  end
+
+  test "silent app-server with available allowance times out its bounded probe" do
+    port = open_probe_port("#!/bin/sh\ncat >/dev/null\n")
+    session = %{port: port, clock: fn -> @observed_at end}
+    started = System.monotonic_time(:millisecond)
+
+    assert {:error, {:response_timeout, :codex_liveness_probe, state}} =
+             TurnLoop.receive_loop(session, %{
+               backend: CodexAgent,
+               timeout_ms: 15_000,
+               pending_line: "",
+               liveness_probe_pending?: true,
+               liveness_probe_timer: Process.send_after(self(), :codex_liveness_probe, LivenessProbe.probe_timeout_ms())
+             })
+
+    elapsed = System.monotonic_time(:millisecond) - started
+    assert state.liveness_probe_pending?
+    assert elapsed >= LivenessProbe.probe_timeout_ms()
+    assert elapsed < 15_000
+    Port.close(port)
+  end
+
+  test "silent app-server with exhausted allowance reports a usage limit promptly" do
+    port = open_probe_port("#!/bin/sh\ncat >/dev/null\n")
+    session = %{port: port, clock: fn -> @observed_at end}
+
+    :ok = ExhaustedReset.observe(session, %{"primary" => %{"usedPercent" => 100, "resetsAt" => @resets_at_epoch}})
+
+    result =
+      TurnLoop.receive_loop(session, %{
+        backend: CodexAgent,
+        timeout_ms: 15_000,
+        pending_line: "",
+        liveness_probe_pending?: true,
+        liveness_probe_timer: Process.send_after(self(), :codex_liveness_probe, LivenessProbe.probe_timeout_ms())
+      })
+
+    assert {:paused, %{kind: :usage_limit_exhausted, reset_at: @reset_at}} = result
+    Port.close(port)
+  end
+
+  test "responsive app-server with available allowance clears the liveness probe" do
+    payload = Jason.encode!(%{id: 6, result: %{rateLimits: %{primary: %{usedPercent: 28, resetsAt: @resets_at_epoch}}}})
+    script = "#!/bin/sh\nwhile IFS= read -r line; do case \"$line\" in *'account/rateLimits/read'*) printf '%s\\n' '#{payload}' ;; esac; done\n"
+    port = open_probe_port(script)
+
+    session = %{port: port, clock: fn -> @observed_at end}
+    {:continue, pending} = LivenessProbe.request_rate_limits(session, %{})
+    Process.cancel_timer(pending.liveness_probe_timer)
+    assert_receive {^port, {:data, {:eol, response}}}, 1_000
+    assert {:ok, %{"result" => result}} = Jason.decode(response)
+
+    assert {:continue, next_state} =
+             CodexAgent.handle_method(session, pending, Map.put(result, "id", 6), response, "liveness_probe")
+
+    Process.cancel_timer(next_state.liveness_probe_timer)
+    refute Map.get(next_state, :liveness_probe_pending?, false)
+    Port.close(port)
+  end
+
+  defp open_probe_port(script) do
+    Port.open(
+      {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+      [:binary, :exit_status, :stderr_to_stdout, args: [~c"-c", String.to_charlist(script)], line: 64_000]
+    )
   end
 
   # A usage-limit report never replaces an operator, run or label pause, and
