@@ -471,8 +471,6 @@ defmodule Aiur.Orchestrator do
     {:noreply, note_agent_activity_state(state, identifier)}
   end
 
-  defdelegate handle_cast(message, state), to: Aiur.Orchestrator.Calls
-
   @impl true
   def handle_cast({:restore_executor_hook_batch, attempt}, state),
     do: ExecutorHookClaims.restore_call(state, attempt)
@@ -481,6 +479,9 @@ defmodule Aiur.Orchestrator do
     {next, effects} = PushRouting.sleeping_effects(state, identifier)
     {:noreply, TicketTransition.apply_effects(next, effects)}
   end
+
+  @impl true
+  def handle_cast(message, state), do: Aiur.Orchestrator.Calls.handle_cast(message, state)
 
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
