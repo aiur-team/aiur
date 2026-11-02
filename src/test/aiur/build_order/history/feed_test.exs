@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.History.FeedTest do
   use ExUnit.Case, async: true
-  alias Aiur.BuildOrder.History.{Feed, Row, TelemetryScan}
   alias Aiur.BuildOrder.Features.{LabelRules, LabelStateStore}
+  alias Aiur.BuildOrder.History.{Feed, Row, TelemetryScan}
   alias Aiur.BuildOrder.Lifecycle
   @t ~U[2026-10-01 12:00:00Z]
   @later ~U[2026-10-01 12:01:00Z]
