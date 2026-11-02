@@ -471,6 +471,17 @@ defmodule Aiur.Orchestrator do
     {:noreply, note_agent_activity_state(state, identifier)}
   end
 
+  def handle_cast({:enqueue_event_digest_async, identifier, event, %{subscribed_to: subs}}, state)
+      when is_binary(identifier) and is_map(event) and is_list(subs) do
+    next = Aiur.Orchestrator.OperatorMessages.enqueue_event_digest_item(state, identifier, [event], event, subscribed_to: subs)
+    {:noreply, next}
+  end
+
+  def handle_cast({:enqueue_event_digest_batch_async, identifier, events}, state)
+      when is_binary(identifier) and is_list(events) do
+    {:noreply, Aiur.Orchestrator.OperatorMessages.enqueue_event_digest_item(state, identifier, events, %{events: events})}
+  end
+
   @impl true
   def handle_cast({:restore_executor_hook_batch, attempt}, state),
     do: ExecutorHookClaims.restore_call(state, attempt)

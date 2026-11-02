@@ -30,7 +30,7 @@ defmodule Aiur.ControlCLI.Protocol do
   defp print_control_query_error(:timeout, query, timeout_ms) do
     IO.puts(
       "#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}" <>
-        "; outcome is unknown. #{orchestrator_liveness()}"
+        "; daemon is alive but busy or not reachable. Outcome is unknown. #{orchestrator_liveness()}"
     )
   end
 

@@ -26,12 +26,12 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
       end)
 
     assert_receive {:transition, "2076", "todo", "in-progress"}, 1000
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", alert_opts}, 1000
+    assert_receive {:alert, "ticket.2076.agent.attention.orphan_claim_released", alert_opts}, 1000
     refute alert_opts[:needs_attention]
 
     assert_receive {:result, {state, [%Issue{state: "todo"}]}}, 1000
     assert state.startup_claim_reconciliation_complete?
-    assert log =~ "Released orphaned startup claim to todo"
+    assert log =~ "Orphan sweep released claim to todo"
     assert log =~ "issue_id=issue-2076 issue_identifier=2076"
   end
 
@@ -97,6 +97,20 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
     assert retained == issue
     assert result.startup_claim_reconciliation_complete?
+  end
+
+  test "a duration-capped paused registry entry is not an orphan claim" do
+    issue = issue("2076", "in-progress")
+    state = %State{running: %{"runtime-key" => %{identifier: issue.identifier, issue: issue, pid: nil, control: %{status: :paused}, paused_reason: :max_agent_duration}}}
+
+    {result, [retained]} =
+      reconcile(state, [issue],
+        update_issue_state_fun: fn _identifier, _state_name, _expected_state -> flunk("paused ownership must retain the claim") end,
+        emit_alert_fun: fn _topic, _opts -> flunk("paused ownership must not alert") end
+      )
+
+    assert retained == issue
+    assert result.orphaned_claim_since == %{}
   end
 
   test "regression guard: parked in-progress claims stay out of startup orphan recovery" do
@@ -417,7 +431,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert recovered_state.startup_claim_reconciliation_complete?
     assert recovered_state.startup_claim_reconciliation_failures == %{}
 
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", _opts}, 1000
+    assert_receive {:alert, "ticket.2076.agent.attention.orphan_claim_released", _opts}, 1000
 
     assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", resolved_opts}, 1000
     refute resolved_opts[:needs_attention]
