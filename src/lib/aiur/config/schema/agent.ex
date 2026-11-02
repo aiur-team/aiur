@@ -241,7 +241,6 @@ defmodule Aiur.Config.Schema.Agent do
     # already reads these via Config.agent_turn_timeout_ms/0).
     # @config-reference config-configuration-agent-00 agent.turn_timeout_ms | integer | 3600000 | Backstop timeout for one turn. |
     field(:turn_timeout_ms, :integer, default: 3_600_000)
-
     # @config-reference config-configuration-agent-00 agent.stall_timeout_ms | integer | 3600000 | Final watchdog; Codex probes every 60s, then replaces silence. 0 disables only this watchdog. |
     field(:stall_timeout_ms, :integer, default: 3_600_000)
     # Runtime cap in minutes (paused/blocked time excluded); 0 disables it.
