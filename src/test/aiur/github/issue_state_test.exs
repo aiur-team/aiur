@@ -2,8 +2,8 @@ defmodule Aiur.GitHub.IssueStateTest do
   # Cohesion: these tests cover the GitHub issue-state transition protocol end to end.
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{Issues, IssueState}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{Issues, IssueState, ResourceStore}
+  alias Aiur.Orchestrator.TicketTransition
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
@@ -93,6 +93,7 @@ defmodule Aiur.GitHub.IssueStateTest do
 
         case request.method do
           :get ->
+            assert_state_label_present!(labels)
             {:ok, %{status: 200, body: issue_body(labels)}}
 
           :post ->
@@ -112,6 +113,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       refute_received {:queue_request, %{method: :delete}}
     end
 
+    # Future regression guard: the shared TicketTransition caller must preserve the existing add-first swap.
     test "adds the new state label first, then removes the old one (no zero-label window)" do
       calls = :ets.new(:calls, [:set, :public])
       :ets.insert(calls, {:requests, []})
@@ -130,16 +132,19 @@ defmodule Aiur.GitHub.IssueStateTest do
         # adds the target regardless of which order the POST/DELETEs land in.
         case req.method do
           :get ->
+            assert_state_label_present!(labels)
             {:ok, %{status: 200, body: issue_body(labels)}}
 
           :delete ->
             assert req.url =~ "sym%3Atodo" or req.url =~ "sym:todo"
             delete_test_label(labels, req)
+            assert_state_label_present!(labels)
             {:ok, %{status: 200, body: label_objects(labels)}}
 
           :post ->
             assert req.body == %{"labels" => ["sym:rework"]}
             add_test_label(labels, "sym:rework")
+            assert_state_label_present!(labels)
             {:ok, %{status: 200}}
 
           :patch ->
@@ -150,7 +155,7 @@ defmodule Aiur.GitHub.IssueStateTest do
         end
       end
 
-      assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+      assert :ok = TicketTransition.write_state("42", "rework", writer: :test_transition, request_fun: request_fun)
 
       # Assert the resulting call *set*, not the ordinals: the initial read,
       # active-label re-check, final delete verification, one removal of the old
@@ -403,6 +408,11 @@ defmodule Aiur.GitHub.IssueStateTest do
       # so no DELETE ever fires and the ticket keeps exactly one state label.
       refute_receive {:request, %{method: :delete}}, 100
     end
+  end
+
+  defp assert_state_label_present!(labels) do
+    assert Enum.any?(:ets.lookup_element(labels, :values, 2), &(&1 in ["sym:todo", "sym:rework", "sym:in-progress"])),
+           "a state-label read or write observed no sym:* state label"
   end
 
   defp concurrent_state_request_fun(parent, reads, live, labels) do
