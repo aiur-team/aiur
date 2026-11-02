@@ -69,6 +69,18 @@ test('card open, header identity, notices, focus trap and all close paths', asyn
   ]).flat())
 })
 
+test('stale progress displays a dash while retaining its observed age', async ({ page }) => {
+  await open(page)
+  await page.evaluate(async () => (await import('/build-home/clock.js')).setNow(Date.now()))
+  const t = await row(page)
+  t.pct = 73
+  t.progress_freshness = 'stale'
+  t.progress_observed_at = Date.now() - 125_000
+  await display(page, t)
+  await expect(page.locator('#bm-pct')).toHaveText('—')
+  await expect(page.locator('#bm-pct')).toHaveAttribute('title', 'Progress unknown · 2m old')
+})
+
 test('epic icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
   await open(page)
   const t = await row(page)
@@ -284,8 +296,12 @@ test('unknown header values, real links, PR absence, pack safety and hostile tex
     await expect(page.locator('.bm-st')).toContainText(text); await expect(page.locator('.bm-st')).toHaveClass('bm-st ' + tone)
     expect(await page.locator('.bm-st').evaluate(el => el.style.getPropertyValue('--ph'))).toBe('')
   }
-  await display(page, cases[0][0]); await expect(page.locator('#bm-pct')).toHaveText('?%')
-  await expect(page.locator('[data-unknown="pts"]')).toHaveText('? pts')
+  await display(page, cases[0][0]); await expect(page.locator('#bm-pct')).toHaveText('—')
+  await expect(page.locator('#bm-pct')).toHaveAttribute('title', 'Progress unknown · age unknown')
+  await expect(page.locator('[data-unknown="pts"]')).toHaveText('—')
+  const ageNow = await page.evaluate(async () => (await import('/build-home/clock.js')).nowMs())
+  await display(page, { ...cases[0][0], progress_observed_at: ageNow - 120_000 })
+  await expect(page.locator('#bm-pct')).toHaveAttribute('title', 'Progress unknown · 2m old')
   await expect(page.locator('.bm-agent .ax-mono')).toHaveText('A')
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.locator('.bm-agent .ax-mono')).toBeHidden()

@@ -7,15 +7,29 @@ defmodule AiurWeb.Build.PayloadTest do
   alias AiurWeb.Build.{Payload, PlannedRows, Read}
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
-  test "shared index presentation metadata stays outside the strict browser row schema" do
+  test "shared presentation metadata stays out while progress freshness is carried to the browser" do
     row = fixture()["sections"]["now"] |> hd() |> Map.new(fn {key, value} -> {String.to_atom(key), value} end)
     metadata = %{general_epics: ["runtime"], priority: 1, lane: "runtime", progress_freshness: "stale", dependency_ready: false}
     data = put_in(fixture(), ["sections", "now"], [Map.merge(row, metadata)])
     snapshot = Payload.snapshot(data, "epoch", 1)
 
     assert Payload.validate(snapshot) == :ok
-    assert snapshot["sections"]["now"] == [Payload.scrub(row)]
-    assert snapshot["sections"]["now"] |> hd() |> Map.get("pct") == row.pct
+    [wire_row] = snapshot["sections"]["now"]
+    assert wire_row["progress_freshness"] == "stale"
+    refute Map.has_key?(wire_row, "general_epics")
+    refute Map.has_key?(wire_row, "priority")
+    refute Map.has_key?(wire_row, "lane")
+    assert wire_row["pct"] == row.pct
+  end
+
+  test "rows preserve progress freshness and accept an optional observation timestamp" do
+    data = fixture()
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_observed_at"], 1_791_408_000_000)
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_freshness"], "stale")
+    assert Payload.validate(Payload.snapshot(fixture(), "epoch", 1)) == :ok
+    snapshot = Payload.snapshot(data, "epoch", 1)
+    assert Payload.validate(snapshot) == :ok
+    assert hd(snapshot["sections"]["now"])["progress_freshness"] == "stale"
   end
 
   test "fixtures reach the full strict schema (future fixture guard)" do

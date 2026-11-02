@@ -3,6 +3,9 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
 
   use Phoenix.Component
 
+  alias Aiur.Conversation
+  alias Aiur.Conversation.History
+  alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.{ConversationDrawer, ConversationLink, ExecutorVoice, UnitsPresenter}
 
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -27,17 +30,23 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
       listener_view: :unavailable,
       listener_feedback: %{},
       listener_receipts: [],
-      listener_receipts_busy: false
+      listener_receipts_busy: false,
+      voice_page: 0
     )
   end
 
   @spec panel(map()) :: Phoenix.LiveView.Rendered.t()
   def panel(assigns) do
     catalog = Map.get(assigns.payload, :units) || %{}
+    workers = workers(catalog)
+    page = min(Map.get(assigns, :voice_page, 0), max(page_count(workers) - 1, 0))
 
     assigns =
       assigns
-      |> assign(:voice_workers, workers(catalog))
+      |> assign(:voice_workers, workers)
+      |> assign(:voice_page, page)
+      |> assign(:voice_page_rows, page_rows(workers, page))
+      |> assign(:voice_page_count, page_count(workers))
       |> assign(:voice_catalog_status, Map.get(catalog, :status, :unavailable))
       |> assign(:voice_catalog_message, Map.get(catalog, :message))
 
@@ -54,17 +63,21 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
       </p>
       <p :if={@voice_catalog_status == :stale} role="status">Worker list is stale. {@voice_catalog_message}</p>
       <p :if={@voice_workers == [] and @voice_catalog_status in [:ready, :empty]}>No workers are listed.</p>
+      <p :if={is_list(@voice_workers) and @voice_workers != []}>Showing {@voice_page + 1} of {@voice_page_count} pages.</p>
       <ul :if={is_list(@voice_workers)}>
-        <li :for={worker <- @voice_workers}>
+        <li :for={worker <- @voice_page_rows}>
           <span>{worker.label}</span>
           <button id={worker.id} class="aiur-button aiur-button--dashboard" type="button"
             phx-click="read-conversation" phx-value-unit={worker.token}
-            disabled={!worker.available} aria-label={"Open conversation for #{worker.label}"}>
+            aria-label={"Open conversation for #{worker.label}"}>
             Open conversation
           </button>
-          <span :if={!worker.available}>Conversation unavailable.</span>
         </li>
       </ul>
+      <nav :if={@voice_page_count > 1} aria-label="Worker conversation pages">
+        <button type="button" phx-click="voice-page" phx-value-page={max(@voice_page - 1, 0)} disabled={@voice_page == 0}>Previous</button>
+        <button type="button" phx-click="voice-page" phx-value-page={min(@voice_page + 1, @voice_page_count - 1)} disabled={@voice_page + 1 >= @voice_page_count}>Next</button>
+      </nav>
     </section>
     <ConversationDrawer.conversation_drawer
       id="voice-conversation-drawer"
@@ -94,20 +107,23 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
   defp has_conversation?(%{live_conversation: %{generation_handle: handle}}), do: is_binary(handle)
   defp has_conversation?(_row), do: false
 
-  defp workers(catalog) do
+  @doc false
+  @spec workers(map(), keyword()) :: [map()] | nil
+  def workers(catalog, opts \\ []) do
+    history_resolver = Keyword.get(opts, :history_resolver, &History.resolve_worker/3)
+
     case catalog do
       %{status: status, snapshot: %{rows: rows}} when status in [:ready, :empty, :stale] and is_list(rows) ->
         rows
-        |> Enum.with_index()
-        |> Enum.map(fn {row, index} ->
+        |> Enum.filter(&conversation_available?(&1, history_resolver))
+        |> Enum.map(fn row ->
           token = UnitsPresenter.row_token(row)
           identity = Map.get(row, :identity) || %{}
 
           %{
-            token: token,
-            id: "voice-conversation-#{token || index}",
+            id: "voice-conversation-#{token}",
             label: Map.get(identity, :identifier) || "Unknown ticket",
-            available: is_binary(token) and has_conversation?(row)
+            token: token
           }
         end)
 
@@ -115,4 +131,27 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
         nil
     end
   end
+
+  @page_size 25
+  @spec conversation_available?(map(), (String.t(), String.t(), String.t() -> term())) :: boolean()
+  defp conversation_available?(row, history_resolver) do
+    has_conversation?(row) or
+      case Map.get(row, :identity) do
+        %TrackerIdentity{} = identity ->
+          case Conversation.Ref.worker(identity) do
+            {:ok, _ref} -> match?({:ok, _}, history_resolver.(identity.owner, identity.repository, identity.identifier))
+            _ -> false
+          end
+
+        _ ->
+          false
+      end
+  end
+
+  @spec page_rows([map()] | nil, non_neg_integer()) :: [map()]
+  def page_rows(workers, page) when is_list(workers), do: Enum.slice(workers, page * @page_size, @page_size)
+  def page_rows(_, _), do: []
+  @spec page_count([map()] | nil) :: non_neg_integer()
+  def page_count(workers) when is_list(workers), do: max(1, div(length(workers) + @page_size - 1, @page_size))
+  def page_count(_), do: 0
 end
