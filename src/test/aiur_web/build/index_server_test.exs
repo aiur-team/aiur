@@ -265,7 +265,7 @@ defmodule AiurWeb.Build.IndexServerTest do
     receive_barrier({:trace, ^pid, :receive, {:DOWN, _ref, :process, ^worker, :killed_read}})
 
     assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
-    assert Enum.map(snapshot.sections.now, & &1.id) == ["12"]
+    assert Enum.map(snapshot.sections.now, & &1.id) == ["12"], inspect(:sys.get_state(pid).parts.now)
     assert snapshot.sources.agents == %{state: "stale", observed_at: nil, reason: "unknown"}
   end
 
