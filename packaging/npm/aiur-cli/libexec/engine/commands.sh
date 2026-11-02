@@ -109,7 +109,7 @@ cmd_redispatch() {
     case "$1" in
       --backend)
         [ "$backend_seen" -eq 0 ] || { echo "aiur: --backend may be specified once" >&2; exit 64; }
-        [ "$#" -ge 2 ] || { echo "aiur: --backend requires a backend spec" >&2; exit 64; }
+        [ "$#" -ge 2 ] || { echo "aiur: --backend requires a configured backend name" >&2; exit 64; }
         backend="$2"
         backend_seen=1
         shift 2
@@ -122,7 +122,7 @@ cmd_redispatch() {
     exit 64
   fi
   if [ "$backend_seen" -eq 1 ] && [[ ! "$backend" =~ ^[A-Za-z0-9.-]+$ ]]; then
-    echo "aiur: --backend expects a backend spec using letters, digits, dots, or dashes" >&2
+    echo "aiur: --backend expects a backend name using letters, digits, dots, or dashes" >&2
     exit 64
   fi
   local literal

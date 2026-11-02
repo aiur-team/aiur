@@ -3,7 +3,9 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{RemoteControlMode, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, RemoteControlMode, Slots, State}
+  alias Aiur.Orchestrator.PauseResume.ControlCalls
+  alias Aiur.Orchestrator.TrackerTasks
 
   test "remote control summary requires both the alias label and session URL" do
     issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:remote"]}
@@ -88,6 +90,116 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
     assert next.claimed == MapSet.new([issue.id])
     assert next.running[issue.id].lifecycle_fence == fence
     assert next.running[issue.id].redispatch_safety.workspace_path == workspace
+  end
+
+  test "redispatch without a backend keeps model variants and uses the selected route without writing labels" do
+    issue = %Issue{
+      id: "route-1",
+      identifier: "repo#route-1",
+      labels: ["model:claude-opus-4-8", "model:xhigh", "agent:in-progress"],
+      selected_backend: "claude",
+      selected_model: "opus-4-8"
+    }
+
+    entry = running_entry(issue)
+    state = %State{running: %{issue.id => entry}, claimed: MapSet.new([issue.id])}
+
+    assert {{:ok, :redispatched}, _next} =
+             RemoteControlMode.redispatch_call_unchecked(state, issue.identifier, nil,
+               select_backend_fun: fn current ->
+                 assert current.selected_backend == nil
+                 assert current.selected_model == nil
+                 {:ok, %{current | selected_backend: "claude"}}
+               end,
+               admit_fun: fn _state, admitted_issue, nil ->
+                 assert admitted_issue.labels == issue.labels
+                 {:ok, state}
+               end,
+               write_marker_fun: fn _, _, _, _ -> flunk("backend-agnostic redispatch rewrote ticket labels") end,
+               teardown_fun: fn current, _old, :redispatch -> current end,
+               dispatch_fun: fn dispatch_state, dispatched_issue, nil, nil, opts ->
+                 assert dispatched_issue.labels == issue.labels
+                 assert dispatched_issue.selected_backend == "claude"
+                 assert opts[:forced_backend] == nil
+                 dispatch_state
+               end,
+               schedule_retry_fun: fn retry_state, _id, _attempt, _metadata -> retry_state end
+             )
+  end
+
+  test "redispatch without a backend dispatches the current route without persisting a pin" do
+    issue = %Issue{id: "route-2", identifier: "repo#route-2", labels: ["agent:in-progress"], selected_backend: "claude"}
+    entry = running_entry(issue)
+    state = %State{running: %{issue.id => entry}, claimed: MapSet.new([issue.id])}
+
+    assert {{:ok, :redispatched}, _next} =
+             RemoteControlMode.redispatch_call_unchecked(state, issue.identifier, nil,
+               select_backend_fun: fn current -> {:ok, %{current | selected_backend: "codex"}} end,
+               admit_fun: fn _current, selected, nil ->
+                 assert selected.selected_backend == "codex"
+                 {:ok, state}
+               end,
+               write_marker_fun: fn _, _, _, _ -> flunk("routing selection was persisted as a pin") end,
+               teardown_fun: fn current, _old, :redispatch -> current end,
+               dispatch_fun: fn current, selected, nil, nil, opts ->
+                 assert selected.selected_backend == "codex"
+                 assert opts[:forced_backend] == nil
+                 current
+               end,
+               schedule_retry_fun: fn retry_state, _id, _attempt, _metadata -> retry_state end
+             )
+  end
+
+  test "redispatch admission replaces the running ticket at the full global cap" do
+    # Future regression guard for the dispatcher admission path: a swap must
+    # consume the existing ticket slot instead of requiring a spare one.
+    issue = %Issue{id: "full-1", identifier: "repo#full-1", labels: ["model:codex"]}
+    entry = running_entry(issue)
+
+    state = %State{
+      max_concurrent_agents: 1,
+      effective_concurrent_agents: 1,
+      running: %{issue.id => entry}
+    }
+
+    assert Slots.used_slots(state) == 1
+    assert {:ok, admitted} = Dispatcher.admit_redispatch(state, issue, nil)
+    assert Slots.used_slots(admitted) == 1
+    assert map_size(admitted.running) == map_size(state.running)
+  end
+
+  test "refused redispatch paths leave the worker and labels untouched" do
+    issue = %Issue{id: "refuse-1", identifier: "repo#refuse-1", labels: ["model:claude-opus", "agent:in-progress"]}
+    entry = running_entry(issue)
+    state = %State{running: %{issue.id => entry}}
+
+    no_side_effects = [
+      teardown_fun: fn _, _old, _reason -> flunk("refused redispatch tore down the worker") end,
+      write_marker_fun: fn _, _, _, _ -> flunk("refused redispatch wrote a label") end
+    ]
+
+    assert {{:error, :not_running}, %State{}} =
+             RemoteControlMode.redispatch_call_unchecked(%State{}, issue.identifier, "codex", no_side_effects)
+
+    missing_workspace = %{entry | workspace_path: nil}
+    missing_state = %{state | running: %{issue.id => missing_workspace}}
+
+    assert {{:error, :workspace_unavailable}, ^missing_state} =
+             RemoteControlMode.redispatch_call_unchecked(missing_state, issue.identifier, "codex", no_side_effects)
+
+    assert {{:error, {:unknown_backend, "nope"}}, ^state} =
+             RemoteControlMode.redispatch_call_unchecked(state, issue.identifier, "nope", Keyword.merge(no_side_effects, known_backends_fun: fn -> ["claude", "codex"] end))
+
+    in_progress = %{state | tracker_tasks: %{make_ref() => %{key: {:redispatch, issue.identifier}}}}
+
+    assert {:reply, {:error, :redispatch_in_progress}, ^in_progress} =
+             ControlCalls.redispatch_call(in_progress, issue.identifier, "codex")
+
+    paused = %{entry | control: %{status: :paused}}
+    paused_state = %{state | running: %{issue.id => paused}}
+
+    assert {{:error, :not_running}, ^paused_state} =
+             RemoteControlMode.redispatch_call_unchecked(paused_state, issue.identifier, "codex", no_side_effects)
   end
 
   test "promotion preserves the live agent when redispatch is not ready" do

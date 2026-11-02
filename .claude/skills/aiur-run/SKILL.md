@@ -386,12 +386,16 @@ ledger.
 
 ## 7. Rebuild, resume, and stop
 
-Use `aiur redispatch <ticket-id> [--backend <spec>]` when a live worker must
+Use `aiur redispatch <ticket-id> [--backend <backend>]` when a live worker must
 move to another backend. It stops the current worker and starts one replacement
 in the same workspace, preserving local edits, branch, PR and workpad. Omit
 `--backend` to use current routing and account selection; provide a backend
-spec (for example `codex`) to pin the replacement. This differs from `resume`,
-which continues the existing session on its current backend and account.
+name matching a configured backend exactly (for example `codex`) to pin the
+replacement. Without a pin, ticket labels remain unchanged. Teardown ends the
+current session immediately, so any unsaved output still held only in that
+session is lost; save important output to the workspace before switching. This
+differs from `resume`, which continues the existing session on its current
+backend and account.
 
 Use deliberate rebuild checkpoints after merges that must enter the worker
 base. Stop the current session cleanly, update the base under the repository's

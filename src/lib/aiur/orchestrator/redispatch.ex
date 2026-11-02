@@ -7,12 +7,20 @@ defmodule Aiur.Orchestrator.Redispatch do
   @spec call(State.t(), String.t(), String.t() | nil, keyword()) :: {term(), State.t()}
   def call(%State{} = state, identifier, backend, opts \\ []) do
     case State.find_running_by_identifier(state.running, identifier) do
-      %{issue: %Issue{} = issue, pid: pid} = entry when is_pid(pid) ->
-        redispatch_running(state, entry, issue, backend, opts)
+      %{issue: %Issue{} = issue} = entry ->
+        if live_worker_entry?(entry) do
+          redispatch_running(state, entry, issue, backend, opts)
+        else
+          {{:error, :not_running}, state}
+        end
 
       _ ->
         {{:error, :not_running}, state}
     end
+  end
+
+  defp live_worker_entry?(entry) do
+    is_pid(Map.get(entry, :pid)) and get_in(entry, [:control, :status]) not in [:paused, :deactivated]
   end
 
   defp redispatch_running(state, entry, issue, backend, opts) do
@@ -34,10 +42,14 @@ defmodule Aiur.Orchestrator.Redispatch do
   end
 
   defp select_backend(issue, nil, opts) do
+    # Running entries can carry a backend selected on their original dispatch.
+    # Drop that snapshot so a backend-agnostic redispatch uses today's labels,
+    # routing table and account-selection policy.
+    issue = %{issue | selected_backend: nil, selected_model: nil}
     select = Keyword.get(opts, :select_backend_fun, &CodingAgent.select_for_dispatch/1)
 
     case select.(issue) do
-      {:ok, selected} -> make_selection(issue, CodingAgent.backend_for(selected), opts)
+      {:ok, selected} -> {:ok, selected, nil}
       {:all_limited, candidates} -> {:error, {:all_limited, candidates}}
     end
   end
@@ -87,6 +99,14 @@ defmodule Aiur.Orchestrator.Redispatch do
   end
 
   defp write_backend_label(issue, label, opts) do
+    if is_nil(label) do
+      :ok
+    else
+      do_write_backend_label(issue, label, opts)
+    end
+  end
+
+  defp do_write_backend_label(issue, label, opts) do
     write = Keyword.get(opts, :write_marker_fun, &TicketTransition.write_marker/4)
     old = Enum.filter(issue.labels, &selector_label?(&1, opts))
 
@@ -115,7 +135,7 @@ defmodule Aiur.Orchestrator.Redispatch do
     teardown = Keyword.get(opts, :teardown_fun, &RemoteControlMode.teardown_for_redispatch/3)
     state = teardown.(state, entry, :redispatch)
     staged_state = RateLimitFallback.put_running_entry(state, issue.id, staged)
-    metadata = %{forced_backend: String.replace_prefix(label, "model:", "")}
+    metadata = %{forced_backend: if(is_binary(label), do: String.replace_prefix(label, "model:", ""))}
 
     dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.do_dispatch_issue/5)
 

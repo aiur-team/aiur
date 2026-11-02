@@ -1,5 +1,7 @@
 defmodule Aiur.WorkspaceDirtyRefreshTest do
   use Aiur.TestSupport
+  alias Aiur.Orchestrator.RemoteControlMode
+  alias Aiur.Orchestrator.State
   alias Aiur.Workspace.Context
   alias Aiur.Workspace.WipPreservation
 
@@ -111,6 +113,63 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       assert trace_path(trace_root, issue) |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
+    end
+  end
+
+  test "redispatch teardown and replacement before_run keep the existing dirty workspace" do
+    test_root = Aiur.TestSupport.tmp_root!("aiur-redispatch-keeps-dirty-workspace")
+
+    try do
+      {workspace, trace_root} = bootstrap_dirty_refresh_workspace!(test_root, "REDISPATCH-1")
+
+      issue = %Issue{
+        id: "issue-redispatch-1",
+        identifier: "REDISPATCH-1",
+        title: "Preserve redispatched workspace",
+        state: "in-progress",
+        labels: ["agent:in-progress"]
+      }
+
+      assert {:ok, old_pid} = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> receive do: (:stop -> :ok) end)
+      old_ref = Process.monitor(old_pid)
+      on_exit(fn -> if Process.alive?(old_pid), do: Process.exit(old_pid, :kill) end)
+
+      entry = %{
+        pid: old_pid,
+        ref: old_ref,
+        identifier: issue.identifier,
+        issue: issue,
+        workspace_path: workspace,
+        worker_host: nil,
+        control: %{status: :working}
+      }
+
+      state = %State{running: %{issue.id => entry}, claimed: MapSet.new([issue.id])}
+
+      assert {{:ok, :redispatched}, next} =
+               RemoteControlMode.redispatch_call_unchecked(state, issue.identifier, nil,
+                 select_backend_fun: fn current -> {:ok, %{current | selected_backend: "codex"}} end,
+                 admit_fun: fn current, _selected, nil -> {:ok, current} end,
+                 teardown_fun: &RemoteControlMode.teardown_for_redispatch/3,
+                 dispatch_fun: fn current, dispatched_issue, nil, nil, opts ->
+                   assert opts[:workspace_path] == workspace
+                   assert :ok = Workspace.run_before_run_hook(workspace, dispatched_issue)
+
+                   replacement_pid = spawn(fn -> receive do: (:stop -> :ok) end)
+                   on_exit(fn -> if Process.alive?(replacement_pid), do: Process.exit(replacement_pid, :kill) end)
+                   replacement = %{pid: replacement_pid, identifier: issue.identifier, issue: dispatched_issue}
+                   %{current | running: Map.put(current.running, issue.id, replacement)}
+                 end
+               )
+
+      refute Process.alive?(old_pid)
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert trace_path(trace_root, issue) |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+      assert next.running[issue.id].issue.selected_backend == "codex"
+      assert next.claimed == MapSet.new([issue.id])
+      Process.exit(next.running[issue.id].pid, :kill)
+    after
+      Aiur.TestCleanup.rm_rf!(test_root)
     end
   end
 
