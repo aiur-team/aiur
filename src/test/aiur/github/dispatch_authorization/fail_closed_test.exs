@@ -224,21 +224,28 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
   test "missing-label recheck timeout defers with the fetch cause preserved" do
     issue = %{issue() | state: nil}
     calls = start_supervised!({Agent, fn -> 0 end})
+    :ok = AgentPubSub.subscribe_agent("42")
 
-    deferred =
-      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
-        allowed_users: ["trusted"],
-        label_prefix: "agent",
-        token: "test-token",
-        request_fun: fn _request ->
-          Agent.update(calls, &(&1 + 1))
-          {:error, :timeout}
-        end
-      )
+    log =
+      capture_log(fn ->
+        deferred =
+          DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+            allowed_users: ["trusted"],
+            label_prefix: "agent",
+            token: "test-token",
+            request_fun: fn _request ->
+              Agent.update(calls, &(&1 + 1))
+              {:error, :timeout}
+            end
+          )
 
-    refute deferred.dispatch_authorized?
-    assert deferred.dispatch_authorization == :deferred
+        refute deferred.dispatch_authorized?
+        assert deferred.dispatch_authorization == :deferred
+      end)
+
+    assert log =~ "reason={:missing_trigger_label_fetch, {:github, :timeout,"
     assert Agent.get(calls, & &1) == 1
+    refute_receive {:alert, %{name: "github.dispatch_authorization.missing_trigger_label"}}, 50
   end
 
   # Future regression guard: recovered labels must keep using the trusted-applier check.
