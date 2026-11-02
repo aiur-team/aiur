@@ -45,7 +45,7 @@ defmodule Aiur.ControlCall.Literal do
   defp literal({:%{}, _, pairs}, depth) when depth < @max_depth and is_list(pairs) do
     with {:ok, entries} <- convert_map_pairs(pairs, depth + 1),
          map <- Map.new(entries),
-         true <- valid_epic(map) do
+         true <- valid_epic(map) or valid_literal_epic_hue_map?(map) do
       {:ok, map}
     else
       _ -> {:error, :non_literal_argument}
@@ -79,7 +79,7 @@ defmodule Aiur.ControlCall.Literal do
 
   defp convert_map_pairs(pairs, depth) do
     Enum.reduce_while(pairs, {:ok, []}, fn
-      {key, value}, {:ok, acc} when is_atom(key) ->
+      {key, value}, {:ok, acc} when is_atom(key) or is_binary(key) ->
         case literal(value, depth) do
           {:ok, converted} -> {:cont, {:ok, [{key, converted} | acc]}}
           error -> {:halt, error}
@@ -153,6 +153,13 @@ defmodule Aiur.ControlCall.Literal do
   defp valid?(value, :ticket_id_strings), do: is_list(value) and length(value) in 1..200 and Enum.all?(value, &ticket_id_string?/1)
   defp valid?(value, :executor_env), do: is_list(value) and Enum.all?(value, &valid_executor_env_entry?/1)
   defp valid?(value, :epic_list), do: is_list(value) and value != [] and Enum.all?(value, &valid_epic/1)
+  defp valid?(value, :epic_hue_map) when is_map(value), do: Enum.all?(value, fn {key, hue} -> is_binary(key) and key != "" and (valid?(hue, {:range, 0, 359}) or valid?(hue, :gruvbox_name)) end)
+  defp valid?(_value, :epic_hue_map), do: false
+
+  defp valid?(value, :gruvbox_name),
+    do:
+      value in ~w(red green yellow blue purple aqua orange bright-red bright-green bright-yellow bright-blue bright-purple bright-aqua bright-orange faded-red faded-green faded-yellow faded-blue faded-purple faded-aqua faded-orange)
+
   defp valid?(value, :quarter_hour), do: valid_quarter_hour?(value)
   defp valid?(value, :estimate_reason), do: is_binary(value) and String.length(value) in 1..500 and not String.match?(value, ~r/[\x00-\x1F\x7F]/)
   defp valid?(value, :estimate_actor), do: is_binary(value) and byte_size(value) in 1..64 and Regex.match?(~r/^[A-Za-z0-9._:@-]+$/, value)
@@ -164,6 +171,15 @@ defmodule Aiur.ControlCall.Literal do
     do: map_size(epic) == 2 and is_binary(key) and key != "" and is_binary(label) and label != ""
 
   defp valid_epic(_epic), do: false
+
+  defp valid_literal_epic_hue_map?(map) when map_size(map) in 1..200 do
+    Enum.all?(map, fn {key, hue} ->
+      is_binary(key) and Regex.match?(~r/^[a-z0-9][a-z0-9-]{0,63}$/, key) and
+        (valid?(hue, {:range, 0, 359}) or valid?(hue, :gruvbox_name))
+    end)
+  end
+
+  defp valid_literal_epic_hue_map?(_), do: false
 
   defp valid_quarter_hour?(value) when is_binary(value) do
     if Regex.match?(~r/^[0-9]{1,3}(\.(0|00|25|5|50|75))?$/, value) do

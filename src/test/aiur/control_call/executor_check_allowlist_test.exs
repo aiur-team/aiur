@@ -25,4 +25,12 @@ defmodule Aiur.ControlCall.ExecutorCheckAllowlistTest do
     assert {:error, :option_not_allowed} =
              ControlCall.parse(~s|Aiur.AgentControlCLI.executor_check(json: true, repo_root: "/repo", harness: "claude")|, remote: false)
   end
+
+  test "feature color options accept literal Gruvbox names and numeric hues" do
+    assert {:ok,
+            %{
+              args: [[op: :edit, slug: "intake", epic_hues: %{"f-intake" => "bright-red", "ready" => 215}]]
+            }} =
+             ControlCall.parse(~s|Aiur.AgentControlCLI.feature(op: :edit, slug: "intake", epic_hues: %{"f-intake" => "bright-red", "ready" => 215})|, remote: false)
+  end
 end

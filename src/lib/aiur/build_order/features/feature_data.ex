@@ -1,6 +1,29 @@
 defmodule Aiur.BuildOrder.Features.FeatureData do
   @moduledoc false
   @hues [175, 55, 285, 128, 232, 18, 330, 80, 250, 150, 272]
+  @palette [
+    {"red", 8},
+    {"green", 120},
+    {"yellow", 55},
+    {"blue", 215},
+    {"purple", 280},
+    {"aqua", 170},
+    {"orange", 25},
+    {"bright-red", 4},
+    {"bright-green", 124},
+    {"bright-yellow", 59},
+    {"bright-blue", 219},
+    {"bright-purple", 284},
+    {"bright-aqua", 174},
+    {"bright-orange", 29},
+    {"faded-red", 0},
+    {"faded-green", 116},
+    {"faded-yellow", 51},
+    {"faded-blue", 211},
+    {"faded-purple", 276},
+    {"faded-aqua", 166},
+    {"faded-orange", 21}
+  ]
   @editable [:label, :hue, :from, :to, :public_ref, :epics]
 
   @spec source?(term()) :: boolean()
@@ -29,8 +52,82 @@ defmodule Aiur.BuildOrder.Features.FeatureData do
   end
 
   @spec epic?(term()) :: boolean()
-  def epic?(%{key: key, label: label} = epic), do: map_size(epic) == 2 and epic_key?(key) and text?(label, 80)
+  def epic?(%{key: key, label: label} = epic),
+    do:
+      Map.keys(epic) -- [:key, :label, :hue, :color] == [] and epic_key?(key) and text?(label, 80) and (not Map.has_key?(epic, :hue) or hue?(epic.hue)) and
+        (not Map.has_key?(epic, :color) or gruvbox_hue(epic.color) != :error)
+
   def epic?(_), do: false
+
+  @spec gruvbox_hue(term()) :: {String.t(), non_neg_integer()} | :error
+  def gruvbox_hue(name) when is_binary(name), do: Enum.find(@palette, :error, fn {candidate, _} -> candidate == name end)
+  def gruvbox_hue(_), do: :error
+
+  @spec palette_hue(term()) :: {:ok, non_neg_integer()} | :error
+  def palette_hue(name) do
+    case gruvbox_hue(name) do
+      {^name, hue} -> {:ok, hue}
+      _ -> :error
+    end
+  end
+
+  @spec epic_palette_name(map()) :: String.t() | nil
+  def epic_palette_name(%{color: color}) when is_binary(color), do: color
+
+  def epic_palette_name(%{hue: hue}) when is_integer(hue) do
+    case Enum.find(@palette, fn {_name, candidate} -> candidate == hue end) do
+      {name, _hue} -> name
+      nil -> nil
+    end
+  end
+
+  def epic_palette_name(_epic), do: nil
+
+  @spec used_epic_colors(list(), map()) :: [String.t()]
+  def used_epic_colors(general, features) do
+    general_colors = Enum.with_index(general) |> Enum.map(fn {epic, index} -> Map.get(epic, :color) || palette_name(index) end)
+
+    features
+    |> Enum.sort_by(fn {slug, feature} -> {Map.get(feature, :created_at, Map.get(feature, :from)), slug} end)
+    |> Enum.reduce(MapSet.new(general_colors), fn {_slug, feature}, used ->
+      feature.epics |> assign_epic_colors(MapSet.to_list(used)) |> add_epic_colors(used)
+    end)
+    |> MapSet.to_list()
+  end
+
+  @spec assign_epic_colors([map()]) :: [map()]
+  def assign_epic_colors(epics), do: assign_epic_colors(epics, [])
+
+  @spec assign_epic_colors([map()], [String.t()]) :: [map()]
+  def assign_epic_colors(epics, used) do
+    used = MapSet.new(used)
+    Enum.map_reduce(epics, used, &assign_epic_color/2) |> elem(0)
+  end
+
+  defp assign_epic_color(epic, taken) do
+    if Map.has_key?(epic, :hue) or Map.has_key?(epic, :color),
+      do: {epic, mark_epic_color_used(epic, taken)},
+      else: assign_next_epic_color(epic, taken)
+  end
+
+  defp mark_epic_color_used(epic, taken) do
+    case epic_palette_name(epic) do
+      nil -> taken
+      name -> MapSet.put(taken, name)
+    end
+  end
+
+  defp add_epic_colors(epics, used), do: Enum.reduce(epics, used, &add_epic_color/2)
+  defp add_epic_color(epic, used), do: maybe_add_epic_color(epic_palette_name(epic), used)
+  defp maybe_add_epic_color(nil, used), do: used
+  defp maybe_add_epic_color(name, used), do: MapSet.put(used, name)
+
+  defp assign_next_epic_color(epic, taken) do
+    case Enum.find(@palette, fn {name, _} -> not MapSet.member?(taken, name) end) do
+      {name, hue} -> {Map.merge(epic, %{color: name, hue: hue}), MapSet.put(taken, name)}
+      nil -> {epic, taken}
+    end
+  end
 
   @spec create(term(), term(), DateTime.t(), list(), map()) :: {:ok, map()} | {:error, term()}
   def create(slug, input, now, general_epics, features) when is_map(input) do
@@ -45,7 +142,7 @@ defmodule Aiur.BuildOrder.Features.FeatureData do
         label: input.label,
         hue: hue,
         hue_source: if(is_nil(input[:hue]), do: if(existing, do: existing.hue_source, else: :auto), else: :explicit),
-        epics: default(input[:epics], [%{key: "f-" <> slug, label: input.label}]),
+        epics: create_epics(input, existing, general_epics, features, slug),
         from: default(input[:from], if(existing, do: existing.created_at, else: now)),
         to: default(input[:to], :none),
         baseline: :none,
@@ -100,6 +197,34 @@ defmodule Aiur.BuildOrder.Features.FeatureData do
     Enum.find(rotated, hd(rotated), &(&1 not in used))
   end
 
+  defp create_epics(input, existing, general, features, slug) do
+    case input[:epics] do
+      nil when not is_nil(existing) ->
+        assign_epic_colors(existing.epics, used_epic_colors(general, Map.delete(features, slug)))
+
+      nil ->
+        assign_epic_colors([%{key: "f-" <> slug, label: input.label}], used_epic_colors(general, features))
+
+      requested ->
+        epics = preserve_epic_metadata(requested, existing)
+        assign_epic_colors(epics, used_epic_colors(general, Map.delete(features, slug)))
+    end
+  end
+
+  defp preserve_epic_metadata(requested, existing) do
+    previous = if existing, do: existing.epics, else: []
+    Enum.map(requested, fn epic -> merge_epic_metadata(epic, previous) end)
+  end
+
+  defp merge_epic_metadata(epic, previous) do
+    case Enum.find(previous, &(&1.key == epic.key)) do
+      nil -> epic
+      stored -> Map.merge(stored, epic)
+    end
+  end
+
+  defp palette_name(index), do: elem(Enum.at(@palette, rem(index, length(@palette))), 0)
+
   defp fields(feature) do
     cond do
       not text?(feature.label, 80) -> {:error, :invalid_label}
@@ -121,8 +246,16 @@ defmodule Aiur.BuildOrder.Features.FeatureData do
       keys = Enum.map(epics, & &1.key)
 
       case Enum.find(changes, &(&1.key not in keys)) do
-        nil -> {:ok, Enum.map(epics, fn epic -> Enum.find(changes, epic, &(&1.key == epic.key)) end)}
-        epic -> {:error, {:unknown_epic, epic.key}}
+        nil ->
+          {:ok,
+           Enum.map(epics, fn epic ->
+             requested = Enum.find(changes, epic, &(&1.key == epic.key))
+             merged = Map.merge(epic, requested)
+             if Map.has_key?(requested, :hue) and not Map.has_key?(requested, :color), do: Map.delete(merged, :color), else: merged
+           end)}
+
+        epic ->
+          {:error, {:unknown_epic, epic.key}}
       end
     end
   end

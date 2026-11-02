@@ -24,6 +24,7 @@ defmodule Aiur.ControlCall.Allowlist do
     source: {:enum, ["backfill-agent"]},
     epics: :epic_list,
     add_epics: :epic_list,
+    epic_hues: :epic_hue_map,
     json: :boolean
   }
   @epic_options %{
