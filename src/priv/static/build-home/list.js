@@ -157,11 +157,10 @@ export function featureListHTML(D, state, now) {
       : `<div class="fp-row" data-feature="${esc(b.key)}">${cells}</div>`;
   };
   const project = D.repo?.url ? D.repo.url.replace(/\/$/, '').split('/').pop() : 'Project';
-  const date = new Date(now).toISOString().slice(0, 10);
+  const date = new Date(now).toLocaleDateString('en-CA');
   const subtitle = known ? `${merged} of ${total} tickets merged - ${date}` : `Feature progress unavailable - ${date}`;
-  const sort = `<label class="fp-sort">Sort <select data-fsort>${FSORTS.map(([key, label]) => `<option value="${key}"${(state.fsort || 'goal') === key ? ' selected' : ''}>${label}</option>`).join('')}</select></label>`;
   const all = known ? `<div class="fp-row fp-all"><span class="fp-name">All features</span>${bar(merged, total, ' all')}<span class="fp-count">${merged}/${total}</span></div>` : '';
-  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(project)} - build progress</h1><p>${esc(subtitle)}</p></div>${sort}</header><div class="fp-rows">${sorted.map(row).join('') || '<p>No features with tickets</p>'}</div>${all}</article>`;
+  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(project)} - build progress</h1><p>${esc(subtitle)}</p></div></header><div class="fp-rows">${sorted.map(row).join('') || '<p>No features with tickets</p>'}</div>${all}</article>`;
 }
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
@@ -203,10 +202,6 @@ function bindOnce(vp) {
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
     const feature = e.target.closest('button.fp-row'); if (feature) focusFeature(feature.dataset.feature);
-  });
-  ctx.life.on(vp, 'change', e => {
-    if (!e.target.matches('[data-fsort]')) return;
-    S.fsort = e.target.value; writeURL(); fx.renderList();
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;

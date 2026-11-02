@@ -38,16 +38,31 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
     rows = %{1 => closed([], :completed, merged_at: ago(1), pr_number: 9), 2 => open(["feature:bo-7"])}
     parts = parts(rows, registry: [{"bo-7", "BO: Seven"}, {"bo-8", "BO: Empty"}], owners: %{1 => %{feature: "bo-7"}})
 
-    assert FeatureBars.compute(parts, @now) == [%{key: "bo-7", label: "BO: Seven", merged: 1, total: 2}]
+    assert FeatureBars.compute(parts, @now) == []
   end
 
   test "Build Order root labels show the distinguishing suffix" do
     rows = %{1 => open(["feature:bo-7"])}
     parts = parts(rows, registry: [{"bo-7", "BO: Platform program 2026-10 — MP-E1 build queue (wave 0)"}])
 
-    assert [%{label: "MP-E1 build queue"}] = FeatureBars.compute(parts, @now)
+    assert FeatureBars.compute(parts, @now) == []
     lettered = parts(rows, registry: [{"bo-7", "BO: Platform program 2026-10 — MP-E8 home page (wave 0b)"}])
-    assert [%{label: "MP-E8 home page"}] = FeatureBars.compute(lettered, @now)
+    assert FeatureBars.compute(lettered, @now) == []
+  end
+
+  test "Build Order roots and their generated epics are not product feature rows" do
+    root = open(["build-order", "feature:bo-42"], 20) |> Map.put(:number, 42)
+    member = open(["feature:mp-e7", "feature:bo-42"], 10) |> Map.put(:number, 43)
+    parts = parts(%{42 => root, 43 => member})
+
+    assert FeatureBars.compute(parts, @now) == [%{key: "mp-e7", label: "Mp E7", merged: 0, total: 1}]
+  end
+
+  test "feature display names remove logical prefixes and title-case slug fallback" do
+    rows = %{1 => open(["feature:plain-slug"]), 2 => open(["feature:mp-e4"])}
+    parts = parts(rows, registry: [{"mp-e4", "MP-E1 build queue"}])
+
+    assert FeatureBars.compute(parts, @now) |> Enum.map(& &1.label) == ["Build Queue", "Plain Slug"]
   end
 
   test "a legacy persisted history row decodes without label descriptions" do
@@ -62,7 +77,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
     stale = %{1 => closed(["feature:newsletter"], :completed, merged_at: ago(60), closed_at: ago(60))}
 
     assert [%{key: "newsletter", merged: 1, total: 1}] = FeatureBars.compute(parts(recent), @now)
-    assert [%{key: "newsletter", label: "newsletter", merged: 1, total: 1}] = FeatureBars.compute(parts(stale), @now)
+    assert [%{key: "newsletter", label: "Newsletter", merged: 1, total: 1}] = FeatureBars.compute(parts(stale), @now)
   end
 
   test "configured goal order comes first, then features by their oldest ticket" do
