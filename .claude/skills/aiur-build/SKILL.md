@@ -203,6 +203,9 @@ collection per `product_features` group, with that group's lane epics and
 workstream icons, then assigns every published issue to exactly one collection
 and its planned lane epic. Re-running publication reconciles the same
 collections and membership.
+The publisher runs the product `aiur` command from `PATH`; set
+`AIUR_FEATURE_CLI` to an executable `aiur` or `aiurdev` path when it is not on
+`PATH` or the package's runtime instance must be selected explicitly.
 
 Promotion is deliberately not machinery: the Executor creates each issue with
 the corresponding `tickets/<ID>.md` content verbatim, records the returned

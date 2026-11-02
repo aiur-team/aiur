@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -217,10 +218,12 @@ class Publisher:
 
     @staticmethod
     def _resolve_cli() -> str:
-        command = shutil.which("aiur")
+        requested = os.environ.get("AIUR_FEATURE_CLI") or "aiur"
+        command = shutil.which(requested)
         if command is None:
             raise PublicationError(
-                "feature publication requires the product `aiur` command on PATH"
+                "feature publication requires an executable aiur command on PATH; "
+                "set AIUR_FEATURE_CLI to override it"
             )
         return command
 

@@ -1,6 +1,8 @@
 """Publication title constraints keep logical identity in the body."""
 
 import sys
+import json
+import tempfile
 import unittest
 from pathlib import Path, PurePosixPath
 from unittest.mock import patch
@@ -10,9 +12,11 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / "publication"))
 
 from publication_titles import has_logical_id_prefix  # noqa: E402
-from publication_context import feature_epics, product_features, published_feature_slug  # noqa: E402
+from publication_context import build_context, feature_epics, product_features, published_feature_slug  # noqa: E402
+from publication_client import PublicationError  # noqa: E402
 from publication_rendering_sections import _approved_ticket_titles, authority_preamble  # noqa: E402
 from publication_common import Report  # noqa: E402
+from validation_github_approved import ApprovedIssueExpectations  # noqa: E402
 
 
 class PublicationTitlesTest(unittest.TestCase):
@@ -82,6 +86,21 @@ class PublicationTitlesTest(unittest.TestCase):
         self.assertEqual([], report.errors)
         self.assertEqual({"OGM-024": manifest_title}, titles)
 
+    def test_publication_rejects_manifest_title_with_its_logical_id_prefix(self) -> None:
+        from test_publish_build_order_integration import prepare_example_pack
+
+        with tempfile.TemporaryDirectory() as directory:
+            build_path, publication_path, build, approved = prepare_example_pack(Path(directory))
+            ticket = build["tickets"][0]
+            ticket["title"] = f"{ticket['id']} — Prefixed title"
+            build_path.write_text(json.dumps(build), encoding="utf-8")
+            expected = ApprovedIssueExpectations(
+                {}, {ticket["id"]: ticket["title"]}, {},
+            )
+            with patch("publication_context.render_approved_build_order", return_value=expected):
+                with self.assertRaisesRegex(PublicationError, "must not start with a logical ID"):
+                    build_context(build_path, publication_path, approved, approved)
+
     def test_registration_creates_each_product_group_and_assigns_all_tickets(self) -> None:
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -135,10 +154,13 @@ class PublicationTitlesTest(unittest.TestCase):
         self.assertLessEqual(len(slug), 42)
 
     def test_feature_cli_runs_the_product_command_resolved_on_path(self) -> None:
+        import os
+
         from publication_operator import Publisher
 
         publisher = Publisher.__new__(Publisher)
         with (
+            patch.dict(os.environ, {"AIUR_FEATURE_CLI": ""}),
             patch("publication_operator.shutil.which", return_value="/usr/local/bin/aiur") as which,
             patch("publication_operator.subprocess.run") as run,
         ):
@@ -148,3 +170,16 @@ class PublicationTitlesTest(unittest.TestCase):
         which.assert_called_once_with("aiur")
         self.assertEqual("/usr/local/bin/aiur", run.call_args.args[0][0])
         self.assertEqual(["feature", "show"], run.call_args.args[0][1:])
+
+    def test_feature_cli_override_resolves_an_explicit_product_command(self) -> None:
+        import os
+
+        from publication_operator import Publisher
+
+        with (
+            patch.dict(os.environ, {"AIUR_FEATURE_CLI": "/custom/bin/aiurdev"}),
+            patch("publication_operator.shutil.which", return_value="/custom/bin/aiurdev") as which,
+        ):
+            self.assertEqual("/custom/bin/aiurdev", Publisher._resolve_cli())
+
+        which.assert_called_once_with("/custom/bin/aiurdev")
