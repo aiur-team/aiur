@@ -6,6 +6,7 @@ import { appendEntries, trimmedBottom, requestTail } from './conversation.js';
 
 const STICK = 60;
 let V = null, life = null, live = false, detach = null, atBottom = true;
+const rows = log => [...log.querySelectorAll('[data-k]')];
 export function disposeLive() {
   const off = detach; detach = null;
   life?.dispose(); life = null; V = null; live = false;
@@ -25,12 +26,13 @@ export function updateTyping() {
 export function appendLive(entries) {
   if (!V || !MS.t) return [];
   const { log } = V, stick = log.scrollHeight - log.scrollTop - log.clientHeight < STICK;
-  const anchor = stick ? null : [...log.children].find(el => el.offsetTop + el.offsetHeight > log.scrollTop);
-  const offset = anchor ? anchor.offsetTop - log.scrollTop : 0, eid = anchor?.dataset.eid;
+  const y = el => el.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop;
+  const anchor = stick ? null : rows(log).find(el => y(el) + el.offsetHeight > log.scrollTop);
+  const offset = anchor ? y(anchor) - log.scrollTop : 0, eid = anchor?.dataset.eid;
   const fresh = appendEntries(entries);
   if (!stick) {
-    const retained = anchor?.isConnected ? anchor : [...log.children].find(el => eid && el.dataset.eid === eid);
-    if (retained) log.scrollTop = retained.offsetTop - offset;
+    const retained = anchor?.isConnected ? anchor : rows(log).find(el => eid && el.dataset.eid === eid);
+    if (retained) log.scrollTop = y(retained) - offset;
   }
   if (fresh.length) {
     fresh.forEach(el => el.classList.add('in'));
@@ -54,11 +56,12 @@ export function syncView() {
 export function buildMap() {
   if (!V) return;
   const { log, map, mm } = V, H0 = log.scrollHeight, s = Math.min(0.14, map.clientHeight / Math.max(1, H0));
+  const items = rows(log);
   V.s = s;
   let html = '';
-  for (let i = 0; i < log.children.length; i++) {
-    const el = log.children[i], k = el.dataset.k || el.dataset.mapKind; if (!k) continue;
-    const top = (el.offsetTop * s).toFixed(1);
+  for (let i = 0; i < items.length; i++) {
+    const el = items[i], k = el.dataset.k; if (!k) continue;
+    const top = ((el.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop) * s).toFixed(1);
     if (k === 'ev') html += '<button type="button" tabindex="-1" class="mm-e' + (el.classList.contains('bad') ? ' bad' : '') + '" data-i="' + i + '" style="top:' + top + 'px;--eh:' + esc(el.style.getPropertyValue('--eh')) + '" aria-label="' + esc(el.dataset.label) + '"></button>';
     else {
       const h = Math.max(1.5, el.offsetHeight * s - 1.5).toFixed(1);
@@ -102,14 +105,18 @@ export function wireLive() {
     if (trimmedBottom()) requestTail();
     else log.scrollTo({ top: log.scrollHeight, behavior: rmOn() ? 'auto' : 'smooth' });
   });
-  const source = tick => tick && log.children[+tick.dataset.i]?.dataset.k === 'ev' ? log.children[+tick.dataset.i] : null;
+  const source = tick => {
+    const row = tick ? rows(log)[+tick.dataset.i] : null;
+    return row?.dataset.k === 'ev' ? row : null;
+  };
   const toY = ev => { if (V.s > 0) log.scrollTop = (ev.clientY - map.getBoundingClientRect().top) / V.s - log.clientHeight / 2; };
   let drag = false;
   life.on(map, 'pointerdown', ev => {
     const tick = ev.target.closest('.mm-e'), el = source(tick);
     if (tick) {
       if (el) {
-        log.scrollTo({ top: Math.max(0, el.offsetTop - 16), behavior: rmOn() ? 'auto' : 'smooth' });
+        const top = Math.max(0, el.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop - 16);
+        log.scrollTo({ top, behavior: rmOn() ? 'auto' : 'smooth' });
         el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
       }
       return;
@@ -127,7 +134,7 @@ export function wireLive() {
   });
   for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) life.on(map, event, () => { drag = false; });
   life.on(map, 'pointerleave', () => tip.classList.remove('show'));
-  life.observe(log, scheduleMap); life.observe(map, scheduleMap);
+  life.observe(log, scheduleMap); life.observe(log.querySelector('.cv-preamble'), scheduleMap); life.observe(map, scheduleMap);
   scheduleMap();
 }
 Object.assign(fx, { appendLive, appendItem, conversationApplied, scheduleMap, updateTyping, disposeLive });

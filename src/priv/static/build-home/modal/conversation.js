@@ -56,14 +56,15 @@ function rebuildPreamble(log) {
     existing.replaceWith(...Array.from(content.children));
   }
   const children = Array.from(log.children);
-  const firstBreakpoint = children.findIndex(el => el.dataset.ev === 'milestone');
+  const firstBreakpoint = children.findIndex(el => el.matches('[data-ev="milestone"]'));
   const preambleEnd = firstBreakpoint < 0 ? children.length : firstBreakpoint;
   if (preambleEnd) wrapPreamble(log, children.slice(0, preambleEnd));
 }
 function wrapPreamble(log, children) {
   if (!children.length) return;
-  const details = document.createElement('details'); details.className = 'cv-preamble'; details.dataset.mapKind = 'preamble';
-  const summary = document.createElement('summary'); summary.textContent = 'Reading ticket';
+  const details = document.createElement('details'); details.className = 'cv-preamble';
+  details.addEventListener('toggle', () => requestAnimationFrame(() => fx.scheduleMap()));
+  const summary = document.createElement('summary'); summary.tabIndex = 0; summary.textContent = 'Reading ticket';
   const content = document.createElement('div'); content.className = 'cv-preamble-content';
   log.insertBefore(details, children[0]);
   children.forEach(child => content.append(child));
