@@ -449,10 +449,9 @@ the host's online scheduler count. Cgroup paths are resolved for each sample
 file read rather than cached, which adds small per-tick overhead.
 
 Keep the CPU PSI hard ceiling below saturation so the daemon retains scheduler
-time for control commands and event delivery. A cap near 90% is unsafe: an
-observed host at 86–90% PSI had `status` taking 8–11 seconds and `alerts`
-timing out. Start with a hard ceiling around 70–80% and leave headroom for the
-daemon itself; lower the adaptive target when the daemon remains CPU-bound.
+time for control commands and event delivery. At 86–90% PSI, `status` took 8–11
+seconds and `alerts` timed out. Start with a 70–80% ceiling and lower the
+adaptive target if the daemon remains CPU-bound.
 
 With a readable cgroup memory limit, dispatch uses
 `memory.current - inactive_file` against `agent.cgroup_memory_threshold`.
