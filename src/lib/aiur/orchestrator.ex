@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator do
     TicketTransition
   }
 
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
+  alias Aiur.Orchestrator.{Calls, Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
 
@@ -481,7 +481,7 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
-  def handle_cast(message, state), do: Aiur.Orchestrator.Calls.handle_cast(message, state)
+  def handle_cast(message, state), do: Calls.handle_cast(message, state)
 
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()

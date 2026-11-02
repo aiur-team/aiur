@@ -157,11 +157,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
     assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
 
-    state = %State{
-      running: %{
-        "runtime-key" => %{identifier: issue.identifier, issue: issue, pid: dead_pid}
-      }
-    }
+    state = %State{}
+    assert not State.alive?(dead_pid)
 
     {result, [%Issue{state: "todo"}]} =
       reconcile(state, [issue],
