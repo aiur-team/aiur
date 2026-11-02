@@ -260,18 +260,8 @@ defmodule VoiceConverse.Session do
 
   defp handle_provider_event(%kind{} = event, state)
        when kind in [Events.AgentText, Events.AgentTextTiming, Events.AgentAudio, Events.Interruption] do
-    {state, flushed} =
-      if match?(%Events.Interruption{}, event),
-        do: TextTiming.flush_stream_text(state, event.turn_id),
-        else: {state, []}
-
-    Enum.each(flushed, &broadcast(state, &1))
-
-    case TextTiming.handle(state, event) do
+    case VoiceConverse.Session.StreamText.handle_and_broadcast(state, event) do
       {:ok, state} ->
-        {state, outgoing} = TextTiming.broadcast_event(state, event)
-        Enum.each(outgoing, &broadcast(state, &1))
-
         next =
           if match?(%Events.Interruption{}, event) or match?(%Events.AgentText{final?: true}, event),
             do: :listening,
@@ -390,14 +380,12 @@ defmodule VoiceConverse.Session do
   defp finish_after_close(%{finished?: true} = state, _reason), do: state
 
   defp finish_after_close(state, reason) do
-    {state, flushed} = TextTiming.flush_all_stream_text(state)
-    Enum.each(flushed, &broadcast(state, &1))
     Runtime.cancel_timer(state.idle_timer)
     Runtime.cancel_timer(state.max_timer)
     Runtime.cancel_timer(state.transport_timer)
     duration_s = max(DateTime.diff(state.clock.(), state.started_at), 0)
 
-    with {:ok, state} <- TextTiming.finish(state),
+    with {:ok, state} <- VoiceConverse.Session.StreamText.finish(state),
          {:ok, state} <- VoiceConverse.Session.Consult.note_session_end(state),
          {:ok, state} <-
            persist(state, %{type: "session_ended", reason: to_string(reason), at: now(state), duration_s: duration_s}),
