@@ -460,19 +460,19 @@ Paths are repo-relative. Counts were taken at `629b126ce3`.
 
 ## Ticket Breakdown
 
-Execution order; one ticket per unit. Labels on every new ticket: `agent:todo`, `enhancement`, a `complexity:N` label, and a priority label.
+Execution order; one ticket per unit; `blocked_by` links are set on GitHub. Labels on every new ticket: `agent:todo`, `enhancement`, a `complexity:N` label, and a priority label.
 
 | Order | Unit | Ticket | Priority | Complexity | Blocked by |
 |---|---|---|---|---|---|
 | 1 | U1 | #7489 (kept, rescoped by comment) | 1 | 4 | — |
-| 2 | U2 | Lanes in config, CLI and agent tools | 2 | 3 | — |
-| 3 | U6 | Queue feature entries | 2 | 3 | — |
-| 4 | U3 | Lanes in dashboard and Stream Deck | 2 | 3 | U2 |
-| 5 | U4 | Epic records and root import | 2 | 4 | U2 |
-| 6 | U8 | Skills by epic | 2 | 2 | U1, U4 |
-| 7 | U5 | Features view grouped by epic | 2 | 3 | U4, #7474 |
-| 8 | U7 | Queue epic entries | 2 | 3 | U4, U6 |
-| 9 | U9 | Skills and docs vocabulary | 2 | 2 | U2, U4, #7491 |
+| 2 | U2 | #7493 Lanes in config, CLI and agent tools | 2 | 3 | — |
+| 3 | U6 | #7494 Queue feature entries | 2 | 3 | — |
+| 4 | U3 | #7495 Lanes in dashboard and Stream Deck | 2 | 3 | U2 |
+| 5 | U4 | #7496 Epic records and root import | 2 | 4 | U2 |
+| 6 | U8 | #7497 Skills by epic | 2 | 2 | U1, U4 |
+| 7 | U5 | #7498 Features view grouped by epic | 2 | 3 | U4, #7474 |
+| 8 | U7 | #7499 Queue epic entries | 2 | 3 | U4, U6 |
+| 9 | U9 | #7500 Skills and docs vocabulary | 2 | 2 | U2, U4, #7491 |
 
 Existing tickets: #7489 is U1. #7490 is kept and resequenced: its `build-order.v1` contract names nodes by epic, feature and lane, and its graph fields wait on U4. #7491 is kept; U9 follows it.
 
