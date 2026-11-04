@@ -1,4 +1,11 @@
 {
   "version": 1,
-  "entries": []
+  "entries": [
+    {
+      "advisory": "EEF-CVE-2026-118391",
+      "reason": "Temporary: unbounded Ecto query cache growth (fixed in 3.14.3). Allowed for 7 days while #7501 bumps ecto from 3.13.6; every PR's workflow security check fails until then.",
+      "expires": "2026-11-11",
+      "accept_high": true
+    }
+  ]
 }
