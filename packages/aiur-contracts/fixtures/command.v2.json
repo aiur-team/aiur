@@ -42,6 +42,7 @@
   "active_answer": null,
   "native": null,
   "options": [],
+  "media": [],
   "context": {
     "long_context_markdown": null,
     "short_summary": "Scope"

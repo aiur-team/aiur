@@ -1,0 +1,79 @@
+/* Typed Command media: prompt, option and answer items share one presentation. */
+
+.command-media-group {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+}
+
+.command-media {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--surface);
+}
+
+.command-media img,
+.command-media video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.4rem;
+  background: var(--bg);
+}
+
+.command-media video {
+  aspect-ratio: 16 / 9;
+}
+
+.command-media audio {
+  width: 100%;
+}
+
+.command-media__caption {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.command-media__kind {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.command-media__unavailable {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.4rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.command-media__unavailable strong {
+  color: var(--fg);
+  font-size: 0.78rem;
+}
+
+.command-media video a,
+.command-media audio a {
+  color: var(--good-ink);
+  font-size: 0.74rem;
+}
+
+.option-card .command-media-group {
+  margin-top: 0.45rem;
+}

@@ -3,6 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
   use Phoenix.Component
 
+  alias AiurWeb.Components.CommandMedia
+
   alias AiurWeb.OperatorControlCenter.{
     DecisionAction,
     DecisionPath,
@@ -55,6 +57,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
           <.detail_block title="Context">
             <p :if={present?(@decision.context.short)} class="context-summary">{@decision.context.short}</p>
             <div class="markdown-source">{@decision.context.long_markdown || "The agent did not provide deeper context for this Command."}</div>
+          </.detail_block>
+
+          <.detail_block :if={Map.get(@decision, :media, []) != []} title="Media">
+            <CommandMedia.command_media items={Map.get(@decision, :media, [])} decision_id={@decision.decision_id} label="Command media" />
           </.detail_block>
 
           <.detail_block :if={present?(@decision.consequence_of_delay)} title={if @decision.blocking, do: "Blocking reason", else: "If no one answers"}>
