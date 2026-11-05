@@ -173,7 +173,7 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.reasoning_content_replay | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.text_tool_fallback | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
-    # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.openrouter_trace | boolean | true for openrouter; false elsewhere | Attaches OpenRouter Broadcast identity. |
+    # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.openrouter_trace | boolean | true for openrouter; false elsewhere | Adds OpenRouter Broadcast identity. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.openrouter_metadata | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength

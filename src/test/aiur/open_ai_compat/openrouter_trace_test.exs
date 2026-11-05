@@ -1,8 +1,10 @@
 defmodule Aiur.OpenAICompat.OpenRouterTraceTest do
   use ExUnit.Case, async: false
   use Aiur.TestSupport.OpenAICompatAgent
+  alias Aiur.Config.Overrides
   alias Aiur.OpenAICompat.CodingAgent
   alias Aiur.TrackerIdentity
+  alias Ecto.UUID
 
   setup do
     previous = System.get_env("AIUR_INSTANCE_KEY")
@@ -19,7 +21,7 @@ defmodule Aiur.OpenAICompat.OpenRouterTraceTest do
     {:ok, queue} = Agent.start_link(fn -> [tool_response(), done_response(), done_response()] end)
     session = start(workspace, queue_fun(queue, self()), "openrouter", %{"openrouter_trace" => true})
     assert <<"openai-compat-", uuid::binary>> = session.thread_id
-    assert {:ok, ^uuid} = Ecto.UUID.cast(uuid)
+    assert {:ok, ^uuid} = UUID.cast(uuid)
     identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "aiur-team", repository: "aiur", provider_id: "node-1440", identifier: "1440", reason: nil}
     ticket = %{issue() | tracker_identity: identity, title: "PRIVATE TITLE", description: "PRIVATE DESCRIPTION", labels: ["complexity:2"]}
     assert {:ok, _} = CodingAgent.run_turn(session, "PRIVATE PROMPT", ticket, [])
@@ -39,7 +41,7 @@ defmodule Aiur.OpenAICompat.OpenRouterTraceTest do
              "model" => "deepseek-v4-flash",
              "complexity" => "2",
              "environment" => "trace-test",
-             "release" => Aiur.Config.Overrides.build_version()
+             "release" => Overrides.build_version()
            }
 
     assert second["trace"]["trace_id"] == first["trace"]["trace_id"]

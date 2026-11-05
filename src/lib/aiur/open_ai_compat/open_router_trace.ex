@@ -2,6 +2,7 @@ defmodule Aiur.OpenAICompat.OpenRouterTrace do
   @moduledoc false
 
   alias Aiur.{Issue, TrackerIdentity}
+  alias Aiur.Config.{InstanceKey, Overrides}
 
   @spec start_turn(map(), map(), Issue.t()) :: map()
   def start_turn(state, session, issue) do
@@ -40,7 +41,7 @@ defmodule Aiur.OpenAICompat.OpenRouterTrace do
       "trace_id" => "#{session.thread_id}:#{turn}",
       "trace_name" => "##{issue.identifier} turn #{turn}",
       "environment" => environment,
-      "release" => Aiur.Config.Overrides.build_version(),
+      "release" => Overrides.build_version(),
       "issue_identifier" => issue.identifier,
       "backend" => to_string(config.backend),
       "model" => config.model,
@@ -61,7 +62,7 @@ defmodule Aiur.OpenAICompat.OpenRouterTrace do
   end
 
   defp environment do
-    case Aiur.Config.InstanceKey.current() do
+    case InstanceKey.current() do
       {:ok, key} -> key
       {:error, _} -> "default"
     end
