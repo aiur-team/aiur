@@ -98,6 +98,18 @@ test('epic, feature and lane are distinct node fields', () => {
   }
 });
 
+test('every edge endpoint names a ticket id or a gate key', () => {
+  const known = new Set([
+    ...buildOrder.tickets.map((ticket) => ticket.id),
+    ...buildOrder.gates.map((gate) => gate.key),
+  ]);
+  for (const edge of buildOrder.edges) {
+    for (const endpoint of [edge.from, edge.to]) {
+      assert.ok(known.has(endpoint), `edge endpoint ${endpoint} is not a node or gate in this document`);
+    }
+  }
+});
+
 test('waves cover every ticket exactly once', () => {
   const waved = buildOrder.waves.flatMap((wave) => wave.tickets).sort();
   const tickets = buildOrder.tickets.map((ticket) => ticket.id).sort();

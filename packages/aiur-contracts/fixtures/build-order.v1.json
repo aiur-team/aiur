@@ -408,8 +408,8 @@
       "source": "pack"
     },
     {
-      "from": "BO-001",
-      "to": "7490",
+      "from": "BO-006",
+      "to": "BO-002",
       "kind": "depends_on",
       "state": "cleared",
       "source": "tracker"

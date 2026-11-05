@@ -51,6 +51,8 @@ features, lanes, tickets, typed edges (`depends_on`, `serializes_with`, `suggest
 `gates`), gates, waves, critical path and progress. Nodes carry `epic`, `feature` and `lane` as three
 distinct fields, and any unavailable source publishes `status: "unknown"` with a reason instead of an
 empty graph. `build-order-unavailable.v1.json` is the degraded golden fixture.
+Every edge endpoint is a ticket `id` or a gate `key` from the same document, never a tracker number,
+and `state` is set on `depends_on` edges only.
 
 `command.v2` uses the existing read-API shape: optional `payload_version: 2`,
 without adding contract markers to the established endpoint. The golden fixture
