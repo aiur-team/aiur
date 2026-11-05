@@ -301,7 +301,7 @@ defmodule Aiur.DecisionProjection do
       "reversibility" => Atom.to_string(decision.reversibility),
       "question" => decision.question,
       "context" => stringify_keys(decision.context),
-      "options" => Enum.map(decision.options, &option_to_json_safe/1),
+      "options" => Media.options_to_json_safe(decision.options),
       "recommendation" => decision.recommendation && stringify_keys(decision.recommendation),
       "consequence_of_delay" => decision.consequence_of_delay,
       "artifacts" => Enum.map(decision.artifacts, &stringify_artifact/1),
@@ -327,7 +327,7 @@ defmodule Aiur.DecisionProjection do
     }
     |> then(fn raw -> if decision.overrides == [], do: raw, else: Map.put(raw, "overrides", Overrides.public(decision)) end)
     |> Map.merge(JSONSafe.normalize(Facts.public(decision)))
-    |> maybe_put_media(decision.media)
+    |> Media.put_snapshot_media(decision.media)
     |> maybe_put_legacy_attention(decision.legacy_attention)
     |> maybe_put_provenance(decision.provenance)
   end
@@ -432,24 +432,6 @@ defmodule Aiur.DecisionProjection do
   defp timestamp(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
 
   defp stringify_artifact(%{kind: kind, value: value}), do: %{"kind" => Atom.to_string(kind), "value" => value}
-
-  # An option without media keeps exactly the shape it had before the media
-  # contract existed, so a text-only request snapshot stays byte-identical.
-  defp option_to_json_safe(option) do
-    json = stringify_keys(option)
-
-    case Map.get(option, :media) || Map.get(option, "media") do
-      media when is_list(media) and media != [] -> Map.put(json, "media", Media.to_json_safe(media))
-      _empty_or_missing -> Map.delete(json, "media")
-    end
-  end
-
-  # A text-only Decision keeps the exact persisted shape it had before the
-  # media contract, so older snapshots and newer ones replay identically.
-  defp maybe_put_media(map, media) when is_list(media) and media != [],
-    do: Map.put(map, "media", Media.to_json_safe(media))
-
-  defp maybe_put_media(map, _media), do: map
 
   defp maybe_put_legacy_attention(map, nil), do: map
 

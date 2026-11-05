@@ -411,6 +411,38 @@ defmodule Aiur.Commands.Media do
   defp public_locator(%{"kind" => "url", "value" => value}), do: %{"kind" => "url", "value" => value}
   defp public_locator(locator), do: %{"kind" => "attachment", "attachment_id" => attachment_id(locator)}
 
+  @doc """
+  Durable option list for the canonical request snapshot.
+
+  An option without media keeps exactly the shape it had before this contract
+  existed, so a text-only request snapshot stays byte-identical.
+  """
+  @spec options_to_json_safe([map()]) :: [map()]
+  def options_to_json_safe(options) when is_list(options) do
+    Enum.map(options, fn option ->
+      json = stringify(option)
+
+      case fetch(option, :media) do
+        media when is_list(media) and media != [] -> Map.put(json, "media", to_json_safe(media))
+        _empty_or_missing -> Map.delete(json, "media")
+      end
+    end)
+  end
+
+  def options_to_json_safe(_options), do: []
+
+  @doc """
+  Adds a snapshot's prompt media to an already-stringified map.
+
+  A text-only Decision keeps the exact persisted shape it had before this
+  contract, so older snapshots and newer ones replay identically.
+  """
+  @spec put_snapshot_media(map(), term()) :: map()
+  def put_snapshot_media(map, media) when is_list(media) and media != [],
+    do: Map.put(map, "media", to_json_safe(media))
+
+  def put_snapshot_media(map, _media), do: map
+
   @doc "Durable, JSON-safe storage shape; keeps the validated artifact reference."
   @spec to_json_safe(term()) :: [map()]
   def to_json_safe(items) when is_list(items) do
@@ -471,6 +503,15 @@ defmodule Aiur.Commands.Media do
 
     Enum.filter(prompt ++ option_media ++ answers, &is_map/1)
   end
+
+  # Projection's own stringification, applied to a durable or struct option.
+  defp stringify(option) when is_map(option) do
+    option
+    |> Enum.map(fn {key, value} -> {to_string(key), value} end)
+    |> Map.new()
+  end
+
+  defp stringify(_option), do: %{}
 
   defp fetch(item, key) when is_map(item), do: Map.get(item, key, Map.get(item, Atom.to_string(key)))
   defp fetch(_item, _key), do: nil
