@@ -43,6 +43,25 @@ questions classified as history or reasoning; fresh questions require queued ask
 If the send times out, delivery is uncertain: the question remains open until the
 operator clears it, because the agent may still receive it.
 
+## Commands
+
+A host that supplies `VoiceConverse.Ports.CommandSource` gets two Command tools.
+`list_open_commands` renders each open question with its id and options.
+`answer_command` submits one selection: it requires a Command `id` and the exact
+`choice` text, uses a strict schema with no extra properties, and calls
+`answer(target, id, choice, idempotency_key)` under the 300 ms `:answer`
+deadline. The idempotency key is a SHA-256 hash of the provider tool-call
+identity and the Command id, so a provider retry of the same call cannot answer
+twice and no provider identifier reaches the host.
+
+Results stay neutral. Success is `Command answered.`; a stale, conflicting or
+already-answered Command is `That Command is no longer open.`; an unusable
+selection is `That is not one of this Command's options.`; an absent,
+unsupported, slow or crashing port is `Command answers unavailable.` Refusals
+return `is_error: true` and never carry the host's reason term. Neither tool is
+advertised unless `command_source` is set, and `allowed_tools` withholds them
+individually: allowing only `list_open_commands` keeps answering off.
+
 ## Standalone WebSocket
 
 When the host includes the optional `websock_adapter` and `bandit` dependencies, it can supervise
