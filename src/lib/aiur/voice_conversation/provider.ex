@@ -1,5 +1,5 @@
 defmodule Aiur.VoiceConversation.Provider do
-  @moduledoc "Adds the host-configured Agent id to the standalone ElevenLabs provider specification."
+  @moduledoc "Adds the Aiur Executor prompt to the standalone ElevenLabs provider specification."
   @behaviour VoiceConverse.Provider
 
   alias VoiceConverse.Provider.ElevenLabsAgents
@@ -24,10 +24,13 @@ defmodule Aiur.VoiceConversation.Provider do
   @impl true
   defdelegate capabilities(), to: ElevenLabsAgents
 
+  # The hosted Agent id arrives on the session specification from `VoiceConverse.Config.agent_id`;
+  # this adapter only supplies Aiur's standing prompt when the session has none.
   @impl true
   def open(spec) do
-    agent_id = spec |> Map.get(:fake, []) |> Keyword.get(:agent_id)
-    spec |> Map.put(:agent_id, agent_id) |> Map.update(:system_prompt, @prompt, fn prompt -> if prompt in [nil, ""], do: @prompt, else: prompt end) |> ElevenLabsAgents.open()
+    spec
+    |> Map.update(:system_prompt, @prompt, fn prompt -> if prompt in [nil, ""], do: @prompt, else: prompt end)
+    |> ElevenLabsAgents.open()
   end
 
   @impl true
