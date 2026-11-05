@@ -20,10 +20,8 @@ defmodule AiurWeb.Conversation.Components do
   attr(:can_reveal, :boolean, default: false)
   @spec entry(map()) :: Phoenix.LiveView.Rendered.t()
   def entry(assigns) do
-    assigns = assign(assigns, :embed_entry, AgentConversation.Entry.normalize(assigns.entry))
-
     ~H"""
-    <Embed.entry entry={@embed_entry} sessions={@sessions} can_reveal={@can_reveal} renderer={{EntryContent, :content}} reveal_event="reveal_entry" />
+    <Embed.entry entry={@entry} sessions={@sessions} can_reveal={@can_reveal} renderer={{EntryContent, :content}} reveal_event="reveal_entry" />
     """
   end
 

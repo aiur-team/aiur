@@ -127,6 +127,13 @@ defmodule AgentConversation.Components do
 
   defp render_host(function, assigns) when is_function(function, 1), do: function.(assigns(assigns))
 
+  defp visible_media(entry) do
+    case Map.get(entry, :media) do
+      media when is_list(media) and media != [] -> media
+      _none -> AgentConversation.Entry.media(entry)
+    end
+  end
+
   defp assigns(assigns), do: Map.put_new(assigns, :__changed__, %{})
 
   attr(:entry, :map, required: true)
@@ -148,7 +155,7 @@ defmodule AgentConversation.Components do
   def entry(assigns) do
     assigns =
       assigns
-      |> assign(:visible_media, Map.get(assigns.entry, :media) || [])
+      |> assign(:visible_media, visible_media(assigns.entry))
       |> assign(:masked, Map.get(assigns.entry, :redacted, false) == true)
 
     ~H"""

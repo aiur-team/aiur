@@ -12,6 +12,7 @@ defmodule AgentConversation.Entry do
 
   @kinds ~w(message reasoning command diff tool_result operator_message system gap)
   @artifact_keys ~w(artifacts media attachments)
+  @artifact_atoms [:artifacts, :media, :attachments]
 
   @type t :: %{
           pos: pos_integer() | nil,
@@ -55,7 +56,7 @@ defmodule AgentConversation.Entry do
       redacted: get(entry, :redacted) == true,
       body_truncated: get(entry, :body_truncated) == true,
       output_truncated: get(entry, :output_truncated) == true,
-      media: media(entry, meta)
+      media: media(entry)
     }
   end
 
@@ -74,13 +75,23 @@ defmodule AgentConversation.Entry do
   @spec artifacts?(t()) :: boolean()
   def artifacts?(%{media: media}), do: media != []
 
-  @artifact_atoms [:artifacts, :media, :attachments]
+  @doc """
+  Classifies the attachments an entry carries.
 
-  defp media(entry, meta) do
+  Artifacts are read from the entry itself (`:artifacts`, `:media`,
+  `:attachments`) and from its metadata under the same names, so a host may keep
+  them wherever its own record already puts them.
+  """
+  @spec media(map()) :: [Media.t()]
+  def media(entry) when is_map(entry) do
+    meta = get(entry, :meta) || %{}
+
     inline = Enum.flat_map(@artifact_atoms, &Media.classify_all(Map.get(entry, &1)))
     attached = Enum.flat_map(@artifact_keys, &Media.classify_all(Map.get(meta, &1)))
     inline ++ attached
   end
+
+  def media(_entry), do: []
 
   defp get(entry, key) do
     Map.get(entry, key) || Map.get(entry, Atom.to_string(key))
