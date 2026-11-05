@@ -1,0 +1,37 @@
+{
+  "id": "agent-conversation",
+  "name": "Agent conversation",
+  "layer": 3,
+  "kind": "package",
+  "paths": [
+    ".github/workflows/agent-conversation-standalone.yml",
+    "packages/elixir/agent_conversation/**",
+    "scripts/check-agent-conversation-isolation.sh"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides an embeddable, permission-aware agent conversation component for external web hosts.",
+  "docs": [
+    "guide/agent-conversation-embed.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "steer"
+}

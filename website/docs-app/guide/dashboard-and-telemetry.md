@@ -74,6 +74,10 @@ PRs and Commands. Kind filters follow the catalogue defaults and are remembered
 in this browser when local storage is available. CI and review comments start
 hidden. On phones the rail sits above the transcript.
 
+The transcript's right-edge minimap shows one tick per loaded event anchor and
+marks the current position. Selecting a tick loads the surrounding entries and
+highlights that position, the same jump the Events rail performs.
+
 Selecting an event opens `?pos=N`, loads the surrounding entries and brings
 that position into view. Observed events appear after an entry with an
 “approximate position” marker. Events without an anchor say “Not linked to a

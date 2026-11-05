@@ -1,0 +1,122 @@
+/*
+ * Default styling for AgentConversation.Components.
+ *
+ * A host may serve this file, copy it, or ignore it entirely: every rule keys
+ * off the component's class names and `data-*` hooks, never off page structure.
+ * Colours fall back to plain values so the component reads correctly in a host
+ * that has no design tokens.
+ */
+
+.agent-conversation,
+.conversation-page {
+  --agc-fg: var(--aiur-color-fg, currentColor);
+  --agc-muted: var(--aiur-color-muted, #666);
+  --agc-line: var(--aiur-color-line, #d4d4d8);
+  --agc-surface: var(--aiur-color-surface, #f4f4f5);
+  --agc-alert: var(--aiur-color-blocking, #b91c1c);
+  color: var(--agc-fg);
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.conversation-status h1 { font-size: 1.25rem; margin: 0 0 8px; }
+.conversation-status p { margin: 4px 0; color: var(--agc-muted); }
+
+.conversation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.conversation-scroll {
+  height: 65vh;
+  overflow-y: auto;
+  overflow-anchor: none;
+  border: 1px solid var(--agc-line);
+  padding: 12px;
+  min-width: 0;
+}
+.conversation-scroll:focus-visible { outline: 2px solid var(--agc-fg); outline-offset: 2px; }
+
+.conversation-entry { min-width: 0; margin-bottom: 16px; overflow-wrap: anywhere; }
+.conversation-entry article { min-width: 0; max-width: 100%; }
+.conversation-entry[data-entry-focus='true'] { outline: 2px solid var(--agc-fg); outline-offset: -2px; }
+.conversation-entry small { color: var(--agc-muted); }
+.conversation-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.conversation-output { white-space: pre-wrap; overflow-wrap: anywhere; }
+.conversation-divider { border-top: 1px solid var(--agc-line); padding-top: 12px; color: var(--agc-muted); }
+.conversation-masked,
+.conversation-truncation,
+.conversation-skeleton,
+.conversation-voice-state,
+.conversation-read-only { color: var(--agc-muted); }
+.conversation-skeleton { min-height: 160px; background: var(--agc-surface); }
+.conversation-command-notice,
+.conversation-compose-notice,
+.conversation-alert { color: var(--agc-alert); }
+
+.conversation-media-group { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; }
+.conversation-media { margin: 0; max-width: 100%; min-width: 0; }
+.conversation-media img,
+.conversation-media video,
+.conversation-media audio { max-width: 100%; height: auto; display: block; }
+.conversation-media figcaption { font-size: 0.75rem; color: var(--agc-muted); }
+.conversation-media-fallback { color: var(--agc-alert); }
+
+.conversation-minimap { min-width: 0; overflow: hidden; }
+.conversation-minimap ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.conversation-minimap-tick {
+  display: block;
+  width: 100%;
+  min-height: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.conversation-minimap-tick:focus-visible { outline: 2px solid var(--agc-fg); outline-offset: 1px; }
+.conversation-minimap-dot { display: block; height: 2px; background: var(--agc-line); }
+.conversation-minimap-tick[aria-current='location'] .conversation-minimap-dot { background: var(--agc-fg); height: 4px; }
+
+.conversation-command-card { border: 1px solid var(--agc-line); padding: 12px; margin: 8px 0; }
+.conversation-command-card h3 { font-size: 1rem; margin: 0 0 8px; }
+
+#conversation-composer { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+#conversation-text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-width: 0;
+  padding: 12px;
+  font: inherit;
+  color: var(--agc-fg);
+  background: var(--agc-surface);
+  border: 1px solid var(--agc-line);
+}
+.conversation-voice-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* A narrow host gets one column; the minimap becomes a horizontal filmstrip. */
+.conversation-page[data-viewport='narrow'] .conversation-layout { grid-template-columns: minmax(0, 1fr); }
+.conversation-page[data-viewport='narrow'] .conversation-minimap ol { flex-direction: row; overflow-x: auto; }
+.conversation-page[data-viewport='narrow'] .conversation-minimap-tick { min-width: 16px; }
+.conversation-page[data-viewport='narrow'] .conversation-scroll { height: 40vh; }
+
+@media (max-width: 700px) {
+  .conversation-layout { grid-template-columns: minmax(0, 1fr); }
+  .conversation-minimap ol { flex-direction: row; overflow-x: auto; }
+  .conversation-minimap-tick { min-width: 16px; }
+  .conversation-scroll { height: 40vh; }
+}
+
+/* Reduced motion: no transitions, and animated attachments stay still. */
+.conversation-page[data-motion='reduced'] * { transition: none !important; animation: none !important; }
+.conversation-page[data-motion='reduced'] [data-animated='true'] { visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-page * { transition: none !important; animation: none !important; }
+}

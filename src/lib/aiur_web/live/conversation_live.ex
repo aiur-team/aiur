@@ -1,7 +1,7 @@
 defmodule AiurWeb.ConversationLive do
   @moduledoc "Paged durable conversation with a bounded live chronology and listener-mode composer."
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
-  alias AiurWeb.Conversation.{CommandCards, Commands, Components, Composer, ComposerEvents, EventComponents, Navigation, Paging, Session}
+  alias AiurWeb.Conversation.{CommandCards, Commands, Components, Composer, ComposerEvents, EventComponents, Minimap, Navigation, Paging, Session}
 
   @decision_events AiurWeb.OperatorControlCenter.DecisionEvents.events()
 
@@ -28,6 +28,19 @@ defmodule AiurWeb.ConversationLive do
   end
 
   def handle_event("reveal_entry", %{"pos" => pos}, socket), do: {:noreply, Paging.reveal(socket, pos)}
+
+  def handle_event("jump_minimap", %{"pos" => pos}, socket) do
+    case Integer.parse(to_string(pos)) do
+      {position, ""} when position > 0 ->
+        socket = Paging.load(socket, {:around, position})
+        socket = if is_nil(socket.assigns.read_error), do: socket |> assign(:highlight_pos, position) |> push_event("conversation-jump", %{}), else: socket
+        {:noreply, socket}
+
+      _invalid ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("load_older", _params, socket), do: {:noreply, Paging.load(assign(socket, pending_pos: nil, position_notice: nil), :older)}
   def handle_event("load_newer", _params, socket), do: {:noreply, Paging.load(assign(socket, pending_pos: nil, position_notice: nil), :newer)}
   def handle_event("jump_start", _params, socket), do: {:noreply, socket |> Navigation.clear() |> Paging.load(:start) |> push_event("conversation-start", %{})}
@@ -82,6 +95,7 @@ defmodule AiurWeb.ConversationLive do
   @impl true
   def render(assigns) do
     assigns = assign_new(assigns, :executor_frame, fn -> nil end)
+    assigns = assign(assigns, :minimap_rows, Minimap.rows(assigns.anchors))
 
     ~H"""
     <section id="conversation" class="conversation-page">
@@ -117,6 +131,7 @@ defmodule AiurWeb.ConversationLive do
             </div>
           </div>
         </div>
+        <Components.minimap rows={@minimap_rows} active_pos={@highlight_pos} tick_attrs={%{"phx-click" => "jump_minimap"}} />
       </div>
       <button :if={@new_below > 0} id="conversation-new" phx-click="jump_latest">{@new_below} new entries below</button>
       <Composer.composer writable={@writable} target={@composer_target} draft={@draft} overlay={@delivery_overlay} listener={@composer_listener} capability={@composer_capability} />
