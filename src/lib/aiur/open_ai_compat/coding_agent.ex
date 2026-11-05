@@ -145,6 +145,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     else
       {:paused, payload} -> {:paused, state, payload}
       {:error, :rate_limited} -> {:paused, state, usage_limit_pause(state)}
+      {:error, :credit_limited} -> {:paused, state, credit_limit_pause(state)}
       {:error, reason} -> {:error, state, reason}
     end
   end
@@ -161,6 +162,24 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   # layer — in particular a transient outage is never written to the ledger.
   defp usage_limit_pause(state) do
     %{kind: :usage_limit_exhausted, reason: :usage_limit_exhausted, backend: Map.get(state.config, :backend)}
+  end
+
+  # A 402 "more credits or fewer max_tokens" that survived `Transport`'s
+  # smaller-`max_tokens` retry is a provider *credit* condition, not an agent
+  # failure: no retry of the same request can succeed until the account is
+  # funded. It pauses the route exactly as a spent quota does — the backend
+  # lands in `model-usage.json`, so the next claim falls through to the next
+  # `agent.priority` route and this claim keeps its ticket — and
+  # `Aiur.AgentRunner.TurnAlerts` raises `system.provider.credit_limited`,
+  # which names the fix. Reporting it as an error instead retried the whole
+  # fleet into `agent:error` with every claim released (#7514).
+  defp credit_limit_pause(state) do
+    %{
+      kind: :usage_limit_exhausted,
+      reason: :credit_limited,
+      credit_limited: true,
+      backend: Map.get(state.config, :backend)
+    }
   end
 
   defp finish_or_continue(state, completion, opts, rounds) do
