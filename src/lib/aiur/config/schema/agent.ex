@@ -148,9 +148,8 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     # @config-reference config-configuration-agent-00 agent.max_concurrent_agents_by_state | map | `%{}` | Per-state caps overriding the global cap. These caps also constrain fixer tickets. |
     field(:max_concurrent_agents_by_state, :map, default: %{})
-    # Provider settings are keyed by the backend's registry name. Built-in
-    # schemas remain as typed compatibility views, while a new backend can keep
-    # its section here without adding another Ecto embed to this module.
+    # Provider settings use registry names; built-in schemas remain typed views.
+    # New backends keep their settings here without adding another Ecto embed.
     # Provider-specific map paths are expanded by scripts/check-config-docs.py.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.enabled | boolean | backend registry default | Explicitly enables or disables dispatch for the backend. `agent.priority` takes precedence by enabling every backend it names. |
@@ -174,6 +173,7 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.reasoning_content_replay | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.text_tool_fallback | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
+    # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.openrouter_trace | boolean | true for openrouter; false elsewhere | Attaches OpenRouter Broadcast identity. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.openrouter_metadata | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength

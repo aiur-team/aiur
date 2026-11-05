@@ -12,6 +12,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     Config,
     Conversation,
     MeterAdapter,
+    OpenRouterTrace,
     Session,
     ToolCallParser,
     Tools,
@@ -55,7 +56,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       session =
         Map.merge(account_generation, %{
           session_pid: pid,
-          thread_id: "openai-compat-#{System.unique_integer([:positive, :monotonic])}",
+          thread_id: "openai-compat-#{Ecto.UUID.generate()}",
           workspace: expanded,
           worker_host: Keyword.get(opts, :worker_host),
           resumed: false
@@ -67,10 +68,10 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   end
 
   @impl true
-  def run_turn(%{session_pid: pid} = session, prompt, _issue, opts)
+  def run_turn(%{session_pid: pid} = session, prompt, issue, opts)
       when is_pid(pid) and is_binary(prompt) and is_list(opts) do
     if Process.alive?(pid) do
-      state = Session.get(pid)
+      state = pid |> Session.get() |> OpenRouterTrace.start_turn(session, issue)
       state = %{state | messages: state.messages ++ [%{"role" => "user", "content" => prompt}]}
 
       state |> run_loop(opts, 0) |> commit_turn(pid, session)
@@ -132,7 +133,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
 
   defp run_loop(state, opts, rounds) do
     with :continue <- pause_state(),
-         {:ok, completion} <- Transport.complete(state.config, state.messages, Tools.specs(state.config.transport)) do
+         {:ok, completion} <- Transport.complete(OpenRouterTrace.request_config(state, rounds), state.messages, Tools.specs(state.config.transport)) do
       completion = maybe_parse_text_tool_calls(completion, state.config)
       MeterAdapter.observe(completion, state, opts)
       emit_completion(completion, state, opts)

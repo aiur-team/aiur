@@ -90,7 +90,7 @@ defmodule Aiur.OpenAICompat.Registry do
             management_api_key_env: "OPENROUTER_MANAGEMENT_KEY",
             models_endpoint: ModelDiscovery.Source.OpenRouter,
             transport: :chat_completions,
-            quirks: %{openrouter_metadata: true}
+            quirks: %{openrouter_metadata: true, openrouter_trace: true}
           },
           presentation:
             presentation(

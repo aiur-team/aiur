@@ -1,12 +1,12 @@
 defmodule Aiur.OpenAICompat.Transport do
   @moduledoc false
 
-  alias Aiur.OpenAICompat.Concurrency
+  alias Aiur.OpenAICompat.{Concurrency, OpenRouterTrace}
   alias Aiur.UsageEnvelope
 
   @spec complete(map(), [map()], [map()]) :: {:ok, map()} | {:error, term()}
   def complete(config, messages, tools) do
-    request = build_request(config, messages, tools)
+    request = config |> build_request(messages, tools) |> OpenRouterTrace.attach(config)
 
     {result, in_flight} = request(config, request)
 
