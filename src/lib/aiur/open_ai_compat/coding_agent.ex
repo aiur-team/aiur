@@ -11,6 +11,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     Checkpoint,
     Config,
     Conversation,
+    LiveTurn,
     MeterAdapter,
     Session,
     ToolCallParser,
@@ -44,18 +45,21 @@ defmodule Aiur.OpenAICompat.CodingAgent do
              config.backend,
              Keyword.get(opts, :account_generation_server, Aiur.ProviderAccountGeneration)
            ),
+         thread_id <- "openai-compat-#{System.unique_integer([:positive, :monotonic])}",
          {:ok, pid} <-
            Session.start_link(%{
              account_generation: account_generation,
              config: config,
              messages: [],
              next_request_id: 1,
+             thread_id: thread_id,
+             turn_index: 0,
              workspace: expanded
            }) do
       session =
         Map.merge(account_generation, %{
           session_pid: pid,
-          thread_id: "openai-compat-#{System.unique_integer([:positive, :monotonic])}",
+          thread_id: thread_id,
           workspace: expanded,
           worker_host: Keyword.get(opts, :worker_host),
           resumed: false
@@ -70,8 +74,8 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   def run_turn(%{session_pid: pid} = session, prompt, _issue, opts)
       when is_pid(pid) and is_binary(prompt) and is_list(opts) do
     if Process.alive?(pid) do
-      state = Session.get(pid)
-      state = %{state | messages: state.messages ++ [%{"role" => "user", "content" => prompt}]}
+      state = pid |> Session.get() |> begin_turn(prompt)
+      emit(opts, LiveTurn.started(LiveTurn.identity(state)))
 
       state |> run_loop(opts, 0) |> commit_turn(pid, session)
     else
@@ -80,6 +84,17 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   end
 
   def run_turn(_session, _prompt, _issue, _opts), do: {:error, :invalid_session}
+
+  # A turn is admitted into the session agent before its first provider
+  # request: the orchestrator keys the live turn on the turn-start update, and
+  # the history a resumed turn continues from includes this prompt.
+  defp begin_turn(state, prompt) do
+    %{
+      state
+      | messages: state.messages ++ [%{"role" => "user", "content" => prompt}],
+        turn_index: Map.get(state, :turn_index, 0) + 1
+    }
+  end
 
   defp commit_turn({:ok, state, completion}, pid, session) do
     Session.update(pid, fn _ -> state end)
@@ -169,7 +184,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
         run_loop(state, opts, rounds + 1)
 
       {:noop, state} ->
-        emit(opts, %{event: :turn_completed, payload: %{id: completion.id}})
+        emit(opts, LiveTurn.completed(completion, LiveTurn.identity(state)))
         {:ok, state, completion}
     end
   end
