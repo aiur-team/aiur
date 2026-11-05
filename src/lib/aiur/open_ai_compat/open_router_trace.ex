@@ -1,8 +1,8 @@
 defmodule Aiur.OpenAICompat.OpenRouterTrace do
   @moduledoc false
 
-  alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Config.{InstanceKey, Overrides}
+  alias Aiur.{Issue, TrackerIdentity}
 
   @spec start_turn(map(), map(), Issue.t()) :: map()
   def start_turn(state, session, issue) do
