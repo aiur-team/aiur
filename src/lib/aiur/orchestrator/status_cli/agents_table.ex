@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.ControlCLI.DispatchAccount
   alias Aiur.GitHub.Config
-  alias Aiur.OpenAICompat.LiveTurn
+  alias Aiur.Orchestrator.StatusCLI.AgentActivityText
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.WaitingReason
@@ -142,7 +142,7 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
     if structured_activity?(message) do
       generic_activity(agent)
     else
-      LiveTurn.describe(message) || generic_activity(agent)
+      AgentActivityText.describe(message) || generic_activity(agent)
     end
   end
 

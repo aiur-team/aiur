@@ -63,26 +63,7 @@ defmodule Aiur.OpenAICompat.LiveTurnRowTest do
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
 
-  describe "describe/1" do
-    test "renders one activity line per normalized event" do
-      assert LiveTurn.describe(%{event: :session_started}) == "turn started"
-      assert LiveTurn.describe(%{event: :turn_completed, message: %{id: "req-2"}}) == "turn completed"
-      assert LiveTurn.describe(%{event: :reasoning, message: %{text: "thinking out loud"}}) == "thinking"
-
-      assert LiveTurn.describe(%{
-               event: :tool_call,
-               message: %{name: "exec_command", arguments: %{"command" => "mix test --max-cases 4"}}
-             }) == "run mix test --max-cases 4"
-
-      assert LiveTurn.describe(%{event: :tool_call, message: %{name: "read_file", arguments: %{"path" => "lib/a.ex"}}}) ==
-               "read lib/a.ex"
-
-      assert LiveTurn.describe(%{event: :assistant, message: %{text: "All checks pass\n"}}) == "All checks pass"
-      assert LiveTurn.describe(%{event: :assistant, message: %{text: "   "}}) == nil
-      assert LiveTurn.describe(%{event: :agent_message, body: "hello"}) == nil
-      assert LiveTurn.describe(nil) == nil
-    end
-
+  describe "identity/1" do
     test "keeps one turn's identity distinct from the next" do
       state = %{thread_id: "openai-compat-7", turn_index: 2}
       identity = LiveTurn.identity(state)

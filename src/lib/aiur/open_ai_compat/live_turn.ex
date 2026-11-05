@@ -12,15 +12,12 @@ defmodule Aiur.OpenAICompat.LiveTurn do
   then never classifies such a row as stalled either, because it only fires for
   `:working` or `:sleeping`.
 
-  This module builds those signals for the OpenAI-compatible backend and
-  renders its normalized activity events for the fleet views. The turn start
-  carries no app-server `method`: these backends are not app-server sessions,
-  and the payload only needs the identity the orchestrator keys a live turn on.
+  This module builds those signals. The turn start carries no app-server
+  `method`: these backends are not app-server sessions, and the payload only
+  needs the identity the orchestrator keys a live turn on. How that activity is
+  rendered for the fleet views is
+  `Aiur.Orchestrator.StatusCLI.AgentActivityText`'s job, not this module's.
   """
-
-  import Aiur.EventHumanizerHelpers, only: [inline_text: 1]
-
-  alias Aiur.AgentEvents
 
   @type identity :: %{
           session_id: String.t(),
@@ -51,45 +48,5 @@ defmodule Aiur.OpenAICompat.LiveTurn do
     identity
     |> Map.put(:event, :turn_completed)
     |> Map.put(:payload, %{id: completion_id})
-  end
-
-  @doc """
-  One short activity line for a normalized OpenAI-compatible event, or `nil`
-  when the message is not one of this backend's events.
-
-  The status report holds each worker update as
-  `%{event: event, message: payload, timestamp: timestamp}`, so the payload is
-  read out of that envelope exactly as `aiur agents` reads it for the
-  app-server backends. Streaming text stays out of the line: an assistant
-  message is only useful once it is a whole message, and a reasoning event says
-  the model is thinking without claiming what about.
-  """
-  @spec describe(term()) :: String.t() | nil
-  def describe(%{event: :session_started}), do: "turn started"
-  def describe(%{event: :turn_completed}), do: "turn completed"
-  def describe(%{event: :reasoning}), do: "thinking"
-
-  def describe(%{event: :tool_call, message: %{name: name} = payload}) when is_binary(name) do
-    case command(payload) do
-      nil -> AgentEvents.tool_call_body(name, arguments(payload))
-      command -> "run #{inline_text(command)}"
-    end
-  end
-
-  def describe(%{event: :assistant, message: %{text: text}}) when is_binary(text) do
-    if String.trim(text) == "", do: nil, else: inline_text(text)
-  end
-
-  def describe(_message), do: nil
-
-  defp arguments(%{arguments: arguments}) when is_map(arguments), do: arguments
-  defp arguments(_payload), do: %{}
-
-  defp command(payload) do
-    case arguments(payload) do
-      %{"command" => command} when is_binary(command) -> command
-      %{command: command} when is_binary(command) -> command
-      _arguments -> nil
-    end
   end
 end
