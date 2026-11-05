@@ -30,8 +30,7 @@ configuration is required and the grant can only be minted on this instance.
 
 ## Mint a grant
 
-Only the supervisor credential may mint a grant. A host server calls this once
-per user session and keeps the token out of its public client.
+Only the supervisor credential may mint a grant, once per user session.
 
 | Request | Body |
 | --- | --- |
@@ -47,11 +46,12 @@ The response carries the token, its expiry, and the scope it authorizes:
 }
 ```
 
-`expires_in` defaults to 900 seconds and is capped at 24 hours.
+The host server calls the mint endpoint and keeps the token out of its public
+client. `expires_in` defaults to 900 seconds and is capped at 24 hours.
 
 ## Read and answer
 
-Every read accepts only the bearer grant. A Command outside the grant reports
+Every read accepts only the bearer grant, and a Command outside it reports
 exactly like a missing one, so a guessed identifier reveals nothing.
 
 | Request | Returns |
@@ -79,8 +79,8 @@ the dashboard.
 
 ## Component states
 
-Every Command renders to one component map with a stable `state`. The dashboard
-card and the embeddable renderer both derive it from
+Every Command renders to one component map with a stable `state` that the
+dashboard card and the embeddable renderer both derive from
 `Aiur.Commands.ComponentState`, so the two surfaces cannot drift.
 
 | `state` | Meaning |
