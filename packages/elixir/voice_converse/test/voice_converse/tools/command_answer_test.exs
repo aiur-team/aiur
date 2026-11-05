@@ -24,14 +24,16 @@ defmodule VoiceConverse.Tools.CommandAnswerTest do
                Enum.filter(specs, &(&1.name in ["list_open_commands", "answer_command"]))
 
       assert spec.name == "answer_command"
-      assert spec.parameters == CommandAnswer.spec().parameters
+      assert spec.description =~ "Command"
       assert spec.parameters["type"] == "object"
       assert spec.parameters["required"] == ["id", "choice"]
       assert spec.parameters["additionalProperties"] == false
       assert spec.parameters["properties"]["id"]["type"] == "string"
       assert spec.parameters["properties"]["id"]["minLength"] == 1
+      assert spec.parameters["properties"]["id"]["maxLength"] == 200
       assert spec.parameters["properties"]["choice"]["type"] == "string"
       assert spec.parameters["properties"]["choice"]["minLength"] == 1
+      assert spec.parameters["properties"]["choice"]["maxLength"] == 500
       assert Enum.sort(Map.keys(spec.parameters["properties"])) == ["choice", "id"]
     end
 
