@@ -25,7 +25,19 @@ end
 ```
 
 Replace `rev` with the commit you want to pin. `sparse:` keeps the rest of the
-monorepo out of your `deps/` tree.
+monorepo out of your `deps/` tree. It is Mix's own option for "checkout a single
+directory inside the Git repository and use it as your Mix dependency", and the
+package's `mix.exs` sits at the path you name.
+
+If your build environment wraps `git` and refuses nested checkouts, the plain
+full-checkout form reaches the same project:
+
+```elixir
+{:voice_transcribe,
+ git: "https://github.com/aiur-team/aiur.git",
+ subdir: "packages/elixir/voice_transcribe",
+ rev: "0000000000000000000000000000000000000000"}
+```
 
 ## Start a session
 
