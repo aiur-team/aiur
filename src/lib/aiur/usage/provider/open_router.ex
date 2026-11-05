@@ -16,7 +16,6 @@ defmodule Aiur.Usage.Provider.OpenRouter do
   no credit figure at all — never `0 remaining`.
   """
 
-  alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.Config.{AgentSettings, RoutingValue}
   alias Aiur.Usage.Provider.OpenRouter.Spend
   alias Aiur.Usage.ProviderSupport
@@ -110,7 +109,7 @@ defmodule Aiur.Usage.Provider.OpenRouter do
   end
 
   defp routing_candidates do
-    HeadroomDispatch.routing_candidates()
+    AgentSettings.agent_routing_candidates()
     |> Map.values()
     |> Enum.flat_map(&List.wrap/1)
   rescue
