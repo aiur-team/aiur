@@ -14,6 +14,22 @@ defmodule Aiur.DecisionQuery do
 
   @default_store DecisionStore
 
+  # Retained counts are fleet-wide index facts. A ticket-scoped read must not
+  # publish them: they would describe Commands the caller may not enumerate.
+  @count_keys [
+    :open,
+    :blocking,
+    :total,
+    :awaiting,
+    :awaiting_blocking,
+    :deferred,
+    :needs_you,
+    :needs_you_blocking,
+    :with_executor,
+    :from_executor,
+    :needs_you_by_ticket
+  ]
+
   @doc false
   @spec default_store() :: module()
   def default_store, do: @default_store
@@ -43,16 +59,55 @@ defmodule Aiur.DecisionQuery do
 
   def list(params, opts) when is_map(params) and is_list(opts) do
     with {:ok, query} <- Params.parse(params) do
-      query = Map.put(query, :ordering, ordering(opts))
-
-      case StoreReader.read_query(query, store(opts)) do
-        {:ok, snapshot, health} -> {:ok, retained_page(snapshot, query, health)}
-        {:error, :store_unavailable} -> {:ok, unavailable_page(query)}
-      end
+      read_page(query, opts)
     end
   end
 
   def list(_params, _opts), do: {:error, {:invalid_query, {:params, :invalid_type}}}
+
+  @doc """
+  Returns one retained page narrowed to an explicit ticket set.
+
+  The set is applied inside the store query, not to the returned page, so the
+  counts, total, and cursor continuation describe only the allowed tickets.
+  An out-of-scope ticket filter is therefore empty rather than revealing that
+  other Commands exist.
+  """
+  @spec list_scoped(map(), Enumerable.t(), keyword()) ::
+          {:ok, map()} | {:error, {:invalid_query, term()}}
+  def list_scoped(params, tickets, opts \\ [])
+
+  def list_scoped(params, tickets, opts) when is_map(params) and is_list(opts) do
+    with {:ok, ticket_set} <- ticket_set(tickets),
+         {:ok, query} <- Params.parse(params) do
+      read_page(Map.put(query, :tickets, ticket_set), opts)
+    end
+  end
+
+  def list_scoped(_params, _tickets, _opts), do: {:error, {:invalid_query, {:params, :invalid_type}}}
+
+  defp read_page(query, opts) do
+    query = Map.put(query, :ordering, ordering(opts))
+
+    case StoreReader.read_query(query, store(opts)) do
+      {:ok, snapshot, health} -> {:ok, retained_page(snapshot, query, health)}
+      {:error, :store_unavailable} -> {:ok, unavailable_page(query)}
+    end
+  end
+
+  defp ticket_set(%MapSet{} = tickets), do: {:ok, downcase_set(tickets)}
+
+  defp ticket_set(tickets) when is_list(tickets) do
+    if Enum.all?(tickets, &is_binary/1), do: {:ok, downcase_set(tickets)}, else: invalid_ticket_set()
+  end
+
+  defp ticket_set(_tickets), do: invalid_ticket_set()
+
+  defp downcase_set(tickets) do
+    MapSet.new(tickets, fn ticket -> ticket |> String.trim() |> String.downcase() end)
+  end
+
+  defp invalid_ticket_set, do: {:error, {:invalid_query, {:tickets, :invalid}}}
 
   @doc false
   @spec legacy_page(map(), non_neg_integer(), pos_integer(), keyword()) ::
@@ -130,9 +185,12 @@ defmodule Aiur.DecisionQuery do
         label: pagination_label(query.limit, snapshot.has_next?, partial_reason)
       },
       filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :route, :search, :ticket]),
-      counts: snapshot.counts
+      counts: counts(snapshot.counts, query)
     }
   end
+
+  defp counts(_counts, %{tickets: %MapSet{}}), do: Map.new(@count_keys, &{&1, nil})
+  defp counts(counts, _query), do: counts
 
   defp unavailable_page(query) do
     %{

@@ -8,7 +8,7 @@ defmodule Aiur.DecisionQuery.Params do
   @maximum_limit 100
   @maximum_decision_id_bytes 256
   @maximum_search_bytes 200
-  @query_fields ~w(authority blocking cursor kind lifecycle limit route search ticket)
+  @query_fields ~w(authority blocking cursor kind lifecycle limit route search ticket tickets)
   @lifecycle_by_name %{
     "open" => :open,
     # `awaiting` is the operator's own queue: open minus everything already
@@ -45,7 +45,8 @@ defmodule Aiur.DecisionQuery.Params do
             | nil,
           route: :needs_you | :with_executor | :from_executor | :resolved | nil,
           search: String.t() | nil,
-          ticket: String.t() | nil
+          ticket: String.t() | nil,
+          tickets: MapSet.t(String.t()) | nil
         }
 
   @spec parse(map()) :: {:ok, t()} | {:error, {:invalid_query, term()}}
@@ -60,6 +61,7 @@ defmodule Aiur.DecisionQuery.Params do
          {:ok, lifecycle} <- optional_lifecycle(normalized["lifecycle"]),
          {:ok, ticket} <- optional_string(normalized["ticket"], @maximum_search_bytes, :ticket),
          {:ok, search} <- optional_string(normalized["search"], @maximum_search_bytes, :search),
+         {:ok, tickets} <- optional_tickets(normalized["tickets"]),
          :ok <- distinct_search_inputs(ticket, search) do
       {:ok,
        %{
@@ -71,6 +73,7 @@ defmodule Aiur.DecisionQuery.Params do
          lifecycle: lifecycle,
          route: route,
          ticket: ticket,
+         tickets: tickets,
          search: search
        }}
     else
@@ -188,6 +191,22 @@ defmodule Aiur.DecisionQuery.Params do
   end
 
   defp optional_kind(_value), do: {:error, {:kind, :invalid_type}}
+
+  # A ticket set is an authorization input assembled by the caller, never a
+  # user-facing query string: the ticket-scoped Commands API adds it after
+  # parsing. It rides through the parsed query so the store can filter with it.
+  defp optional_tickets(nil), do: {:ok, nil}
+  defp optional_tickets(%MapSet{} = tickets), do: {:ok, tickets}
+
+  defp optional_tickets(list) when is_list(list) do
+    if Enum.all?(list, &(is_binary(&1) and String.trim(&1) != "")) do
+      {:ok, MapSet.new(list, fn ticket -> ticket |> String.trim() |> String.downcase() end)}
+    else
+      {:error, {:tickets, :invalid}}
+    end
+  end
+
+  defp optional_tickets(_value), do: {:error, {:tickets, :invalid}}
 
   defp optional_string(nil, _maximum, _field), do: {:ok, nil}
 

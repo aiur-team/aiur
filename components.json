@@ -53,6 +53,7 @@
     "components/accounting.json",
     "components/agent-runner.json",
     "components/agent-sandbox.json",
+    "components/aiur-commands.json",
     "components/aiur-contracts.json",
     "components/aiur-style.json",
     "components/build-orders.json",
