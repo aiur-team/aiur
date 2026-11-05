@@ -217,6 +217,22 @@ The `aiur run` upgrade-version notice is optional and opt-out: it caches with a 
 `AIUR_UPGRADE_CHECK_DISABLED` (and the legacy `AIUR_NO_UPDATE_NOTIFIER`) are the
 environment-variable equivalents; the check also stays silent in CI runs.
 
+## toolchain
+
+At startup and then hourly, the daemon checks the CLIs its workers spawn (`aiur-claude`, `claude`, `codex`) and the `aiur` launcher. It resolves each one on the PATH and backend `command` the workers use. It records the version and install kind: `npm`, `dev link` (an `npm link` or a checkout on PATH) or `standalone`.
+
+A version below Aiur's minimum (today `aiur-claude` 1.3.0) raises `system.toolchain.below_minimum`, and routing skips that backend for the next allowed route. A ticket pinned to it, or left with no other route, is held; the decline names the binary and the update command. A version behind npm's latest is a warning with the update command.
+
+`aiur status` prints the result as its `TOOLCHAIN` section, where rows read `latest unknown` when `upgrade.check_enabled: false` skips the npm lookup.
+
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-toolchain -->
+| --- | --- | --- | --- |
+| `toolchain.auto_update` | boolean | false | Updates behind npm-managed `aiur-claude`, `claude` and `codex` installs while none of their workers run; never an `npm link`. |
+
+Auto-update holds dispatch to that backend while npm installs, and waits for the next hourly check while a worker of that backend runs. A `dev link` is reported, never replaced. The `aiur` launcher is never auto-updated, since that needs a daemon restart.
+
+Running agents keep the binary they started with; only new spawns use the updated one.
+
 ## alerts
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-13 -->

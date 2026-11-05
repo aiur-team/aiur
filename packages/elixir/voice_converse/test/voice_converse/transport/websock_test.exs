@@ -7,6 +7,7 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
 
     @impl true
     def verify("good", "converse", _opts), do: {:ok, %{}}
+    def verify("tok_do_not_log_9f3a", "converse", _opts), do: {:ok, %{}}
     def verify(_token, _scope, _opts), do: {:error, :invalid}
   end
 
@@ -78,6 +79,75 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
 
       assert {:push, {:text, json}, ^state} = Socket.handle_in({String.duplicate("a", 400_001), :text}, state)
       assert {:ok, %{"type" => "error", "code" => "frame_too_large"}} = VoiceConverse.Wire.decode(json)
+    end
+
+    test "accepts the Bandit keyword-list opcode metadata for text frames" do
+      state = start_api_state()
+
+      assert {:ok, %{conversation_id: "conversation-target-1"}} =
+               Socket.handle_in({~s({"v":1,"type":"start","target":"target-1"}), [opcode: :text]}, state)
+    end
+
+    test "rejects binary frames delivered in the Bandit keyword-list opcode shape" do
+      state = WebSock.socket_state([], true)
+
+      assert {:push, {:text, json}, ^state} = Socket.handle_in({<<1, 2, 3>>, [opcode: :binary]}, state)
+      assert {:ok, %{"type" => "error", "code" => "invalid_frame"}} = VoiceConverse.Wire.decode(json)
+    end
+
+    test "the frame-size guard applies to the Bandit keyword-list opcode shape" do
+      state = WebSock.socket_state([], true)
+
+      assert {:push, {:text, json}, ^state} =
+               Socket.handle_in({String.duplicate("a", 400_001), [opcode: :text]}, state)
+
+      assert {:ok, %{"type" => "error", "code" => "frame_too_large"}} = VoiceConverse.Wire.decode(json)
+    end
+
+    test "retains the bare atom opcode callback shape" do
+      state = start_api_state()
+
+      assert {:ok, %{conversation_id: "conversation-target-1"}} =
+               Socket.handle_in({~s({"v":1,"type":"start","target":"target-1"}), :text}, state)
+
+      assert {:push, {:text, json}, ^state} = Socket.handle_in({<<1, 2, 3>>, :binary}, state)
+      assert {:ok, %{"type" => "error", "code" => "invalid_frame"}} = VoiceConverse.Wire.decode(json)
+    end
+
+    test "ignores opcode metadata that names no data frame" do
+      state = WebSock.socket_state([], true)
+
+      assert {:ok, ^state} = Socket.handle_in({~s({"v":1,"type":"start","target":"t"}), [opcode: :ping]}, state)
+      assert {:ok, ^state} = Socket.handle_in({~s({"v":1,"type":"start","target":"t"}), []}, state)
+    end
+
+    test "a Bandit-delivered start frame reaches start_session without a host wrapper" do
+      test_pid = self()
+      token = "tok_do_not_log_9f3a"
+      frame = ~s({"v":1,"type":"start","target":"target-1"})
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          {:ok, listener} =
+            WebSock.start_link(token_issuer: VoiceConverse.Transport.WebSockTestIssuer, api: start_api(test_pid))
+
+          Process.unlink(listener)
+          on_exit(fn -> Process.exit(listener, :shutdown) end)
+
+          {:ok, {{127, 0, 0, 1}, port}} = ThousandIsland.listener_info(listener)
+          {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+          on_exit(fn -> :gen_tcp.close(socket) end)
+
+          :ok = :gen_tcp.send(socket, websocket_upgrade_request(token))
+          assert {:ok, response} = :gen_tcp.recv(socket, 0, 1_000)
+          assert response =~ "101 Switching Protocols"
+
+          :ok = :gen_tcp.send(socket, masked_text_frame(frame))
+          assert_receive {:start_session, _instance, "target-1"}, 1_000
+        end)
+
+      refute log =~ token
+      refute log =~ "target-1"
     end
 
     test "the real upgrade closes an oversized frame before buffering it" do
@@ -227,18 +297,45 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
       :sys.get_state(session).provider_ref
     end
 
-    defp websocket_upgrade_request do
+    defp websocket_upgrade_request(token \\ "good") do
       [
         "GET / HTTP/1.1\r\n",
         "Host: 127.0.0.1\r\n",
         "Connection: Upgrade\r\n",
         "Upgrade: websocket\r\n",
-        "Authorization: Bearer good\r\n",
+        "Authorization: Bearer #{token}\r\n",
         "Sec-WebSocket-Version: 13\r\n",
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
       ]
     end
 
     defp oversized_frame_header(size), do: <<0x81, 0xFF, size::unsigned-big-64, 0, 0, 0, 0>>
+
+    defp start_api_state, do: WebSock.socket_state(api: start_api(self()))
+
+    defp start_api(test_pid) do
+      %{
+        start_session: fn instance, target ->
+          send(test_pid, {:start_session, instance, target})
+          {:ok, "conversation-" <> target}
+        end,
+        subscribe: fn _instance, _conversation_id, _subscriber -> :ok end,
+        unsubscribe: fn _instance, _conversation_id, _subscriber -> :ok end
+      }
+    end
+
+    # A client-to-server frame must be masked (RFC 6455 §5.3); Bandit rejects an unmasked one.
+    defp masked_text_frame(payload) when byte_size(payload) < 126 do
+      mask = <<0x37, 0xFA, 0x21, 0x3D>>
+      <<0x81, 0x80 + byte_size(payload), mask::binary, mask_payload(payload, mask)::binary>>
+    end
+
+    defp mask_payload(payload, mask) do
+      payload
+      |> :binary.bin_to_list()
+      |> Enum.with_index()
+      |> Enum.map(fn {byte, index} -> Bitwise.bxor(byte, :binary.at(mask, rem(index, 4))) end)
+      |> :binary.list_to_bin()
+    end
   end
 end

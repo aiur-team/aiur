@@ -1,4 +1,4 @@
-# BO-003 — Add a second graph projection
+# Add a second graph projection
 
 **Kind:** executable
 

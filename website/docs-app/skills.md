@@ -93,12 +93,22 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | Skill | Trigger | Covers |
 | --- | --- | --- |
 | [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
-| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Requirements, ticket contracts, dependency graph, workstream icons and summaries, and Build Order handoff. |
-| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, per-feature progress at `/?view=list&list=features`, accepted boundary through review and merge. |
+| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Aiur's layer on the shared `build-order` skill: planning-pack formats, continuous-build collection, approval freeze, GitHub promotion, and Executor handoff. |
+| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, per-ticket deep dives through `research-spike`, per-feature progress at `/?view=list&list=features`, accepted boundary through review and merge. |
 | [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | Inspect a live run | Status board and alert feed. |
 | [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Executor sweep findings, five dashboard surfaces and per-feature progress at `/?view=list&list=features`, feature-work share, bottleneck, and durable findings. |
 | [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | Executor handoff | Boot document for the next Executor. |
 | [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
+
+Build-order publication runs the product `aiur` command from `PATH`. Set
+`AIUR_FEATURE_CLI` to an executable `aiur` or `aiurdev` path when it is not
+available there or you need to select a particular runtime instance.
+
+`aiur-build` keeps only the Aiur-specific rules and defers the general
+decomposition method to the shared `build-order` skill; `aiur-run` sends
+per-ticket deep dives to `research-spike` the same way. Both general skills ship
+with the shared skill set, so a run that plans or researches without them is
+missing an install, not a section of these pages.
 
 `aiur-handoff`, `aiur-meta`, and `release` are Claude-only.
 

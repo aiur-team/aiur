@@ -182,6 +182,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.supervision.degraded", "telemetry"},
     # aiur/supervision_health.ex
     {"system.supervision.degraded.resolved", "telemetry"},
+    # aiur/toolchain.ex
+    {"system.toolchain.below_minimum", "orchestration"},
+    # aiur/toolchain.ex
+    {"system.toolchain.below_minimum.resolved", "orchestration"},
     # aiur/orchestrator/toolchain_preflight.ex
     {"system.toolchain.erlang_missing", "orchestration"},
     # aiur/executor_bindings.ex

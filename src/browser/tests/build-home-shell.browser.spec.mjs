@@ -24,6 +24,48 @@ async function patch(page) {
   await expect(toggle).toHaveAttribute('data-nav-collapsed', previous === 'true' ? 'false' : 'true')
 }
 
+test('settings reaches Executor while Build is loading on phone and desktop', async ({ page }) => {
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.routeWebSocket('**/live/websocket*', ws => {
+    const server = ws.connectToServer()
+    ws.onMessage(message => server.send(message))
+    server.onMessage(message => setTimeout(() => ws.send(message), 500))
+  })
+
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/build-fixture/hold')
+    await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected())).toBe(true)
+    await expect(page.locator('.bd-loading')).toHaveText(/Loading build timeline/)
+    await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(0)
+
+    await page.locator('#ax-cog').click()
+    const menu = page.locator('#ax-menu')
+    await expect(menu).toBeVisible()
+    await expect(page.locator('#ax-set')).toHaveClass(/\bopen\b/)
+    await expect(page.locator('#ax-cog')).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+    await expect(page.locator('#ax-set')).toHaveClass(/\bopen\b/)
+    await expect(page.locator('#ax-cog')).toHaveAttribute('aria-expanded', 'true')
+    // Closed menus remain display:flex with opacity:0; visibility alone does
+    // not prove that the hook opened it or that it wins hit testing.
+    await expect.poll(() => menu.evaluate(element => {
+      const item = element.querySelector('[href="/executor"]')
+      const itemRect = item.getBoundingClientRect()
+      const hit = document.elementFromPoint(itemRect.x + itemRect.width / 2, itemRect.y + itemRect.height / 2)
+      return {
+        opacity: getComputedStyle(element).opacity,
+        pointerEvents: getComputedStyle(element).pointerEvents,
+        menuOwnsHit: Boolean(hit?.closest('#ax-menu'))
+      }
+    }), { message: 'Settings menu item must receive pointer hits over Build loading content' }).toMatchObject({ opacity: '1', pointerEvents: 'auto', menuOwnsHit: true })
+    const menuItem = page.getByRole('menuitem', { name: 'Executor conversation', exact: true })
+    await menuItem.click()
+    await expect(page).toHaveURL(/\/executor$/)
+    await expect(page.locator('#executor-frame h1')).toHaveText('Executor')
+  }
+})
+
 test('hook-owned DOM survives a server patch', async ({ page }) => {
   await open(page)
   await page.locator('#build-root').evaluate(root => root.append(Object.assign(document.createElement('b'), { id: 'probe' })))
@@ -44,8 +86,12 @@ test('snapshot with unavailable rows shows an honest partial-board notice', asyn
 
 test('an open modal survives a server patch', async ({ page }) => {
   await open(page)
+  await page.setViewportSize({ width: 390, height: 900 })
   await page.evaluate(() => {
     document.querySelector('#tk-backdrop').classList.add('show')
+    document.querySelector('#tk-head').innerHTML = '<h2>Ticket details</h2>'
+    document.querySelector('#tk-body').append(Object.assign(document.createElement('div'), { id: 'mfill' }))
+    document.querySelector('#mfill').style.height = '760px'
     document.querySelector('#tk-body').append(Object.assign(document.createElement('b'), { id: 'mprobe' }))
   })
   // The modal deliberately overlays navigation once its styles have landed.
@@ -53,6 +99,13 @@ test('an open modal survives a server patch', async ({ page }) => {
   await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', 'true')
   await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
   await expect(page.locator('#mprobe')).toHaveCount(1)
+  const cog = page.locator('#ax-cog')
+  const modalOwnsCogPoint = await cog.evaluate(button => {
+    const rect = button.getBoundingClientRect()
+    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+    return Boolean(hit?.closest('#tk-head'))
+  })
+  expect(modalOwnsCogPoint).toBe(true)
 })
 
 test('server state reaches the ignored root', async ({ page }) => {
