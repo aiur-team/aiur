@@ -427,17 +427,19 @@ Each item names its kind and MIME type, a locator, and alt text or a caption:
 | Poster | A still frame for video or audio. |
 
 A worker sends media in the `decision.requested` payload that already carries
-its question and options; `aiur command request` itself stays text-only. A local
-file is stored as an attachment reference, so a dashboard or API reader never
-receives a filesystem path. Media that would rot is refused: an expiring
+its question and options; `aiur command request` itself stays text-only.
+
+A local file is stored as an attachment reference, so a dashboard or API reader
+never receives a filesystem path. Media that would rot is refused: an expiring
 pre-signed URL is rejected instead of persisted, and a reference to an
 unapproved host or outside a safe root fails with a stable error.
 
 Readers fetch a local attachment through the Command's own media route, which
 re-checks the file against a configured root at read time and only resolves
-media the Command actually carries. The dashboard renders each kind with native
-controls, alt text and captions, and an unavailable panel when the media cannot
-be resolved.
+media the Command actually carries.
+
+The dashboard renders each kind with native controls, alt text and captions, and
+an unavailable panel when the media cannot be resolved.
 
 ## The Executor asks you
 
