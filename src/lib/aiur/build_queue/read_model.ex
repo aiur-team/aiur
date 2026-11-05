@@ -30,8 +30,7 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     unavailable =
       for q <- document.queues,
-          context.tracker_source.freshness != :current or
-            (q.kind == :build_order and build_orders[q.root].source.freshness != :current),
+          context.tracker_source.freshness != :current or source_unavailable?(q, build_orders, state),
           do: q.id
 
     native_blockers = Map.get(state, :native_blockers, %{})
@@ -54,6 +53,7 @@ defmodule Aiur.BuildQueue.ReadModel do
         document.queues |> Enum.filter(&(&1.kind == :build_order)),
         &{"build_order:#{&1.root}", build_orders[&1.root].source}
       )
+      |> Map.merge(feature_sources(document, state, now))
 
     %{
       schema_version: 1,
@@ -227,6 +227,33 @@ defmodule Aiur.BuildQueue.ReadModel do
 
   defp cached_blocker(_blocker, _observations, _terminal_states), do: %{number: nil, state: nil, open?: true}
 
+  defp source_unavailable?(%{kind: :build_order, root: root}, build_orders, _state),
+    do: build_orders[root].source.freshness != :current
+
+  defp source_unavailable?(%{kind: :feature, feature: slug}, _build_orders, state),
+    do: Map.get(Map.get(state, :sources, %{}), "feature:#{slug}") != :current
+
+  defp source_unavailable?(_queue, _build_orders, _state), do: false
+
+  # The registry is a local read, so a current sync is observed now; a failed sync keeps its reason.
+  defp feature_sources(document, state, now) do
+    max_age = if Map.has_key?(state, :settings), do: Settings.observation_max_age_ms(state.settings), else: 1
+    sources = Map.get(state, :sources, %{})
+
+    Map.new(
+      document.queues |> Enum.filter(&(&1.kind == :feature)),
+      fn queue ->
+        key = "feature:#{queue.feature}"
+
+        case Map.get(sources, key) do
+          :current -> {key, source(now, now, max_age, [])}
+          {:unavailable, reason} -> {key, source(nil, now, max_age, [reason])}
+          _ -> {key, source(nil, now, max_age, [:not_reconciled])}
+        end
+      end
+    )
+  end
+
   defp build_order_blockers(document, observations) do
     document.edges
     |> Enum.filter(&(&1.source == :build_order))
@@ -341,6 +368,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       set_rank: queue.rank,
       kind: queue.kind,
       root: queue.root,
+      feature: queue.feature,
       name: queue.name,
       start_trigger: context.trigger,
       start_trigger_override: queue.start_trigger,
@@ -349,8 +377,15 @@ defmodule Aiur.BuildQueue.ReadModel do
       progress: progress,
       progress_reasons: Progress.reasons(queue, items, progress, context.build_orders[queue.root]),
       edges: context.summary_edges,
-      items: items
+      items: items,
+      elsewhere: elsewhere(queue, context.state)
     }
+  end
+
+  # Registry or root members another entry already owns, named by the entry that holds them.
+  defp elsewhere(queue, state) do
+    key = if queue.kind == :feature, do: "feature:#{queue.feature}", else: "build_order:#{queue.root}"
+    Map.get(Map.get(state, :elsewhere, %{}), key, [])
   end
 
   defp unknown_item(member, context),

@@ -23,7 +23,11 @@ defmodule Aiur.BuildQueue.MutationCLI do
   @spec execute(keyword()) :: {:ok, [{String.t(), :ok | {:ok, [String.t()]} | {:error, term()}}]} | {:error, term()}
   def execute(opts) do
     with :ok <- guard_workspace(opts), :ok <- validate(opts), {:ok, opts} <- trigger(opts), :ok <- confirm(opts) do
-      if opts[:build_order], do: adopt(opts), else: dispatch(Keyword.fetch!(opts, :verb), opts)
+      cond do
+        opts[:build_order] -> adopt(opts)
+        opts[:feature] -> adopt_feature(opts)
+        true -> dispatch(Keyword.fetch!(opts, :verb), opts)
+      end
     end
   end
 
@@ -41,17 +45,23 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp valid_options?(opts) do
-    Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun])))
+    Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun, :settings])))
   end
 
   defp valid_queue?(nil), do: true
   defp valid_queue?(queue), do: is_binary(queue) and String.trim(queue) != ""
-  defp valid_rank?(opts), do: not Keyword.has_key?(opts, :rank) or (is_binary(opts[:queue]) and position?(opts[:rank]))
+
+  defp valid_rank?(opts) do
+    not Keyword.has_key?(opts, :rank) or
+      (position?(opts[:rank]) and
+         (is_binary(opts[:queue]) or not is_nil(opts[:build_order]) or not is_nil(opts[:feature])))
+  end
+
   defp allowed_options(:order), do: [:queue, :to]
 
   defp allowed_options(verb) do
     case verb do
-      :add -> [:ids, :queue, :after, :at, :build_order, :start_on, :rank, :json]
+      :add -> [:ids, :queue, :after, :at, :build_order, :feature, :start_on, :rank, :json]
       :set -> [:queue, :start_on]
       :recover -> [:force]
       :clear -> [:remove_markers, :yes]
@@ -63,10 +73,10 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp valid_command?(:add, ids, opts) do
-    if opts[:build_order] do
-      ids == [] and positive?(opts[:build_order]) and is_nil(opts[:after]) and is_nil(opts[:at])
-    else
-      ids != [] and valid_after?(opts[:after], ids) and (is_nil(opts[:at]) or position?(opts[:at]))
+    cond do
+      opts[:build_order] -> valid_root_add?(ids, opts)
+      opts[:feature] -> valid_feature_add?(ids, opts)
+      true -> valid_id_add?(ids, opts)
     end
   end
 
@@ -78,10 +88,25 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp valid_command?(:reorder, [_], opts), do: position?(opts[:to]) and is_nil(opts[:queue])
   defp valid_command?(verb, ids, opts) when verb in [:hold, :release], do: (length(ids) == 1 and is_nil(opts[:queue])) or (ids == [] and is_binary(opts[:queue]))
   defp valid_command?(_, _, _), do: false
+
+  defp valid_root_add?(ids, opts) do
+    ids == [] and positive?(opts[:build_order]) and is_nil(opts[:after]) and is_nil(opts[:at]) and is_nil(opts[:feature])
+  end
+
+  defp valid_feature_add?(ids, opts) do
+    ids == [] and valid_slug?(opts[:feature]) and is_nil(opts[:after]) and is_nil(opts[:at]) and is_nil(opts[:build_order])
+  end
+
+  defp valid_id_add?(ids, opts) do
+    ids != [] and valid_after?(opts[:after], ids) and (is_nil(opts[:at]) or position?(opts[:at])) and
+      is_nil(opts[:feature]) and is_nil(opts[:build_order])
+  end
+
   defp valid_after?(nil, _ids), do: true
   defp valid_after?(id, ids), do: id?(id) and (id not in ids or length(ids) > 1)
 
   defp id?(id), do: is_binary(id) and Regex.match?(~r/\A[1-9][0-9]*\z/, id)
+  defp valid_slug?(slug), do: is_binary(slug) and String.trim(slug) != ""
   defp position?(n), do: is_integer(n) and n >= 0
   defp positive?(n), do: is_integer(n) and n > 0
 
@@ -130,6 +155,58 @@ defmodule Aiur.BuildQueue.MutationCLI do
 
   defp accepted_member_rows(%{items: items}), do: Enum.map(items, &{"##{&1.number}", :ok})
   defp accepted_member_rows(_queue), do: []
+
+  defp adopt_feature(opts) do
+    slug = opts[:feature]
+    command = if Keyword.has_key?(opts, :start_on), do: {:adopt_feature, slug, opts[:queue], opts[:start_on]}, else: {:adopt_feature, slug, opts[:queue]}
+    command = if Keyword.has_key?(opts, :rank), do: {:adopt_feature, slug, opts[:queue], opts[:start_on], opts[:rank]}, else: command
+    warn_set_order(opts)
+    result = call({:mutate, command}, opts)
+
+    results =
+      case result do
+        {:ok, refusals} ->
+          accepted = accepted_feature_rows(slug, opts)
+          refused = Enum.map(refusals, fn {id, reason} -> {"##{id}", {:error, owning_queue(reason, id, opts)}} end)
+          [{"Feature #{slug}", :ok} | accepted ++ refused]
+
+        error ->
+          [{"Feature #{slug}", error}]
+      end
+
+    {:ok, results}
+  end
+
+  defp accepted_feature_rows(slug, opts) do
+    if Keyword.get(opts, :json, false) do
+      BuildQueue.show(server(opts)).queues
+      |> Enum.find(&(&1.feature == slug))
+      |> accepted_member_rows()
+    else
+      []
+    end
+  end
+
+  # A feature entry has no stored positions, so its order only exists when set order is ranked.
+  defp warn_set_order(opts) do
+    case settings(opts) do
+      {:ok, %{build_queue: %{set_order: "none"}}} ->
+        Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1)).(
+          "aiur: build_queue.set_order is none, so feature entries have no declared order; set build_queue.set_order to ranked to order entries by rank"
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp settings(opts) do
+    case Keyword.get(opts, :settings) do
+      nil -> Aiur.Config.settings()
+      %{} = settings -> {:ok, settings}
+      other -> other
+    end
+  end
 
   defp confirm(opts) do
     if opts[:verb] == :clear and opts[:yes] != true, do: {:error, :confirmation_required}, else: :ok
@@ -252,6 +329,11 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:ok, {:marker_deferred, ids}}), do: "queued; marker write deferred and will retry for #{Enum.map_join(ids, ", ", &"##{&1}")}"
   defp message({:ok, unobserved}) when is_list(unobserved), do: "released; no observation for ##{Enum.join(unobserved, ", #")}"
   defp message({:error, {:marker_write_failed, failures}}), do: marker_failure_message(failures)
+  defp message({:error, :feature_not_found}), do: "feature not found in the feature registry"
+  defp message({:error, :too_many_features}), do: "too many feature entries"
+  defp message({:error, :already_adopted}), do: "already queued as a feature or Build Order entry"
+  defp message({:error, :observation_unavailable}), do: "ticket observation unavailable; retry after the next poll"
+  defp message({:error, :features_down}), do: "feature registry unavailable"
   defp message({:error, reason}) when is_atom(reason), do: reason |> Atom.to_string() |> String.replace("_", " ")
   defp message({:error, _reason}), do: "failed; inspect queue status and retry if needed"
 

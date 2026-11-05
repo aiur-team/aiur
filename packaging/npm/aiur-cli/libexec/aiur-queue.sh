@@ -10,7 +10,7 @@ queue_workspace_guard() {
 }
 
 cmd_queue() {
-  local verb="${1:-}" json=0 queue="" after="" at="" to="" rank="" root="" start_on="" opts="" id status=0 force=0 remove_markers=0 yes=0
+  local verb="${1:-}" json=0 queue="" after="" at="" to="" rank="" root="" feature="" start_on="" opts="" id status=0 force=0 remove_markers=0 yes=0
   local ids=()
   case "$verb" in
     show|order) ;;
@@ -52,6 +52,9 @@ cmd_queue() {
       --build-order)
         [ "$verb" = add ] && [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]*$ ]] && [ -z "$root" ] || queue_usage_error '--build-order requires add and a positive root ID'
         root="$2"; shift ;;
+      --feature)
+        [ "$verb" = add ] && [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != -* ]] && [ -z "$feature" ] || queue_usage_error '--feature requires add and a feature slug'
+        feature="$2"; shift ;;
       -*) queue_usage_error "received an unknown argument: $1" ;;
       *)
         if [ "$verb" = set ] || [ "$verb" = order ]; then
@@ -68,9 +71,11 @@ cmd_queue() {
     show) [ "${#ids[@]}" -eq 0 ] || queue_usage_error 'show does not take ticket IDs' ;;
     add)
       if [ -n "$root" ]; then
-        [ "${#ids[@]}" -eq 0 ] && [ -z "$after$at" ] || queue_usage_error '--build-order cannot be combined with ticket IDs, --after, or --at'
+        [ "${#ids[@]}" -eq 0 ] && [ -z "$after$at$feature" ] || queue_usage_error '--build-order cannot be combined with ticket IDs, --after, --at, or --feature'
+      elif [ -n "$feature" ]; then
+        [ "${#ids[@]}" -eq 0 ] && [ -z "$after$at" ] || queue_usage_error '--feature cannot be combined with ticket IDs, --after, or --at'
       else
-        [ "${#ids[@]}" -gt 0 ] || queue_usage_error 'add requires ticket IDs or --build-order'
+        [ "${#ids[@]}" -gt 0 ] || queue_usage_error 'add requires ticket IDs, --build-order, or --feature'
       fi ;;
     order)
       { [ -z "$queue$to" ]; } || { [ -n "$queue" ] && [ -n "$to" ]; } || queue_usage_error 'order requires a queue name and --to POS, or no arguments'
@@ -97,6 +102,7 @@ cmd_queue() {
   [ -n "$queue" ] && opts="${opts:+$opts, }queue: $(queue_string "$queue")"
   [ -n "$start_on" ] && opts="$opts, start_on: $(queue_string "$start_on")"
   [ -n "$root" ] && opts="$opts, build_order: $root"
+  [ -n "$feature" ] && opts="$opts, feature: $(queue_string "$feature")"
   [ -n "$after" ] && opts="$opts, after: \"$after\""
   [ -n "$at" ] && opts="$opts, at: $at"
   [ -n "$rank" ] && opts="$opts, rank: $rank"

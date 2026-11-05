@@ -137,6 +137,32 @@ defmodule Aiur.BuildQueue.ModelTest do
     assert {:ok, ^empty} = empty |> Model.encode() |> Model.decode()
   end
 
+  test "round-trips a feature entry and leaves a legacy store byte-identical" do
+    legacy = document()
+    encoded = legacy |> Model.encode() |> Jason.encode!()
+    assert {:ok, decoded} = encoded |> Jason.decode!() |> Model.decode()
+    assert decoded |> Model.encode() |> Jason.encode!() == encoded
+    refute Map.has_key?(hd(Jason.decode!(encoded)["queues"]), "feature")
+
+    time = ~U[2026-10-07 12:34:56.123456Z]
+    queue = %Queue{id: "q-ab12", name: "Feature combat", kind: :feature, root: nil, feature: "combat", held: false, generation: 3, created_at: time}
+    item = %Item{issue_id: "12", queue_id: "q-ab12", position: nil, hold: :operator, override: nil, promoted_at: nil, added_at: time}
+    document = %{legacy | queues: [queue], items: [item], edges: []}
+
+    assert {:ok, ^document} = document |> Model.encode() |> Jason.encode!() |> Jason.decode!() |> Model.decode()
+    assert Jason.decode!(Jason.encode!(Model.encode(document)))["queues"] |> hd() |> Map.fetch!("feature") == "combat"
+  end
+
+  test "rejects a feature entry without a slug and a positioned feature item" do
+    time = ~U[2026-10-07 12:34:56.123456Z]
+    queue = %Queue{id: "q-ab12", name: "Feature combat", kind: :feature, root: nil, feature: "combat", held: false, generation: 0, created_at: time}
+    item = %Item{issue_id: "12", queue_id: "q-ab12", position: nil, hold: nil, override: nil, promoted_at: nil, added_at: time}
+    encoded = Model.encode(%{queues: [queue], items: [item], edges: [], intents: [], latches: []})
+
+    assert Model.decode(put_in(encoded, ["queues", Access.at(0), "feature"], "")) == {:error, {:invalid, ["queues", 0, "feature"]}}
+    assert Model.decode(put_in(encoded, ["items", Access.at(0), "position"], 0)) == {:error, {:invalid, ["items", 0, "position"]}}
+  end
+
   test "rejects positions inconsistent with queue kind" do
     assert Model.decode(put_in(encoded(), ["items", Access.at(0), "position"], nil)) == {:error, {:invalid, ["items", 0, "position"]}}
     assert Model.decode(put_in(encoded(), ["queues", Access.at(0), "kind"], "build_order")) == {:error, {:invalid, ["items", 0, "position"]}}

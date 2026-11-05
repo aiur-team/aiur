@@ -157,13 +157,23 @@ Adoption brings pre-labelled blocked members under queue control: the queue hold
 
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
 
+## Queueing a feature
+
+`aiur queue add --feature <slug> [--queue NAME] [--rank N] [--start-on TRIGGER]` queues a feature registry entry as one set. The set has no stored positions: its members are whatever the registry owns for that slug, so a ticket filed into the feature later joins the set on the next reconcile with no Executor action. Removing a ticket from the feature unmarks it and drops it from the set.
+
+Inside a feature set, order comes from `blocked_by`, then the critical path, then priority. Holds, set ranks, start triggers and `blocked_by` gating behave exactly as they do for lists and Build Order roots. A member already owned by another set stays there; the feature set reports it as owned elsewhere and the add still succeeds. A list always wins over a feature.
+
+A feature set has no declared order of its own, so `queue add --feature` warns when `build_queue.set_order` is `none` (the default). Set it to `ranked` to order sets by rank.
+
+The registry is a local read, so a feature set needs a fresh open-issue observation to tell a closed member from one that has not been polled. Without one the set's members stay unknown and no membership changes. An unavailable registry leaves membership untouched and marks the set's members unknown, while independent lists continue reconciling.
+
 ### Feature sets
 
 A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
 
 Queue membership lets the Executor deliberately select maintenance work ahead of unqueued features. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
-`build_queue.set_order` selects `ranked` (default) or `none`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
+`build_queue.set_order` selects `none` (default) or `ranked`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
 
 Queue summaries show ready and startable counts plus the largest blocker by downstream count. Cached GitHub blockers appear as `waiting on #N (github)`; cache misses do not fetch. `queue order` compares ranks with Build Order root dependency order.
 
