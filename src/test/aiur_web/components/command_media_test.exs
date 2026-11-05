@@ -5,8 +5,11 @@ defmodule AiurWeb.Components.CommandMediaTest do
 
   alias AiurWeb.Components.CommandMedia
 
-  defp render(items, decision_id \\ "dec_media") do
-    render_component(&CommandMedia.command_media/1, items: items, decision_id: decision_id)
+  defp render(items, decision_id \\ "dec_media", opts \\ []) do
+    assigns =
+      Keyword.merge([items: items, decision_id: decision_id], opts)
+
+    render_component(&CommandMedia.command_media/1, assigns)
   end
 
   defp image(overrides \\ %{}) do
@@ -37,11 +40,33 @@ defmodule AiurWeb.Components.CommandMediaTest do
     assert html =~ "Dashboard"
   end
 
+  test "points a dashboard consumer at the dashboard media route" do
+    html = render([image()], "dec_media", path_prefix: "/commands")
+
+    img = Floki.parse_fragment!(html) |> Floki.find("img") |> List.first()
+    assert Floki.attribute(img, "src") == ["/commands/dec_media/media/med_aaaaaaaaaaaaaaaaaaaaaaaa"]
+  end
+
   test "uses a validated https locator directly" do
     item = image(%{"locator" => %{"kind" => "url", "value" => "https://raw.githubusercontent.com/aiur-team/aiur/main/a.png"}})
 
     img = Floki.parse_fragment!(render([item])) |> Floki.find("img") |> List.first()
     assert Floki.attribute(img, "src") == ["https://raw.githubusercontent.com/aiur-team/aiur/main/a.png"]
+  end
+
+  test "resolves a durable item through its attachment id" do
+    item = %{
+      "kind" => "image",
+      "mime_type" => "image/png",
+      "attachment_id" => "med_dddddddddddddddddddddddd",
+      "locator" => %{"kind" => "path", "value" => "/var/lib/aiur/evidence.png"},
+      "alt_text" => "Evidence"
+    }
+
+    img = Floki.parse_fragment!(render([item])) |> Floki.find("img") |> List.first()
+
+    assert Floki.attribute(img, "src") == ["/api/v1/decisions/dec_media/media/med_dddddddddddddddddddddddd"]
+    refute render([item]) =~ "/var/lib/aiur"
   end
 
   test "marks an animated image as animated" do

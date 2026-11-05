@@ -60,7 +60,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
           </.detail_block>
 
           <.detail_block :if={Map.get(@decision, :media, []) != []} title="Media">
-            <CommandMedia.command_media items={Map.get(@decision, :media, [])} decision_id={@decision.decision_id} label="Command media" />
+            <CommandMedia.command_media
+              items={Map.get(@decision, :media, [])}
+              decision_id={@decision.decision_id}
+              label="Command media"
+              path_prefix="/commands"
+            />
           </.detail_block>
 
           <.detail_block :if={present?(@decision.consequence_of_delay)} title={if @decision.blocking, do: "Blocking reason", else: "If no one answers"}>
@@ -80,6 +85,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
                   <span :if={recommended?(@decision, option)} class="chip super">Recommended</span>
                 </header>
                 <p :if={present?(option.description)}>{option.description}</p>
+                <CommandMedia.command_media
+                  :if={Map.get(option, :media, []) != []}
+                  items={Map.get(option, :media, [])}
+                  decision_id={@decision.decision_id}
+                  label={"Option #{option.id} media"}
+                  path_prefix="/commands"
+                />
                 <div :if={present?(Map.get(option, :benefits)) or present?(Map.get(option, :drawbacks))} class="option-columns">
                   <div :if={present?(Map.get(option, :benefits))}><h5>Benefits</h5><p>{Map.get(option, :benefits)}</p></div>
                   <div :if={present?(Map.get(option, :drawbacks))}><h5>Drawbacks</h5><p>{Map.get(option, :drawbacks)}</p></div>

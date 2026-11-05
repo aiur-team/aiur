@@ -434,9 +434,13 @@ never receives a filesystem path. Media that would rot is refused: an expiring
 pre-signed URL is rejected instead of persisted, and a reference to an
 unapproved host or outside a safe root fails with a stable error.
 
-Readers fetch a local attachment through the Command's own media route, which
-re-checks the file against a configured root at read time and only resolves
-media the Command actually carries.
+Readers fetch a local attachment through the Command's own media route — the
+Decision API path `GET /api/v1/decisions/{decision_id}/media/{attachment_id}`
+for a bearer-token client, or `GET /commands/{decision_id}/media/{attachment_id}`
+for the dashboard, which carries its own credential. The route re-checks
+containment against a configured root at read time and only resolves media the
+Command actually carries, so an attachment id belonging to another Command
+answers 404.
 
 The dashboard renders each kind with native controls, alt text and captions, and
 an unavailable panel when the media cannot be resolved.

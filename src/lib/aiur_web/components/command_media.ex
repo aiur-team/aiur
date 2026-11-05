@@ -28,14 +28,15 @@ defmodule AiurWeb.Components.CommandMedia do
   attr(:items, :list, default: [])
   attr(:decision_id, :string, default: nil)
   attr(:label, :string, default: "Media")
+  attr(:path_prefix, :string, default: "/api/v1/decisions")
 
   @spec command_media(map()) :: Phoenix.LiveView.Rendered.t()
   def command_media(assigns) do
     ~H"""
     <div :if={@items != []} class="command-media-group" role="group" aria-label={@label}>
       <figure :for={item <- @items} class={["command-media", "command-media--" <> kind(item)]}>
-        <.media_element :if={item_source(item, @decision_id)} item={item} decision_id={@decision_id} />
-        <div :if={!item_source(item, @decision_id)} class="command-media__unavailable" role="status">
+        <.media_element :if={item_source(item, @decision_id, @path_prefix)} item={item} decision_id={@decision_id} path_prefix={@path_prefix} />
+        <div :if={!item_source(item, @decision_id, @path_prefix)} class="command-media__unavailable" role="status">
           <strong>Media unavailable</strong>
           <span>{unavailable_hint(item)}</span>
         </div>
@@ -50,9 +51,10 @@ defmodule AiurWeb.Components.CommandMedia do
 
   attr(:item, :map, required: true)
   attr(:decision_id, :string, default: nil)
+  attr(:path_prefix, :string, default: "/api/v1/decisions")
 
   defp media_element(%{item: %{"kind" => "image"}} = assigns) do
-    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id))
+    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id, assigns.path_prefix))
 
     ~H"""
     <img src={@src} alt={alt(@item)} loading="lazy" decoding="async" width={dimension(@item, "width")} height={dimension(@item, "height")} />
@@ -60,7 +62,7 @@ defmodule AiurWeb.Components.CommandMedia do
   end
 
   defp media_element(%{item: %{"kind" => "animated_image"}} = assigns) do
-    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id))
+    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id, assigns.path_prefix))
 
     ~H"""
     <img src={@src} alt={alt(@item)} loading="lazy" decoding="async" width={dimension(@item, "width")} height={dimension(@item, "height")} />
@@ -68,8 +70,8 @@ defmodule AiurWeb.Components.CommandMedia do
   end
 
   defp media_element(%{item: %{"kind" => "video"}} = assigns) do
-    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id))
-    assigns = assign(assigns, :poster, source(Map.get(assigns.item, "poster"), assigns.decision_id))
+    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id, assigns.path_prefix))
+    assigns = assign(assigns, :poster, source(Map.get(assigns.item, "poster"), assigns.decision_id, assigns.path_prefix))
 
     ~H"""
     <video controls preload="metadata" playsinline poster={@poster} aria-label={accessible_name(@item)} width={dimension(@item, "width")} height={dimension(@item, "height")}>
@@ -80,7 +82,7 @@ defmodule AiurWeb.Components.CommandMedia do
   end
 
   defp media_element(%{item: %{"kind" => "audio"}} = assigns) do
-    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id))
+    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id, assigns.path_prefix))
 
     ~H"""
     <audio controls preload="metadata" aria-label={accessible_name(@item)}>
@@ -101,14 +103,36 @@ defmodule AiurWeb.Components.CommandMedia do
 
   @doc """
   Resolves a whole media item to a browser URL. Items carry their reference in
-  `locator`; `source/2` resolves one locator value on its own.
+  `locator`; `source/3` resolves one locator value on its own.
+
+  `path_prefix` is the authenticated media route family the consuming surface
+  is allowed to call: the dashboard pages pass `"/commands"` (dashboard
+  credentials), an embeddable API consumer keeps the default
+  `"/api/v1/decisions"` (supervisor credentials).
   """
-  @spec item_source(term(), String.t() | nil) :: String.t() | nil
-  def item_source(item, decision_id) when is_map(item) do
-    source(Map.get(item, "locator") || Map.get(item, :locator), decision_id)
+  @spec item_source(term(), String.t() | nil, String.t()) :: String.t() | nil
+  def item_source(item, decision_id, path_prefix \\ "/api/v1/decisions") do
+    locator = if is_map(item), do: Map.get(item, "locator") || Map.get(item, :locator)
+
+    case source(locator, decision_id, path_prefix) do
+      nil -> durable_attachment_source(item, decision_id, path_prefix)
+      url -> url
+    end
   end
 
-  def item_source(_item, _decision_id), do: nil
+  # A durable item keeps its locator as a bare path reference; its
+  # `attachment_id` is what the media route resolves.
+  defp durable_attachment_source(item, decision_id, path_prefix) when is_map(item) do
+    case Map.get(item, "attachment_id") || Map.get(item, :attachment_id) do
+      id when is_binary(id) and is_binary(decision_id) ->
+        attachment_url(id, decision_id, path_prefix)
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp durable_attachment_source(_item, _decision_id, _path_prefix), do: nil
 
   @doc """
   Resolves one item's locator to a browser URL.
@@ -117,26 +141,30 @@ defmodule AiurWeb.Components.CommandMedia do
   authorized Decision media route when the consumer knows its Command. Anything
   else is unavailable rather than a broken element.
   """
-  @spec source(term(), String.t() | nil) :: String.t() | nil
-  def source(nil, _decision_id), do: nil
+  @spec source(term(), String.t() | nil, String.t()) :: String.t() | nil
+  def source(nil, _decision_id, _path_prefix), do: nil
 
-  def source(%{"kind" => "url", "value" => value}, _decision_id) when is_binary(value), do: value
+  def source(%{"kind" => "url", "value" => value}, _decision_id, _path_prefix) when is_binary(value), do: value
 
-  def source(%{"kind" => "attachment", "attachment_id" => id}, decision_id)
+  def source(%{"kind" => "attachment", "attachment_id" => id}, decision_id, path_prefix)
       when is_binary(id) and is_binary(decision_id) do
-    "/api/v1/decisions/#{decision_id}/media/#{id}"
+    attachment_url(id, decision_id, path_prefix)
   end
 
-  def source(%{kind: :url, value: value}, _decision_id) when is_binary(value), do: value
+  def source(%{kind: :url, value: value}, _decision_id, _path_prefix) when is_binary(value), do: value
 
-  def source(%{kind: :path} = locator, decision_id) when is_binary(decision_id) do
+  def source(%{kind: :path} = locator, decision_id, path_prefix) when is_binary(decision_id) do
     case Map.get(locator, :attachment_id) do
-      id when is_binary(id) -> "/api/v1/decisions/#{decision_id}/media/#{id}"
+      id when is_binary(id) -> attachment_url(id, decision_id, path_prefix)
       _missing -> nil
     end
   end
 
-  def source(_locator, _decision_id), do: nil
+  def source(_locator, _decision_id, _path_prefix), do: nil
+
+  defp attachment_url(id, decision_id, path_prefix) do
+    "#{String.trim_trailing(path_prefix, "/")}/#{decision_id}/media/#{id}"
+  end
 
   defp kind(item) when is_map(item) do
     case Map.get(item, "kind") do

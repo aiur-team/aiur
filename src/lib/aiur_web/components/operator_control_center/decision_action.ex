@@ -189,6 +189,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             items={Map.get(@decision.answer, :media, [])}
             decision_id={@decision.decision_id}
             label="Answer media"
+            path_prefix="/commands"
           />
         </div>
         <dl>
