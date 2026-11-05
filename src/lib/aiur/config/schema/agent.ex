@@ -21,30 +21,9 @@ defmodule Aiur.Config.Schema.Claude do
   end
 end
 
-defmodule Aiur.Config.Schema.Rtk do
-  @moduledoc false
-  use Ecto.Schema
-  import Ecto.Changeset
-
-  @primary_key false
-  embedded_schema do
-    # Controls whether the analytics panel reports host-level rtk output
-    # savings. This does not enable or disable a host-wide rtk hook; the
-    # operator owns that hook and must configure it to exclude `gh`.
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.rtk.enabled | boolean | false | Enables the Agent output compression panel on the analytics page, which reports rtk's host-level output savings when available. Aiur does not install, enable, or disable rtk's hook and does not enforce this setting at agent dispatch. A host-wide rtk hook applies to every agent regardless of this setting; the operator owns the hook and must exclude `gh` (`exclude_commands = ["gh"]` under `[hooks]`), because `gh` in an agent workspace is the GitHub quota guard and rtk must not rewrite it. The analytics panel reports rtk's status, including when its probe detects that `gh` would be rewritten, but cannot disable the hook. At daemon startup Aiur also checks the host hook, independent of this setting, and raises an informational alert when it would rewrite `gh`. |
-    field(:enabled, :boolean, default: false)
-  end
-
-  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
-  def changeset(schema, attrs) do
-    cast(schema, attrs, [:enabled], empty_values: [])
-  end
-end
-
 defmodule Aiur.Config.Schema.Agent do
   @moduledoc false
-  for source <- ~w(codex.ex git_identity.ex pricing_policy.ex),
+  for source <- ~w(codex.ex git_identity.ex pricing_policy.ex rtk.ex),
       do: @external_resource(Path.relative_to(Path.join(__DIR__, source), File.cwd!(), force: true))
 
   use Ecto.Schema
@@ -224,30 +203,6 @@ defmodule Aiur.Config.Schema.Agent do
     field(:complexity_prompts, :map, default: %{})
     # @config-reference config-configuration-agent-00 agent.max_turns_by_complexity | map | `%{}` | Per-complexity turn caps. |
     field(:max_turns_by_complexity, :map, default: %{})
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.skills
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.skills.preload_max_bytes
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.skills.preload_max_bytes | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.skills.by_lane
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.skills.by_lane | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured general epic's label matchers. |
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.skills.by_feature
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.skills.by_feature | map | `%{}` | Owning feature slug to skill names. |
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.skills.by_label
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.skills.by_label | map | `%{}` | Ticket label to skill names. A `skills:<name>` label selects the same entry, or names one skill directly. |
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.skills.by_complexity
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.skills.by_complexity | map | `%{}` | Complexity level to skill names. |
     field(:skills, :map, default: %{})
 
     # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Five tolerates brief polling; steer at 5 identical results and stop at 6. `0` disables it. |
