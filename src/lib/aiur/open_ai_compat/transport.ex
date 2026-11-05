@@ -34,7 +34,10 @@ defmodule Aiur.OpenAICompat.Transport do
       headers: request_headers(config),
       json:
         maybe_put_provider(
-          %{"model" => config.model, "messages" => messages, "tools" => tools, "tool_choice" => "auto"},
+          maybe_put_models(
+            %{"model" => config.model, "messages" => messages, "tools" => tools, "tool_choice" => "auto"},
+            config
+          ),
           config
         )
     }
@@ -59,6 +62,16 @@ defmodule Aiur.OpenAICompat.Transport do
   end
 
   defp maybe_put_provider(json, _config), do: json
+
+  # A model set: OpenRouter picks between these models itself, in the order
+  # the `provider` block ranks them (a set with no `order` is sent with
+  # `sort: price`, i.e. cheapest first). `model` stays the primary so the
+  # response's served model is what billing reads, not this list.
+  defp maybe_put_models(json, %{models: models}) when is_list(models) and models != [] do
+    Map.put(json, "models", models)
+  end
+
+  defp maybe_put_models(json, _config), do: json
 
   defp stringify_keys(value) when is_map(value), do: Map.new(value, fn {key, val} -> {to_string(key), stringify_keys(val)} end)
   defp stringify_keys(value) when is_list(value), do: Enum.map(value, &stringify_keys/1)

@@ -77,9 +77,17 @@ KNOWN_MAP_SUBKEYS: dict[str, tuple[str, ...]] = {
         "<backend>.quirks.openrouter_metadata",
         "<backend>.quirks.local_concurrency_limit",
         "openrouter.provider.order",
+        "openrouter.provider.only",
         "openrouter.provider.ignore",
         "openrouter.provider.allow_fallbacks",
         "openrouter.provider.sort",
+        "openrouter.provider.max_price",
+        "openrouter.provider.quantizations",
+        "openrouter.provider.data_collection",
+        "openrouter.provider.require_parameters",
+        "openrouter.routes",
+        "openrouter.routes.<route>.provider",
+        "openrouter.routes.<route>.models",
     ),
 }
 
