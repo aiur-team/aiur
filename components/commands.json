@@ -29,6 +29,7 @@
     "Aiur.Commands",
     "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.Media",
     "Aiur.Commands.NativeCapture",
     "Aiur.Commands.NativeCapture.Claude",
     "Aiur.Commands.NativeCapture.Codex",
