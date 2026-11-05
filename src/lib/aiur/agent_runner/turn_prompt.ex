@@ -3,6 +3,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
   alias Aiur.AgentRunner.{AsyncMessagePrompt, OptimisticPrompt, ReworkFindings, StoppedSessionPrompt}
+  alias Aiur.AgentSkills.Preload
   alias Aiur.{Issue, PromptBuilder}
 
   defp turn_of(nil), do: ""
@@ -12,13 +13,22 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   @spec build_turn_prompt(Issue.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
   def build_turn_prompt(issue, opts, 1, _max_turns) do
     workspace = Keyword.get(opts, :workspace)
-    prompt_opts = Keyword.delete(opts, :workspace)
+    # Keep :workspace in the builder options: the cold prompt resolves the
+    # ticket's skill preload from the workspace's installed skills. A resolved
+    # preload handed in as :skill_preload is reused so a session resolves its
+    # skills once.
+    prompt_opts = opts
 
     prompt =
       case first_turn_mode(issue, prompt_opts) do
-        :resumed -> resumed_turn_prompt() <> OptimisticPrompt.render(issue.optimistic_start)
-        :continuation -> continuation_turn_prompt(issue, prompt_opts, continuation_reason(issue))
-        :cold -> PromptBuilder.build_prompt(issue, prompt_opts)
+        :resumed ->
+          resumed_turn_prompt() <> OptimisticPrompt.render(issue.optimistic_start)
+
+        :continuation ->
+          PromptBuilder.skills_block(skill_preload(issue, prompt_opts)) <> continuation_turn_prompt(issue, prompt_opts, continuation_reason(issue))
+
+        :cold ->
+          PromptBuilder.build_prompt(issue, prompt_opts)
       end
 
     Aiur.Commands.render_pending_overrides(opts) <>
@@ -45,6 +55,22 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     """
 
     Aiur.Commands.render_pending_overrides(opts) <> prompt <> OptimisticPrompt.render(issue.optimistic_start) <> AsyncMessagePrompt.build(issue.identifier, opts)
+  end
+
+  # A continuation first turn belongs to a new session that still needs the
+  # skills its ticket maps to; a resumed session already carries the original
+  # prompt in its thread and is deliberately left alone.
+  defp skill_preload(issue, opts) do
+    case Keyword.get(opts, :skill_preload) do
+      %Preload{} = preload ->
+        preload
+
+      _unset ->
+        case Keyword.get(opts, :workspace) do
+          workspace when is_binary(workspace) -> Preload.resolve(issue, workspace)
+          _no_workspace -> nil
+        end
+    end
   end
 
   defp conflict_guidance(workspace) when is_binary(workspace) do

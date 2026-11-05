@@ -401,7 +401,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       resolved_model: Map.get(execution, :resolved_model),
       effort: Map.get(execution, :effort),
       account: Map.get(execution, :account),
-      account_selection_reason: Map.get(execution, :account_selection_reason)
+      account_selection_reason: Map.get(execution, :account_selection_reason),
+      skills: Map.get(execution, :skills)
     }
     |> Map.merge(issue_classification_facts(Map.get(entry, :issue)))
   end

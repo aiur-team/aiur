@@ -1,6 +1,7 @@
 defmodule Aiur.Config.Schema.AgentValidationTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentSkills.Mapping
   alias Aiur.Config.Schema.AgentValidation
   alias Ecto.Changeset
 
@@ -220,5 +221,91 @@ defmodule Aiur.Config.Schema.AgentValidationTest do
 
       refute cs.valid?
     end
+  end
+
+  describe "normalize_skills/1" do
+    test "returns the empty mapping for nil" do
+      mapping = AgentValidation.normalize_skills(nil)
+      assert mapping.by_lane == %{}
+      assert mapping.preload_max_bytes == Mapping.default_max_bytes()
+    end
+
+    test "normalizes dimension keys and skill names" do
+      mapping =
+        AgentValidation.normalize_skills(%{
+          "by_lane" => %{"  Art " => [" pixel-art ", "pixel-art", ""]},
+          "by_label" => %{"Design" => "design-import"},
+          "by_complexity" => %{"3" => ["ce-work"]},
+          "preload_max_bytes" => "4096"
+        })
+
+      assert mapping.by_lane == %{"art" => ["pixel-art"]}
+      assert mapping.by_label == %{"design" => ["design-import"]}
+      assert mapping.by_complexity == %{3 => ["ce-work"]}
+      assert mapping.preload_max_bytes == 4096
+    end
+  end
+
+  describe "validate_skills/2" do
+    defp make_skills_changeset(value) do
+      {%{}, %{skills: :map}}
+      |> Changeset.cast(%{skills: value}, [:skills])
+    end
+
+    test "accepts the empty and the documented shapes" do
+      for value <- [
+            %{},
+            %{"by_lane" => %{"art" => ["pixel-art", "palette"]}},
+            %{"by_feature" => %{"items-ui" => "ce-work"}},
+            %{"by_label" => %{"design" => ["design-import"]}},
+            %{"by_complexity" => %{1 => ["ce-work"]}},
+            %{"preload_max_bytes" => 32_768}
+          ] do
+        cs = make_skills_changeset(value) |> AgentValidation.validate_skills(:skills)
+        assert cs.valid?, "expected #{inspect(value)} to be valid"
+      end
+    end
+
+    test "rejects an unknown key" do
+      cs = make_skills_changeset(%{"by_lanes" => %{}}) |> AgentValidation.validate_skills(:skills)
+
+      refute cs.valid?
+      assert errors_on(cs, :skills) =~ "unknown keys by_lanes"
+    end
+
+    test "rejects a non-positive byte budget" do
+      cs = make_skills_changeset(%{"preload_max_bytes" => 0}) |> AgentValidation.validate_skills(:skills)
+
+      refute cs.valid?
+      assert errors_on(cs, :skills) =~ "preload_max_bytes"
+    end
+
+    test "rejects a dimension that is not a map" do
+      cs = make_skills_changeset(%{"by_lane" => ["pixel-art"]}) |> AgentValidation.validate_skills(:skills)
+
+      refute cs.valid?
+      assert errors_on(cs, :skills) =~ "by_lane"
+    end
+
+    test "rejects a non-positive complexity key" do
+      cs = make_skills_changeset(%{"by_complexity" => %{0 => ["ce-work"]}}) |> AgentValidation.validate_skills(:skills)
+
+      refute cs.valid?
+      assert errors_on(cs, :skills) =~ "positive complexity levels"
+    end
+
+    test "rejects a skill name that cannot address a skill directory" do
+      cs = make_skills_changeset(%{"by_lane" => %{"art" => ["../escape"]}}) |> AgentValidation.validate_skills(:skills)
+
+      refute cs.valid?
+      assert errors_on(cs, :skills) =~ "invalid skills"
+    end
+  end
+
+  defp errors_on(changeset, field) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {message, _opts} -> message end)
+    |> Map.get(field, [])
+    |> Enum.join("; ")
   end
 end

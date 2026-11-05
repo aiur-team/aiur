@@ -232,6 +232,22 @@ defmodule Aiur.Config.AgentSettings do
   end
 
   @doc """
+  The `agent.skills` mapping: which skills a worker loads first, keyed by lane,
+  owning feature, label and complexity. Returns the empty mapping when unset or
+  when the config cannot be loaded, so prompt building never fails on this
+  lookup. Read per call, so an edit takes effect on the next dispatch.
+  """
+  @spec agent_skills() :: map()
+  def agent_skills do
+    case Aiur.Config.settings() do
+      # Map.get (not dot access) so a config cached before this field existed
+      # returns %{} rather than raising KeyError after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :skills) || %{}
+      _ -> %{}
+    end
+  end
+
+  @doc """
   Resolved alert sound settings (`enabled`, `use_os_default_sounds`,
   `sound_dir`, `alerts_file`). Returns the non-raising `{:ok, _} | {:error, _}`
   so `Aiur.Alerts` can fall back to safe defaults rather than crashing a turn

@@ -118,7 +118,11 @@ defmodule Aiur.Orchestrator.State.RuntimeInfo do
           resolved_model: nil,
           effort: optional_runtime_string(info[:effort]),
           account: optional_runtime_string(info[:account]),
-          account_selection_reason: optional_runtime_string(info[:account_selection_reason])
+          account_selection_reason: optional_runtime_string(info[:account_selection_reason]),
+          # The skills this worker loaded first and why, as the preload summary
+          # the dispatch record also carries. Absent for a run that never
+          # reported one, so `aiur agents` shows nothing rather than "none".
+          skills: optional_runtime_string(info[:skills])
         }
 
         {:noreply, put_session_execution(state, issue_id, running_entry, session_execution)}

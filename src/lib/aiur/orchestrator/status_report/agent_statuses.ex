@@ -110,6 +110,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
       last_codex_event: Map.get(entry, :last_codex_event),
+      # The skills this worker loaded first, from the session's preload report.
+      skills: get_in(entry, [:session_execution, :skills]),
       reason: if(work_state == :paused, do: StatusReason.for_pause(pause_reason)),
       waiting_reason: waiting_reason,
       pause_reason: pause_reason,

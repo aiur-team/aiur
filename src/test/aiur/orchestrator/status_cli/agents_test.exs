@@ -34,6 +34,29 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       assert output =~ "agent:ci-wait,agent:ci-red"
     end
 
+    test "prints the skills a worker loaded first and why", %{orchestrator: pid} do
+      agent =
+        "issue-skills"
+        |> running_entry("repo#sk", :working)
+        |> Map.put(:session_execution, %{skills: "skills: pixel-art (lane:art), palette (lane:art)"})
+
+      :sys.replace_state(pid, fn state -> %{state | running: %{"issue-skills" => agent}} end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "skills: pixel-art (lane:art), palette (lane:art)"
+    end
+
+    test "prints no skills suffix for a worker that reported none", %{orchestrator: pid} do
+      agent = "issue-noskills" |> running_entry("repo#ns", :working) |> Map.put(:session_execution, %{backend: "claude"})
+
+      :sys.replace_state(pid, fn state -> %{state | running: %{"issue-noskills" => agent}} end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      refute output =~ "skills:"
+    end
+
     test "prints empty table when no agents are running" do
       output = capture_io(fn -> AgentControlCLI.agents() end)
 

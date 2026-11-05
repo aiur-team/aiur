@@ -224,6 +224,31 @@ defmodule Aiur.Config.Schema.Agent do
     field(:complexity_prompts, :map, default: %{})
     # @config-reference config-configuration-agent-00 agent.max_turns_by_complexity | map | `%{}` | Per-complexity turn caps. |
     field(:max_turns_by_complexity, :map, default: %{})
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.skills
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.skills.preload_max_bytes
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail agent.skills.preload_max_bytes | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.skills.by_lane
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail agent.skills.by_lane | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured general epic's label matchers. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.skills.by_feature
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail agent.skills.by_feature | map | `%{}` | Owning feature slug to skill names. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.skills.by_label
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail agent.skills.by_label | map | `%{}` | Ticket label to skill names. A `skills:<name>` label selects the same entry, or names one skill directly. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.skills.by_complexity
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail agent.skills.by_complexity | map | `%{}` | Complexity level to skill names. |
+    field(:skills, :map, default: %{})
 
     # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Five tolerates brief polling; steer at 5 identical results and stop at 6. `0` disables it. |
     field(:max_repeated_identical_commands, :integer, default: 5)
@@ -384,6 +409,7 @@ defmodule Aiur.Config.Schema.Agent do
         :rate_limit_fallback,
         :complexity_prompts,
         :max_turns_by_complexity,
+        :skills,
         :max_repeated_identical_commands,
         :local_gate_wait_steer_minutes,
         :local_gate_wait_stop_minutes,
@@ -469,6 +495,8 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
     |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
+    |> update_change(:skills, &AgentValidation.normalize_skills/1)
+    |> AgentValidation.validate_skills(:skills)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:git_identity, with: &GitIdentity.changeset/2)
