@@ -321,6 +321,20 @@ Command triage: [deadlines, acknowledgement, and asking the human](references/co
 
 Read now: [Drive the run](references/driving.md) on every observation, and [Review and merge](references/review-and-merge.md) before review, merge, or closure.
 
+## Per-ticket deep dives
+
+Scoping one ticket — an open-ended question that decides that ticket's design,
+contract, or acceptance — is a research spike, not a run-log exercise. Use the
+`research-spike` skill for it: brainstorm, plan, research the ticket, then write
+the specs the worker executes. Whole-feature decomposition stays with
+`aiur-build` and the shared `build-order` skill; a spike never decomposes a
+feature.
+
+Put the spike's output where the fleet can see it — the ticket itself, or the
+artifacts the spike names, linked from the Executor handoff. An investigation
+that lives only inside an Executor turn is invisible to the workers who must act
+on it.
+
 ## 6. Backstop and defects
 
 Prioritize restoring productive Aiur workers, but do not preserve nominal
