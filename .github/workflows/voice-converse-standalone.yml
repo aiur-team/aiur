@@ -49,9 +49,14 @@ jobs:
       - name: Test the example as an outside path consumer
         shell: bash
         run: |
+          # The consumer lives outside the checkout, so mise cannot find this repo's toolchain
+          # config and its shims fail with "No version is set for shim: elixir". Resolve the
+          # installed Elixir/Erlang binaries while still in the repo and use them directly.
+          toolchain="$(mise where elixir)/bin:$(mise where erlang)/bin"
           consumer="$(mktemp -d "$RUNNER_TEMP/voice-consumer.XXXXXX")"
           git archive HEAD packages/elixir/voice_converse | tar -x -C "$consumer"
           cd "$consumer/packages/elixir/voice_converse/examples/local_host"
+          export PATH="$toolchain:$PATH"
           mix deps.get
           mix compile --warnings-as-errors
           mix format --check-formatted
