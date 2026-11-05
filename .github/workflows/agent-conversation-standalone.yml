@@ -1,0 +1,38 @@
+name: agent-conversation-standalone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/elixir/agent_conversation/**'
+      - 'scripts/check-agent-conversation-isolation.sh'
+      - '.github/workflows/agent-conversation-standalone.yml'
+  pull_request:
+    paths:
+      - 'packages/elixir/agent_conversation/**'
+      - 'scripts/check-agent-conversation-isolation.sh'
+      - '.github/workflows/agent-conversation-standalone.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agent-conversation-standalone:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          version: "2026.8.8"
+          install: true
+          cache: true
+      - name: No aiur reference
+        run: scripts/check-agent-conversation-isolation.sh
+      - name: Compile and test the package alone
+        working-directory: packages/elixir/agent_conversation
+        run: |
+          bash ../../../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get
+          mise exec -- mix compile --warnings-as-errors
+          mise exec -- mix format --check-formatted
+          mise exec -- mix test

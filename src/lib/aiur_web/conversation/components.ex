@@ -1,6 +1,18 @@
 defmodule AiurWeb.Conversation.Components do
-  @moduledoc "Conversation chronology entries, session dividers and state presentation."
+  @moduledoc """
+  The dashboard's conversation presentation, rendered by the extracted
+  `AgentConversation.Components` package.
+
+  Aiur keeps its own entry bodies (`AiurWeb.Conversation.EntryContent`), state
+  labels (`AiurWeb.Conversation.Presenter`) and reveal event, and passes them into
+  the package as a renderer and labels. That way the transcript row, session
+  divider, state header and media markup have exactly one implementation — the
+  one an embedding host also gets — while Aiur's markdown, masking and freshness
+  wording stay where they already live.
+  """
   use Phoenix.Component
+
+  alias AgentConversation.Components, as: Embed
   alias AiurWeb.Conversation.{EntryContent, Presenter}
 
   attr(:entry, :map, required: true)
@@ -8,18 +20,10 @@ defmodule AiurWeb.Conversation.Components do
   attr(:can_reveal, :boolean, default: false)
   @spec entry(map()) :: Phoenix.LiveView.Rendered.t()
   def entry(assigns) do
+    assigns = assign(assigns, :embed_entry, AgentConversation.Entry.normalize(assigns.entry))
+
     ~H"""
-    <div data-pos={@entry.pos} class="conversation-entry">
-      <.session_divider :for={session <- @sessions} :if={session.first_pos == @entry.pos} session={session} />
-      <article aria-label={"Entry #{@entry.pos}"}>
-        <small>#{@entry.pos} · {@entry.role} · {@entry.kind}</small>
-        <span :if={Map.get(@entry, :redacted, false)} class="conversation-masked">masked</span>
-        <button :if={Map.get(@entry, :redacted, false) && @can_reveal} phx-click="reveal_entry" phx-value-pos={@entry.pos}>Show raw</button>
-        <EntryContent.content entry={@entry} />
-        <.truncation_marker :if={@entry.body_truncated} text={@entry.body} />
-        <.truncation_marker :if={@entry.output_truncated} text={@entry.output} />
-      </article>
-    </div>
+    <Embed.entry entry={@embed_entry} sessions={@sessions} can_reveal={@can_reveal} renderer={{EntryContent, :content}} reveal_event="reveal_entry" />
     """
   end
 
@@ -31,20 +35,15 @@ defmodule AiurWeb.Conversation.Components do
   @spec session_divider(map()) :: Phoenix.LiveView.Rendered.t()
   def session_divider(assigns) do
     ~H"""
-    <p class="conversation-divider">
-      Session {@session.session_seq} · {EntryContent.session_reason(@session.start_reason)}
-      · <time datetime={@session.started_at}>{@session.started_at || "Time unknown"}</time>
-    </p>
+    <Embed.session_divider session={@session} />
     """
   end
 
   attr(:text, :any, default: nil)
   @spec truncation_marker(map()) :: Phoenix.LiveView.Rendered.t()
   def truncation_marker(assigns) do
-    assigns = assign(assigns, :bytes, EntryContent.omitted_bytes(assigns.text))
-
     ~H"""
-    <p class="conversation-truncation" role="note">Middle of this output not stored ({@bytes} bytes)</p>
+    <Embed.truncation_marker text={@text} />
     """
   end
 
@@ -57,18 +56,28 @@ defmodule AiurWeb.Conversation.Components do
   attr(:reason, :any, default: nil)
   @spec status(map()) :: Phoenix.LiveView.Rendered.t()
   def status(assigns) do
+    assigns =
+      assigns
+      |> assign(:label, assigns.state_label || Presenter.label(assigns.state))
+      |> assign(:freshness, if(assigns.show_freshness and assigns.state not in [:loading, :not_found], do: assigns.age))
+      |> assign(:last_entry_text, last_entry_text(assigns.last_entry))
+
     ~H"""
-    <header aria-live="polite" data-state={@state}>
-      <h1>{@title}</h1>
-      <p :if={@state == :not_found}>No messages yet</p>
-      <p>{@state_label || Presenter.label(@state)} <span :if={@reason}>· {@reason}</span></p>
-      <p :if={@show_freshness and @state not in [:loading, :not_found]} data-freshness={@age.freshness}>
-        Observed <time :if={@age.observed_at} datetime={DateTime.to_iso8601(@age.observed_at)}>{DateTime.to_iso8601(@age.observed_at)}</time>
-        · {@age.text} · {@age.freshness}
-      </p>
-      <p :if={@last_entry}>Last entry: {Presenter.age(@last_entry.observed_at, DateTime.utc_now()).text}</p>
-      <button :if={@state in [:unavailable, :degraded]} phx-click="retry">Retry</button>
-    </header>
+    <Embed.status state={@state} title={@title} label={@label} reason={@reason} freshness={@freshness}
+      last_entry_text={@last_entry_text} retry_event="retry" />
     """
   end
+
+  attr(:rows, :list, required: true)
+  attr(:active_pos, :integer, default: nil)
+  attr(:tick_attrs, :map, default: %{})
+  @spec minimap(map()) :: Phoenix.LiveView.Rendered.t()
+  def minimap(assigns) do
+    ~H"""
+    <Embed.minimap rows={@rows} active_pos={@active_pos} tick_attrs={@tick_attrs} />
+    """
+  end
+
+  defp last_entry_text(nil), do: nil
+  defp last_entry_text(entry), do: "Last entry: " <> Presenter.age(entry.observed_at, DateTime.utc_now()).text
 end
