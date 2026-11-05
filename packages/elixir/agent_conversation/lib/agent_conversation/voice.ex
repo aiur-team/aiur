@@ -7,6 +7,12 @@ defmodule AgentConversation.Voice do
   report into the four states a reader needs to see: ready, unavailable,
   permission denied and reconnecting.
 
+  The report is deliberately the whole contract: a host wires its existing client
+  into that callback instead of the component learning a second voice protocol.
+  Aiur's own client is `voice_converse`; its web surface is tracked separately and
+  is not shipped as an adapter here, so a host embedding the component today must
+  supply the callback itself.
+
   `:dictation` is one-way speech into the composer. `:two_way` is a spoken
   conversation with the agent, which a host only offers when its client already
   supports it.

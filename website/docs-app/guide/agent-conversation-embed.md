@@ -51,7 +51,8 @@ answering boundary instead of growing a second one.
   transcript when the position is unknown,
 - text composition plus one-way dictation and two-way voice through the host's
   own voice client, stating unavailable, permission-denied and reconnecting
-  states,
+  states. The client is wired in through `voice_capabilities/2`, so the component
+  never learns a second voice protocol,
 - loading, empty, unavailable and denied headers.
 
 Hosts that already render inside LiveView can use the leaf components
