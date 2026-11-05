@@ -24,6 +24,9 @@ host browser ──► host server ──(AIUR_SUPERVISOR_TOKEN)──► POST /
              POST /api/v1/commands/:id/answer
 ```
 
+A grant may name an explicit ticket set, a label scope such as `game:chess`, or
+both.
+
 The grant is an HMAC-signed token bound to one principal and one ticket set.
 Aiur derives the signing key from the instance endpoint secret, so no extra
 configuration is required and the grant can only be minted on this instance.
@@ -34,7 +37,7 @@ Only the supervisor credential may mint a grant, once per user session.
 
 | Request | Body |
 | --- | --- |
-| `POST /api/v1/commands/scope` | `{"principal": "player-7", "tickets": ["42", "43"], "expires_in": 300}` |
+| `POST /api/v1/commands/scope` | `{"principal": "player-7", "tickets": ["42", "43"], "labels": ["game:chess"], "expires_in": 300}` |
 
 The response carries the token, its expiry, and the scope it authorizes:
 
@@ -48,6 +51,13 @@ The response carries the token, its expiry, and the scope it authorizes:
 
 The host server calls the mint endpoint and keeps the token out of its public
 client. `expires_in` defaults to 900 seconds and is capped at 24 hours.
+
+A label scope authorizes every ticket currently observed to carry one of the
+grant's labels, so a ticket added to the game later needs no new grant. An
+explicit ticket stays in scope whatever its labels.
+
+If Aiur has not yet observed the labels, a label scope authorizes nothing; it
+never widens to every ticket.
 
 ## Read and answer
 

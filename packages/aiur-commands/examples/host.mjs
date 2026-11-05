@@ -36,20 +36,21 @@ function config(env = process.env) {
     baseUrl: env.AIUR_BASE_URL ?? 'http://127.0.0.1:4000',
     supervisorToken: env.AIUR_SUPERVISOR_TOKEN ?? '',
     tickets: (env.AIUR_HOST_TICKETS ?? '').split(',').map((ticket) => ticket.trim()).filter(Boolean),
+    labels: (env.AIUR_HOST_LABELS ?? '').split(',').map((label) => label.trim()).filter(Boolean),
     principal: env.AIUR_HOST_PRINCIPAL ?? 'example-user',
     port: Number(env.AIUR_HOST_PORT ?? DEFAULT_PORT),
   };
 }
 
 /** Exchanges the host's instance credential for a ticket-scoped grant. */
-export async function mintScope({ baseUrl, supervisorToken, principal, tickets, expiresIn = SCOPE_TTL_SECONDS }) {
+export async function mintScope({ baseUrl, supervisorToken, principal, tickets, labels = [], expiresIn = SCOPE_TTL_SECONDS }) {
   const response = await fetch(new URL('/api/v1/commands/scope', baseUrl), {
     method: 'POST',
     headers: {
       authorization: `Bearer ${supervisorToken}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ principal, tickets, expires_in: expiresIn }),
+    body: JSON.stringify({ principal, tickets, labels, expires_in: expiresIn }),
   });
 
   if (!response.ok) {
@@ -93,7 +94,8 @@ function page(config, list) {
   </head>
   <body>
     <h1>Commands for ${config.principal}</h1>
-    <p>Ticket scope: ${config.tickets.join(', ')}</p>
+    <p>Ticket scope: ${config.tickets.join(', ') || 'none'}</p>
+    <p>Label scope: ${config.labels.join(', ') || 'none'}</p>
     ${renderList(list, { answerUrl: '/api/commands/answer' })}
   </body>
 </html>`;
@@ -159,13 +161,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   } else {
     const settings = config();
 
-    if (!settings.supervisorToken || settings.tickets.length === 0) {
-      console.error('Set AIUR_SUPERVISOR_TOKEN and AIUR_HOST_TICKETS before running the example host.');
+    if (!settings.supervisorToken || (settings.tickets.length === 0 && settings.labels.length === 0)) {
+      console.error('Set AIUR_SUPERVISOR_TOKEN and AIUR_HOST_TICKETS or AIUR_HOST_LABELS before running the example host.');
       process.exit(1);
     }
 
     startHost(settings).listen(settings.port, '127.0.0.1', () => {
-      console.log(`example host on http://127.0.0.1:${settings.port}/ for tickets ${settings.tickets.join(', ')}`);
+      console.log(
+        `example host on http://127.0.0.1:${settings.port}/ for tickets ${settings.tickets.join(', ') || 'none'} and labels ${settings.labels.join(', ') || 'none'}`,
+      );
     });
   }
 }

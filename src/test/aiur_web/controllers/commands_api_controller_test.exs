@@ -118,10 +118,29 @@ defmodule AiurWeb.CommandsApiControllerTest do
     assert scope.tickets == ["42"]
   end
 
+  test "minting a label scope returns a grant that carries the labels" do
+    conn =
+      conn(:post, "/api/v1/commands/scope")
+      |> Map.put(:private, %{command_scope_secret: @secret})
+      |> CommandsApiController.mint_scope(%{"principal" => "player-7", "labels" => ["Game:Chess"]})
+
+    assert conn.status == 201
+    body = Jason.decode!(conn.resp_body)
+    assert body["scope"] == %{"kind" => "tickets", "label" => "Ticket-scoped Commands", "tickets" => [], "labels" => ["game:chess"]}
+
+    assert {:ok, scope} = Scope.verify(body["token"], secret: @secret)
+    assert scope.subject == "player-7"
+    assert scope.tickets == []
+    assert MapSet.to_list(scope.label_set) == ["game:chess"]
+  end
+
   test "minting rejects an invalid principal or empty ticket set" do
     assert mint_status(%{"principal" => "", "tickets" => ["42"]}) == 422
     assert mint_status(%{"principal" => "player-7", "tickets" => []}) == 422
     assert mint_status(%{"principal" => "player-7", "tickets" => ["42"], "expires_in" => 0}) == 422
+    assert mint_status(%{"principal" => "player-7"}) == 422
+    assert mint_status(%{"principal" => "player-7", "labels" => ["nocolon"]}) == 422
+    assert mint_status(%{"principal" => "player-7", "labels" => "game:chess"}) == 422
   end
 
   defp mint_status(params) do

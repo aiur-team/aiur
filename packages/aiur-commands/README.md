@@ -26,9 +26,9 @@ host browser ──(host session)──► host server ──(AIUR_SUPERVISOR_TO
 ```
 
 The host server exchanges its own Aiur instance credential for a grant naming
-the exact ticket set one of its users may see. The browser never receives the
-instance credential, and Aiur never accepts a ticket set from request content:
-the grant is the scope.
+the exact ticket set one of its users may see, a label scope such as
+`game:chess`, or both. The browser never receives the instance credential, and
+Aiur never accepts a ticket set from request content: the grant is the scope.
 
 ## Component contract
 
@@ -99,15 +99,18 @@ Send `custom_response` instead of `option_id` for a free response, and
 ## Example host
 
 `examples/host.mjs` is a complete, dependency-free example: it mints a grant
-for a ticket set, lists Commands, and renders them.
+for a ticket set or a label scope, lists Commands, and renders them.
 
 ```bash
 AIUR_BASE_URL=http://127.0.0.1:4000 \
 AIUR_SUPERVISOR_TOKEN=... \
 AIUR_HOST_TICKETS=42,43 \
+AIUR_HOST_LABELS=game:chess \
 AIUR_HOST_PRINCIPAL=player-7 \
 node examples/host.mjs
 ```
+
+Set either `AIUR_HOST_TICKETS` or `AIUR_HOST_LABELS`; both may be combined.
 
 `node examples/host.mjs --self-check` renders a fixed Command without network
 access.

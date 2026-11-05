@@ -65,6 +65,35 @@ defmodule Aiur.Commands.ScopeTest do
     assert scope.tickets == ["42"]
   end
 
+  test "a label scope round-trips normalized labels" do
+    assert {:ok, %{token: token, scope: minted}} =
+             Scope.mint("player-7", [], secret: @secret, now: @now, labels: ["Game:Chess", "game:chess"])
+
+    assert minted.tickets == []
+    assert minted.labels == ["game:chess"]
+
+    assert {:ok, scope} = Scope.verify(token, secret: @secret, now: @now)
+    assert scope.labels == ["game:chess"]
+    assert MapSet.member?(scope.label_set, "game:chess")
+    refute MapSet.member?(scope.label_set, "game:checkers")
+  end
+
+  test "minting downcases the ticket identifiers so authorization cannot miss on case" do
+    assert {:ok, %{token: token, scope: minted}} = Scope.mint("player-7", [" AbC "], secret: @secret, now: @now)
+    assert minted.tickets == ["abc"]
+    assert MapSet.member?(minted.ticket_set, "abc")
+
+    assert {:ok, scope} = Scope.verify(token, secret: @secret, now: @now)
+    assert scope.tickets == ["abc"]
+  end
+
+  test "minting rejects a malformed label and a grant that authorizes nothing" do
+    assert {:error, :invalid_scope} = Scope.mint("player-7", [], secret: @secret, labels: ["game chess"])
+    assert {:error, :invalid_scope} = Scope.mint("player-7", [], secret: @secret, labels: ["nocolon"])
+    assert {:error, :invalid_scope} = Scope.mint("player-7", [], secret: @secret)
+    assert {:error, :invalid_scope} = Scope.mint("player-7", [], secret: @secret, labels: [])
+  end
+
   test "to_public describes the scope without exposing the token" do
     assert {:ok, %{scope: scope}} = Scope.mint("player-7", ["42"], secret: @secret)
 

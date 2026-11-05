@@ -53,16 +53,18 @@ defmodule AiurWeb.CommandsApiController do
 
   Only the supervisor credential may call this route: it is the credential the
   host already holds server-side, and the grant it receives is what the end
-  user's client may carry.
+  user's client may carry. The body names an explicit ticket set, a label
+  scope such as `game:chess`, or both.
   """
   @spec mint_scope(Conn.t(), map()) :: Conn.t()
   def mint_scope(conn, params) do
     with {:ok, secret} <- CommandsScopeAuth.signing_secret(conn),
          {:ok, principal} <- required_string(params, "principal"),
-         {:ok, tickets} <- required_tickets(params),
+         {:ok, tickets} <- optional_tickets(params),
+         {:ok, labels} <- optional_labels(params),
          {:ok, expires_in} <- expires_in(params),
          {:ok, minted} <-
-           Scope.mint(principal, tickets, secret: secret, expires_in: expires_in) do
+           Scope.mint(principal, tickets, secret: secret, expires_in: expires_in, labels: labels) do
       conn
       |> put_status(201)
       |> json(%{
@@ -143,9 +145,20 @@ defmodule AiurWeb.CommandsApiController do
     end
   end
 
-  defp required_tickets(params) do
+  defp optional_tickets(params) do
     case Map.get(params, "tickets") do
-      [_ | _] = tickets -> if Enum.all?(tickets, &is_binary/1), do: {:ok, tickets}, else: {:error, :invalid_scope}
+      nil -> {:ok, []}
+      tickets when is_list(tickets) -> if Enum.all?(tickets, &is_binary/1), do: {:ok, tickets}, else: {:error, :invalid_scope}
+      _invalid -> {:error, :invalid_scope}
+    end
+  end
+
+  # A label scope such as `game:chess` lets a host authorize a game without
+  # enumerating its tickets; explicit tickets and labels may be combined.
+  defp optional_labels(params) do
+    case Map.get(params, "labels") do
+      nil -> {:ok, []}
+      labels when is_list(labels) -> if Enum.all?(labels, &is_binary/1), do: {:ok, labels}, else: {:error, :invalid_scope}
       _invalid -> {:error, :invalid_scope}
     end
   end

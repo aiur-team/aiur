@@ -3,10 +3,11 @@ defmodule Aiur.Commands.Scope do
   Ticket-scoped Command access grants for an embedding host application.
 
   A host application authenticates its own end user and asks Aiur for a
-  short-lived grant naming the exact tickets (a game, a workspace) that user
-  may see Commands for. The grant is an HMAC-signed bearer token: the host's
-  service credential never reaches the end user, and Aiur never trusts a
-  ticket set supplied by the caller of a read or answer operation.
+  short-lived grant naming the exact tickets (a game, a workspace) or the ticket
+  labels that user may see Commands for. The grant is an HMAC-signed bearer
+  token: the host's service credential never reaches the end user, and Aiur
+  never trusts a ticket set supplied by the caller of a read or answer
+  operation.
 
   The token carries no Command data, so it cannot leak canonical state, and it
   is opaque to the host client. Verification is fail-closed: a missing,
@@ -20,12 +21,17 @@ defmodule Aiur.Commands.Scope do
   @maximum_subject_bytes 200
   @maximum_ticket_bytes 200
   @maximum_tickets 500
+  @maximum_labels 50
+  @maximum_label_bytes 200
+  @label_pattern ~r/^[a-z0-9][a-z0-9_-]{0,63}:[a-z0-9][a-z0-9._-]{0,127}$/
   @minimum_secret_bytes 32
 
   @type t :: %{
           subject: String.t(),
           tickets: [String.t()],
           ticket_set: MapSet.t(String.t()),
+          labels: [String.t()],
+          label_set: MapSet.t(String.t()),
           expires_at: DateTime.t()
         }
 
@@ -35,7 +41,9 @@ defmodule Aiur.Commands.Scope do
   Mints a signed grant for `subject` over an explicit ticket set.
 
   `opts` requires `:secret` (the instance's signing secret) and accepts
-  `:expires_in` (seconds, default #{@default_ttl_seconds}) and `:now`.
+  `:expires_in` (seconds, default #{@default_ttl_seconds}), `:now`, and
+  `:labels` for a label scope such as `["game:chess"]`. A grant without any
+  ticket and without any label authorizes nothing and is rejected.
   """
   @spec mint(String.t(), [String.t()], keyword()) ::
           {:ok, %{token: String.t(), scope: t()}} | {:error, :invalid_scope}
@@ -43,6 +51,8 @@ defmodule Aiur.Commands.Scope do
     with {:ok, secret} <- secret(opts),
          {:ok, subject} <- normalize_subject(subject),
          {:ok, tickets} <- normalize_tickets(tickets),
+         {:ok, labels} <- normalize_labels(Keyword.get(opts, :labels, [])),
+         :ok <- require_scope(tickets, labels),
          {:ok, ttl} <- ttl(opts) do
       now = now(opts)
       expires_at = DateTime.add(now, ttl, :second)
@@ -51,6 +61,7 @@ defmodule Aiur.Commands.Scope do
         "v" => @version,
         "sub" => subject,
         "tickets" => tickets,
+        "labels" => labels,
         "iat" => DateTime.to_unix(now),
         "exp" => DateTime.to_unix(expires_at)
       }
@@ -60,7 +71,7 @@ defmodule Aiur.Commands.Scope do
       {:ok,
        %{
          token: Enum.join([@prefix, body, sign(body, secret)], "."),
-         scope: %{subject: subject, tickets: tickets, ticket_set: MapSet.new(tickets), expires_at: expires_at}
+         scope: scope(subject, tickets, labels, expires_at)
        }}
     end
   end
@@ -82,10 +93,15 @@ defmodule Aiur.Commands.Scope do
 
   def verify(_token, _opts), do: {:error, :malformed}
 
-  @doc "The scoped ticket set as a map keyed for JSON components."
+  @doc "The scoped ticket set and label scope as a map for JSON components."
   @spec to_public(t()) :: map()
   def to_public(%{} = scope) do
-    %{"kind" => "tickets", "label" => "Ticket-scoped Commands", "tickets" => scope.tickets}
+    public = %{"kind" => "tickets", "label" => "Ticket-scoped Commands", "tickets" => scope.tickets}
+
+    case Map.get(scope, :labels, []) do
+      [] -> public
+      labels -> Map.put(public, "labels", labels)
+    end
   end
 
   defp secret(opts) do
@@ -108,7 +124,7 @@ defmodule Aiur.Commands.Scope do
 
   defp normalize_subject(_subject), do: {:error, :invalid_scope}
 
-  defp normalize_tickets(tickets) when is_list(tickets) and tickets != [] do
+  defp normalize_tickets(tickets) when is_list(tickets) do
     tickets
     |> Enum.reduce_while({:ok, []}, fn ticket, {:ok, acc} ->
       case normalize_ticket(ticket) do
@@ -136,11 +152,56 @@ defmodule Aiur.Commands.Scope do
       trimmed == "" -> :error
       byte_size(trimmed) > @maximum_ticket_bytes -> :error
       control_chars?(trimmed) -> :error
-      true -> {:ok, trimmed}
+      # Command ticket identifiers are matched case-insensitively, so a grant
+      # stores the canonical lower-case form and cannot miss on case alone.
+      true -> {:ok, String.downcase(trimmed)}
     end
   end
 
   defp normalize_ticket(_ticket), do: :error
+
+  defp normalize_labels(labels) when is_list(labels) do
+    labels
+    |> Enum.reduce_while({:ok, []}, fn label, {:ok, acc} ->
+      case normalize_label(label) do
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, acc} ->
+        values = acc |> Enum.reverse() |> Enum.uniq()
+
+        if length(values) <= @maximum_labels, do: {:ok, values}, else: {:error, :invalid_scope}
+
+      :error ->
+        {:error, :invalid_scope}
+    end
+  end
+
+  defp normalize_labels(_labels), do: {:error, :invalid_scope}
+
+  defp normalize_label(label) when is_binary(label) and byte_size(label) <= @maximum_label_bytes do
+    value = label |> String.trim() |> String.downcase()
+
+    if String.valid?(value) and Regex.match?(@label_pattern, value), do: {:ok, value}, else: :error
+  end
+
+  defp normalize_label(_label), do: :error
+
+  defp require_scope([], []), do: {:error, :invalid_scope}
+  defp require_scope(_tickets, _labels), do: :ok
+
+  defp scope(subject, tickets, labels, expires_at) do
+    %{
+      subject: subject,
+      tickets: tickets,
+      ticket_set: MapSet.new(tickets),
+      labels: labels,
+      label_set: MapSet.new(labels),
+      expires_at: expires_at
+    }
+  end
 
   defp ttl(opts) do
     case Keyword.get(opts, :expires_in, @default_ttl_seconds) do
@@ -187,10 +248,12 @@ defmodule Aiur.Commands.Scope do
   defp normalize_payload(%{"v" => @version, "sub" => subject, "tickets" => tickets} = payload) do
     with {:ok, subject} <- normalize_subject(subject),
          {:ok, tickets} <- normalize_tickets(tickets),
+         {:ok, labels} <- normalize_labels(Map.get(payload, "labels", [])),
+         :ok <- require_scope(tickets, labels),
          {:ok, iat} <- unix_seconds(Map.get(payload, "iat")),
          {:ok, exp} <- unix_seconds(Map.get(payload, "exp")),
          true <- exp > iat do
-      {:ok, %{subject: subject, tickets: tickets, ticket_set: MapSet.new(tickets), expires_at: DateTime.from_unix!(exp)}}
+      {:ok, scope(subject, tickets, labels, DateTime.from_unix!(exp))}
     else
       _invalid -> {:error, :invalid_ticket_scope}
     end

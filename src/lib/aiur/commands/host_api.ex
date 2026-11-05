@@ -2,12 +2,15 @@ defmodule Aiur.Commands.HostApi do
   @moduledoc """
   Permission-scoped Command reads and answers for an embedding host application.
 
-  Every operation is bound to an explicit ticket set taken from a verified
-  `Aiur.Commands.Scope`, never from request content:
+  Every operation is bound to the ticket set and label scope taken from a
+  verified `Aiur.Commands.Scope`, never from request content:
 
     * reads reuse the canonical retained projection (`Aiur.DecisionQuery` plus
       `Aiur.DecisionApi.PublicProjection`), so no second Command projection
       exists;
+    * a Command is in scope when its ticket is in the grant's explicit ticket
+      set or its ticket carries one of the grant's labels; label membership
+      comes from the tracker's observed open-issue labels and fails closed;
     * an out-of-scope Command is reported as `:not_found`, whether or not the
       caller guessed a real identifier, so it is non-enumerable;
     * answers go through `Aiur.Commands.Answering`, which keeps optimistic
@@ -26,6 +29,7 @@ defmodule Aiur.Commands.HostApi do
   @default_limit 25
   @maximum_limit 100
   @maximum_answer_key_bytes 200
+  @label_observation_max_age_ms 120_000
 
   @type scope :: Scope.t()
   @type read_error :: :not_found | :store_unavailable | {:invalid_query, term()}
@@ -39,10 +43,10 @@ defmodule Aiur.Commands.HostApi do
   @spec list(scope(), map(), keyword()) :: {:ok, map()} | {:error, read_error()}
   def list(scope, params \\ %{}, opts \\ [])
 
-  def list(%{ticket_set: ticket_set} = scope, params, opts) when is_map(params) do
+  def list(%{ticket_set: _ticket_set} = scope, params, opts) when is_map(params) do
     params = restrict(params, "limit", @maximum_limit)
 
-    case DecisionQuery.list_scoped(params, ticket_set, store: store(opts)) do
+    case DecisionQuery.list_scoped(params, authorized_tickets(scope, opts), store: store(opts)) do
       {:ok, page} ->
         commands = Enum.map(page.decisions, &component/1)
 
@@ -66,8 +70,8 @@ defmodule Aiur.Commands.HostApi do
   @spec show(scope(), String.t(), keyword()) :: {:ok, map()} | {:error, read_error()}
   def show(scope, decision_id, opts \\ [])
 
-  def show(%{ticket_set: ticket_set} = scope, decision_id, opts) do
-    with {:ok, decision} <- scoped_decision(ticket_set, decision_id, opts) do
+  def show(%{ticket_set: _ticket_set} = scope, decision_id, opts) do
+    with {:ok, decision} <- scoped_decision(authorized_tickets(scope, opts), decision_id, opts) do
       {:ok, %{"command" => component(decision), "scope" => Scope.to_public(scope)}}
     end
   end
@@ -84,8 +88,8 @@ defmodule Aiur.Commands.HostApi do
   @spec answer(scope(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, answer_error()}
   def answer(scope, decision_id, payload, opts \\ [])
 
-  def answer(%{ticket_set: ticket_set, subject: subject} = scope, decision_id, payload, opts) when is_map(payload) do
-    with {:ok, decision} <- scoped_decision(ticket_set, decision_id, opts),
+  def answer(%{subject: subject} = scope, decision_id, payload, opts) when is_map(payload) do
+    with {:ok, decision} <- scoped_decision(authorized_tickets(scope, opts), decision_id, opts),
          {:ok, answer_payload} <- normalize_answer(payload),
          operation <- operation(payload) do
       outcome =
@@ -116,6 +120,69 @@ defmodule Aiur.Commands.HostApi do
     |> JSONSafe.normalize()
     |> ComponentState.from_projection()
   end
+
+  @doc """
+  The ticket identifiers a grant may read and answer.
+
+  The explicit ticket set is always authorized. A label scope adds the tickets
+  currently observed to carry one of the grant's labels, so a ticket added to
+  the game later falls into scope without re-minting. When the tracker has no
+  usable label observation, the label scope authorizes nothing: it fails closed
+  rather than widening to every ticket.
+  """
+  @spec authorized_tickets(Scope.t(), keyword()) :: MapSet.t(String.t())
+  def authorized_tickets(%{ticket_set: ticket_set} = scope, opts) do
+    MapSet.union(ticket_set, label_tickets(scope, opts))
+  end
+
+  defp label_tickets(%{label_set: %MapSet{} = labels}, opts) do
+    if MapSet.size(labels) == 0 do
+      MapSet.new()
+    else
+      labels |> labelled_tickets(observe_labels(opts))
+    end
+  end
+
+  defp label_tickets(_scope, _opts), do: MapSet.new()
+
+  defp observe_labels(opts) do
+    fun = Keyword.get(opts, :labels_fun, fn -> Aiur.Tracker.open_issue_labels(@label_observation_max_age_ms) end)
+
+    case fun.() do
+      {:ok, observed, _observed_at} when is_map(observed) -> observed
+      _unavailable -> %{}
+    end
+  rescue
+    _error -> %{}
+  catch
+    :exit, _reason -> %{}
+  end
+
+  defp labelled_tickets(labels, observed) when is_map(observed) do
+    Enum.reduce(observed, MapSet.new(), fn {identifier, observation}, acc ->
+      ticket_labels =
+        observation
+        |> labels_of()
+        |> Enum.map(&String.downcase/1)
+
+      if Enum.any?(ticket_labels, &MapSet.member?(labels, &1)) do
+        MapSet.put(acc, identifier |> to_string() |> String.downcase())
+      else
+        acc
+      end
+    end)
+  end
+
+  defp labelled_tickets(_labels, _observed), do: MapSet.new()
+
+  defp labels_of(%{} = observation) when is_map(observation) do
+    case Map.get(observation, :labels) || Map.get(observation, "labels") do
+      labels when is_list(labels) -> Enum.filter(labels, &is_binary/1)
+      _missing -> []
+    end
+  end
+
+  defp labels_of(_observation), do: []
 
   defp scoped_decision(ticket_set, decision_id, opts) do
     case DecisionQuery.get(decision_id, store: store(opts)) do

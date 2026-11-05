@@ -191,6 +191,84 @@ defmodule Aiur.Commands.HostApiTest do
     assert command["media"] == [%{"kind" => "url", "value" => "https://github.com/aiur-team/aiur/issues/42"}]
   end
 
+  test "a label-scoped grant lists only Commands on tickets carrying the label", %{store: store} do
+    labelled = request!(store, "42", "labelled")
+    _other = request!(store, "99", "other-game")
+
+    scope = label_scope(["game:chess"])
+    labels_fun = fn -> {:ok, %{"42" => %{labels: ["game:chess", "area:play"]}, "99" => %{labels: ["game:checkers"]}}, 0} end
+
+    assert {:ok, page} = HostApi.list(scope, %{}, store: store, labels_fun: labels_fun)
+    assert page["count"] == 1
+    assert [command] = page["commands"]
+    assert command["decision_id"] == labelled.decision_id
+    assert command["ticket"]["identifier"] == "42"
+    assert page["scope"]["labels"] == ["game:chess"]
+    refute inspect(page) =~ "other-game"
+  end
+
+  test "show and answer refuse an unlabelled ticket for a label-only grant", %{store: store} do
+    unlabelled = request!(store, "99", "other-game")
+    scope = label_scope(["game:chess"])
+    labels_fun = fn -> {:ok, %{"99" => %{labels: ["game:checkers"]}}, 0} end
+
+    assert {:error, :not_found} =
+             HostApi.show(scope, unlabelled.decision_id, store: store, labels_fun: labels_fun)
+
+    assert {:error, :not_found} =
+             HostApi.answer(scope, unlabelled.decision_id, answer_payload(unlabelled.version, "approve"),
+               store: store,
+               labels_fun: labels_fun
+             )
+
+    assert {:ok, %{decision: unchanged}} = DecisionQuery.get(unlabelled.decision_id, store: store)
+    assert unchanged.answer == nil
+    assert unchanged.decision_status == :open
+  end
+
+  test "explicit tickets and a label scope combine", %{store: store} do
+    explicit = request!(store, "42", "explicit")
+    labelled = request!(store, "43", "labelled")
+    outside = request!(store, "99", "outside")
+
+    scope = label_scope(["game:chess"], ["42"])
+    labels_fun = fn -> {:ok, %{"43" => %{labels: ["game:chess"]}, "99" => %{labels: ["game:other"]}}, 0} end
+
+    assert {:ok, page} = HostApi.list(scope, %{}, store: store, labels_fun: labels_fun)
+
+    assert Enum.sort(Enum.map(page["commands"], & &1["decision_id"])) ==
+             Enum.sort([explicit.decision_id, labelled.decision_id])
+
+    assert {:ok, _} = HostApi.show(scope, explicit.decision_id, store: store, labels_fun: labels_fun)
+    assert {:error, :not_found} = HostApi.show(scope, outside.decision_id, store: store, labels_fun: labels_fun)
+  end
+
+  test "a label scope fails closed without a usable label observation", %{store: store} do
+    decision = request!(store, "42", "labelled")
+    scope = label_scope(["game:chess"])
+
+    assert {:ok, page} = HostApi.list(scope, %{}, store: store, labels_fun: fn -> :none end)
+    assert page["commands"] == []
+    assert page["count"] == 0
+
+    assert {:error, :not_found} =
+             HostApi.show(scope, decision.decision_id, store: store, labels_fun: fn -> {:error, :unsupported} end)
+
+    assert {:error, :not_found} =
+             HostApi.answer(scope, decision.decision_id, answer_payload(decision.version, "approve"),
+               store: store,
+               labels_fun: fn -> :none end
+             )
+
+    assert {:ok, %{decision: unchanged}} = DecisionQuery.get(decision.decision_id, store: store)
+    assert unchanged.answer == nil
+  end
+
+  defp label_scope(labels, tickets \\ []) do
+    {:ok, %{scope: scope}} = Scope.mint("player-7", tickets, secret: @secret, now: @now, labels: labels)
+    scope
+  end
+
   defp scope_for(tickets) do
     {:ok, %{scope: scope}} = Scope.mint("player-7", tickets, secret: @secret, now: @now)
     scope
