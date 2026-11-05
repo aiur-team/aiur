@@ -181,7 +181,6 @@ agent:
   # priority: [deepseek, codex]
   # backend_configs:
   #   openrouter: {model: moonshotai/kimi-k2.7-code}
-  # OpenRouter Broadcast identity defaults on; disable with quirks: {openrouter_trace: false}.
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # max_repeated_identical_commands: 5
   # local_gate_wait_steer_minutes: 20
