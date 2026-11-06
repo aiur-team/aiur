@@ -38,7 +38,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsProjectionTest do
     {_socket, frame} = open_epics()
     assert frame.keys == List.duplicate(nil, 8)
     assert hd(frame.strip).label =~ "No epics configured"
-    assert hd(frame.strip).svg =~ "build_order.general_epics"
+    assert hd(frame.strip).svg =~ "build_order.lanes"
     refute hd(frame.strip).label =~ "0 remaining"
   end
 

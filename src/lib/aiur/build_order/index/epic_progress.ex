@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.Index.EpicProgress do
   @moduledoc false
-  alias Aiur.Config.Schema.GeneralEpic
+  alias Aiur.Lane
 
   @spec compute(list(), map(), map(), map()) :: map()
   def compute(general, rows, history, sources) do
@@ -27,7 +27,7 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
       unmatched =
         Enum.count(rows, fn {_id, row} ->
           labels = history |> Map.fetch!(row.num) |> Map.fetch!(:labels)
-          not Enum.any?(general, &GeneralEpic.matches?(&1, labels))
+          not Enum.any?(general, &Lane.matches?(&1, labels))
         end)
 
       %{unmatched: unmatched, observed_at: observed_at, reason: nil}
@@ -46,7 +46,7 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
   end
 
   defp count_progress(epic, rows, history, now) do
-    members = Enum.filter(rows, fn {_id, row} -> GeneralEpic.matches?(epic, Map.fetch!(history, row.num).labels) end)
+    members = Enum.filter(rows, fn {_id, row} -> Lane.matches?(epic, Map.fetch!(history, row.num).labels) end)
 
     closed = Enum.count(members, fn {_id, row} -> row.sec == "hist" end)
     total = length(members)
@@ -64,7 +64,7 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
     Enum.any?(rows, fn {_id, row} ->
       case Map.get(history, row.num) do
         %{labels: labels} = history_row when is_list(labels) ->
-          Map.get(history_row, :labels_complete) == false and not GeneralEpic.matches?(epic, labels)
+          Map.get(history_row, :labels_complete) == false and not Lane.matches?(epic, labels)
 
         _ ->
           true
