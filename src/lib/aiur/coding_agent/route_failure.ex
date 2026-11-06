@@ -42,6 +42,12 @@ defmodule Aiur.CodingAgent.RouteFailure do
   @doc "Classify transport and deterministic Claude bridge launch failures."
   @spec classify(term()) :: class()
   def classify(:rate_limited), do: :usage_limit
+  # A provider credit refusal (HTTP 402 for credits or `max_tokens`) is the
+  # same disposition as a spent quota: the account is unusable until it is
+  # funded, so the claim advances and the route stays out of rotation.
+  # `Aiur.OpenAICompat.CodingAgent` pauses on it before it ever reaches here;
+  # this keeps the classification honest for any other caller.
+  def classify(:credit_limited), do: :usage_limit
   def classify({:http_error, 429, _detail}), do: :usage_limit
   def classify(:unauthorized), do: :auth_rejected
 

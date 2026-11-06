@@ -189,7 +189,7 @@ defmodule Aiur.MixProject do
       {:decimal, "~> 3.0"},
       {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
-      {:ecto, "~> 3.13.6"},
+      {:ecto, "~> 3.14.3"},
       {:postgrex, "~> 0.22.4"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
