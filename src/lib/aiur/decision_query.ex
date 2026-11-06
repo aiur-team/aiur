@@ -71,8 +71,9 @@ defmodule Aiur.DecisionQuery do
   The set is applied inside the store query, not to the returned page, so the
   counts, total, and cursor continuation describe only the allowed tickets.
   An out-of-scope ticket filter is therefore empty rather than revealing that
-  other Commands exist. A `labels` query parameter narrows the page further to
-  the tickets currently carrying one of those labels.
+  other Commands exist. A `labels` query parameter narrows the page further: it
+  keeps only the tickets in the set that currently carry one of those labels, so
+  request labels can never widen the set a caller was granted.
   """
   @spec list_scoped(map(), Enumerable.t(), keyword()) ::
           {:ok, map()} | {:error, {:invalid_query, term()}}
@@ -81,7 +82,7 @@ defmodule Aiur.DecisionQuery do
   def list_scoped(params, tickets, opts) when is_map(params) and is_list(opts) do
     with {:ok, ticket_set} <- ticket_set(tickets),
          {:ok, query} <- Params.parse(params) do
-      read_page(query |> Map.put(:tickets, ticket_set) |> apply_label_scope(opts), opts)
+      read_page(query |> Map.put(:tickets, ticket_set) |> narrow_by_labels(opts), opts)
     end
   end
 
@@ -132,6 +133,16 @@ defmodule Aiur.DecisionQuery do
   end
 
   defp apply_label_scope(query, _opts), do: query
+
+  # A request label narrows a scoped read; it never widens the ticket set. A
+  # label the grant did not authorize resolves to tickets the set does not
+  # contain, so the page is empty instead of exposing another game's Commands.
+  defp narrow_by_labels(%{labels: labels} = query, opts) when is_list(labels) and labels != [] do
+    tickets = Map.get(query, :tickets) || MapSet.new()
+    Map.put(query, :tickets, MapSet.intersection(tickets, label_tickets(labels, opts)))
+  end
+
+  defp narrow_by_labels(query, _opts), do: query
 
   @doc false
   @spec label_tickets(Enumerable.t(), keyword()) :: MapSet.t(String.t())

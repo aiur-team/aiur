@@ -207,6 +207,32 @@ defmodule Aiur.Commands.HostApiTest do
     refute inspect(page) =~ "other-game"
   end
 
+  test "a request label outside the grant cannot widen its scope", %{store: store} do
+    labelled = request!(store, "42", "labelled")
+    other_game = request!(store, "99", "other-game")
+
+    scope = label_scope(["game:chess"])
+    labels_fun = fn -> {:ok, %{"42" => %{labels: ["game:chess"]}, "99" => %{labels: ["game:checkers"]}}, 0} end
+
+    # The grant's own label lists its Command...
+    assert {:ok, page} = HostApi.list(scope, %{}, store: store, labels_fun: labels_fun)
+    assert Enum.map(page["commands"], & &1["decision_id"]) == [labelled.decision_id]
+
+    # ...but a request label naming another game lists nothing instead of
+    # unioning that game's tickets into the grant.
+    assert {:ok, widened} =
+             HostApi.list(scope, %{"labels" => "game:checkers"}, store: store, labels_fun: labels_fun)
+
+    assert widened["commands"] == []
+    assert widened["count"] == 0
+    assert widened["pagination"]["total"] == 0
+    refute inspect(widened) =~ "other-game"
+    refute inspect(widened) =~ other_game.decision_id
+
+    # The out-of-scope Command is still readable only through its own grant.
+    assert {:error, :not_found} = HostApi.show(scope, other_game.decision_id, store: store, labels_fun: labels_fun)
+  end
+
   test "show and answer refuse an unlabelled ticket for a label-only grant", %{store: store} do
     unlabelled = request!(store, "99", "other-game")
     scope = label_scope(["game:chess"])

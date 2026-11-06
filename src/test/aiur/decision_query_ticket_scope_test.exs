@@ -125,7 +125,7 @@ defmodule Aiur.DecisionQueryTicketScopeTest do
     assert page.pagination.total == 0
   end
 
-  test "list_scoped unions explicit tickets with the label scope", %{store: store} do
+  test "list_scoped narrows explicit tickets with the request label scope and never widens them", %{store: store} do
     explicit = request!(store, "7", "explicit")
     labelled = request!(store, "42", "labelled")
     _outside = request!(store, "99", "outside")
@@ -133,10 +133,18 @@ defmodule Aiur.DecisionQueryTicketScopeTest do
     labels_fun = fn -> {:ok, %{"42" => %{labels: ["game:chess"]}, "99" => %{labels: ["game:other"]}}, 0} end
 
     assert {:ok, page} =
-             DecisionQuery.list_scoped(%{"labels" => "game:chess"}, MapSet.new(["7"]), store: store, labels_fun: labels_fun)
+             DecisionQuery.list_scoped(%{"labels" => "game:chess"}, MapSet.new(["7", "42"]), store: store, labels_fun: labels_fun)
 
-    assert Enum.sort(Enum.map(page.decisions, & &1.decision_id)) == Enum.sort([explicit.decision_id, labelled.decision_id])
+    assert Enum.map(page.decisions, & &1.decision_id) == [labelled.decision_id]
+    refute Enum.any?(page.decisions, &(&1.decision_id == explicit.decision_id))
     assert page.counts.total == nil
+
+    # A request label outside the explicit set cannot pull its ticket in.
+    assert {:ok, outside_page} =
+             DecisionQuery.list_scoped(%{"labels" => "game:other"}, MapSet.new(["7", "42"]), store: store, labels_fun: labels_fun)
+
+    assert outside_page.decisions == []
+    assert outside_page.pagination.total == 0
   end
 
   test "a malformed label is rejected" do

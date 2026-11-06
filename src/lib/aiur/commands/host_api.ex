@@ -38,14 +38,19 @@ defmodule Aiur.Commands.HostApi do
           | {:invalid_answer, term()}
           | {:conflict, term()}
 
-  @doc "Lists the scoped Commands the grant may see."
+  @doc """
+  Lists the scoped Commands the grant may see.
+
+  A request `labels` filter only narrows within the grant's authorized tickets;
+  it can never widen them. A label outside the grant therefore lists nothing.
+  """
   @spec list(scope(), map(), keyword()) :: {:ok, map()} | {:error, read_error()}
   def list(scope, params \\ %{}, opts \\ [])
 
   def list(%{ticket_set: _ticket_set} = scope, params, opts) when is_map(params) do
     params = restrict(params, "limit", @maximum_limit)
 
-    case DecisionQuery.list_scoped(params, authorized_tickets(scope, opts), store: store(opts)) do
+    case DecisionQuery.list_scoped(params, authorized_tickets(scope, opts), query_opts(opts)) do
       {:ok, page} ->
         commands = Enum.map(page.decisions, &component/1)
 
@@ -230,6 +235,17 @@ defmodule Aiur.Commands.HostApi do
   end
 
   defp store(opts), do: Keyword.get(opts, :store, DecisionQuery.default_store())
+
+  # The label observation seam travels with the query so a scoped list resolves
+  # a request label filter from the same source as the grant's own labels.
+  defp query_opts(opts) do
+    base = [store: store(opts)]
+
+    case Keyword.get(opts, :labels_fun) do
+      fun when is_function(fun, 0) -> Keyword.put(base, :labels_fun, fun)
+      _missing -> base
+    end
+  end
 
   @doc false
   @spec default_limit() :: pos_integer()
