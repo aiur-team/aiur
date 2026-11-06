@@ -102,4 +102,33 @@ defmodule Aiur.Machine.SettingsProjectsTest do
     assert {:ok, s} = load(path, "projects: [{repo: o/r, config: /private-checkout/config}]")
     refute_leak(s.projects, "private-checkout")
   end
+
+  test "a project without config, blank repo/config and ~user paths are rejected", %{path: path} do
+    errors = invalid(path, "projects: [{repo: o/r}]")
+    assert {"projects[0].config", "can't be blank"} in errors
+
+    errors = invalid(path, "projects: [{repo: \"\", config: \"\"}]")
+    assert {"projects[0].repo", "must be owner/name"} in errors
+    assert {"projects[0].config", "must be an absolute path"} in errors
+
+    assert {"projects[0].config", "must be an absolute path"} in invalid(path, "projects: [{repo: o/r, config: \"~bob/x\"}]")
+  end
+
+  test "projects must be a list", %{path: path} do
+    assert {"projects", "is invalid"} in invalid(path, "projects: {repo: o/r}")
+  end
+
+  test "offline_after_seconds accepts 30 and 86400 and rejects 86401", %{path: path} do
+    assert {:ok, _} = load(path, "coordination: {offline_after_seconds: 30}")
+    assert {:ok, _} = load(path, "coordination: {offline_after_seconds: 86400}")
+    assert [{"coordination.offline_after_seconds", _}] = invalid(path, "coordination: {offline_after_seconds: 86401}")
+  end
+
+  test "write replaces the whole project list and keeps mode 0600", %{path: path} do
+    assert :ok = Settings.write(%{"projects" => [%{"repo" => "o/a", "config" => "/a"}, %{"repo" => "o/b", "config" => "/b"}]})
+    assert {:ok, %{projects: [%{repo: "o/a"}, %{repo: "o/b"}]}} = Settings.load()
+    assert :ok = Settings.write(%{"projects" => [%{"repo" => "o/c", "config" => "/c"}]})
+    assert {:ok, %{projects: [%{repo: "o/c", config: "/c"}]}} = Settings.load()
+    assert File.stat!(path).mode |> Bitwise.band(0o777) == 0o600
+  end
 end
