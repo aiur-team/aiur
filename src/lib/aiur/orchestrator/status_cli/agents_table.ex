@@ -32,10 +32,16 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
         " ",
         agents_activity(agent),
         if(agent[:repl_attach_command], do: " | " <> agent.repl_attach_command, else: ""),
+        skills_suffix(agent),
         WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent) <> DispatchAccount.suffix(agent)
       ])
     end)
   end
+
+  # Which skills the worker loaded first and why. Compact by design: the full
+  # resolution lives in the ticket's dispatch record (logs/agent.ndjson).
+  defp skills_suffix(%{skills: skills}) when is_binary(skills) and skills != "", do: " | " <> truncate(skills, 120)
+  defp skills_suffix(_agent), do: ""
 
   @doc false
   @spec print_idle_count(non_neg_integer()) :: :ok
