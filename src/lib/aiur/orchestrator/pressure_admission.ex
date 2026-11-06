@@ -113,6 +113,7 @@ defmodule Aiur.Orchestrator.PressureAdmission do
     effective = state.effective_concurrent_agents || Slots.max_concurrent_agent_limit(state)
     limit = Slots.max_concurrent_agent_limit(state)
     bootstrap? = Map.get(previous, :bootstrap_complete?, false)
+    used_slots = Slots.used_slots(state)
 
     {next, decreased_at} =
       if bootstrap_hold?(effective, previous, target, fresh?),
@@ -120,26 +121,24 @@ defmodule Aiur.Orchestrator.PressureAdmission do
         else:
           adjust(effective, previous, soft_pressure, target, count, now_ms, fresh?, %{
             limit: limit,
-            used_slots: Slots.used_slots(state),
+            used_slots: used_slots,
             demand?: demand?
           })
 
-    previous = if fresh?, do: EnvelopeResume.observe(previous, Slots.used_slots(state), next, effective, soft_pressure, target, count), else: previous
-    snapshot = if is_map(probes.cpu_snapshot), do: probes.cpu_snapshot, else: nil
-    changed? = next != effective
-    reason = envelope_reason(next, effective, soft_pressure, target, count, fresh?, limit)
-
     envelope =
-      Map.merge(previous, %{
-        last_decrease_ms: decreased_at,
-        overload_samples: count,
-        bootstrap_complete?: bootstrap? or fresh?,
-        signal: :cpu_pressure,
-        cpu_snapshot: snapshot,
-        last_change_at_ms: if(changed?, do: now_ms, else: Map.get(previous, :last_change_at_ms)),
-        last_change_reason: if(changed?, do: reason, else: Map.get(previous, :last_change_reason)),
-        hold_since_ms: if(next < effective, do: nil, else: Map.get(previous, :hold_since_ms) || now_ms),
-        hold_reason: reason
+      next_envelope(previous, %{
+        next: next,
+        effective: effective,
+        limit: limit,
+        used_slots: used_slots,
+        count: count,
+        pressure: soft_pressure,
+        target: target,
+        fresh?: fresh?,
+        now_ms: now_ms,
+        decreased_at: decreased_at,
+        bootstrap?: bootstrap?,
+        snapshot: if(is_map(probes.cpu_snapshot), do: probes.cpu_snapshot)
       })
 
     %{
@@ -153,6 +152,32 @@ defmodule Aiur.Orchestrator.PressureAdmission do
     state = reset_signal(state, :load)
     next = DispatchPolicy.update_load_envelope(state, if(fresh?, do: probes.load, else: :unavailable), probes.target, probes.schedulers, now_ms, probes.cpu_snapshot, demand?)
     put_in(next.load_envelope_state[:signal], :load)
+  end
+
+  # The envelope map carries the change stamp, the reason the last change
+  # happened, and the reason the current level is holding or ramping. Splitting
+  # it out of update/5 keeps the admission branch readable and gives
+  # `aiur status` one place to read its explanation from (#7470).
+  defp next_envelope(previous, %{next: next, effective: effective, limit: limit} = change) do
+    previous =
+      if change.fresh?,
+        do: EnvelopeResume.observe(previous, change.used_slots, next, effective, change.pressure, change.target, change.count),
+        else: previous
+
+    changed? = next != effective
+    reason = envelope_reason(next, effective, change.pressure, change.target, change.count, change.fresh?, limit)
+
+    Map.merge(previous, %{
+      last_decrease_ms: change.decreased_at,
+      overload_samples: change.count,
+      bootstrap_complete?: change.bootstrap? or change.fresh?,
+      signal: :cpu_pressure,
+      cpu_snapshot: change.snapshot,
+      last_change_at_ms: if(changed?, do: change.now_ms, else: Map.get(previous, :last_change_at_ms)),
+      last_change_reason: if(changed?, do: reason, else: Map.get(previous, :last_change_reason)),
+      hold_since_ms: if(next < effective, do: nil, else: Map.get(previous, :hold_since_ms) || change.now_ms),
+      hold_reason: reason
+    })
   end
 
   # Niced CPU outside the daemon and registered fleet-agent trees (including

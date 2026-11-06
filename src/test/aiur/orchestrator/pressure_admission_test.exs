@@ -29,28 +29,17 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
     refute Enum.any?(sampled.dispatch_capacity_constraints, &(&1.kind in [:load, :run_queue, :build_queue]))
   end
 
-  test "PSI envelope continues ramping after a sustained pressure episode" do
+  # Acceptance criterion 1: a pressure episode drives the envelope down, then
+  # fresh recovered samples must grow it by at least load_ramp_step per poll
+  # until the configured cap. The saved safe level floors the decrease at 6,
+  # so the recovered envelope starts at its resume level and has to keep
+  # growing past it — the case #7470 stalled in.
+  test "fresh low PSI samples grow the envelope on every poll after a pressure episode" do
     state = %State{
       max_concurrent_agents: 12,
       effective_concurrent_agents: 12,
-      load_envelope_state: %{last_decrease_ms: nil, bootstrap_complete?: true, signal: :cpu_pressure}
-    }
-
-    pressured = Enum.reduce(1..3, state, fn poll, current -> update(current, 11.0, poll * 120_000) end)
-    assert pressured.effective_concurrent_agents == 6
-    assert pressured.load_envelope_state.sustained_decrease?
-
-    recovered = Enum.scan(1..6, pressured, fn poll, current -> update(current, 7.0, (poll + 3) * 120_000) end)
-    assert Enum.map(recovered, & &1.effective_concurrent_agents) == [7, 8, 9, 10, 11, 12]
-  end
-
-  test "PSI envelope keeps ramping every recovered poll while a saved safe level exists" do
-    state = %State{
-      max_concurrent_agents: 12,
-      effective_concurrent_agents: 6,
       load_envelope_state: %{
-        last_decrease_ms: 240_000,
-        sustained_decrease?: true,
+        last_decrease_ms: 120_000,
         bootstrap_complete?: true,
         signal: :cpu_pressure,
         safe_level: 6,
@@ -60,8 +49,26 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
       }
     }
 
-    recovered = Enum.scan(1..6, state, fn poll, current -> update(current, 7.0, 240_000 + poll * 120_000) end)
-    assert Enum.map(recovered, & &1.effective_concurrent_agents) == [7, 8, 9, 10, 11, 12]
+    pressured = Enum.reduce(1..3, state, fn poll, current -> update(current, 25.0, poll * 120_000) end)
+    assert pressured.effective_concurrent_agents == 6
+    assert pressured.load_envelope_state.sustained_decrease?
+    assert pressured.load_envelope_state.resume_level == 6
+
+    recovered =
+      [7.0, 4.0, 4.0, 4.0]
+      |> Enum.with_index(1)
+      |> Enum.scan(pressured, fn {pressure, poll}, current -> update(current, pressure, 480_000 + poll * 120_000) end)
+
+    envelopes = Enum.map(recovered, & &1.effective_concurrent_agents)
+    assert envelopes == [7, 10, 12, 12]
+
+    growths =
+      [6 | envelopes]
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [before, next] -> next - before end)
+
+    assert Enum.all?(Enum.take(growths, 3), &(&1 >= Config.load_ramp_step()))
+    assert List.last(growths) == 0
   end
 
   test "deeply recovered PSI probes faster than one step per poll after a sustained decrease" do
