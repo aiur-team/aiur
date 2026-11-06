@@ -9,6 +9,7 @@ defmodule Aiur.Codex.Frames do
   @turn_start_id 3
   @rate_limits_read_id 4
   @account_read_id 5
+  @liveness_rate_limits_read_id 6
 
   @spec thread_start_id() :: 2
   def thread_start_id, do: @thread_start_id
@@ -21,6 +22,16 @@ defmodule Aiur.Codex.Frames do
 
   @spec account_read_id() :: 5
   def account_read_id, do: @account_read_id
+
+  @doc false
+  @spec liveness_rate_limits_read_id() :: 6
+  def liveness_rate_limits_read_id, do: @liveness_rate_limits_read_id
+
+  @doc false
+  @spec liveness_rate_limits_read_frame() :: map()
+  def liveness_rate_limits_read_frame do
+    %{"method" => "account/rateLimits/read", "id" => liveness_rate_limits_read_id(), "params" => nil}
+  end
 
   @spec rate_limits_read_frame() :: map()
   def rate_limits_read_frame do
