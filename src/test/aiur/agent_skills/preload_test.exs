@@ -145,7 +145,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
       end
     end
 
-    defmodule SlowFeatures do
+    defmodule TimeoutFeatures do
       use GenServer
 
       def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
@@ -153,11 +153,10 @@ defmodule Aiur.AgentSkills.PreloadTest do
       @impl true
       def init(opts), do: {:ok, opts}
 
+      # Never replies, so the caller's registry timeout fires instead of the
+      # test waiting on a sleep.
       @impl true
-      def handle_call({:read, {:owner, _number}}, _from, state) do
-        Process.sleep(200)
-        {:reply, {:ok, %{feature: "slow"}}, state}
-      end
+      def handle_call({:read, {:owner, _number}}, _from, state), do: {:noreply, state}
     end
 
     test "maps the owning feature from the registry", %{workspace: workspace} do
@@ -173,7 +172,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
 
     test "a registry timeout does not crash and resolves without the feature", %{workspace: workspace} do
       skill!(workspace, "lane-skill", "Lane.", "LANE BODY")
-      {:ok, pid} = SlowFeatures.start_link([])
+      {:ok, pid} = TimeoutFeatures.start_link([])
       issue = %Issue{identifier: "42", title: "A task", description: "Do the work.", labels: ["area:art"]}
 
       preload =
