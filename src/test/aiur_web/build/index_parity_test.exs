@@ -43,8 +43,10 @@ defmodule AiurWeb.Build.IndexParityTest do
       actual = snapshot |> Payload.snapshot("parity", 0) |> Payload.scrub()
       assert Payload.validate(Payload.snapshot(snapshot, "parity", 0)) == :ok
       assert {:ok, expected} = FixtureSource.snapshot(dataset: @dataset, time_zone: "America/Los_Angeles")
-      expected = expected |> canonical_owners(seed.data) |> canonical_feature_icons()
+      expected = expected |> canonical_owners(seed.data) |> canonical_feature_icons() |> canonical_palette_lanes()
       assert actual["lanes"] == expected["lanes"]
+      hues = actual["order"] |> Enum.reject(&(&1 == "unsorted")) |> Enum.map(&actual["lanes"][&1]["hue"])
+      assert length(hues) == length(Enum.uniq(hues))
       assert actual["order"] == expected["order"]
       assert actual["counts"] == expected["counts"]
       assert Map.take(actual["history"], ~w(from more total undated tz)) == expected["history"]
@@ -81,6 +83,20 @@ defmodule AiurWeb.Build.IndexParityTest do
       end)
 
     snapshot |> Map.put("lanes", epics) |> Map.put("features", features)
+  end
+
+  defp canonical_palette_lanes(snapshot) do
+    hues = [8, 120, 55, 215, 280, 170, 25, 4, 124, 59, 219, 284, 174, 29, 0, 116, 51, 211, 276, 166, 21]
+
+    lanes =
+      snapshot["order"]
+      |> Enum.reject(&(&1 == "unsorted"))
+      |> Enum.with_index()
+      |> Enum.reduce(snapshot["lanes"], fn {key, index}, acc ->
+        put_in(acc, [key, "hue"], Enum.at(hues, rem(index, length(hues))))
+      end)
+
+    Map.put(snapshot, "lanes", lanes)
   end
 
   defp canonical_owners(snapshot, full) do

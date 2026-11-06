@@ -47,6 +47,7 @@ defmodule AiurWeb.Streamdeck.Deck.Lanes do
       title: field(lane, :label),
       label: if(known?, do: "#{open} remaining · #{of}", else: "— · #{reason}"),
       icon: field(lane, :icon),
+      accent: lane_accent(field(lane, :hue)),
       face: :idle,
       bucket: :stuck,
       remaining: if(known?, do: open, else: :unknown),
@@ -62,4 +63,6 @@ defmodule AiurWeb.Streamdeck.Deck.Lanes do
 
   defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   defp field(_map, _key), do: nil
+  defp lane_accent(hue) when is_number(hue) and hue >= 0 and hue < 360, do: "hsl(#{hue} 65% 42%)"
+  defp lane_accent(_), do: nil
 end

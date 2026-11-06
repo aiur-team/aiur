@@ -57,6 +57,7 @@ defmodule Aiur.BuildOrder.Features.Operations do
     with {:ok, general} <- general_epics(context),
          :ok <- check(not (is_map(input) and input[:key] == "unsorted"), {:epic_key_taken, "unsorted"}),
          :ok <- check(FeatureData.epic?(input), :invalid_epics) do
+      input = if Map.has_key?(input, :hue) or Map.has_key?(input, :color), do: input, else: FeatureData.assign_epic_colors([input], FeatureData.used_epic_colors(general, projection.features)) |> hd()
       epic_events(feature, input, general, projection, context.now)
     end
   end
