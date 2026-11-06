@@ -101,6 +101,10 @@ A merge-queue rule routes the pinned head through GraphQL enqueueing; it never a
 The daemon independently verifies the configured repository, PR head, base and merge SHA against GitHub before publishing `system.pr.merged`; caller-supplied actor data is replaced with GitHub's merge attribution. See [the command reference](/reference/cli#pr-merge).
 
 
+## Label catalogue
+
+`label_catalogue_refresh` lists the repository's labels (`GET /repos/{owner}/{repo}/labels`, 100 per page) once at boot and hourly after that. Features rows take their names from these descriptions, including features whose tickets have all closed. That costs about one Core point an hour for repositories with up to 100 labels.
+
 ## Measured feature epics
 
 The feature worker uses the quota-accounted transport as `experiments_auto`:

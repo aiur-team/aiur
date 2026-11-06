@@ -234,6 +234,12 @@ defmodule Aiur.Application.Children do
       {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
+      # The repository's label descriptions, read once an hour and served locally to the
+      # build index's Features rows. A feature whose tickets have all merged wears no label
+      # an open-issue observation or a persisted history row can describe, so this is the
+      # only source that still names it. Refresh is off in tests via
+      # `:label_catalogue_refresh?`; the table is always there for tests to drive.
+      Aiur.GitHub.LabelCatalogue,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
       {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},

@@ -76,6 +76,8 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   await open(page, '?view=list')
   await page.getByRole('tab', { name: 'Features' }).click()
   // pag and khala are registry features in the fixture; the rest come only from feature:<slug> labels.
+  // Labels are what the daemon names each row: the registry label, else the label's description
+  // (MP-E2 Commands, Listener modes, Phone app shell), else the title-cased slug.
   const bars = [
     { key: 'pag', label: 'MP-E1 build queue', merged: 9, total: 13 },
     { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
@@ -83,7 +85,7 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
     { key: 'mp-e3', label: 'MP-E3', merged: 14, total: 23 },
     { key: 'streamdeck-redesign', label: 'Stream Deck redesign with dials, keys, paging modes and the phone emulator', merged: 25, total: 30 },
     { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
-    { key: 'mp-n1', label: 'mp-n1', merged: 1, total: 10 }
+    { key: 'mp-n1', label: 'Phone app shell', merged: 1, total: 10 }
   ]
   await page.evaluate(bars => {
     const { ctx, fx } = window.m
@@ -122,6 +124,15 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   })
   expect(flushTop.list).toBeLessThanOrEqual(1)
   expect(flushTop.first).toBeLessThanOrEqual(32)
+  // The summary line shares the row grid's inset instead of hanging on the panel's left edge.
+  const summaryInset = await page.evaluate(() => {
+    const list = document.querySelector('.fp-list').getBoundingClientRect()
+    const summary = document.querySelector('.fp-sum').getBoundingClientRect()
+    const name = document.querySelector('.fp-rows .fp-row .fp-name').getBoundingClientRect()
+    return { fromList: summary.left - list.left, fromName: name.left - summary.left }
+  })
+  expect(summaryInset.fromList).toBeGreaterThanOrEqual(3)
+  expect(Math.abs(summaryInset.fromName)).toBeLessThanOrEqual(1)
   // The only gap left above the list is the dashboard gutter every view shares; the card's own
   // margins and padding are gone, so the band the operator saw is not there anymore.
   expect(flushTop.toolbar).toBeLessThanOrEqual(16)
