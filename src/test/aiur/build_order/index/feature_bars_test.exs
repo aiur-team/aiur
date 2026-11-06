@@ -29,7 +29,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
       6 => open(["feature:Bad Slug"])
     }
 
-    assert FeatureBars.compute(parts(rows), @now) == [%{key: "mp-e2", label: "MP-E2 Commands", merged: 2, total: 3}]
+    assert FeatureBars.compute(parts(rows), @now) == [%{key: "mp-e2", label: "Commands", merged: 2, total: 3}]
     history_row = rows[1]
     assert {:ok, "mp-e2"} = history_row.labels |> hd() |> LabelRules.parse()
   end
@@ -51,18 +51,76 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
   end
 
   test "Build Order roots and their generated epics are not product feature rows" do
+    description = "Feature collection: MP-E7 listener modes (steer, sync, async; Executor delivery)"
     root = open(["build-order", "feature:bo-42"], 20) |> Map.put(:number, 42)
-    member = open(["feature:mp-e7", "feature:bo-42"], 10) |> Map.put(:number, 43)
+    member = open(["feature:mp-e7", "feature:bo-42"], 10) |> Map.put(:number, 43) |> Map.put(:label_descriptions, %{"feature:mp-e7" => description})
     parts = parts(%{42 => root, 43 => member})
 
-    assert FeatureBars.compute(parts, @now) == [%{key: "mp-e7", label: "Mp E7", merged: 0, total: 1}]
+    assert FeatureBars.compute(parts, @now) == [%{key: "mp-e7", label: "Listener modes", merged: 0, total: 1}]
   end
 
-  test "feature display names remove logical prefixes and title-case slug fallback" do
-    rows = %{1 => open(["feature:plain-slug"]), 2 => open(["feature:mp-e4"])}
-    parts = parts(rows, registry: [{"mp-e4", "MP-E1 build queue"}])
+  test "the registered MP-E4, MP-E7 and MP-N1..N7 label descriptions name their rows without logical ids" do
+    descriptions = %{
+      "mp-e4" => "Feature collection: MP-E4 conversations (journal, history API, anchors, conversation view)",
+      "mp-e7" => "Feature collection: MP-E7 listener modes (steer, sync, async; Executor delivery)",
+      "mp-n1" => "Feature collection: MP-N1 phone app shell (Expo app, native cores, WebView host, distribution)",
+      "mp-n2" => "Feature collection: MP-N2 machine-level pairing, gateway and instance discovery",
+      "mp-n3" => "Feature collection: MP-N3 phone meta-dashboard of instances",
+      "mp-n4" => "Feature collection: MP-N4 end-to-end encrypted push through a relay",
+      "mp-n5" => "Feature collection: MP-N5 notification preferences and progress updates",
+      "mp-n6" => "Feature collection: MP-N6 contextual Command response on phone and watch",
+      "mp-n7" => "Feature collection: MP-N7 watchOS and Wear OS apps"
+    }
 
-    assert FeatureBars.compute(parts, @now) |> Enum.map(& &1.label) == ["Build Queue", "Plain Slug"]
+    rows =
+      descriptions
+      |> Enum.with_index(1)
+      |> Map.new(fn {{slug, description}, index} -> {index, open(["feature:#{slug}"], index) |> Map.put(:label_descriptions, %{"feature:#{slug}" => description})} end)
+
+    labels = FeatureBars.compute(parts(rows), @now) |> Map.new(&{&1.key, &1.label})
+
+    assert labels == %{
+             "mp-e4" => "Conversations",
+             "mp-e7" => "Listener modes",
+             "mp-n1" => "Phone app shell",
+             "mp-n2" => "Machine-level pairing, gateway and instance discovery",
+             "mp-n3" => "Phone meta-dashboard of instances",
+             "mp-n4" => "End-to-end encrypted push through a relay",
+             "mp-n5" => "Notification preferences and progress updates",
+             "mp-n6" => "Contextual Command response on phone and watch",
+             "mp-n7" => "WatchOS and Wear OS apps"
+           }
+  end
+
+  test "feature display names remove MP-E, MP-N and BO: logical prefixes and title-case the slug fallback" do
+    rows = %{
+      1 => open(["feature:plain-slug"]),
+      2 => open(["feature:mp-e4"], 20),
+      3 => open(["feature:mp-n2"], 30),
+      4 => open(["feature:streamdeck-redesign"], 40),
+      5 => open(["feature:mp-e7"], 50)
+    }
+
+    parts =
+      parts(rows,
+        registry: [
+          {"mp-e4", "MP-E1 build queue"},
+          {"mp-n2", "MP-N2 machine-level pairing"},
+          {"streamdeck-redesign", "BO: Stream Deck Parity"},
+          {"mp-e7", "MP-E7"}
+        ],
+        labels: {:ok, %{1 => %{label_descriptions: %{"feature:mp-e7" => "Feature collection: MP-E7 listener modes (steer, sync, async)"}}}, 0}
+      )
+
+    labels = FeatureBars.compute(parts, @now) |> Map.new(&{&1.key, &1.label})
+
+    assert labels == %{
+             "mp-e4" => "Build Queue",
+             "mp-n2" => "Machine-level Pairing",
+             "streamdeck-redesign" => "Stream Deck Parity",
+             "plain-slug" => "Plain Slug",
+             "mp-e7" => "Listener modes"
+           }
   end
 
   test "a legacy persisted history row decodes without label descriptions" do

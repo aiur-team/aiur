@@ -141,8 +141,9 @@ export function listHTML(D, state, history, P, now) {
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
     ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
 }
-const FSORTS = [['goal', 'Goal order'], ['pct', 'Most done'], ['left', 'Most left']];
 // One row per feature: name, bar, merged/total. Bars come from the same block as the feature filter.
+// The list sits straight under the toolbar: one summary line, the rows and the total, with no
+// title of its own and no card box or margins around them. Sorting lives in the toolbar.
 export function featureListHTML(D, state, now) {
   const bars = D.feature_progress?.bars, known = Array.isArray(bars);
   const sorted = known ? [...bars] : [];
@@ -156,11 +157,10 @@ export function featureListHTML(D, state, now) {
       ? `<button type="button" class="fp-row" data-feature="${esc(b.key)}" aria-label="Focus ${esc(b.label)} feature">${cells}</button>`
       : `<div class="fp-row" data-feature="${esc(b.key)}">${cells}</div>`;
   };
-  const project = D.repo?.url ? D.repo.url.replace(/\/$/, '').split('/').pop() : 'Project';
   const date = new Date(now).toLocaleDateString('en-CA');
-  const subtitle = known ? `${merged} of ${total} tickets merged - ${date}` : `Feature progress unavailable - ${date}`;
+  const summary = known ? `${merged} of ${total} tickets merged - ${date}` : `Feature progress unavailable - ${date}`;
   const all = known ? `<div class="fp-row fp-all"><span class="fp-name">All features</span>${bar(merged, total, ' all')}<span class="fp-count">${merged}/${total}</span></div>` : '';
-  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(project)} - build progress</h1><p>${esc(subtitle)}</p></div></header><div class="fp-rows">${sorted.map(row).join('') || '<p>No features with tickets</p>'}</div>${all}</article>`;
+  return `<div class="fp-list"><p class="fp-sum">${esc(summary)}</p><div class="fp-rows">${sorted.map(row).join('') || '<p>No features with tickets</p>'}</div>${all}</div>`;
 }
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
