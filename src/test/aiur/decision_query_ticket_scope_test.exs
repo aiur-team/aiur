@@ -83,6 +83,67 @@ defmodule Aiur.DecisionQueryTicketScopeTest do
     assert decision.ticket.identifier == "GAME-7"
   end
 
+  test "list filters by a label scope and hides unlabelled Commands", %{store: store} do
+    labelled = request!(store, "42", "labelled")
+    _unlabelled = request!(store, "99", "unlabelled")
+
+    labels_fun = fn -> {:ok, %{"42" => %{labels: ["game:chess"]}, "99" => %{labels: ["game:checkers"]}}, 0} end
+
+    assert {:ok, page} = DecisionQuery.list(%{"labels" => "game:chess"}, store: store, labels_fun: labels_fun)
+
+    assert [decision] = page.decisions
+    assert decision.decision_id == labelled.decision_id
+    assert decision.ticket.identifier == "42"
+    assert page.pagination.total == 1
+    assert page.filters.labels == ["game:chess"]
+    assert page.counts.total == nil
+    refute inspect(page) =~ "unlabelled"
+  end
+
+  test "an out-of-label ticket filter is empty instead of revealing the Command", %{store: store} do
+    _labelled = request!(store, "42", "labelled")
+    _other = request!(store, "99", "unlabelled")
+
+    labels_fun = fn -> {:ok, %{"42" => %{labels: ["game:chess"]}, "99" => %{labels: ["game:checkers"]}}, 0} end
+
+    assert {:ok, page} = DecisionQuery.list(%{"labels" => ["game:chess"], "ticket" => "99"}, store: store, labels_fun: labels_fun)
+    assert page.decisions == []
+    assert page.pagination.total == 0
+  end
+
+  test "a label scope with no usable observation sees nothing", %{store: store} do
+    _labelled = request!(store, "42", "labelled")
+
+    assert {:ok, page} = DecisionQuery.list(%{"labels" => "game:chess"}, store: store, labels_fun: fn -> :none end)
+    assert page.decisions == []
+    assert page.pagination.total == 0
+
+    assert {:ok, page} =
+             DecisionQuery.list_scoped(%{"labels" => "game:chess"}, MapSet.new(), store: store, labels_fun: fn -> {:error, :unsupported} end)
+
+    assert page.decisions == []
+    assert page.pagination.total == 0
+  end
+
+  test "list_scoped unions explicit tickets with the label scope", %{store: store} do
+    explicit = request!(store, "7", "explicit")
+    labelled = request!(store, "42", "labelled")
+    _outside = request!(store, "99", "outside")
+
+    labels_fun = fn -> {:ok, %{"42" => %{labels: ["game:chess"]}, "99" => %{labels: ["game:other"]}}, 0} end
+
+    assert {:ok, page} =
+             DecisionQuery.list_scoped(%{"labels" => "game:chess"}, MapSet.new(["7"]), store: store, labels_fun: labels_fun)
+
+    assert Enum.sort(Enum.map(page.decisions, & &1.decision_id)) == Enum.sort([explicit.decision_id, labelled.decision_id])
+    assert page.counts.total == nil
+  end
+
+  test "a malformed label is rejected" do
+    assert {:error, {:invalid_query, {:labels, _}}} = DecisionQuery.list(%{"labels" => "game chess"})
+    assert {:error, {:invalid_query, {:labels, _}}} = DecisionQuery.list(%{"labels" => "nocolon"})
+  end
+
   defp request!(store, ticket, source_id) do
     payload = %{
       "source_id" => source_id,

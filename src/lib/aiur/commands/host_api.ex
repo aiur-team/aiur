@@ -29,7 +29,6 @@ defmodule Aiur.Commands.HostApi do
   @default_limit 25
   @maximum_limit 100
   @maximum_answer_key_bytes 200
-  @label_observation_max_age_ms 120_000
 
   @type scope :: Scope.t()
   @type read_error :: :not_found | :store_unavailable | {:invalid_query, term()}
@@ -132,57 +131,8 @@ defmodule Aiur.Commands.HostApi do
   """
   @spec authorized_tickets(Scope.t(), keyword()) :: MapSet.t(String.t())
   def authorized_tickets(%{ticket_set: ticket_set} = scope, opts) do
-    MapSet.union(ticket_set, label_tickets(scope, opts))
+    DecisionQuery.scoped_tickets(ticket_set, Map.get(scope, :labels, []), opts)
   end
-
-  defp label_tickets(%{label_set: %MapSet{} = labels}, opts) do
-    if MapSet.size(labels) == 0 do
-      MapSet.new()
-    else
-      labels |> labelled_tickets(observe_labels(opts))
-    end
-  end
-
-  defp label_tickets(_scope, _opts), do: MapSet.new()
-
-  defp observe_labels(opts) do
-    fun = Keyword.get(opts, :labels_fun, fn -> Aiur.Tracker.open_issue_labels(@label_observation_max_age_ms) end)
-
-    case fun.() do
-      {:ok, observed, _observed_at} when is_map(observed) -> observed
-      _unavailable -> %{}
-    end
-  rescue
-    _error -> %{}
-  catch
-    :exit, _reason -> %{}
-  end
-
-  defp labelled_tickets(labels, observed) when is_map(observed) do
-    Enum.reduce(observed, MapSet.new(), fn {identifier, observation}, acc ->
-      ticket_labels =
-        observation
-        |> labels_of()
-        |> Enum.map(&String.downcase/1)
-
-      if Enum.any?(ticket_labels, &MapSet.member?(labels, &1)) do
-        MapSet.put(acc, identifier |> to_string() |> String.downcase())
-      else
-        acc
-      end
-    end)
-  end
-
-  defp labelled_tickets(_labels, _observed), do: MapSet.new()
-
-  defp labels_of(%{} = observation) when is_map(observation) do
-    case Map.get(observation, :labels) || Map.get(observation, "labels") do
-      labels when is_list(labels) -> Enum.filter(labels, &is_binary/1)
-      _missing -> []
-    end
-  end
-
-  defp labels_of(_observation), do: []
 
   defp scoped_decision(ticket_set, decision_id, opts) do
     case DecisionQuery.get(decision_id, store: store(opts)) do

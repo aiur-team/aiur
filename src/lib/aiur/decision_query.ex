@@ -59,7 +59,7 @@ defmodule Aiur.DecisionQuery do
 
   def list(params, opts) when is_map(params) and is_list(opts) do
     with {:ok, query} <- Params.parse(params) do
-      read_page(query, opts)
+      read_page(apply_label_scope(query, opts), opts)
     end
   end
 
@@ -71,7 +71,8 @@ defmodule Aiur.DecisionQuery do
   The set is applied inside the store query, not to the returned page, so the
   counts, total, and cursor continuation describe only the allowed tickets.
   An out-of-scope ticket filter is therefore empty rather than revealing that
-  other Commands exist.
+  other Commands exist. A `labels` query parameter narrows the page further to
+  the tickets currently carrying one of those labels.
   """
   @spec list_scoped(map(), Enumerable.t(), keyword()) ::
           {:ok, map()} | {:error, {:invalid_query, term()}}
@@ -80,7 +81,7 @@ defmodule Aiur.DecisionQuery do
   def list_scoped(params, tickets, opts) when is_map(params) and is_list(opts) do
     with {:ok, ticket_set} <- ticket_set(tickets),
          {:ok, query} <- Params.parse(params) do
-      read_page(Map.put(query, :tickets, ticket_set), opts)
+      read_page(query |> Map.put(:tickets, ticket_set) |> apply_label_scope(opts), opts)
     end
   end
 
@@ -108,6 +109,77 @@ defmodule Aiur.DecisionQuery do
   end
 
   defp invalid_ticket_set, do: {:error, {:invalid_query, {:tickets, :invalid}}}
+
+  @doc """
+  The tickets an explicit set and a label scope authorize together.
+
+  A label scope contributes the tickets the tracker currently observes to carry
+  one of `labels`. When no usable observation exists the label scope contributes
+  nothing, so a caller can never widen its scope by asking for a label Aiur has
+  not seen.
+  """
+  @spec scoped_tickets(Enumerable.t(), Enumerable.t(), keyword()) :: MapSet.t(String.t())
+  def scoped_tickets(tickets, labels, opts \\ []) do
+    MapSet.union(ticket_set!(tickets), label_tickets(labels, opts))
+  end
+
+  defp ticket_set!(%MapSet{} = tickets), do: downcase_set(tickets)
+  defp ticket_set!(tickets) when is_list(tickets), do: downcase_set(tickets)
+
+  defp apply_label_scope(%{labels: labels} = query, opts) when is_list(labels) and labels != [] do
+    tickets = Map.get(query, :tickets) || MapSet.new()
+    Map.put(query, :tickets, MapSet.union(tickets, label_tickets(labels, opts)))
+  end
+
+  defp apply_label_scope(query, _opts), do: query
+
+  @doc false
+  @spec label_tickets(Enumerable.t(), keyword()) :: MapSet.t(String.t())
+  def label_tickets(labels, opts \\ []) do
+    label_set = MapSet.new(labels, &(to_string(&1) |> String.downcase()))
+
+    if MapSet.size(label_set) == 0 do
+      MapSet.new()
+    else
+      label_set |> labelled_tickets(observe_labels(opts))
+    end
+  end
+
+  defp observe_labels(opts) do
+    fun = Keyword.get(opts, :labels_fun, fn -> Aiur.Tracker.open_issue_labels(120_000) end)
+
+    case fun.() do
+      {:ok, observed, _observed_at} when is_map(observed) -> observed
+      _unavailable -> %{}
+    end
+  rescue
+    _error -> %{}
+  catch
+    :exit, _reason -> %{}
+  end
+
+  defp labelled_tickets(label_set, observed) when is_map(observed) do
+    Enum.reduce(observed, MapSet.new(), fn {identifier, observation}, acc ->
+      ticket_labels = observation |> labels_of() |> Enum.map(&String.downcase/1)
+
+      if Enum.any?(ticket_labels, &MapSet.member?(label_set, &1)) do
+        MapSet.put(acc, identifier |> to_string() |> String.downcase())
+      else
+        acc
+      end
+    end)
+  end
+
+  defp labelled_tickets(_label_set, _observed), do: MapSet.new()
+
+  defp labels_of(%{} = observation) do
+    case Map.get(observation, :labels) || Map.get(observation, "labels") do
+      labels when is_list(labels) -> Enum.filter(labels, &is_binary/1)
+      _missing -> []
+    end
+  end
+
+  defp labels_of(_observation), do: []
 
   @doc false
   @spec legacy_page(map(), non_neg_integer(), pos_integer(), keyword()) ::
@@ -184,7 +256,7 @@ defmodule Aiur.DecisionQuery do
         partial_reason: partial_reason,
         label: pagination_label(query.limit, snapshot.has_next?, partial_reason)
       },
-      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :route, :search, :ticket]),
+      filters: Map.take(query, [:authority, :blocking, :kind, :labels, :lifecycle, :route, :search, :ticket]),
       counts: counts(snapshot.counts, query)
     }
   end

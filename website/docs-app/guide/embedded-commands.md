@@ -70,6 +70,10 @@ exactly like a missing one, so a guessed identifier reveals nothing.
 | `GET /api/v1/commands/:decision_id` | `{"command": {...}, "scope": {...}}` |
 | `POST /api/v1/commands/:decision_id/answer` | `{"command": {...}, "scope": {...}}` |
 
+A list read also accepts `labels=game:chess`, which narrows the page to the
+tickets currently carrying that label; `/api/v1/decisions` accepts the same
+filter.
+
 The answer body names one option or a free response, plus the version the user
 was looking at and an idempotency key:
 
