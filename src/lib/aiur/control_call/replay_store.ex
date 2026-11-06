@@ -117,7 +117,8 @@ defmodule Aiur.ControlCall.ReplayStore do
 
       _ ->
         {_, key} = Enum.min(done)
-        :ets.delete(state.table, key) && :ok
+        :ets.delete(state.table, key)
+        :ok
     end
   end
 
