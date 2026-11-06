@@ -150,7 +150,7 @@ defmodule Aiur.DecisionMediaTest do
                )
 
       encoded = PublicProjection.encode(decision)
-      refute inspect(encoded) =~ root
+      Aiur.TestSupport.refute_leak(encoded, root)
 
       assert [media] = encoded["media"]
       assert media["kind"] == "image"

@@ -358,8 +358,9 @@ defmodule Aiur.Commands.Media do
     end
   end
 
+  # Every caller hands this a decoded map — the canonical boundary rejects
+  # non-map items before it gets here — so there is no non-map fallback clause.
   defp fetch(item, key) when is_map(item), do: Map.get(item, key, Map.get(item, Atom.to_string(key)))
-  defp fetch(_item, _key), do: nil
 
   defp get(raw, key), do: fetch(raw, key)
 

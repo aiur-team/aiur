@@ -98,7 +98,7 @@ defmodule Aiur.Commands.MediaTest do
       [public] = Media.public([item])
 
       assert public["locator"] == %{"kind" => "attachment", "attachment_id" => item.attachment_id}
-      refute inspect(public) =~ root
+      Aiur.TestSupport.refute_leak(public, root)
       assert public["alt_text"] == "A dashboard screenshot"
       assert public["kind"] == "image"
     end
