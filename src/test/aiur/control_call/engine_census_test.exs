@@ -18,6 +18,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"pause global", "cmd_pause_resume pause", :write, []},
     {"resume all", "cmd_pause_resume resume --all", :write, []},
     {"resume tickets", "cmd_pause_resume resume 123 456", :write, []},
+    {"redispatch", "cmd_redispatch 123 --backend codex", :write, []},
     {"ownership take", "cmd_executor_ownership take 123", :write, []},
     {"ownership release", "cmd_executor_ownership release 123", :write, []},
     {"reset budget", "cmd_reset_budget 123 456", :write, []},

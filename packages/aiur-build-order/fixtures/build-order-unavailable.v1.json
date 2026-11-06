@@ -1,0 +1,160 @@
+{
+  "contract": "aiur.build_order",
+  "contract_version": 1,
+  "build_order_id": "aiur-team/aiur:build-order-package",
+  "title": "Build Order package and published graph",
+  "repository": "aiur-team/aiur",
+  "root": {
+    "id": "7490",
+    "title": "Decompose Build Orders into a standalone package with a published graph contract",
+    "number": 7490,
+    "url": "https://github.com/aiur-team/aiur/issues/7490",
+    "epic": "build-order-package",
+    "plan_version": 1,
+    "researched_at_commit": "c16c731ad8a5f25f0b8f3d4d1b0cd0b4f8c9c1ab"
+  },
+  "generated_at": "2026-11-04T20:15:00Z",
+  "sources": {
+    "pack": { "status": "known", "observed_at": "2026-11-04T20:15:00Z", "reason": null },
+    "tracker": { "status": "unknown", "observed_at": null, "reason": "tracker_unavailable" },
+    "progress": { "status": "unknown", "observed_at": null, "reason": "tracker_unavailable" }
+  },
+  "epics": [
+    {
+      "key": "build-order-package",
+      "title": "Build Order package",
+      "label": "epic:build-order-package",
+      "url": null,
+      "icon": "cube",
+      "hue": 206,
+      "features": ["bo-contract"],
+      "progress": {
+        "status": "unknown",
+        "total": null,
+        "done": null,
+        "open": null,
+        "failed": null,
+        "percent": null,
+        "by_status": null,
+        "observed_at": null,
+        "reason": "tracker_unavailable"
+      }
+    }
+  ],
+  "features": [
+    {
+      "key": "bo-contract",
+      "title": "Published graph contract",
+      "label": "feature:bo-contract",
+      "epic": "build-order-package",
+      "icon": "document-text",
+      "hue": 216,
+      "url": null,
+      "progress": {
+        "status": "unknown",
+        "total": null,
+        "done": null,
+        "open": null,
+        "failed": null,
+        "percent": null,
+        "by_status": null,
+        "observed_at": null,
+        "reason": "tracker_unavailable"
+      }
+    }
+  ],
+  "lanes": [
+    {
+      "key": "backend",
+      "title": "Backend",
+      "label": "build-lane:backend",
+      "icon": "server",
+      "hue": 190,
+      "order": 0,
+      "progress": {
+        "status": "unknown",
+        "total": null,
+        "done": null,
+        "open": null,
+        "failed": null,
+        "percent": null,
+        "by_status": null,
+        "observed_at": null,
+        "reason": "tracker_unavailable"
+      }
+    }
+  ],
+  "tickets": [
+    {
+      "id": "BO-001",
+      "number": null,
+      "title": "Inventory Build Orders and agree the package boundary",
+      "url": null,
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": "build-order-package",
+      "feature": "bo-contract",
+      "lane": "backend",
+      "phase": 1,
+      "wave": 1,
+      "complexity": 3,
+      "points": 3,
+      "estimate_hours": 6,
+      "status": "unknown",
+      "progress_percent": null,
+      "started_at": null,
+      "ended_at": null
+    },
+    {
+      "id": "BO-002",
+      "number": null,
+      "title": "Publish the build-order.v1 schema and fixtures",
+      "url": null,
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": "build-order-package",
+      "feature": "bo-contract",
+      "lane": "backend",
+      "phase": 1,
+      "wave": 2,
+      "complexity": 3,
+      "points": 3,
+      "estimate_hours": 5,
+      "status": "unknown",
+      "progress_percent": null,
+      "started_at": null,
+      "ended_at": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "BO-002",
+      "to": "BO-001",
+      "kind": "depends_on",
+      "state": "unknown",
+      "source": "pack"
+    }
+  ],
+  "gates": [],
+  "waves": [
+    { "index": 1, "tickets": ["BO-001"], "starts_at": null, "ends_at": null },
+    { "index": 2, "tickets": ["BO-002"], "starts_at": null, "ends_at": null }
+  ],
+  "critical_path": {
+    "status": "unknown",
+    "tickets": [],
+    "hours": null,
+    "reason": "tracker_unavailable"
+  },
+  "progress": {
+    "status": "unknown",
+    "total": null,
+    "done": null,
+    "open": null,
+    "failed": null,
+    "percent": null,
+    "by_status": null,
+    "observed_at": null,
+    "reason": "tracker_unavailable"
+  }
+}

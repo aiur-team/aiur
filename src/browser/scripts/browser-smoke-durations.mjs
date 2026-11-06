@@ -22,6 +22,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-conversation-live': 32,
   // Governed local run (2026-11-01): three 390px cases in 18.7s plus fixture startup; refresh from CI.
   'test:browser-suite -- build-home-mobile-composer': 30,
+  // CI run 41385779395, shard 7: two breakpoint cases completed in 8.6s.
+  'test:browser-suite -- build-home-conversation-breakpoints': 9,
   // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
   // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
   'test:conversation-view': 36,
