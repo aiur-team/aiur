@@ -1,8 +1,8 @@
-defmodule Aiur.ElevenLabs.Realtime.MintSocketTest do
+defmodule VoiceTranscribe.Scribe.MintSocketTest do
   @moduledoc """
   The Mint transport against a websocket server on loopback.
 
-  `Aiur.ElevenLabs.Realtime` is tested against a fake transport, which is the
+  `VoiceTranscribe.Scribe` is tested against a fake transport, which is the
   right seam for the protocol rules. This module is the one place that drives
   `Mint.WebSocket`, and its bugs are precisely the ones a fake cannot show: they
   live in how Mint batches the upgrade response.
@@ -18,7 +18,7 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocketTest do
 
   use ExUnit.Case, async: true
 
-  alias Aiur.ElevenLabs.Realtime.MintSocket
+  alias VoiceTranscribe.Scribe.MintSocket
 
   # A liveness bound, not a performance assertion.
   #
@@ -26,8 +26,7 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocketTest do
   # deadline standing in for synchronisation: it comfortably contains a TCP
   # accept, handshake and decode on an idle machine, and does not when the full
   # suite has 32 cases in flight. These tests passed alone and failed in the
-  # suite, which is the definition of a flake — the same shape as #1983, where a
-  # 300 ms deadline had to contain 126-308 ms of real work.
+  # suite, which is the definition of a flake.
   #
   # Nothing here asserts that delivery is *fast*; every assertion is that it
   # happens at all. So the bound is sized to contain the work under load with
@@ -81,7 +80,8 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocketTest do
     end
 
     # Client frames are masked; the payload is XORed with the 4-byte key.
-    defp take_frame(<<_fin_opcode, 1::1, length::7, mask::binary-size(4), rest::binary>>) when byte_size(rest) >= length do
+    defp take_frame(<<_fin_opcode, 1::1, length::7, mask::binary-size(4), rest::binary>>)
+         when byte_size(rest) >= length do
       <<payload::binary-size(length), remainder::binary>> = rest
       {:ok, unmask(payload, mask), remainder}
     end
@@ -139,17 +139,17 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocketTest do
 
     {:ok, _socket} = MintSocket.start(self(), url(port), [])
 
-    assert_receive {:elevenlabs_transport, :text, "session_started"}, @delivered
+    assert_receive {:scribe_transport, :text, "session_started"}, @delivered
   end
 
   test "delivers frames that arrive after the upgrade" do
     {:ok, port} = Server.start("session_started")
     {:ok, socket} = MintSocket.start(self(), url(port), [])
-    assert_receive {:elevenlabs_transport, :text, "session_started"}, @delivered
+    assert_receive {:scribe_transport, :text, "session_started"}, @delivered
 
     assert :ok = MintSocket.send_text(socket, "audio-frame")
 
-    assert_receive {:elevenlabs_transport, :text, "echo:audio-frame"}, @delivered
+    assert_receive {:scribe_transport, :text, "echo:audio-frame"}, @delivered
   end
 
   test "carries the credential in a request header, never in the url" do
@@ -185,7 +185,7 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocketTest do
 
     {:ok, _socket} = MintSocket.start(self(), "ws://127.0.0.1:#{port}/realtime", [])
 
-    assert_receive {:elevenlabs_transport, :error, _reason}, @delivered
+    assert_receive {:scribe_transport, :error, _reason}, @delivered
   end
 
   test "stops when the session that opened it stops" do
