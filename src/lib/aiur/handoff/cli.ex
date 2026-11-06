@@ -24,8 +24,9 @@ defmodule Aiur.Handoff.CLI do
   def prepare(opts \\ []) do
     guarded("restart --keep-agents", fn ->
       timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
+      snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator, timeout_ms) end)
 
-      case Aiur.Orchestrator.snapshot(Aiur.Orchestrator, timeout_ms) do
+      case snapshot_fun.() do
         :timeout ->
           failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
 
@@ -33,23 +34,55 @@ defmodule Aiur.Handoff.CLI do
           failure("orchestrator is not running")
 
         snapshot ->
-          prepare_snapshot(snapshot)
+          prepare_snapshot(snapshot, opts)
       end
     end)
   end
 
-  defp prepare_snapshot(snapshot) do
-    capable = Enum.any?(snapshot.running, &(&1[:backend] in ["codex", "claude", "claude-repl"]))
+  defp prepare_snapshot(snapshot, opts) do
+    running = Map.get(snapshot, :running, [])
+    blocking = Enum.reject(running, &handoff_capable?/1)
 
-    if snapshot.running == [] or capable do
-      prepare_running()
-    else
-      failure("no running agent supports handoff")
+    cond do
+      running == [] ->
+        prepare_running(opts)
+
+      blocking == [] ->
+        prepare_running(opts)
+
+      length(blocking) == length(running) ->
+        failure(blocking_message(blocking))
+
+      true ->
+        IO.puts("Handoff will not adopt #{count_phrase(blocking)}: #{backend_breakdown(blocking)}; they resume from their workspace after the restart")
+        prepare_running(opts)
     end
   end
 
-  defp prepare_running do
-    case Aiur.AgentControlCLI.prepare_handoff() do
+  # Which backends can hand a live session to the successor daemon is a
+  # registry fact (`Aiur.CodingAgent.handoff_kind/1`), so a new backend cannot
+  # be silently excluded by an allowlist here.
+  defp handoff_capable?(agent), do: not is_nil(Aiur.CodingAgent.handoff_kind(Map.get(agent, :backend)))
+
+  defp blocking_message(blocking) do
+    "no running agent supports handoff: #{backend_breakdown(blocking)} cannot be adopted across a restart. " <>
+      "Drain the fleet first (aiur pause --all, wait for those turns to end, then aiur stop and aiur start), " <>
+      "or restart plainly without keep-agents: aiur restart"
+  end
+
+  defp count_phrase(agents), do: "#{length(agents)} #{if length(agents) == 1, do: "agent", else: "agents"}"
+
+  defp backend_breakdown(agents) do
+    agents
+    |> Enum.group_by(&(Map.get(&1, :backend) || "unknown"))
+    |> Enum.sort_by(fn {backend, group} -> {backend, -length(group)} end)
+    |> Enum.map_join(", ", fn {backend, group} -> "#{backend} (#{count_phrase(group)})" end)
+  end
+
+  defp prepare_running(opts) do
+    prepare_handoff = Keyword.get(opts, :handoff, fn -> Aiur.AgentControlCLI.prepare_handoff() end)
+
+    case prepare_handoff.() do
       {:ok, result} ->
         IO.puts("__AIUR_HANDOFF__:#{result.handoff_id}")
 

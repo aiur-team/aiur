@@ -52,6 +52,7 @@ defmodule Aiur.CodingAgent do
   defdelegate backends(), to: ProvidersView
   defdelegate child_specs(), to: ProvidersView
   defdelegate known_backends(), to: ProvidersView
+  defdelegate handoff_kind(backend), to: ProvidersView
   defdelegate model_required?(backend), to: ProvidersView
   defdelegate dispatchable_backends(backend_configs \\ %{}), to: ProvidersView
   defdelegate rate_limit_fallback_targets(), to: ProvidersView
