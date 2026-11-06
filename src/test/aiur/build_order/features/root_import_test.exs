@@ -145,6 +145,23 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
     assert RootImport.plan(h, s, read_journals(pid, s)).updates == []
   end
 
+  test "a lane label missing from one snapshot appends nothing, so repeated runs never flap epics" do
+    {pid, writer} = store()
+    assert :ok = RootImportWrites.apply(RootImport.plan(history(), @empty, %{}), writer)
+    assert {:ok, s} = Features.snapshot(server: pid)
+    j = read_journals(pid, s)
+    dropped = put_in(history(), [:rows, 10, :labels], [])
+
+    for h <- [dropped, history(), dropped, history()] do
+      assert {:ok, s} = Features.snapshot(server: pid)
+      assert :ok = RootImportWrites.apply(RootImport.plan(h, s, read_journals(pid, s)), writer)
+    end
+
+    assert {:ok, s} = Features.snapshot(server: pid)
+    assert s.owners[10].epic == "f-bo-2573-runtime"
+    assert read_journals(pid, s) == j
+  end
+
   test "root import creates the epic for each build-order root and follows title renames" do
     {pid, writer} = store()
     assert :ok = RootImportWrites.apply(RootImport.plan(history(), @empty, %{}), writer)
