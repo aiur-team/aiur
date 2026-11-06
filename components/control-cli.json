@@ -18,7 +18,6 @@
     "src/lib/aiur/control_call/allowlist.ex",
     "src/lib/aiur/control_call/allowlist/**",
     "src/lib/aiur/control_call/literal.ex",
-    "src/lib/aiur/control_call/replay_store.ex",
     "src/lib/aiur/control_cli/**",
     "src/lib/aiur/daemon_lifecycle.ex",
     "src/lib/aiur/distribution.ex",
