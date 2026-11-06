@@ -79,7 +79,8 @@ defmodule Aiur.Config.Schema.BuildOrder do
     # @config-detail build_order.feature_order | array | `[]` | Feature slugs in goal order for the Features list. Unlisted features follow, oldest first. |
     field(:feature_order, {:array, :string}, default: [])
     # @config-reference config-configuration-build-order-00 build_order.lanes
-    # @config-detail build_order.lanes | array | Bugs, Design, Infra, Docs (below) | Lane definitions in column order. A list replaces the defaults; `[]` disables lanes. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.lanes | array | Bugs, Design, Infra, Docs (below) | Lane definitions in column order. A list replaces the defaults; `[]` disables lanes. The deprecated `build_order.general_epics` is read as this list. |
     embeds_many(:lanes, Lane, on_replace: :delete)
   end
 

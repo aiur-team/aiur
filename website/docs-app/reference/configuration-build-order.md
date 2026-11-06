@@ -7,17 +7,17 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-build-order-00 -->
 | --- | --- | --- | --- |
 | `build_order.feature_order` | array | `[]` | Feature slugs in goal order for the Features list. Unlisted features follow, oldest first. |
+| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
+| `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
+| `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
+| `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.lanes` | array | Bugs, Design, Infra, Docs (below) | Lane definitions in column order. A list replaces the defaults; `[]` disables lanes. The deprecated `build_order.general_epics` is read as this list. |
 | `build_order.lanes.hue` | integer | required | Colour hue, 0–359. |
 | `build_order.lanes.icon` | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
 | `build_order.lanes.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
 | `build_order.lanes.label` | string | required | Column header text, without control characters. |
 | `build_order.lanes.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one lane only. `epic:` matchers are refused because they mark parked tickets. |
-| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
-| `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
-| `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
-| `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.ticket_detail_freshness_ms` | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
 | `build_order.ticket_detail_max_description_bytes` | integer | 16384 | Maximum cached ticket-description size. |
 | `build_order.ticket_detail_max_entries` | integer | 32 | Maximum cached ticket-detail entries. |
