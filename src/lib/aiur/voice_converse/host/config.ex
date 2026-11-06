@@ -36,6 +36,7 @@ defmodule Aiur.VoiceConverse.Host.Config do
       agent_channel: AgentChannel,
       transcript_root: transcript_root,
       llm: settings.llm,
+      agent_id: settings.agent_id,
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
       roles: Roles.defaults(),
       glossary: [Roles.glossary()],
@@ -49,5 +50,5 @@ defmodule Aiur.VoiceConverse.Host.Config do
   defp redact(text), do: text |> VoiceConverse.Redact.redact() |> Aiur.SecretRedactor.redact() |> Aiur.SecretRedactor.redact_urls()
   defp provider(%{provider: :openai_realtime} = settings), do: {Aiur.VoiceConversation.OpenAIProvider, [voice_id: settings.voice_id]}
   defp provider(%{agent_id: nil}), do: nil
-  defp provider(%{agent_id: agent_id}), do: {Provider, [agent_id: agent_id]}
+  defp provider(_settings), do: {Provider, []}
 end
