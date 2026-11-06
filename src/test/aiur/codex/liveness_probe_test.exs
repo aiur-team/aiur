@@ -15,9 +15,15 @@ defmodule Aiur.Codex.LivenessProbeTest do
   alias Aiur.Codex.{LivenessProbe, SessionRecovery}
 
   @thread "01a0b3b2-f413-7bf1-a724-c492e3c9be3c"
-  @resets_at_epoch 1_790_040_385
-  @reset_at "2026-09-22T01:26:25Z"
   @observed_at ~U[2026-09-18 09:20:37Z]
+  # The rollout's rate-limit snapshot resets 3 d 16 h 5 min 48 s after the
+  # refusal: resetsAt 1790040385. Derive the epoch from @observed_at so the
+  # time-bomb checker's 35-day date shift moves it with the ISO fixture instead
+  # of leaving it 35 days away (#7549).
+  @reset_after_seconds 317_148
+  @reset_at_time DateTime.add(@observed_at, @reset_after_seconds, :second)
+  @reset_at DateTime.to_iso8601(@reset_at_time)
+  @resets_at_epoch DateTime.to_unix(@reset_at_time)
   @banner "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 21st, 2026 6:26 PM."
   # Production arms the probe every 60_000 ms. The injected interval only
   # shortens the wait so a silent server is caught inside a test-sized window.
