@@ -192,6 +192,17 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
     end
   end
 
+  # A prepaid credit ceiling is its own durable baseline, so no stored state is
+  # needed: the consumed fraction is exact against the purchased credits. A key
+  # with no purchased credit has no denominator and stays dollar-only.
+  defp spend_used_percent(limit, used) when is_number(limit) and limit > 0 and is_number(used) do
+    (used / limit * 100)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(1)
+  end
+
+  defp spend_used_percent(_limit, _used), do: nil
 
   defp credit_window(id, amount, source, observed_at, used_percent) do
     window = %{
