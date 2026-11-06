@@ -2,10 +2,10 @@ defmodule AiurWeb.Streamdeck.Deck.NavTest do
   use ExUnit.Case, async: true
   alias AiurWeb.Streamdeck.Deck.Nav
 
-  @sizes %{ticket: 30, feature: 24, epic: 16, fleet: 8, drill: 30}
+  @sizes %{ticket: 30, feature: 24, lane: 16, fleet: 8, drill: 30}
 
   test "cycles all views, clears drills and preserves each root page" do
-    nav = struct!(Nav, pages: %{ticket: 2, feature: 1, epic: 1, fleet: 0})
+    nav = struct!(Nav, pages: %{ticket: 2, feature: 1, lane: 1, fleet: 0})
     {cycled, []} = step(nav, "dial_press", 3)
     assert cycled.view == :feature
     assert Nav.page(cycled) == 1
@@ -28,7 +28,7 @@ defmodule AiurWeb.Streamdeck.Deck.NavTest do
   end
 
   test "drills into a feature then opens a ticket and restores root paging on back" do
-    nav = struct!(Nav, view: :feature, pages: %{ticket: 0, feature: 1, epic: 0, fleet: 0})
+    nav = struct!(Nav, view: :feature, pages: %{ticket: 0, feature: 1, lane: 0, fleet: 0})
     input = %{"kind" => "key_press", "index" => 0, target: {:feature, "feature-a"}}
     {drilled, []} = Nav.reduce(nav, input, @sizes)
     assert drilled.stack == [{:feature, "feature-a"}]

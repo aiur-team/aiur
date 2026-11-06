@@ -43,7 +43,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     end
   end
 
-  test "feature paging drills by epic membership and long press restores the feature page" do
+  test "feature paging drills by lane membership and long press restores the feature page" do
     window = window()
     entries = Map.new(1..9, fn i -> {"lane#{i}", %{window.feature_progress.features["home"] | feature: "parent#{i}"}} end)
     catalogue = Map.new(1..9, fn i -> {"parent#{i}", %{label: "Parent #{i}", epics: ["lane#{i}"]}} end)
@@ -52,7 +52,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
 
     window = %{
       window
-      | epics: Map.new(1..9, &{"lane#{&1}", %{feature: "parent#{&1}"}}),
+      | lanes: Map.new(1..9, &{"lane#{&1}", %{feature: "parent#{&1}"}}),
         features: catalogue,
         sections: rows,
         feature_progress: %{window.feature_progress | features: entries},
@@ -76,7 +76,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     assert Nav.page(back) == 1
   end
 
-  test "parent percentages and published-open layers match Build aggregation across epics" do
+  test "parent percentages and published-open layers match Build aggregation across lanes" do
     window = window()
     window = put_in(window, [:features, "parent", :epics], ["home", "cli"])
     window = put_in(window, [:feature_progress, :features, "cli", :feature], "parent")
@@ -121,7 +121,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
     assert Enum.join(lines, " ") == "states unavailable · planned count unavailable"
   end
 
-  test "lanes absent from the epic catalogue do not dilute parent progress" do
+  test "lanes absent from the lane catalogue do not dilute parent progress" do
     for missing <- [%{}, %{closed: 0, open: 100, ci_wait: 0, unpublished: 0, total: 100}] do
       window = put_in(window(), [:features, "parent", :epics], ["home", "absent"])
       window = put_in(window, [:feature_progress, :features, "absent"], missing)
@@ -137,7 +137,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesTest do
   defp window do
     %{
       order: ["home", "cli"],
-      epics: %{"home" => %{feature: "parent"}, "cli" => %{feature: "cli-parent"}},
+      lanes: %{"home" => %{feature: "parent"}, "cli" => %{feature: "cli-parent"}},
       features: %{"parent" => %{label: "Build", epics: ["home"]}, "cli-parent" => %{label: "CLI", epics: ["cli"]}},
       feature_progress: %{
         observed_at: 60_000,

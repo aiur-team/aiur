@@ -27,7 +27,7 @@ defmodule AiurWeb.Streamdeck.FleetAPIsChannelTest do
     assert_push("frame", %{strip: initial_strip}, 2_000)
     refute Enum.at(initial_strip, 1).svg =~ "GitHub"
 
-    for view <- ["feature", "epic", "fleet"] do
+    for view <- ["feature", "lane", "fleet"] do
       ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
       assert_reply(ref, :ok, reply, 2_000)
       assert %{"view" => ^view, "page" => 0} = reply

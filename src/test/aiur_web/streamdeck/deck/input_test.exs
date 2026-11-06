@@ -3,7 +3,7 @@ defmodule AiurWeb.Streamdeck.Deck.InputTest do
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
 
-  test "resolves feature, epic and fleet keys from sections, then their child tickets" do
+  test "resolves feature, lane and fleet keys from sections, then their child tickets" do
     for view <- [:feature, :lane, :fleet] do
       sections = %{view => [%{id: "group", tickets: [%{id: "6030"}]}]}
       nav = %Nav{view: view}
@@ -20,7 +20,7 @@ defmodule AiurWeb.Streamdeck.Deck.InputTest do
 
   test "clamps before resolving a key after a list shrinks" do
     sections = %{ticket: Enum.map(1..9, &%{id: to_string(&1)})}
-    nav = %Nav{pages: %{ticket: 3, feature: 0, epic: 0, fleet: 0}}
+    nav = %Nav{pages: %{ticket: 3, feature: 0, lane: 0, fleet: 0}}
     {nav, [{:open_ticket, "9"}]} = Input.reduce(nav, %{"kind" => "key_press", "index" => 0}, sections)
     assert Nav.page(nav) == 1
   end
