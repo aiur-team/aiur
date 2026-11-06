@@ -373,4 +373,66 @@ defmodule Aiur.Config.AgentSettings do
   @doc "Maximum CI recovery reruns admitted in one rolling hour."
   @spec ci_recovery_max_per_hour() :: pos_integer()
   def ci_recovery_max_per_hour, do: Aiur.Config.settings!().agent.ci_recovery_max_per_hour
+
+  @default_usage_floor_percent 5
+
+  @doc """
+  The remaining-usage floor dispatch applies to every route
+  (`agent.usage_floor_percent`, #7504). A backend or account whose freshest
+  reading shows this percentage or less left in any rate window is skipped at
+  dispatch. `0` disables the floor, and a config that cannot be read falls back
+  to the documented default of `5`.
+  """
+  @spec usage_floor_percent() :: non_neg_integer()
+  def usage_floor_percent, do: usage_floor_percent(Aiur.Config.settings!())
+
+  @doc false
+  @spec usage_floor_percent(Schema.t() | term()) :: non_neg_integer()
+  def usage_floor_percent(%{agent: agent}) when is_map(agent) do
+    case Map.get(agent, :usage_floor_percent) do
+      percent when is_integer(percent) -> clamp_usage_floor(percent)
+      _absent -> @default_usage_floor_percent
+    end
+  end
+
+  def usage_floor_percent(_settings), do: @default_usage_floor_percent
+
+  @doc """
+  The floor that applies to one backend: `agent.usage_floor_percent`, unless
+  `agent.backend_configs.<backend>.usage_floor_percent` overrides it. A `nil`
+  backend (one implicit account) uses the global floor.
+  """
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.usage_floor_percent | integer | `agent.usage_floor_percent` | Overrides the remaining-usage floor for this backend only, so one login can rest earlier or later than the others. `0` disables the floor for this backend. See [Usage floor](/concepts/headroom-dispatch#usage-floor). |
+  @spec usage_floor_percent_for(String.t() | nil) :: non_neg_integer()
+  def usage_floor_percent_for(nil), do: usage_floor_percent()
+
+  def usage_floor_percent_for(backend) when is_binary(backend),
+    do: usage_floor_percent_for(Aiur.Config.settings!(), backend)
+
+  @doc false
+  @spec usage_floor_percent_for(Schema.t() | term(), String.t() | nil) :: non_neg_integer()
+  def usage_floor_percent_for(settings, nil), do: usage_floor_percent(settings)
+
+  def usage_floor_percent_for(settings, backend) when is_binary(backend),
+    do: backend_usage_floor_percent(settings, backend)
+
+  defp backend_usage_floor_percent(settings, backend) do
+    case backend_usage_floor_override(settings, backend) do
+      percent when is_integer(percent) -> clamp_usage_floor(percent)
+      _absent -> usage_floor_percent(settings)
+    end
+  end
+
+  # `backend_configs` is a plain map of operator-written keys, so the override
+  # is read from either key type: a YAML load produces binaries, while an
+  # in-process struct (and tests) may use atoms.
+  defp backend_usage_floor_override(settings, backend) do
+    case Map.get(agent_backend_configs(settings), backend) do
+      config when is_map(config) -> Map.get(config, "usage_floor_percent", Map.get(config, :usage_floor_percent))
+      _absent -> nil
+    end
+  end
+
+  defp clamp_usage_floor(percent), do: percent |> max(0) |> min(100)
 end

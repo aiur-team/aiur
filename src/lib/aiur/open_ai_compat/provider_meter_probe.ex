@@ -148,6 +148,9 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
            max(credits - usage, 0),
            :openrouter_api,
            observed_at,
+           # `total_credits` is the key's known limit, so the spend percentage
+           # is honest against it — the same field dispatch's usage floor reads
+           # (#7504). A key with no reported limit keeps dollar-only credits.
            spend_used_percent(credits, usage)
          )
          # The purchased-credit ceiling the remaining amount is measured

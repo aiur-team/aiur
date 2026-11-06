@@ -3,7 +3,8 @@
   "to_module": "Aiur.Accounts",
   "kind": "reference",
   "only_paths": [
-    "src/lib/aiur/coding_agent/headroom_dispatch.ex"
+    "src/lib/aiur/coding_agent/headroom_dispatch.ex",
+    "src/lib/aiur/coding_agent/usage_floor_gate.ex"
   ],
-  "reason": "#3960: headroom dispatch lists the machine's accounts and their capability"
+  "reason": "#3960: headroom dispatch lists the machine's accounts and their capability; #7504 the usage floor gate reads the same candidates"
 }

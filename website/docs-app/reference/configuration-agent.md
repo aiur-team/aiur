@@ -78,6 +78,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.target_load_average` | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
 | `agent.unreviewed_pr_age_limit_minutes` | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
+| `agent.usage_floor_percent` | integer | 5 | Dispatch skips a backend or account whose freshest usage reading shows this percentage or less remaining in any rate window, and takes the next allowed route. `0` disables the floor. Override per backend with `agent.backend_configs.<backend>.usage_floor_percent`. A reading that is unknown or stale never floors a route, and a running agent is never stopped by it. See [Usage floor](/concepts/headroom-dispatch#usage-floor). |
 
 ### Routes in `agent.priority`
 
@@ -174,6 +175,7 @@ Claude clock hints with an IANA timezone are converted to UTC; unknown reset tim
 | `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
 | `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
 | `agent.backend_configs.<backend>.transport` | string | backend registry value | Overrides the OpenAI-compatible transport with `chat_completions` or `responses`. |
+| `agent.backend_configs.<backend>.usage_floor_percent` | integer | `agent.usage_floor_percent` | Overrides the remaining-usage floor for this backend only, so one login can rest earlier or later than the others. `0` disables the floor for this backend. See [Usage floor](/concepts/headroom-dispatch#usage-floor). |
 
 #### `agent.backend_configs.openrouter`
 
