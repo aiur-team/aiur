@@ -9,10 +9,11 @@ defmodule Aiur.OpenAICompat.Handoff do
   resolves fresh credentials and seeds a new session from it, so each ticket
   continues without a cold re-dispatch.
 
-  The resolved provider config carries the API key, so it is deliberately never
-  written to the handoff record: only the conversation, thread id and turn
-  counters travel. The successor re-resolves `Aiur.OpenAICompat.Config` from the
-  same session options it already had.
+  The resolved provider config carries the API key, so the config itself is
+  deliberately never written to the handoff record: the conversation, thread id,
+  turn counters and the model the session resolved travel instead. The successor
+  re-resolves `Aiur.OpenAICompat.Config` from the same session options it already
+  had, with the recorded model as the default.
   """
 
   alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
@@ -41,10 +42,20 @@ defmodule Aiur.OpenAICompat.Handoff do
          "turn_index" => Map.get(source, :turn_index, 0),
          "next_request_id" => Map.get(source, :next_request_id, 1),
          "messages" => Map.get(source, :messages, []),
+         "model" => resolved_model(source),
          "interrupted" => not is_nil(state)
        }}
     end
   end
+
+  # The model this session resolved from its dispatch-time options: for an
+  # OpenAI-compatible backend that is the model segment of the winning
+  # `agent.priority` route, which `backend_configs.<backend>` need not carry. It
+  # travels so the successor starts the same model rather than falling back with
+  # `:missing_model` (#7548). The API key stays behind — only the model string
+  # crosses the restart.
+  defp resolved_model(%{config: %{model: model}}) when is_binary(model) and model != "", do: model
+  defp resolved_model(_source), do: nil
 
   defp source_state(_session, %{} = state), do: {:ok, state}
 
@@ -63,9 +74,8 @@ defmodule Aiur.OpenAICompat.Handoff do
   """
   @spec restore(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def restore(record, opts) do
-    opts = start_opts(opts, record)
-
     with {:ok, provider_state} <- provider_state(record),
+         opts = start_opts(opts, record, provider_state),
          workspace when is_binary(workspace) <- record["workspace"] || Keyword.get(opts, :workspace),
          {:ok, session} <- CodingAgent.start_session(workspace, Keyword.put(opts, :workspace, workspace)) do
       :ok = seed(session, provider_state)
@@ -87,11 +97,37 @@ defmodule Aiur.OpenAICompat.Handoff do
   # own credentials, which is what a keep-agents restart should use.
   @unserialized_seams [:api_key_fetcher, :request_fun, :backend_config_fetcher, :on_message, :run_turn]
 
-  defp start_opts(opts, record) do
+  defp start_opts(opts, record, provider_state) do
     opts
     |> Keyword.put_new(:backend, record["backend"])
+    |> put_saved_model(record, provider_state)
     |> Enum.reject(fn {key, value} -> key in @unserialized_seams and not is_function(value) end)
   end
+
+  # The dispatch-time session options that carried the route's model never enter
+  # the record's turn context, so a successor resolving the config from the
+  # backend alone failed with `:missing_model` whenever the model lived only in
+  # the route (#7548). The snapshot records the model the session ran with;
+  # records written before that field existed still carry it in the saved session
+  # map. An explicit option always wins over the saved value.
+  defp put_saved_model(opts, record, provider_state) do
+    saved = Map.get(provider_state, "model") || saved_session_model(record)
+
+    if usable_model?(Keyword.get(opts, :model)) or not usable_model?(saved),
+      do: opts,
+      else: Keyword.put(opts, :model, saved)
+  end
+
+  defp saved_session_model(record) do
+    case record["session_state"] && RunnerHandoff.decode(record["session_state"]) do
+      %{model: model} when is_binary(model) and model != "" -> model
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp usable_model?(model), do: is_binary(model) and String.trim(model) != ""
 
   # The runner tags a freshly started session with its resolved backend; an
   # adopted session must carry the same tag or later dispatch cannot resolve its
