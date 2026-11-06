@@ -19,6 +19,13 @@ cmd_command request 'Ship $(echo unsafe)?' --option no=Wait --option 'yes=Ship=n
   end
 
   @tag :tmp_dir
+  test "passes repeatable media and resolves a relative file on the caller's machine", %{tmp_dir: dir} do
+    script = ~s|run_control_rpc() { echo "RPC:$1"; }\ncd "$MEDIA_DIR" && cmd_command request 'Ship?' --media 'shot.png,alt=A, b' --media=https://github.com/a.gif|
+    {out, 0} = run_sourced_engine(script, [{"MEDIA_DIR", dir}])
+    assert out =~ ~s|media: [Base.decode64!("#{Base.encode64(Path.join(dir, "shot.png") <> ",alt=A, b")}"), Base.decode64!("#{Base.encode64("https://github.com/a.gif")}")]|
+  end
+
+  @tag :tmp_dir
   test "reads local context and rejects oversized files before RPC", %{tmp_dir: dir} do
     path = Path.join(dir, "context.md")
     File.write!(path, "More context\n")

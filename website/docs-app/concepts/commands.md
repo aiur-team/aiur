@@ -427,7 +427,12 @@ Each item names its kind and MIME type, a locator, and alt text or a caption:
 | Poster | A still frame for video or audio. |
 
 A worker sends media in the `decision.requested` payload that already carries
-its question and options; `aiur command request` itself stays text-only.
+its question and options. The Executor attaches media from the shell with
+`aiur command request --media <file|https-url>[,alt=…,caption=…,option=<id>]`,
+which goes through the same validation and storage.
+Every worker harness, including the OpenAI-compatible (OpenRouter, DeepSeek)
+one, sends media through its `emit_event` tool. A worker cannot run
+`aiur command request`, because its sandbox has no daemon control access.
 
 A local file is stored as an attachment reference, so a dashboard or API reader
 never receives a filesystem path. Media that would rot is refused: an expiring
