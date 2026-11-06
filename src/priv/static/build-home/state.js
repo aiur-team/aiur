@@ -9,7 +9,7 @@ export const onReset = fn => resets.push(fn);
 export function resetState(urlState = {}) {
   for (const key of Object.keys(S)) delete S[key];
   Object.assign(S, {
-    view: 'graph', list: 'tickets', span: 1, feature: null, fmode: 'focus',
+    view: 'graph', list: 'tickets', span: 1, feature: null, fmode: 'focus', fsort: 'goal',
     f: { type: [], model: [], feature: [], epic: [], tstate: [], astate: [] },
     pop: null, loading: true, ready: false, flow: false, K: 2,
     density: 'card', trees: false, liveMin: false, ticket: null,
@@ -45,7 +45,7 @@ function defaultUnavailable(reason) {
   loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`);
 }
 export const fx = {
-  viewport() {}, relayout() {}, update() {}, jumpNow() {}, liveGuard() {}, markScrolling() {},
+  viewport() {}, relayout() {}, update() {}, jumpNow() {}, markScrolling() {},
   unlock() {}, closeTree() {}, chainOf: () => new Set(), renderFilters() {},
   renderUsage() {}, renderOffline() {}, renderFeatures() {}, renderTools() {},
   spanToolsHTML: () => '', wireSpanTools() {}, renderStatus() {},

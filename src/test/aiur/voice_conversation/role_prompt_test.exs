@@ -12,12 +12,13 @@ defmodule Aiur.VoiceConversation.RolePromptTest do
     owner = self()
 
     for {provider, provider_id, options} <- [
-          {Provider, :elevenlabs, [agent_id: "test-agent"]},
+          {Provider, :elevenlabs, []},
           {OpenAIProvider, :openai_realtime, [voice_id: "cedar"]}
         ] do
       spec = %{
         owner: owner,
         credentials: {Credentials, provider_id},
+        agent_id: "test-agent",
         system_prompt: "Selected role and glossary",
         context: "Current context",
         first_message: nil,

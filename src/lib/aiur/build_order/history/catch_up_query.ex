@@ -11,7 +11,7 @@ defmodule Aiur.BuildOrder.History.CatchUpQuery do
           filterBy:{since:$since}, orderBy:{field:UPDATED_AT, direction:ASC}) {
           pageInfo { hasNextPage endCursor }
           nodes { id number title state stateReason createdAt closedAt updatedAt
-            labels(first:30) { totalCount nodes { name } }
+            labels(first:30) { totalCount nodes { name description } }
             parent { number repository { name owner { login } } }
             blockedBy(first:100) { pageInfo { hasNextPage endCursor } nodes { number repository { name owner { login } } } } }
         }

@@ -112,7 +112,7 @@ defmodule Aiur.Orchestrator.EnvelopeRecordTest do
   end
 
   test "lower occupancy cannot renew the age of a higher safe record", %{path: path} do
-    stamp = DateTime.add(DateTime.utc_now(), -20_000)
+    stamp = DateTime.add(DateTime.utc_now(), -3_000)
     assert :ok = EnvelopeStore.save(7, 64, stamp)
     state = %{occupied(1) | load_envelope_state: Map.merge(occupied(1).load_envelope_state, EnvelopeStore.load(21_600, 64))}
     contents = File.read!(path)

@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
-  alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Handoff
   alias Aiur.Instance
   alias Aiur.Instance.DispatchClaim
@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
   alias Aiur.Signal
+  alias Aiur.Toolchain
 
   @spec dispatch(State.t(), Issue.t(), term(), term(), keyword(), function()) :: State.t()
   def dispatch(state, issue, attempt, worker_host, opts, dispatch_to_worker) do
@@ -109,11 +110,23 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     end
   end
 
+  # A hold at the usage floor is not an exhausted provider, and the operator
+  # who set the floor needs the difference in the alert text (#7504).
+  defp all_limited_reason(candidates) do
+    case UsageFloorGate.hold_reason(candidates) do
+      nil ->
+        "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying."
+
+      floor_reason ->
+        "Dispatch held: #{floor_reason}. It clears when a rate window resets; no running agent is affected."
+    end
+  end
+
   defp prepare_for_dispatch(state, issue, opts) do
     with false <- Handoff.dispatch_held?(),
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
          :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
-         {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
+         {:ok, selected_issue} <- Toolchain.select_for_dispatch(prepared) do
       state = %{
         state
         | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)
@@ -133,7 +146,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         else
           Signal.alert("ticket.#{issue.identifier}.agent.model_fallback_waiting",
             issue: issue.identifier,
-            reason: "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
+            reason: all_limited_reason(candidates),
             needs_attention: true,
             severity: "warning"
           )

@@ -6,6 +6,7 @@ defmodule Aiur.AgentRunner.SessionOptions do
   alias Aiur.AgentRunner.SessionResume
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.HeadroomDispatch
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Tracker
@@ -130,9 +131,17 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp maybe_put_account(session_opts, backend, config, opts) do
     account_backend = if backend == "claude-repl", do: "claude", else: backend
 
+    # A pin from before a config reload that removed its account is dropped,
+    # so the ticket's next session reselects among the accounts still
+    # configured. A session already running keeps its account (#7449).
     case Keyword.get(opts, :account_name) do
       name when is_binary(name) and account_backend in ["claude", "codex"] ->
-        Keyword.merge(session_opts, account_name: name, env: Accounts.profile_env(account_backend, name))
+        if name in configured_account_names(config, account_backend) do
+          Keyword.merge(session_opts, account_name: name, env: Accounts.profile_env(account_backend, name))
+        else
+          Logger.warning("account no longer configured; reselecting backend=#{account_backend} account=#{name}")
+          maybe_put_account(session_opts, backend, config, Keyword.delete(opts, :account_name))
+        end
 
       _ ->
         case Accounts.capability(account_backend) do
@@ -156,9 +165,10 @@ defmodule Aiur.AgentRunner.SessionOptions do
     end
   end
 
+  defp configured_account_names(config, backend), do: Map.get(Map.get(config, :accounts) || %{}, backend, [])
+
   defp configured_account_candidates(config, backend, opts) do
-    names = Map.get(config, :accounts) || %{}
-    names = Map.get(names, backend, [])
+    names = configured_account_names(config, backend)
     list_accounts = Keyword.get(opts, :account_list_fun, &Accounts.list/1)
     registered = MapSet.new(list_accounts.(backend), & &1.name)
     Enum.filter(names, &MapSet.member?(registered, &1))
@@ -197,10 +207,23 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp choose_account(session_opts, backend, candidates, config, usages, reset_at) do
     mode = config.account_selection || "balance"
 
+    # A turn handoff re-chooses an account on the backend dispatch already
+    # selected. An account at or below `agent.usage_floor_percent` is skipped
+    # here exactly as it is at claim time (#7504) — balance would otherwise
+    # prefer the most-used account, which is the one the floor just held. When
+    # every account on the backend is floored there is no other route to take
+    # from here, so the least-used one still serves the turn rather than
+    # stranding the ticket.
+    case UsageFloorGate.allowed_accounts(backend, candidates, usages) do
+      [] -> select_account(session_opts, backend, candidates, mode, usages, reset_at)
+      allowed -> select_account(session_opts, backend, allowed, mode, usages, reset_at)
+    end
+  end
+
+  defp select_account(session_opts, backend, candidates, mode, usages, reset_at) do
     case Accounts.select(backend, candidates, mode, usages) do
       {:ok, name} ->
-        session_opts
-        |> put_selected_account(backend, name, usages)
+        put_selected_account(session_opts, backend, name, usages)
 
       {:error, reason} ->
         put_account_selection_error(session_opts, backend, reason, reset_at)

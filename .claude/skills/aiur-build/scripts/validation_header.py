@@ -26,7 +26,7 @@ TOP_KEYS = {
     "repository", "researched_at_commit", "workstreams", "github_root",
     "label_projection", "feature_boundary", "external_gates", "requirements",
     "design_evidence", "decisions", "tickets", "epic_acceptance",
-    "github_reconciliation",
+    "github_reconciliation", "product_features",
 }
 BOUNDARY_KEYS = {
     "acceptance_criteria", "critical_path_ticket_ids", "required_documentation",
@@ -46,7 +46,8 @@ RESERVED_ROUTING_PREFIXES = {
 
 
 def validate_identity(data: dict[str, Any], report: Report) -> None:
-    strict_object(data, "top level", TOP_KEYS, report)
+    strict_object(data, "top level", TOP_KEYS - {"product_features"}, report,
+                  optional={"product_features"})
     if not strict_int(data.get("schema_version")) or data.get("schema_version") != 1:
         report.error("schema_version must be integer 1")
     build_order_id = data.get("build_order_id")

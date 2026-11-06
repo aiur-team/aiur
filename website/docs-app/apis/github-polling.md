@@ -109,7 +109,13 @@ Draft PRs remain pending even with green checks. Mark completed work ready befor
 
 `ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. After `agent.ci_wait_rewake_minutes`, a CI-wait draft raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait. `aiur status` shows `draft_pr`.
 
-Review polling keeps a per-ticket cursor seeded from its first cutoff; issue comments cannot advance it, and disabled or failed reads retain it. Polls in `agent:ci-wait` and `agent:human-review` route trusted `CHANGES_REQUESTED` and blocking `COMMENTED` reviews to `agent:rework`, including body-only reviews.
+Review polling keeps a per-ticket cursor seeded from its first cutoff. Issue comments cannot advance it; disabled or failed reads retain it.
+
+Polls in `agent:ci-wait` and `agent:human-review` route trusted `CHANGES_REQUESTED` and blocking `COMMENTED` reviews to `agent:rework`, including body-only reviews.
+
+A single-account operator can submit a blocking `COMMENTED` review, and it routes to rework like other trusted blocking reviews. A merge or close then clears stale lifecycle labels.
+
+Closed issues disappear from the open-ticket poll. Terminal verification re-fetches them and replaces stale lifecycle labels with `agent:done`, or `agent:cancelled` when GitHub reports `not_planned` or `duplicate`.
 
 On `pull_request:synchronize`, Aiur compares an approved PR's old and new contributions. A changed or unreadable diff disarms auto-merge and raises `stale_approved_pr_head`; an identical diff leaves it armed.
 

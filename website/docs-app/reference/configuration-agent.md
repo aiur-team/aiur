@@ -6,7 +6,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-00 -->
 | --- | --- | --- | --- |
-| `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` scores every allowed backend **and** account at dispatch and picks the one with the most remaining usage; see [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
+| `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` follows backend preference, then ranks accounts within that backend. Unknown or stale accounts get one exploration per 120-second window; a fresh usage reading clears the window. See [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
 | `agent.accounts` | map | `%{}` | Machine-local account names enabled per harness, for example `{claude: [default, max]}`. The list is priority order; absent or empty keeps the existing single-account behavior. Claude and Codex use isolated profile directories; Kimi, DeepSeek, and OpenRouter use named API keys; Muse is unsupported. See [accounts by backend](/guide/claude-accounts). |
 | `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
 | `agent.budget_broker_degraded_alert_after_seconds` | integer | 60 | How long the budget-broker timeout rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained outage raises once with its duration. |
@@ -28,8 +28,8 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.headroom_reading_max_age_seconds` | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
-| `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
-| `agent.load_resume_max_age_seconds` | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one, holding the first fresh sample. |
+| `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). With a valid saved safe level, each ramp poll adds at least this step while accelerating toward the level; a configured step above 3 can exceed +3. Without a valid saved level, the first fresh sample holds. Above 80%, fast probing requires below half target before a sustained decrease. |
+| `agent.load_resume_max_age_seconds` | integer | 3600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one; without a valid saved level, the first fresh sample holds. A shorter lifetime avoids resuming into a different load picture but may cold-start after a long downtime. |
 | `agent.local_gate_ci_max_age_minutes` | positive integer | 15 | Trust cached green CI only this long to prevent stale-head actions. |
 | `agent.local_gate_wait_steer_minutes` | positive integer | 20 | Green CI: steer only after this long waiting on local gate work. |
 | `agent.local_gate_wait_stop_minutes` | positive integer | 30 | Stop after steer grace so the worker can refresh the PR body and hand off. |
@@ -64,6 +64,12 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.rtk.enabled` | boolean | false | Enables the Agent output compression panel on the analytics page, which reports rtk's host-level output savings when available. Aiur does not install, enable, or disable rtk's hook and does not enforce this setting at agent dispatch. A host-wide rtk hook applies to every agent regardless of this setting; the operator owns the hook and must exclude `gh` (`exclude_commands = ["gh"]` under `[hooks]`), because `gh` in an agent workspace is the GitHub quota guard and rtk must not rewrite it. The analytics panel reports rtk's status, including when its probe detects that `gh` would be rewritten, but cannot disable the hook. At daemon startup Aiur also checks the host hook, independent of this setting, and raises an informational alert when it would rewrite `gh`. |
 | `agent.run_queue_threshold` | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and outside registered fleet-agent trees; holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
 | `agent.saturation_log_enabled` | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
+| `agent.skills` | map | `%{}` | Maps a ticket's lane, owning feature, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
+| `agent.skills.by_complexity` | map | `%{}` | Complexity level to skill names. |
+| `agent.skills.by_feature` | map | `%{}` | Owning feature slug to skill names. |
+| `agent.skills.by_label` | map | `%{}` | Ticket label to skill names. A `skills:<name>` label selects the same entry, or names one skill directly. |
+| `agent.skills.by_lane` | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured general epic's label matchers. |
+| `agent.skills.preload_max_bytes` | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
 | `agent.synthetic_load_kill_detected` | boolean | false | When false, a busy loop detected by behaviour and any orphaned generator are report-only: logged with pid and command line and alerted once, but left running. Set true to kill them too (busy loops above the cap, orphans outright). |
@@ -72,6 +78,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.target_load_average` | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
 | `agent.unreviewed_pr_age_limit_minutes` | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
+| `agent.usage_floor_percent` | integer | 5 | Dispatch skips a backend or account whose freshest usage reading shows this percentage or less remaining in any rate window, and takes the next allowed route. `0` disables the floor. Override per backend with `agent.backend_configs.<backend>.usage_floor_percent`. A reading that is unknown or stale never floors a route, and a running agent is never stopped by it. See [Usage floor](/concepts/headroom-dispatch#usage-floor). |
 
 ### Routes in `agent.priority`
 
@@ -125,7 +132,9 @@ agent:
 
 #### What happens when a route fails
 
-A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+
+Claude workers also receive `AIUR_MCP_SOCKET_DIR`, a short private MCP socket path. Workspace `TMPDIR` stays isolated.
 
 A Claude reset timestamp that already passed is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
 
@@ -159,23 +168,98 @@ Claude clock hints with an IANA timezone are converted to UTC; unknown reset tim
 | `agent.backend_configs.<backend>.default_model` | string or nil | backend registry value | Overrides the registry fallback model for an OpenAI-compatible backend; `model` takes precedence. |
 | `agent.backend_configs.<backend>.enabled` | boolean | backend registry default | Explicitly enables or disables dispatch for the backend. `agent.priority` takes precedence by enabling every backend it names. |
 | `agent.backend_configs.<backend>.management_api_key_env` | string or nil | backend registry value | Names the environment variable containing a provider's usage-management API key. |
+| `agent.backend_configs.<backend>.max_output_tokens` | integer | 16000 | Output-token cap sent as `max_tokens`; OpenRouter reserves credit for it. |
 | `agent.backend_configs.<backend>.model` | string or nil | nil | Selects the backend's default model where the backend accepts a configured model. |
 | `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | backend registry value | Applies aiur's local concurrency slot around backend requests. |
 | `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
 | `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
 | `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
 | `agent.backend_configs.<backend>.transport` | string | backend registry value | Overrides the OpenAI-compatible transport with `chat_completions` or `responses`. |
+| `agent.backend_configs.<backend>.usage_floor_percent` | integer | `agent.usage_floor_percent` | Overrides the remaining-usage floor for this backend only, so one login can rest earlier or later than the others. `0` disables the floor for this backend. See [Usage floor](/concepts/headroom-dispatch#usage-floor). |
 
 #### `agent.backend_configs.openrouter`
 
-These settings control the OpenRouter *transport*; selection lives entirely in `agent.priority`.
+OpenRouter has its own routing controls, and aiur can use them two ways: name the upstreams yourself, or hand upstream and model choice to OpenRouter's router.
+`agent.priority` still decides which route a ticket dispatches on; this block decides what that route tells OpenRouter.
+
+Both modes live under `provider`, every field is optional, and a config with no block sends nothing so OpenRouter's default routing applies.
+Unknown fields are rejected at config load, so a misspelled key is an error rather than a request OpenRouter quietly ignores.
+
+**Pinned.** Name the providers in the order you want them used, and stop OpenRouter crossing to others:
+
+```yaml
+agent:
+  backend_configs:
+    openrouter:
+      provider:
+        order: [Anthropic, Together AI]
+        ignore: [Azure]
+        allow_fallbacks: false
+```
+
+**Handed off.** Rank by price instead: `sort: price` with no `order` is "cheapest available", and `max_price` caps what you are willing to pay:
+
+```yaml
+agent:
+  backend_configs:
+    openrouter:
+      provider:
+        sort: price
+        max_price:
+          prompt: 0.5
+          completion: 1.5
+        data_collection: deny
+```
+
+**Model sets.** A route may name several models and let OpenRouter pick between them.
+The first is the request's primary and the rest become OpenRouter's `models` fallback list, sent with `sort: price` unless the route pins an `order`.
+
+Cost is attributed to the model and provider that actually served the request, read from the response, not to the set that was asked for.
+
+```yaml
+agent:
+  priority:
+    - openrouter:{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}
+```
+
+**Named sets and per-route overrides.** `routes` is keyed by the route's model segment, so one route can stay pinned while another hands routing off.
+An entry may name a `models` set, a `provider` block, or both; `provider` here layers over the block above.
+
+```yaml
+agent:
+  priority:
+    - openrouter:anthropic/claude-sonnet-5  # pinned to Anthropic
+    - openrouter:cheap                     # cheapest of two DeepSeek models
+
+  backend_configs:
+    openrouter:
+      provider:
+        sort: price
+      routes:
+        anthropic/claude-sonnet-5:
+          provider:
+            only: [Anthropic]
+            allow_fallbacks: false
+        cheap:
+          models: [deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash]
+```
+
+The table below lists every field aiur forwards.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-02 -->
 | --- | --- | --- | --- |
 | `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
+| `agent.backend_configs.openrouter.provider.data_collection` | string or nil | omitted | `allow` or `deny`: whether a request may route to upstreams that train on or retain prompts. |
 | `agent.backend_configs.openrouter.provider.ignore` | array of strings or nil | omitted | Upstream providers to exclude. |
+| `agent.backend_configs.openrouter.provider.max_price` | map or nil | omitted | Price cap per million tokens, as `{prompt: <number>, completion: <number>}`; OpenRouter skips upstreams priced above it. |
+| `agent.backend_configs.openrouter.provider.only` | array of strings or nil | omitted | Restricts a request to these upstream providers. |
 | `agent.backend_configs.openrouter.provider.order` | array of strings or nil | omitted | Preferred upstream providers, most preferred first. |
-| `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
+| `agent.backend_configs.openrouter.provider.quantizations` | array of strings or nil | omitted | Restricts the request to these quantization levels (`int4`, `int8`, `fp8`, `fp16`, `bf16`, `fp32`, `unknown`). |
+| `agent.backend_configs.openrouter.provider.require_parameters` | boolean or nil | omitted | Only route to upstreams that support every request parameter aiur sends. |
+| `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. `price` with no `order` means "cheapest available". |
+| `agent.backend_configs.openrouter.routes` | map | `%{}` | Per-route overrides keyed by the route's model segment or by a named model set. Each entry takes `provider` (same fields as the block above) and/or `models` (a non-empty list of model slugs). |
+| `agent.backend_configs.openrouter.routes.<route>.models` | array of strings or nil | omitted | Names a model set: the route sends these as OpenRouter's `models` list and the first one is its primary model. |
+| `agent.backend_configs.openrouter.routes.<route>.provider` | map or nil | omitted | Provider preferences for this route only, layered over `agent.backend_configs.openrouter.provider`. |
 
 #### `agent.backend_configs.muse`
 
@@ -247,9 +331,11 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-04 -->
 | --- | --- | --- | --- |
-| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0. |
+| `agent.claude.command` | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0, and short MCP socket directory support requires >= 1.3.1. |
 | `agent.claude.model` | string or nil | nil | Optional Claude model override. |
 | `agent.claude.permission_mode` | string | `bypassPermissions` | Claude permission mode. |
+
+The MCP socket directory override is set for local workers only. Its private, hashed runtime directory is not removed when a workspace is deleted; remote worker exports continue to use the sibling's default temporary directory.
 
 ## agent.codex
 

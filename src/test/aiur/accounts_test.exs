@@ -388,6 +388,19 @@ defmodule Aiur.AccountsTest do
     assert Keyword.fetch!(session_opts, :env) == [{"CLAUDE_CONFIG_DIR", Path.join([home, ".aiur/accounts/claude/max"])}]
   end
 
+  test "a fresh usage reading clears the account's recent headroom exploration" do
+    now = ~U[2026-10-10 06:00:00Z]
+    UsageReadings.mark_explored("claude", "default", now)
+
+    assert UsageReadings.recently_explored?("claude", "default", DateTime.add(now, 119, :second))
+    refute UsageReadings.recently_explored?("claude", "default", DateTime.add(now, 120, :second))
+
+    UsageReadings.mark_explored("claude", "default", now)
+
+    assert :ok = UsageReadings.record("claude", "default", {:ok, %{windows: [%{window: "seven_day", used_percent: 25}]}}, now)
+    refute UsageReadings.recently_explored?("claude", "default", now)
+  end
+
   test "profile setup links shared files and memory but never account transcripts or secrets", %{home: home} do
     source = Path.join(home, ".claude")
     File.mkdir_p!(Path.join(source, "projects/demo/memory"))

@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.IssueSync.TerminalVerification do
   alias Aiur.CurrentRunMembership
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.IssueSync.ClosedIssueCleanup
   alias Aiur.Orchestrator.MembershipLifecycle
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
@@ -24,6 +25,8 @@ defmodule Aiur.Orchestrator.IssueSync.TerminalVerification do
         mark_reconciled_fun,
         set_terminal_verification_pending_fun
       ) do
+    state = cleanup_disappeared_running_issues(state, previous_issues, current_issues, fetch_issue_states_fun)
+
     disappearing_idle_issue_ids =
       previous_issues
       |> Map.keys()
@@ -91,7 +94,7 @@ defmodule Aiur.Orchestrator.IssueSync.TerminalVerification do
     pending_issue_ids =
       record_refreshed_terminal_membership(
         disappearing_idle_issue_ids,
-        fetch_issue_states_fun,
+        &fetch_and_cleanup_closed_issues(fetch_issue_states_fun, &1),
         observe_membership_fun,
         terminal_states,
         set_terminal_verification_pending_fun
@@ -273,8 +276,49 @@ defmodule Aiur.Orchestrator.IssueSync.TerminalVerification do
       Map.has_key?(state.retry_attempts, issue_id)
   end
 
-  defp fetch_idle_terminal_states({fetch_issue_states_fun, verification_ids}) do
-    fetch_issue_states_fun.(verification_ids)
+  defp fetch_idle_terminal_states({fetch_issue_states_fun, verification_ids}),
+    do: fetch_and_cleanup_closed_issues(fetch_issue_states_fun, verification_ids)
+
+  defp cleanup_disappeared_running_issues(state, previous_issues, current_issues, fetch_issue_states_fun) do
+    missing_ids =
+      (Map.keys(previous_issues) ++ Map.keys(state.running))
+      |> Enum.uniq()
+      |> Enum.reject(&Map.has_key?(current_issues, &1))
+      |> Enum.filter(&(Map.has_key?(state.running, &1) or Map.has_key?(state.retry_attempts, &1)))
+      |> Enum.take(@idle_terminal_verification_batch_size)
+
+    if missing_ids == [] do
+      state
+    else
+      TrackerTasks.chain(
+        state,
+        :running_closed_issue_cleanup,
+        fn -> fetch_and_cleanup_closed_issues(fetch_issue_states_fun, missing_ids) end,
+        &keep_terminal_verification_state/2
+      )
+    end
+  end
+
+  defp keep_terminal_verification_state(state, _result), do: state
+
+  defp fetch_and_cleanup_closed_issues(fetch_issue_states_fun, issue_ids) do
+    case fetch_issue_states_fun.(issue_ids) do
+      {:ok, issues} = result when is_list(issues) ->
+        case Enum.find_value(issues, &closed_issue_cleanup_failure/1) do
+          {:error, reason} -> {:error, {:closed_issue_cleanup_failed, reason}}
+          nil -> result
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp closed_issue_cleanup_failure(issue) do
+    case ClosedIssueCleanup.cleanup(issue) do
+      {:error, reason} -> {:error, reason}
+      _terminal_or_skipped -> nil
+    end
   end
 
   defp apply_idle_terminal_states(

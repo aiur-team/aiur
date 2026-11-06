@@ -141,87 +141,27 @@ export function listHTML(D, state, history, P, now) {
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
     ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
 }
-const knownSum = (values, key) => values.every(x => Number.isFinite(x[key])) ? values.reduce((sum, x) => sum + x[key], 0) : null;
-function featureListHTML(D, state, now) {
-  const values = Object.entries(D.features).flatMap(([slug, feature]) => {
-    const epics = (feature.epics || []).map(key => ({ key, epic: D.epics[key], progress: D.feature_progress?.features?.[key] })).filter(x => x.epic);
-    if (!epics.length) return [{ key: slug, feature, epic: { label: feature.label, feature: slug, icon: feature.icon, summary: feature.summary }, lanes: [], progress: null }];
-    const sum = key => knownSum(epics.map(x => x.progress || {}), key);
-    const closed = sum('closed'), open = sum('open'), ci = sum('ci_wait'), total = sum('total'), unpublished = sum('unpublished');
-    const metadata = key => epics.map(x => x.epic?.[key] || x.progress?.[key]).find(x => typeof x === 'string' && x.length) || feature[key];
-    const waves = [...new Set(epics.map(x => x.epic?.wave || x.progress?.wave).filter(x => typeof x === 'string' && x.length))];
-    const wave = waves.length === 1 ? waves[0] : null;
-    const codes = [...new Set(epics.map(x => x.progress?.code).filter(x => typeof x === 'string' && x.length))];
-    return [{ key: slug, feature, epic: { label: feature.label, feature: slug, wave, icon: metadata('icon'), summary: metadata('summary') }, lanes: epics, progress: { feature: slug, closed, open, ci_wait: ci, total, unpublished, wave, reason: epics.find(x => x.progress?.reason)?.progress?.reason || null, icon: metadata('icon'), summary: metadata('summary'), code: codes.length === 1 ? codes[0] : null, root_number: epics.find(x => x.progress?.root_number)?.progress?.root_number, root_title: epics.find(x => x.progress?.root_title)?.progress?.root_title, start_date: epics.find(x => x.progress?.start_date)?.progress?.start_date } }];
-  });
-  const globallyUnknown = D.feature_progress?.reason;
-  const aggregate = key => globallyUnknown ? null : knownSum(values.filter(x => x.progress).map(x => x.progress), key);
-  const closed = aggregate('closed'), open = aggregate('open'), unpublished = aggregate('unpublished');
-  const total = aggregate('total'), ci = aggregate('ci_wait');
-  const opened = Number.isFinite(open) ? open + (Number.isFinite(ci) ? ci : 0) : null;
-  const pct = Number.isFinite(total) && total > 0 && Number.isFinite(closed) ? Math.floor(closed * 100 / total) : null;
-  const observed = D.feature_progress?.observed_at, age = Number.isFinite(observed) ? Math.max(0, now - observed) : null;
-  const ageLabel = age == null ? 'age unknown' : age < 60_000 ? 'just now' : age < 3_600_000 ? Math.floor(age / 60_000) + 'm ago' : Math.floor(age / 3_600_000) + 'h ago';
-  const pctText = pct == null ? '—' : pct + '%';
-  const summary = Number.isFinite(closed) && Number.isFinite(total) ? `${closed} / ${total} tickets closed across all features` : '— tickets closed across all features';
-  const totalReasons = globallyUnknown ? [globallyUnknown] : [Number.isFinite(closed) ? null : 'states unavailable', Number.isFinite(ci) ? null : 'CI state unknown', Number.isFinite(unpublished) ? null : 'planned count unavailable'].filter(Boolean);
-  const totalsLine = `${summary} · ${Number.isFinite(unpublished) ? unpublished : '—'} planned tickets not published yet · ${Number.isFinite(ci) ? ci : '—'} waiting on CI${totalReasons.length ? ` · ${totalReasons.join(' · ')}` : ''}`;
-  const bar = (c, o, u, reason, cls = '', total = null) => {
-    const complete = Number.isFinite(c) && Number.isFinite(o) && Number.isFinite(u);
-    const denominator = Number.isFinite(total) ? total : complete ? c + o + u : 0;
-    const width = n => denominator > 0 ? Math.max(0, n / denominator * 100) : 0;
-    if (denominator <= 0 && complete && c === 0 && o === 0 && u === 0) {
-      return `<div class="fp-bar ${cls}" role="img" aria-label="No tickets to count"></div>`;
-    }
-    if (denominator <= 0) {
-      return `<div class="fp-bar ${cls} unknown" role="img" aria-label="${esc(reason || 'Progress unavailable')}"><i class="fp-unknown"></i></div>`;
-    }
-    const known = (Number.isFinite(c) ? c : 0) + (Number.isFinite(o) ? o : 0) + (Number.isFinite(u) ? u : 0);
-    const unknown = Math.max(0, denominator - known);
-    const segments = `${Number.isFinite(c) ? `<i class="fp-closed" style="width:${width(c)}%"></i>` : ''}${Number.isFinite(o) ? `<i class="fp-open" style="width:${width(o)}%"></i>` : ''}${Number.isFinite(u) ? `<i class="fp-unpublished" style="width:${width(u)}%"></i>` : ''}${unknown > 0 ? `<i class="fp-unknown" style="width:${width(unknown)}%"></i>` : ''}`;
-    const label = `${Number.isFinite(c) ? `${c} closed` : 'closed count unknown'}${Number.isFinite(o) ? `, ${o} published open` : ''}${Number.isFinite(u) ? `, ${u} planned not published` : ''}${unknown > 0 ? `, ${unknown} unknown` : ''}`;
-    return `<div class="fp-bar ${cls}${unknown > 0 ? ' unknown' : ''}" role="img" aria-label="${esc(reason || label)}">${segments}</div>`;
+const FSORTS = [['goal', 'Goal order'], ['pct', 'Most done'], ['left', 'Most left']];
+// One row per feature: name, bar, merged/total. Bars come from the same block as the feature filter.
+export function featureListHTML(D, state, now) {
+  const bars = D.feature_progress?.bars, known = Array.isArray(bars);
+  const sorted = known ? [...bars] : [];
+  if (state.fsort === 'pct') sorted.sort((a, b) => b.merged / b.total - a.merged / a.total);
+  if (state.fsort === 'left') sorted.sort((a, b) => (b.total - b.merged) - (a.total - a.merged));
+  const merged = sorted.reduce((sum, b) => sum + b.merged, 0), total = sorted.reduce((sum, b) => sum + b.total, 0);
+  const bar = (m, t, cls) => `<span class="fp-bar${cls}" role="img" aria-label="${m} of ${t} merged"><i style="width:${t > 0 ? m / t * 100 : 0}%"></i></span>`;
+  const row = b => {
+    const cells = `<span class="fp-name" title="${esc(b.label)}">${esc(b.label)}</span>${bar(b.merged, b.total, b.merged === b.total ? ' done' : '')}<span class="fp-count">${b.merged}/${b.total}</span>`;
+    return Object.hasOwn(D.features, b.key)
+      ? `<button type="button" class="fp-row" data-feature="${esc(b.key)}" aria-label="Focus ${esc(b.label)} feature">${cells}</button>`
+      : `<div class="fp-row" data-feature="${esc(b.key)}">${cells}</div>`;
   };
-  const groupKey = x => typeof x.epic?.wave === 'string' && x.epic.wave.length ? x.epic.wave : typeof x.progress?.wave === 'string' && x.progress.wave.length ? x.progress.wave : `feature:${x.key}`;
-  const grouped = new Map();
-  for (const item of values) { const key = groupKey(item); (grouped.get(key) || grouped.set(key, []).get(key)).push(item); }
-  const waveOrder = value => { const match = /^(\d+)(.*)$/.exec(value); return match ? [Number(match[1]), match[2]] : [Infinity, value]; };
-  const groups = [...grouped.entries()].sort(([a], [b]) => {
-    if (a === 'unknown') return 1;
-    if (b === 'unknown') return -1;
-    const [an, as] = waveOrder(a), [bn, bs] = waveOrder(b);
-    return an - bn || as.localeCompare(bs);
-  });
-  const rows = groups.map(([wave, items]) => `<section class="fp-wave"><h2>${wave.startsWith('feature:') ? `Feature: ${esc(items[0].feature.label)}` : `Wave ${esc(wave)}`}</h2>${items.map(({key, feature, epic, lanes, progress: p}) => {
-    const membershipKnown = lanes.length > 0 && lanes.every(x => Number.isFinite(x.progress?.total));
-    const reason = membershipKnown ? null : (p?.reason || 'planned count unavailable'), c = p?.closed, o = p?.open, u = p?.unpublished, t = p?.total;
-    const rowPct = Number.isFinite(c) && Number.isFinite(t) && t > 0 ? Math.floor(c * 100 / t) + '%' : '—';
-    const iconName = epic?.icon || p?.icon || 'squares', icon = D.icons?.[iconName] || (Object.hasOwn(I, iconName) ? I[iconName] : I.squares);
-    const published = Number.isFinite(c) && Number.isFinite(o) ? c + o + (Number.isFinite(p?.ci_wait) ? p.ci_wait : 0) : null;
-    const note = p && !reason ? published === 0 && Number.isFinite(t) && t > 0
-      ? `not published yet — 0 of ${t} planned tickets on GitHub`
-      : [u > 0 ? `${u} of ${t} not published yet` : null, p.ci_wait > 0 ? `${p.ci_wait} waiting on CI` : null].filter(Boolean).join(' · ')
-      : reason || 'not published yet — 0 of planned tickets on GitHub';
-    const summaryText = epic?.summary || p?.summary;
-    const summary = summaryText ? `<small class="fp-summary">${esc(summaryText)}</small>` : '';
-    const code = p?.code ? `<small class="fp-code">${esc(p.code)}</small>` : '';
-    const laneText = lanes.filter(x => !(laneCaption(x.epic) === 'Unassigned' && x.progress?.total === 0)).map(x => `${esc(laneCaption(x.epic))}: ${Number.isFinite(x.progress?.closed) ? x.progress.closed : '—'} / ${Number.isFinite(x.progress?.total) ? x.progress.total : '—'}`).join(' · ');
-    return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(feature.label)}">${icon}</span><span class="fp-name"><b>${esc(feature.label)}</b>${code}${summary}<small class="fp-summary">${laneText}</small></span>${bar(c, Number.isFinite(o) ? o + (Number.isFinite(p?.ci_wait) ? p.ci_wait : 0) : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter', t)}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;
-  }).join('')}</section>`).join('');
-  const legend = '<div class="fp-legend"><span><i class="closed"></i>Closed</span><span><i class="open"></i>Published, open</span><span><i class="unpublished"></i>Planned, not published</span></div>';
-  const version = D.feature_progress?.plan_version || 'plan version unavailable';
-  const first = values.map(x => x.progress).find(Boolean) || {};
-  const rootTitle = first.root_title || 'Feature progress';
-  const rootDetails = [first.root_number ? `root #${first.root_number}` : 'root unknown', first.start_date || 'start date unknown', `data as of ${Number.isFinite(observed) ? new Date(observed).toLocaleString() : '—'} · ${ageLabel}`].join(' · ');
-  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(rootTitle)}</h1><p>${esc(rootDetails)}</p></div><div class="fp-overall"><b>${pctText}</b><span>${esc(totalsLine)}</span></div>${bar(closed, opened, unpublished, Number.isFinite(closed) && Number.isFinite(total) ? null : 'Progress unavailable', 'fp-total', total)}${legend}</header><div class="fp-groups">${rows || '<p>No features available</p>'}</div><footer>Progress is closed / all tickets in the feature, rounded down; closed includes done, failed, and not-planned tickets. Planned counts from ${esc(version)}. ${Number.isFinite(D.feature_progress?.extras) ? D.feature_progress.extras : '—'} published tickets outside the plan are included in totals.</footer></article>`;
-}
-function laneCaption(epic) {
-  if (/^f-bo-\d+$/.test(epic.key)) return 'Unassigned';
-  if (/^f-bo-\d+-.+/.test(epic.key)) {
-    const separator = epic.label.lastIndexOf(' · ');
-    if (separator >= 0) return epic.label.slice(separator + 3);
-  }
-  return epic.label;
+  const project = D.repo?.url ? D.repo.url.replace(/\/$/, '').split('/').pop() : 'Project';
+  const date = new Date(now).toISOString().slice(0, 10);
+  const subtitle = known ? `${merged} of ${total} tickets merged - ${date}` : `Feature progress unavailable - ${date}`;
+  const sort = `<label class="fp-sort">Sort <select data-fsort>${FSORTS.map(([key, label]) => `<option value="${key}"${(state.fsort || 'goal') === key ? ' selected' : ''}>${label}</option>`).join('')}</select></label>`;
+  const all = known ? `<div class="fp-row fp-all"><span class="fp-name">All features</span>${bar(merged, total, ' all')}<span class="fp-count">${merged}/${total}</span></div>` : '';
+  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(project)} - build progress</h1><p>${esc(subtitle)}</p></div>${sort}</header><div class="fp-rows">${sorted.map(row).join('') || '<p>No features with tickets</p>'}</div>${all}</article>`;
 }
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
@@ -262,14 +202,18 @@ function bindOnce(vp) {
     const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { chooseEpic(epic.dataset.epic); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
-    const feature = e.target.closest('.fp-row'); if (feature) focusFeature(feature.dataset.feature);
+    const feature = e.target.closest('button.fp-row'); if (feature) focusFeature(feature.dataset.feature);
+  });
+  ctx.life.on(vp, 'change', e => {
+    if (!e.target.matches('[data-fsort]')) return;
+    S.fsort = e.target.value; writeURL(); fx.renderList();
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;
     const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { e.preventDefault(); chooseEpic(epic.dataset.epic); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
-    const feature = e.target.closest('.fp-row'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
+    const feature = e.target.closest('button.fp-row'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
   });
 }
 function chooseEpic(key) {

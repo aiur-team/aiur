@@ -28,7 +28,9 @@
     "src/lib/aiur/recent_merge_store.ex",
     "src/lib/aiur/test_quarantine.ex",
     "src/lib/aiur/test_quarantine/**",
-    "src/lib/aiur/ticket_markers.ex"
+    "src/lib/aiur/ticket_markers.ex",
+    "src/lib/aiur/toolchain.ex",
+    "src/lib/aiur/toolchain/**"
   ],
   "facades": [
     "*"
@@ -63,6 +65,7 @@
       "polling",
       "pr_health",
       "pr_watch",
+      "toolchain",
       "worker"
     ],
     "env": [
@@ -96,6 +99,7 @@
     "polling",
     "pr_health",
     "pr_watch",
+    "toolchain",
     "worker"
   ],
   "env": [

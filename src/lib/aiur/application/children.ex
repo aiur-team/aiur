@@ -325,6 +325,7 @@ defmodule Aiur.Application.Children do
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
+        [toolchain_child()] ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
         BuildOrders.child_specs(:label_backfill, opts) ++
@@ -335,6 +336,11 @@ defmodule Aiur.Application.Children do
         )
     )
   end
+
+  # Probes worker CLIs at boot and hourly (#7443). Dispatch reads its snapshot
+  # and holds nothing until the first probe lands. Off wherever the boot
+  # dispatch poll is off (the shared test app).
+  defp toolchain_child, do: {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++

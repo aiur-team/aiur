@@ -24,7 +24,7 @@ defmodule Aiur.Init.ElevenLabs do
       io.puts.([
         "Keep the default ",
         Format.dim(@env_reference),
-        " and put the key in .env — aiur resolves the reference and never writes the secret into the config."
+        " and set the key in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) — aiur resolves the reference and never writes the secret into the config."
       ])
 
       %{enabled: true, api_key: io.input.("ElevenLabs API key", @env_reference, nil)}
@@ -46,7 +46,7 @@ defmodule Aiur.Init.ElevenLabs do
     [
       "# === Voice input and playback (added by `aiur init`; ElevenLabs) ===\n",
       "# Stream Deck and dashboard microphones use speech-to-text. Set voice_id to enable spoken agent replies in the dashboard.\n",
-      "# api_key is a SECRET: keep it as the literal `#{@env_reference}` reference and put the value in `.env`.\n",
+      "# api_key is a SECRET: keep it as the literal `#{@env_reference}` reference and set the value in `~/.aiur/.env` or `./.env` (repo file wins).\n",
       "# aiur scrubs every `*_API_KEY` variable from agent environments and never logs the key.\n",
       "elevenlabs:\n",
       "  enabled: true\n",

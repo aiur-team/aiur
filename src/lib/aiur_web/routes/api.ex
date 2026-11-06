@@ -51,6 +51,8 @@ defmodule AiurWeb.Routes.Api do
         get("/api/v1/events/catalog", AiurWeb.EventsController, :catalog)
         match(:*, "/api/v1/events", AiurWeb.EventsController, :method_not_allowed)
         match(:*, "/api/v1/events/catalog", AiurWeb.EventsController, :method_not_allowed)
+        get("/api/v1/build-order", AiurWeb.BuildOrderApiController, :show)
+        match(:*, "/api/v1/build-order", AiurWeb.BuildOrderApiController, :method_not_allowed)
         get("/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :show)
         match(:*, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :method_not_allowed)
         get("/api/v1/state", AiurWeb.ObservabilityApiController, :state)

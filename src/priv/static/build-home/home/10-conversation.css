@@ -70,7 +70,7 @@
 
 /* C:474 */ .tk-modal.bdm {
   width: min(1080px, 100%);
-  height: min(820px, calc(100vh - 2.4rem));
+  height: min(820px, calc(var(--cv-vvh, 100vh) - 2.4rem));
   max-height: none;
   overflow: hidden;
 }

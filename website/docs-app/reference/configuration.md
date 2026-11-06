@@ -94,6 +94,10 @@ Deploy a build that recognizes a new config key before adding that key to `.aiur
 
 [Read this section](./configuration-daemon#upgrade).
 
+## toolchain
+
+[Read this section](./configuration-daemon#toolchain).
+
 ## alerts
 
 [Read this section](./configuration-daemon#alerts).

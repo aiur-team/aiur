@@ -102,7 +102,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; queue add also accepts --json for per-ticket outcomes
        aiur queue add <ids…> [--json]           add tickets; other mutations steer the queue
-       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
@@ -110,12 +110,12 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur epic confirm <ids...> [--epic <key>] [--as <who>] [--json]
        aiur epic show [<ids...>] [--unconfirmed] [--json]
        aiur epic list [--json]
-       aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]... [--as <who>] [--json]
+       aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label> --epic-icon <key>=<heroicon>]... [--as <who>] [--json]
        aiur feature add <slug> <ids...> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]
        aiur feature remove <slug> <ids...> [--as <who>] [--json]
        aiur feature also <slug> <ids...> [--remove] [--as <who>] [--json]
        aiur feature baseline <slug> [--replace] [--as <who>] [--json]
-       aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
+       aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--epic-icon <key>=<heroicon>]... [--as <who>] [--json]
        aiur feature confirm <slug> <ids...> [--as <who>] [--json]
        aiur feature show [<slug>] [--unconfirmed] [--json]
        aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]

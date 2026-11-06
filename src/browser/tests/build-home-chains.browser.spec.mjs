@@ -116,7 +116,7 @@ test('B6 Fit cancels a live-band scroll frame already queued before centering', 
       if (typeof key === 'string' && key.startsWith('scrollVP:')) oldScrollFrames.push(callback)
       else frame(key, callback)
     }
-    st.fx.liveGuard = st.fx.markScrolling = () => {} // Isolate the older animator from new native scroll snaps.
+    st.fx.markScrolling = () => {} // Isolate the older animator from native scroll settles.
     st.fx.renderTools = () => { tools(); st.fx.scrollVP(0, true) }
   })
   await page.locator('[data-lt="fit"]').click()

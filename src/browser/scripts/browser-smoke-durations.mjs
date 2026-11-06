@@ -20,6 +20,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-running-ticket-timeline': 12,
   // Governed local run (2026-10-30): expanded 11-case suite took 31.029s including fixture startup; refresh from CI.
   'test:browser-suite -- build-home-conversation-live': 32,
+  // Governed local run (2026-11-01): three 390px cases in 18.7s plus fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-mobile-composer': 30,
   // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
   // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
   'test:conversation-view': 36,
@@ -73,6 +75,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-command': 99,
   // CI run 39758422723, shard 5/8: duration read from its suite log.
   'test:browser-suite -- build-home-live-top': 10,
+  // #7446 local run (no CI shard log yet): 2 cases, 10 repeats took 108s wall incl. fixture boot.
+  'test:browser-suite -- build-home-live-band-scroll': 30,
   // PR #4805 suite-duration logs (2026-10-18): units/browser from run 39093008001 at ea5f25e39.
   // Parity uses the latest green run 39093008001 at ea5f25e39 (102.5s).
   'test:build-home-edges-unit': 0.2,

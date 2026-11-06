@@ -17,6 +17,18 @@
   are configured, their sessions remain on the orchestrator host. They are
   deliberately non-resumable, so backend switches continue from shared
   workspace state rather than a cross-provider transcript.
+- Every OpenAI-compatible request carries an output-token cap:
+  `agent.backend_configs.<backend>.max_output_tokens`, default `16000`, sent as
+  `max_tokens` (`max_output_tokens` on the `responses` transport). OpenRouter
+  reserves credit for the whole cap before a request runs, so an unbounded cap
+  refuses every request on a key with a modest balance. A completion that stops
+  on the cap is retried once with twice the cap. A provider refusal for credits
+  or a too-large cap (HTTP 402) is retried once with a smaller cap — the largest
+  the provider says the balance affords, or half — and if that is refused too
+  the backend is recorded as limited exactly as a usage limit is: the claim is
+  kept, the next claim takes the next `agent.priority` route, and a
+  `system.provider.credit_limited` alert names the fix (add credits or raise the
+  key's credit limit).
 - `agent.prior_work_continuation` defaults to `true`; a cold redispatch or
   backend switch receives continuation guidance based on the existing shared
   workspace instead of pretending the provider conversation was resumed.
@@ -80,10 +92,12 @@
   Three fresh above-target samples halve capacity, bounded by the decrease
   cooldown. Ramps require pressure below 80% of target; unavailable samples
   reset the streak. Set the target to `null` to disable PSI AIMD.
-- `agent.load_resume_max_age_seconds` retains safe capacity for 21600 seconds;
+- `agent.load_resume_max_age_seconds` retains safe capacity for 3600 seconds;
   0 disables resume. Five fresh occupied samples demonstrate a level. Boot
-  starts at one and the first fresh sample holds. Recovery below 80% of the
-  PSI target doubles, at most +3, toward that level.
+  starts at one and, without a valid saved level, the first fresh sample holds.
+  With a valid saved level, each recovery poll below 80% of the PSI target adds
+  at least `load_ramp_step` while accelerating toward that level; a configured
+  step above 3 can exceed +3.
 - When PSI is unavailable, `max_load_average` (default `1.5`) and
   `target_load_average` (default `1.0`) are per-scheduler fallbacks. Status
   names the binding signal. Build cap, stagger and nice throttle bursts.

@@ -96,7 +96,9 @@ defmodule Aiur.CodingAgent.Backend do
     * Provider adapters may expose `restore_handoff_session/3`,
       `handoff_socket_name/1`, `restore_handoff_transport/3`,
       `adopt_handoff_turn/4`, and `compact_session/3` for provider-owned
-      daemon handoff and compaction behavior.
+      daemon handoff and compaction behavior. An adapter for a backend whose
+      registry entry declares `handoff: :in_daemon` additionally exposes
+      `handoff_state/2`, `adopt_handoff_session/2` and `resume_handoff_turn/2`.
   """
   @type capabilities :: %{
           required(:adapter) => module(),
@@ -114,6 +116,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:delivery) => map(),
           optional(:hosted_execution) => Aiur.Harness.Capabilities.hosted_security(),
           optional(:immediate_delivery) => boolean(),
+          optional(:handoff) => :relay | :repl | :in_daemon,
           optional(:remote_transport) => CodingAgent.backend(),
           optional(:fallback_backend) => CodingAgent.backend(),
           optional(:model_catalog) => (map() -> term()),
@@ -139,6 +142,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:children) => [Supervisor.child_spec() | module() | {module(), term()}],
           optional(:default_command) => String.t(),
           optional(:install_hint) => String.t(),
+          optional(:minimum_version) => String.t(),
           optional(atom()) => term()
         }
 
