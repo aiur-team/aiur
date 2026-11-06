@@ -3,9 +3,9 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   import Ecto.Changeset, only: [add_error: 3, get_field: 2, validate_change: 3]
 
-  alias Aiur.Config.SkillsMapping
   alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
+  alias Aiur.Config.SkillsMapping
 
   @doc false
   @spec prepare_attrs(map()) :: map()

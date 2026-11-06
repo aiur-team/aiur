@@ -9,8 +9,8 @@ defmodule Aiur.AgentSkills.PreloadTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Config.SkillsMapping
   alias Aiur.AgentSkills.Preload
+  alias Aiur.Config.SkillsMapping
   alias Aiur.Issue
 
   setup do

@@ -23,9 +23,9 @@ defmodule Aiur.AgentSkills.Preload do
 
   require Logger
 
-  alias Aiur.Config.SkillsMapping
   alias Aiur.AgentSkills.Registry
   alias Aiur.BuildOrder.Features
+  alias Aiur.Config.SkillsMapping
   alias Aiur.Lane
 
   # The build-order registry read runs in the dispatch path; 100 ms is the same

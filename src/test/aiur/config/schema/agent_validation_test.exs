@@ -1,8 +1,8 @@
 defmodule Aiur.Config.Schema.AgentValidationTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Config.SkillsMapping
   alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.Config.SkillsMapping
   alias Ecto.Changeset
 
   describe "normalize_issue_state/1" do
