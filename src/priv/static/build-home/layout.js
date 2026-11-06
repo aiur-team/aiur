@@ -48,8 +48,8 @@ export function laneMax(L, fwd, span) {
 }
 export function computeLayout(D, S, dims, sources, ext = {}) {
   if (S.view === "gantt" && !ext.gantt) throw new Error("gantt layout not installed");
-  const epicOk = t => rowOk(S, t);
-  const NOWL = D.now.filter(epicOk), PLANL = D.plan.filter(epicOk), NQL = D.nq.filter(epicOk);
+  const laneOk = t => rowOk(S, t);
+  const NOWL = D.now.filter(laneOk), PLANL = D.plan.filter(laneOk), NQL = D.nq.filter(laneOk);
   const span = S.span || 1, fs = 13, flow = S.flow, K = S.K, vh = Math.max(300, (dims.vpH == null ? 700 : dims.vpH) - LH - 40);
   let gap = 14;
   const pphG = span <= 1 ? 18 : Math.max(0.45, vh / (span * 11));
@@ -59,7 +59,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
   const compact = !!ext.compact;
   const entries = ext.entries ?? (list => list.map(t => ({ t })));
   const gapLabel = ext.gapLabel ?? (g => "+" + g.n + " unrelated" + (g.a ? " · " + fmtRange(g.a, g.b) : ""));
-  const histList = D.hist.filter((t) => Number.isFinite(t.end) && t.end >= (S.histFrom || 0) && epicOk(t)).sort((a, b) => a.end - b.end);
+  const histList = D.hist.filter((t) => Number.isFinite(t.end) && t.end >= (S.histFrom || 0) && laneOk(t)).sort((a, b) => a.end - b.end);
   if (span > 1 && S.view !== "gantt") {
     const ds = histDays(D.hist), from = ds.length ? ds[Math.max(0, ds.length - span)] : 0;
     let n = 0, cur = null;

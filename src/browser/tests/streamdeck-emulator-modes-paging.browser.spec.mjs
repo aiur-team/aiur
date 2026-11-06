@@ -215,8 +215,8 @@ test('dial D press enters Features and cycles back to Tickets without a legacy p
   await dialD.click()
   await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', /Features · page 1/)
   await expect(keys).toHaveAttribute('data-grid-page', '0')
-  // Epic and Fleet remain in the shared four-view cycle.
-  for (const view of ['epic', 'fleet', 'ticket']) {
+  // Lane and Fleet remain in the shared four-view cycle.
+  for (const view of ['lane', 'fleet', 'ticket']) {
     await dialD.click()
     await expect(keys).toHaveAttribute('data-deck-view', view)
   }

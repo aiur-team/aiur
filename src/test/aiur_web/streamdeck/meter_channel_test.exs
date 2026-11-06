@@ -108,7 +108,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     put_endpoint_config(streamdeck_usage_load_fun: fn _, _ -> inputs(%{"personal" => account(37, nil, now)}, now) end)
     socket = meter_socket()
 
-    for view <- ["feature", "epic", "fleet"] do
+    for view <- ["feature", "lane", "fleet"] do
       assert %{"view" => ^view} = input_frame(socket, %{"kind" => "dial", "index" => 3, "action" => "press"})
     end
 
@@ -153,7 +153,7 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
   end
 
   defp open_fleet(socket) do
-    for view <- ["feature", "epic", "fleet"] do
+    for view <- ["feature", "lane", "fleet"] do
       assert %{"view" => ^view} = input_frame(socket, %{"kind" => "dial_press", "index" => 3})
     end
   end

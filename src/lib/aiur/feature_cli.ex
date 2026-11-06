@@ -16,10 +16,23 @@ defmodule Aiur.FeatureCLI do
   @spec apply_op(map(), keyword()) :: {:ok, map()} | {:error, term()} | {:usage, String.t()}
   def apply_op(args, context) do
     with :ok <- Arguments.validate(args),
+         :ok <- epic_available(args, context),
          {:ok, snapshot} <- Features.snapshot(Keyword.take(context, [:server, :timeout])) do
       if args.op == :show, do: Output.show(args, snapshot, context), else: Writes.apply(args, snapshot, context)
     end
   end
+
+  # `--in <epic>` assigns the new feature to an epic after it is created, so the
+  # epic has to exist first: a refused assignment would leave an epic-less
+  # feature behind.
+  defp epic_available(%{op: :create, in: epic}, context) when is_binary(epic) do
+    case Features.epic(epic, Keyword.take(context, [:server, :timeout])) do
+      {:ok, _epic} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp epic_available(_args, _context), do: :ok
 
   defp cli_context(%{op: :show}, opts), do: {:ok, opts}
 

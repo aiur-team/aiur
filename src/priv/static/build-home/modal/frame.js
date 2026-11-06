@@ -112,7 +112,7 @@ export function modalSync(msg) {
     else if (isUnfiled(MS.t)) openById(id);
     else { cleanup(); error(id, 'not_found'); }
   }
-  else if (MS.t && ['repo', 'epics', 'features'].some(key => Object.hasOwn(msg.set || {}, key))) renderHead(MS.t);
+  else if (MS.t && ['repo', 'lanes', 'features'].some(key => Object.hasOwn(msg.set || {}, key))) renderHead(MS.t);
 }
 async function copyLink(button) {
   const req = MS.req, url = new URL(location.href);

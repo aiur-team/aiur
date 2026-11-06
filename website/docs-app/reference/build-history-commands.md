@@ -2,20 +2,23 @@
 
 ## Features
 
-Feature collections own tickets; also-affects links do not add ownership, and operations use the local registry without checking issue numbers against GitHub.
+A feature owns tickets; also-affects links do not add ownership, and operations use the local registry without checking issue numbers against GitHub. A feature sits in at most one [epic](#epics); the lanes it spans are technical columns.
 
 Label projection runs separately; `show` reports its state, including `unknown` when unavailable.
 
 | Syntax | Behavior | Runnable example |
 | --- | --- | --- |
-| `aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label> --epic-icon <key>=<heroicon>]… [--as <who>] [--json]` | Creates a collection; matching requests are unchanged. Epic icons must be valid Heroicons v2 outline names and unique within the collection. Default epic: `f-<slug>`. | `aiur feature create intake --label "Intake" --epic lane-runtime=Runtime --epic-icon lane-runtime=command-line --json` |
-| `aiur feature add <slug> <ids…> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. Backfill skips IDs owned by another feature (`kept`, `kept_existing`) and refuses `--move`. | `aiur feature add intake 412 413 --move --json` |
+| `aiur feature create <slug> --label <text> [--hue <0-359>] [--lane <key>=<label> --lane-icon <key>=<heroicon>]… [--epic-hue <key>=<gruvbox-name or 0-359>]… [--in <epic>] [--as <who>] [--json]` | Creates a feature; matching requests are unchanged. Lane icons must be valid Heroicons v2 outline names and unique within the feature. Default lane: `f-<slug>`. `--in` puts the new feature in an epic record; a second epic refuses it. `--epic-hue` sets the stored colour for the selected lane. | `aiur feature create intake --label "Intake" --lane lane-runtime=Runtime --lane-icon lane-runtime=command-line --epic-hue lane-runtime=bright-red --in intake-epic --json` |
+| `aiur feature add <slug> <ids…> [--lane <key>] [--epic-hue <key>=<gruvbox-name or 0-359>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. Backfill skips IDs owned by another feature (`kept`, `kept_existing`) and refuses `--move`. `--epic-hue` sets the stored colour for the selected lane. | `aiur feature add intake 412 413 --move --json` |
 | `aiur feature confirm <slug> <ids…> [--as <who>] [--json]` | Accepts existing guesses atomically, preserving each member’s epic and join time. Any nonmember refuses the batch. | `aiur feature confirm intake 412 413 --json` |
 | `aiur feature remove <slug> <ids…> [--as <who>] [--json]` | Removes owning memberships; absent memberships are unchanged. | `aiur feature remove intake 412 --json` |
 | `aiur feature also <slug> <ids…> [--remove] [--as <who>] [--json]` | Adds or removes also-affects links. Owners cannot also affect the same feature. | `aiur feature also intake 420 --json` |
 | `aiur feature baseline <slug> [--replace] [--as <who>] [--json]` | Records original scope. Existing baselines require `--replace`; replacement reports the previous time and count. | `aiur feature baseline intake --json` |
-| `aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now or <ISO-8601>] [--add-epic <key>=<label>]… [--epic-icon <key>=<heroicon>]… [--as <who>] [--json]` | Renames, ends, adds epics, or updates epic icons; requires a change. Epic icons must be valid Heroicons v2 outline names and unique within the collection. | `aiur feature edit intake --epic-icon lane-runtime=command-line --json` |
+| `aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now or <ISO-8601>] [--add-lane <key>=<label>]… [--epic-hue <key>=<gruvbox-name or 0-359>]… [--lane-icon <key>=<heroicon>]… [--as <who>] [--json]` | Renames, ends, adds lanes, sets stored lane colours, or updates lane icons; requires a change. Lane icons must be valid Heroicons v2 outline names and unique within the feature. | `aiur feature edit intake --epic-hue lane-runtime=bright-red --lane-icon lane-runtime=command-line --json` |
 | `aiur feature show [<slug>] [--unconfirmed] [--json]` | Lists collections or shows members, provenance, labels and baseline age; no progress figures. | `aiur feature show intake --json` |
+| `aiur feature create <slug> --label <text> --epic <key>=<label> [--epic-icon <key>=<heroicon>]…` | Deprecated spelling of `--lane` and `--lane-icon`: it still defines the lane and its icon on the feature and prints a deprecation line on stderr. | `aiur feature create intake --label "Intake" --epic lane-runtime=Runtime` |
+| `aiur feature add <slug> <ids…> --epic <key>` | Deprecated spelling of `--lane`: it still joins the members to that lane and prints a deprecation line on stderr. | `aiur feature add intake 412 --epic lane-runtime` |
+| `aiur feature edit <slug> --add-epic <key>=<label> [--epic-icon <key>=<heroicon>]…` | Deprecated spelling of `--add-lane` and `--lane-icon`: it still adds the lane and prints a deprecation line on stderr. | `aiur feature edit intake --add-epic lane-ui=UI` |
 
 All verbs accept `--json` (schema version 1); writes accept `--as <who>`, default `$USER`, with 1–64 letters, digits, dots, underscores or hyphens. Actor/source are `cli:<who>`.
 
@@ -23,11 +26,32 @@ Only `add --source backfill-agent` changes source, leaving actor intact and memb
 
 Agents use `aiur_feature` with daemon-bound `agent:<issue number>` identity; they cannot edit or set baselines. Tool `backfill: true` is restricted to add.
 
+`--epic`, `--epic-icon` and `--add-epic` are the deprecated spellings of `--lane`, `--lane-icon` and `--add-lane`. They still work — on `create` a `--epic key=label` defines the lane, on `add` a `--epic key` means `--lane key` — and each prints a deprecation line on stderr.
+
 Exit codes: 0 success/unchanged, 1 refusal or unavailable registry, 64 invalid arguments, 124 RPC timeout (outcome unknown). After timeout, re-run and inspect outcomes; a repeated baseline without `--replace` refuses if the first attempt landed.
 
 JSON preserves unavailable label totals and absent baselines as `null`; missing per-ticket label states are `unknown`.
 
 Example: `aiur feature create intake --label "Intake"`, then `aiur feature add intake 412 413` and `aiur feature show intake --json`.
+
+## Epics
+
+An epic holds features in order and may name one Build Order root.
+
+| Syntax | Behavior | Runnable example |
+| --- | --- | --- |
+| `aiur epic create <slug> --label <text> [--icon <heroicon>] [--hue <0-359>] [--root <n>] [--as <who>] [--json]` | Creates an epic; a repeated create with the same values is unchanged and a different one refuses. `--root` claims a Build Order root, and a root belongs to one epic. | `aiur epic create intake --label "Intake" --hue 200 --json` |
+| `aiur epic edit <slug> [--label <text>] [--icon <heroicon>] [--hue <0-359>] [--as <who>] [--json]` | Renames or recolours an epic; requires a change. An operator label survives later Build Order imports. | `aiur epic edit intake --label "Intake queue"` |
+| `aiur epic add <slug> <feature…> [--as <who>] [--json]` | Adds 1–200 features in order. A repeated add is unchanged; a feature already in another epic refuses. | `aiur epic add intake intake-api intake-web --json` |
+| `aiur epic remove <slug> <feature…> [--as <who>] [--json]` | Removes features from the epic; a feature that is not a member refuses. | `aiur epic remove intake intake-web` |
+| `aiur epic show [<slug>] [--json]` | Shows one epic with its lanes and member features; without a slug it lists epics. | `aiur epic show intake --json` |
+| `aiur epic list [--json]` | Lists epics with feature counts and roots. | `aiur epic list --json` |
+
+Epic records live in `build-features/epics.ndjson` beside `features.ndjson`, which keeps its format. A
+Build Order root projects as an epic at read time and its build lanes stay lane assignments on the
+imported feature.
+
+Exit codes match the feature commands: 0 success/unchanged, 1 refusal or unavailable registry, 64 invalid arguments, 124 RPC timeout (outcome unknown).
 
 ## Lanes
 
@@ -42,7 +66,7 @@ A lane is a technical column; these commands write only local overrides, never G
 | `aiur lane list [--json]` | Lists configured keys and labels in order. Config errors refuse writes and list without defaults. | `aiur lane list --json` |
 | `aiur epic confirm <ids…> [--epic <key>] [--as <who>] [--json]` | The deprecated spelling of `aiur lane confirm`, over the same store and with the same result; `--epic` is still accepted as the alias of `--lane`. It prints `aiur epic confirm is deprecated; use aiur lane confirm` on stderr and exits 0. | `aiur epic confirm 142 143 --epic runtime --json` |
 
-`aiur epic set|clear|confirm` still work as deprecated aliases for the matching `aiur lane` verbs: same arguments, same override store, same output and exit codes, plus a deprecation line on stderr naming `aiur lane`. `aiur epic show|list` print the same output as `aiur lane show|list`.
+`aiur epic set|clear|confirm` still work as deprecated aliases for the matching `aiur lane` verbs: same arguments, same override store, same output and exit codes, plus a deprecation line on stderr naming `aiur lane`. `aiur epic show|list` read [epic records](#epics) instead; use `aiur lane show|list` for the override store.
 
 Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same lane, source and confirmation is unchanged; changed results and the journal retain the prior assignment.
 

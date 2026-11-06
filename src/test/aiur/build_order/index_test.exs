@@ -5,6 +5,32 @@ defmodule Aiur.BuildOrder.IndexTest do
   alias Aiur.Heroicons
   alias AiurWeb.Build.Payload
 
+  test "legacy feature epics without stored colors receive distinct palette hues" do
+    row = row(7)
+    feature = %{slug: "legacy", label: "Legacy", hue: 175, epics: [%{key: "first", label: "First"}, %{key: "second", label: "Second"}], from: row.created_at, to: :none, baseline: :none}
+    features = %{features: %{"legacy" => feature}, owners: %{}, also: %{}, health: health()}
+    p = parts([row])
+    p = put_in(p[:features], {:ok, features})
+
+    assert {:ok, index} = assemble(p)
+    assert index.lanes["first"].hue == 280
+    assert index.lanes["second"].hue == 170
+    assert index.lanes["first"].hue != index.lanes["second"].hue
+  end
+
+  test "legacy epic colours follow creation order, not day-of-month" do
+    # "early" starts on the 28th and "late" on the 3rd of the next month, so a
+    # raw DateTime struct comparison (day-of-month first) would order "late"
+    # first and recolour "early" as more features appear.
+    early = %{slug: "early", label: "Early", hue: 175, epics: [%{key: "f-early", label: "Early"}], from: ~U[2026-09-28 00:00:00Z], to: :none, baseline: :none}
+    late = %{slug: "late", label: "Late", hue: 175, epics: [%{key: "f-late", label: "Late"}], from: ~U[2026-10-03 00:00:00Z], to: :none, baseline: :none}
+    p = parts([row(7)]) |> put_in([:features], {:ok, %{features: %{"early" => early, "late" => late}, owners: %{}, also: %{}, health: health()}})
+
+    assert {:ok, index} = assemble(p)
+    assert index.lanes["f-early"].hue == 280
+    assert index.lanes["f-late"].hue == 170
+  end
+
   test "joins history facts, resolved membership, timing, edges and merged PR" do
     r = row(7, %{labels: ["bug", "complexity:2"], merged_at: ~U[2026-10-07 14:20:00Z], pr_number: 233, agent_model: "codex", agent_effort: "high"})
     p = parts([r])
@@ -89,14 +115,16 @@ defmodule Aiur.BuildOrder.IndexTest do
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
     for key <- ~w(bugs design infra docs) do
-      assert Payload.scrub(Map.delete(index.epics[key], :svg)) == design["epics"][key]
-      assert index.epics[key].svg =~ "<svg"
+      assert Payload.scrub(Map.delete(index.lanes[key], :svg)) |> Map.delete("hue") == Map.delete(design["lanes"][key], "hue")
+      assert index.lanes[key].svg =~ "<svg"
     end
 
-    assert index.epics["f-aaa"] == %{
+    assert Enum.map(~w(bugs design infra docs), &index.lanes[&1].hue) == [8, 120, 55, 215]
+
+    assert index.lanes["f-aaa"] == %{
              key: "f-aaa",
              label: "aaa",
-             hue: 42,
+             hue: 170,
              icon: "home",
              svg: Heroicons.svg("home"),
              summary: "Feature summary",

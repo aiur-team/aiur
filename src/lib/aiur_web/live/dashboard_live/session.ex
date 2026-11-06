@@ -43,6 +43,7 @@ defmodule AiurWeb.DashboardLive.Session do
       |> Voice.assign_voice()
       |> AiurWeb.VoiceConversationEvents.close()
       |> VoicePanel.init()
+      |> VoicePanel.assign_workers()
       |> assign(:decision_actions, %{})
       |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
@@ -72,7 +73,11 @@ defmodule AiurWeb.DashboardLive.Session do
   @doc false
   @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(_params, _uri, %{assigns: %{live_action: :voice}} = socket) do
-    {:noreply, socket |> assign(:table_sort, nil) |> assign(:current_route, RouteRegistry.current_route(:voice))}
+    {:noreply,
+     socket
+     |> assign(:table_sort, nil)
+     |> assign(:current_route, RouteRegistry.current_route(:voice))
+     |> VoicePanel.assign_workers()}
   end
 
   def handle_params(params, _uri, socket) do

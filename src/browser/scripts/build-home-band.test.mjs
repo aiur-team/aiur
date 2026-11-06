@@ -53,10 +53,10 @@ test('B6 unavailable is shown only before any reading or after stale data expire
   assert.equal(bandAgentsUsable(unknownAge, live.now), false)
   assert.equal(bandEmptyText(unknownAge, live.now), 'Agent states unavailable')
 })
-test('geometry stacks all agents despite epic filters and never caps tall bands', () => {
+test('geometry stacks all agents despite lane filters and never caps tall bands', () => {
   const D = { now: live.sections.now, order: live.order }, dims = { vpW: 1200, gut: 84 }
   const sizes = { ch: 122.2, gap: 14, CH: { full: 122.2, line: 32.5 } }
-  const S = { view: 'graph', span: 1, f: { epic: ['missing'] } }
+  const S = { view: 'graph', span: 1, f: { lane: ['missing'] } }
   const band = bandLayout(D, S, dims, sizes)
   assert.equal(band.items.length, 8); assert.equal(band.BK, 4); assert.equal(band.h, 312.4)
   assert.equal(bandLayout(D, { ...S, liveMin: true }, dims, sizes).h, 38)
