@@ -186,7 +186,7 @@ The restore commands apply the patch to the current HEAD, so they work also when
 
 The next agent turn of the same ticket starts with the restore commands, and `ticket.<n>.workspace.wip_preserved` gives the path. Delivery is at least once: after a crash, the notice can repeat. If the ticket closes first, the notice expires and a reopened ticket does not get it.
 
-If the save fails, Aiur keeps the workspace. An open ticket stays paused as a preflight failure until an Executor resume. A closed ticket's save that times out is the exception: Aiur writes a manifest-only save, deletes the workspace and raises `ticket.<n>.workspace.wip_preservation_incomplete`.
+If the save fails, Aiur keeps the workspace and keeps its uncommitted work. A local worker is dispatched into that kept workspace and appears on `ticket.<n>.workspace.wip_preservation_skipped`; the ticket is not paused on a preflight failure. A remote checkout is still held, because this daemon cannot inspect what a recreate would discard there. A closed ticket's save that times out is the exception: Aiur writes a manifest-only save, deletes the workspace and raises `ticket.<n>.workspace.wip_preservation_incomplete`.
 
 Aiur cannot save the work of a dirty workspace on a remote worker, so it keeps that workspace. Each workspace raises `ticket.<n>.workspace.wip_preservation_failed` once for each reason, and the message says whether the ticket is held or closed.
 
