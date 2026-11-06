@@ -50,7 +50,7 @@ defmodule Aiur.Commands.HostApiTest do
     # The count describes the allowed ticket set only; it never hints at the
     # out-of-scope Command.
     assert page["pagination"]["total"] == 1
-    refute inspect(page) =~ "out-of-scope"
+    Aiur.TestSupport.refute_leak(page, "out-of-scope")
   end
 
   test "listing a ticket outside the set is empty, not an error that reveals it", %{store: store} do
@@ -204,7 +204,7 @@ defmodule Aiur.Commands.HostApiTest do
     assert command["decision_id"] == labelled.decision_id
     assert command["ticket"]["identifier"] == "42"
     assert page["scope"]["labels"] == ["game:chess"]
-    refute inspect(page) =~ "other-game"
+    Aiur.TestSupport.refute_leak(page, "other-game")
   end
 
   test "a request label outside the grant cannot widen its scope", %{store: store} do
@@ -226,8 +226,8 @@ defmodule Aiur.Commands.HostApiTest do
     assert widened["commands"] == []
     assert widened["count"] == 0
     assert widened["pagination"]["total"] == 0
-    refute inspect(widened) =~ "other-game"
-    refute inspect(widened) =~ other_game.decision_id
+    Aiur.TestSupport.refute_leak(widened, "other-game")
+    Aiur.TestSupport.refute_leak(widened, other_game.decision_id)
 
     # The out-of-scope Command is still readable only through its own grant.
     assert {:error, :not_found} = HostApi.show(scope, other_game.decision_id, store: store, labels_fun: labels_fun)

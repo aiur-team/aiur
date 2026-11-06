@@ -97,7 +97,7 @@ defmodule Aiur.DecisionQueryTicketScopeTest do
     assert page.pagination.total == 1
     assert page.filters.labels == ["game:chess"]
     assert page.counts.total == nil
-    refute inspect(page) =~ "unlabelled"
+    Aiur.TestSupport.refute_leak(page, "unlabelled")
   end
 
   test "an out-of-label ticket filter is empty instead of revealing the Command", %{store: store} do

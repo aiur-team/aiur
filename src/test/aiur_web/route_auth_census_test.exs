@@ -14,6 +14,7 @@ defmodule AiurWeb.RouteAuthCensusTest do
     :dashboard_auth_required,
     :client_token_read,
     :client_token_write,
+    :commands_scope_auth,
     :control_token,
     :browser_dashboard_auth,
     :auth_session,
