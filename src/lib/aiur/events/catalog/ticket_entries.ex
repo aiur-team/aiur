@@ -134,6 +134,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.workspace.wip_discarded", "workspace"},
     # aiur/workspace/wip_preservation.ex
     {"ticket.*.workspace.wip_preservation_failed", "workspace"},
+    # aiur/workspace/refresh.ex
+    {"ticket.*.workspace.wip_preservation_skipped", "workspace"},
     # aiur/workspace/wip_preservation/artifact.ex
     {"ticket.*.workspace.wip_preservation_incomplete", "workspace"},
     # aiur/workspace/wip_preservation/artifact.ex

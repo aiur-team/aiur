@@ -47,6 +47,16 @@ test('header uses whole-index figures, mode buttons and clear restore the board'
   await expect(page.locator('.bd-card.dim, .bd-card.feat-on, .bd-card.also, .bd-card.ghost')).toHaveCount(0)
   await expect(page).not.toHaveURL(/feature=/)
 })
+test('epic chips use the stored hue for each epic', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    const { ctx, fx } = m
+    const epic = ctx.D.epics[ctx.D.features.pag.epics[0]]
+    epic.hue = 13
+    fx.renderFeatures()
+  })
+  await expect(page.locator('#bd-fh .bd-chip').first()).toHaveAttribute('style', /oklch\(\.7 \.13 13\)/)
+})
 test('unknown stats, baseline, missing stats and labels update through live diffs', async ({ page }) => {
   await open(page)
   const stats = await page.evaluate(() => m.ctx.D.features.pag.stats)
@@ -62,7 +72,7 @@ test('unknown stats, baseline, missing stats and labels update through live diff
   await expect(page.locator('.bd-kv b')).toHaveText(['—', '—', '—'])
   await expect(page.locator('.sp polyline')).toHaveCount(0)
 })
-test('Features list rows hold only name, bar and merged/total, with an all-features total and a URL sort', async ({ page }) => {
+test('Features list rows hold only name, bar and merged/total, with an all-features total and a URL sort', async ({ page }, info) => {
   await open(page, '?view=list')
   await page.getByRole('tab', { name: 'Features' }).click()
   // pag and khala are registry features in the fixture; the rest come only from feature:<slug> labels.
@@ -97,12 +107,28 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   expect(desk.map(n => n.cut)).toEqual(bars.map(b => b.key === 'streamdeck-redesign'))
   await expect(rows.first().locator('.fp-bar i')).toHaveAttribute('style', /width:69\.23/)
   await expect(rows.nth(1).locator('.fp-bar i')).toHaveAttribute('style', 'width:0%')
-  await expect(page.locator('.fp-head h1')).toHaveText(/ - build progress$/)
-  await expect(page.locator('.fp-head p')).toHaveText(/^57 of 89 tickets merged - \d{4}-\d{2}-\d{2}$/)
+  await expect(page.locator('.fp-list h1')).toHaveCount(0)
+  await expect(page.locator('.fp-sum')).toHaveText(/^57 of 89 tickets merged - \d{4}-\d{2}-\d{2}$/)
+  await expect(page.locator('.fp-list [data-fsort]')).toHaveCount(0)
+  // The list starts right under the toolbar: no card box, no outer margins and no empty band.
+  const flushTop = await page.evaluate(() => {
+    const vp = document.querySelector('#bd-vp').getBoundingClientRect()
+    const first = document.querySelector('.fp-rows .fp-row').getBoundingClientRect()
+    return {
+      list: Math.round(document.querySelector('.fp-list').getBoundingClientRect().top - vp.top),
+      first: Math.round(first.top - vp.top),
+      toolbar: Math.round(vp.top - document.querySelector('.bd-toolbar').getBoundingClientRect().bottom)
+    }
+  })
+  expect(flushTop.list).toBeLessThanOrEqual(1)
+  expect(flushTop.first).toBeLessThanOrEqual(32)
+  // The only gap left above the list is the dashboard gutter every view shares; the card's own
+  // margins and padding are gone, so the band the operator saw is not there anymore.
+  expect(flushTop.toolbar).toBeLessThanOrEqual(16)
   await expect(page.locator('.fp-all')).toHaveText('All features57/89')
   await expect(page.locator('.fp-all .fp-bar i')).toHaveAttribute('style', /width:64\.04/)
   const colors = await page.evaluate(() => {
-    const probe = token => { const el = document.createElement('i'); el.style.background = `var(${token})`; document.querySelector('.fp-card').append(el); const value = getComputedStyle(el).backgroundColor; el.remove(); return value }
+    const probe = token => { const el = document.createElement('i'); el.style.background = `var(${token})`; document.querySelector('.fp-list').append(el); const value = getComputedStyle(el).backgroundColor; el.remove(); return value }
     const fill = selector => getComputedStyle(document.querySelector(selector)).backgroundColor
     return { done: [fill('.fp-bar.done i'), probe('--good')], partial: [fill('.fp-rows .fp-row .fp-bar:not(.done) i'), probe('--accent')], all: [fill('.fp-bar.all i'), probe('--attention')] }
   })
@@ -110,9 +136,9 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   expect(new Set(Object.values(colors).map(([actual]) => actual)).size).toBe(3)
 
   await expect(rows.nth(1)).not.toHaveJSProperty('tagName', 'BUTTON')
-  expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
   await page.emulateMedia({ colorScheme: 'light' })
-  expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
   await page.locator('[data-fsort]').selectOption('left')
   await expect(page).toHaveURL(/fsort=left/)
   expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['mp-e3', 'mp-n1', 'streamdeck-redesign', 'pag', 'mp-e2', 'khala', 'newsletter'])
@@ -121,6 +147,7 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['newsletter', 'streamdeck-redesign', 'pag', 'khala', 'mp-e3', 'mp-n1', 'mp-e2'])
   await page.locator('[data-fsort]').selectOption('goal')
   await expect(page).not.toHaveURL(/fsort=/)
+  await page.screenshot({ path: info.outputPath('features-list-1440.png') })
 
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
@@ -134,6 +161,7 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
     const rowHeight = Math.max(...els.slice(0, 6).map(el => el.getBoundingClientRect().bottom - el.getBoundingClientRect().top))
     return usableTop - top >= 6 * rowHeight
   })).toBe(true)
+  await page.screenshot({ path: info.outputPath('features-list-390.png') })
   await page.locator('.fp-row[data-feature="pag"]').press('Enter')
   await expect(page).toHaveURL(/feature=pag/)
 })
@@ -141,7 +169,7 @@ test('Features list says progress is unavailable instead of inventing a zero tot
   await open(page, '?view=list&list=features&fsort=pct')
   await expect(page.locator('[data-fsort]')).toHaveValue('pct')
   await page.evaluate(() => { const { ctx, fx } = window.m; ctx.D.feature_progress = { ...ctx.D.feature_progress, bars: null }; fx.renderList() })
-  await expect(page.locator('.fp-head p')).toHaveText(/^Feature progress unavailable - /)
+  await expect(page.locator('.fp-sum')).toHaveText(/^Feature progress unavailable - /)
   await expect(page.locator('.fp-all')).toHaveCount(0)
   await expect(page.locator('.fp-rows .fp-row')).toHaveCount(0)
 })

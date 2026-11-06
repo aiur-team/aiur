@@ -47,6 +47,7 @@ defmodule AiurWeb.Streamdeck.Deck.Epics do
       title: field(epic, :label),
       label: if(known?, do: "#{open} remaining · #{of}", else: "— · #{reason}"),
       icon: field(epic, :icon),
+      accent: epic_accent(field(epic, :hue)),
       face: :idle,
       bucket: :stuck,
       remaining: if(known?, do: open, else: :unknown),
@@ -62,4 +63,6 @@ defmodule AiurWeb.Streamdeck.Deck.Epics do
 
   defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   defp field(_map, _key), do: nil
+  defp epic_accent(hue) when is_number(hue) and hue >= 0 and hue < 360, do: "hsl(#{hue} 65% 42%)"
+  defp epic_accent(_), do: nil
 end

@@ -10,7 +10,7 @@ defmodule AiurWeb.Build.PayloadValidator do
   def validate_row(row, section, epics, features), do: row_validation(row, section, epics, features)
 
   defp row_validation(row, section, epics, features) when is_map(row) and is_binary(section) do
-    errors = check(row, {:object, Schema.row(), []}, "") ++ row_rules(row, "")
+    errors = check(row, {:object, Schema.row(), Schema.row_optional()}, "") ++ row_rules(row, "")
     errors = errors ++ if(row["sec"] == section, do: [], else: error("sec", :section))
     errors = errors ++ if(is_map(epics) and is_map(features), do: ticket_refs(row, "", section, epics, features), else: [])
     if errors == [], do: :ok, else: {:error, errors}
@@ -72,7 +72,7 @@ defmodule AiurWeb.Build.PayloadValidator do
     end
   end
 
-  defp check(value, :row, path) when is_map(value), do: check(value, {:object, Schema.row(), []}, path) ++ row_rules(value, path)
+  defp check(value, :row, path) when is_map(value), do: check(value, {:object, Schema.row(), Schema.row_optional()}, path) ++ row_rules(value, path)
   defp check(_value, _type, path), do: error(path, :type)
 
   defp field(value, key, type, optional, path) do
