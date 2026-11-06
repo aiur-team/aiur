@@ -6,8 +6,10 @@ defmodule Aiur.AgentRunner.SkillPreloadEventTest do
 
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.AgentRunner.SkillPreloadEvent
   alias Aiur.AgentSkills.Preload
+  alias Aiur.Config.SkillsMapping
   alias Aiur.Issue
 
   setup do
@@ -24,7 +26,7 @@ defmodule Aiur.AgentRunner.SkillPreloadEventTest do
 
     Preload.resolve(issue, workspace,
       settings: %{},
-      mapping: Aiur.Config.SkillsMapping.normalize(%{"by_lane" => %{"art" => ["pixel-art"]}})
+      mapping: SkillsMapping.normalize(%{"by_lane" => %{"art" => ["pixel-art"]}})
     )
   end
 
@@ -46,7 +48,7 @@ defmodule Aiur.AgentRunner.SkillPreloadEventTest do
     issue = %Issue{id: "gid-abc-1", identifier: "ABC-1", title: "A task", labels: ["area:art"]}
     session = %{backend: :claude, model: "opus"}
 
-    assert :ok = Aiur.AgentRunner.SessionLifecycle.report_session_execution(self(), issue, session, preload(workspace))
+    assert :ok = SessionLifecycle.report_session_execution(self(), issue, session, preload(workspace))
 
     assert_receive {:session_execution_info, "gid-abc-1", info}, 1_000
     assert info.skills == "skills: pixel-art (lane:art); missing: ghost-skill"
