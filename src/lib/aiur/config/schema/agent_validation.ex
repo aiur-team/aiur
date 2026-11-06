@@ -177,7 +177,18 @@ defmodule Aiur.Config.Schema.AgentValidation do
         {field, "model alias #{inspect(model)} in #{inspect(route)} matches more than one vendor; name the full slug instead"}
 
       true ->
-        nil
+        model_set_error(field, route, model)
+    end
+  end
+
+  # A model set hands model choice to an aggregator (`openrouter:{a, b}`). A
+  # brace-shaped segment that does not parse is a typo, not a model name, so it
+  # is a config error rather than a request the provider rejects at dispatch.
+  defp model_set_error(field, route, model) do
+    if RoutingValue.model_set?(model) and RoutingValue.model_set(model) == :error do
+      {field,
+       "model set #{inspect(model)} in #{inspect(route)} must list at least one model, written " <>
+         "as {vendor/model, vendor/model}"}
     end
   end
 
@@ -231,7 +242,14 @@ defmodule Aiur.Config.Schema.AgentValidation do
         invalid_routing_effort_error(field, value)
 
       true ->
-        []
+        model_set_errors(field, value)
+    end
+  end
+
+  defp model_set_errors(field, route) do
+    case model_set_error(field, route, RoutingValue.routing_model(route)) do
+      nil -> []
+      error -> [error]
     end
   end
 

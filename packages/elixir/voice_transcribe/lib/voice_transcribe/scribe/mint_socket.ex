@@ -1,10 +1,10 @@
-defmodule Aiur.ElevenLabs.Realtime.MintSocket do
+defmodule VoiceTranscribe.Scribe.MintSocket do
   @moduledoc """
   A single `Mint.WebSocket` connection owned by its own process.
 
   Mint delivers socket data as messages to whichever process owns the
   connection. Giving the connection its own process keeps `Mint` out of
-  `Aiur.ElevenLabs.Realtime` entirely, so the session's rules are exercised
+  `VoiceTranscribe.Scribe` entirely, so the session's rules are exercised
   against a fake transport and nothing in the test suite opens a socket.
 
   The process monitors the session that opened it and stops when that session
@@ -62,7 +62,8 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocket do
       # the upgrade response is folded across three clauses, and a key that only
       # exists once one of them has run leaves the others reading a map that
       # does not have it. Declaring them keeps the state one shape throughout.
-      {:ok, %{session: session, conn: conn, ref: ref, websocket: nil, pending: [], status: nil, headers: []}, @connect_timeout_ms}
+      {:ok, %{session: session, conn: conn, ref: ref, websocket: nil, pending: [], status: nil, headers: []},
+       @connect_timeout_ms}
     else
       # The reason is replaced rather than propagated: the caller renders nothing
       # from it, and the value can carry the request headers.
@@ -84,7 +85,7 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocket do
 
   @impl true
   def handle_info(:timeout, state) do
-    notify(state, {:elevenlabs_transport, :error, :handshake_timeout})
+    notify(state, {:scribe_transport, :error, :handshake_timeout})
     {:stop, :normal, state}
   end
 
@@ -148,11 +149,11 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocket do
   defp deliver(state, frames) do
     Enum.reduce_while(frames, {:noreply, state}, fn
       {:text, text}, {:noreply, state} ->
-        notify(state, {:elevenlabs_transport, :text, text})
+        notify(state, {:scribe_transport, :text, text})
         {:cont, {:noreply, state}}
 
       {:close, _code, _reason}, {:noreply, state} ->
-        notify(state, {:elevenlabs_transport, :closed})
+        notify(state, {:scribe_transport, :closed})
         {:halt, {:stop, :normal, state}}
 
       _frame, acc ->
@@ -161,7 +162,7 @@ defmodule Aiur.ElevenLabs.Realtime.MintSocket do
   end
 
   defp transport_failed(state) do
-    notify(state, {:elevenlabs_transport, :error, :transport})
+    notify(state, {:scribe_transport, :error, :transport})
     {:stop, :normal, state}
   end
 

@@ -199,13 +199,5 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
 
   defp ensure_root(_), do: {:error, :invalid_root}
 
-  defp sync_directory(root) do
-    with {:ok, fd} <- :file.open(String.to_charlist(root), [:read, :raw, :directory]) do
-      try do
-        :file.sync(fd)
-      after
-        :file.close(fd)
-      end
-    end
-  end
+  defp sync_directory(root), do: VoiceConverse.DirectorySync.sync(root)
 end
