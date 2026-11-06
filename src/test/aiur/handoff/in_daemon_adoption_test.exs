@@ -194,14 +194,20 @@ defmodule Aiur.Handoff.InDaemonAdoptionTest do
       worker_host: nil
     }
 
+    # The parked runner runs under ExUnit's supervisor so a failed assertion
+    # cannot leak a process that is still waiting at the turn boundary.
     pid =
-      spawn(fn ->
-        Process.put(:handoff_turn_context, context)
-        receive do: (:go -> :ok)
-        RunnerHandoff.before_turn(session, context)
-        send(parent, {:parked, self()})
-        receive do: (:stop -> :ok)
-      end)
+      start_supervised!(
+        {Task,
+         fn ->
+           Process.put(:handoff_turn_context, context)
+           receive do: (:go -> :ok)
+           RunnerHandoff.before_turn(session, context)
+           send(parent, {:parked, self()})
+           receive do: (:stop -> :ok)
+         end},
+        id: {:parked_runner, id}
+      )
 
     send(pid, :handoff_hold)
     send(pid, :go)

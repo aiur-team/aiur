@@ -74,6 +74,10 @@ defmodule Aiur.OpenAICompat.HandoffTest do
     {session, opts}
   end
 
+  defp prompt_count(messages, prompt) do
+    Enum.count(messages, &(&1["role"] == "user" and &1["content"] == prompt))
+  end
+
   # A completed turn leaves its own request messages in the test mailbox; clear
   # them so an assertion about the *next* request cannot read a stale one.
   defp flush_requests do
@@ -204,6 +208,33 @@ defmodule Aiur.OpenAICompat.HandoffTest do
     assert "Inspect the workspace" in contents
     assert "Continue the ticket" in contents
     assert {:ok, _} = CodingAgent.stop_session(restored)
+  end
+
+  test "an adopted interrupted session runs the interrupted turn exactly once", %{workspace: workspace} do
+    parent = self()
+    {session, _opts} = completed_session(workspace, parent)
+    assert {:ok, provider_state} = Handoff.snapshot(session)
+    assert prompt_count(provider_state["messages"], "Inspect the workspace") == 1
+    assert {:ok, _} = CodingAgent.stop_session(session)
+
+    record = in_daemon_record(workspace, Map.put(provider_state, "interrupted", true))
+
+    # Adoption is retried from the same record, and each attempt resumes the
+    # interrupted turn. The saved conversation already holds the prompt, so no
+    # attempt may append a second copy of it.
+    for _attempt <- 1..2 do
+      opts = session_opts(parent, [final_response()])
+      assert {:ok, restored} = CodingAgent.adopt_handoff_session(record, opts)
+      assert prompt_count(Session.get(restored.session_pid).messages, "Inspect the workspace") == 1
+
+      assert {:ok, %{result: :turn_completed}} = CodingAgent.resume_handoff_turn(restored, turn_opts(parent))
+      assert_receive {:request, request}, 1_000
+      refute_receive {:request, _second}, 50
+      assert prompt_count(request.json["messages"], "Inspect the workspace") == 1
+      assert prompt_count(Session.get(restored.session_pid).messages, "Inspect the workspace") == 1
+      assert {:ok, _} = CodingAgent.stop_session(restored)
+      flush_requests()
+    end
   end
 
   test "attach restores an in-daemon record through the generic runner handoff path", %{workspace: workspace} do
