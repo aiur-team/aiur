@@ -200,6 +200,12 @@ using priority labels and queue ordering, and report the displaced work.
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.
 
+`scripts/render_build_order_review.py` renders the graph review (waves, typed
+edges, critical path, progress, epics, features, lanes) from one
+`build-order.v1` document, using the daemon when one is running and the pack walk
+when it is not. See [the planning
+contract](references/planning-contract.md#the-review-reads-the-published-document).
+
 ## Handoff and stop
 
 The handoff identifies the feature slug/plan version, approved planning commit,
