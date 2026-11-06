@@ -84,7 +84,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
   `src/test/aiur/ownership/github_ref_test.exs`, `src/test/aiur/ownership/record_test.exs`.
 - **Acceptance.**
   - [ ] **[fails without]** Two concurrent `claim/3` calls against the stub that applies `beforeOid` atomically give exactly one `{:won, record}` and one `{:lost, current}`.
-  - [ ] A stub timeout after the write returns `{:unknown, :timeout}`, never `:won`.
+  - [ ] A stub timeout returns `:unknown` unless the re-read finds our commit (then `:won`); never `:won` otherwise.
   - [ ] A 422 whose message is not the MPG-101 "lost" signature returns `{:unknown, {:http, 422, msg}}`.
   - [ ] `claim/3` and `transfer/4` both write `epoch = previous_epoch + 1`, including a claim of a `released` ticket; a stale `beforeOid` returns `:lost`.
   - [ ] The record carries `daemon_key` (the instance key) beside `gateway_id`.
