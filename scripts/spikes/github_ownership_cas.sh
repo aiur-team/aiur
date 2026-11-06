@@ -5,11 +5,11 @@
 # under refs/aiur/owners/ and refs/heads/aiur-owner/ named by a per-run suffix,
 # and deletes them at the end.
 # Prints `STEP | status | type | message` per call.
-# Exit 1 if the second create in step 2 succeeds (no atomic create-if-absent).
+# Exit 1 if the second create in step 2 succeeds, or any step-7 round has !=1 winner.
 # Exit 2 on setup problems.
 set -uo pipefail
 repo="${SANDBOX_REPO:?set SANDBOX_REPO=owner/repo (a throwaway sandbox)}"
-case "$repo" in */aiur) echo "refusing to run against $repo" >&2; exit 2;; esac
+case "$repo" in */aiur|aiur-team/*) echo "refusing to run against $repo" >&2; exit 2;; esac
 zero=0000000000000000000000000000000000000000
 run="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 echo "# MPG-101 run $run repo=$repo date=$(date -u +%F)"
@@ -68,10 +68,40 @@ etag="$(gh api -i "$url" 2>/dev/null | tr -d '\r' | sed -n 's/^[Ee][Tt]ag: //p')
 call "6 b read Cache-Control: no-cache" -H 'Cache-Control: no-cache' "$url"
 call "6 c read If-None-Match (expect 304)" -H "If-None-Match: $etag" "$url"
 
-for r in "refs/aiur/owners/$run" "$rest" "refs/heads/aiur-owner/$run"; do
+# Step 7: concurrent creates on one fresh ref; exactly one winner per round is a go.
+rounds="${ROUNDS:-20}" racers=3 bad_rounds=0
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+race_create() { # ref outfile
+  gh api graphql -f query='mutation($i:UpdateRefsInput!){updateRefs(input:$i){clientMutationId}}' \
+    -F "i={\"repositoryId\":\"$rid\",\"refUpdates\":[{\"name\":\"$1\",\"beforeOid\":\"$zero\",\"afterOid\":\"$c1\"}]}" >"$2" 2>&1
+}
+raced=()
+for n in $(seq "$rounds"); do
+  ref="refs/aiur/owners/$run-race$n"; raced+=("$ref")
+  for k in $(seq "$racers"); do race_create "$ref" "$tmp/$n.$k" & done
+  wait
+  wins=0
+  for k in $(seq "$racers"); do
+    if jq -e 'has("errors")|not' "$tmp/$n.$k" >/dev/null 2>&1; then wins=$((wins+1))
+    else echo "7 round $n loser | $(jq -r '(.errors[0].type // "?")+" | "+(.errors[0].message // "?")' "$tmp/$n.$k" 2>/dev/null || head -c 200 "$tmp/$n.$k")"; fi
+  done
+  echo "7 round $n | winners=$wins"
+  [ "$wins" = 1 ] || bad_rounds=$((bad_rounds+1))
+done
+echo "7 summary | rounds=$rounds racers=$racers bad_rounds=$bad_rounds"
+
+# Step 8: enumerate claims by prefix (REST and GraphQL), then clean up with DELETE.
+call "8 a REST matching-refs aiur/owners/" "repos/$repo/git/matching-refs/aiur/owners/$run"
+echo "8 a count | $(printf '%s' "$body" | jq 'length' 2>/dev/null || echo '?') (expect $((rounds+2)))"
+split "$(gh api graphql -i -f query='query($o:String!,$n:String!,$p:String!){repository(owner:$o,name:$n){refs(refPrefix:$p,first:100){nodes{name}}}}' \
+  -f o="${repo%/*}" -f n="${repo#*/}" -f p="refs/aiur/owners/" 2>&1)"; record "8 b graphql refs(refPrefix:)"
+call "8 c REST DELETE one claim" -X DELETE "repos/$repo/git/refs/aiur/owners/$run-race1"
+
+for r in "refs/aiur/owners/$run" "$rest" "refs/heads/aiur-owner/$run" "${raced[@]}" "refs/heads/aiur-owner/$run"; do
   gh api -X DELETE "repos/$repo/git/$r" >/dev/null 2>&1 || echo "# cleanup failed: $r"
 done
 if [ "$second_create_ok" = 1 ]; then
   echo "FAIL: second graphql create succeeded; no atomic create-if-absent" >&2
   exit 1
 fi
+[ "$bad_rounds" = 0 ] || { echo "FAIL: $bad_rounds race round(s) without exactly one winner" >&2; exit 1; }
