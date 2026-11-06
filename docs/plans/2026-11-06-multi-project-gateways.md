@@ -26,7 +26,8 @@ execution: code
   orchestrator singleton. A design ticket (MPG-301) fixes the process model before that work starts.
 - **Tickets.** 47 work tickets (42 implementation, 5 design or spike) plus 42 research deep dives = 89, in 8 waves.
   Two critical paths of 8 steps each (section "Ticket graph").
-- **Kevin's open choices.** Five, each with a default (section "Open product questions for Kevin").
+- **Kevin's answers (2026-11-06).** He approved the plan. He decided Q2, Q4 and Q5; Q1 and Q3 use the proposed
+  defaults, which he did not object to but did not decide (section "Product questions: answers").
 
 ---
 
@@ -46,7 +47,7 @@ execution: code
 
 ## Decisions
 
-Status words: **Decided** (Kevin), **Accepted** (Kevin accepted a suggestion), **Recommended** (the scope's
+Status words: **Decided** (Kevin), **Accepted** (Kevin accepted a suggestion), **Default, not objected** (the plan's proposed default; Kevin did not object but did not decide it), **Recommended** (the scope's
 recommendation, not decided), **Open** (to settle; the plan proposes where noted).
 
 | # | Topic | Result | Status | Where the plan acts |
@@ -54,8 +55,9 @@ recommendation, not decided), **Open** (to settle; the plan proposes where noted
 | 1 | Priority model | Hierarchical project/feature/ticket priority, separate from allocation | Decided | KTD-7, MPG-401/402 |
 | 2 | Global home | Nook holds global state; local snapshots; independent operation | Decided | KTD-8, S4 |
 | 3 | Repo vs global state | Feature and Build Order definitions in repos; live cross-project order and overrides on Nook | Accepted | Config layers |
-| 4 | Store down, shared repo | Ownership on GitHub persists; skip the offline machine's reserved work | Decided; atomic protocol Open | KTD-2, Q3 |
-| 5 | Conflicting changes | Latest change, audited, no loops, human intent first | Decided; exact protocol Open | KTD-8, MPG-403, Q4 |
+| 4 | Store down, shared repo | Ownership on GitHub persists; skip the offline machine's reserved work | Decided; atomic protocol proposed (KTD-2) | KTD-2, Q3 |
+| 5 | Conflicting changes | Latest change, audited, no loops, human intent first | Decided; exact protocol open for MPG-403 | KTD-8, MPG-403 |
+| 5a | Executor overriding a human dashboard change | Only with explicit force and a reason naming the overridden change; shown as a takeover (Q4) | Decided | Reconciliation rule 3, MPG-405 |
 | 6 | Cross-machine queue authority | Local autonomy, explicit shared changes, no ping-pong | Decided; scheduler Open | MPG-401 |
 | 7 | Delegation | Target gateway executes; its Executor reviews and merges; durable waiting | Decided in part; routing Open | KTD-11, Q2 |
 | 8 | Executor count | Flexible; one Nook Executor may supervise both; no automatic PC replacement | Decided | MPG-502 |
@@ -79,13 +81,17 @@ recommendation, not decided), **Open** (to settle; the plan proposes where noted
 | 25 | Moving a project in the queue | Gives first access to slots, not exclusive use | Decided | MPG-401 |
 | 26 | Allocation algorithm | Delegated to a design agent | Decided | MPG-401 |
 | 27 | Durable Decision ids, claimable Decisions | Recommended | Recommended | MPG-502 |
-| 28 | Unknown repo on delegation | Clone or refuse | Open | Q2 |
+| 28 | Unknown repo on delegation | Refuse, or wait with a visible label; no auto-clone (Q2) | Decided | MPG-501 |
+| 28a | Unify `agent:`/`nuc:` state prefixes (Q1) | Yes, after the first ownership test (MPG-109) passes, as a separate dry-run migration | Default, not objected | Migration step 5 |
+| 28b | Who may move a ticket from an offline owner (Q3) | A human, or an Executor with `tickets` rights; an online owner releases first unless a human forces it locally | Default, not objected | MPG-106 |
 | 29 | Gateway naming | A gateway is a machine running an Aiur environment | Decided | KTD-1 |
 | 30 | CLI target | Global `--gateway` across applicable commands | Decided | KTD-6, MPG-202 |
 | 31 | Management | `gateway` namespace: registration, discovery, status, workload | Decided | MPG-206..209 |
 | 32 | Discovery | Automatic where practical plus manual; Tailscale not required | Decided | MPG-207, MPG-208 |
 | 33 | Verify identity before auto-enrol; stable ids independent of address | Recommended | Recommended | KTD-1, KTD-10 |
 | 34 | Trust | Per-peer, directional; easy human-approved full mutual trust | Decided | KTD-9, MPG-206 |
+| 34a | Default grant in a new invite (Q5) | Read-only; full mutual trust takes one command per side, confirmed by a signed-in human | Decided | MPG-206, MPG-208 |
+| 39 | Merge the plan and file all 89 tickets | Approved | Decided | Ticket graph |
 | 35 | Remote operations | The full applicable CLI surface | Decided | MPG-203 |
 | 36 | Offline interactive requests | Fail at once; no queue in the MVP | Accepted | MPG-204 |
 | 37 | Icons | Separate design effort; expose accurate states | Decided | MPG-601 |
@@ -344,7 +350,8 @@ architecture, so MPG-601 states the trade-off for Kevin rather than adopting it.
    repository-wide services (landing watch, main watch, quarantine lifter) run once even with the store down.
    Turn `instance.ownership: github` on both; the cross-prefix guard stays. Run MPG-109.
 4. Move each gateway to `projects:` mode one at a time (MPG-309 state migration, dry run first).
-5. Prefix unification is Q1; nothing in the MVP needs it.
+5. Unify the prefixes after MPG-109 passes, as a separate dry-run migration (Q1: default, not objected). Nothing
+   in the MVP depends on it.
 
 Rollback: set `instance.ownership: off`; refs are inert. Projects mode rolls back by emptying `projects:`.
 
@@ -362,15 +369,15 @@ Rollback: set `instance.ownership: off`; refs are inert. Projects mode rolls bac
 
 ---
 
-## Open product questions for Kevin
+## Product questions: answers
 
-| # | Question | Recommended default | Why |
-|---|---|---|---|
-| Q1 | After ownership is proven, unify the `agent:`/`nuc:` state prefixes into one? | Yes, after MPG-109 passes, as a separate dry-run migration | Ownership moves to the ref, so prefixes no longer carry it; one state vocabulary makes the project-first dashboard simpler |
-| Q2 | A ticket delegated to a gateway that lacks the project: clone it or refuse? | Refuse and wait with a visible label | Cloning writes code and credentials onto a machine without anyone asking |
-| Q3 | Who may move a ticket away from an offline owner? | A human, or an Executor whose token has `tickets`; an online owner must release first unless a human forces it locally | Kevin requires explicit reassignment; this keeps Executors useful without letting them take live work |
-| Q4 | May an Executor override a human dashboard change? | Only with `force` and a reason naming the change it overrides; shown as a takeover | Matches "human intent first" while keeping Executor autonomy for deliberate changes |
-| Q5 | Default grant in a new invite | `read` only; full mutual trust is one command per side, confirmed by a signed-in human | Discovery must never grant control; full trust stays easy |
+| # | Question | Answer | Status | Why |
+|---|---|---|---|---|
+| Q1 | After ownership is proven, unify the `agent:`/`nuc:` state prefixes into one? | Yes, after MPG-109 passes, as a separate dry-run migration | Default, not objected | Ownership moves to the ref, so prefixes no longer carry it; one state vocabulary makes the project-first dashboard simpler |
+| Q2 | A ticket delegated to a gateway that lacks the project: clone it or refuse? | Refuse, or wait with a visible label; no auto-clone | Decided | Cloning writes code and credentials onto a machine without anyone asking |
+| Q3 | Who may move a ticket away from an offline owner? | A human, or an Executor whose token has `tickets`; an online owner must release first unless a human forces it locally | Default, not objected | Kevin requires explicit reassignment; this keeps Executors useful without letting them take live work |
+| Q4 | May an Executor override a human dashboard change? | Only with `force` and a reason naming the change it overrides; shown as a takeover | Decided | Matches "human intent first" while keeping Executor autonomy for deliberate changes |
+| Q5 | Default grant in a new invite | `read` only; full mutual trust is one command per side, confirmed by a signed-in human | Decided | Discovery must never grant control; full trust stays easy |
 
 ---
 
@@ -428,8 +435,7 @@ on it. Total 89.
 
 **Typed edges.** `depends_on` as listed in each contract. `serializes_with`: MPG-303/304/305 (`application/children.ex`;
 merge in that order), MPG-001, MPG-204/205 and MPG-206 (`control_controller.ex`), MPG-103/108 (`shared_lease_dispatch.ex`).
-Gates (Kevin's answer, or the default if he accepts it): Q2 before MPG-501, Q3 before MPG-106, Q4 before
-MPG-405, Q5 before MPG-208. Q1 gates no MVP ticket.
+Gates: none remain. Kevin answered Q2, Q4 and Q5 and let the Q1 and Q3 defaults stand (2026-11-06).
 
 | Wave | Count | Tickets |
 |---|---|---|

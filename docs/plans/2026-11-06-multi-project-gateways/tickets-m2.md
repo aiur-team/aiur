@@ -103,7 +103,7 @@ Part of [the plan](../2026-11-06-multi-project-gateways.md). Conventions (titles
   `~/.aiur/machine`. They run only locally (refused over `--gateway`). Granting `read` takes effect at once; any
   wider grant or `trust --full` is stored under `pending` and raised as a human-required Decision. It takes effect
   only when answered from a signed-in dashboard session (Google or passkey); a client token cannot answer it.
-- **Gate.** Kevin's answer to Q5 (or acceptance of its default).
+- **Settled.** Q5, decided by Kevin: read-only by default; full mutual trust is one command per side, confirmed by a signed-in human.
 - **Next action.** Add `src/lib/aiur/machine/settings/schema/peers.ex` and `src/lib/aiur/gateway/grants.ex`
   (`allowed?(peer_id, category)`), and call `allowed?` from `control_controller.ex` for tokens with a `peer`.
 - **Files.** the two modules; `src/lib/aiur/gateway/cli.ex` (new); `packaging/npm/aiur-cli/libexec/aiur-gateway.sh`
@@ -157,7 +157,7 @@ Part of [the plan](../2026-11-06-multi-project-gateways.md). Conventions (titles
   - [ ] **[fails without]** Join with a valid code creates a registry entry with `gateway_id`, a 0600 token file, and on B a `peers:` row with the invited grants.
   - [ ] Reusing a code, using it after its TTL, or a hello fingerprint that differs from the code: refused, nothing written on either side.
   - [ ] `invite` is local only; an invite wider than `read` creates pending grants (same rule as MPG-206).
-- **Gate.** Kevin's answer to Q5 (or acceptance of its default).
+- **Settled.** Q5, decided by Kevin: read-only by default; full mutual trust is one command per side, confirmed by a signed-in human.
   - [ ] `gateway register <name> --url <u> --token-file <f>` (manual, no invite) works with no Tailscale.
   - [ ] `gateway rotate <peer>` issues a new token, keeps the old one valid for 10 minutes, then revokes it.
 - **Research MPG-208R** (complexity 2). Code encoding (default: `aiur-invite:` + base64url JSON), TLS fingerprint

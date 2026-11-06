@@ -69,7 +69,7 @@ Paths are under `src/lib/aiur/` unless they start with `src/`, `packaging/` or `
 - **Next action.** Implement `intent/reconciler.ex` as a pure fold over changes sorted by
   `(hlc_wall_ms, hlc_counter, origin_gateway, change_id)` only, applying the slot rules of the plan's
   "Reconciliation" section as each change is folded.
-- **Gate.** Kevin's answer to Q4 (or acceptance of its default).
+- **Settled.** Q4, decided by Kevin: an Executor overrides a human change only with explicit force and a reason naming it.
 - **Files.** `intent/reconciler.ex` (new); `intent/sync.ex`; tests `src/test/aiur/intent/reconciler_test.exs`
   (MPG-403's interleaving table), a StreamData property test for order independence.
 - **Acceptance.**
@@ -129,10 +129,10 @@ Paths are under `src/lib/aiur/` unless they start with `src/`, `packaging/` or `
 - Plan id: MPG-501 · `lane:executor` · complexity 3 · depends on: MPG-106, MPG-306, MPG-501R
 - **Outcome.** `aiur ticket assign <n> --to pc --reason <r>` from Nook's Executor is the delegation. Before writing,
   `assign` reads PC's project list (S6 summary, or the last cached one). If PC lacks the repo, `assign` refuses (Q2
-  default). If PC is unreachable and has no cached list, `assign` writes the transfer and warns. The delegating
+  decided). If PC is unreachable and has no cached list, `assign` writes the transfer and warns. The delegating
   gateway, which polls the repo, labels such a ticket `gateway-waiting:project-missing` when PC's list later shows
   the repo missing.
-- **Gate.** Kevin's answer to Q2 (or acceptance of its default).
+- **Settled.** Q2, decided by Kevin: refuse, or wait with a visible label; never auto-clone.
 - **Next action.** Add the project-list check to `Aiur.Ownership.CLI.assign` and the waiting-label pass to the
   delegating gateway's poll in `ownership/projection.ex`.
 - **Files.** `ownership.ex`; `orchestrator/dispatch_policy.ex`; tests `src/test/aiur/ownership/delegation_test.exs`;

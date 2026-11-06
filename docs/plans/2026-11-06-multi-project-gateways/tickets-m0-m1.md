@@ -152,7 +152,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
   --reason <text>` transfers with compare-and-set (`--to`, not `--gateway`, which selects the gateway the command
   runs on). It refuses a live owner unless a human forces it locally. An owner with no liveness source (store down
   and hello unreachable) counts as live. A transfer disables auto-merge on the old owner's open PR.
-- **Gate.** Kevin's answer to Q3 (or acceptance of its default).
+- **Settled.** Q3: the proposed default stands (Kevin did not object; not his decision).
 - **Next action.** Add `owner` and `assign` verbs to `packaging/npm/aiur-cli/libexec/engine/ticket.sh` and their RPC
   functions to `src/lib/aiur/ownership/cli.ex`; allowlist `owner` as `read`, `assign` as category `tickets`.
 - **Files.** `engine/ticket.sh`; `src/lib/aiur/ownership/cli.ex` (new); `src/lib/aiur/control_call/allowlist.ex`;
