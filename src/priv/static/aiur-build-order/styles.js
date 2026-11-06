@@ -1,0 +1,356 @@
+/**
+ * The package's one stylesheet. Every colour, space, type value and duration
+ * comes from an `aiur-style` token (`var(--aiur-*)`); this file declares no
+ * per-view colour constants, so a consumer themes the review and the graph by
+ * loading the tokens.
+ *
+ * The <aiur-build-order> element injects this text once per document, and the
+ * build writes it to `dist/aiur-build-order.css` for a plain stylesheet link.
+ */
+export const STYLESHEET_NAME = 'aiur-build-order.css';
+
+export const STYLES = `@layer aiur.build-order {
+  .aiur-bo {
+    --bo-edge-depends-on: var(--aiur-color-fg);
+    --bo-edge-serializes-with: var(--aiur-color-attention);
+    --bo-edge-suggested-after: var(--aiur-color-muted);
+    --bo-edge-contains: var(--aiur-color-accent);
+    --bo-edge-gates: var(--aiur-color-super);
+    box-sizing: border-box;
+    color: var(--aiur-color-fg);
+    background: var(--aiur-color-surface);
+    border: 1px solid var(--aiur-color-line);
+    border-radius: var(--aiur-radius-lg);
+    padding: var(--aiur-space-4);
+    display: grid;
+    gap: var(--aiur-space-4);
+    font-family: var(--aiur-font-body);
+    font-size: var(--aiur-text-sm);
+    line-height: 1.45;
+  }
+
+  .aiur-bo *, .aiur-bo *::before, .aiur-bo *::after { box-sizing: inherit; }
+
+  .aiur-bo h2, .aiur-bo h3, .aiur-bo h4 {
+    margin: 0;
+    font-family: var(--aiur-font-display);
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+  }
+
+  .aiur-bo h3 { font-size: var(--aiur-text-md); }
+  .aiur-bo h4 { font-size: var(--aiur-text-sm); }
+
+  .aiur-bo-header { display: grid; gap: var(--aiur-space-1); }
+
+  .aiur-bo-kicker {
+    margin: 0;
+    font-family: var(--aiur-font-mono);
+    font-size: var(--aiur-text-xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--aiur-color-muted);
+  }
+
+  .aiur-bo-title { font-size: var(--aiur-text-lg); }
+
+  .aiur-bo-meta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--aiur-space-2);
+    color: var(--aiur-color-muted);
+    font-family: var(--aiur-font-mono);
+    font-size: var(--aiur-text-xs);
+  }
+
+  .aiur-bo-meta span + span::before { content: "·"; margin-inline-end: var(--aiur-space-2); }
+
+  .aiur-bo-banner {
+    border: 1px dashed var(--aiur-color-attention);
+    border-radius: var(--aiur-radius-md);
+    background: var(--aiur-color-attention-soft);
+    color: var(--aiur-color-attention-ink);
+    padding: var(--aiur-space-3);
+  }
+
+  .aiur-bo-banner-head { margin: 0 0 var(--aiur-space-1); font-weight: 700; }
+  .aiur-bo-banner-body { margin: 0; }
+
+  .aiur-bo-banner[data-status="stale"] { border-color: var(--aiur-color-super); background: var(--aiur-color-super-soft); color: var(--aiur-color-super-ink); }
+
+  .aiur-bo-note { margin: 0; color: var(--aiur-color-muted); font-size: var(--aiur-text-xs); }
+
+  .aiur-bo-summary { display: grid; gap: var(--aiur-space-3); }
+
+  .aiur-bo-bar {
+    position: relative;
+    display: block;
+    height: var(--aiur-space-2);
+    border-radius: var(--aiur-radius-pill);
+    background: var(--aiur-color-surface-2);
+    border: 1px solid var(--aiur-color-hairline);
+    overflow: hidden;
+  }
+
+  .aiur-bo-bar > span {
+    display: block;
+    height: 100%;
+    width: var(--bo-pct, 0%);
+    background: var(--aiur-color-accent);
+  }
+
+  .aiur-bo-bar[data-unknown="true"] { border-style: dashed; border-color: var(--aiur-color-attention); }
+
+  .aiur-bo-bar-unknown {
+    display: block;
+    height: 100%;
+    width: 100%;
+    background: repeating-linear-gradient(
+      135deg,
+      var(--aiur-color-attention-soft) 0 6px,
+      transparent 6px 12px
+    );
+  }
+
+  .aiur-bo-bar--card { height: var(--aiur-space-1); }
+
+  .aiur-bo-counts {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--aiur-space-4);
+  }
+
+  .aiur-bo-counts li { display: grid; gap: var(--aiur-space-1); }
+  .aiur-bo-counts b { font-size: var(--aiur-text-md); }
+  .aiur-bo-counts span { color: var(--aiur-color-muted); font-size: var(--aiur-text-xs); }
+
+  .aiur-bo-cards { display: grid; gap: var(--aiur-space-2); }
+
+  .aiur-bo-card-list, .aiur-bo-feature-list, .aiur-bo-wave-list, .aiur-bo-critical-list,
+  .aiur-bo-legend-list, .aiur-bo-gate-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: var(--aiur-space-2);
+  }
+
+  .aiur-bo-feature-list { padding-inline-start: var(--aiur-space-4); }
+
+  .aiur-bo-card {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) minmax(6rem, 2fr) auto;
+    align-items: center;
+    gap: var(--aiur-space-3);
+  }
+
+  .aiur-bo-card[data-status="unknown"] .aiur-bo-card-label { color: var(--aiur-color-muted); }
+
+  .aiur-bo-card-count {
+    font-family: var(--aiur-font-mono);
+    font-size: var(--aiur-text-xs);
+    color: var(--aiur-color-muted);
+    white-space: nowrap;
+  }
+
+  .aiur-bo-epic { display: grid; gap: var(--aiur-space-2); }
+
+  .aiur-bo-wave, .aiur-bo-gate {
+    border-left: 2px solid var(--aiur-color-line);
+    padding-inline-start: var(--aiur-space-3);
+    display: grid;
+    gap: var(--aiur-space-2);
+  }
+
+  .aiur-bo-wave ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--aiur-space-1); }
+
+  .aiur-bo-count { color: var(--aiur-color-muted); font-family: var(--aiur-font-mono); font-size: var(--aiur-text-xs); }
+
+  .aiur-bo-gate-criteria { margin: 0; font-size: var(--aiur-text-xs); }
+
+  .aiur-bo-ticket-link { color: var(--aiur-color-accent-ink); text-decoration: none; }
+  .aiur-bo-ticket-link:hover { text-decoration: underline; }
+  .aiur-bo-ticket-link:focus-visible { outline: 2px solid var(--aiur-color-focus); outline-offset: 2px; }
+  .aiur-bo-ticket-id { font-family: var(--aiur-font-mono); color: var(--aiur-color-muted); }
+
+  .aiur-bo-state {
+    font-family: var(--aiur-font-mono);
+    font-size: var(--aiur-text-xs);
+    color: var(--aiur-color-muted);
+  }
+
+  .aiur-bo-state[data-status="done"], .aiur-bo-state[data-status="closed"] { color: var(--aiur-color-good); }
+  .aiur-bo-state[data-status="failed"] { color: var(--aiur-color-blocking); }
+
+  .aiur-bo-critical-list { counter-reset: bo-critical; }
+  .aiur-bo-critical-list li::before {
+    counter-increment: bo-critical;
+    content: counter(bo-critical) ". ";
+    color: var(--aiur-color-muted);
+    font-family: var(--aiur-font-mono);
+  }
+
+  .aiur-bo-table-wrap { overflow-x: auto; }
+
+  .aiur-bo-table { width: 100%; border-collapse: collapse; font-size: var(--aiur-text-sm); }
+
+  .aiur-bo-table th, .aiur-bo-table td {
+    text-align: start;
+    padding: var(--aiur-space-2);
+    border-bottom: 1px solid var(--aiur-color-hairline);
+    vertical-align: top;
+  }
+
+  .aiur-bo-table th {
+    font-family: var(--aiur-font-mono);
+    font-size: var(--aiur-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--aiur-color-muted);
+    white-space: nowrap;
+  }
+
+  .aiur-bo-table tr[data-critical="true"] td { background: var(--aiur-color-accent-soft); }
+
+  span.aiur-bo-edge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--aiur-space-1);
+    border: 1px solid var(--bo-edge-line);
+    border-radius: var(--aiur-radius-pill);
+    padding: 0 var(--aiur-space-2);
+    font-family: var(--aiur-font-mono);
+    font-size: var(--aiur-text-xs);
+    color: var(--aiur-color-fg);
+    white-space: nowrap;
+  }
+
+  .aiur-bo-legend { display: grid; gap: var(--aiur-space-2); }
+
+  .aiur-bo-legend-item {
+    display: grid;
+    grid-template-columns: 2.5rem auto;
+    align-items: center;
+    gap: var(--aiur-space-2);
+    font-size: var(--aiur-text-xs);
+  }
+
+  .aiur-bo-legend-item > span:last-child { grid-column: 2; color: var(--aiur-color-muted); }
+
+  .aiur-bo-legend-swatch { display: block; width: 2rem; border-top: 2px solid var(--bo-edge-line); }
+
+  .aiur-bo-edge--depends_on { --bo-edge-line: var(--bo-edge-depends-on); }
+  .aiur-bo-edge--serializes_with { --bo-edge-line: var(--bo-edge-serializes-with); }
+  .aiur-bo-edge--suggested_after { --bo-edge-line: var(--bo-edge-suggested-after); }
+  .aiur-bo-edge--contains { --bo-edge-line: var(--bo-edge-contains); }
+  .aiur-bo-edge--gates { --bo-edge-line: var(--bo-edge-gates); }
+
+  span.aiur-bo-edge--serializes_with { border-style: dashed; }
+  span.aiur-bo-edge--suggested_after { border-style: dotted; }
+  span.aiur-bo-edge--contains { border-width: 2px; }
+  span.aiur-bo-edge--gates { border-style: dashed; border-width: 2px; }
+
+  span.aiur-bo-edge[data-edge-state="terminal_unsatisfied"] {
+    border-color: var(--aiur-color-blocking);
+    color: var(--aiur-color-blocking-ink);
+    background: var(--aiur-color-blocking-soft);
+  }
+
+  span.aiur-bo-edge[data-edge-state="blocking"] { border-style: solid; border-width: 2px; }
+
+  svg.aiur-bo-graph {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    color: var(--aiur-color-fg);
+    background: var(--aiur-color-bg-app);
+    border: 1px solid var(--aiur-color-line);
+    border-radius: var(--aiur-radius-lg);
+    font-family: var(--aiur-font-body);
+  }
+
+  svg.aiur-bo-graph .aiur-bo-edge {
+    fill: none;
+    stroke: var(--bo-edge-line);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+
+  svg.aiur-bo-graph .aiur-bo-edge--serializes_with { stroke-dasharray: 7 4; }
+  svg.aiur-bo-graph .aiur-bo-edge--suggested_after { stroke-dasharray: 2 4; }
+  svg.aiur-bo-graph .aiur-bo-edge--contains { stroke-width: 2.4; opacity: 0.85; }
+  svg.aiur-bo-graph .aiur-bo-edge--gates { stroke-dasharray: 10 3 2 3; }
+
+  svg.aiur-bo-graph .aiur-bo-graph-edge[data-edge-state="terminal_unsatisfied"] .aiur-bo-edge {
+    stroke: var(--aiur-color-blocking);
+    stroke-width: 2.4;
+  }
+
+  svg.aiur-bo-graph .aiur-bo-graph-edge[data-edge-state="blocking"] .aiur-bo-edge { stroke-width: 2.2; }
+  svg.aiur-bo-graph .aiur-bo-graph-edge[data-edge-state="unknown"] .aiur-bo-edge { opacity: 0.45; }
+
+  svg.aiur-bo-graph .aiur-bo-edge-head { fill: var(--bo-edge-line); stroke: none; }
+
+  svg.aiur-bo-graph .aiur-bo-graph-edge[data-edge-state="terminal_unsatisfied"] .aiur-bo-edge-head {
+    fill: var(--aiur-color-blocking);
+  }
+
+  svg.aiur-bo-graph .aiur-bo-node-box {
+    fill: var(--aiur-color-surface);
+    stroke: var(--aiur-color-line-strong);
+    stroke-width: 1;
+  }
+
+  svg.aiur-bo-graph .aiur-bo-graph-node[data-critical="true"] .aiur-bo-node-box {
+    stroke: var(--aiur-color-accent);
+    stroke-width: 2;
+  }
+
+  svg.aiur-bo-graph .aiur-bo-graph-node[data-status="failed"] .aiur-bo-node-box { stroke: var(--aiur-color-blocking); }
+  svg.aiur-bo-graph .aiur-bo-graph-node[data-status="done"] .aiur-bo-node-box { stroke: var(--aiur-color-good); }
+
+  svg.aiur-bo-graph .aiur-bo-node-id { font-family: var(--aiur-font-mono); font-size: var(--aiur-text-xs); fill: var(--aiur-color-muted); }
+  svg.aiur-bo-graph .aiur-bo-node-kind { fill: var(--aiur-color-faint); }
+  svg.aiur-bo-graph .aiur-bo-node-title { font-size: var(--aiur-text-xs); fill: var(--aiur-color-fg); }
+  svg.aiur-bo-graph .aiur-bo-node-meta { font-family: var(--aiur-font-mono); font-size: var(--aiur-text-xs); fill: var(--aiur-color-muted); }
+  svg.aiur-bo-graph .aiur-bo-node-percent { font-family: var(--aiur-font-mono); font-size: var(--aiur-text-xs); fill: var(--aiur-color-accent-ink); }
+
+  svg.aiur-bo-graph .aiur-bo-gate-box {
+    fill: var(--aiur-color-super-soft);
+    stroke: var(--aiur-color-super);
+  }
+
+  svg.aiur-bo-graph .aiur-bo-gate-label { font-family: var(--aiur-font-mono); font-size: var(--aiur-text-xs); fill: var(--aiur-color-super-ink); }
+  svg.aiur-bo-graph .aiur-bo-gate-title { font-size: var(--aiur-text-xs); fill: var(--aiur-color-fg); }
+
+  svg.aiur-bo-graph .aiur-bo-graph-wave-label,
+  svg.aiur-bo-graph .aiur-bo-graph-lane-label,
+  svg.aiur-bo-graph .aiur-bo-graph-summary,
+  svg.aiur-bo-graph .aiur-bo-legend-text {
+    font-family: var(--aiur-font-mono);
+    font-size: var(--aiur-text-xs);
+    fill: var(--aiur-color-muted);
+  }
+
+  svg.aiur-bo-graph .aiur-bo-banner-box {
+    fill: var(--aiur-color-attention-soft);
+    stroke: var(--aiur-color-attention);
+    stroke-dasharray: 4 3;
+  }
+
+  svg.aiur-bo-graph .aiur-bo-banner-text { font-size: var(--aiur-text-xs); fill: var(--aiur-color-attention-ink); font-weight: 700; }
+  svg.aiur-bo-graph .aiur-bo-banner-text.is-body { font-weight: 400; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .aiur-bo-bar > span { transition: width var(--aiur-motion-fast) var(--aiur-ease-standard); }
+  }
+
+  @media (max-width: 640px) {
+    .aiur-bo-card { grid-template-columns: 1fr; }
+  }
+}
+`;
