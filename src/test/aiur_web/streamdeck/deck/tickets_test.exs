@@ -60,8 +60,8 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsTest do
   test "filters retain global ordering and Now ownership, and key presses open the projected ticket" do
     sections = %{now: [row(10, "ci_wait"), row(2, "command")], plan: [queued(10, 1), queued(30, 2)]}
     assert Enum.map(Tickets.keys(sections, {:feature, "deck"}), & &1.id) == ~w(2 10 30)
-    assert Tickets.keys(sections, {:epic, "other"}) == []
-    assert Enum.map(Tickets.keys(sections, {:epic, "ui"}), & &1.id) == ~w(2 10 30)
+    assert Tickets.keys(sections, {:lane, "other"}) == []
+    assert Enum.map(Tickets.keys(sections, {:lane, "ui"}), & &1.id) == ~w(2 10 30)
     assert Enum.map(Tickets.keys(sections, {:state, "ci_wait"}), & &1.id) == ["10"]
     assert Enum.map(Tickets.keys(sections, {:state, :queued}), & &1.id) == ["30"]
     grid = %{agents: Tickets.keys(sections)}

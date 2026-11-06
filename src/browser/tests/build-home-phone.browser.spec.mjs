@@ -6,10 +6,10 @@ import { PHONE_CELLS, PHONE_DATASETS, geom, openPhoneProduct, phoneCell } from '
 
 test.setTimeout(180_000)
 
-// The product's own flow rule (J:646-650, J:781): no lanes or edges, epic colouring, K slots.
+// The product's own flow rule (J:646-650, J:781): no lanes or edges, lane colouring, K slots.
 function expectFlowLayout(g) {
   expect(g.lanes).toBe(0)
-  expect(g.laneG).toBe('Colour = epic')
+  expect(g.laneG).toBe('Colour = lane')
   expect(g.edgesHidden).toBe(true)
   expect(g.histLefts.length).toBeLessThanOrEqual(Math.max(2, Math.floor((g.vpW - 46 - 14) / 140)))
 }

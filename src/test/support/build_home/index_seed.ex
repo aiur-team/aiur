@@ -64,7 +64,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
     meta = [server: server, actor: "cli:fixture", source: "cli:fixture"]
 
     for {slug, f} <- data["features"] do
-      epics = Enum.map(f["epics"], fn key -> %{key: key, label: data["epics"][key]["label"]} end)
+      epics = Enum.map(f["epics"], fn key -> %{key: key, label: data["lanes"][key]["label"]} end)
       {:ok, _} = Features.create(slug, %{label: f["label"], hue: f["hue"], epics: epics, from: dt(f["from"]), to: if(f["to"], do: dt(f["to"]), else: :none)}, meta)
       members = Enum.filter(rows, &(&1["feature"] == slug))
       {added, original} = Enum.split_with(members, & &1["added"])

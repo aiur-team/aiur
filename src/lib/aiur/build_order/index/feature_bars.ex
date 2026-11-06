@@ -49,8 +49,8 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
 
   `epics` is nil when the epic registry could not be read, so a caller renders the flat
   feature rows instead of inventing groups. A feature belongs to the epic whose record
-  lists it; a feature no epic lists stays ungrouped. Epics sort by the first
-  `build_order.feature_order` position any of their features holds, then creation.
+  lists it; a feature no epic lists stays ungrouped. Epics sort by the position their first
+  listed feature holds in `build_order.feature_order`, then creation.
   """
   @spec grouped(map(), integer()) :: %{bars: [bar()], epics: [epic_bar()] | nil} | nil
   def grouped(parts, now) do
@@ -131,13 +131,17 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
         merged: Enum.count(counted, &merged?(Map.get(rows, &1))),
         total: total,
         features: keys,
-        position: Enum.find_index(order, &(&1 in keys)) || length(order),
+        position: order_position(List.first(keys), order),
         created: created_ms(epic)
       }
     end
   end
 
   defp epic_bar(_epic, _numbers, _rows, _shown, _order), do: nil
+
+  # An epic's place in goal order is its first listed feature's place; a first feature
+  # `feature_order` never lists leaves the epic to sort by creation.
+  defp order_position(slug, order), do: Enum.find_index(order, &(&1 == slug)) || length(order)
 
   # An epic row keeps its authored label, without the logical id or program prefix the
   # import writes in front of a Build Order root's name.

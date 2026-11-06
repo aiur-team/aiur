@@ -4,6 +4,7 @@ defmodule Aiur.DecisionStore.Answers do
   require Logger
 
   alias Aiur.Commands.ActorSource
+  alias Aiur.Commands.Media
   alias Aiur.Commands.NativeAnswer
   alias Aiur.Commands.Overrides
   alias Aiur.Commands.Requester
@@ -146,6 +147,7 @@ defmodule Aiur.DecisionStore.Answers do
              decision_id: request.decision_id,
              decision_version: decision_version,
              options: options,
+             command_media: Media.index(request.media, options),
              actor: actor,
              supervisor_basis: Keyword.get(opts, :supervisor_basis),
              ticket_comment_pending?: true,

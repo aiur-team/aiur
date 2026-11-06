@@ -78,7 +78,7 @@ function cues(t) {
 function dependencies(ids, D) {
   return ids.map(id => {
     const t = Object.hasOwn(D.byId, id) ? D.byId[id] : null;
-    const e = t && D.epics?.[t.epic || 'unsorted'];
+    const e = t && D.lanes?.[t.epic || 'unsorted'];
     return '<button type="button" class="bm-dep" data-goto="' + esc(id) + '">' +
       (Number.isFinite(e?.hue) ? '<span style="--h:' + e.hue + '"></span>' : '') +
       esc(t ? refText(t) : /^[0-9]+$/.test(id) ? '#' + id : '—') + '<em>' + esc(t?.title ?? 'not loaded') + '</em></button>';

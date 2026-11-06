@@ -169,8 +169,9 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
       %{slug: "launch", label: "Launch", features: ["launch-api", "launch-ui"], created_at: ago(9)}
     ]
 
-    # Goal order lists launch-ui before launch-api, so the epic sorts on launch-ui's position
-    # while its own features keep the order its record holds.
+    # Goal order lists launch-ui before launch-api. The epic's place is its first listed
+    # feature's place (launch-api at index 1), while its own features keep the order its
+    # record holds and later's first feature is not listed at all.
     %{bars: bars, epics: groups} = FeatureBars.grouped(parts(rows, epics: epics, order: ["launch-ui", "launch-api"]), @now)
 
     assert Enum.map(bars, & &1.key) == ~w(launch-ui launch-api later-ops later-data)
@@ -179,6 +180,29 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
              %{key: "launch", label: "Launch", merged: 2, total: 4, features: ~w(launch-api launch-ui)},
              %{key: "later", label: "Later", merged: 1, total: 2, features: ~w(later-data later-ops)}
            ]
+  end
+
+  test "an epic sorts on its first listed feature, not on the earliest one goal order lists" do
+    rows = %{
+      1 => open(["feature:second-listed"]),
+      2 => open(["feature:first-listed"]),
+      3 => open(["feature:other"])
+    }
+
+    # "wide" lists second-listed first even though goal order puts first-listed at index 0;
+    # "narrow" lists only first-listed. Reading "first listed feature" literally puts narrow
+    # first, so a sort on the earliest goal position would order these the other way.
+    epics = [
+      %{slug: "wide", label: "Wide", features: ~w(second-listed first-listed), created_at: ago(1)},
+      %{slug: "narrow", label: "Narrow", features: ~w(first-listed), created_at: ago(2)}
+    ]
+
+    %{epics: groups} = FeatureBars.grouped(parts(rows, epics: epics, order: ["first-listed", "second-listed"]), @now)
+    assert Enum.map(groups, & &1.key) == ~w(narrow wide)
+
+    # "other" is in no epic's list and in no goal order, so it sorts after both by creation.
+    %{epics: later} = FeatureBars.grouped(parts(rows, epics: [%{slug: "loose", label: "Loose", features: ~w(other), created_at: ago(5)} | epics], order: []), @now)
+    assert Enum.map(later, & &1.key) == ~w(loose narrow wide)
   end
 
   test "an epic counts a shared ticket once and leaves features no epic lists ungrouped" do

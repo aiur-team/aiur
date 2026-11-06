@@ -70,46 +70,74 @@ test('List shows selection is keyboard accessible, persisted, and scoped to List
   await expect(tabs.getByRole('tab', { name: 'Features' })).toBeFocused()
   await page.keyboard.press('End')
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/list=epics/)
+  await expect(page).toHaveURL(/list=lanes/)
   await expect(page.locator('.epic-list')).toHaveCount(1)
-  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.epic))).toEqual(['bugs', 'infra', 'docs', 'design'])
-  await expect(tabs.getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.lane))).toEqual(['bugs', 'infra', 'docs', 'design'])
+  await expect(tabs.getByRole('tab', { name: 'Lanes' })).toHaveAttribute('aria-selected', 'true')
   await page.reload()
   const restored = page.getByRole('tablist', { name: 'List shows' })
-  await expect(restored.getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await expect(restored.getByRole('tab', { name: 'Lanes' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: 'Timeline' }).click()
   await expect(page.getByRole('tablist', { name: 'List shows' })).toHaveCount(0)
   await page.getByRole('tab', { name: 'List' }).click()
-  await expect(page.getByRole('tablist', { name: 'List shows' }).getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tablist', { name: 'List shows' }).getByRole('tab', { name: 'Lanes' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: 'Tickets' }).click()
   await expect(page).not.toHaveURL(/list=/)
   await expect(page.locator('.bd-list')).toHaveCount(1)
 })
-test('Epics sort unknown last, expose overlap and unmatched count, and filter on Enter', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Epics' }).click()
+test('Lanes sort unknown last, expose overlap and unmatched count, and filter on Enter', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Lanes' }).click()
   await page.evaluate(async () => {
     const { ctx, fx } = await import('/build-home/state.js')
-    for (const key of ['design', 'docs']) Object.assign(ctx.snap.epic_progress[key], { closed: 1, open: 0, total: 1 })
+    for (const key of ['design', 'docs']) Object.assign(ctx.snap.lane_progress[key], { closed: 1, open: 0, total: 1 })
     fx.renderList()
   })
-  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.epic))).toEqual(['bugs', 'infra', 'design', 'docs'])
+  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.lane))).toEqual(['bugs', 'infra', 'design', 'docs'])
   await page.evaluate(async () => {
     const { ctx, fx } = await import('/build-home/state.js')
-    ctx.snap.epic_progress.design = { ...ctx.snap.epic_progress.design, closed: null, open: null, total: null, reason: 'history incomplete' }
+    ctx.snap.lane_progress.design = { ...ctx.snap.lane_progress.design, closed: null, open: null, total: null, reason: 'history incomplete' }
     fx.renderList()
   })
-  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.epic))).toEqual(['bugs', 'infra', 'docs', 'design'])
-  await expect(page.locator('.ep-row[data-epic="design"] .ep-count')).toContainText('—')
-  await expect(page.locator('.ep-row[data-epic="design"] .ep-count')).toContainText('history incomplete')
-  await expect(page.locator('.epic-list footer')).toContainText('A ticket can count under more than one epic')
-  await expect(page.locator('.epic-list footer')).toContainText('3 tickets match no epic')
-  await page.locator('.ep-row[data-epic="infra"]').focus()
+  expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.lane))).toEqual(['bugs', 'infra', 'docs', 'design'])
+  await expect(page.locator('.ep-row[data-lane="design"] .ep-count')).toContainText('—')
+  await expect(page.locator('.ep-row[data-lane="design"] .ep-count')).toContainText('history incomplete')
+  await expect(page.locator('.epic-list footer')).toContainText('A ticket can count under more than one lane')
+  await expect(page.locator('.epic-list footer')).toContainText('3 tickets match no lane')
+  await page.locator('.ep-row[data-lane="infra"]').focus()
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/view=list.*epic=infra|epic=infra.*view=list/)
+  await expect(page).toHaveURL(/view=list.*lane=infra|lane=infra.*view=list/)
   await expect(page.getByRole('tab', { name: 'Tickets' })).toHaveAttribute('aria-selected', 'true')
 })
-test('Epics phone rows fit and pass axe', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Epics' }).click()
+test('Lanes tab renders one row per configured lane with its count', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Lanes' }).click()
+  const configured = await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    return Object.entries(ctx.D.lanes).filter(([key, lane]) => key !== 'unsorted' && !lane.feature).map(([key, lane]) => [key, lane.label])
+  })
+  expect(configured.length).toBeGreaterThan(0)
+  const rows = await page.locator('.ep-row').evaluateAll(nodes => nodes.map(node => [node.dataset.lane, node.querySelector('.ep-name b').textContent, node.querySelector('.ep-count').textContent]))
+  expect(rows.map(row => row.slice(0, 2))).toHaveLength(configured.length)
+  expect(rows.map(row => row[0]).sort()).toEqual(configured.map(([key]) => key).sort())
+  expect(rows.map(row => row[1]).sort()).toEqual(configured.map(([, label]) => label).sort())
+  expect(rows.every(row => row[2].length > 0)).toBe(true)
+})
+test('Lane naming leaves no Epic in the tab bar or the lane column guide', async ({ page }) => {
+  const tabs = page.getByRole('tablist', { name: 'List shows' })
+  expect((await tabs.innerText()).replace(/\s+/g, ' ').trim()).toBe('Tickets Features Lanes')
+  expect(await tabs.innerText()).not.toMatch(/epic/i)
+  // The lane column guide only renders in the board views, so switch to Timeline.
+  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await expect(page.locator('#bd-lanes .bd-lane-g')).toHaveText('Order')
+  const guide = await page.evaluate(async () => {
+    const { S } = await import('/build-home/state.js')
+    const cols = await import('/build-home/columns.js')
+    S.flow = true; cols.applyCols(cols.visibleCols(), true)
+    return document.querySelector('#bd-lanes .bd-lane-g').textContent
+  })
+  expect(guide).toBe('Colour = lane')
+})
+test('Lanes phone rows fit and pass axe', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Lanes' }).click()
   await page.setViewportSize({ width: 390, height: 844 })
   const widths = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, viewport: innerWidth }))
   expect(widths.page).toBeLessThanOrEqual(widths.viewport)
@@ -122,26 +150,26 @@ test('Epics phone rows fit and pass axe', async ({ page }) => {
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])
 })
-test('Epics with no configured rows show the configuration empty state', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Epics' }).click()
+test('Lanes with no configured rows show the configuration empty state', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Lanes' }).click()
   await page.evaluate(async () => {
     const { ctx, fx } = await import('/build-home/state.js')
-    ctx.D.epics = { unsorted: ctx.D.epics.unsorted }
+    ctx.D.lanes = { unsorted: ctx.D.lanes.unsorted }
     fx.renderList()
   })
   await expect(page.locator('.ep-row')).toHaveCount(0)
-  await expect(page.locator('.bd-ep-empty')).toContainText('build_order.general_epics')
-  await expect(page.locator('.bd-ep-empty a')).toHaveAttribute('href', /configuration-build-order#general-epics/)
+  await expect(page.locator('.bd-ep-empty')).toContainText('build_order.lanes')
+  await expect(page.locator('.bd-ep-empty a')).toHaveAttribute('href', /configuration-build-order#lanes/)
 })
-test('Epics with no matching tickets show the configuration empty state', async ({ page }) => {
-  await page.getByRole('tab', { name: 'Epics' }).click()
+test('Lanes with no matching tickets show the configuration empty state', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Lanes' }).click()
   await page.evaluate(async () => {
     const { ctx, fx } = await import('/build-home/state.js')
-    for (const value of Object.values(ctx.snap.epic_progress)) Object.assign(value, { closed: 0, open: 0, total: 0, reason: null })
+    for (const value of Object.values(ctx.snap.lane_progress)) Object.assign(value, { closed: 0, open: 0, total: 0, reason: null })
     fx.renderList()
   })
   await expect(page.locator('.ep-row')).toHaveCount(0)
-  await expect(page.locator('.bd-ep-empty')).toContainText('No epics configured')
+  await expect(page.locator('.bd-ep-empty')).toContainText('No lanes configured')
 })
 test('List shows label stays beside options on a narrow viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
@@ -214,7 +242,7 @@ test('B3 real live diff preserves focus and position; removal and empty filters 
     fx.relayout(); return { next, focused: document.activeElement.dataset.id }
   }, id)
   expect(fallback.focused).toBe(fallback.next)
-  await page.evaluate(async () => { const { S, fx } = await import('/build-home/state.js'); S.f.epic = ['none']; fx.relayout() })
+  await page.evaluate(async () => { const { S, fx } = await import('/build-home/state.js'); S.f.lane = ['none']; fx.relayout() })
   await expect(page.locator('.bd-list')).toBeFocused()
 })
 test('B4 server paging disables duplicate clicks and permits an explicit retry', async ({ page }) => {
@@ -379,7 +407,7 @@ test('history button focus survives live rerenders and falls back when exhausted
   await expect(rows(page).last()).toBeFocused()
 })
 
-test('narrow widths drop the epic column, then the agent column', async ({ page }) => {
+test('narrow widths drop the lane column, then the agent column', async ({ page }) => {
   const hidden = () => Promise.all(['.c-ep', '.c-ag'].map(column =>
     page.locator('.lr-h ' + column).evaluate(el => getComputedStyle(el).display === 'none')
   ))

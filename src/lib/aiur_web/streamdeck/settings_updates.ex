@@ -24,8 +24,12 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   @spec save(map(), Path.t()) :: {:ok, map()} | {:error, term()}
   def save(patch, path \\ Settings.path()), do: SettingsSnapshot.save(patch, path)
 
-  @spec default_view(map()) :: :ticket | :feature | :epic | :fleet
-  def default_view(settings), do: String.to_existing_atom(settings["default_view"])
+  @spec default_view(map()) :: :ticket | :feature | :lane | :fleet
+  def default_view(settings), do: view(settings["default_view"])
+
+  # The pre-rename "epic" setting opens the lane view.
+  defp view("epic"), do: :lane
+  defp view(value), do: String.to_existing_atom(value)
 
   @doc "Apply a persisted settings result identically to channel and emulator navigation."
   @spec apply_result(Nav.t(), map(), {:ok, map()} | {:error, term()}) :: %{nav: Nav.t(), toast: String.t() | nil, result: :ok | {:error, String.t()}}

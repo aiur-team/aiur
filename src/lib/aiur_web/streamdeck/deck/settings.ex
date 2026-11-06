@@ -54,7 +54,7 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
       patch = Map.update(patch, "alerts", current["alerts"], &Map.merge(current["alerts"], &1))
       candidate = Map.merge(current, patch)
       candidate = if is_integer(candidate["brightness"]), do: Map.update!(candidate, "brightness", &min(max(&1, 0), 100)), else: candidate
-      {:ok, candidate}
+      {:ok, canonical_view(candidate)}
     else
       {:error, :invalid_settings}
     end
@@ -63,7 +63,9 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
   def merge(_current, _patch), do: {:error, :invalid_settings}
 
   defp valid?({key, value}) when key in ["mic_id", "speaker_id", "instance"], do: is_nil(value) or (is_binary(value) and byte_size(value) in 1..256)
-  defp valid?({"default_view", value}), do: value in ~w(ticket feature epic fleet)
+  # "epic" is the pre-rename view name and still loads; it reads as "lane" so the
+  # settings surfaces only ever see the current name.
+  defp valid?({"default_view", value}), do: value in ~w(ticket feature lane epic fleet)
   defp valid?({"default_sort", value}), do: value in ~w(state priority title)
   defp valid?({"brightness", value}), do: is_nil(value) or is_integer(value)
   defp valid?({"dim_after_seconds", value}), do: is_integer(value) and value in 0..86_400
@@ -74,6 +76,9 @@ defmodule AiurWeb.Streamdeck.Deck.Settings do
   end
 
   defp valid?(_entry), do: false
+
+  defp canonical_view(%{"default_view" => "epic"} = settings), do: Map.put(settings, "default_view", "lane")
+  defp canonical_view(settings), do: settings
 
   defp instance_key do
     case Aiur.Identity.instance_key() do
