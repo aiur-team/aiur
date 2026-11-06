@@ -5,7 +5,7 @@ export function fromServer(state = {}) {
     fmode: state.fmode ?? 'focus', fsort: state.fsort ?? 'goal', liveMin: state.live_min ?? false,
     trees: state.trees ?? false, ticket: state.ticket ?? null,
   });
-  for (const key of ['epic', 'model', 'tstate', 'astate']) S.f[key] = [...(state[key] ?? [])];
+  for (const key of ['lane', 'model', 'tstate', 'astate']) S.f[key] = [...(state[key] ?? [])];
 }
 export function writeURL(extra) {
   if (extra && Object.hasOwn(extra, 'ticket')) S.ticket = extra.ticket || null;
@@ -17,7 +17,7 @@ export function writeURL(extra) {
   set('trees', S.trees ? '1' : ''); set('live', S.liveMin ? 'min' : '');
   set('span', S.span !== 1 ? String(S.span) : '');
   set('feature', S.feature); set('fmode', S.feature && S.fmode === 'compact' ? 'compact' : '');
-  for (const key of ['epic', 'model', 'tstate', 'astate']) set(key, S.f[key].join(','));
+  for (const key of ['lane', 'model', 'tstate', 'astate']) set(key, S.f[key].join(','));
   if (extra && Object.hasOwn(extra, 'ticket')) params.ticket = extra.ticket || '';
   const life = ctx.life;
   return ctx.push('build:url', params).then(() => {

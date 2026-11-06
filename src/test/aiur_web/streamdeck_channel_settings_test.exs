@@ -41,8 +41,10 @@ defmodule AiurWeb.StreamdeckChannelSettingsTest do
     assert_reply(ref, :ok, %{"mic_id" => "second", "brightness" => 30}, 1_000)
     input(socket, "devices", Map.put(inventory(), "legacy_mic_id", "old-mic"))
     assert SettingsSnapshot.read(path).settings["mic_id"] == "second"
+    # The pre-rename "epic" view still opens Lane and is saved under the current name.
+    assert SettingsSnapshot.read(path).settings["default_view"] == "lane"
     second = settings_socket()
-    assert :sys.get_state(second.channel_pid).assigns.deck_nav.view == :epic
+    assert :sys.get_state(second.channel_pid).assigns.deck_nav.view == :lane
   end
 
   test "malformed device inventory cannot mutate settings", %{path: path} do

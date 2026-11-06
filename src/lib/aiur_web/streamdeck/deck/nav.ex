@@ -8,11 +8,11 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   release `dial_press`. Effects are data for ticket/priority action owners.
   """
 
-  @views [:ticket, :feature, :epic, :fleet]
+  @views [:ticket, :feature, :lane, :fleet]
   defstruct surface: :grid,
             settings: %{section: nil, cursor: 0, return_surface: :grid, notice: nil},
             view: :ticket,
-            pages: %{ticket: 0, feature: 0, epic: 0, fleet: 0},
+            pages: %{ticket: 0, feature: 0, lane: 0, fleet: 0},
             stack: [],
             drill_pages: [],
             selected: nil,
@@ -22,7 +22,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
             meter_count: 0
 
   @type t :: %__MODULE__{
-          view: :ticket | :feature | :epic | :fleet,
+          view: :ticket | :feature | :lane | :fleet,
           surface: :grid | :chat | :cmd | :settings | :commands,
           settings: map(),
           pages: map(),
@@ -109,7 +109,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   defp transition(nav, %{"kind" => "key_press", target: {:ticket, id}}) when is_binary(id),
     do: {%{nav | selected: id}, [{:open_ticket, id}]}
 
-  defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :epic, :fleet, :meter_detail] and is_binary(id),
+  defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :lane, :fleet, :meter_detail] and is_binary(id),
     do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
 
   defp transition(nav, _input), do: {nav, []}

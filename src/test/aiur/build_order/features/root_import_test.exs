@@ -127,15 +127,15 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
     assert snapshot.owners[11].actor == "import"
     j = read_journals(pid, snapshot)
     p = RootImport.plan(history(), snapshot, j)
-    for k <- [:creates, :updates, :new_epics, :adds, :moves, :removes, :also, :also_removes], do: assert(p[k] == [])
+    for k <- [:epic_creates, :epic_updates, :creates, :updates, :new_epics, :adds, :moves, :removes, :also, :also_removes], do: assert(p[k] == [])
     assert :ok = RootImportWrites.apply(p, writer)
     assert read_journals(pid, snapshot) == j
     h = history() |> put_in([:rows, 2573, :title], "Renamed") |> put_in([:rows, 10, :labels], ["build-lane:platform"])
     p = RootImport.plan(h, snapshot, j)
     update = Enum.find(p.updates, &(&1.slug == "bo-2573"))
     assert update.label == "Renamed"
-    assert %{key: "f-bo-2573-runtime", label: "Renamed · Runtime"} in update.epics
-    assert %{key: "custom", label: "Operator epic"} in update.epics
+    assert %{key: "f-bo-2573-runtime", label: "Renamed · Runtime", color: "green", hue: 120} in update.epics
+    assert %{key: "custom", label: "Operator epic", color: "purple", hue: 280} in update.epics
     assert {"bo-2573", %{key: "f-bo-2573-platform", label: "Renamed · Platform"}} in p.new_epics
     assert :ok = RootImportWrites.apply(p, writer)
     assert {:ok, owner} = Features.owner(10, server: pid)
@@ -143,6 +143,26 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
     assert owner.joined_at == @at
     assert {:ok, s} = Features.snapshot(server: pid)
     assert RootImport.plan(h, s, read_journals(pid, s)).updates == []
+  end
+
+  test "root import creates the epic for each build-order root and follows title renames" do
+    {pid, writer} = store()
+    assert :ok = RootImportWrites.apply(RootImport.plan(history(), @empty, %{}), writer)
+    assert {:ok, %{root: 2573, label: "Paseo pack", label_source: :import, hue: hue}} = Features.epic("bo-2573", server: pid)
+    assert {:ok, %{features: %{"bo-2573" => %{hue: ^hue}}}} = Features.snapshot(server: pid)
+    assert {:ok, %{root: 2000}} = Features.epic("bo-2000", server: pid)
+
+    assert {:ok, snapshot} = Features.snapshot(server: pid)
+    renamed = put_in(history(), [:rows, 2573, :title], "Renamed")
+    p = RootImport.plan(renamed, snapshot, read_journals(pid, snapshot))
+    assert [%{slug: "bo-2573", label: "Renamed"}] = p.epic_updates
+    assert :ok = RootImportWrites.apply(p, writer)
+    assert {:ok, %{label: "Renamed"}} = Features.epic("bo-2573", server: pid)
+
+    # An operator's label survives the next import, so only their own edit changes it.
+    assert {:ok, _} = Features.epic_edit("bo-2573", %{label: "Operator choice"}, server: pid, source: "cli:kev", actor: "kev")
+    assert {:ok, s} = Features.snapshot(server: pid)
+    assert RootImport.plan(put_in(history(), [:rows, 2573, :title], "Renamed again"), s, read_journals(pid, s)).epic_updates == []
   end
 
   test "lane display delegation preserves existing labels (future regression guard)" do

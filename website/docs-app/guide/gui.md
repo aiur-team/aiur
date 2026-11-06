@@ -73,6 +73,10 @@ On `/voice`, the worker conversation drawer offers **Steer · interrupts**,
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
+The worker list includes conversations that are running or have stored history;
+unavailable tickets are omitted, with a count of how many were hidden. Use
+**Previous** and **Next** to page through large lists.
+
 The selector is disabled on read-only dashboards. Conversation input defaults to
 Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
@@ -108,6 +112,10 @@ Live changes are coalesced; snapshots distinguish unavailable sources from empty
 List (`?view=list`) shows Live, Planned, Not queued and newest-first History as table rows.
 Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
 Unknown values stay explicit, and degraded section headings show their source state and read age.
+
+Build order (`?view=build-order`) renders the published `build-order.v1` document — the review and the
+dependency graph — through the `aiur-build-order` package. A `bo-<root>` feature focuses one root;
+otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
 
 The Now band shows active agents between history and the plan, using the same
 card style as the other tickets. It scrolls with the board, so you can stop

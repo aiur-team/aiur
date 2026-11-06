@@ -137,8 +137,8 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
     with {:ok, body} <- File.read(path), {:ok, json} <- Jason.decode(body) do
       data = if(dataset == "hostile", do: json["snapshot"], else: json)
       data = Map.put_new(data, "feature_progress", %{"features" => %{}, "observed_at" => nil, "plan_version" => nil, "extras" => 0, "reason" => nil})
-      data = Map.put_new(data, "epic_progress", unknown_epic_progress(data))
-      {:ok, Map.put_new(data, "epic_progress_meta", %{"unmatched" => nil, "observed_at" => nil, "reason" => "fixture membership unavailable"})}
+      data = Map.put_new(data, "lane_progress", unknown_lane_progress(data))
+      {:ok, Map.put_new(data, "lane_progress_meta", %{"unmatched" => nil, "observed_at" => nil, "reason" => "fixture membership unavailable"})}
     else
       _error -> {:error, {:fixture_missing, path}}
     end
@@ -162,9 +162,9 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   defp load(_dataset, _dir), do: {:error, :unknown_dataset}
 
-  defp unknown_epic_progress(data) do
-    Map.new(data["epics"] || %{}, fn {key, epic} ->
-      value = if epic["general"], do: %{"closed" => nil, "open" => nil, "total" => nil, "observed_at" => nil, "reason" => "fixture counts unavailable"}, else: nil
+  defp unknown_lane_progress(data) do
+    Map.new(data["lanes"] || %{}, fn {key, lane} ->
+      value = if lane["general"], do: %{"closed" => nil, "open" => nil, "total" => nil, "observed_at" => nil, "reason" => "fixture counts unavailable"}, else: nil
       {key, value}
     end)
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)

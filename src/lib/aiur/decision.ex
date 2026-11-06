@@ -30,6 +30,10 @@ defmodule Aiur.Decision do
     * `recommendation` — `%{option_id, reason}` or `nil`.
     * `consequence_of_delay` — bounded text or `nil`.
     * `artifacts` — list of `%{kind: :path | :url, value: String.t()}`.
+    * `media` — typed prompt media (`Aiur.Commands.Media` item maps); empty for
+      every text-only Command, so its content hash is unchanged.
+    * option `media` — the same typed items per option, omitted when empty for
+      the same hash-compatibility reason.
     * `created_at` — canonical acceptance time, stamped by the store.
     * `source_created_at` — optional agent-reported time, provenance only;
       never controls audit order or notification age.
@@ -66,6 +70,7 @@ defmodule Aiur.Decision do
         }
 
   @type artifact :: %{kind: :path | :url, value: String.t()}
+  @type media_item :: Aiur.Commands.Media.item()
   @type legacy_attention :: %{slug: String.t(), topic: String.t()}
   @type decision_status :: :open | :deferred | :expired | :dismissed | :moot | :decided | :acknowledged | :resolved
   @type delivery_status :: :not_dispatched | :pending | :queued | :delivered | :consumed | :failed
@@ -129,6 +134,7 @@ defmodule Aiur.Decision do
           recommendation: %{option_id: String.t(), reason: String.t() | nil} | nil,
           consequence_of_delay: String.t() | nil,
           artifacts: [artifact()],
+          media: [media_item()],
           created_at: DateTime.t(),
           source_created_at: DateTime.t() | nil,
           legacy_attention: legacy_attention() | nil,
@@ -188,6 +194,7 @@ defmodule Aiur.Decision do
               [
                 schema_version: @schema_version,
                 source_id: nil,
+                media: [],
                 kind: nil,
                 recommendation: nil,
                 consequence_of_delay: nil,

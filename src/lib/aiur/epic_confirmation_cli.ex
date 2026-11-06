@@ -1,14 +1,14 @@
 defmodule Aiur.EpicConfirmationCLI do
   @moduledoc false
 
-  @spec result(map(), map()) :: map()
-  def result(result, provenance) do
+  @spec result(map(), map(), String.t()) :: map()
+  def result(result, provenance, command) do
     rows =
       Enum.map(result.results, fn row ->
         Map.update!(row, :status, &if(&1 == :changed, do: :confirmed, else: &1))
       end)
 
-    result |> Map.put(:results, rows) |> Map.put(:source, provenance.source) |> Map.put(:command, "epic confirm")
+    result |> Map.put(:results, rows) |> Map.put(:source, provenance.source) |> Map.put(:command, command)
   end
 
   @spec refusal(list()) :: map()

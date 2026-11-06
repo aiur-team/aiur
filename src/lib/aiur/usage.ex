@@ -9,7 +9,8 @@ defmodule Aiur.Usage do
     github: Aiur.Usage.Provider.GitHub,
     broker: Aiur.Usage.Provider.Broker,
     ticket: Aiur.Usage.Provider.Ticket,
-    netlify: Aiur.Usage.Provider.Netlify
+    netlify: Aiur.Usage.Provider.Netlify,
+    openrouter: Aiur.Usage.Provider.OpenRouter
   }
 
   @doc "Provider names served by this release. Add a provider adapter here."

@@ -13,11 +13,11 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('agent-only epic stays hidden while its live card keeps its hue', async ({ page }) => {
+test('agent-only lane stays hidden while its live card keeps its hue', async ({ page }) => {
   const result = await page.evaluate(() => {
-    ctx.D.epics = { bug: { label: 'Bug', icon: 'bug', hue: 38, general: true }, ops: { label: 'Ops', icon: 'server', hue: 200, general: true }, unsorted: { label: 'Unsorted', icon: 'unsorted', hue: 0, unsorted: true } }
+    ctx.D.lanes = { bug: { label: 'Bug', icon: 'bug', hue: 38, general: true }, ops: { label: 'Ops', icon: 'server', hue: 200, general: true }, unsorted: { label: 'Unsorted', icon: 'unsorted', hue: 0, unsorted: true } }
     ctx.D.order = ['bug', 'ops', 'unsorted']; ctx.D.now = [{ id: 'agent-only', num: 91, epic: 'bug', sec: 'now', agent: { state: 'running' }, also: [], deps: [], type: 'bug', cue: {} }]
-    ctx.D.hist = []; ctx.D.plan = []; ctx.D.nq = []; S.flow = false; S.feature = null; S.f.epic = []
+    ctx.D.hist = []; ctx.D.plan = []; ctx.D.nq = []; S.flow = false; S.feature = null; S.f.lane = []
     const item = { t: ctx.D.now[0], key: 'b0', y: 42, h: 32, sec: 'now' }, card = st.fx.makeCard(item)
     ctx.L = { secs: { hist: { items: [], h: 100 }, plan: { items: [] }, nq: { items: [] } }, band: { BK: 1, items: [{ ...item, el: card }] } }
     ctx.cols = []
@@ -33,14 +33,14 @@ test('visible ticket lanes follow filters and hide when the last ticket is filte
     const day = Date.now(), ticket = (id, epic, sec) => ({ id, epic, sec, end: day, also: [], deps: [], type: 'bug', cue: {} })
     const infra = ticket('infra-ticket', 'infra', 'plan'), docs = ticket('docs-ticket', 'docs', 'plan')
     const agent = { ...ticket('agent', 'docs', 'now'), num: 93, agent: { state: 'running' } }
-    ctx.D.order = ['infra', 'docs', 'unsorted']; ctx.D.epics.infra = { label: 'Infra', icon: 'server', hue: 202 }; ctx.D.epics.docs = { label: 'Docs', icon: 'docs', hue: 46 }
+    ctx.D.order = ['infra', 'docs', 'unsorted']; ctx.D.lanes.infra = { label: 'Infra', icon: 'server', hue: 202 }; ctx.D.lanes.docs = { label: 'Docs', icon: 'docs', hue: 46 }
     ctx.D.features = {}; ctx.D.byId.agent = agent; ctx.D.now = [agent]; ctx.D.plan = [infra, docs]; ctx.D.nq = []; ctx.D.hist = []; ctx.D.all = [infra, docs, agent]
-    S.feature = null; S.flow = false; S.f.epic = ['infra']; ctx.vp.scrollTop = 100000; ctx.vp.clientHeight = 900
+    S.feature = null; S.flow = false; S.f.lane = ['infra']; ctx.vp.scrollTop = 100000; ctx.vp.clientHeight = 900
     const dims = { vpW: 1440, vpH: 900, gut: 84 }, setLayout = () => { ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { gantt }) }
     setLayout(); ctx.L.band.items[0].el = st.fx.makeCard(ctx.L.band.items[0])
     const first = cols.visibleCols(), color = ctx.L.band.items[0].el.style.getPropertyValue('--h')
-    S.f.epic = ['docs']; setLayout(); const second = cols.visibleCols()
-    S.f.epic = ['absent']; setLayout(); const lastHidden = cols.visibleCols()
+    S.f.lane = ['docs']; setLayout(); const second = cols.visibleCols()
+    S.f.lane = ['absent']; setLayout(); const lastHidden = cols.visibleCols()
     return { first, second, lastHidden, color }
   })
   expect(result).toEqual({ first: ['infra'], second: ['docs'], lastHidden: [], color: '46' })

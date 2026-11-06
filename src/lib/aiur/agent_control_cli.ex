@@ -36,6 +36,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate executor_moot(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate units(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate feature(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  defdelegate lane(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate epic(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate build_orders(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
@@ -90,6 +91,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate message_status(request_id), to: Aiur.Orchestrator.ControlCLI.Message, as: :status
   defdelegate pause(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
+
+  defdelegate redispatch(targets, backend), to: Aiur.AgentControlCLI.Redispatch
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
   defdelegate take(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :take
   defdelegate release(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :release

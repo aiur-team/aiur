@@ -55,6 +55,19 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsTest do
     assert SettingsMenu.choices("mic_id", settings, devices) == [%{label: "missing: unplugged", value: "unplugged"}, %{label: "First microphone", value: "first"}]
   end
 
+  test "a pre-rename epic default view loads and saves as lane", %{path: path} do
+    File.write!(path, Jason.encode!(Map.put(Settings.defaults(), "default_view", "epic")))
+
+    assert {:ok, loaded} = Settings.read(path)
+    assert loaded["default_view"] == "lane"
+    assert SettingsUpdates.default_view(loaded) == :lane
+    assert SettingsUpdates.default_view(%{"default_view" => "epic"}) == :lane
+
+    assert {:ok, saved} = Settings.set(%{"default_view" => "epic"}, path)
+    assert saved["default_view"] == "lane"
+    assert {:ok, %{"default_view" => "lane"}} = Settings.read(path)
+  end
+
   test "state and priority sorts retain canonical bucket and queue order within groups" do
     agents = [
       %{identifier: "AIUR-3", bucket: :alert, priority: false},

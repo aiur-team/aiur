@@ -3,8 +3,8 @@ defmodule Aiur.BuildOrder.Index.Rows do
   alias Aiur.BuildOrder.{Epic, FeatureStats, Metadata, ProviderHealth, SourceFreshness}
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
   alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
-  alias Aiur.Config.Schema.GeneralEpic
   alias Aiur.GitHub.Issues
+  alias Aiur.Lane
   alias Aiur.StartTrigger.ProgressStore
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
@@ -108,7 +108,7 @@ defmodule Aiur.BuildOrder.Index.Rows do
       priority: priority(row.labels),
       type: type(row.labels),
       epic: resolution.key,
-      general_epics: Enum.filter(context.general, &GeneralEpic.matches?(&1, row.labels)) |> Enum.map(& &1.key),
+      general_epics: Enum.filter(context.general, &Lane.matches?(&1, row.labels)) |> Enum.map(& &1.key),
       feature: feature,
       also: also,
       added: added,

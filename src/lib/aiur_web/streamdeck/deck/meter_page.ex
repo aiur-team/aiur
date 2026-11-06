@@ -21,7 +21,7 @@ defmodule AiurWeb.Streamdeck.Deck.MeterPage do
   @spec sections(map(), Nav.t()) :: map()
   def sections(grid, nav), do: grid |> providers(nav, Map.get(grid, :meter_usage, %{})) |> Deck.navigation()
 
-  defp providers(grid, %{view: view}, usage) when view in [:epic, :fleet] do
+  defp providers(grid, %{view: view}, usage) when view in [:lane, :fleet] do
     keys =
       usage
       |> Meters.providers()

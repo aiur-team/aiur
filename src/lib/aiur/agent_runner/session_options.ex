@@ -6,6 +6,7 @@ defmodule Aiur.AgentRunner.SessionOptions do
   alias Aiur.AgentRunner.SessionResume
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.HeadroomDispatch
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Tracker
@@ -206,10 +207,23 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp choose_account(session_opts, backend, candidates, config, usages, reset_at) do
     mode = config.account_selection || "balance"
 
+    # A turn handoff re-chooses an account on the backend dispatch already
+    # selected. An account at or below `agent.usage_floor_percent` is skipped
+    # here exactly as it is at claim time (#7504) — balance would otherwise
+    # prefer the most-used account, which is the one the floor just held. When
+    # every account on the backend is floored there is no other route to take
+    # from here, so the least-used one still serves the turn rather than
+    # stranding the ticket.
+    case UsageFloorGate.allowed_accounts(backend, candidates, usages) do
+      [] -> select_account(session_opts, backend, candidates, mode, usages, reset_at)
+      allowed -> select_account(session_opts, backend, allowed, mode, usages, reset_at)
+    end
+  end
+
+  defp select_account(session_opts, backend, candidates, mode, usages, reset_at) do
     case Accounts.select(backend, candidates, mode, usages) do
       {:ok, name} ->
-        session_opts
-        |> put_selected_account(backend, name, usages)
+        put_selected_account(session_opts, backend, name, usages)
 
       {:error, reason} ->
         put_account_selection_error(session_opts, backend, reason, reset_at)

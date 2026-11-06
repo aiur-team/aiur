@@ -7,12 +7,7 @@ defmodule AiurWeb.Streamdeck.Deck.ChatPage do
   def page(%{assigns: %{deck_chat: state}} = socket, before) when is_map(state) and is_binary(before) and byte_size(before) in 1..512 do
     case ConversationSource.call(state.source, :page, [state.ref, before]) do
       {:ok, view} ->
-        if valid?(view) do
-          socket = retain(socket, view, :older)
-          {Map.put(reply(socket), :turns, Turns.group(Enum.map(view.entries, &Chat.mask_entry/1))), socket}
-        else
-          {%{reason: "unavailable"}, failed(socket)}
-        end
+        older_page(socket, view)
 
       {:error, reason} when reason in [:reset, :invalid_cursor] ->
         socket = Chat.reload(socket)
@@ -25,16 +20,45 @@ defmodule AiurWeb.Streamdeck.Deck.ChatPage do
 
   def page(socket, _before), do: {%{reason: "invalid_chat_page"}, socket}
 
+  defp older_page(socket, view) do
+    if valid?(view) do
+      state = socket.assigns.deck_chat
+      breakpoints = if(view.more?, do: [], else: Chat.read_breakpoints(state, view.entries))
+      breakpoints = Enum.uniq_by(state.breakpoints ++ breakpoints, & &1.id)
+      socket = ChatOwner.assign(socket, deck_chat: %{state | breakpoints: breakpoints})
+      socket = retain(socket, view, :older)
+      entries = project_entries(view.entries, socket.assigns.deck_chat.breakpoints)
+      {Map.put(reply(socket), :turns, Turns.group(Enum.map(entries, &Chat.mask_entry/1))), socket}
+    else
+      {%{reason: "unavailable"}, failed(socket)}
+    end
+  end
+
   @spec retain(ChatOwner.socket(), map(), :tail | :reset | :older) :: ChatOwner.socket()
   def retain(socket, view, direction) do
-    state = socket.assigns.deck_chat
-    entries = merge_entries(state.entries, Enum.map(view.entries, &Chat.mask_entry/1), direction)
+    state = Map.put_new(socket.assigns.deck_chat, :breakpoints, [])
+    entries = merge_entries(state.entries, Enum.map(project_entries(view.entries, state.breakpoints), &Chat.mask_entry/1), direction)
     {before, more} = cursor(state, view, direction, length(entries))
     state = Map.merge(state, %{entries: entries, before: before, more: more})
     nav = socket.assigns.deck_nav
     chat = projection(nav.chat, view, entries, before, more, direction)
     surface = if is_nil(nav.chat), do: :chat, else: nav.surface
     ChatOwner.assign(socket, deck_chat: state, deck_nav: %{nav | chat: chat, surface: surface})
+  end
+
+  defp project_entries(entries, breakpoints) do
+    times = entries |> Enum.map(& &1[:at]) |> Enum.filter(&is_integer/1)
+
+    case times do
+      [] ->
+        entries
+
+      _ ->
+        first = Enum.min(times)
+        last = Enum.max(times)
+        inserted = Enum.filter(breakpoints, &(&1.at >= first and &1.at <= last))
+        (entries ++ inserted) |> Enum.uniq_by(& &1.id) |> Enum.sort_by(&{&1.at || -1, &1.id})
+    end
   end
 
   defp merge_entries(retained, incoming, direction) do

@@ -22,6 +22,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-conversation-live': 32,
   // Governed local run (2026-11-01): three 390px cases in 18.7s plus fixture startup; refresh from CI.
   'test:browser-suite -- build-home-mobile-composer': 30,
+  // CI run 41385779395, shard 7: two breakpoint cases completed in 8.6s.
+  'test:browser-suite -- build-home-conversation-breakpoints': 9,
   // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
   // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
   'test:conversation-view': 36,
@@ -64,6 +66,9 @@ export const recordedSeconds = {
   'test:build-home-conversation': 165,
   // Local complete run for the new Fit endpoint check took 17s; reserve 25s for fixture variance.
   'test:browser-suite -- build-home-chains-fit-endpoints': 25,
+  // Local governed run (2026-11-06): 5 cases in 4.6s, 12.3s whole command including fixture startup;
+  // rounded up. Refresh from the first CI shard log.
+  'test:browser-suite -- build-home-build-order': 15,
   // node --test, 7 cases in 0.4s locally (#3163); rounded up.
   'test:build-home-conversation-events-unit': 1,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.

@@ -28,8 +28,8 @@ test('not planned changes layout eligibility and key, other states only match', 
   init(); const t = ctx.D.byId['9010'];
   assert.equal(rowOk(S, t), false); const before = layoutKey(S);
   S.f.tstate = ['not planned']; assert.equal(rowOk(S, t), true); assert.notEqual(layoutKey(S), before);
-  S.f.epic = ['docs']; assert.equal(rowOk(S, t), false);
-  S.f.epic = []; S.f.model = ['codex']; assert.equal(rowOk(S, t), true); assert.equal(match(t), false);
+  S.f.lane = ['docs']; assert.equal(rowOk(S, t), false);
+  S.f.lane = []; S.f.model = ['codex']; assert.equal(rowOk(S, t), true); assert.equal(match(t), false);
 });
 test('model options include selected unloaded keys but never null models', () => {
   init(); S.f.model = ['unloaded'];
@@ -49,13 +49,13 @@ test('feature options sort independently of map order and read merged/total from
   assert.equal(opts.find(o => o[0] === 'd8')[6], 'unknown');
 });
 
-test('unknown epic counts keep defined options; known zero counts stay excluded', () => {
+test('unknown lane counts keep defined options; known zero counts stay excluded', () => {
   init('live'); const D = ctx.D;
   D.order = ['bugs', 'infra', 'docs', 'absent'];
   for (const counts of [null, undefined]) {
     D.counts = counts;
-    assert.deepEqual(FOPTS().epic.opts.map(o => o[0]), ['bugs', 'infra', 'docs']);
+    assert.deepEqual(FOPTS().lane.opts.map(o => o[0]), ['bugs', 'infra', 'docs']);
   }
   D.counts = { bugs: 0, infra: 3, docs: 0, absent: 5 };
-  assert.deepEqual(FOPTS().epic.opts.map(o => o[0]), ['infra']);
+  assert.deepEqual(FOPTS().lane.opts.map(o => o[0]), ['infra']);
 });
