@@ -391,6 +391,10 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:agent_lifecycle, type, payload, opts}, @request_timeout)
   end
 
+  @doc "Quarantines unverifiable journal records and restores writes; see `Aiur.DecisionStore.JournalRepair`."
+  @spec repair_journal(GenServer.server()) :: {:ok, map()} | {:error, term()}
+  def repair_journal(server \\ __MODULE__), do: GenServer.call(server, :repair_journal, @request_timeout)
+
   @spec get(String.t(), GenServer.server()) :: {:ok, Decision.t()} | {:error, :not_found}
   def get(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:get, decision_id})

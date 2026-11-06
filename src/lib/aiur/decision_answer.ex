@@ -175,6 +175,8 @@ defmodule Aiur.DecisionAnswer do
   def to_event_json_safe(%__MODULE__{} = answer) do
     answer
     |> answer_json_safe()
+    # Text-only answers keep the pre-media wire shape so older builds still verify them (#7577).
+    |> then(&if(answer.media == [], do: Map.delete(&1, "media"), else: &1))
     |> maybe_put_ticket_comment_pending(answer.ticket_comment_pending?)
     |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
   end
