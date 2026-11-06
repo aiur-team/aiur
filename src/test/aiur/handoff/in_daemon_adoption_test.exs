@@ -117,6 +117,104 @@ defmodule Aiur.Handoff.InDaemonAdoptionTest do
     assert length(report_adopted) == 2
   end
 
+  test "an agent mid-request is adopted instead of reported as a fallback", %{
+    workspace: workspace,
+    dir: dir,
+    ledger: ledger
+  } do
+    parent = self()
+
+    opts = [
+      backend: "openrouter",
+      instance: instance(%{}),
+      api_key_fetcher: fn _env -> @secret end,
+      request_fun: gated_request_fun(parent, final_response("1"))
+    ]
+
+    {:ok, session} = CodingAgent.start_session(workspace, opts)
+    session = Map.put(session, :backend, "openrouter")
+
+    context = %{
+      workspace: workspace,
+      issue: %Aiur.Issue{id: "1", identifier: "ISSUE-1", title: "handoff", state: "in-progress"},
+      opts: Keyword.put(opts, :workspace, workspace),
+      turn_number: 1,
+      max_turns: nil,
+      worker_host: nil
+    }
+
+    # The runner sits inside `Transport.complete`: its provider call never returns
+    # until this test releases it, so no step boundary is reachable while the
+    # preflight runs.
+    runner =
+      start_supervised!(
+        {Task,
+         fn ->
+           Process.put(:handoff_turn_context, context)
+           CodingAgent.run_turn(session, "Work on 1", issue(), on_message: fn _ -> :ok end)
+         end},
+        id: :busy_runner
+      )
+
+    assert_receive {:gated_request, request, _requester}, 5_000
+    assert Enum.any?(request.json["messages"], &(&1["role"] == "user" and &1["content"] == "Work on 1"))
+
+    running = %{
+      "1" => %{
+        pid: runner,
+        issue: %Aiur.Issue{id: "1", identifier: "ISSUE-1", title: "handoff", state: "in-progress"},
+        session_execution: %{backend: "openrouter"},
+        workspace_path: workspace,
+        session_id: session.thread_id,
+        started_at: DateTime.utc_now()
+      }
+    }
+
+    {:ok, owner} = start_supervised({Owner, %{running: running, retry_attempts: %{}, dispatch_recovery: %{}}})
+
+    # A preflight budget far shorter than the in-flight call: the busy session has
+    # to answer from its last step boundary instead of waiting the request out.
+    assert {:ok, result} =
+             Handoff.prepare(
+               orchestrator: owner,
+               ledger: ledger,
+               dir: dir,
+               config_fingerprint: "config",
+               snapshot_timeout_ms: 1_000
+             )
+
+    assert [agent] = result.agents
+    assert agent["fallback_reason"] == nil
+    assert agent["transport"]["kind"] == "in_daemon"
+
+    assert {:ok, provider_state} = SessionHandoff.provider_state(agent)
+    assert provider_state["interrupted"] == true
+    assert Enum.any?(provider_state["messages"], &(&1["role"] == "user" and &1["content"] == "Work on 1"))
+
+    assert {:ok, record} = Record.read(dir: dir)
+    refute Jason.encode!(record) =~ @secret
+
+    # The old daemon stops: the parked runner dies with its in-flight call, and the
+    # record's boundary conversation is all that crosses the gap.
+    Process.exit(runner, :kill)
+    CodingAgent.stop_session(session)
+
+    adopted = Adopter.adopt(%Aiur.Orchestrator.State{}, resume_adoption_opts(dir, parent, workspace))
+
+    assert adopted.running |> Map.keys() == ["1"]
+    assert adopted.claimed == MapSet.new(["1"])
+
+    assert_receive {:continued, adopted_pid, "1", restored}, 5_000
+    %{messages: messages} = Session.get(restored.session_pid)
+    # The successor replayed the interrupted request from the boundary: the saved
+    # prompt is there once and the turn finished on top of it.
+    assert Enum.count(messages, &(&1["role"] == "user" and &1["content"] == "Work on 1")) == 1
+    assert Enum.any?(messages, &(&1["role"] == "assistant"))
+    send(adopted_pid, :stop)
+
+    assert {:ok, %{adopted: [_adopted], fallback: []}} = Report.latest(dir: dir)
+  end
+
   test "a mid-turn snapshot reports interrupted and a damaged one does not" do
     interrupted = in_daemon_record(%{"interrupted" => true, "messages" => []})
     boundary = in_daemon_record(%{"interrupted" => false, "messages" => []})
@@ -125,6 +223,46 @@ defmodule Aiur.Handoff.InDaemonAdoptionTest do
     refute InDaemon.interrupted?(boundary)
     refute InDaemon.interrupted?(%{"transport" => %{"kind" => "in_daemon", "provider_state" => "not-a-snapshot"}})
     refute InDaemon.interrupted?(%{})
+  end
+
+  # A provider double whose request stays in flight until the test releases it, so
+  # the runner is genuinely inside a transport call when the preflight lands — the
+  # state the 2026-11-06 restart found its OpenRouter workers in (#7564).
+  defp gated_request_fun(parent, response) do
+    fn request ->
+      send(parent, {:gated_request, request, self()})
+      receive do: (:release -> response)
+    end
+  end
+
+  # The busy record was captured mid-turn, so the successor resumes the interrupted
+  # request instead of starting a new turn on top of the saved conversation.
+  defp resume_adoption_opts(dir, parent, workspace) do
+    [
+      dir: dir,
+      generation: 2,
+      config_fingerprint: "config",
+      backend: "openrouter",
+      instance: instance(%{}),
+      api_key_fetcher: fn _env -> @secret end,
+      emit_alert: fn _name, _options -> :ok end,
+      workspace: workspace,
+      runner: fn agent, generation, recipient, opts_runner ->
+        opts = Keyword.put(opts_runner, :request_fun, replay_request_fun(parent))
+        {:ok, session} = RunnerHandoff.attach(agent, generation, opts)
+        {:ok, %{result: :turn_completed}} = InDaemon.resume_turn(session, agent, on_message: fn _ -> :ok end)
+        send(recipient, {:handoff_adopted, self(), {:ok, session}})
+        receive do: (:handoff_continue -> send(parent, {:continued, self(), agent["issue_id"], session}))
+        receive do: (:stop -> :ok)
+      end
+    ]
+  end
+
+  defp replay_request_fun(parent) do
+    fn request ->
+      send(parent, {:replayed_request, request})
+      final_response("1")
+    end
   end
 
   defp in_daemon_record(provider_state) do
