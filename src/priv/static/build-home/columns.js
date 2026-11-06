@@ -46,7 +46,7 @@ function applyColsImpl(next, immediate) {
   ctx.lanesEl.style.setProperty("--g", gap + "px");
   ctx.colMap = {}; ctx.cols.forEach((k, i) => ctx.colMap[k] = { x: g + i * (cw + gap), w: cw });
   ctx.colMap.g = { x: g, w: avail };
-  { const BK = (ctx.L && ctx.L.band.BK) || 1, bg = 16, bw = Math.min(380, (avail - bg * (BK - 1)) / BK); ctx.bandMap = {}; for (let i = 0; i < BK; i++) ctx.bandMap["b" + i] = { x: g + i * (bw + bg), w: bw }; }
+  { const b = ctx.L?.band, BK = b?.BK || 1, bg = b?.bg ?? 16, bw = b?.cw ?? Math.min(380, (avail - bg * (BK - 1)) / BK); ctx.bandMap = {}; for (let i = 0; i < BK; i++) ctx.bandMap["b" + i] = { x: g + i * (bw + bg), w: bw }; }
   ctx.content.style.width = w + "px";
   if (S.flow) { ctx.laneEls.forEach((el) => el.remove()); ctx.laneEls.clear(); ctx.guideEls.forEach((el) => el.remove()); ctx.guideEls.clear(); ctx.lanesEl.querySelector(".bd-lane-g").textContent = "Colour = lane"; ctx.R.forEach((el) => place(el, el._it)); ctx.L.band.items.forEach((it) => place(it.el, it)); ctx.svg.classList.add("hide"); fx.drawEdgesSoon(immediate ? 30 : 380); return; }
   ctx.lanesEl.querySelector(".bd-lane-g").textContent = S.view === "gantt" ? "Time" : "Order";
