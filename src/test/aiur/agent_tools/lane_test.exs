@@ -1,37 +1,38 @@
-defmodule Aiur.AgentTools.EpicTest do
+defmodule Aiur.AgentTools.LaneTest do
   use ExUnit.Case, async: true
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AgentTools.Dispatch
-  alias Aiur.AgentTools.Epic
+  alias Aiur.AgentTools.Lane
   alias Aiur.BuildOrder.EpicOverrides, as: Store
 
   setup do
-    dir = Aiur.TestSupport.tmp_root!("epic-tool")
+    dir = Aiur.TestSupport.tmp_root!("lane-tool")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
-    start_supervised!({Store, name: name, repository: "acme/app", state_dir: dir, settings_fun: fn -> {:ok, %{build_order: %{general_epics: [%{key: "bugs", label: "Bugs"}]}}} end})
+    start_supervised!({Store, name: name, repository: "acme/app", state_dir: dir, settings_fun: fn -> {:ok, %{build_order: %{lanes: [%{key: "bugs", label: "Bugs"}]}}} end})
     %{opts: [server: name]}
   end
 
   defp executor(issue, opts), do: ToolExecutor.build(issue, nil, nil, %{}, epic_opts: opts)
 
   test "V-27 V-28 actual executor binds string issue number, default ids and actor", c do
+    tool = "aiur_set_lane"
     run = executor(%Aiur.Issue{id: "gid", identifier: "77"}, c.opts)
-    assert run.("aiur_set_epic", %{"epic" => "bugs"})["success"]
+    assert run.(tool, %{"epic" => "bugs"})["success"]
     assert {:ok, %{77 => %{actor: "agent:77", source: "agent:77", confirmed: true}}, _} = Store.all(c.opts)
-    assert run.("aiur_set_epic", %{"epic" => "bugs", "ids" => [88]})["success"]
+    assert run.(tool, %{"epic" => "bugs", "ids" => [88]})["success"]
     assert {:ok, %{88 => %{actor: "agent:77"}}, _} = Store.all(c.opts)
     bad = executor(%Aiur.Issue{id: "gid", identifier: "ENG-7"}, c.opts)
-    assert bad.("aiur_set_epic", %{"epic" => "bugs"})["success"] == false
+    assert bad.(tool, %{"epic" => "bugs"})["success"] == false
     assert {:ok, rows, _} = Store.all(c.opts)
     assert Enum.sort(Map.keys(rows)) == [77, 88]
   end
 
   test "V-29 backfill is unconfirmed and clear uses bound identity", c do
     run = executor(%Aiur.Issue{id: "gid", identifier: "77"}, c.opts)
-    assert run.("aiur_set_epic", %{"epic" => "bugs", "backfill" => true})["success"]
+    assert run.("aiur_set_lane", %{"epic" => "bugs", "backfill" => true})["success"]
     assert {:ok, %{77 => %{actor: "agent:77", source: "backfill-agent", confirmed: false}}, _} = Store.all(c.opts)
-    assert run.("aiur_set_epic", %{"clear" => true})["success"]
+    assert run.("aiur_set_lane", %{"clear" => true})["success"]
     assert {:ok, entries} = Store.journal([77], c.opts)
     assert Map.take(List.last(entries), [:op, :number, :seq, :actor, :source]) == %{op: "clear", number: 77, seq: 2, actor: "agent:77", source: "agent:77"}
   end
@@ -48,18 +49,38 @@ defmodule Aiur.AgentTools.EpicTest do
           %{},
           nil
         ] do
-      assert {:error, :invalid_epic_arguments} = Epic.normalize(args)
-      assert Dispatch.execute("aiur_set_epic", args, epic_setter: fn _ -> flunk("setter must not be called") end)["success"] == false
+      assert {:error, :invalid_epic_arguments} = Lane.normalize(args)
+
+      for tool <- ["aiur_set_lane", "aiur_set_epic"] do
+        assert Dispatch.execute(tool, args, epic_setter: fn _ -> flunk("setter must not be called") end)["success"] == false
+      end
     end
 
-    assert hd(Epic.specs())["inputSchema"]["additionalProperties"] == false
+    assert Enum.all?(Lane.specs(), &(&1["inputSchema"]["additionalProperties"] == false))
   end
 
-  test "unknown epic returns known keys to agent", c do
+  test "unknown lane returns known keys to agent", c do
     run = executor(%Aiur.Issue{id: "gid", identifier: "77"}, c.opts)
-    result = run.("aiur_set_epic", %{"epic" => "nope"})
+    result = run.("aiur_set_lane", %{"epic" => "nope"})
     assert result["success"] == false
     assert Jason.decode!(result["output"])["error"]["known"] == ["bugs"]
-    assert Dispatch.execute("aiur_set_epic", %{"epic" => "bugs"})["success"] == false
+    assert Dispatch.execute("aiur_set_lane", %{"epic" => "bugs"})["success"] == false
+  end
+
+  test "aiur_set_epic is an alias naming the same spec and the same effect", c do
+    assert Enum.map(Lane.specs(), & &1["name"]) == ["aiur_set_lane", "aiur_set_epic"]
+    [lane_spec, epic_spec] = Lane.specs()
+    assert lane_spec["inputSchema"] == epic_spec["inputSchema"]
+    assert epic_spec["description"] =~ "aiur_set_lane"
+
+    lane_run = executor(%Aiur.Issue{id: "gid", identifier: "77"}, c.opts)
+    assert lane_run.("aiur_set_lane", %{"epic" => "bugs"})["success"]
+    assert {:ok, %{77 => lane_row}, _} = Store.all(c.opts)
+
+    epic_run = executor(%Aiur.Issue{id: "gid", identifier: "77"}, c.opts)
+    assert epic_run.("aiur_set_epic", %{"epic" => "bugs"})["success"]
+    assert {:ok, %{77 => epic_row}, _} = Store.all(c.opts)
+
+    assert Map.drop(lane_row, [:at]) == Map.drop(epic_row, [:at])
   end
 end

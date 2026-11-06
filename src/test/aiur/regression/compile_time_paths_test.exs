@@ -133,7 +133,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "do: @external_resource(Path.relative_to(Path.join(__DIR__, source), File.cwd!(), force: true))"
     ],
     "aiur/config/schema/build_order.ex" => [
-      "@external_resource Path.relative_to(Path.join(__DIR__, \"general_epic.ex\"), File.cwd!(), force: true)"
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"lane.ex\"), File.cwd!(), force: true)"
     ],
     "aiur/config/schema/decisions.ex" => [
       "@external_resource Path.relative_to(Path.join(__DIR__, \"decisions_escalation.ex\"), File.cwd!(), force: true)",

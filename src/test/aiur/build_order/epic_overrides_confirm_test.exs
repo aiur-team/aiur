@@ -94,5 +94,5 @@ defmodule Aiur.BuildOrder.EpicOverridesConfirmTest do
     assert {:ok, %{12 => %{epic: "infra", confirmed: true, source: "cli:kevin"}}, _} = Store.get_many([12], c.write)
   end
 
-  defp settings(keys), do: {:ok, %{build_order: %{general_epics: Enum.map(keys, &%{key: &1, label: &1})}}}
+  defp settings(keys), do: {:ok, %{build_order: %{lanes: Enum.map(keys, &%{key: &1, label: &1})}}}
 end
