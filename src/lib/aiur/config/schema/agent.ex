@@ -181,6 +181,11 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.headroom_reading_max_age_seconds | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
     field(:headroom_reading_max_age_seconds, :integer, default: 1800)
+    # Dispatch skips a backend or account whose freshest reading shows this
+    # little left in any rate window, and takes the next allowed route (#7504).
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.usage_floor_percent | integer | 5 | Dispatch skips a backend or account whose freshest usage reading shows this percentage or less remaining in any rate window, and takes the next allowed route. `0` disables the floor. Override per backend with `agent.backend_configs.<backend>.usage_floor_percent`. A reading that is unknown or stale never floors a route, and a running agent is never stopped by it. See [Usage floor](/concepts/headroom-dispatch#usage-floor). |
+    field(:usage_floor_percent, :integer, default: 5)
     # @config-reference config-configuration-agent-00 agent.switch_model_on_ratelimit | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     # Automatic reroute for an ALREADY-RUNNING agent on `rate_limit_primary`
@@ -281,11 +286,8 @@ defmodule Aiur.Config.Schema.Agent do
     # false to disable the recorder.
     # @config-reference config-configuration-agent-00 agent.saturation_log_enabled | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
     field(:saturation_log_enabled, :boolean, default: true)
-    # Minimum seconds a ready-work capacity-starvation condition must persist
-    # before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved`
-    # raise. The below-target dispatch ramp clears itself within a few poll
-    # cycles, so this dwell keeps the intended ramp quiet while a genuine gate
-    # that outlives the bound still raises (#2447).
+    # Dwell before the ready-work capacity-starvation alerts raise; the ramp
+    # clears itself within a few poll cycles, a genuine gate does not (#2447).
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.capacity_starvation_alert_after_seconds | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
     field(:capacity_starvation_alert_after_seconds, :integer, default: 60)
@@ -304,12 +306,8 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_retry_threshold | integer | 5 | The retry count within the window above which the budget broker counts as degraded. Set from a measured quiet-period baseline — if the normal rate is zero, almost any sustained rate is worth surfacing — and kept above an isolated timeout, which must page nobody. |
     field(:budget_broker_degraded_retry_threshold, :integer, default: 5)
-    # How long the degraded retry rate must persist before the single
-    # `system.github.budget_broker_degraded` alert raises (#2434/#2449 dwell):
-    # a momentary blip that clears within this bound produces nothing, a
-    # sustained degradation raises exactly once. Kept shorter than the rate
-    # window so an active timeout pattern can satisfy the dwell before its
-    # earliest event ages out.
+    # Dwell for the single `system.github.budget_broker_degraded` alert
+    # (#2434/#2449): brief blips stay quiet, sustained degradation raises once.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_alert_after_seconds | integer | 60 | How long the budget-broker timeout rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained outage raises once with its duration. |
     field(:budget_broker_degraded_alert_after_seconds, :integer, default: 60)
@@ -357,6 +355,7 @@ defmodule Aiur.Config.Schema.Agent do
         :accounts,
         :account_selection,
         :headroom_reading_max_age_seconds,
+        :usage_floor_percent,
         :switch_model_on_ratelimit,
         :rate_limit_primary,
         :rate_limit_fallback,
@@ -401,6 +400,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:max_concurrent_agents, greater_than: 0)
     |> validate_inclusion(:account_selection, ["balance", "priority", "headroom"])
     |> validate_number(:headroom_reading_max_age_seconds, greater_than: 0)
+    |> validate_number(:usage_floor_percent, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
     |> validate_change(:accounts, &validate_accounts/2)
     |> validate_number(:run_queue_threshold, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)

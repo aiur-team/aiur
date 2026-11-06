@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.StatusCLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.ControlCLI.CiWait
@@ -131,6 +132,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     Enum.each(UsageReadings.failure_lines(), &IO.puts/1)
+    print_usage_floor_holds()
     print_github_budget_scope()
     print_polling_status(Map.get(snapshot, :polling))
     footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
@@ -183,6 +185,15 @@ defmodule Aiur.Orchestrator.StatusCLI do
   end
 
   defp terminal_text(value), do: value |> inspect(limit: 5, printable_limit: 120) |> terminal_text()
+
+  # Every route dispatch is currently skipping for being at or below
+  # `agent.usage_floor_percent` (#7504). Read live from the same readings
+  # dispatch consults, so a route that has since reset stops appearing here.
+  defp print_usage_floor_holds do
+    Enum.each(UsageFloorGate.held_lines(), &IO.puts("USAGE FLOOR " <> &1))
+  rescue
+    _error -> IO.puts("USAGE FLOOR unavailable (usage readings could not be read)")
+  end
 
   defp print_github_budget_scope do
     IO.puts(Access.fleet_budget_status_line(LeaseStore.configured?()))
