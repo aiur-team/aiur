@@ -375,6 +375,31 @@ defmodule Aiur.Orchestrator.StatusReportRowsTest do
              StatusReport.sync_waiting_for_human_episodes(state, now)
   end
 
+  test "a corrupt running entry degrades to missing control metadata instead of raising" do
+    issue = %Issue{id: "7537", identifier: "7537", state: "in-progress", title: "Corrupt control"}
+
+    entry = %{
+      identifier: issue.identifier,
+      issue: issue,
+      started_at: DateTime.utc_now(),
+      session_id: "thread-7537",
+      control: "corrupt"
+    }
+
+    snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(%State{running: %{issue.id => entry}}))
+    [row] = Enum.filter(snapshot.running, &(&1.identifier == "7537"))
+
+    assert row.work_state == :working
+    assert row.control.accepts_operator_messages
+    refute row.control.can_interrupt
+    assert row.control.unit_control == :request_only
+    assert row.control.status == :working
+
+    [status] = StatusReport.agent_statuses(%State{running: %{issue.id => entry}})
+    assert status.work_state == :working
+    assert status.control.unit_control == :request_only
+  end
+
   defp await_reaping(_identifier, 0), do: false
 
   defp await_reaping(identifier, remaining) do

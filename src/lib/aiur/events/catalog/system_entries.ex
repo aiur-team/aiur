@@ -14,6 +14,9 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.claude_account.*.usage_probe_failing.resolved", "executor-attention"},
     # aiur/agent_resource_guard.ex
     {"system.agent.synthetic_load_cap", "agent-sandbox"},
+    # aiur/coding_agent/usage_floor_gate.ex; #7504
+    {"system.agent.usage_floor.*", "harness-adapters"},
+    {"system.agent.usage_floor.*.resolved", "harness-adapters"},
     # aiur/build_gate_hold_monitor.ex
     {"system.build_gate.hold_timeout", "agent-sandbox"},
     # aiur/build_order_funnel_health.ex
@@ -168,6 +171,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr_health.unmergeable_author", "pr-lifecycle"},
     # aiur/coding_agent/route_failure.ex
     {"system.provider.auth_rejected.*", "harness-adapters"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"system.provider.credit_limited.*", "harness-adapters"},
     # aiur/application/startup_checks.ex
     {"system.provider.auth_rejected.*.resolved", "control-cli"},
     # aiur/handoff/report.ex

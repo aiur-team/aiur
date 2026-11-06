@@ -63,13 +63,16 @@ defmodule Aiur.BuildOrder.History.Feed do
   end
 
   defp label_fields(fields, held, labels, updated) when is_list(labels) do
+    descriptions = for %{"name" => "feature:" <> _ = name, "description" => description} <- labels, is_binary(description) and description != "", into: %{}, do: {String.downcase(name), description}
     labels = labels |> Enum.map(&label_name/1) |> Enum.filter(&is_binary/1) |> Enum.map(&String.downcase/1) |> Enum.uniq() |> Enum.sort()
     fields = Map.put(fields, :labels, labels)
+    fields = if map_size(descriptions) > 0, do: Map.put(fields, :label_descriptions, descriptions), else: fields
     old = if held, do: held.labels, else: :unknown
     label_changes(fields, old, labels, updated)
   end
 
   defp label_fields(fields, _held, _labels, _updated), do: fields
+
   defp label_name(label) when is_map(label), do: label["name"]
   defp label_name(label), do: label
 

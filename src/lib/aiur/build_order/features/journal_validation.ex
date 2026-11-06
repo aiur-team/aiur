@@ -67,7 +67,14 @@ defmodule Aiur.BuildOrder.Features.JournalValidation do
 
   defp field(value, :feature), do: object(value, @feature)
   defp field(value, :changes), do: object(value, @changes, true)
-  defp field(value, :epic), do: object(value, %{key: :key, label: :label})
+
+  defp field(%{"key" => _, "label" => _} = value, :epic) when map_size(value) == 2,
+    do: object(value, %{key: :key, label: :label})
+
+  defp field(%{"key" => _, "label" => _, "icon" => _} = value, :epic) when map_size(value) == 3,
+    do: object(value, %{key: :key, label: :label, icon: :icon})
+
+  defp field(_value, :epic), do: {:error, :invalid_record}
   defp field("none", :baseline), do: {:ok, :none}
 
   defp field(value, :baseline) do
@@ -92,6 +99,7 @@ defmodule Aiur.BuildOrder.Features.JournalValidation do
 
   defp field(value, :slug), do: checked(value, FeatureData.slug?(value))
   defp field(value, :key), do: checked(value, FeatureData.epic_key?(value))
+  defp field(value, :icon), do: checked(value, Aiur.Heroicons.valid?(value))
   defp field(value, :source), do: checked(value, FeatureData.source?(value))
   defp field(value, :label), do: checked(value, FeatureData.text?(value, 80))
   defp field(value, :actor), do: checked(value, FeatureData.text?(value, 100))

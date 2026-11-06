@@ -13,8 +13,9 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   @now ~U[2026-10-10 06:00:00Z]
   @future "2999-01-01T00:00:00Z"
 
-  # Codex: 5% left on its weekly window, read from the usage ledger.
-  @ledger %{"backends" => %{"codex" => %{"observed_at" => "2026-10-10T05:59:30Z", "weekly" => %{"used" => 95, "limit" => 100, "reset_at" => @future}}}}
+  # Codex: 6% left on its weekly window, read from the usage ledger — just above
+  # the default 5% usage floor (#7504), so headroom scoring still selects it.
+  @ledger %{"backends" => %{"codex" => %{"observed_at" => "2026-10-10T05:59:30Z", "weekly" => %{"used" => 94, "limit" => 100, "reset_at" => @future}}}}
 
   defp meters(by_account) do
     fn
@@ -89,16 +90,16 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                select(ticket(), state: state, usage_snapshot: fn _backend, _names -> %{} end)
     end
 
-    test "Codex 5%, Claude/default 100%, Claude/everdred 64%: a complexity-3 ticket picks Claude/default" do
+    test "Codex 6%, Claude/default 100%, Claude/everdred 64%: a complexity-3 ticket picks Claude/default" do
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "default", selected_model: "sonnet"} = issue} = select()
 
       assert issue.dispatch_selection.summary ==
-               "headroom: claude/default=100%; alternatives claude/everdred=64%, codex=5%"
+               "headroom: claude/default=100%; alternatives claude/everdred=64%, codex=6%"
 
       assert [
                %{name: "claude/default", status: :known, remaining_percent: 100, source: "meter"},
                %{name: "claude/everdred", status: :known, remaining_percent: 64, binding_window: "seven_day"},
-               %{name: "codex", status: :low, remaining_percent: 5, source: "ledger", route: "codex:gpt-5.5:high"}
+               %{name: "codex", status: :low, remaining_percent: 6, source: "ledger", route: "codex:gpt-5.5:high"}
              ] = issue.dispatch_selection.candidates
     end
 
@@ -123,7 +124,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                CodingAgent.select_for_dispatch(ticket(), preferred)
 
       assert issue.dispatch_selection.summary ==
-               "headroom: codex=5%; alternatives claude/default=100%, claude/everdred=64%"
+               "headroom: codex=6%; alternatives claude/default=100%, claude/everdred=64%"
 
       rejected = %{"backends" => %{"codex" => %{"auth_rejected" => true}}}
 
@@ -137,7 +138,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert CodingAgent.backend_for(issue) == "codex"
       assert issue.selected_backend == nil
       assert issue.dispatch_selection.pinned
-      assert issue.dispatch_selection.summary == "headroom: codex=5%"
+      assert issue.dispatch_selection.summary == "headroom: codex=6%"
     end
 
     test "unknown account gets one exploration before the known account takes the next dispatch" do
@@ -155,7 +156,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
     end
 
     test "an unknown account beats a known account with 10% or less left" do
-      unknown_default = meters(%{"everdred" => {95, 0}})
+      unknown_default = meters(%{"everdred" => {94, 0}})
 
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = issue} =
                select(ticket(), state: %{"backends" => %{}}, usage_snapshot: unknown_default)
@@ -204,7 +205,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert HeadroomDispatch.backend_reading("codex", state: past, now: @now) == nil
 
       assert HeadroomDispatch.backend_reading("codex", state: @ledger, now: @now, max_reading_age_seconds: 1800) ==
-               %{windows: %{"weekly" => 95.0}, source: "ledger", age_seconds: 30}
+               %{windows: %{"weekly" => 94.0}, source: "ledger", age_seconds: 30}
     end
 
     test "preferred Codex remains unknown until its probe refreshes its score" do
