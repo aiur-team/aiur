@@ -69,6 +69,7 @@ exactly like a missing one, so a guessed identifier reveals nothing.
 | `GET /api/v1/commands` | `{"commands": [...], "count": n, "pagination": {...}, "scope": {...}, "health": {...}}` |
 | `GET /api/v1/commands/:decision_id` | `{"command": {...}, "scope": {...}}` |
 | `POST /api/v1/commands/:decision_id/answer` | `{"command": {...}, "scope": {...}}` |
+| `GET /api/v1/commands/:decision_id/media/:attachment_id` | the media file, or a redirect to its public URL |
 
 A list read also accepts `labels=game:chess`, which narrows the page to the
 tickets currently carrying that label. Request labels only narrow: a label
@@ -112,8 +113,46 @@ A collection carries its own status: `loading`, `empty`, `ready`,
 `unavailable`, or `error`.
 
 The component map also carries `options[]`, `recommendation`, `free_response`,
-`answer`, `conflict`, `media[]` (typed artifacts from the Command), and
-`actions`, which says whether the caller may answer or revise.
+`answer`, `conflict`, `media[]`, and `actions`, which says whether the caller may
+answer or revise.
+
+## Command media
+
+A Command's prompt and each of its options can carry typed media: `image`,
+`animated_image`, `video`, or `audio`. The component's `media[]` holds those
+items, and an option's own `media[]` sits on the option.
+
+A typed item has a `kind`, a `mime_type`, a `locator`, and alt text or a caption.
+A pre-existing artifact reference in the same list has a bare `kind` + `value`.
+The presence of `locator` is what tells the two apart.
+
+```json
+{
+  "kind": "image",
+  "mime_type": "image/png",
+  "locator": {"kind": "attachment", "attachment_id": "med_9f2c…"},
+  "alt_text": "Cover A: bright meadow",
+  "caption": "Cover A",
+  "width": 1200,
+  "height": 630
+}
+```
+
+A `url` locator is already public and needs nothing from the host. An
+`attachment` locator is a file Aiur serves, so the host reads it from the media
+route with the same grant.
+
+Aiur re-checks the ticket set and the Command's own attachment list on every
+read. A signed or non-allowlisted URL never appears in the component, and a
+server-local path never appears at all.
+
+`renderCommand(command, { mediaBaseUrl })` points an `attachment` locator at the
+host's Aiur origin. Without it, an attachment item renders an unavailable panel
+instead of a broken element. Pass the same option to `renderList`.
+
+The renderer covers all four kinds: images and animated images render with their
+alt text and caption, and video and audio use native `controls` with a poster
+where the item has one. A Command whose media cannot be resolved still renders.
 
 ## Answer outcomes
 

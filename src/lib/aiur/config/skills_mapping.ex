@@ -1,7 +1,7 @@
 defmodule Aiur.Config.SkillsMapping do
   @moduledoc """
   Normalizes and validates the `agent.skills` config that maps a ticket's lane,
-  feature, label and complexity to the skills its worker loads first.
+  feature, epic, label and complexity to the skills its worker loads first.
 
   The operator-facing shape:
 
@@ -12,6 +12,8 @@ defmodule Aiur.Config.SkillsMapping do
             art: [pixel-art, palette]
           by_feature:
             items-ui: [ce-work]
+          by_epic:
+            v1-launch: [ce-plan]
           by_label:
             design: [design-import]
           by_complexity:
@@ -24,10 +26,11 @@ defmodule Aiur.Config.SkillsMapping do
   dimension keys and byte caps are validated here.
   """
 
-  @dimensions ["by_lane", "by_feature", "by_label", "by_complexity"]
+  @dimensions ["by_lane", "by_feature", "by_epic", "by_label", "by_complexity"]
   @dimension_atoms %{
     "by_lane" => :by_lane,
     "by_feature" => :by_feature,
+    "by_epic" => :by_epic,
     "by_label" => :by_label,
     "by_complexity" => :by_complexity
   }
@@ -41,6 +44,7 @@ defmodule Aiur.Config.SkillsMapping do
           preload_max_bytes: pos_integer(),
           by_lane: %{String.t() => [String.t()]},
           by_feature: %{String.t() => [String.t()]},
+          by_epic: %{String.t() => [String.t()]},
           by_label: %{String.t() => [String.t()]},
           by_complexity: %{pos_integer() => [String.t()]}
         }
@@ -71,6 +75,7 @@ defmodule Aiur.Config.SkillsMapping do
       preload_max_bytes: @default_max_bytes,
       by_lane: %{},
       by_feature: %{},
+      by_epic: %{},
       by_label: %{},
       by_complexity: %{}
     }
@@ -95,12 +100,16 @@ defmodule Aiur.Config.SkillsMapping do
 
   def configured?(_mapping), do: false
 
-  defp dimension_configured?(mapping, dimension) do
+  @doc "Whether `dimension` names at least one skill."
+  @spec dimension_configured?(normalized() | term(), dimension()) :: boolean()
+  def dimension_configured?(%{} = mapping, dimension) when dimension in @dimensions do
     case Map.get(mapping, Map.fetch!(@dimension_atoms, dimension)) do
       %{} = entries -> Enum.any?(entries, fn {_key, skills} -> skills != [] end)
       _ -> false
     end
   end
+
+  def dimension_configured?(_mapping, _dimension), do: false
 
   @doc "The configured inlined-skill byte cap, falling back to the default."
   @spec max_bytes(normalized() | term()) :: pos_integer()
@@ -249,7 +258,7 @@ defmodule Aiur.Config.SkillsMapping do
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-  # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
+  # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, epic, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.preload_max_bytes
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
@@ -262,6 +271,10 @@ defmodule Aiur.Config.SkillsMapping do
   # @config-reference config-configuration-agent-00 agent.skills.by_feature
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-detail agent.skills.by_feature | map | `%{}` | Owning feature slug to skill names. |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.by_epic
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.by_epic | map | `%{}` | Epic slug to skill names. The epic is the one that holds the ticket's owning feature in the build-order registry. |
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.by_label
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
