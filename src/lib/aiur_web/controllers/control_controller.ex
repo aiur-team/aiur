@@ -135,14 +135,17 @@ defmodule AiurWeb.ControlController do
   end
 
   defp result(conn, output, elapsed_ms) do
-    json(conn, %{
-      contract: ControlCall.result_type(),
-      contract_version: ControlCall.result_version(),
-      instance_id: Aiur.Identity.instance_id(),
-      build: build(),
-      output: output,
-      elapsed_ms: elapsed_ms
-    })
+    json(
+      conn,
+      Map.merge(Aiur.Gateway.Identity.current(), %{
+        contract: ControlCall.result_type(),
+        contract_version: ControlCall.result_version(),
+        instance_id: Aiur.Identity.instance_id(),
+        build: build(),
+        output: output,
+        elapsed_ms: elapsed_ms
+      })
+    )
   end
 
   defp error(conn, status, code, reason, timeout_ms) do
