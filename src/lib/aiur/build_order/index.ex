@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.Index do
   alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued, PackStatus}
   alias Aiur.BuildOrder.Index.{Catalogue, EpicProgress, FeatureProgress, PackRows, Pages, Parts, Rows, Sources}
   @topic "build-home:index"
-  @blocks ~w(epics epic_progress epic_progress_meta features order counts feature_progress sources history_meta repo capacity)a
+  @blocks ~w(lanes lane_progress lane_progress_meta features order counts feature_progress sources history_meta repo capacity)a
 
   @spec assemble(map(), keyword()) :: {:ok, map()} | {:error, atom()}
   def assemble(parts, opts \\ []) do
@@ -14,7 +14,7 @@ defmodule Aiur.BuildOrder.Index do
       {all, undated} = Rows.build(parts, general)
       catalogue = Catalogue.build(parts, general, all, now)
       feature_parts = Map.put(parts, :packs, Map.get(parts, :feature_packs, parts[:packs]))
-      packs = PackRows.read(parts[:packs], all, catalogue.epics)
+      packs = PackRows.read(parts[:packs], all, catalogue.lanes)
       parts = Map.put(parts, :packs, packs)
       sources = Sources.build(parts, now)
       complete? = sources.history.state not in ["unavailable", "incomplete"]
@@ -31,8 +31,8 @@ defmodule Aiur.BuildOrder.Index do
          all: all,
          hist: hist,
          counts: counts,
-         epic_progress: progress.epics,
-         epic_progress_meta: progress.meta,
+         lane_progress: progress.lanes,
+         lane_progress_meta: progress.meta,
          feature_progress: feature_progress,
          sources: sources,
          history_meta: %{total: if(available?, do: length(hist)), undated: if(available?, do: undated)},

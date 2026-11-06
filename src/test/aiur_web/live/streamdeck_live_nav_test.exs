@@ -36,7 +36,7 @@ defmodule AiurWeb.StreamdeckLiveNavTest do
 
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
-    for expected <- [:feature, :epic, :fleet] do
+    for expected <- [:feature, :lane, :fleet] do
       render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "press"})
       assert nav(view).view == expected
     end
@@ -139,7 +139,7 @@ defmodule AiurWeb.StreamdeckLiveNavTest do
     assert nav(view).pages.feature == 1
     assert has_element?(view, ~s([data-streamdeck-key="0"]), "Parent 9")
 
-    for expected <- [:epic, :fleet, :ticket] do
+    for expected <- [:lane, :fleet, :ticket] do
       render_hook(view, "input", press)
       assert nav(view).view == expected
     end
@@ -158,7 +158,7 @@ defmodule AiurWeb.StreamdeckLiveNavTest do
       sources: %{agents: %{state: "ok"}},
       sections: %{now: [], plan: [%{id: "1", num: 1, title: "Outsider", sec: "plan", epic: "other", qpos: 0} | rows], nq: []},
       order: lanes,
-      epics: Map.new(Enum.zip(lanes, slugs), fn {lane, slug} -> {lane, %{feature: slug}} end),
+      lanes: Map.new(Enum.zip(lanes, slugs), fn {lane, slug} -> {lane, %{feature: slug}} end),
       features: Map.new(1..10, fn n -> {"parent#{n}", %{label: "Parent #{n}", epics: ["lane#{n}"]}} end),
       feature_progress: %{features: Map.new(1..10, fn n -> {"lane#{n}", %{feature: "parent#{n}", closed: 1, open: 1, ci_wait: 0, unpublished: 0, total: 2}} end)}
     }

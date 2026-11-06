@@ -13,7 +13,7 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
     assert Meters.providers(%{}) == %{}
     assert Meters.providers(%{"codex" => nil, "apis" => []}) == %{"codex" => nil}
 
-    for view <- [:fleet, :epic] do
+    for view <- [:fleet, :lane] do
       {_, model, frame} = FrameUpdates.frame(%Nav{view: view}, %{agents: []}, usage)
       provider_keys = Enum.filter(model.grid.fleet.keys, &match?(%{kind: :meter_detail}, &1))
       assert Enum.map(provider_keys, & &1.id) == ["codex"]
