@@ -140,15 +140,11 @@ defmodule Aiur.BuildOrder.Epics.JournalValidation do
   defp valid(true, value), do: {:ok, value}
   defp valid(_false, _value), do: {:error, :invalid_record}
 
-  defp exactly?(value, keys) when is_map(value) do
-    if Enum.sort(Map.keys(value)) == Enum.sort(keys), do: :ok, else: {:error, :invalid_record}
+  defp exactly?(value, keys) do
+    if is_map(value) and Enum.sort(Map.keys(value)) == Enum.sort(keys), do: :ok, else: {:error, :invalid_record}
   end
 
-  defp exactly?(_value, _keys), do: {:error, :invalid_record}
-
-  defp only?(value, keys) when is_map(value) do
-    if Enum.all?(Map.keys(value), &(&1 in keys)), do: :ok, else: {:error, :invalid_record}
+  defp only?(value, keys) do
+    if is_map(value) and Enum.all?(Map.keys(value), &(&1 in keys)), do: :ok, else: {:error, :invalid_record}
   end
-
-  defp only?(_value, _keys), do: {:error, :invalid_record}
 end

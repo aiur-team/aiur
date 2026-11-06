@@ -127,13 +127,19 @@ defmodule Aiur.AgentTools.Feature do
   defp valid_epics?(args) when is_map(args) do
     lanes = Map.get(args, "lanes", Map.get(args, "epics"))
 
-    is_nil(lanes) or
-      (is_list(lanes) and
-         Enum.all?(lanes, fn
-           %{"key" => key, "label" => label} = lane -> map_size(lane) == 2 and is_binary(key) and key != "" and is_binary(label) and String.trim(label) != ""
-           _ -> false
-         end))
+    is_nil(lanes) or (is_list(lanes) and Enum.all?(lanes, &valid_lane?/1))
   end
 
   defp valid_epics?(_), do: true
+
+  # One clause on purpose: dialyzer proves the element type carries "key" and
+  # "label", so a pattern clause plus a fallback reads as unreachable even
+  # though a malformed lane can still arrive from JSON.
+  defp valid_lane?(lane) do
+    is_map(lane) and map_size(lane) == 2 and valid_lane_fields?(Map.get(lane, "key"), Map.get(lane, "label"))
+  end
+
+  defp valid_lane_fields?(key, label) do
+    is_binary(key) and key != "" and is_binary(label) and String.trim(label) != ""
+  end
 end
