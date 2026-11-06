@@ -28,10 +28,10 @@ defmodule Aiur.EpicCLIConfirmTest do
     assert run(c.opts ++ [action: :show, ids: [13], unconfirmed: true], 0) == "0 unconfirmed\n"
   end
 
-  test "confirm JSON carries accepted epic and atomic previous provenance", c do
+  test "confirm JSON carries accepted lane and atomic previous provenance", c do
     opts = c.opts ++ [action: :confirm, ids: [12, 13], who: "kevin", json: true]
     json = run(opts, 0) |> Jason.decode!()
-    assert json["command"] == "epic confirm"
+    assert json["command"] == "lane confirm"
     assert [%{"number" => 12, "status" => "confirmed", "epic" => "infra", "previous" => %{"source" => "backfill-agent"}}, %{"status" => "unchanged"}] = json["results"]
     assert run(Keyword.delete(opts, :json), 0) =~ "unchanged (already confirmed)"
   end
@@ -49,7 +49,7 @@ defmodule Aiur.EpicCLIConfirmTest do
     stop_supervised!(Store)
     opts = Keyword.put(c.opts, :error_fun, &IO.puts/1) ++ [action: :show, unconfirmed: true]
     text = run(opts, 1)
-    assert text =~ "epic overrides unavailable"
+    assert text =~ "lane overrides unavailable"
     refute text =~ ~r/^\d+ unconfirmed$/m
     json = run(c.opts ++ [action: :show, unconfirmed: true, json: true], 1) |> Jason.decode!()
     assert json["ok"] == false

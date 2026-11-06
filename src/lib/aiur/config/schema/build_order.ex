@@ -130,15 +130,18 @@ defmodule Aiur.Config.Schema.BuildOrder do
   # loading as an alias so an upgraded install boots, but it names the new key so
   # the operator can rename it. Setting both is ambiguous, so it is refused.
   defp lane_attrs(attrs) do
-    case {Map.get(attrs, "lanes"), Map.get(attrs, "general_epics")} do
-      {nil, nil} ->
+    case {Map.has_key?(attrs, "lanes"), Map.get(attrs, "general_epics")} do
+      {false, nil} ->
         {attrs, false}
 
-      {nil, legacy} ->
+      {false, legacy} ->
         Logger.warning("build_order.general_epics is deprecated; rename it to build_order.lanes (the same list, read as an alias for one release)")
         {attrs |> Map.delete("general_epics") |> Map.put("lanes", legacy), false}
 
-      {_lanes, _legacy} ->
+      {true, nil} ->
+        {attrs, false}
+
+      {true, _legacy} ->
         {attrs, true}
     end
   end

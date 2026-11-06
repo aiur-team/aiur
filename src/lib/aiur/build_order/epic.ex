@@ -1,8 +1,9 @@
 defmodule Aiur.BuildOrder.Epic do
   @moduledoc """
-  Resolves home-page general and feature epics, distinct from Build Order
-  `build-lane:` lanes and their `epic_count`. Lane labels only match when
-  explicitly listed in `build_order.general_epics`.
+  Resolves home-page lane and feature columns, distinct from Build Order
+  `build-lane:` lanes and their `epic_count`. A configured lane
+  (`build_order.lanes`) matches by its label matchers or by a `lane:`, `area:`
+  or `build-lane:` label carrying its key, the same rule `Aiur.Lane` applies.
 
   Context contains `general` (ordered, normalized lane maps or structs)
   and `features` (feature slug to ordered epic keys, or `:unknown`). Ticket

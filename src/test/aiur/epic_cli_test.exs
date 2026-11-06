@@ -34,11 +34,11 @@ defmodule Aiur.EpicCLITest do
     start_supervised!({Store, c.opts})
     Store.set("docs", [12], %{actor: "cli:kevin", source: "cli:kevin"}, c.server)
     Agent.update(c.config, fn _ -> {:ok, %{build_order: %{lanes: [%{key: "bugs", label: "Bugs"}]}}} end)
-    assert run(c.server ++ [action: :show], 0) =~ "docs (not a configured epic; ignored)"
+    assert run(c.server ++ [action: :show], 0) =~ "docs (not a configured lane; ignored)"
     assert [row] = run(c.server ++ [action: :show, json: true], 0) |> Jason.decode!() |> Map.fetch!("overrides")
     assert row["epic_known"] == false
     Agent.update(c.config, fn _ -> {:error, :boom} end)
-    assert run(c.server ++ [action: :show], 0) =~ "epic config unavailable"
+    assert run(c.server ++ [action: :show], 0) =~ "lane config unavailable"
     assert [row] = run(c.server ++ [action: :show, json: true], 0) |> Jason.decode!() |> Map.fetch!("overrides")
     assert Map.has_key?(row, "epic_known") and row["epic_known"] == nil
   end
@@ -72,7 +72,7 @@ defmodule Aiur.EpicCLITest do
     assert Jason.decode!(run(c.server ++ [action: :list, json: true], 0))["epics"] == [%{"key" => "ops", "label" => "Ops"}]
     Agent.update(c.config, fn _ -> {:error, :boom} end)
     text = run(c.server ++ [action: :list], 1)
-    assert text =~ "epic config unavailable"
+    assert text =~ "lane config unavailable"
     refute text =~ "bugs"
   end
 end

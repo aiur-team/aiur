@@ -17,7 +17,11 @@ defmodule Aiur.AgentTools.Lane do
   def tools, do: [@lane, @epic]
 
   @impl true
-  def specs, do: [spec(@lane, "Put tickets into a lane (or clear it). Records you as the actor. Use for categorising tickets; batch up to 200 ids."), spec(@epic, "Deprecated alias for aiur_set_lane; it has the same effect.")]
+  def specs,
+    do: [
+      spec(@lane, "Put tickets into a lane (or clear it). Records you as the actor. Use for categorising tickets; batch up to 200 ids."),
+      spec(@epic, "Deprecated alias for aiur_set_lane; it has the same effect.")
+    ]
 
   @impl true
   def execute(name, arguments, opts) when name in [@lane, @epic] do

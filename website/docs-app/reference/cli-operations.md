@@ -216,7 +216,9 @@ Routing sends these Commands directly to the human with cause `executor_originat
 
 Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
 
-## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
+## Build history commands — [feature, lane and history export commands](/reference/build-history-commands)
+
+`aiur lane set|clear|confirm|show|list` reads and writes the local lane override store; it never writes a GitHub label. The write verbs are the deprecated `aiur epic set|clear|confirm` spelling's replacement: those still run the same commands over the same store and print a deprecation line on stderr naming `aiur lane`, so existing scripts keep their output and exit codes.
 
 ## Dashboard page commands
 `aiur units`, `aiur commands`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages; `aiur build-orders` reads the Build Order projection.

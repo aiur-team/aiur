@@ -29,19 +29,22 @@ JSON preserves unavailable label totals and absent baselines as `null`; missing 
 
 Example: `aiur feature create intake --label "Intake"`, then `aiur feature add intake 412 413` and `aiur feature show intake --json`.
 
-## Epics
+## Lanes
 
-Overrides are local: these commands never write GitHub labels or report effective epics, and agents use `aiur_set_epic` with daemon-bound identity.
+A lane is a technical column. Overrides are local: these commands never write GitHub labels or report effective lanes, and agents use `aiur_set_lane` with daemon-bound identity.
 
 | Syntax | Behavior | Runnable example |
 | --- | --- | --- |
-| `aiur epic set <epic> <ids…> [--source cli\|backfill-agent] [--as <who>] [--json]` | Atomically sets up to 200 IDs (optional `#`; duplicates count once). Only configured general epics; feature epics and `unsorted` are refused. | `aiur epic set runtime 142 143 --source cli --json` |
-| `aiur epic confirm <ids…> [--epic <key>] [--as <who>] [--json]` | Accepts existing guesses atomically; optional epic guard refuses changed values. Missing or removed epics refuse the batch. | `aiur epic confirm 142 143 --epic runtime --json` |
-| `aiur epic clear <ids…> [--as <who>] [--json]` | Removes overrides; absent entries are unchanged. | `aiur epic clear 142 --json` |
-| `aiur epic show [<ids…>] [--unconfirmed] [--json]` | Shows stored epic, actor, source, confirmation and time. Removed keys are ignored; unreadable config gives `epic_known: null`. | `aiur epic show 142 --json` |
-| `aiur epic list [--json]` | Lists configured keys and labels in order. Config errors refuse writes and list without defaults. | `aiur epic list --json` |
+| `aiur lane set <lane> <ids…> [--source cli\|backfill-agent] [--as <who>] [--json]` | Atomically sets up to 200 IDs (optional `#`; duplicates count once). Only configured lanes; feature lanes and `unsorted` are refused. | `aiur lane set runtime 142 143 --source cli --json` |
+| `aiur lane confirm <ids…> [--lane <key>] [--as <who>] [--json]` | Accepts existing guesses atomically; optional lane guard refuses changed values. Missing or removed lanes refuse the batch. | `aiur lane confirm 142 143 --lane runtime --json` |
+| `aiur lane clear <ids…> [--as <who>] [--json]` | Removes overrides; absent entries are unchanged. | `aiur lane clear 142 --json` |
+| `aiur lane show [<ids…>] [--unconfirmed] [--json]` | Shows stored lane, actor, source, confirmation and time. Removed keys are ignored; unreadable config gives `epic_known: null`. | `aiur lane show 142 --json` |
+| `aiur lane list [--json]` | Lists configured keys and labels in order. Config errors refuse writes and list without defaults. | `aiur lane list --json` |
+| `aiur epic confirm <ids…> [--epic <key>] [--as <who>] [--json]` | The deprecated spelling of `aiur lane confirm`, over the same store and with the same result; `--epic` is still accepted as the alias of `--lane`. It prints `aiur epic confirm is deprecated; use aiur lane confirm` on stderr and exits 0. | `aiur epic confirm 142 143 --epic runtime --json` |
 
-Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same epic, source and confirmation is unchanged; changed results and the journal retain the prior assignment.
+`aiur epic set|clear|confirm` still work as deprecated aliases for the matching `aiur lane` verbs: same arguments, same override store, same output and exit codes, plus a deprecation line on stderr naming `aiur lane`. `aiur epic show|list` print the same output as `aiur lane show|list`.
+
+Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same lane, source and confirmation is unchanged; changed results and the journal retain the prior assignment.
 
 Backfill writes preserve overrides from other sources with `status: kept_existing` and no journal entry.
 
@@ -53,20 +56,20 @@ After a first-write sync failure after rename, reads and writes remain unavailab
 
 `confirmed: false` identifies an unaccepted backfill-agent guess. Other sources are confirmed when written; the flag alone does not mean a human reviewed them. The board and ticket modal do not mark guesses.
 
-1. Find guesses: `aiur epic show --unconfirmed --json` and `aiur feature show --unconfirmed --json`.
-2. Accept selected IDs: `aiur epic confirm 12 14 --epic infra` or `aiur feature confirm intake 12 14`. Use `--epic` to accept only the value you read.
-3. Reject: `aiur epic clear 13` or `aiur feature remove intake 13`.
+1. Find guesses: `aiur lane show --unconfirmed --json` and `aiur feature show --unconfirmed --json`.
+2. Accept selected IDs: `aiur lane confirm 12 14 --lane infra` or `aiur feature confirm intake 12 14`. Use `--lane` to accept only the value you read.
+3. Reject: `aiur lane clear 13` or `aiur feature remove intake 13`.
 4. Repeat the filtered listing to review the remaining guesses.
 
-Both confirms accept 1–200 IDs and record actor/source `cli:<who>` with the acceptance time in the journal. Already confirmed rows are unchanged. Confirmation never changes stored epics, owning feature, join time or baseline scope; a later backfill cannot replace the accepted value.
+Both confirms accept 1–200 IDs and record actor/source `cli:<who>` with the acceptance time in the journal. Already confirmed rows are unchanged. Confirmation never changes stored lanes, owning feature, join time or baseline scope; a later backfill cannot replace the accepted value.
 
 There is no confirm-all, source override, or confirmation of also-affects links.
 
-A confirmed epic override outranks type labels: accepting an Infra guess on a ticket with a `bug` label can move its card from Bugs to Infra. Feature ownership takes precedence, so feature-owned tickets do not move. Clearing/removing a classification returns placement to the remaining classification, type label or Unsorted.
+A confirmed lane override outranks type labels: accepting an Infra guess on a ticket with a `bug` label can move its card from Bugs to Infra. Feature ownership takes precedence, so feature-owned tickets do not move. Clearing/removing a classification returns placement to the remaining classification, type label or Unsorted.
 
 Filtered listings end with `N unconfirmed`; feature listings without a slug show members across all features. JSON adds `unconfirmed_count`. An unavailable store fails without any count.
 
-Confirm JSON names the command and each ID’s `confirmed` or `unchanged` outcome, epic and previous provenance; refusals report `ok: false` and refused IDs. These commands perform no GitHub reads or writes; paced label projection is separate.
+Confirm JSON names the command and each ID’s `confirmed` or `unchanged` outcome, lane and previous provenance; refusals report `ok: false` and refused IDs. These commands perform no GitHub reads or writes; paced label projection is separate.
 
 ## History export
 

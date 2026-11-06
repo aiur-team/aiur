@@ -3,8 +3,8 @@ defmodule Aiur.BuildOrder.Index.Rows do
   alias Aiur.BuildOrder.{Epic, FeatureStats, Metadata, ProviderHealth, SourceFreshness}
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
   alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
-  alias Aiur.Lane
   alias Aiur.GitHub.Issues
+  alias Aiur.Lane
   alias Aiur.StartTrigger.ProgressStore
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
