@@ -67,6 +67,12 @@ aiur_remote_curl_failure() {
   return 69
 }
 
+# An older daemon refused contract 2 before running anything, so one contract-1 retry is safe; it has no replay safety.
+aiur_remote_v1_retry() {
+  control_rpc_say "aiur: $1 runs a build without replay-safe writes; retrying without a request id (upgrade it)"
+  AIUR_REMOTE_NO_REQUEST_ID=1 run_remote_rpc_with_timeout "$2"
+}
+
 aiur_remote_conflict() {
   local name="$1" response_file="$2" request_id="$3" code
   code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
