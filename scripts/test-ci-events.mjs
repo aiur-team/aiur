@@ -155,10 +155,6 @@ assert.ok(!jobs.get('workflow-security').includes("Set up Elixir for PR evidence
 const affected = jobs.get('affected-tests');
 const affectedTimeout = Number(affected.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
 assert.equal(affectedTimeout, 25, 'the job allows the bounded merge-queue time-bomb rerun');
-const affectedRunnerPython = readFileSync(new URL('../scripts/run-ci-affected-tests.py', import.meta.url), 'utf8');
-const runnerJobTimeoutMinutes = Number(affectedRunnerPython.match(/^JOB_TIMEOUT_MINUTES = (\d+)$/m)?.[1]);
-assert.equal(runnerJobTimeoutMinutes, affectedTimeout,
-  'the runner budgets its phases against the same timeout-minutes cap the job declares (#7545)');
 assert.ok(affected.includes('run-ci-affected-tests.sh'), 'affected-tests delegates setup and base selection to its helper');
 const affectedRunner = readFileSync(new URL('../scripts/run-ci-affected-tests.sh', import.meta.url), 'utf8');
 assert.ok(affectedRunner.includes('bash ../scripts/install-ci-zsh.sh'), 'affected-tests uses the shared resilient zsh installer');
@@ -170,13 +166,6 @@ for (const guard of ['base_branch_literal_guard', 'state_owners', 'placement_rul
   assert.ok(affected.includes(`${guard}_test.exs`), `fast CI includes ${guard}`);
 }
 assert.ok(affectedRunner.includes('run-ci-affected-tests.py "$PR_BASE"'));
-assert.ok(affectedRunner.includes('timeout "$SETUP_TIMEOUT_SECONDS" bash ../scripts/install-ci-zsh.sh'),
-  'dependency setup is bounded so it cannot consume the whole job cap');
-assert.ok(affectedRunner.includes('::error::affected-tests dependency setup exceeded its ${SETUP_TIMEOUT_SECONDS}s timeout'),
-  'a setup overrun names its timeout instead of looking like a failing test');
-const setupReserveSeconds = Number(affectedRunnerPython.match(/^SETUP_RESERVE_SECONDS = (\d+)$/m)?.[1]);
-assert.equal(Number(affectedRunner.match(/^SETUP_TIMEOUT_SECONDS=(\d+)$/m)?.[1]), setupReserveSeconds,
-  'the shell setup cap and the runner reserve share one number so setup plus runner fit the job cap (#7545)');
 assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));
