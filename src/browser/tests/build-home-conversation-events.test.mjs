@@ -38,6 +38,16 @@ test('B2 an unknown time is a dash, never a clock reading', () => {
   assert.equal(attr(html, 'data-at'), '—');
 });
 
+test('milestone breakpoints render as full-width divider data with escaped labels and readable time', () => {
+  const html = eventHTML({ id: 'ev:breakpoint:1:pr_opened', k: 'ev', ev: 'milestone', label: 'PR <opened>', sub: 'opened by <agent>', at: AT });
+  assert.match(html, /^<div class="cv-breakpoint"/);
+  assert.equal(attr(html, 'data-eid'), 'ev:breakpoint:1:pr_opened');
+  assert.equal(attr(html, 'data-ev'), 'milestone');
+  assert.match(html, /<b>PR &lt;opened&gt;<\/b>/);
+  assert.match(html, /<small>opened by &lt;agent&gt;<\/small>/);
+  assert.equal(text(html, 'time'), '14:13');
+});
+
 test('B3 an unknown percent is muted, never the 0% hue', () => {
   const html = eventHTML({ id: 'ev:log:1', k: 'ev', ev: 'prog', label: 'Progress updated', at: AT });
   assert.equal(attr(html, 'class'), 'cv-ev mute');

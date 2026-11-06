@@ -47,6 +47,26 @@
   border-radius: 6px;
 }
 
+/* Ticket milestone dividers use the conversation event line's shared palette. */
+.cv-breakpoint {
+  --ec: var(--accent);
+  display: grid;
+  grid-template-columns: minmax(16px, 1fr) auto auto minmax(16px, 1fr);
+  align-items: center;
+  gap: .5rem;
+  width: 100%;
+  margin: .55rem 0;
+  color: var(--muted);
+  font: .74rem "JetBrains Mono", monospace;
+}
+.cv-breakpoint::before, .cv-breakpoint::after { content: ""; height: 1px; background: color-mix(in srgb, var(--ec) 45%, transparent); }
+.cv-breakpoint b { color: var(--fg); font-weight: 600; white-space: nowrap; }
+.cv-breakpoint small { min-width: 0; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-breakpoint time { color: var(--faint); white-space: nowrap; }
+.cv-preamble { margin: .5rem 0; padding-left: .6rem; border-left: 2px solid var(--line); color: var(--muted); }
+.cv-preamble summary { cursor: pointer; font-size: .74rem; }
+.cv-preamble-content { padding-top: .25rem; }
+
 /* C:535 */ .cv-ev::before {
   content: "";
   position: absolute;

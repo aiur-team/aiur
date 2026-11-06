@@ -134,6 +134,7 @@ defmodule Aiur.AppServer.Adapter do
           |> TurnState.initialize_turn_tracking()
 
         loop_result = TurnLoop.receive_loop(session, state)
+        cancel_turn_liveness_probe(loop_result)
         Transport.reap_orphans(session.port)
 
         handle_turn_result(
@@ -159,6 +160,21 @@ defmodule Aiur.AppServer.Adapter do
         end
     end
   end
+
+  defp cancel_turn_liveness_probe({:continue, state}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe({:ok, state}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe({:error, {:response_timeout, :codex_liveness_probe, state}}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe({:error, {:liveness_probe_failed, _reason, state}}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe(_result), do: :ok
+
+  defp cancel_probe_timer(state) when is_map(state) do
+    case Map.get(state, :liveness_probe_timer) do
+      timer when is_reference(timer) -> Process.cancel_timer(timer)
+      _ -> :ok
+    end
+  end
+
+  defp cancel_probe_timer(_state), do: :ok
 
   defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
 

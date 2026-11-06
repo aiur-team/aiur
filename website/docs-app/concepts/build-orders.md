@@ -28,6 +28,10 @@ fixtures and generated types live in `packages/aiur-contracts`.
 The document is derived from the same projection the dashboard renders. The join, wave numbering,
 critical path and progress roll cannot drift between the endpoint, the CLI and the page.
 
+The GitHub review the `aiur-build` skill publishes reads the same document: the daemon document when
+one is running, and otherwise a pack walk whose tracker and progress sources are `unknown`. A
+published review therefore cannot describe a graph the dashboard disagrees with.
+
 Node `id`s are the planning-pack ids (`BO-001`) when the projection holds them and tracker identifiers
 otherwise. `number` carries the tracker number, or `null` for a draft.
 
@@ -44,6 +48,23 @@ knows about.
 
 A missing root answers `404`, and a projection the daemon cannot read answers `503`. Both use the API's
 `{"error": {"code", "message"}}` envelope.
+
+### Rendering a published document outside aiur
+
+[`aiur-build-order`](https://github.com/aiur-team/aiur/tree/main/packages/aiur-build-order) renders the
+review and the graph from one published document, with no daemon, no network call and no UI framework.
+
+It parses `build-order.v1`, returns the review as static HTML and the graph as SVG, and defines an
+`<aiur-build-order>` element for a plain page that mounts either or both from a URL or an inline
+document.
+
+Because it reads the fields above — `waves`, `critical_path`, `progress` and the typed edges — and
+recomputes none of them, a page rendering a published document cannot disagree with the dashboard
+about waves, the critical path or progress. An `unknown` source renders the same explicit banner
+instead of an empty graph.
+
+The package [README](https://github.com/aiur-team/aiur/blob/main/packages/aiur-build-order/README.md)
+documents its exports, the element's attributes and a complete static-HTML example.
 
 ## Pack contents
 
