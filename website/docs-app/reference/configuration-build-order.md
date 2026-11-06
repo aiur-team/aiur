@@ -27,7 +27,9 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 
 ### Lanes
 
-A lane is a technical column: the frontend, backend, docs or art work a ticket belongs to. A ticket lands in a lane when one of the lane's `labels` matchers is on it, or when it carries a `lane:<key>`, `area:<key>` or `build-lane:<key>` label for that lane's `key`. No GitHub label is rewritten; an existing `area:` or `build-lane:` taxonomy keeps working as lane labels.
+A lane is a technical column: the frontend, backend, docs or art work a ticket belongs to. A ticket lands in a lane when one of the lane's `labels` matchers is on it, or when it carries a `lane:<key>`, `area:<key>` or `build-lane:<key>` label for that lane's `key`.
+
+No GitHub label is rewritten; an existing `area:` or `build-lane:` taxonomy keeps working as lane labels.
 
 Omitting `build_order`, omitting `lanes`, or setting `lanes: null` uses these defaults:
 

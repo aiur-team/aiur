@@ -31,7 +31,7 @@ Example: `aiur feature create intake --label "Intake"`, then `aiur feature add i
 
 ## Lanes
 
-A lane is a technical column. Overrides are local: these commands never write GitHub labels or report effective lanes, and agents use `aiur_set_lane` with daemon-bound identity.
+A lane is a technical column; these commands write only local overrides, never GitHub labels, and agents use `aiur_set_lane` with daemon-bound identity.
 
 | Syntax | Behavior | Runnable example |
 | --- | --- | --- |
