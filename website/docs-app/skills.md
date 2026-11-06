@@ -72,6 +72,92 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 
 For a home-page epic, issue workers use `aiur_set_epic` or `aiur_feature`; Executors use `aiur epic set` or `aiur feature add`. Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
 
+## Matching skills to a ticket
+
+Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, and every other installed skill after them as a name and description to load on demand.
+
+`agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, label and complexity to skill names, and the matching sets are combined.
+
+A lane is the technical column the work belongs to, and it is the same column a general epic describes: it comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured general epic's label matchers. A configured epic therefore needs no GitHub relabel.
+
+### Merge order and precedence
+
+| Source | Config key | Ticket value |
+| --- | --- | --- |
+| Label | `agent.skills.by_label` | Label, without its `skills:` prefix |
+| Lane | `agent.skills.by_lane` | Lane slug |
+| Feature | `agent.skills.by_feature` | Owning feature slug |
+| Complexity | `agent.skills.by_complexity` | Complexity level |
+
+Labels come first, then lanes, then the owning feature, then complexity. Each source contributes its whole set and the sets combine; when two sources name the same skill, the earlier source owns the stated reason.
+
+Matching is case-insensitive, and complexity keys accept both `3` and `"3"`.
+
+### Per-ticket override
+
+A `skills:<name>` label adds skills to one ticket without a config edit. It names a `by_label` entry when one exists, otherwise it names one skill directly.
+
+```yaml
+agent:
+  skills:
+    by_label:
+      design: [design-import, ce-brainstorm]
+```
+
+A `Skills: a, b` line in the ticket body adds skills the same way. A `Skills only: a, b` line replaces the configured set for that ticket. A line inside a fenced code block is documentation and does not count.
+
+### Worker prompt and the index
+
+Mapped skills are inlined in full under `## Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
+
+`agent.skills.preload_max_bytes` caps the inlined instructions. Mapped skills past the cap are listed to load on demand and reported as truncated, never dropped.
+
+A mapped name with no installed `SKILL.md` logs a warning naming the ticket, the skill and the reason. The prompt lists it under `### Mapped skills not installed here` and the worker carries on with the rest.
+
+### Visibility
+
+`aiur agents` shows each worker's mapped skills and their reasons on its status row. The ticket's dispatch record (`logs/agent.ndjson`, mirrored in `agent.md`) carries the full resolution: skills, reasons, missing names, truncated names and the inlined byte count.
+
+### Configuration is read per dispatch
+
+The mapping is read when a worker's prompt is built, so an edit applies to the next dispatch without a daemon restart. A resumed session keeps the prompt it started with.
+
+### Example: a game repository
+
+A game's features name the game domain a ticket works in, and its lanes name the discipline it is built with. Mapping both means a pixel-art ticket in the world feature starts with the art and world skills instead of the multiplayer, saves and CI ones.
+
+```yaml
+agent:
+  skills:
+    # Lanes are the technical columns: the discipline a ticket is built with.
+    by_lane:
+      art: [pixel-art, palette-discipline]
+      audio: [audio-design, sound-budget]
+      frontend: [ui-kit, design-import]
+      backend: [save-schema, migration-safety]
+      docs: [docs-style]
+      qa: [playtest-checklists, regression-triage]
+    # Features are the game domains: the part of the game a ticket works on.
+    by_feature:
+      foundation: [repo-conventions, ci-plumbing]
+      world: [level-design, tilemap-editing]
+      combat: [combat-tuning, balance-simulation]
+      classes: [progression-design]
+      items-ui: [ui-kit, design-import]
+      story-quests: [narrative-writing, quest-authoring]
+      audio: [audio-design]
+      persistence: [save-schema]
+      qa: [playtest-checklists]
+    # A label adds skills to one ticket without a config edit.
+    by_label:
+      pixel-art: [pixel-art, palette-discipline]
+    # Complexity is the last source, so it only fills in what the rest missed.
+    by_complexity:
+      1: [ce-work]
+      3: [ce-plan, ce-work]
+      4: [ce-brainstorm, ce-plan, ce-work, ce-code-review]
+```
+
 ## Executor skills
 
 These stay with the Executor and are not copied into ticket workspaces.

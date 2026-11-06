@@ -5,6 +5,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
+  alias Aiur.Config.SkillsMapping
 
   @doc false
   @spec prepare_attrs(map()) :: map()
@@ -460,5 +461,24 @@ defmodule Aiur.Config.Schema.AgentValidation do
       true ->
         changeset
     end
+  end
+
+  # The `agent.skills` reference-table rows live in `Aiur.Config.SkillsMapping`
+  # because this module and `Aiur.Config.Schema.Agent` are both at the file-size
+  # limit; `scripts/generate-reference-tables.py` scans every module under
+  # `src/lib/aiur/config/`, so the rows are collected from that file.
+  @doc false
+  @spec normalize_skills(nil | map()) :: map()
+  def normalize_skills(skills), do: SkillsMapping.normalize(skills)
+
+  @doc false
+  @spec validate_skills(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_skills(changeset, field) do
+    validate_change(changeset, field, fn ^field, skills ->
+      case SkillsMapping.validate(skills) do
+        :ok -> []
+        {:error, message} -> [{field, message}]
+      end
+    end)
   end
 end
