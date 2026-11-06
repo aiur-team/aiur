@@ -168,6 +168,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr_health.unmergeable_author", "pr-lifecycle"},
     # aiur/coding_agent/route_failure.ex
     {"system.provider.auth_rejected.*", "harness-adapters"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"system.provider.credit_limited.*", "harness-adapters"},
     # aiur/application/startup_checks.ex
     {"system.provider.auth_rejected.*.resolved", "control-cli"},
     # aiur/handoff/report.ex
