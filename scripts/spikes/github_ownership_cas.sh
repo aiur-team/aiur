@@ -27,9 +27,13 @@ record() {
     "$(printf '%s' "$body" | jq -r '(.errors[0].message // .message // "ok") | tostring' 2>/dev/null || printf '%s' "$body" | head -c 200)"
 }
 call() { local step="$1"; shift; split "$(gh api -i "$@" 2>&1)"; record "$step"; }
+# updateRefs body as JSON on stdin: `-F i={...}` would send the input as a string.
+payload() { # refname beforeOid afterOid
+  jq -n --arg rid "$rid" --arg n "$1" --arg b "$2" --arg a "$3" \
+    '{query:"mutation($i:UpdateRefsInput!){updateRefs(input:$i){clientMutationId}}",variables:{i:{repositoryId:$rid,refUpdates:[{name:$n,beforeOid:$b,afterOid:$a}]}}}'
+}
 gql() { # STEP refname beforeOid afterOid
-  split "$(gh api graphql -i -f query='mutation($i:UpdateRefsInput!){updateRefs(input:$i){clientMutationId}}' \
-    -F "i={\"repositoryId\":\"$rid\",\"refUpdates\":[{\"name\":\"$2\",\"beforeOid\":\"$3\",\"afterOid\":\"$4\"}]}" 2>&1)"
+  split "$(payload "$2" "$3" "$4" | gh api graphql -i --input - 2>&1)"
   record "$1"
   gql_failed="$(printf '%s' "$body" | jq -r 'has("errors")' 2>/dev/null || echo true)"
 }
@@ -72,8 +76,7 @@ call "6 c read If-None-Match (expect 304)" -H "If-None-Match: $etag" "$url"
 rounds="${ROUNDS:-20}" racers=3 bad_rounds=0
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 race_create() { # ref outfile
-  gh api graphql -f query='mutation($i:UpdateRefsInput!){updateRefs(input:$i){clientMutationId}}' \
-    -F "i={\"repositoryId\":\"$rid\",\"refUpdates\":[{\"name\":\"$1\",\"beforeOid\":\"$zero\",\"afterOid\":\"$c1\"}]}" >"$2" 2>&1
+  payload "$1" "$zero" "$c1" | gh api graphql --input - >"$2" 2>&1
 }
 raced=()
 for n in $(seq "$rounds"); do
@@ -97,7 +100,7 @@ split "$(gh api graphql -i -f query='query($o:String!,$n:String!,$p:String!){rep
   -f o="${repo%/*}" -f n="${repo#*/}" -f p="refs/aiur/owners/" 2>&1)"; record "8 b graphql refs(refPrefix:)"
 call "8 c REST DELETE one claim" -X DELETE "repos/$repo/git/refs/aiur/owners/$run-race1"
 
-for r in "refs/aiur/owners/$run" "$rest" "refs/heads/aiur-owner/$run" "${raced[@]}" "refs/heads/aiur-owner/$run"; do
+for r in "refs/aiur/owners/$run" "$rest" "refs/heads/aiur-owner/$run" "${raced[@]:1}"; do
   gh api -X DELETE "repos/$repo/git/$r" >/dev/null 2>&1 || echo "# cleanup failed: $r"
 done
 if [ "$second_create_ok" = 1 ]; then
