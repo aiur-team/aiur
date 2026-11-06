@@ -8,7 +8,7 @@ defmodule Aiur.EpicCLITest do
     dir = Aiur.TestSupport.tmp_root!("epic-cli")
     File.mkdir_p!(dir)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
-    {:ok, config} = Agent.start_link(fn -> {:ok, %{build_order: %{general_epics: [%{key: "bugs", label: "Bugs"}, %{key: "docs", label: "Docs"}]}}} end)
+    {:ok, config} = Agent.start_link(fn -> {:ok, %{build_order: %{lanes: [%{key: "bugs", label: "Bugs"}, %{key: "docs", label: "Docs"}]}}} end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
     opts = [name: name, repository: "acme/app", state_dir: dir, settings_fun: fn -> Agent.get(config, & &1) end]
     %{opts: opts, server: [server: name], path: Path.join(dir, "epic-overrides.json"), config: config}
@@ -33,7 +33,7 @@ defmodule Aiur.EpicCLITest do
   test "V-22 V-22b removed and unreadable catalog retain truthful known status", c do
     start_supervised!({Store, c.opts})
     Store.set("docs", [12], %{actor: "cli:kevin", source: "cli:kevin"}, c.server)
-    Agent.update(c.config, fn _ -> {:ok, %{build_order: %{general_epics: [%{key: "bugs", label: "Bugs"}]}}} end)
+    Agent.update(c.config, fn _ -> {:ok, %{build_order: %{lanes: [%{key: "bugs", label: "Bugs"}]}}} end)
     assert run(c.server ++ [action: :show], 0) =~ "docs (not a configured epic; ignored)"
     assert [row] = run(c.server ++ [action: :show, json: true], 0) |> Jason.decode!() |> Map.fetch!("overrides")
     assert row["epic_known"] == false
@@ -67,7 +67,7 @@ defmodule Aiur.EpicCLITest do
 
   test "V-33 list uses configured keys in order and no fallback on config error", c do
     start_supervised!({Store, c.opts})
-    Agent.update(c.config, fn _ -> {:ok, %{build_order: %{general_epics: [%{key: "ops", label: "Ops"}]}}} end)
+    Agent.update(c.config, fn _ -> {:ok, %{build_order: %{lanes: [%{key: "ops", label: "Ops"}]}}} end)
     assert run(c.server ++ [action: :list], 0) == "ops  Ops\n"
     assert Jason.decode!(run(c.server ++ [action: :list, json: true], 0))["epics"] == [%{"key" => "ops", "label" => "Ops"}]
     Agent.update(c.config, fn _ -> {:error, :boom} end)

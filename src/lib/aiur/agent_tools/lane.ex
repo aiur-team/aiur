@@ -1,38 +1,49 @@
-defmodule Aiur.AgentTools.Epic do
-  @moduledoc "Daemon-bound epic assignment tool; agents cannot supply provenance."
+defmodule Aiur.AgentTools.Lane do
+  @moduledoc """
+  Daemon-bound lane assignment tool; agents cannot supply provenance.
+
+  `aiur_set_lane` is the tool name. `aiur_set_epic` is the deprecated alias and
+  both take the same arguments and have the same effect. The stored value keeps
+  the `epic` key because it is the same override record the lane store holds.
+  """
+
   @behaviour Aiur.AgentTools.Handler
   alias Aiur.AgentTools.{Errors, Response}
 
-  @impl true
-  def tools, do: ["aiur_set_epic"]
-  @impl true
-  def specs do
-    [
-      %{
-        "name" => "aiur_set_epic",
-        "description" => "Put tickets into a general epic (or clear it). Records you as the actor. Use for categorising tickets; batch up to 200 ids.",
-        "inputSchema" => %{
-          "type" => "object",
-          "additionalProperties" => false,
-          "properties" => %{
-            "epic" => %{"type" => "string"},
-            "ids" => %{"type" => "array", "items" => %{"type" => "integer", "minimum" => 1, "maximum" => 9_999_999_999}, "minItems" => 1, "maxItems" => 200},
-            "clear" => %{"type" => "boolean"},
-            "backfill" => %{"type" => "boolean"}
-          }
-        }
-      }
-    ]
-  end
+  @lane "aiur_set_lane"
+  @epic "aiur_set_epic"
 
   @impl true
-  def execute("aiur_set_epic", arguments, opts) do
+  def tools, do: [@lane, @epic]
+
+  @impl true
+  def specs, do: [spec(@lane, "Put tickets into a lane (or clear it). Records you as the actor. Use for categorising tickets; batch up to 200 ids."), spec(@epic, "Deprecated alias for aiur_set_lane; it has the same effect.")]
+
+  @impl true
+  def execute(name, arguments, opts) when name in [@lane, @epic] do
     with {:ok, normalized} <- normalize(arguments), setter when is_function(setter, 1) <- opts[:epic_setter], {:ok, result} <- setter.(normalized) do
       Response.build(true, Jason.encode!(%{ok: true, result: Response.jsonable(result)}))
     else
       {:error, reason} -> Response.failure(Errors.payload(reason))
       _ -> Response.failure(Errors.payload(:epic_setter_unavailable))
     end
+  end
+
+  defp spec(name, description) do
+    %{
+      "name" => name,
+      "description" => description,
+      "inputSchema" => %{
+        "type" => "object",
+        "additionalProperties" => false,
+        "properties" => %{
+          "epic" => %{"type" => "string"},
+          "ids" => %{"type" => "array", "items" => %{"type" => "integer", "minimum" => 1, "maximum" => 9_999_999_999}, "minItems" => 1, "maxItems" => 200},
+          "clear" => %{"type" => "boolean"},
+          "backfill" => %{"type" => "boolean"}
+        }
+      }
+    }
   end
 
   @spec normalize(term()) :: {:ok, map()} | {:error, atom()}

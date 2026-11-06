@@ -8,7 +8,7 @@ defmodule Aiur.EpicCLIConfirmTest do
     dir = Aiur.TestSupport.tmp_root!("epic-cli-confirm")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
-    settings = fn -> {:ok, %{build_order: %{general_epics: [%{key: "infra", label: "Infra"}, %{key: "design", label: "Design"}]}}} end
+    settings = fn -> {:ok, %{build_order: %{lanes: [%{key: "infra", label: "Infra"}, %{key: "design", label: "Design"}]}}} end
     start_supervised!({Store, name: name, repository: "acme/app", state_dir: dir, settings_fun: settings})
     opts = [server: name, error_fun: fn _ -> :ok end]
     assert {:ok, _} = Store.set("infra", [12], %{actor: "agent:2790", source: "backfill-agent"}, opts)

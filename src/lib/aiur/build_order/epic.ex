@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.Epic do
   `build-lane:` lanes and their `epic_count`. Lane labels only match when
   explicitly listed in `build_order.general_epics`.
 
-  Context contains `general` (ordered, normalized GeneralEpic maps or structs)
+  Context contains `general` (ordered, normalized lane maps or structs)
   and `features` (feature slug to ordered epic keys, or `:unknown`). Ticket
   facts contain `labels`, optional `labels_complete` (default true),
   `owning_feature` and `override` records (default `:none`). Missing labels
@@ -82,18 +82,21 @@ defmodule Aiur.BuildOrder.Epic do
   end
 
   defp match_labels(labels, ticket, general, acc) do
-    match =
-      Enum.find_value(general, fn epic ->
-        case Enum.find(epic.labels, &MapSet.member?(labels, &1)) do
-          nil -> nil
-          label -> {epic.key, label}
-        end
-      end)
-
-    case match do
+    case label_match(labels, general) do
       {key, label} -> {:done, resolution(key, "label:" <> label, acc)}
       nil -> {:next, if(Map.get(ticket, :labels_complete, true) == true, do: acc, else: gap(acc, :labels))}
     end
+  end
+
+  # Config order decides, and a lane label (`lane:`, `area:`, `build-lane:`) counts
+  # as a match for the lane with that key, the same rule `Aiur.Lane` applies.
+  defp label_match(labels, general) do
+    Enum.find_value(general, fn epic ->
+      case Aiur.Lane.label_match(epic, MapSet.to_list(labels)) do
+        nil -> nil
+        label -> {epic.key, label}
+      end
+    end)
   end
 
   defp normalize(labels) do

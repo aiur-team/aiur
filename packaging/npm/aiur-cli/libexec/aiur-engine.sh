@@ -105,9 +105,12 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
-       aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
-       aiur epic clear <ids...> [--as <who>] [--json]
-       aiur epic confirm <ids...> [--epic <key>] [--as <who>] [--json]
+       aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
+       aiur lane clear <ids...> [--as <who>] [--json]
+       aiur lane confirm <ids...> [--lane <key>] [--as <who>] [--json]
+       aiur lane show [<ids...>] [--unconfirmed] [--json]
+       aiur lane list [--json]
+       aiur epic set|clear|confirm ...  deprecated alias for aiur lane
        aiur epic show [<ids...>] [--unconfirmed] [--json]
        aiur epic list [--json]
        aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label> --epic-icon <key>=<heroicon>]... [--as <who>] [--json]
@@ -348,6 +351,7 @@ aiur_engine_main() {
       cmd_queue "$@"
       ;;
     ticket) shift; cmd_ticket "$@" ;;
+    lane) shift; cmd_lane "$@" ;;
     epic) shift; cmd_epic "$@" ;;
     feature) shift; cmd_feature "$@" ;;
     build-orders)
@@ -485,6 +489,7 @@ aiur_engine_main() {
 }
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-daemon-supervisor.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-lane.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
