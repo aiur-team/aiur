@@ -42,7 +42,7 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   defp epic_reader(_), do: fn -> {:error, :invalid} end
 
   defp configured_epics do
-    with {:ok, settings} <- Config.settings(), do: {:ok, settings.build_order.general_epics}
+    with {:ok, settings} <- Config.settings(), do: {:ok, settings.build_order.lanes}
   end
 
   defp state_dir(opts) do

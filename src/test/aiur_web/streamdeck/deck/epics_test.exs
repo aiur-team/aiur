@@ -2,7 +2,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.Index
-  alias Aiur.Config.Schema.GeneralEpic
+  alias Aiur.Config.Schema.Lane
   alias AiurWeb.Build.Payload
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Epics, Input, Nav}
@@ -27,10 +27,10 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
   test "no configured epics renders setting guidance without count keys; failed reads stay unavailable" do
     section = Epics.read(window: {:ok, %{epics: %{"unsorted" => %{label: "Unsorted"}}, epic_progress: %{}}})
     assert section.keys == []
-    assert section.message == "No epics configured. Define build_order.general_epics"
+    assert section.message == "No epics configured. Define build_order.lanes"
     frame = frame(section)
     assert hd(frame.strip).svg =~ "No epics"
-    assert hd(frame.strip).label =~ "build_order.general_epics"
+    assert hd(frame.strip).label =~ "build_order.lanes"
     refute hd(frame.strip).label =~ "0 remaining"
     assert Enum.all?(frame.keys, &is_nil/1)
     assert Epics.read(window: {:error, :offline}) == %{status: "unavailable", keys: [], message: "Epics unavailable"}
@@ -41,7 +41,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     progress = Map.new(window.epic_progress, fn {id, _} -> {id, %{closed: 0, open: 0, total: 0}} end)
     empty = Epics.read(window: {:ok, %{window | epic_progress: progress}})
     assert empty.keys == []
-    assert empty.message == "No epics configured. Define build_order.general_epics"
+    assert empty.message == "No epics configured. Define build_order.lanes"
     frame = frame(empty)
     assert hd(frame.strip).label =~ "No epics configured"
     refute hd(frame.strip).label =~ "0 remaining"
@@ -54,11 +54,11 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
   end
 
   test "real index membership drills into feature-owned tickets and long press returns" do
-    ui = %GeneralEpic{key: "ui", label: "UI", labels: [" AREA:UI "], hue: 120, icon: "pen"}
-    docs = %GeneralEpic{key: "docs", label: "Docs", labels: ["area:docs"], hue: 240, icon: "docs"}
+    ui = %Lane{key: "ui", label: "UI", labels: [" AREA:UI "], hue: 120, icon: "pen"}
+    docs = %Lane{key: "docs", label: "Docs", labels: ["area:docs"], hue: 240, icon: "docs"}
     p = parts([row(1, %{labels: [" Area:Ui "]}), row(2, %{labels: ["area:ui", "area:docs"]}), row(3)])
     feature = %{slug: "deck", label: "Deck", hue: 175, epics: [%{key: "f-deck", label: "Deck"}], from: now(), to: :none, baseline: :none}
-    p = put_in(p, [:settings], {:ok, put_in(elem(p.settings, 1), [:build_order, :general_epics], [ui, docs])})
+    p = put_in(p, [:settings], {:ok, put_in(elem(p.settings, 1), [:build_order, :lanes], [ui, docs])})
 
     p =
       put_in(

@@ -86,7 +86,7 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
 
   test "skills.md points at the commands once" do
     text = File.read!(Path.join(@root, "website/docs-app/skills.md"))
-    for name <- ["aiur_set_epic", "aiur epic set", "aiur ticket estimate"], do: assert(length(String.split(text, name)) == 2)
+    for name <- ["aiur_set_lane", "aiur lane set", "aiur ticket estimate"], do: assert(length(String.split(text, name)) == 2)
     [worker_notes, _executor_notes] = String.split(text, "## Executor skills", parts: 2)
     assert worker_notes =~ "For a home-page epic"
   end
