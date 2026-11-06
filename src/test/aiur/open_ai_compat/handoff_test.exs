@@ -41,6 +41,30 @@ defmodule Aiur.OpenAICompat.HandoffTest do
     queue
   end
 
+  # A provider double whose responses answer in order, except an element tagged
+  # `{:gated, response}`: that request announces itself with its own pid and waits
+  # for the test's `:release`, so a handoff can land while a transport call is
+  # genuinely in flight — the case a busy OpenRouter worker presents to a
+  # keep-agents preflight (#7564).
+  defp gated_queue_fun(queue, parent) do
+    fn request ->
+      send(parent, {:gated_request, request, self()})
+      next_response(queue)
+    end
+  end
+
+  defp next_response(queue) do
+    next = Agent.get_and_update(queue, &shift_response/1)
+
+    case next do
+      {:gated, response} -> receive do: (:release -> response)
+      response -> response
+    end
+  end
+
+  defp shift_response([next | rest]), do: {next, rest}
+  defp shift_response([]), do: {{:error, :unexpected_request}, []}
+
   defp tool_call_response do
     response(%{
       "id" => "req-handoff-1",
@@ -239,7 +263,18 @@ defmodule Aiur.OpenAICompat.HandoffTest do
 
   test "a mid-turn hold captures at a step boundary and resumes the turn when the preflight aborts", %{workspace: workspace} do
     parent = self()
-    opts = session_opts(parent, [tool_call_response(), final_response()])
+
+    # The first request answers with a tool call whose round commits; the second
+    # request is still in flight when the hold lands, so the captured boundary is
+    # the last completed step — the conversation as it stood when that request
+    # was issued.
+    opts = [
+      backend: "kimi",
+      instance: instance(%{}),
+      api_key_fetcher: fn _env -> @secret end,
+      request_fun: gated_queue_fun(start_response_queue([tool_call_response(), {:gated, final_response()}]), parent)
+    ]
+
     {:ok, session} = CodingAgent.start_session(workspace, opts)
     session = Map.put(session, :backend, "kimi")
     test_pid = self()
@@ -256,7 +291,8 @@ defmodule Aiur.OpenAICompat.HandoffTest do
         CodingAgent.run_turn(session, "Inspect the workspace", issue(), turn_opts(test_pid))
       end)
 
-    assert_receive {:request, _first}, 5_000
+    assert_receive {:gated_request, _first, _first_pid}, 5_000
+    assert_receive {:gated_request, _second, requester}, 5_000
     send(turn.pid, :handoff_hold)
     ref = make_ref()
     send(turn.pid, {:handoff_snapshot, self(), ref})
@@ -271,8 +307,10 @@ defmodule Aiur.OpenAICompat.HandoffTest do
     assert saved["interrupted"] == true
     assert Enum.any?(saved["messages"], &(&1["role"] == "tool"))
 
-    # The preflight aborted, so the parked runner must resume its own turn.
+    # The preflight aborted, so the parked runner must resume its own turn with
+    # the request it still owns — the in-flight call is not lost.
     send(turn.pid, :handoff_abort)
+    send(requester, :release)
     assert {:ok, %{result: :turn_completed}} = Task.await(turn, 5_000)
     assert {:ok, _} = CodingAgent.stop_session(session)
   end
