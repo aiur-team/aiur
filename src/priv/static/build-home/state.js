@@ -56,7 +56,7 @@ export const fx = {
   activeFeature: () => S.feature && ctx.D && Object.hasOwn(ctx.D.features, S.feature) ? ctx.D.features[S.feature] : null,
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
   initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
-  drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
+  drawEdges() {}, renderBand() {}, renderList() {}, mountBuildOrder() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {},
   appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, disposeLive() {}, conversationApplied() {}, updateTyping() {}, onConversation() {}, reconnectConversation() {},
   renderCommand() {}, placeCommand() {},

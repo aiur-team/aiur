@@ -98,18 +98,19 @@ Focus dims unrelated tickets; Compact replaces unrelated runs with gap
 markers and retains loaded dependencies as dashed ghost cards. Earlier history
 loads back to the feature’s oldest closed member. Clear the feature with ×.
 
-
 The Build toolbar filters by Epic, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL.
 
 Epic hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
 
 Tickets closed as not planned are hidden by default. Choose **Not planned** in the Ticket group to show them. **Clear** restores the default view. Escape closes a filter popover and returns focus to its button.
 
+**Build order** renders the published document's review and graph through the `aiur-build-order` package; its `sources.*.status` draws its stale and unknown banners.
+
 ### Build timeline range
 
 On the build timeline, Day, Week and Month set the visible range; − and + step
-through 1–30 days. The span is kept in the link. Range controls are hidden in
-List view and return when you switch to Timeline or Gantt.
+through 1–30 days. The span is kept in the link. List and Build order hide the
+range controls; Timeline and Gantt restore them.
 
 In List view, **List shows** switches between Tickets, Features and Epics. The
 selection is kept in the `list` link parameter; `tickets` is the default and

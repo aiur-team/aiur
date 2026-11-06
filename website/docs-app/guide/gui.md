@@ -109,6 +109,10 @@ List (`?view=list`) shows Live, Planned, Not queued and newest-first History as 
 Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
 Unknown values stay explicit, and degraded section headings show their source state and read age.
 
+Build order (`?view=build-order`) renders the published `build-order.v1` document — the review and the
+dependency graph — through the `aiur-build-order` package. A `bo-<root>` feature focuses one root;
+otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
+
 The Now band shows active agents between history and the plan, using the same
 card style as the other tickets. It scrolls with the board, so you can stop
 anywhere; **Live** scrolls to it. Minimize keeps state counts

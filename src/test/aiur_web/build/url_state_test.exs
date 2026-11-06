@@ -55,6 +55,12 @@ defmodule AiurWeb.Build.URLStateTest do
     for value <- ~w(tickets features epics), do: assert(URLState.parse(%{"list" => value}).list == value)
   end
 
+  test "view selection accepts the package-rendered build order and defaults unknown values to the timeline" do
+    assert URLState.parse(%{"view" => "bogus"}).view == "graph"
+    for value <- ~w(graph gantt list build-order), do: assert(URLState.parse(%{"view" => value}).view == value)
+    assert canonical("view=build-order&feature=bo-42") == "view=build-order&feature=bo-42"
+  end
+
   test "models accept unknown shape-valid keys" do
     assert canonical("model=zz-new,claude,openrouter,muse") == "model=zz-new,claude,openrouter,muse"
     for value <- ["Claude", "-x", String.duplicate("x", 33), "none"], do: assert(URLState.parse(%{"model" => value}).model == [])
@@ -124,7 +130,7 @@ defmodule AiurWeb.Build.URLStateTest do
 
   property "200 generated valid states round trip every field" do
     check all(
-            view <- member_of(["graph", "gantt", "list"]),
+            view <- member_of(["graph", "gantt", "list", "build-order"]),
             list <- member_of(["tickets", "features", "epics"]),
             fsort <- member_of(["goal", "pct", "left"]),
             span <- member_of([1, 2, 3, 5, 7, 10, 14, 21, 30]),
