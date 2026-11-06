@@ -4,7 +4,7 @@ defmodule AiurWeb.Streamdeck.Deck.InputTest do
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
 
   test "resolves feature, epic and fleet keys from sections, then their child tickets" do
-    for view <- [:feature, :epic, :fleet] do
+    for view <- [:feature, :lane, :fleet] do
       sections = %{view => [%{id: "group", tickets: [%{id: "6030"}]}]}
       nav = %Nav{view: view}
       frame = %{"kind" => "key_press", "index" => 0, "target" => ["ticket", "forged"]}

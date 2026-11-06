@@ -89,11 +89,11 @@ defmodule Aiur.BuildOrder.IndexTest do
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
     for key <- ~w(bugs design infra docs) do
-      assert Payload.scrub(Map.delete(index.epics[key], :svg)) == design["epics"][key]
-      assert index.epics[key].svg =~ "<svg"
+      assert Payload.scrub(Map.delete(index.lanes[key], :svg)) == design["lanes"][key]
+      assert index.lanes[key].svg =~ "<svg"
     end
 
-    assert index.epics["f-aaa"] == %{
+    assert index.lanes["f-aaa"] == %{
              key: "f-aaa",
              label: "aaa",
              hue: 42,

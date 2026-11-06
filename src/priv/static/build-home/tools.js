@@ -4,7 +4,7 @@ import { writeURL } from './url.js';
 import { I } from './icons.js';
 
 const VIEWS = [['graph', 'Timeline'], ['gantt', 'Gantt'], ['list', 'List']];
-const LISTS = [['tickets', 'Tickets', 'ticket'], ['features', 'Features', 'feature'], ['epics', 'Epics', 'layers']];
+const LISTS = [['tickets', 'Tickets', 'ticket'], ['features', 'Features', 'feature'], ['lanes', 'Lanes', 'layers']];
 let lastKey = null, bound = false;
 onReset(() => { lastKey = null; bound = false; });
 

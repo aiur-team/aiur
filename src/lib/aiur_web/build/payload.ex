@@ -4,14 +4,14 @@ defmodule AiurWeb.Build.Payload do
   All fields defined by PayloadSchema are required unless explicitly optional.
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
-  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
-  epic_progress (general-epic closed/open/total counts and observation time; incomplete figures are nil with a reason),
-  epic_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
+  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), lanes,
+  lane_progress (lane closed/open/total counts and observation time; incomplete figures are nil with a reason),
+  lane_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at),
   unavailable_rows (optional count of invalid rows omitted from this snapshot).
-  Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
+  Lane flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
   Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
   created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr, src, was.
@@ -26,7 +26,7 @@ defmodule AiurWeb.Build.Payload do
   | src / was | pack source (kind, relative path, nonnegative wave or nil) / previous pack id or nil |
   | title | raw UTF-8 string |
   | type | bug, feature, chore, docs |
-  | epic / feature / also | epic key or nil / feature key or nil / feature keys |
+  | epic / feature / also | lane key or nil / feature key or nil / feature keys |
   | cx / pts / ord | 1..5 or nil / nonnegative integer or nil / integer |
   | sec | hist, now, plan, nq |
   | start / end / created | integer milliseconds or nil; hist end must be known |
@@ -48,14 +48,14 @@ defmodule AiurWeb.Build.Payload do
   | cue.failed | nil or positive integer by and positive integer blocks list |
   | pr | nil or positive integer num, open/merged/closed state and optional nullable ci stage |
 
-  Epics require key/label strings, numeric hue and an icon name; optional svg,
+  Lanes require key/label strings, numeric hue and an icon name; optional svg,
   general/temp/unsorted are booleans, optional feature is a string. Features require key/label,
   numeric hue, icon, nullable summary/wave, epic keys
   and nullable from/to milliseconds. Required stats is an object or nil when unavailable.
   Stats carries total/done/done_min, pct/pct_min, orig/added, baseline, spark, also
   and reasons (complexity/no_weight/progress/status). Unknown done and percentages
   stay nil; percentage bounds are integers in 0..100. Order and every row membership reference
-  must resolve. Counts cover every ordered epic or the whole block is nil.
+  must resolve. Counts cover every ordered lane or the whole block is nil.
 
   History requires nullable from/total/undated, boolean more and string tz.
   Sources each require state (ok/stale/incomplete/unavailable/disabled), nullable
@@ -160,12 +160,12 @@ defmodule AiurWeb.Build.Payload do
   defp history_set(set, _history), do: set
 
   defp pack_icons(blocks) when is_map(blocks) do
-    {epics, epic_icons} = take_icons(blocks["epics"] || %{})
+    {lanes, lane_icons} = take_icons(blocks["lanes"] || %{})
     {features, feature_icons} = take_icons(blocks["features"] || %{})
-    icons = Map.merge(epic_icons, feature_icons)
+    icons = Map.merge(lane_icons, feature_icons)
 
     blocks
-    |> maybe_put("epics", epics, Map.has_key?(blocks, "epics"))
+    |> maybe_put("lanes", lanes, Map.has_key?(blocks, "lanes"))
     |> maybe_put("features", features, Map.has_key?(blocks, "features"))
     |> compact_progress_metadata()
     |> maybe_put("icons", icons, map_size(icons) > 0)
@@ -185,32 +185,32 @@ defmodule AiurWeb.Build.Payload do
 
   defp take_icons(items), do: {items, %{}}
 
-  # Feature progress repeats icon metadata already carried by its epic. Keep it
+  # Feature progress repeats icon metadata already carried by its lane. Keep it
   # in the internal index, but send one copy over the socket.
   defp compact_progress_metadata(
          %{
            "feature_progress" => %{"features" => progress} = feature_progress,
-           "epics" => epics,
+           "lanes" => lanes,
            "features" => features
          } = blocks
        )
-       when is_map(progress) and is_map(epics) and is_map(features) do
-    compacted = Map.new(progress, &compact_progress_entry(&1, epics, features, feature_progress))
+       when is_map(progress) and is_map(lanes) and is_map(features) do
+    compacted = Map.new(progress, &compact_progress_entry(&1, lanes, features, feature_progress))
 
     put_in(blocks, ["feature_progress", "features"], compacted)
   end
 
   defp compact_progress_metadata(blocks), do: blocks
 
-  defp compact_progress_entry({key, item}, epics, features, feature_progress) when is_map(item) do
-    epic = Map.get(epics, key, %{})
-    feature_key = if is_map(epic), do: Map.get(epic, "feature"), else: nil
+  defp compact_progress_entry({key, item}, lanes, features, feature_progress) when is_map(item) do
+    lane = Map.get(lanes, key, %{})
+    feature_key = if is_map(lane), do: Map.get(lane, "feature"), else: nil
     feature = Map.get(features, feature_key, %{})
 
     item =
       item
-      |> drop_matching_fields(epic, ~w(icon summary wave))
-      |> drop_matching_field("feature", epic, "feature")
+      |> drop_matching_fields(lane, ~w(icon summary wave))
+      |> drop_matching_field("feature", lane, "feature")
       |> drop_matching_field("label", feature, "label")
       |> drop_matching_field("observed_at", feature_progress, "observed_at")
       |> drop_matching_field("plan_version", feature_progress, "plan_version")
@@ -218,7 +218,7 @@ defmodule AiurWeb.Build.Payload do
     {key, item}
   end
 
-  defp compact_progress_entry(entry, _epics, _features, _feature_progress), do: entry
+  defp compact_progress_entry(entry, _lanes, _features, _feature_progress), do: entry
 
   defp drop_matching_fields(item, source, fields),
     do: Enum.reduce(fields, item, &drop_matching_field(&2, &1, source, &1))

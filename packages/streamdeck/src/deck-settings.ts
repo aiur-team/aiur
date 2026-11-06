@@ -4,7 +4,8 @@ export interface DeckSettings {
   readonly instance_selection_id?: string;
   readonly mic_id: string | null;
   readonly speaker_id: string | null;
-  readonly default_view: "ticket" | "feature" | "epic" | "fleet";
+  /** "epic" is the pre-rename Lane view and still opens it; saves write "lane". */
+  readonly default_view: "ticket" | "feature" | "lane" | "epic" | "fleet";
   readonly default_sort: string;
   readonly brightness: number | null;
   readonly dim_after_seconds: number;

@@ -65,7 +65,7 @@ test('card open, header identity, notices, focus trap and all close paths', asyn
   ]).flat())
 })
 
-test('epic icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
+test('lane icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
   await open(page)
   const t = await row(page)
   await display(page, t)

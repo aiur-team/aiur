@@ -165,7 +165,7 @@ export function openTree(id, { keep = false } = {}) {
   }).join('');
   const nodes = ids.map(x => {
     const t = ctx.D.byId[x], p = pos[x], ag = t.sec === 'now' ? agentState(t.agent?.state) : null;
-    const hue = (ctx.D.epics[colKey(t)] || ctx.D.epics.unsorted)?.hue;
+    const hue = (ctx.D.lanes[colKey(t)] || ctx.D.lanes.unsorted)?.hue;
     return '<button type="button" class="bd-tn ' + esc(t.sec) + (ag?.cls ? ' ag-' + ag.cls : '') + (t.status === 'failed' ? ' failed' : '') + (x === id ? ' sel' : '') + '" data-id="' + esc(x) + '" style="left:' + p.x + 'px;top:' + p.y + 'px;width:' + NW + 'px;height:' + NH + 'px;--h:' + (Number.isFinite(hue) ? hue : 0) + '"><span class="bd-tn1"><i></i><b>' + esc(refText(t)) + '</b><span>' + esc(t.title) + '</span></span><em>' + esc(treeStatus(t, queueText)) + '</em></button>';
   }).join('');
   const gaps = chainGaps(ctx.D, new Set(ids)), count = gaps.unloaded + (gaps.missing ?? 0);

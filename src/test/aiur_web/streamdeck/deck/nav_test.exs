@@ -10,7 +10,7 @@ defmodule AiurWeb.Streamdeck.Deck.NavTest do
     assert cycled.view == :feature
     assert Nav.page(cycled) == 1
     {cycled, []} = step(cycled, "dial_press", 3)
-    assert cycled.view == :epic
+    assert cycled.view == :lane
     {cycled, []} = step(cycled, "dial_press", 3)
     assert cycled.view == :fleet
     {cycled, []} = step(cycled, "dial_press", 3)
@@ -43,7 +43,7 @@ defmodule AiurWeb.Streamdeck.Deck.NavTest do
     assert {^back, []} = step(back, "dial_long_press", 3)
     {cycled, []} = step(drilled, "dial_press", 3)
     assert cycled.stack == []
-    assert cycled.view == :epic
+    assert cycled.view == :lane
   end
 
   test "priority, scroll, reserved press and local dial semantics" do

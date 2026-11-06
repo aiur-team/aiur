@@ -34,7 +34,7 @@ function links(t) {
   return '<div class="bm-links">' + issue + pr + '<button class="bm-ib" type="button" data-a="link" title="Copy link" aria-label="Copy link">' + I.link + '</button></div>';
 }
 export function headerHTML(t) {
-  const e = lookup(ctx.D?.epics, t.epic || 'unsorted') || lookup(ctx.D?.epics, 'unsorted'), f = lookup(ctx.D?.features, t.feature), st = ticketStatus(t);
+  const e = lookup(ctx.D?.lanes, t.epic || 'unsorted') || lookup(ctx.D?.lanes, 'unsorted'), f = lookup(ctx.D?.features, t.feature), st = ticketStatus(t);
   const known = Number.isFinite(t.pct) && t.pct >= 0 && t.pct <= 100;
   return '<div class="bm-h"><span class="bm-ep"' + (Number.isFinite(e?.hue) ? ' style="--h:' + e.hue + '"' : '') + ' title="' + esc(e?.label || 'Unsorted') + '">' + (ctx.D?.icons?.[e?.icon] || e?.svg || lookup(I, e?.icon) || '') + '</span>' +
     '<div class="bm-tt">' + title(t) + '<div class="bm-meta"><span class="bm-st ' + st.tone + '"' +

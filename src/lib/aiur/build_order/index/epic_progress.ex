@@ -9,7 +9,7 @@ defmodule Aiur.BuildOrder.Index.EpicProgress do
     observed_at = observed_at(sources)
 
     epics = Map.new(general, fn epic -> {epic.key, progress(epic, labelled_rows, history, source_reason, observed_at)} end)
-    %{epics: epics, meta: meta(general, labelled_rows, history, source_reason, observed_at)}
+    %{lanes: epics, meta: meta(general, labelled_rows, history, source_reason, observed_at)}
   end
 
   defp observed_at(sources) do
