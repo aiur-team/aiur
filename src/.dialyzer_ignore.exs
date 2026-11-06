@@ -17,6 +17,8 @@
   {"lib/aiur_web/components/operator_control_center/build_order_breakdown.ex",
    :call_without_opaque},
   {"lib/aiur_web/operator_control_center/usage_summary_presenter.ex", :call_without_opaque},
+  # `Task.ref` is opaque; demonitoring it after receiving the reply is what Task.await does.
+  {"lib/aiur/open_ai_compat/coding_agent.ex", :call_with_opaque},
 
   # Guardian liveness comes from injectable OS probes. Dialyzer collapses the
   # default `kill -0` probe to `true`, although the explicit false branch is
