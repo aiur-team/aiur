@@ -51,6 +51,14 @@ Epic records live in `build-features/epics.ndjson` beside `features.ndjson`, whi
 Build Order root projects as an epic at read time and its build lanes stay lane assignments on the
 imported feature.
 
+`features.ndjson` holds at most 16 MiB. At startup the daemon rewrites the file without repeated
+joins of a ticket that never left its feature, but only when the rewritten file replays to the same
+features and members. A `build_features.near_limit` alert fires once the file reaches 80% of the
+cap.
+
+If a snapshot lacks an imported ticket's `build-lane:*` label, the Build Order import leaves the
+ticket in its lane epic instead of moving it to the root's catch-all epic.
+
 Exit codes match the feature commands: 0 success/unchanged, 1 refusal or unavailable registry, 64 invalid arguments, 124 RPC timeout (outcome unknown).
 
 ## Lanes

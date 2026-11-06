@@ -15,6 +15,7 @@ defmodule Aiur.BuildQueue.FeatureWatch do
 
     if Process.whereis(Aiur.PubSub) != nil and Code.ensure_loaded?(registry) and function_exported?(registry, :subscribe, 0) do
       registry.subscribe()
+      if function_exported?(registry, :subscribe_epics, 0), do: registry.subscribe_epics()
       Map.put(state, :feature_subscribed, true)
     else
       state
