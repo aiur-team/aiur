@@ -14,7 +14,7 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
 The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider icons from `priv/static` before router dispatch. Explicit allowlists keep the dashboard Basic Auth boundary intact: runtime assets revalidate, stable logo and font files use long-lived caching, and provider icons derive from the coding-agent registry.
 
-On `/build`, lane columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their lane colour without keeping an empty lane column. Feature focus follows its visible tickets.
+On `/build`, lane columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their lane colour without keeping an empty lane column. Feature focus follows its visible tickets. On touch screens a one-finger swipe over the board scrolls the page, two fingers pan the board, and a pinch changes the same zoom percent as the +/- control; the section is at most one screen tall below the header.
 
 Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = lane”.
 
