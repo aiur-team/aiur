@@ -288,6 +288,7 @@ reference "$root" <<'EOF'
 | `agent.backend_configs.<backend>.management_api_key_env` | string | registry default | Management key environment name. |
 | `agent.backend_configs.<backend>.transport` | string | registry default | Transport. |
 | `agent.backend_configs.<backend>.balance_baseline` | number | nil | Balance seed. |
+| `agent.backend_configs.<backend>.max_output_tokens` | integer | 16000 | Output-token cap. |
 | `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | registry default | Reasoning replay. |
 | `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | registry default | Text tool fallback. |
 | `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | registry default | OpenRouter metadata. |
@@ -315,6 +316,7 @@ map_subkeys=(
   'agent.backend_configs.<backend>.management_api_key_env'
   'agent.backend_configs.<backend>.transport'
   'agent.backend_configs.<backend>.balance_baseline'
+  'agent.backend_configs.<backend>.max_output_tokens'
   'agent.backend_configs.<backend>.quirks.reasoning_content_replay'
   'agent.backend_configs.<backend>.quirks.text_tool_fallback'
   'agent.backend_configs.<backend>.quirks.openrouter_metadata'
