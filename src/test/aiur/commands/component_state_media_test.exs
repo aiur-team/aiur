@@ -35,7 +35,7 @@ defmodule Aiur.Commands.ComponentState.MediaTest do
   test "a filesystem path never reaches the contract" do
     [public] = Media.list(%{media: [item(%{})]})
 
-    refute inspect(public) =~ "/tmp/evidence.png"
+    Aiur.TestSupport.refute_leak(public, "/tmp/evidence.png")
   end
 
   test "an expiring signed URL is refused rather than published" do
