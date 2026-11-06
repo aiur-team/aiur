@@ -18,7 +18,7 @@ defmodule VoiceTranscribe.Transcriber do
 
   ## Messages to the owner
 
-  The `owner:` pid given to `start/1` receives exactly three shapes:
+  The `owner:` pid given to `start/1` receives exactly these messages:
 
     * `{:voice_transcript, :partial | :final, text}` — `:partial` text is
       revisable and may repeat or replace earlier partials; `:final` text is

@@ -85,7 +85,7 @@ not do it for you.
 
 ## Owner messages
 
-The `owner:` pid receives exactly three shapes:
+The `owner:` pid receives exactly these messages:
 
 | Message | Meaning |
 | --- | --- |
