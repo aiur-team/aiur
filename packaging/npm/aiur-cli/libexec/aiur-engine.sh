@@ -91,8 +91,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur agents [--json]   show each agent's state + current activity
        aiur command [<decision-id> [--option id|--custom-response text [--relayed --quote words]]]  list open, show, or answer a Command
        aiur command request <question> [--option id=label]… [--recommend id] [--blocking] [--urgency low|normal|high|critical] [--ticket n] [--context-file path] [--short-summary text] [--executor-id id] [--idempotency-key key] [--json]
-       aiur commands [<decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
-       aiur commands repair [--json]  quarantine unverifiable Decision journal records and restore writes
+       aiur commands [repair | <decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
        aiur executor-ack <decision-id> [--executor-id <id>]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
@@ -315,7 +314,6 @@ aiur_engine_main() {
       shift
       cmd_command "$@"
       ;;
-    # @cli-reference aiur commands repair | Quarantines Decision journal records that fail verification, keeps every valid record and restores write access; requires a running daemon. | aiur commands repair
     commands)
       shift
       cmd_commands "$@"
