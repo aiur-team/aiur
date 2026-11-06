@@ -30,6 +30,7 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
 
   require Logger
 
+  alias Aiur.Accounts.Headroom
   alias Aiur.Accounts.UsageFloor
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.CodingAgent.ProvidersView
@@ -44,7 +45,43 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
 
   @doc "The route label a held line and its alert name, e.g. `claude/everdred`."
   @spec label(map()) :: String.t()
-  def label(candidate), do: HeadroomDispatch.name(candidate)
+  def label(candidate), do: Headroom.name(candidate)
+
+  @doc """
+  The `; held …` fragment a dispatch record appends to its summary, or `""`.
+
+  A held candidate is not a scored alternative — dispatch could not choose it —
+  so it is named after the ranking with the window that floored it. That is the
+  dispatch record's evidence for skipping a route that was configured and
+  enabled (#7504).
+  """
+  @spec held_summary([held_entry()]) :: String.t()
+  def held_summary([]), do: ""
+
+  def held_summary(held) do
+    "; held " <> Enum.map_join(held, ", ", &held_text/1)
+  end
+
+  @doc """
+  One held candidate as a dispatch-record candidate row, so `aiur status` and
+  `aiur agents` show the skipped route beside the scored ones.
+  """
+  @spec held_view(held_entry()) :: map()
+  def held_view(%{candidate: candidate, held: held}) do
+    %{
+      name: label(candidate),
+      backend: candidate.backend,
+      account: candidate.account,
+      route: candidate.route,
+      status: :held,
+      remaining_percent: round(held.remaining_percent),
+      binding_window: held.window,
+      source: held.source,
+      age_seconds: held.age_seconds,
+      stale: false,
+      held: UsageFloor.held_line(held)
+    }
+  end
 
   @doc """
   Split candidates into the ones dispatch may use and the ones the floor holds.
@@ -234,7 +271,7 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   # Claude or Codex projection carries rate-limit windows, not credit ones, so
   # the fallback never overrides a per-account reading with a host-wide one.
   defp reading_for(candidate, readings, opts) do
-    Map.get(readings, HeadroomDispatch.candidate_key(candidate)) || credit_reading(candidate.backend, opts)
+    Map.get(readings, Headroom.key(candidate)) || credit_reading(candidate.backend, opts)
   end
 
   @doc """

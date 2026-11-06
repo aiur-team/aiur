@@ -36,7 +36,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   require Logger
 
   alias Aiur.Accounts
-  alias Aiur.Accounts.{Headroom, UsageFloor, UsageReadings}
+  alias Aiur.Accounts.{Headroom, UsageReadings}
   alias Aiur.{CodexProber, CodingAgent, Config, Issue, ModelAvailability}
   alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Config.RoutingValue
@@ -149,14 +149,6 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   @spec remaining_percent(Headroom.reading()) :: non_neg_integer() | nil
   def remaining_percent(reading), do: Headroom.remaining_percent(reading)
 
-  @doc "Display name of a candidate: `backend`, or `backend/account` when the backend lists accounts."
-  @spec name(map()) :: String.t()
-  defdelegate name(candidate), to: Headroom
-
-  @doc "The reading key of a candidate, `{backend, account}`, as the ranker expects it."
-  @spec candidate_key(map()) :: {String.t(), String.t() | nil}
-  defdelegate candidate_key(candidate), to: Headroom, as: :key
-
   defp select_route(issue, eligible, opts) do
     routes =
       case eligible.(level_routes(issue, opts) || Keyword.get_lazy(opts, :backends, &Config.switch_model_on_ratelimit/0)) do
@@ -260,30 +252,8 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
       backend: candidate[:backend],
       account: candidate[:account],
       route: candidate[:route],
-      summary: Headroom.summary(chosen, ranked) <> held_summary(held),
-      candidates: Enum.map(ranked, &candidate_view/1) ++ Enum.map(held, &held_view/1)
-    }
-  end
-
-  defp held_summary([]), do: ""
-
-  defp held_summary(held) do
-    "; held " <> Enum.map_join(held, ", ", fn %{candidate: candidate, held: reading} -> UsageFloorGate.label(candidate) <> " " <> UsageFloor.held_line(reading) end)
-  end
-
-  defp held_view(%{candidate: candidate, held: held}) do
-    %{
-      name: Headroom.name(candidate),
-      backend: candidate.backend,
-      account: candidate.account,
-      route: candidate.route,
-      status: :held,
-      remaining_percent: round(held.remaining_percent),
-      binding_window: held.window,
-      source: held.source,
-      age_seconds: held.age_seconds,
-      stale: false,
-      held: UsageFloor.held_line(held)
+      summary: Headroom.summary(chosen, ranked) <> UsageFloorGate.held_summary(held),
+      candidates: Enum.map(ranked, &candidate_view/1) ++ Enum.map(held, &UsageFloorGate.held_view/1)
     }
   end
 
