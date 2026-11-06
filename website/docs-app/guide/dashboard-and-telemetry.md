@@ -106,15 +106,11 @@ On the build timeline, Day, Week and Month set the visible range; − and + step
 through 1–30 days. The span is kept in the link. Range controls are hidden in
 List view and return when you switch to Timeline or Gantt.
 
-In List view, **List shows** switches between Tickets, Features and Epics. The
-selection is kept in the `list` link parameter; `tickets` is the default and
-omitted.
+In List view, **List shows** switches between Tickets, Features and Epics. The selection is kept in the `list` link parameter; `tickets` is the default and omitted. A one-line summary above the rows shows the same total and the viewer's local date; the list has no title or card and starts directly under the toolbar.
 
 Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
 
-Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A one-line summary above the rows shows the same total and the viewer's local date; the list has no title or card of its own and starts directly under the toolbar.
-
-A row's name is its registry label, then the label description, then the title-cased slug. Logical ids such as `MP-E1` and `BO:` are stripped, so the row reads "Listener modes", not "MP-E7 listener modes".
+Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label, then the label description, then the title-cased slug; logical ids such as `MP-E1` and `BO:` are stripped.
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 

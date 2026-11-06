@@ -118,8 +118,6 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
     value |> String.split(" (", parts: 2) |> hd() |> without_id_prefix(&sentence_case/1) |> present()
   end
 
-  defp display_description(_value), do: nil
-
   # Registry labels are short Aiur-authored names: a stripped id leaves words to title-case,
   # while a label that never carried an id stays exactly as its author wrote it.
   defp display_feature_label(label) when is_binary(label) do
