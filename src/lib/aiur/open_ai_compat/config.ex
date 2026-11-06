@@ -3,6 +3,7 @@ defmodule Aiur.OpenAICompat.Config do
 
   alias Aiur.CodingAgent
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Config.Schema.OpenRouterBackend
   alias Aiur.Init.Dotenv
   alias Aiur.OpenAICompat.OutputTokens
 
@@ -27,8 +28,18 @@ defmodule Aiur.OpenAICompat.Config do
        |> Map.put(:api_key, api_key)
        |> Map.put(:model, model)
        |> Map.put(:max_output_tokens, OutputTokens.resolve(Map.get(config, :max_output_tokens)))
+       |> put_route_preferences(model)
        |> Map.put(:request_fun, Keyword.get(opts, :request_fun, &request/1))}
     end
+  end
+
+  # OpenRouter's provider preferences and model sets are shaped from the route
+  # that actually won dispatch: the model segment names either one model, an
+  # inline set, or a named set in `backend_configs.openrouter.routes`.
+  defp put_route_preferences(config, model) do
+    if Map.get(config, :provider_preferences) == true,
+      do: OpenRouterBackend.apply_route(config, model),
+      else: config
   end
 
   defp instance_config(_backend, opts) do
@@ -146,7 +157,9 @@ defmodule Aiur.OpenAICompat.Config do
   @known_keys Map.new(
                 ~w(base_url api_key_env model default_model transport quirks management_api_key_env
                    model_discovery reasoning_content_replay text_tool_fallback openrouter_metadata openrouter_trace
-                   local_concurrency_limit provider order ignore allow_fallbacks sort max_output_tokens),
+                   local_concurrency_limit provider provider_preferences routes models order only ignore
+                   allow_fallbacks sort max_price quantizations data_collection require_parameters
+                   prompt completion max_output_tokens),
                 &{&1, String.to_atom(&1)}
               )
 

@@ -178,11 +178,9 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.openrouter_metadata | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.local_concurrency_limit | boolean | backend registry value | Applies aiur's local concurrency slot around backend requests. |
-    # @config-reference config-configuration-agent-02 agent.backend_configs.openrouter.provider.order | array of strings or nil | omitted | Preferred upstream providers, most preferred first. |
-    # @config-reference config-configuration-agent-02 agent.backend_configs.openrouter.provider.ignore | array of strings or nil | omitted | Upstream providers to exclude. |
-    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-02 agent.backend_configs.openrouter.provider.allow_fallbacks | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
-    # @config-reference config-configuration-agent-02 agent.backend_configs.openrouter.provider.sort | string or nil | omitted | `price`, `throughput`, or `latency`. |
+    # OpenRouter's own routing fields live in
+    # `Aiur.Config.Schema.OpenRouterBackend`, which documents them and
+    # validates them at load.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.backend_configs | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
     field(:backend_configs, :map, default: %{})

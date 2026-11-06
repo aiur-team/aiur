@@ -1,6 +1,7 @@
 defmodule Aiur.OpenAICompat.Registry do
   @moduledoc false
 
+  alias Aiur.Config.Schema.OpenRouterBackend
   alias Aiur.ModelDiscovery
   alias Aiur.OpenAICompat.{CodingAgent, ProviderMeterProbe, Transcript}
 
@@ -84,12 +85,17 @@ defmodule Aiur.OpenAICompat.Registry do
           # also before any usage event exists to attribute. See
           # `Aiur.CodingAgent.resolve_model/2`.
           model_aliases: :derived,
+          config_validator: &OpenRouterBackend.validate/1,
           openai_compat: %{
             base_url: "https://openrouter.ai/api/v1",
             api_key_env: "OPENROUTER_API_KEY",
             management_api_key_env: "OPENROUTER_MANAGEMENT_KEY",
             models_endpoint: ModelDiscovery.Source.OpenRouter,
             transport: :chat_completions,
+            # OpenRouter's own routing fields (provider preferences, model sets)
+            # are forwarded; every other OpenAI-compatible backend would reject
+            # them. See `Aiur.Config.Schema.OpenRouterBackend`.
+            provider_preferences: true,
             quirks: %{openrouter_metadata: true, openrouter_trace: true}
           },
           presentation:

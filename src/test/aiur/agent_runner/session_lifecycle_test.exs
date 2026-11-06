@@ -276,6 +276,21 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert log =~ "passed to the backend"
     end
 
+    test "a model set is a routing instruction, not an unsupported model" do
+      issue = %Issue{id: "issue-set", identifier: "SET"}
+
+      assert ExUnit.CaptureLog.capture_log(fn ->
+               assert :ok =
+                        SessionLifecycle.maybe_alert_unsupported_model(
+                          issue,
+                          "/ws",
+                          nil,
+                          "openrouter",
+                          "{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}"
+                        )
+             end) == ""
+    end
+
     test "a known model and an unpinned model stay silent" do
       issue = %Issue{id: "issue-known", identifier: "KNOWN"}
 
