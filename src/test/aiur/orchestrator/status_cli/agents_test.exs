@@ -252,6 +252,25 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "renders pending item ids as numbers when every id is a printable byte (#7530)", %{orchestrator: pid} do
+      # `[10]` and `[13, 62]` are all printable bytes, so a bare `inspect/1`
+      # reads them as charlists (`~c"\n"`, `~c"\r>"`) instead of ids.
+      for {ids, rendered} <- [{[10], "[10]"}, {[13, 62], "[13, 62]"}] do
+        fenced =
+          "issue-7530"
+          |> running_entry("repo#7530", :working)
+          |> Map.put(:lifecycle_fence, %{pending_item_ids: MapSet.new(ids), opened_at: DateTime.utc_now()})
+
+        :sys.replace_state(pid, fn state -> %{state | running: %{"issue-7530" => fenced}} end)
+
+        output = capture_io(fn -> AgentControlCLI.agents() end)
+
+        assert output =~ " · active · LifecycleFence"
+        assert output =~ "pending_item_ids=#{rendered}"
+        refute output =~ "pending_item_ids=~c"
+      end
+    end
+
     test "falls back to last_codex_message, then to a placeholder, and collapses long activity", %{orchestrator: pid} do
       base = fn id, ident -> id |> running_entry(ident, :working) |> Map.merge(%{codex_app_server_pid: nil, last_codex_timestamp: nil}) end
 
