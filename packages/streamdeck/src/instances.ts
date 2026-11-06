@@ -6,6 +6,9 @@ export interface InstanceTarget {
   name: string;
   baseUrl: string;
   auth: { token?: string; username?: string; password?: string } | { token_file: string } | { token_env: string };
+  gatewayId?: string;
+  label?: string;
+  tlsPin?: string;
 }
 
 const invalid = (): never => { throw new Error("Invalid remote-instances.yaml registry"); };
@@ -18,10 +21,12 @@ export const parseInstances = (text: string): InstanceTarget[] => {
   let instances = false;
   let fields: Record<string, string> | null = null;
   let name = "";
+  let inAllows = false;
   const finish = (): void => {
     if (fields === null) return;
     if (!fields.url || Boolean(fields.token_file) === Boolean(fields.token_env)) invalid();
-    entries.push({ name, baseUrl: fields.url, auth: fields.token_file ? { token_file: fields.token_file } : { token_env: fields.token_env! } });
+    entries.push({ name, baseUrl: fields.url, auth: fields.token_file ? { token_file: fields.token_file } : { token_env: fields.token_env! },
+      ...(fields.gateway_id ? { gatewayId: fields.gateway_id } : {}), ...(fields.label ? { label: fields.label } : {}), ...(fields.tls_pin_sha256 ? { tlsPin: fields.tls_pin_sha256 } : {}) });
     fields = null;
   };
   for (const raw of text.split(/\r?\n/)) {
@@ -40,11 +45,21 @@ export const parseInstances = (text: string): InstanceTarget[] => {
       name = raw.trim().split(":")[0]!;
       if (!instances || ["all", "local", ".", ".."].includes(name) || names.has(name)) invalid();
       names.add(name);
-      fields = {};
+      fields = {}; inAllows = false;
+    } else if (inAllows && /^ {6,}\S/.test(raw)) {
+      continue; // allows: belongs to the inbound receiver; skipped unvalidated, as in registry.awk
     } else {
-      const match = /^ {4}(url|token_file|token_env):\s*(.*)$/.exec(raw);
+      if (fields !== null && /^ {4}allows:\s*(#.*)?$/.test(raw) && fields.allows === undefined) {
+        fields.allows = "1"; inAllows = true; continue;
+      }
+      inAllows = false;
+      const match = /^ {4}(url|token_file|token_env|gateway_id|label|tls_pin_sha256):\s*(.*)$/.exec(raw);
       if (!match || fields === null || fields[match[1]!] !== undefined) invalid();
-      fields![match![1]!] = scalar(match![2]!);
+      const value = scalar(match![2]!);
+      if (match![1] === "gateway_id" && !/^[a-z2-7]{26}$/.test(value)) invalid();
+      if (match![1] === "tls_pin_sha256" && !/^[0-9a-f]{64}$/.test(value)) invalid();
+      if (match![1] === "label" && value.length > 64) invalid();
+      fields![match![1]!] = value;
     }
   }
   finish();

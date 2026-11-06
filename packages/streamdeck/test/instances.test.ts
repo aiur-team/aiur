@@ -21,6 +21,17 @@ describe("instance registry", () => {
     expect(parseInstances("# comment\n\nversion: 1\ninstances:\n")).toEqual([]);
     expect(parseInstances("instances:\nversion: 1\n")).toEqual([]);
   });
+  it("reads gateway_id, label and tls_pin_sha256, skips the allows block, and rejects bad pins", () => {
+    const id = "a".repeat(26);
+    const extra = `    gateway_id: ${id}\n    label: Nook\n    tls_pin_sha256: ${"0".repeat(64)}\n    allows:\n      categories: [read, bogus]\n      credentials:\n        - id: x\n  next:\n    url: https://next.test\n    token_env: AIUR_TOKEN_NEXT\n`;
+    expect(parseInstances(registry() + extra)).toEqual([
+      { name: "remote", baseUrl: "https://remote.test", auth: { token_env: "AIUR_TOKEN_REMOTE" }, gatewayId: id, label: "Nook", tlsPin: "0".repeat(64) },
+      { name: "next", baseUrl: "https://next.test", auth: { token_env: "AIUR_TOKEN_NEXT" } },
+    ]);
+    for (const bad of ["    gateway_id: short\n", "    tls_pin_sha256: ABCD\n", `    gateway_id: ${id}\n    gateway_id: ${id}\n`, "    allows:\n    allows:\n", "      categories: [read]\n"]) {
+      expect(() => parseInstances(registry() + bad)).toThrow();
+    }
+  });
   it("keeps local when registry is missing, corrupt or unreadable", () => {
     const home = temp(); expect(loadInstances(local, home)).toEqual({ targets: [local] });
     mkdirSync(path.join(home, ".aiur"));
