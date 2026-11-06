@@ -46,13 +46,10 @@ defmodule Aiur.EpicCLI.Output do
   defp render_write(result, _verb, prefix), do: "#{prefix} #{slug(result)}"
 
   defp render_membership(%{changed: []} = result, _verb, _prefix), do: "#{result.command} #{slug(result)} unchanged"
-  defp render_membership(result, verb, prefix), do: "#{verb} #{features(result)} #{prefix} #{slug(result)}"
+  defp render_membership(result, verb, prefix), do: "#{verb} #{Enum.join(result.features, ", ")} #{prefix} #{slug(result)}"
 
   defp slug(%{epic: %{slug: slug}}), do: slug
   defp slug(_result), do: "?"
-
-  defp features(%{epic: %{features: features}}), do: Enum.join(features, ", ")
-  defp features(_result), do: ""
 
   defp root(nil), do: "no root"
   defp root(number), do: "root ##{number}"

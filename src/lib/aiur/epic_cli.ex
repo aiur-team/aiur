@@ -93,7 +93,9 @@ defmodule Aiur.EpicCLI do
     writer = if action == :add, do: &Features.epic_add/3, else: &Features.epic_remove/3
 
     with {:ok, result} <- writer.(args.slug, args.features, meta(context)) do
-      {:ok, written("epic #{action}", args.slug, result, args[:json], context)}
+      # The requested slugs, not the epic's list afterwards, so a removal still
+      # names what it removed.
+      {:ok, Map.put(written("epic #{action}", args.slug, result, args[:json], context), :features, args.features)}
     end
   end
 

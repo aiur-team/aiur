@@ -47,6 +47,14 @@ defmodule Aiur.EpicRecordsCLITest do
     assert {:ok, %{features: []}} = Features.epic("infra", server: c.server[:server])
   end
 
+  test "remove takes a feature out of the epic", c do
+    assert {:ok, _} = Features.create("khala-srv", %{label: "Khala"}, source: "cli:kevin", actor: "kevin", server: c.server[:server])
+    run(c.opts ++ [action: :create, slug: "combat-pack", label: "Combat pack"], 0)
+    run(c.opts ++ [action: :add, slug: "combat-pack", features: ["khala-srv"]], 0)
+    assert run(c.opts ++ [action: :remove, slug: "combat-pack", features: ["khala-srv"]], 0) =~ "removed khala-srv from epic combat-pack"
+    assert {:ok, %{features: []}} = Features.epic("combat-pack", server: c.server[:server])
+  end
+
   test "edit changes a label and refuses an unknown epic", c do
     run(c.opts ++ [action: :create, slug: "combat-pack", label: "Combat pack"], 0)
     assert run(c.opts ++ [action: :edit, slug: "combat-pack", label: "Combat"], 0) =~ "updated epic combat-pack"
