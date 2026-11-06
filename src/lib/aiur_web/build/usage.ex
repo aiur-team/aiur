@@ -207,8 +207,15 @@ defmodule AiurWeb.Build.Usage do
     amount = get_in(value, [:credits, :amount])
     left = if is_number(amount), do: "$" <> Money.format_amount(to_string(amount)), else: "unknown"
     remaining = meter_percent(value.meter)
-    %{pct: remaining, left: left, tip: [["Prepaid credits", if(is_number(remaining), do: "#{left} left · #{percent(remaining)}% left", else: "#{left} left")]]}
+    # A prepaid credit figure is meaningless without its ceiling: "$77.50 left"
+    # reads as plenty until it says "of $100.00". The limit is the same fact a
+    # usage floor measures the remaining credit against.
+    balance = left <> limit_suffix(Map.get(value, :limit))
+    %{pct: remaining, left: left, tip: [["Prepaid credits", if(is_number(remaining), do: "#{balance} left · #{percent(remaining)}% left", else: "#{balance} left")]]}
   end
+
+  defp limit_suffix(limit) when is_number(limit), do: " of $" <> Money.format_amount(to_string(limit))
+  defp limit_suffix(_limit), do: ""
 
   defp account_window(accounts, names, key, label) do
     values = Enum.map(names, fn name -> Enum.find(get_in(accounts[name], [:reading, :windows]) || [], &(&1.window == key)) || %{} end)
