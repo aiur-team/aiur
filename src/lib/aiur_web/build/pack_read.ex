@@ -13,7 +13,7 @@ defmodule AiurWeb.Build.PackRead do
       done_numbers: MapSet.new(Enum.filter(rows, &(&1.status == "done")), & &1.num),
       max_wave: Enum.max(Enum.map(planned, &(&1.wave || 0)), fn -> 0 end),
       max_ord: Enum.max(Enum.map(planned, & &1.ord), fn -> -1 end),
-      epics: MapSet.new(Map.keys(index.epics)),
+      lanes: MapSet.new(Map.keys(index.lanes)),
       now: now
     }
 

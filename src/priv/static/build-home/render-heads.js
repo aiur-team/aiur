@@ -23,7 +23,7 @@ export function headHTML(D, history, sources, from, state = 'idle', compact = fa
     nq: 'Not queued <em>' + D.nq.length + ' open · not in the queue</em>',
   };
   for (const sec of Object.keys(heads)) {
-    const filtered = D[sec].filter(row => !S.f?.epic?.length || S.f.epic.includes(row.epic || 'unsorted'));
+    const filtered = D[sec].filter(row => !S.f?.lane?.length || S.f.lane.includes(row.epic || 'unsorted'));
     const st = sectionState({ sources }, D, history, sec, filtered), note = headNote(sec, st, nowMs());
     if (!note) continue;
     const suffix = compact ? '<br>' + esc(note).replace(', showing the ', ', showing<br> the ') : esc(note);

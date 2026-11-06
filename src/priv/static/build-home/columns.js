@@ -48,13 +48,13 @@ function applyColsImpl(next, immediate) {
   ctx.colMap.g = { x: g, w: avail };
   { const BK = (ctx.L && ctx.L.band.BK) || 1, bg = 16, bw = Math.min(380, (avail - bg * (BK - 1)) / BK); ctx.bandMap = {}; for (let i = 0; i < BK; i++) ctx.bandMap["b" + i] = { x: g + i * (bw + bg), w: bw }; }
   ctx.content.style.width = w + "px";
-  if (S.flow) { ctx.laneEls.forEach((el) => el.remove()); ctx.laneEls.clear(); ctx.guideEls.forEach((el) => el.remove()); ctx.guideEls.clear(); ctx.lanesEl.querySelector(".bd-lane-g").textContent = "Colour = epic"; ctx.R.forEach((el) => place(el, el._it)); ctx.L.band.items.forEach((it) => place(it.el, it)); ctx.svg.classList.add("hide"); fx.drawEdgesSoon(immediate ? 30 : 380); return; }
+  if (S.flow) { ctx.laneEls.forEach((el) => el.remove()); ctx.laneEls.clear(); ctx.guideEls.forEach((el) => el.remove()); ctx.guideEls.clear(); ctx.lanesEl.querySelector(".bd-lane-g").textContent = "Colour = lane"; ctx.R.forEach((el) => place(el, el._it)); ctx.L.band.items.forEach((it) => place(it.el, it)); ctx.svg.classList.add("hide"); fx.drawEdgesSoon(immediate ? 30 : 380); return; }
   ctx.lanesEl.querySelector(".bd-lane-g").textContent = S.view === "gantt" ? "Time" : "Order";
   syncKeyed(ctx.laneEls, ctx.lanesEl, "bd-lane", (k, el) => {
-    const e = ctx.D.epics[k], locked = activeFeature() && ctx.D.features[S.feature].epics.includes(k);
+    const e = ctx.D.lanes[k], locked = activeFeature() && ctx.D.features[S.feature].epics.includes(k);
     el.className = "bd-lane" + (e.temp ? " temp" : "") + (e.unsorted ? " unsorted" : "") + (locked ? " lock" : "");
     el.style.setProperty("--h", e.hue);
-    el.title = e.temp ? e.label + " — short-lived feature epic" : e.label;
+    el.title = e.temp ? e.label + " — short-lived feature lane" : e.label;
     el.innerHTML = (ctx.D.icons?.[e.icon] || e.svg || I[e.icon] || "") + "<span>" + esc(e.label) + "</span><em>" + (locked ? I.lock : (Number.isInteger(ctx.D.counts?.[k]) ? ctx.D.counts[k] : "—")) + "</em>";
     if (!locked && !Number.isInteger(ctx.D.counts?.[k])) el.querySelector("em").title = "Ticket count unavailable";
   }, (el, k) => { const c = ctx.colMap[k]; el.style.left = c.x + "px"; el.style.width = c.w + "px"; el.classList.toggle("first", ctx.cols[0] === k); });

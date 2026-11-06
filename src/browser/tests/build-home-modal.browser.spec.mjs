@@ -77,7 +77,7 @@ test('stale progress displays a dash while retaining its observed age', async ({
   await expect(page.locator('#bm-pct')).toHaveAttribute('title', 'Progress unknown · 2m old')
 })
 
-test('epic icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
+test('lane icon in the modal header stays chip-sized at desktop and mobile widths', async ({ page }) => {
   await open(page)
   const t = await row(page)
   await display(page, t)

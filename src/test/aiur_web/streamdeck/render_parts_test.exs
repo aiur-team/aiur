@@ -12,7 +12,7 @@ defmodule AiurWeb.Streamdeck.RenderPartsTest do
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
   alias AiurWeb.Streamdeck.Render
 
-  test "inlines shared epic and every bundled provider mark including the DeepSeek PNG" do
+  test "inlines shared lane and every bundled provider mark including the DeepSeek PNG" do
     for provider <- ~w(claude codex kimi openrouter muse deepseek) do
       image = Render.key(face(%{vendor: provider, icon: "runtime", priority: true}))
       xml = parse(image.svg)

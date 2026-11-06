@@ -43,8 +43,9 @@
     },
     {
       "query": "epic=bugs,docs",
-      "canonical": "epic=bugs,docs",
-      "design_output": "epic=bugs,docs"
+      "canonical": "lane=bugs,docs",
+      "design_output": "epic=bugs,docs",
+      "differs": "Lane naming: the design still writes epic=; the daemon canonicalizes the pre-rename key to lane=."
     },
     {
       "query": "model=claude",
@@ -68,8 +69,9 @@
     },
     {
       "query": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
-      "canonical": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
-      "design_output": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
+      "canonical": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&lane=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
+      "design_output": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
+      "differs": "Lane naming: the design still writes epic=; the daemon canonicalizes the pre-rename key to lane=."
     },
     {
       "query": "astate=bogus,,active,active",

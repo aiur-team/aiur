@@ -70,6 +70,11 @@ It parses `build-order.v1`, returns the review as static HTML and the graph as S
 `<aiur-build-order>` element for a plain page that mounts either or both from a URL or an inline
 document.
 
+The dashboard's Build home mounts that same package in its **Build order** view, so the review and the
+graph an operator reads on `/build` are the package's rendering of the published document, not a second
+implementation. The page reads `GET /api/v1/build-order`, the document the daemon already produced, and
+needs no tracker credential of its own.
+
 Because it reads the fields above — `waves`, `critical_path`, `progress` and the typed edges — and
 recomputes none of them, a page rendering a published document cannot disagree with the dashboard
 about waves, the critical path or progress. An `unknown` source renders the same explicit banner

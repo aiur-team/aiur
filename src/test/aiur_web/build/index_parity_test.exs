@@ -43,9 +43,9 @@ defmodule AiurWeb.Build.IndexParityTest do
       actual = snapshot |> Payload.snapshot("parity", 0) |> Payload.scrub()
       assert Payload.validate(Payload.snapshot(snapshot, "parity", 0)) == :ok
       assert {:ok, expected} = FixtureSource.snapshot(dataset: @dataset, time_zone: "America/Los_Angeles")
-      expected = expected |> canonical_owners(seed.data) |> canonical_feature_icons() |> canonical_palette_epics()
-      assert actual["epics"] == expected["epics"]
-      hues = actual["order"] |> Enum.reject(&(&1 == "unsorted")) |> Enum.map(&actual["epics"][&1]["hue"])
+      expected = expected |> canonical_owners(seed.data) |> canonical_feature_icons() |> canonical_palette_lanes()
+      assert actual["lanes"] == expected["lanes"]
+      hues = actual["order"] |> Enum.reject(&(&1 == "unsorted")) |> Enum.map(&actual["lanes"][&1]["hue"])
       assert length(hues) == length(Enum.uniq(hues))
       assert actual["order"] == expected["order"]
       assert actual["counts"] == expected["counts"]
@@ -69,11 +69,11 @@ defmodule AiurWeb.Build.IndexParityTest do
 
   defp canonical_feature_icons(snapshot) do
     epics =
-      Map.new(snapshot["epics"], fn {key, epic} ->
-        if Map.has_key?(epic, "feature") do
-          {key, Map.merge(epic, %{"icon" => "squares-2x2", "summary" => nil, "wave" => nil})}
+      Map.new(snapshot["lanes"], fn {key, lane} ->
+        if Map.has_key?(lane, "feature") do
+          {key, Map.merge(lane, %{"icon" => "squares-2x2", "summary" => nil, "wave" => nil})}
         else
-          {key, epic}
+          {key, lane}
         end
       end)
 
@@ -82,21 +82,21 @@ defmodule AiurWeb.Build.IndexParityTest do
         {key, Map.merge(feature, %{"icon" => "squares-2x2", "summary" => nil, "wave" => nil})}
       end)
 
-    snapshot |> Map.put("epics", epics) |> Map.put("features", features)
+    snapshot |> Map.put("lanes", epics) |> Map.put("features", features)
   end
 
-  defp canonical_palette_epics(snapshot) do
+  defp canonical_palette_lanes(snapshot) do
     hues = [8, 120, 55, 215, 280, 170, 25, 4, 124, 59, 219, 284, 174, 29, 0, 116, 51, 211, 276, 166, 21]
 
-    epics =
+    lanes =
       snapshot["order"]
       |> Enum.reject(&(&1 == "unsorted"))
       |> Enum.with_index()
-      |> Enum.reduce(snapshot["epics"], fn {key, index}, acc ->
+      |> Enum.reduce(snapshot["lanes"], fn {key, index}, acc ->
         put_in(acc, [key, "hue"], Enum.at(hues, rem(index, length(hues))))
       end)
 
-    Map.put(snapshot, "epics", epics)
+    Map.put(snapshot, "lanes", lanes)
   end
 
   defp canonical_owners(snapshot, full) do

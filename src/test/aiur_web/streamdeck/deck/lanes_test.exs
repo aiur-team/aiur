@@ -1,16 +1,16 @@
-defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
+defmodule AiurWeb.Streamdeck.Deck.LanesTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.Index
   alias Aiur.Config.Schema.Lane
   alias AiurWeb.Build.Payload
   alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Epics, Input, Nav}
+  alias AiurWeb.Streamdeck.Deck.{Input, Lanes, Nav}
   alias AiurWeb.Streamdeck.FrameUpdates
 
   test "remaining descending, label ties, and unknown counts render last without zero" do
     window = window()
-    section = Epics.read(window: {:ok, window})
+    section = Lanes.read(window: {:ok, window})
     assert Enum.map(section.keys, & &1.title) == ["Docs", "UI", "CI"]
     assert Enum.map(section.keys, &{&1.remaining, &1.of, &1.pct}) == [{12, "12/15", 20}, {12, "12/42", 71}, {:unknown, "—", nil}]
     unknown = Enum.find(frame(section).keys, &(&1 && &1.label =~ "history incomplete"))
@@ -19,35 +19,35 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     refute unknown.svg =~ "progress-fill"
     refute unknown.label =~ "0 remaining"
     assert List.last(section.keys).remaining == :unknown
-    assert Epics.read(window: {:ok, Jason.decode!(Jason.encode!(window))}) == section
-    changed = put_in(window, [:epic_progress, "ui", :open], 13)
-    assert Enum.map(Epics.read(window: {:ok, changed}).keys, & &1.id) == ~w(ui docs ci)
+    assert Lanes.read(window: {:ok, Jason.decode!(Jason.encode!(window))}) == section
+    changed = put_in(window, [:lane_progress, "ui", :open], 13)
+    assert Enum.map(Lanes.read(window: {:ok, changed}).keys, & &1.id) == ~w(ui docs ci)
   end
 
-  test "no configured epics renders setting guidance without count keys; failed reads stay unavailable" do
-    section = Epics.read(window: {:ok, %{epics: %{"unsorted" => %{label: "Unsorted"}}, epic_progress: %{}}})
+  test "no configured lanes renders setting guidance without count keys; failed reads stay unavailable" do
+    section = Lanes.read(window: {:ok, %{lanes: %{"unsorted" => %{label: "Unsorted"}}, lane_progress: %{}}})
     assert section.keys == []
-    assert section.message == "No epics configured. Define build_order.lanes"
+    assert section.message == "No lanes configured. Define build_order.lanes"
     frame = frame(section)
-    assert hd(frame.strip).svg =~ "No epics"
+    assert hd(frame.strip).svg =~ "No lanes"
     assert hd(frame.strip).label =~ "build_order.lanes"
     refute hd(frame.strip).label =~ "0 remaining"
     assert Enum.all?(frame.keys, &is_nil/1)
-    assert Epics.read(window: {:error, :offline}) == %{status: "unavailable", keys: [], message: "Epics unavailable"}
+    assert Lanes.read(window: {:error, :offline}) == %{status: "unavailable", keys: [], message: "Lanes unavailable"}
   end
 
-  test "configured epics with no members share Build's empty state while unknown membership retains rows" do
+  test "configured lanes with no members share Build's empty state while unknown membership retains rows" do
     window = window()
-    progress = Map.new(window.epic_progress, fn {id, _} -> {id, %{closed: 0, open: 0, total: 0}} end)
-    empty = Epics.read(window: {:ok, %{window | epic_progress: progress}})
+    progress = Map.new(window.lane_progress, fn {id, _} -> {id, %{closed: 0, open: 0, total: 0}} end)
+    empty = Lanes.read(window: {:ok, %{window | lane_progress: progress}})
     assert empty.keys == []
-    assert empty.message == "No epics configured. Define build_order.lanes"
+    assert empty.message == "No lanes configured. Define build_order.lanes"
     frame = frame(empty)
-    assert hd(frame.strip).label =~ "No epics configured"
+    assert hd(frame.strip).label =~ "No lanes configured"
     refute hd(frame.strip).label =~ "0 remaining"
 
     progress = Map.put(progress, "ci", %{closed: nil, open: nil, total: nil})
-    unknown = Epics.read(window: {:ok, %{window | epic_progress: progress}})
+    unknown = Lanes.read(window: {:ok, %{window | lane_progress: progress}})
     assert Enum.map(unknown.keys, & &1.id) == ~w(docs ui ci)
     assert List.last(unknown.keys).remaining == :unknown
     assert unknown.message == nil
@@ -72,11 +72,11 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     assert index.all["1"].general_epics == ["ui"]
     assert index.all["2"].general_epics == ["ui", "docs"]
     refute Map.has_key?(Payload.scrub(index.all["1"]), "general_epics")
-    section = index |> Index.base() |> Index.window("Etc/UTC", now()) |> then(&Epics.read(window: {:ok, &1}))
-    sections = Deck.navigation(%{epics: section.keys})
-    ui_index = Enum.find_index(sections.epic, &(&1.id == "ui"))
-    {nav, []} = Input.reduce(%Nav{view: :epic}, %{"kind" => "key_press", "index" => ui_index}, sections)
-    assert nav.stack == [epic: "ui"]
+    section = index |> Index.base() |> Index.window("Etc/UTC", now()) |> then(&Lanes.read(window: {:ok, &1}))
+    sections = Deck.navigation(%{lanes: section.keys})
+    ui_index = Enum.find_index(sections.lane, &(&1.id == "ui"))
+    {nav, []} = Input.reduce(%Nav{view: :lane}, %{"kind" => "key_press", "index" => ui_index}, sections)
+    assert nav.stack == [lane: "ui"]
     assert Enum.sort(Enum.map(Enum.find(section.keys, &(&1.id == "ui")).tickets, & &1.id)) == ~w(1 2)
     assert {_, [{:open_ticket, id}]} = Input.reduce(nav, %{"kind" => "key_press", "index" => 0}, sections)
     assert id in ~w(1 2)
@@ -84,7 +84,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
   end
 
   defp frame(section) do
-    {_nav, _model, images} = FrameUpdates.frame(%Nav{view: :epic}, %{epics: section.keys, epics_message: section.message}, %{})
+    {_nav, _model, images} = FrameUpdates.frame(%Nav{view: :lane}, %{lanes: section.keys, lanes_message: section.message}, %{})
     images
   end
 
@@ -92,8 +92,8 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     epics = Map.new([{"ui", "UI"}, {"docs", "Docs"}, {"ci", "CI"}], fn {key, label} -> {key, %{label: label, general: true}} end)
 
     %{
-      epics: Map.put(epics, "f-deck", %{label: "Feature", feature: "deck"}),
-      epic_progress: %{
+      lanes: Map.put(epics, "f-deck", %{label: "Feature", feature: "deck"}),
+      lane_progress: %{
         "ui" => %{closed: 30, open: 12, total: 42},
         "docs" => %{closed: 3, open: 12, total: 15},
         "ci" => %{closed: nil, open: nil, total: nil, reason: "history incomplete"}

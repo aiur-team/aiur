@@ -87,8 +87,11 @@ leaves the state unchanged when no PR head moved.
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next
-push starts fresh checks. A rework handback without a push leaves those runs
-cancelled, and CI recovery raises an attention for that head.
+push starts fresh checks.
+
+A rework handback without a push leaves those runs cancelled: an approved head's
+runs are rerun once so auto-merge can queue, and otherwise CI recovery raises an
+attention for that head.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved

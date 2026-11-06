@@ -10,7 +10,13 @@ defmodule AiurWeb.BuildLiveURLTest do
   end
 
   test "noncanonical first loads redirect, including malformed escapes and nested values" do
-    for {query, target} <- [{"view=list&zoom=2", "/build?view=list"}, {"epic=%zz", "/build"}, {"epic[]=x", "/build"}, {"view=list&view=gantt", "/build?view=gantt"}] do
+    for {query, target} <- [
+          {"view=list&zoom=2", "/build?view=list"},
+          {"epic=%zz", "/build"},
+          {"epic[]=x", "/build"},
+          {"view=list&view=gantt", "/build?view=gantt"},
+          {"view=list&list=epics&epic=ui", "/build?view=list&list=lanes&lane=ui"}
+        ] do
       assert build_conn() |> get("/build?" <> query) |> redirected_to() == target
     end
   end
@@ -103,9 +109,10 @@ defmodule AiurWeb.BuildLiveURLTest do
   test "back and forward push restored state and defaults" do
     {:ok, view, _} = live(build_conn(), "/build")
     render_patch(view, "/build?view=list&epic=bugs")
-    assert_push_event(view, "build:url", %{state: %{view: "list", epic: ["bugs"]}})
+    assert_patch(view, "/build?view=list&lane=bugs")
+    assert_push_event(view, "build:url", %{state: %{view: "list", lane: ["bugs"]}})
     render_patch(view, "/build")
-    assert_push_event(view, "build:url", %{state: %{view: "graph", epic: []}})
+    assert_push_event(view, "build:url", %{state: %{view: "graph", lane: []}})
     render_patch(view, "/build")
     refute_url_push(view)
   end
@@ -113,7 +120,7 @@ defmodule AiurWeb.BuildLiveURLTest do
   test "list mode round trips through server URL state and unknown values default" do
     {:ok, view, _} = live(build_conn(), "/build")
     render_hook(view, "build:url", %{"view" => "list", "list" => "epics"})
-    assert_patch(view, "/build?view=list&list=epics")
+    assert_patch(view, "/build?view=list&list=lanes")
     render_hook(view, "build:url", %{"view" => "list", "list" => "bogus"})
     assert_patch(view, "/build?view=list")
     assert_push_event(view, "build:url", %{state: %{view: "list", list: "tickets"}})

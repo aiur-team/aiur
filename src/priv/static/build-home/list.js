@@ -41,35 +41,35 @@ export function stText(t) {
 const muted = text => '<span class="lr-mu">' + esc(text) + '</span>';
 const number = x => Number.isFinite(x) ? x : '—';
 const hue = (key, value) => Number.isFinite(value) ? ' style="' + key + ':' + value + '"' : '';
-function epicsHTML(D, P, now) {
-  const epics = Object.entries(D.epics).filter(([key, epic]) => key !== 'unsorted' && !epic.feature);
-  const progress = P.epic_progress || {}, meta = P.epic_progress_meta || {};
-  const hasMembers = epics.some(([key]) => {
+function lanesHTML(D, P, now) {
+  const lanes = Object.entries(D.lanes).filter(([key, lane]) => key !== 'unsorted' && !lane.feature);
+  const progress = P.lane_progress || {}, meta = P.lane_progress_meta || {};
+  const hasMembers = lanes.some(([key]) => {
     const value = progress[key];
     return !value || value.total == null || value.total > 0;
   });
-  if (!epics.length || !hasMembers) {
-    return '<div class="bd-ep-empty"><b>No epics configured. Define build_order.general_epics to group tickets by area</b> <a href="/docs/reference/configuration-build-order#general-epics">Configuration reference</a></div>';
+  if (!lanes.length || !hasMembers) {
+    return '<div class="bd-ep-empty"><b>No lanes configured. Define build_order.lanes to group tickets by area</b> <a href="/docs/reference/configuration-build-order#lanes">Configuration reference</a></div>';
   }
-  const rows = epics.map(([key, epic]) => {
+  const rows = lanes.map(([key, lane]) => {
     const value = progress[key], unknown = !value || value.open == null || value.total == null || value.closed == null;
-    return { key, epic, value, unknown, open: unknown ? null : value.open };
-  }).sort((a, b) => a.unknown !== b.unknown ? (a.unknown ? 1 : -1) : a.unknown ? a.epic.label.localeCompare(b.epic.label) : b.open - a.open || a.epic.label.localeCompare(b.epic.label));
+    return { key, lane, value, unknown, open: unknown ? null : value.open };
+  }).sort((a, b) => a.unknown !== b.unknown ? (a.unknown ? 1 : -1) : a.unknown ? a.lane.label.localeCompare(b.lane.label) : b.open - a.open || a.lane.label.localeCompare(b.lane.label));
   const knownTotal = rows.some(row => row.unknown) ? '—' : rows.reduce((sum, row) => sum + row.open, 0);
-  const content = rows.map(({ key, epic, value, unknown }) => {
+  const content = rows.map(({ key, lane, value, unknown }) => {
     const pct = unknown ? null : value.total === 0 ? 0 : Math.floor(value.closed * 100 / value.total);
-    const icon = Object.hasOwn(I, epic.icon) ? I[epic.icon] : '';
+    const icon = Object.hasOwn(I, lane.icon) ? I[lane.icon] : '';
     const reason = unknown ? reasonText(value?.reason || 'Progress unavailable') : '';
-    return '<div class="ep-row" role="row" tabindex="0" data-epic="' + esc(key) + '" aria-label="' + esc(epic.label + ', ' + (unknown ? 'progress unknown: ' + reason : value.open + ' remaining')) + '">' +
-      '<span class="ep-icon" role="cell"' + hue('--h', epic.hue) + ' aria-hidden="true">' + icon + '</span>' +
-      '<span class="ep-name" role="cell"><b>' + esc(epic.label) + '</b><small>' + esc(key) + '</small></span>' +
+    return '<div class="ep-row" role="row" tabindex="0" data-lane="' + esc(key) + '" aria-label="' + esc(lane.label + ', ' + (unknown ? 'progress unknown: ' + reason : value.open + ' remaining')) + '">' +
+      '<span class="ep-icon" role="cell"' + hue('--h', lane.hue) + ' aria-hidden="true">' + icon + '</span>' +
+      '<span class="ep-name" role="cell"><b>' + esc(lane.label) + '</b><small>' + esc(key) + '</small></span>' +
       '<span class="ep-meter" role="cell" aria-label="' + esc(unknown ? 'Progress unknown: ' + reason : value.closed + ' closed of ' + value.total + ', ' + pct + '%') + '"><i aria-hidden="true"' + (unknown ? '' : ' style="--pct:' + pct + '%"') + '></i></span>' +
       '<span class="ep-count" role="cell">' + (unknown ? '<b>—</b><small>' + esc(reason) + '</small>' : '<b>' + value.open + '</b><small>' + value.open + ' / ' + value.total + ' · ' + pct + '%</small>') + '</span></div>';
   }).join('');
   const age = !Number.isFinite(meta.observed_at) ? 'age unknown' : ageText({ observed_at: meta.observed_at }, now);
-  return '<div class="epic-list"><header><b>' + knownTotal + ' tickets remaining across ' + rows.length + ' epics</b><small>Data as of ' + esc(age) + '</small><small>Sorted by remaining tickets, most first; ties by name</small></header><div class="ep-rows" role="table" aria-label="Epic progress">' + content + '</div><footer>' +
-    'A ticket can count under more than one epic, so column totals can exceed the ticket count. Planned pack tickets without area labels are excluded. ' +
-    (meta.unmatched == null ? '— tickets match no epic (' + esc(reasonText(meta.reason || 'Labels incomplete')) + ')' : meta.unmatched + ' tickets match no epic') + '</footer></div>';
+  return '<div class="epic-list"><header><b>' + knownTotal + ' tickets remaining across ' + rows.length + ' lanes</b><small>Data as of ' + esc(age) + '</small><small>Sorted by remaining tickets, most first; ties by name</small></header><div class="ep-rows" role="table" aria-label="Lane progress">' + content + '</div><footer>' +
+    'A ticket can count under more than one lane, so column totals can exceed the ticket count. Planned pack tickets without area labels are excluded. ' +
+    (meta.unmatched == null ? '— tickets match no lane (' + esc(reasonText(meta.reason || 'Labels incomplete')) + ')' : meta.unmatched + ' tickets match no lane') + '</footer></div>';
 }
 function progCell(t) {
   if (t.sec === 'now') {
@@ -90,7 +90,7 @@ function agentCell(t) {
   return (logo ? '<img src="' + esc(logo.src) + '" alt="">' : '<span class="ax-mono" aria-hidden="true">' + esc(a.name?.[0]?.toUpperCase() || '?') + '</span>') + esc(name);
 }
 function rowHTML(t, D, state) {
-  const key = colKey(t), e = (Object.hasOwn(D.epics, key) ? D.epics[key] : D.epics.unsorted) ?? { label: 'Unsorted', unsorted: true };
+  const key = colKey(t), e = (Object.hasOwn(D.lanes, key) ? D.lanes[key] : D.lanes.unsorted) ?? { label: 'Unsorted', unsorted: true };
   const f = Object.hasOwn(D.features, t.feature) ? D.features[t.feature] : null;
   const dim = activeFeature(D, state) && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
   const ups = t.deps.length, dn = (D.children[t.id] || []).length, deps = ups + ' dependencies · unblocks ' + dn;
@@ -138,7 +138,7 @@ export function listHTML(D, state, history, P, now) {
   const subs = { now: nowSummary, plan: rows.plan.length + ' in build-queue order', nq: rows.nq.length + ' open', hist: rows.hist.length + ' loaded · newest first' };
   const more = history.more ? '<div role="row"><div role="cell"><button type="button" class="lr-more" id="lr-more"' + (history.state === 'loading' ? ' disabled aria-busy="true"' : '') + '>Load earlier day</button></div></div>' : '';
   return '<div class="bd-list" role="table" aria-label="Build tickets" tabindex="-1"><div class="lr lr-h" role="row">' +
-    ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
+    ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Lane', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
     ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
 }
 // One row per feature: name, bar, merged/total. Bars come from the same block as the feature filter.
@@ -175,8 +175,8 @@ function renderListImpl() {
   const anchor = previous.find(el => el.getBoundingClientRect().top >= top);
   const offset = anchor ? anchor.getBoundingClientRect().top - top : null, scroll = vp.scrollTop;
   ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
-  if (S.list === 'epics') {
-    vp.innerHTML = epicsHTML(ctx.D, ctx.snap, nowMs());
+  if (S.list === 'lanes') {
+    vp.innerHTML = lanesHTML(ctx.D, ctx.snap, nowMs());
     vp.scrollTop = 0; bindOnce(vp); return;
   }
   if (S.list !== 'tickets') {
@@ -198,21 +198,21 @@ function bindOnce(vp) {
     if (S.view !== 'list') return;
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
-    const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { chooseEpic(epic.dataset.epic); return; }
+    const lane = e.target.closest('.ep-row[data-lane]'); if (lane) { chooseLane(lane.dataset.lane); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
     const feature = e.target.closest('button.fp-row'); if (feature) focusFeature(feature.dataset.feature);
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;
-    const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { e.preventDefault(); chooseEpic(epic.dataset.epic); return; }
+    const lane = e.target.closest('.ep-row[data-lane]'); if (lane) { e.preventDefault(); chooseLane(lane.dataset.lane); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
     const feature = e.target.closest('button.fp-row'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
   });
 }
-function chooseEpic(key) {
-  S.f.epic = [key]; S.list = 'tickets'; writeURL(); fx.renderTools(); fx.renderList();
+function chooseLane(key) {
+  S.f.lane = [key]; S.list = 'tickets'; writeURL(); fx.renderTools(); fx.renderList();
 }
 function focusFeature(key) {
   S.view = 'graph'; S.list = 'tickets'; S.feature = key; S.fmode = 'focus';

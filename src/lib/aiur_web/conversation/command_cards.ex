@@ -9,8 +9,8 @@ defmodule AiurWeb.Conversation.CommandCards do
   """
 
   use Phoenix.Component
-
   alias Aiur.Commands.ComponentState
+  alias AiurWeb.Components.CommandMedia
   alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionOutcomes}
 
   attr(:rows, :list, required: true)
@@ -31,6 +31,12 @@ defmodule AiurWeb.Conversation.CommandCards do
       aria-label="Inline Command"
     >
       <h3>{row.question}</h3>
+      <CommandMedia.command_media
+        items={Map.get(row, :media, [])}
+        decision_id={row.decision_id}
+        label="Command media"
+        path_prefix="/commands"
+      />
       <p :if={@slot == :pinned_top}>Position unknown</p>
       <p :if={row.answer && row.conflict_summary && !get_in(@actions, [row.decision_id, :outcome])}>{winner(row.conflict_summary)}</p>
       <a href={"/commands/#{row.decision_id}"}>Open Command</a>

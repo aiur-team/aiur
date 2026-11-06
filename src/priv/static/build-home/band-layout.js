@@ -1,4 +1,4 @@
-// J:486–496: every live row gets a stack, independently of epic filters.
+// J:486–496: every live row gets a stack, independently of lane filters.
 export function bandLayout(D, S, dims, { ch, gap, pphG, CH, gantt }) {
   const band = { items: [], h: 0 }, stack = {}, BH = 42;
   const BL = D.now.slice().sort((a, b) => (D.order ?? []).indexOf(a.epic || 'unsorted') - (D.order ?? []).indexOf(b.epic || 'unsorted') || a.num - b.num);
