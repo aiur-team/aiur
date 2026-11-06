@@ -253,10 +253,25 @@ cmd_agents() {
   fi
 }
 
+# `aiur commands repair` — the one mutation under `commands`: quarantine journal
+# records that fail verification and restore write access (#7577).
+cmd_commands_repair() {
+  case "$*" in
+    "") run_control_rpc "Aiur.AgentControlCLI.commands_repair([])" ;;
+    --json) run_control_rpc "Aiur.AgentControlCLI.commands_repair([json: true])" ;;
+    *) echo "aiur: commands repair only accepts --json" >&2; exit 64 ;;
+  esac
+}
+
 # `aiur commands` — read the dashboard's retained Decision projection without
 # exposing any dispatch or answer mutation path.
 cmd_commands() {
   local filter="open" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+  if [ "${1:-}" = "repair" ]; then
+    shift
+    cmd_commands_repair "$@"
+    return
+  fi
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
