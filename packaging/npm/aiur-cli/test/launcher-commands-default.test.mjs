@@ -16,3 +16,13 @@ test("bare commands requests only open work while explicit all includes history"
   expect(runControl(launcher, releaseDir, env, ["commands", "--filter", "all"]).status).toBe(0);
   expect(readFileSync(captureFile, "utf8")).toContain("Aiur.AgentControlCLI.commands([filter: :all])");
 });
+
+test("commands repair routes to the journal repair RPC and rejects other arguments", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  expect(runControl(launcher, releaseDir, env, ["commands", "repair", "--json"]).status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("Aiur.AgentControlCLI.commands_repair([json: true])");
+
+  expect(runControl(launcher, releaseDir, env, ["commands", "repair", "--filter", "all"]).status).toBe(64);
+});
