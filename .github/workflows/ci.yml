@@ -417,6 +417,10 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.full_ci == 'false') || github.event_name == 'merge_group') }}
     runs-on: ubuntu-24.04
+    # p95 job duration over the last 20 merge-group runs measured 623s (10.4 min)
+    # on 2026-11-06. JOB_TIMEOUT_MINUTES in scripts/run-ci-affected-tests.py must
+    # match this cap so its phases can never be killed without naming the
+    # timeout (#7545).
     timeout-minutes: 25
     defaults: { run: { working-directory: src } }
     steps:

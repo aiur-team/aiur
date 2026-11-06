@@ -12,18 +12,61 @@ import time
 
 SELECTED_TEST_TIMEOUT_SECONDS = 600
 MAX_CHANGED_TEST_MODULES = 8
+# The enclosing `affected tests` job caps itself with `timeout-minutes`; a job
+# killed by that cap reports nothing that separates it from a failing test
+# (#7545). This module keeps its own phases inside the same cap so the cap is
+# only reachable through an explicit, named timeout error below.
+# `scripts/test-ci-events.mjs` pins this to the workflow's `timeout-minutes`.
+JOB_TIMEOUT_MINUTES = 25
+JOB_TIMEOUT_SECONDS = JOB_TIMEOUT_MINUTES * 60
+# Checkout, toolchain setup and the architectural guards run before this script
+# inside the same job; the slowest of the last 20 merge-group runs spent 215s
+# there, so 300s of the cap stays reserved for them.
+PRE_RUNNER_RESERVE_SECONDS = 300
+JOB_BUDGET_SECONDS = JOB_TIMEOUT_SECONDS - PRE_RUNNER_RESERVE_SECONDS
+JOB_STARTED_AT = time.monotonic()
 TIME_BOMB_CHECK = os.environ.get('AIUR_TIME_BOMB_CHECK', str(Path(__file__).with_name('check-test-time-bombs.py')))
 TIME_BOMB_TIMEOUT_SECONDS = float(os.environ.get('AIUR_TIME_BOMB_TIMEOUT_SECONDS',
                                                  str(SELECTED_TEST_TIMEOUT_SECONDS)))
 
 
+def job_budget_remaining():
+    """Return the seconds this step may still spend inside the job's timeout."""
+    return JOB_BUDGET_SECONDS - (time.monotonic() - JOB_STARTED_AT)
+
+
+def report_job_budget():
+    print(f'::notice::affected-tests job budget: {JOB_BUDGET_SECONDS}s for this step inside the '
+          f'{JOB_TIMEOUT_MINUTES}-minute job timeout, keeping {PRE_RUNNER_RESERVE_SECONDS}s for the '
+          'checkout, toolchain setup and architectural guards that run before it',
+          file=sys.stderr, flush=True)
+
+
+def report_job_timeout(label):
+    print(f'::error::affected-tests hit the job\'s {JOB_TIMEOUT_MINUTES}-minute timeout while '
+          f'running {label}: the {JOB_BUDGET_SECONDS}s budget for this step is spent. A timeout '
+          'ended this run, not a failing test.',
+          file=sys.stderr, flush=True)
+
+
 def run_timed(label, command, **options):
     started = time.monotonic()
+    timeout = options.get('timeout')
+    remaining = job_budget_remaining()
+    if remaining <= 0:
+        report_job_timeout(label)
+        raise SystemExit(1)
+    budget_bounded = timeout is not None and remaining < timeout
+    if budget_bounded:
+        options['timeout'] = remaining
     try:
         return subprocess.run(command, check=True, **options)
     except subprocess.TimeoutExpired:
-        timeout = options.get('timeout')
-        print(f'::error::affected-tests {label} exceeded its {timeout}s timeout', file=sys.stderr, flush=True)
+        if budget_bounded:
+            report_job_timeout(label)
+        else:
+            print(f'::error::affected-tests {label} exceeded its {timeout}s timeout',
+                  file=sys.stderr, flush=True)
         raise
     finally:
         elapsed = time.monotonic() - started
@@ -54,14 +97,23 @@ def run_merge_group_time_bombs(selected):
     label = 'merge-group time-bomb rerun'
     timed_out = False
     failed = False
+    remaining = job_budget_remaining()
+    if remaining <= 0:
+        report_job_timeout(label)
+        raise SystemExit(1)
+    budget_bounded = remaining < TIME_BOMB_TIMEOUT_SECONDS
+    timeout = remaining if budget_bounded else TIME_BOMB_TIMEOUT_SECONDS
     with tempfile.TemporaryDirectory(prefix='aiur-time-bomb-count-') as temp_dir:
         count_file = Path(temp_dir) / 'count'
         child_env = dict(os.environ, AIUR_TIME_BOMB_COUNT_FILE=str(count_file))
         try:
             try:
                 subprocess.run([sys.executable, TIME_BOMB_CHECK, *selected], check=True,
-                               timeout=TIME_BOMB_TIMEOUT_SECONDS, env=child_env)
+                               timeout=timeout, env=child_env)
             except subprocess.TimeoutExpired:
+                if budget_bounded:
+                    report_job_timeout(label)
+                    raise
                 timed_out = True
             except subprocess.CalledProcessError:
                 failed = True
@@ -71,7 +123,7 @@ def run_merge_group_time_bombs(selected):
             file_count = count_file.read_text(encoding='utf-8') if count_file.exists() else 'unknown'
             report = f'{label}: {file_count} dated test files, {elapsed:.1f}s'
             if timed_out:
-                report += f' (stopped at its {TIME_BOMB_TIMEOUT_SECONDS:g}s budget)'
+                report += f' (stopped at its {timeout:g}s budget)'
                 print(f'::warning::affected-tests {report}', file=sys.stderr, flush=True)
             elif not failed:
                 print(f'::notice::affected-tests {label} duration: {elapsed:.1f}s', file=sys.stderr, flush=True)
@@ -116,6 +168,7 @@ def run_changed_test_modules(base):
 
 
 def main():
+    report_job_budget()
     if os.environ.get('GITHUB_EVENT_NAME') == 'merge_group':
         paths = merge_group_changed_paths(sys.argv[1])
         os.environ['AIUR_CI_CHANGED_PATHS_B64'] = base64.b64encode(
@@ -123,10 +176,9 @@ def main():
         ).decode('ascii')
     run_changed_test_modules(sys.argv[1])
 
-    selection_started = time.monotonic()
-    selection = subprocess.check_output(['mix', 'aiur.affected_tests', sys.argv[1]], text=True)
-    print(f'::notice::affected-tests selection duration: {time.monotonic() - selection_started:.1f}s',
-          file=sys.stderr, flush=True)
+    selection = run_timed('selection', ['mix', 'aiur.affected_tests', sys.argv[1]],
+                          timeout=SELECTED_TEST_TIMEOUT_SECONDS,
+                          stdout=subprocess.PIPE, text=True).stdout
     print(selection, flush=True)
 
     commands = [line for line in selection.splitlines() if line.startswith('cd src && mise exec -- ')]

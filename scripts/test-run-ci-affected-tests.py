@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr
 from unittest.mock import patch
@@ -62,6 +63,7 @@ else:
                                   if rechecks.exists() else [])
             self.assertNotIn(b"can't open file", result.stderr)
             self.assertIn(b'::notice::affected-tests selection duration:', result.stderr)
+            self.assertIn(b'::notice::affected-tests job budget:', result.stderr)
             if 'mix test' in selection and len(selection.split()) <= 305:
                 self.assertIn(b'::notice::affected-tests selected tests duration:', result.stderr)
             invoked = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
@@ -92,6 +94,47 @@ else:
         self.assertIsNotNone(match)
         self.assertLess(float(match.group(1)), 2.0)
         self.assertIn('::error::affected-tests selected tests exceeded its 0.1s timeout', stderr.getvalue())
+
+    def test_job_budget_and_timeout_are_pinned_to_the_workflow_cap(self):
+        self.assertEqual(RUNNER.JOB_TIMEOUT_MINUTES, 25)
+        self.assertEqual(RUNNER.JOB_BUDGET_SECONDS,
+                         RUNNER.JOB_TIMEOUT_SECONDS - RUNNER.PRE_RUNNER_RESERVE_SECONDS)
+        self.assertGreater(RUNNER.JOB_BUDGET_SECONDS, RUNNER.SELECTED_TEST_TIMEOUT_SECONDS,
+                           'a single phase must still fit inside the job budget')
+
+    def test_spent_job_budget_names_the_job_timeout_instead_of_a_test_failure(self):
+        stderr = io.StringIO()
+        with patch.object(RUNNER, 'JOB_BUDGET_SECONDS', 0.0), redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as raised:
+                RUNNER.run_selected_tests([sys.executable, '-c', 'import time; time.sleep(5)'])
+
+        self.assertNotEqual(raised.exception.code, 0)
+        self.assertIn("::error::affected-tests hit the job's 25-minute timeout while running selected tests",
+                      stderr.getvalue())
+        self.assertIn('not a failing test', stderr.getvalue())
+
+    def test_remaining_job_budget_caps_a_phase_and_names_the_job_timeout(self):
+        stderr = io.StringIO()
+        command = [sys.executable, '-c', 'import time; time.sleep(5)']
+        with patch.object(RUNNER, 'JOB_BUDGET_SECONDS', 0.3), \
+                patch.object(RUNNER, 'JOB_STARTED_AT', time.monotonic()), \
+                redirect_stderr(stderr):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                RUNNER.run_selected_tests(command)
+
+        self.assertIn("::error::affected-tests hit the job's 25-minute timeout while running selected tests",
+                      stderr.getvalue())
+        self.assertNotIn('exceeded its 600s timeout', stderr.getvalue())
+
+    def test_phase_timeout_still_reports_its_own_budget_when_the_job_has_room(self):
+        stderr = io.StringIO()
+        command = [sys.executable, '-c', 'import time; time.sleep(5)']
+        with patch.object(RUNNER, 'SELECTED_TEST_TIMEOUT_SECONDS', 0.2), redirect_stderr(stderr):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                RUNNER.run_selected_tests(command)
+
+        self.assertIn('::error::affected-tests selected tests exceeded its 0.2s timeout', stderr.getvalue())
+        self.assertNotIn('25-minute timeout', stderr.getvalue())
 
     def test_unsafe_selection_defers_full_suite_to_merge_queue(self):
         reason = 'changed files include test support; changed paths: src/test/support/helper.exs'
