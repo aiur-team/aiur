@@ -129,7 +129,7 @@ defmodule Aiur.Commands.Media do
   def publishable_url?(_value), do: false
 
   @doc "Opaque, stable attachment identity for one validated locator."
-  @spec attachment_id(locator()) :: String.t()
+  @spec attachment_id(%{required(:value) => String.t(), optional(atom()) => any()}) :: String.t()
   def attachment_id(%{value: value}) do
     digest = :crypto.hash(:sha256, value) |> Base.encode16(case: :lower) |> String.slice(0, 24)
     @attachment_prefix <> digest
