@@ -176,13 +176,28 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
     result
   end
 
+  # A copy is stamped "now", and git trusts an entry's stat only when the index
+  # file is not newer than the entry. A copy stamped later therefore hides an
+  # edit whose size did not change in the second the checkout wrote the file:
+  # `git add --update` skipped it and the reverse check failed on a save that
+  # was exact (soak seed 973359). Carrying the source's stamp keeps the copy as
+  # racy as the index it copies.
   defp seed_index(context, base, index, env) do
     with {:ok, path} <- index_path(context) do
       case File.cp(path, index) do
-        :ok -> :ok
+        :ok -> keep_stamp(path, index)
         {:error, :enoent} -> read_tree(context, base, env)
         {:error, reason} -> {:error, {:index_copy_failed, path, reason}}
       end
+    end
+  end
+
+  # Best effort: a stamp that cannot be read or carried only leaves git's racy
+  # check stricter, never the staged content wrong.
+  defp keep_stamp(path, index) do
+    with {:ok, stat} <- File.stat(path, time: :posix) do
+      _ = File.touch(index, stat.mtime)
+      :ok
     end
   end
 

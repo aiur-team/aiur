@@ -126,6 +126,41 @@ defmodule Aiur.Workspace.WipPreservationTest do
     end
   end
 
+  describe "the copied index of the reverse check" do
+    # #7543: the reverse check stages the worktree changes into a copy of the
+    # index. The copy is stamped "now", so git reads its stat cache as settled
+    # and skips an edit whose size did not change since the checkout wrote the
+    # file. The save must still capture that edit and succeed.
+    test "a settled stamp on the copied index does not fail a same-size edit", %{test_root: test_root} do
+      identifier = "WIP-SAME-SIZE-#{System.unique_integer([:positive])}"
+      workspace = cloned_workspace!(test_root, identifier)
+      path = Path.join(workspace, "README.md")
+      stamp = DateTime.utc_now() |> DateTime.add(-3_600) |> DateTime.to_unix()
+
+      # Park the index and the file on one stamp so the stat cache alone cannot
+      # tell the edit from the checkout. "initial\n" and "changed\n" are both
+      # eight bytes, so the size does not tell either.
+      File.touch!(path, stamp)
+      git!(["-C", workspace, "update-index", "--refresh"])
+      git!(["-C", workspace, "config", "core.trustctime", "false"])
+      File.write!(path, "changed\n")
+      File.touch!(path, stamp)
+      File.touch!(Path.join([workspace, ".git", "index"]), stamp)
+
+      assert {:ok, _} = Remove.remove(workspace, nil, ticket: identifier)
+      refute File.exists?(workspace)
+
+      assert [artifact] = WipPreservation.pending_notices(workspace, identifier)
+      assert artifact["complete"] == true
+      assert "README.md" in artifact["tracked_files"]
+      assert File.read!(artifact["files"]["tracked_patch"]) =~ "+changed"
+
+      clone_at!(test_root, workspace)
+      run_restore!(artifact)
+      assert File.read!(Path.join(workspace, "README.md")) == "changed\n"
+    end
+  end
+
   describe "agent runner" do
     test "the next turn input names the artifact and its restore commands", %{test_root: test_root} do
       identifier = "WIP-TURN-#{System.unique_integer([:positive])}"
