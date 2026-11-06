@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildOrder,
+  buildOrderGolden,
   buildOrderSchema,
   buildOrderUnavailable,
   validateBuildOrder,
@@ -13,6 +14,26 @@ const EDGE_KINDS = ['depends_on', 'serializes_with', 'suggested_after', 'contain
 test('golden build order fixtures validate against build-order.v1', () => {
   assert.equal(validateBuildOrder(buildOrder), true);
   assert.equal(validateBuildOrder(buildOrderUnavailable), true);
+  assert.equal(validateBuildOrder(buildOrderGolden), true);
+});
+
+test('the daemon-published golden document keeps every edge endpoint local', () => {
+  const nodes = new Set([
+    ...buildOrderGolden.tickets.map((ticket) => ticket.id),
+    ...buildOrderGolden.gates.map((gate) => gate.key),
+  ]);
+  for (const edge of buildOrderGolden.edges) {
+    assert.ok(nodes.has(edge.from), `unknown edge source ${edge.from}`);
+    assert.ok(nodes.has(edge.to), `unknown edge target ${edge.to}`);
+    assert.ok(['pack', 'tracker', 'inferred', 'unknown'].includes(edge.source));
+  }
+
+  const kinds = new Set(buildOrderGolden.edges.map((edge) => edge.kind));
+  for (const kind of EDGE_KINDS) assert.ok(kinds.has(kind), `golden document has no ${kind} edge`);
+
+  for (const source of ['pack', 'tracker', 'progress']) {
+    assert.ok(['known', 'stale', 'unknown'].includes(buildOrderGolden.sources[source].status));
+  }
 });
 
 for (const key of [
