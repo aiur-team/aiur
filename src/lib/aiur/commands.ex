@@ -99,10 +99,10 @@ defmodule Aiur.Commands do
   defdelegate default_metrics(), to: Aiur.Commands.Defaults
   @spec default_store() :: module()
   defdelegate default_store(), to: Aiur.DecisionQuery
-
+  @spec repair_journal() :: {:ok, map()} | {:error, term()}
+  defdelegate repair_journal(), to: Aiur.DecisionStore
   @spec defer(String.t()) :: {:ok, map()} | {:error, term()}
   defdelegate defer(decision_id), to: Aiur.DecisionStore
-
   @spec defer(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate defer(decision_id, opts), to: Aiur.DecisionStore
 
