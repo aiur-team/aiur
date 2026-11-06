@@ -113,6 +113,21 @@ defmodule Aiur.Commands.Media do
   @spec kind?(term()) :: boolean()
   def kind?(kind), do: kind in @kinds
 
+  @doc """
+  Whether a URL locator may be republished to an untrusted client.
+
+  The same checks the ingestion boundary applies: `https` only, no credentials in
+  the authority, an allowlisted host and no expiring-signature query keys. A
+  locator that fails them stays out of a public projection instead of being
+  handed to a dashboard or an embedding host.
+  """
+  @spec publishable_url?(term()) :: boolean()
+  def publishable_url?(value) when is_binary(value) do
+    not expiring_url?(value) and match?({:ok, _locator}, DecisionArtifact.validate(value, []))
+  end
+
+  def publishable_url?(_value), do: false
+
   @doc "Opaque, stable attachment identity for one validated locator."
   @spec attachment_id(locator()) :: String.t()
   def attachment_id(%{value: value}) do

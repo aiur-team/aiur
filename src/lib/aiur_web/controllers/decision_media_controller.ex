@@ -9,11 +9,9 @@ defmodule AiurWeb.DecisionMediaController do
 
     * the attachment must be one of *this* Decision's prompt, option or answer
       media items, so an attachment id from another Command never resolves;
-    * a local file must still canonicalize (symlink-resolved) inside a
-      configured safe root *now*, because a symlink swapped after ingestion
-      would otherwise escape containment;
-    * an already-public https locator answers with a redirect instead of an
-      authenticated proxy hop.
+    * the file/redirect/header handling lives in `AiurWeb.CommandMediaResponse`,
+      which the ticket-scoped Commands API route shares, so both serving paths
+      re-check safe-root containment and emit the same hardening headers.
 
   Responses always carry `nosniff` and a deny-all content policy so a served
   file cannot be reinterpreted as active content by the browser.
@@ -22,55 +20,24 @@ defmodule AiurWeb.DecisionMediaController do
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.Commands.Media
-  alias Aiur.{DecisionStore, DecisionValidation, PathSafety}
+  alias Aiur.DecisionStore
+  alias AiurWeb.CommandMediaResponse
   alias Plug.Conn
 
   @spec show(Conn.t(), map()) :: Conn.t()
   def show(conn, %{"decision_id" => decision_id, "attachment_id" => attachment_id}) do
-    with {:ok, decision} <- fetch(conn, decision_id),
-         {:ok, item} <- Media.find_attachment(Media.all_items(decision), attachment_id) do
-      serve(conn, item)
-    else
-      :error -> not_found(conn)
-      {:error, :store_unavailable} -> service_unavailable(conn)
-      {:error, _reason} -> not_found(conn)
+    result = conn |> fetch(decision_id) |> find(attachment_id)
+    CommandMediaResponse.respond(conn, result)
+  end
+
+  defp find({:ok, decision}, attachment_id) do
+    case Media.find_attachment(Media.all_items(decision), attachment_id) do
+      {:ok, item} -> {:ok, item}
+      :error -> {:error, :not_found}
     end
   end
 
-  defp serve(conn, item) do
-    case locator(item) do
-      %{kind: :url, value: url} -> redirect(conn, external: url)
-      %{kind: :path, value: path} -> serve_file(conn, path, mime_type(item))
-      _missing -> not_found(conn)
-    end
-  end
-
-  defp serve_file(conn, path, mime_type) do
-    case contained(path) do
-      {:ok, canonical} ->
-        conn
-        |> put_resp_header("x-content-type-options", "nosniff")
-        |> put_resp_header("content-security-policy", "default-src 'none'; sandbox")
-        |> put_resp_header("cache-control", "private, max-age=60")
-        |> put_resp_content_type(mime_type)
-        |> Conn.send_file(200, canonical)
-
-      {:error, _reason} ->
-        not_found(conn)
-    end
-  end
-
-  defp contained(path) do
-    Enum.find_value(DecisionValidation.safe_roots(), {:error, :outside_root}, fn root ->
-      case PathSafety.contained?(root, path) do
-        {:ok, %{candidate: canonical}} -> {:ok, canonical}
-        {:error, _reason} -> nil
-      end
-    end)
-  end
-
-  defp locator(item), do: Media.fetch_field(item, :locator)
-  defp mime_type(item), do: Media.fetch_field(item, :mime_type) || "application/octet-stream"
+  defp find({:error, _reason} = error, _attachment_id), do: error
 
   defp fetch(conn, decision_id) do
     DecisionStore.get(decision_id, Map.get(conn.private, :decision_media_store, DecisionStore))
@@ -78,17 +45,5 @@ defmodule AiurWeb.DecisionMediaController do
     _error -> {:error, :store_unavailable}
   catch
     :exit, _reason -> {:error, :store_unavailable}
-  end
-
-  defp not_found(conn) do
-    conn
-    |> put_status(404)
-    |> json(%{error: %{code: "media_not_found", message: "Media not found"}})
-  end
-
-  defp service_unavailable(conn) do
-    conn
-    |> put_status(503)
-    |> json(%{error: %{code: "decision_store_unavailable", message: "Decision store unavailable"}})
   end
 end

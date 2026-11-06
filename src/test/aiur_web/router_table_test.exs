@@ -38,6 +38,7 @@ defmodule AiurWeb.RouterTableTest do
     {:post, "/auth/passkeys/registration/finish", AiurWeb.DashboardAuthController, :registration_finish, [:auth_post], :debug},
     {:get, "/api/v1/commands", AiurWeb.CommandsApiController, :index, [:commands_scope_auth], :debug},
     {:get, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :show, [:commands_scope_auth], :debug},
+    {:get, "/api/v1/commands/:decision_id/media/:attachment_id", AiurWeb.CommandsApiController, :media, [:commands_scope_auth], :debug},
     {:post, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :answer, [:commands_scope_auth, :require_writable], :debug},
     {:post, "/api/v1/commands/scope", AiurWeb.CommandsApiController, :mint_scope, [:supervisor_auth, :require_writable], :debug},
     {:put, "/api/v1/commands/scope", AiurWeb.CommandsApiController, :method_not_allowed, [:supervisor_auth], :debug},

@@ -20,6 +20,9 @@ export const COMMAND_STATES = [
 /** Every list-level state a collection can carry. */
 export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error'];
 
+/** Every typed Command media kind a component can carry. */
+export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
+
 /**
  * @typedef {'pending' | 'answered' | 'revised' | 'expired' | 'unavailable' | 'conflict' | 'error'} CommandState
  */
@@ -32,6 +35,7 @@ export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error']
  * @property {string | null} [benefits]
  * @property {string | null} [drawbacks]
  * @property {string | null} [risk]
+ * @property {CommandMedia[]} [media]
  */
 
 /**
@@ -45,9 +49,53 @@ export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error']
  */
 
 /**
- * @typedef {object} CommandMedia
- * @property {string} kind - `url` or `path`
+ * @typedef {'image' | 'animated_image' | 'video' | 'audio'} CommandMediaKind
+ */
+
+/**
+ * A media locator as the contract publishes it.
+ *
+ * A `url` locator is an already-public `https:` URL. An `attachment` locator
+ * names a file Aiur serves: the host reads it from
+ * `GET /api/v1/commands/:decision_id/media/:attachment_id` with the same scoped
+ * grant, so a server-local path never reaches the browser.
+ *
+ * @typedef {object} CommandMediaLocator
+ * @property {'url' | 'attachment'} kind
+ * @property {string} [value] - present for a `url` locator
+ * @property {string} [attachment_id] - present for an `attachment` locator
+ */
+
+/**
+ * A typed Command media item on a prompt or an option.
+ *
+ * @typedef {object} CommandMediaItem
+ * @property {CommandMediaKind} kind
+ * @property {string} mime_type
+ * @property {CommandMediaLocator} locator
+ * @property {string | null} [attachment_id]
+ * @property {string | null} [alt_text]
+ * @property {string | null} [caption]
+ * @property {number | null} [byte_size]
+ * @property {number | null} [width]
+ * @property {number | null} [height]
+ * @property {number | null} [duration_ms]
+ * @property {CommandMediaLocator | null} [poster]
+ */
+
+/**
+ * A pre-existing artifact reference carried alongside typed media.
+ *
+ * @typedef {object} CommandArtifactMedia
+ * @property {'url' | 'path'} kind
  * @property {string} value
+ */
+
+/**
+ * An entry in a Command's `media[]`: a typed item (it has a `locator`) or an
+ * artifact reference (it has a bare `value`).
+ *
+ * @typedef {CommandMediaItem | CommandArtifactMedia} CommandMedia
  */
 
 /**

@@ -59,10 +59,36 @@ defmodule Aiur.Commands.Media.Projection do
     }
   end
 
+  # `public/1` is idempotent: a projection that already carries a public
+  # locator (`attachment` kind) passes through unchanged, so the same list can
+  # cross the canonical boundary and the component contract without a second
+  # path rewrite. Anything without a resolvable locator becomes `nil` instead of
+  # raising.
   defp public_locator(nil), do: nil
-  defp public_locator(%{kind: :url, value: value}), do: %{"kind" => "url", "value" => value}
-  defp public_locator(%{"kind" => "url", "value" => value}), do: %{"kind" => "url", "value" => value}
-  defp public_locator(locator), do: %{"kind" => "attachment", "attachment_id" => Media.attachment_id(locator)}
+
+  # A URL locator is republished only when it still passes the ingestion checks;
+  # a signed or non-allowlisted URL would hand a credential to an untrusted
+  # client, so it projects as an unavailable item instead.
+  defp public_locator(%{kind: :url, value: value}), do: public_url(value)
+
+  defp public_locator(%{"kind" => "url", "value" => value}), do: public_url(value)
+
+  defp public_locator(%{"kind" => "attachment", "attachment_id" => id}) when is_binary(id),
+    do: %{"kind" => "attachment", "attachment_id" => id}
+
+  defp public_locator(%{value: value}) when is_binary(value),
+    do: %{"kind" => "attachment", "attachment_id" => Media.attachment_id(%{value: value})}
+
+  defp public_locator(%{"value" => value}) when is_binary(value),
+    do: %{"kind" => "attachment", "attachment_id" => Media.attachment_id(%{value: value})}
+
+  defp public_locator(_locator), do: nil
+
+  defp public_url(value) when is_binary(value) do
+    if Media.publishable_url?(value), do: %{"kind" => "url", "value" => value}, else: nil
+  end
+
+  defp public_url(_value), do: nil
 
   @doc """
   Durable option list for the canonical request snapshot.

@@ -40,12 +40,12 @@ Every Command renders to one `CommandComponent`:
 | `reason` | machine-readable detail for the state, when there is one |
 | `decision_id`, `version` | identity and optimistic-concurrency version |
 | `question`, `ticket`, `blocking` | what is being asked and where |
-| `options[]` | `id`, `label`, `description`, `benefits`, `drawbacks`, `risk` |
+| `options[]` | `id`, `label`, `description`, `benefits`, `drawbacks`, `risk`, and an optional `media[]` |
 | `recommendation` | `{option_id, label}` when the agent recommended one |
 | `free_response` | `{allowed, required}` |
 | `answer` | the recorded answer, when there is one |
 | `conflict` | the winner of a lost race, when one exists |
-| `media[]` | typed artifacts: `{kind, value}` where `kind` is `url` or `path` |
+| `media[]` | typed media items (`kind`, `mime_type`, `locator`, alt/caption) plus pre-existing artifact references (`kind` + `value`) |
 | `actions` | which actions the caller may take: `{answer, revise, enrich}` |
 
 A collection renders to a `CommandList`: `status` is `loading`, `empty`,
@@ -71,6 +71,33 @@ re-renders from the new component payload.
 
 The renderer escapes every interpolated value. Media is only turned into a
 link for `https:` URLs; anything else renders as inert text.
+
+### Media
+
+A Command's prompt and each of its options can carry typed media — `image`,
+`animated_image`, `video` or `audio`. A typed item carries a `locator`; a
+pre-existing artifact reference in the same list carries a bare `kind` + `value`.
+An item whose locator kind is `url` is already public. An item whose locator kind
+is `attachment` is a file Aiur serves, so tell the renderer where Aiur lives:
+
+```js
+renderCommand(command, {
+  answerUrl: '/api/commands/answer',
+  mediaBaseUrl: 'https://aiur.example.com',
+});
+```
+
+The renderer then reads the file from
+`GET /api/v1/commands/:decision_id/media/:attachment_id` with the same grant the
+component came from. Aiur re-checks the ticket set and the Command's own
+attachment list on every read. Without `mediaBaseUrl`, an attachment item renders
+an "unavailable" panel rather than a broken element, and a signed or
+non-allowlisted URL renders the same way.
+
+Images and animated images render with their alt text and caption; video and
+audio use native `controls` and take their `aria-label` from the alt text or
+caption. Option media renders beside the option, outside its `<label>`, so a
+playback control is never swallowed by the label's click target.
 
 ## Answering
 

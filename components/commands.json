@@ -22,6 +22,7 @@
     "src/lib/aiur/operator_relay.ex",
     "src/lib/aiur/supervisor_token.ex",
     "src/lib/aiur/supervisor_token/**",
+    "src/lib/aiur_web/command_media_response.ex",
     "src/lib/aiur_web/controllers/decision*.ex",
     "src/lib/aiur_web/routes/decisions.ex"
   ],
