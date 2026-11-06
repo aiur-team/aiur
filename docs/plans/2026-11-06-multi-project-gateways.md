@@ -444,7 +444,8 @@ on it. Total 89.
 
 **Typed edges.** `depends_on` as listed in each contract. `serializes_with`: MPG-303/304/305 (`application/children.ex`;
 merge in that order), MPG-001, MPG-204/205 and MPG-206 (`control_controller.ex`), MPG-103/108 (`shared_lease_dispatch.ex`).
-Gates: none remain. Kevin answered Q2, Q4 and Q5 and let the Q1 and Q3 defaults stand (2026-11-06).
+**Filed** 2026-11-06 as #7581-#7669 under epic `mpg`, with 144 native blocked-by links; plan id to issue:
+[issue-map.md](2026-11-06-multi-project-gateways/issue-map.md). Gates: none remain. Kevin answered Q2, Q4 and Q5 and let the Q1 and Q3 defaults stand (2026-11-06).
 
 | Wave | Count | Tickets |
 |---|---|---|
