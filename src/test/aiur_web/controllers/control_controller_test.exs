@@ -52,9 +52,16 @@ defmodule AiurWeb.ControlControllerTest do
   end
 
   test "result carries the gateway identity, or null and unavailable without one", %{read_token: token} do
-    key = {Machine, :boot_result}
-    previous = :persistent_term.get(key, :absent)
-    on_exit(fn -> if previous == :absent, do: :persistent_term.erase(key), else: :persistent_term.put(key, previous) end)
+    keys = [{Machine, :boot_result}, {Machine, :boot_context}]
+    key = hd(keys)
+    previous = Map.new(keys, &{&1, :persistent_term.get(&1, :absent)})
+    dir = Path.join(System.tmp_dir!(), "gw-ctl-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      for {k, v} <- previous, do: if(v == :absent, do: :persistent_term.erase(k), else: :persistent_term.put(k, v))
+      Aiur.TestCleanup.rm_rf!(dir)
+    end)
+
     body = Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})
 
     :persistent_term.put(key, {:degraded, :identity_unreadable, :x})
@@ -63,7 +70,7 @@ defmodule AiurWeb.ControlControllerTest do
     assert Map.has_key?(unavailable, "gateway_id")
     assert unavailable["gateway_identity"] == "unavailable"
 
-    {:ok, %{machine_id: id}} = Machine.ensure(dir: Path.join(System.tmp_dir!(), "gw-ctl-#{System.unique_integer([:positive])}"))
+    {:ok, %{machine_id: id}} = Machine.ensure(dir: dir)
     available = Jason.decode!(post_control(token, body).resp_body)
     assert available["gateway_id"] == id
     assert available["gateway_identity"] == "available"
