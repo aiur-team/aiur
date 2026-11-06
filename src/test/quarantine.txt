@@ -16,7 +16,6 @@ Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
 Aiur.Orchestrator.NonblockingQuestionTest	a non-blocking Command records the question without pausing the worker	#6571	2027-01-25
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
-Aiur.Orchestrator.ResumeControlRegressionTest	a crash inside a control call replies with an error and keeps the orchestrator and its registry	#7537	2026-11-13
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
 Aiur.Regression.ProgressRendererBoundaryTest	Build Order presentation surfaces do not bypass the shared renderer	#7234	2026-11-13
