@@ -13,8 +13,9 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   @now ~U[2026-10-10 06:00:00Z]
   @future "2999-01-01T00:00:00Z"
 
-  # Codex: 5% left on its weekly window, read from the usage ledger.
-  @ledger %{"backends" => %{"codex" => %{"observed_at" => "2026-10-10T05:59:30Z", "weekly" => %{"used" => 95, "limit" => 100, "reset_at" => @future}}}}
+  # Codex: 6% left on its weekly window, read from the usage ledger — just above
+  # the default 5% usage floor (#7504), so headroom scoring still selects it.
+  @ledger %{"backends" => %{"codex" => %{"observed_at" => "2026-10-10T05:59:30Z", "weekly" => %{"used" => 94, "limit" => 100, "reset_at" => @future}}}}
 
   defp meters(by_account) do
     fn
@@ -89,16 +90,16 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                select(ticket(), state: state, usage_snapshot: fn _backend, _names -> %{} end)
     end
 
-    test "Codex 5%, Claude/default 100%, Claude/everdred 64%: a complexity-3 ticket picks Claude/default" do
+    test "Codex 6%, Claude/default 100%, Claude/everdred 64%: a complexity-3 ticket picks Claude/default" do
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "default", selected_model: "sonnet"} = issue} = select()
 
       assert issue.dispatch_selection.summary ==
-               "headroom: claude/default=100%; alternatives claude/everdred=64%, codex=5%"
+               "headroom: claude/default=100%; alternatives claude/everdred=64%, codex=6%"
 
       assert [
                %{name: "claude/default", status: :known, remaining_percent: 100, source: "meter"},
                %{name: "claude/everdred", status: :known, remaining_percent: 64, binding_window: "seven_day"},
-               %{name: "codex", status: :low, remaining_percent: 5, source: "ledger", route: "codex:gpt-5.5:high"}
+               %{name: "codex", status: :low, remaining_percent: 6, source: "ledger", route: "codex:gpt-5.5:high"}
              ] = issue.dispatch_selection.candidates
     end
 
@@ -123,7 +124,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                CodingAgent.select_for_dispatch(ticket(), preferred)
 
       assert issue.dispatch_selection.summary ==
-               "headroom: codex=5%; alternatives claude/default=100%, claude/everdred=64%"
+               "headroom: codex=6%; alternatives claude/default=100%, claude/everdred=64%"
 
       rejected = %{"backends" => %{"codex" => %{"auth_rejected" => true}}}
 
@@ -137,7 +138,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert CodingAgent.backend_for(issue) == "codex"
       assert issue.selected_backend == nil
       assert issue.dispatch_selection.pinned
-      assert issue.dispatch_selection.summary == "headroom: codex=5%"
+      assert issue.dispatch_selection.summary == "headroom: codex=6%"
     end
 
     test "unknown account gets one exploration before the known account takes the next dispatch" do
@@ -155,7 +156,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
     end
 
     test "an unknown account beats a known account with 10% or less left" do
-      unknown_default = meters(%{"everdred" => {95, 0}})
+      unknown_default = meters(%{"everdred" => {94, 0}})
 
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = issue} =
                select(ticket(), state: %{"backends" => %{}}, usage_snapshot: unknown_default)
@@ -168,6 +169,99 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
 
       assert {:all_limited, ["claude:sonnet", "codex:gpt-5.5:high"]} =
                select(ticket(), state: limited, usage_snapshot: meters(%{"default" => {100, 0}, "everdred" => {0, 100}}))
+    end
+  end
+
+  # The default floor (5) from config, with codex loosened to 2 so the
+  # per-backend override is visible in the same run.
+  defp floor_fun do
+    fn
+      "codex" -> 2
+      _backend -> 5
+    end
+  end
+
+  defp floored_opts(overrides) do
+    Keyword.merge([usage_floor_percent_fun: floor_fun()], overrides)
+  end
+
+  # Claude/default has 4% left, Claude/everdred 3%: both accounts are at the
+  # floor, so the whole route is skipped.
+  defp both_claude_accounts_floored, do: meters(%{"default" => {96, 0}, "everdred" => {97, 0}})
+
+  describe "issue #7504 usage floor" do
+    test "a backend at the floor is skipped and the next allowed route takes the dispatch" do
+      assert {:ok, %Issue{selected_backend: "codex"} = issue} =
+               select(ticket(), floored_opts(usage_snapshot: both_claude_accounts_floored()))
+
+      # The dispatch record keeps the skipped route and names the window that
+      # held it, so the operator can see why an enabled login was passed over.
+      assert [%{name: "claude/default", status: :held, held: held_line}, %{name: "claude/everdred", status: :held}] =
+               Enum.filter(issue.dispatch_selection.candidates, &(&1.status == :held))
+
+      assert held_line =~ "4% left ≤ 5% floor"
+      assert issue.dispatch_selection.summary =~ "held claude/default"
+    end
+
+    test "an account just above the floor is still used" do
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "everdred"} = issue} =
+               select(ticket(), floored_opts(usage_snapshot: meters(%{"default" => {94, 0}, "everdred" => {90, 0}})))
+
+      refute Enum.any?(issue.dispatch_selection.candidates, &(&1.status == :held))
+      assert issue.dispatch_selection.summary =~ "claude/everdred=10%"
+      assert issue.dispatch_selection.summary =~ "claude/default=6%"
+    end
+
+    test "a floored weekly window skips the account while the 5-hour window is fine" do
+      # default: weekly 4% left, 5-hour untouched -> skipped.
+      # everdred: healthy -> the route survives and takes the dispatch.
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "everdred"} = issue} =
+               select(ticket(), floored_opts(usage_snapshot: meters(%{"default" => {96, 10}, "everdred" => {36, 10}})))
+
+      assert [%{name: "claude/default", status: :held, binding_window: "seven_day"}] =
+               Enum.filter(issue.dispatch_selection.candidates, &(&1.status == :held))
+
+      refute Enum.any?(issue.dispatch_selection.candidates, &(&1.name == "claude/everdred" and &1.status == :held))
+    end
+
+    test "the per-backend floor override keeps a route the global floor would hold" do
+      # Codex has 4% left: held under the global floor of 5, allowed under its
+      # own override of 2. Claude is floored either way.
+      snapshot = meters(%{"default" => {96, 0}, "everdred" => {97, 0}})
+      ledger = put_in(@ledger, ["backends", "codex", "weekly", "used"], 96)
+
+      assert {:ok, %Issue{selected_backend: "codex"}} =
+               select(ticket(), floored_opts(usage_snapshot: snapshot, state: ledger))
+
+      assert {:all_limited, _routes} =
+               select(ticket(), usage_floor_percent_fun: fn _backend -> 5 end, usage_snapshot: snapshot, state: ledger)
+    end
+
+    test "an unknown reading is never floored" do
+      # Codex has no ledger entry: its reading is unknown, so the floor leaves it
+      # alone and headroom still explores it.
+      assert {:ok, %Issue{selected_backend: "codex"} = issue} =
+               select(ticket(), floored_opts(usage_snapshot: both_claude_accounts_floored(), state: %{"backends" => %{}}))
+
+      assert issue.dispatch_selection.summary =~ "codex=unknown"
+    end
+
+    test "a route comes back on its own when its window resets" do
+      {:ok, first} = select(ticket(), floored_opts(usage_snapshot: both_claude_accounts_floored()))
+      assert first.selected_backend == "codex"
+
+      # No config edit: the next dispatch reads the fresh meters and uses Claude.
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"}} =
+               select(first, floored_opts(usage_snapshot: meters(%{"default" => {0, 0}, "everdred" => {20, 0}})))
+    end
+
+    test "with every route floored the claim is held, not failed" do
+      floored_ledger = %{"backends" => %{"codex" => %{"observed_at" => "2026-10-10T05:59:30Z", "weekly" => %{"used" => 98, "limit" => 100, "reset_at" => @future}}}}
+
+      assert {:all_limited, routes} =
+               select(ticket(), floored_opts(usage_snapshot: both_claude_accounts_floored(), state: floored_ledger))
+
+      assert Enum.sort(routes) == ["claude:sonnet", "codex:gpt-5.5:high"]
     end
   end
 
@@ -204,7 +298,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert HeadroomDispatch.backend_reading("codex", state: past, now: @now) == nil
 
       assert HeadroomDispatch.backend_reading("codex", state: @ledger, now: @now, max_reading_age_seconds: 1800) ==
-               %{windows: %{"weekly" => 95.0}, source: "ledger", age_seconds: 30}
+               %{windows: %{"weekly" => 94.0}, source: "ledger", age_seconds: 30}
     end
 
     test "preferred Codex remains unknown until its probe refreshes its score" do

@@ -148,7 +148,10 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
            max(credits - usage, 0),
            :openrouter_api,
            observed_at,
-           nil
+           # `total_credits` is the key's known limit, so the spend percentage
+           # is honest against it — the same field dispatch's usage floor reads
+           # (#7504). A key with no reported limit keeps dollar-only credits.
+           credit_used_percent(credits, usage)
          )
        ]}
     else
@@ -183,6 +186,14 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
         nil
     end
   end
+
+  # Remaining credit against the key's own limit. A zero or absent limit means
+  # the key has no known ceiling, so no percentage is fabricated for it.
+  defp credit_used_percent(total, usage) when is_number(total) and total > 0 and is_number(usage) do
+    (usage / total * 100) |> max(0.0) |> min(100.0) |> Float.round(1)
+  end
+
+  defp credit_used_percent(_total, _usage), do: nil
 
   defp credit_window(id, amount, source, observed_at, used_percent) do
     window = %{

@@ -12,6 +12,7 @@ defmodule Aiur.CodingAgent.Routing do
   alias Aiur.CodingAgent.ModelLabel
   alias Aiur.CodingAgent.ProvidersView
   alias Aiur.CodingAgent.RouteCredentials
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
@@ -44,38 +45,80 @@ defmodule Aiur.CodingAgent.Routing do
   defp select_in_priority_order(issue, opts) do
     cond do
       # A pin is intent: an operator's `model:` label, or the backend a
-      # rate-limit fallback has already moved this claim onto.
+      # rate-limit fallback has already moved this claim onto. A pin keeps its
+      # route even when the usage floor holds it (#7504).
       is_binary(issue.selected_backend) or override_backend(issue) ->
         {:ok, issue}
 
-      # A routed backend is a default, not a pin: a default onto an exhausted account can only refuse.
+      # A routed backend is a default, not a pin: a default onto an exhausted
+      # account can only refuse, and a default held at the usage floor falls
+      # through to the next allowed route in `agent.priority` (#7504).
       backend = Keyword.get_lazy(opts, :routing_backend, fn -> routing_backend(issue) end) ->
-        if ModelAvailability.available?(backend, opts),
-          do: {:ok, issue},
-          else: {:all_limited, [backend]}
+        routed_backend_decision(issue, opts, backend)
 
       true ->
-        candidates = eligible_routes(opts)
+        route_chain_decision(issue, opts)
+    end
+  end
 
-        cond do
-          candidates == [] ->
-            default_backend_decision(issue, opts)
+  defp routed_backend_decision(issue, opts, backend) do
+    cond do
+      not ModelAvailability.available?(backend, opts) -> {:all_limited, [backend]}
+      UsageFloorGate.filter_routes([backend], opts) != [] -> {:ok, issue}
+      true -> select_floor_fallback(issue, opts, backend)
+    end
+  end
 
-          route = ModelAvailability.first_available(candidates, opts) ->
-            {:ok, select_route(issue, route)}
+  # A routed default held at the floor falls through to the next allowed entry
+  # in `agent.priority`. When nothing is left, the hold names both the floored
+  # default and the routes it fell through to.
+  defp select_floor_fallback(issue, opts, floored_backend) do
+    candidates = eligible_routes(opts)
+    allowed = UsageFloorGate.filter_routes(candidates, opts)
+    unavailable = {:all_limited, Enum.uniq([floored_backend | candidates])}
 
-          true ->
-            {:all_limited, candidates}
-        end
+    case {candidates, allowed} do
+      {[], _none} -> {:all_limited, [floored_backend]}
+      {_, []} -> unavailable
+      {_, allowed} -> first_available_else(issue, opts, allowed, unavailable)
+    end
+  end
+
+  defp first_available_else(issue, opts, allowed, unavailable) do
+    case ModelAvailability.first_available(allowed, opts) do
+      nil -> unavailable
+      route -> {:ok, select_route(issue, route)}
+    end
+  end
+
+  # Every route at or below the floor holds the claim instead of starting work
+  # on an allowance that is nearly gone (#7504).
+  defp route_chain_decision(issue, opts) do
+    candidates = eligible_routes(opts)
+    allowed = UsageFloorGate.filter_routes(candidates, opts)
+
+    cond do
+      candidates == [] -> default_backend_decision(issue, opts)
+      allowed == [] -> {:all_limited, candidates}
+      true -> first_allowed_route_decision(issue, opts, candidates, allowed)
+    end
+  end
+
+  defp first_allowed_route_decision(issue, opts, candidates, allowed) do
+    case ModelAvailability.first_available(allowed, opts) do
+      nil -> {:all_limited, candidates}
+      route -> {:ok, select_route(issue, route)}
     end
   end
 
   defp default_backend_decision(issue, opts) do
     backend = Keyword.get_lazy(opts, :default_backend, &Config.agent_kind/0)
 
-    if ModelAvailability.available?(backend, opts),
-      do: {:ok, issue},
-      else: {:all_limited, [backend]}
+    cond do
+      not ModelAvailability.available?(backend, opts) -> {:all_limited, [backend]}
+      UsageFloorGate.filter_routes([backend], opts) == [] -> {:all_limited, [backend]}
+      true -> {:ok, issue}
+    end
   end
 
   # The candidate routes for one claim. `agent.priority` is read **fresh per
