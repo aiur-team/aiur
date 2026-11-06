@@ -124,6 +124,11 @@ defmodule Aiur.OpenAICompat.Registry do
         hosted_execution: %{permission_boundary: :enforced, network_boundary: :unrestricted, credential_boundary: :daemon},
         can_interrupt: false,
         safe_checkpoints: [:notification, :tool_result],
+        # The conversation lives in this daemon's `Aiur.OpenAICompat.Session`
+        # agent rather than a child process, so a keep-agents restart snapshots
+        # it at a safe step boundary and seeds a fresh session in the successor
+        # daemon. See `Aiur.CodingAgent.handoff_kind/1`.
+        handoff: :in_daemon,
         # The OpenAI-compat worker implements the correlated unit-control
         # protocol: `pause_state/0` echoes the orchestrator's `request_id` and
         # `generation` in its `{:paused, ...}` payload, and the runner forwards

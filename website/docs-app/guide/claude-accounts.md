@@ -207,9 +207,10 @@ Aiur sends the following identity fields:
 | `trace.release` | Release | Aiur version plus build commit when available |
 | Other `trace` keys | Metadata | `issue_identifier`, `backend`, `model`, `complexity`, `dispatch_id`, `thread_id` |
 
-The thread ID includes a random dispatch identifier, so restarting the daemon
-cannot reuse a turn's trace ID. Turns and rounds start at 1; failed or paused
-turns still consume a turn number.
+The thread ID includes a random dispatch identifier, so a fresh dispatch
+cannot reuse a turn's trace ID. A `restart --keep-agents` handoff preserves
+the interrupted turn's trace and next round number. Turns and rounds start
+at 1; failed or paused turns still consume a turn number.
 
 Identity fields never copy titles, prompts
 or workspace paths. Privacy Mode excludes prompt/completion content while

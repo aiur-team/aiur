@@ -76,6 +76,32 @@ defmodule Aiur.CodingAgent.ProvidersView do
   def known_backends, do: Map.keys(backends())
 
   @doc """
+  The daemon-handoff transport a backend's registry entry declares, or `nil`
+  when its live sessions cannot survive `restart --keep-agents`.
+
+  * `:relay` — the provider runs as a child process behind a relay port that the
+    successor daemon re-attaches to.
+  * `:repl` — the provider runs in a tmux pane the successor daemon rebinds to.
+  * `:in_daemon` — the provider's conversation lives in this daemon's own
+    process (in-process HTTP); it is snapshotted at a safe step boundary and
+    restored into a fresh session in the successor daemon.
+
+  Absence means the backend's sessions die with the daemon, so the preflight
+  refuses `--keep-agents` for a fleet made only of them and names the blocking
+  backends. Derived from the registry so a new backend cannot be silently
+  assumed compatible by a hard-coded allowlist.
+  """
+  @spec handoff_kind(backend()) :: :relay | :repl | :in_daemon | nil
+  def handoff_kind(backend) when is_binary(backend) do
+    case get_in(backends(), [backend, :handoff]) do
+      kind when kind in [:relay, :repl, :in_daemon] -> kind
+      _ -> nil
+    end
+  end
+
+  def handoff_kind(_backend), do: nil
+
+  @doc """
   Whether a backend refuses to pick a model for itself, so every route to it
   must name one. True for an aggregator that fronts a whole catalog
   (OpenRouter) rather than a product: it registers models but deliberately no

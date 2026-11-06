@@ -192,6 +192,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsEventsTest do
       ElevenLabsAgents.open(%{
         owner: owner,
         credentials: {Credentials, :elevenlabs},
+        agent_id: "agent-events",
         system_prompt: "test",
         context: "test",
         first_message: nil,
