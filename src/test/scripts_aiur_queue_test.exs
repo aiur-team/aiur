@@ -80,6 +80,25 @@ defmodule Aiur.ScriptsQueueTest do
     end
   end
 
+  test "epic entries are encoded and cannot be combined with other targets" do
+    assert {output, 0} = command(["add", "--epic", "world", "--queue", "wave", "--rank", "0"])
+    assert output =~ "epic: Base.decode64!"
+    assert output =~ "rank: 0"
+    assert {output, 0} = command(["add", "--epic", "world"])
+    assert output =~ "epic: Base.decode64!"
+
+    for args <- [
+          ["add", "--epic", "world", "1"],
+          ["add", "--epic", "world", "--at", "0"],
+          ["add", "--epic", "world", "--feature", "combat"],
+          ["add", "--epic", "world", "--build-order", "9"],
+          ["add", "--epic"]
+        ] do
+      assert {output, 64} = command(args)
+      refute output =~ "RPC:"
+    end
+  end
+
   test "a failed or timed-out RPC exits non-zero" do
     assert {_, 1} = command(["add", "1"], [{"TEST_QUEUE_RPC_STATUS", "1"}])
     assert {output, 124} = command(["remove", "1"], [{"TEST_QUEUE_RPC_STATUS", "124"}])

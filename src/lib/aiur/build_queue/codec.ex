@@ -9,9 +9,10 @@ defmodule Aiur.BuildQueue.Codec do
        id: :queue_id,
        name: :string,
        rank: {:default, {:nullable, :nonnegative}, nil},
-       kind: {:enum, [:list, :build_order, :feature]},
+       kind: {:enum, [:list, :build_order, :feature, :epic]},
        root: {:nullable, :positive},
        feature: {:omit_nil, :string},
+       epic: {:omit_nil, :string},
        held: :boolean,
        start_trigger: {:default, {:enum, [nil | Aiur.StartTrigger.triggers()]}, nil},
        generation: :nonnegative,
@@ -27,7 +28,7 @@ defmodule Aiur.BuildQueue.Codec do
        promoted_at: {:nullable, :datetime},
        added_at: :datetime
      ]},
-    {:edges, Edge, [prerequisite: :issue_id, dependent: :issue_id, source: {:enum, [:list, :build_order, :feature, :native]}]},
+    {:edges, Edge, [prerequisite: :issue_id, dependent: :issue_id, source: {:enum, [:list, :build_order, :feature, :epic, :native]}]},
     {:intents, Intent,
      [
        id: :string,
@@ -103,7 +104,11 @@ defmodule Aiur.BuildQueue.Codec do
     document.queues
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, document}, fn {queue, index}, acc ->
-      if queue.kind == :feature and not is_binary(queue.feature), do: {:halt, invalid(["queues", index, "feature"])}, else: {:cont, acc}
+      cond do
+        queue.kind == :feature and not is_binary(queue.feature) -> {:halt, invalid(["queues", index, "feature"])}
+        queue.kind == :epic and not is_binary(queue.epic) -> {:halt, invalid(["queues", index, "epic"])}
+        true -> {:cont, acc}
+      end
     end)
   end
 
@@ -117,7 +122,7 @@ defmodule Aiur.BuildQueue.Codec do
     |> Enum.reduce_while({:ok, document}, fn {item, index}, acc ->
       case {Map.get(kinds, item.queue_id), item.position} do
         {:list, position} when is_integer(position) -> {:cont, acc}
-        {kind, nil} when kind in [:build_order, :feature] -> {:cont, acc}
+        {kind, nil} when kind in [:build_order, :feature, :epic] -> {:cont, acc}
         {nil, _} -> {:halt, invalid(["items", index, "queue_id"])}
         _ -> {:halt, invalid(["items", index, "position"])}
       end
