@@ -207,6 +207,10 @@ To recover saved work by hand, run the `restore_commands` of `manifest.json` in 
 
 Use `--short-summary <text>` for a concise title and `--context-file <path>` for Markdown context (at most 20,000 characters, read on the caller's machine before RPC).
 
+`--media <file|https-url>[,kind=…,alt=…,caption=…,mime=…,option=<id>]` attaches media; repeat it for more items, and add `option=<id>` to attach an item to that option instead of the prompt. A relative file is resolved on the caller's machine.
+
+Items pass the same validation as worker payload media (see [Media on a Command](../concepts/commands.md#media-on-a-command)), so a file outside a configured root, an unapproved host or an expiring URL fails with exit 64. Images need `alt=`.
+
 `--ticket <n>` adds context only: the reserved `executor` ticket owns the Command and no worker receives its answer.
 
 `--executor-id <id>` identifies the requester, falling back to `AIUR_EXECUTOR_ID` and then the host/instance identity; a live claim is not required.
@@ -238,6 +242,7 @@ The lane write verbs replace the deprecated `aiur epic set|clear|confirm` spelli
 | `aiur queue show [--queue NAME] [--json]` | Read set rank, counts and state, held status, start order, prerequisites, progress, and source ages; optionally select a named queue. | `aiur queue show --queue paseo --json` |
 | `aiur queue add <ids…> [--after N] [--queue NAME] [--at POS] [--rank POS] [--start-on TRIGGER] [--json]` | Adds tickets to a list (default name: `default`); `--after` adds local prerequisite edges and requires N to be in the target queue or included in the same command; the command's add is atomic when `--after` names one of its IDs. Positions are zero-based. An ID missing from the latest tracker observation is checked against its cached closure state, or with one single-issue read when nothing is cached. If that shows it closed, it is reported `closed` and not queued; otherwise it is queued pending and reported as `not yet observed (retry after next poll)`. `--json` emits schema version 1 with per-ticket status, outcome, and message fields. | `aiur queue add 141 142 143 --queue paseo --after 141 --at 0 --json` |
 | `aiur queue add --build-order <root> [--queue NAME] [--rank POS] [--start-on TRIGGER] [--json]` | Adopts a Build Order root, optionally naming its queue and selecting its start trigger; `--json` emits schema version 1 with per-ticket status, outcome, and message fields. | `aiur queue add --build-order 141 --queue roadmap --json` |
+| `aiur queue add --epic <slug> [--queue NAME] [--rank POS] [--start-on TRIGGER] [--json]` | Queues an epic as one set: the union of its features' members and, when the epic has a Build Order root, the root's open sub-issues. A ticket filed into one of its features later joins on the next reconcile. A feature queued on its own keeps its tickets. | `aiur queue add --epic world --queue roadmap` |
 | `aiur queue add --feature <slug> [--queue NAME] [--rank POS] [--start-on TRIGGER] [--json]` | Queues a feature registry entry as one set that follows its registry members, so a ticket filed into the feature later joins without another command. A member another set owns stays there and `queue show` lists it as owned elsewhere. Warns on stderr when `build_queue.set_order` is `none`. `--json` emits schema version 1 with per-ticket status, outcome, and message fields. | `aiur queue add --feature combat --queue roadmap --start-on pr_merged --json` |
 | `aiur queue set <queue> --start-on <trigger\|default>` | Sets the queue prerequisite trigger: `issue_closed`, `pr_merged` (default), `pr_approved`, `pr_ci_green`, or `pr_opened`. Later stages satisfy earlier triggers; `default` follows config. Existing lists reject a different override on `add`; use `set`. Invalid values exit 64. JSON includes `start_trigger`, `start_trigger_source` (`queue`/`config`), `start_trigger_override`, and prerequisite `stage`/`trigger`/`optimistic`. Tightening withdraws unclaimed todo; running agents continue. | `aiur queue set paseo --start-on pr_opened` |
 | `aiur queue remove <ids…>` | Removes list members and their membership markers. | `aiur queue remove 142 143` |
@@ -323,15 +328,17 @@ Quick creation accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`. Ma
 
 Sets carry `set_rank`, `held`, `counts` (ready/started/done), `state`, `waiting_reason`, and `next`. Dispatch selects `next`, including an `active` set with ready work; text highlights `NEXT`. Unknown/stale counts and unavailable admission are null. Older payloads without ranks retain their previous output.
 
-A source-backed set also carries its `kind` (`build_order` or `feature`), the `root` or `feature` slug it follows, and `elsewhere`, the members another set owns as `[number, owner name]` pairs.
+A source-backed set also carries its `kind` (`build_order`, `feature` or `epic`), the `root`, `feature` or `epic` slug it follows, and `elsewhere`, the members another set owns as `[number, owner name]` pairs.
 
 Mutations print each ticket's outcome; partial success exits 1 and names refusals. Agent workspace mutations and invalid arguments exit 64. Engine and daemon guards block workspace changes; dispatch authorization still applies. Timeouts exit 124: run `aiur queue show` before retrying. Build Order queues cannot be edited as lists.
 
 `aiur queue add --feature <slug> [--queue NAME] [--rank N] [--start-on TRIGGER]` queues a feature registry entry as one set instead of an id list. The set follows the registry: a ticket added later joins on the next reconcile and a removed ticket is unmarked.
 
-`--feature` cannot be combined with ticket IDs, `--after`, `--at`, or `--build-order`. A member another set already owns stays there: `queue show` lists it as owned elsewhere and the add still exits 0.
+`--feature` cannot be combined with ticket IDs, `--after`, `--at`, `--build-order`, or `--epic`. A member another set already owns stays there: `queue show` lists it as owned elsewhere and the add still exits 0.
 
-A feature set has no declared order of its own, so the command warns on stderr when `build_queue.set_order` is `none`; set it to `ranked` to order sets by rank. See [Queueing a feature](/concepts/build-orders#queueing-a-feature).
+`aiur queue add --epic <slug>` queues an epic the same way and takes the same options and refusals. `--build-order <root>` keeps working: when the registry has an epic whose root is `<root>`, it adopts that epic, so the epic's features join too; otherwise it adds a plain Build Order set. See [Queueing an epic](/concepts/build-orders#queueing-an-epic).
+
+A feature or epic set has no declared order of its own, so the command warns on stderr when `build_queue.set_order` is `none`; set it to `ranked` to order sets by rank. See [Queueing a feature](/concepts/build-orders#queueing-a-feature).
 
 Clear persists unmark intents before paced writes; crashes resume on restart. A budget hold reports `writes_paused`; rerun after it lifts. Wait for successful clear before downgrading; `agent:todo` remains dispatchable. The build queue uses the `agent:queued` membership marker; `aiur units --condition queued` still means tickets carrying `agent:todo`.
 

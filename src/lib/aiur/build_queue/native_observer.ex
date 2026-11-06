@@ -4,7 +4,7 @@ defmodule Aiur.BuildQueue.NativeObserver do
 
   @spec observe(Planner.Input.t(), map(), map()) :: {Planner.Input.t(), map()}
   def observe(input, state, cache) do
-    lists = for queue <- input.queues, queue.kind in [:list, :feature], do: queue.id
+    lists = for queue <- input.queues, queue.kind in [:list, :feature, :epic], do: queue.id
     members = for item <- input.items, item.queue_id in lists, do: item.issue_id
     {_projections, actions} = Planner.plan(input)
     candidates = for {:promote, id} <- actions, id in members, do: id

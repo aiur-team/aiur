@@ -257,6 +257,33 @@ Or, on failure:
 { "error": { "message": "`emit_event.name` must match the agent vocabulary: ...", "examples": [...] } }
 ```
 
+#### Attaching media (images, clips)
+
+Put typed media on the prompt (`media`) or on an option (`options[].media`) in
+the same `decision.requested` payload. Every harness, including the
+OpenAI-compatible (OpenRouter, DeepSeek) worker, calls it as the `emit_event`
+tool:
+
+```jsonc
+emit_event({
+  "name": "decision.requested",
+  "message": "Which prototype should ship?",
+  "payload": {
+    "blocking": false,
+    "media": [{"kind": "image", "mime_type": "image/png", "locator": "/abs/path/in/workspace/shot.png", "alt_text": "Prototype A title screen"}],
+    "options": [
+      {"id": "a", "label": "Keep A"},
+      {"id": "b", "label": "Use B", "media": [{"kind": "video", "mime_type": "video/mp4", "locator": "https://github.com/…/b.mp4", "caption": "B gameplay"}]}
+    ]
+  }
+})
+```
+
+Use an absolute local path under the workspace, or an allowlisted `https` URL;
+expiring (signed) URLs are refused. Images need `alt_text`. Do not shell out to
+`aiur command request`: that is the Executor's CLI and a worker sandbox cannot
+reach the daemon. See [Media on a Command](../../../website/docs-app/concepts/commands.md#media-on-a-command).
+
 ### Acknowledging a delivered Decision answer
 
 A durable answer message includes a Decision ID, the request version it
