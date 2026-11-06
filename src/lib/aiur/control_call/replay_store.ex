@@ -111,9 +111,13 @@ defmodule Aiur.ControlCall.ReplayStore do
   defp evict_oldest_done(state) do
     done = for {key, %{done: d} = e} <- :ets.tab2list(state.table), d != nil, do: {e.started, key}
 
-    case Enum.min(done, fn -> nil end) do
-      {_, key} -> :ets.delete(state.table, key) && :ok
-      nil -> {:error, :full}
+    case done do
+      [] ->
+        {:error, :full}
+
+      _ ->
+        {_, key} = Enum.min(done)
+        :ets.delete(state.table, key) && :ok
     end
   end
 
