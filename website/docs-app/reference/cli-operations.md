@@ -207,7 +207,9 @@ To recover saved work by hand, run the `restore_commands` of `manifest.json` in 
 
 Use `--short-summary <text>` for a concise title and `--context-file <path>` for Markdown context (at most 20,000 characters, read on the caller's machine before RPC).
 
-`--media <file|https-url>[,kind=…,alt=…,caption=…,mime=…,option=<id>]` attaches media; repeat it for more items, and add `option=<id>` to attach an item to that option instead of the prompt. A relative file is resolved on the caller's machine. Items pass the same validation as worker payload media (see [Media on a Command](../concepts/commands.md#media-on-a-command)), so a file outside a configured root, an unapproved host or an expiring URL fails with exit 64. Images need `alt=`.
+`--media <file|https-url>[,kind=…,alt=…,caption=…,mime=…,option=<id>]` attaches media; repeat it for more items, and add `option=<id>` to attach an item to that option instead of the prompt. A relative file is resolved on the caller's machine.
+
+Items pass the same validation as worker payload media (see [Media on a Command](../concepts/commands.md#media-on-a-command)), so a file outside a configured root, an unapproved host or an expiring URL fails with exit 64. Images need `alt=`.
 
 `--ticket <n>` adds context only: the reserved `executor` ticket owns the Command and no worker receives its answer.
 

@@ -430,6 +430,7 @@ A worker sends media in the `decision.requested` payload that already carries
 its question and options. The Executor attaches media from the shell with
 `aiur command request --media <file|https-url>[,alt=…,caption=…,option=<id>]`,
 which goes through the same validation and storage.
+
 Every worker harness, including the OpenAI-compatible (OpenRouter, DeepSeek)
 one, sends media through its `emit_event` tool. A worker cannot run
 `aiur command request`, because its sandbox has no daemon control access.
