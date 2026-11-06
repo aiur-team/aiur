@@ -12,10 +12,12 @@ defmodule Aiur.Commands.ComponentState do
   `Aiur.DecisionApi` as well as the dashboard row from
   `AiurWeb.OperatorControlCenter.DecisionPresenter`; atom- and string-keyed
   maps are both understood. The contract itself always uses string keys so it
-  can cross an HTTP or JSON boundary unchanged.
+  can cross an HTTP or JSON boundary unchanged. The `"media"` list it carries
+  is built by `Aiur.Commands.ComponentState.Media`.
   """
 
   alias Aiur.Commands.Answering.Outcome
+  alias Aiur.Commands.ComponentState.Media, as: ComponentMedia
 
   @states ~w(pending answered revised expired unavailable conflict error)
   @list_states ~w(loading empty ready unavailable error)
@@ -363,6 +365,7 @@ defmodule Aiur.Commands.ComponentState do
         "drawbacks" => text(option, "drawbacks"),
         "risk" => text(option, "risk")
       }
+      |> Map.merge(ComponentMedia.option_media(option))
     end)
   end
 
@@ -415,19 +418,7 @@ defmodule Aiur.Commands.ComponentState do
   defp conflict(%{"state" => "conflict"} = projection), do: Map.get(projection, "conflict")
   defp conflict(_projection), do: nil
 
-  defp media(projection) do
-    projection
-    |> Map.get("artifacts", [])
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-    |> Enum.flat_map(fn artifact ->
-      case {text(artifact, "kind"), text(artifact, "value")} do
-        {nil, _value} -> []
-        {_kind, nil} -> []
-        {kind, value} -> [%{"kind" => kind, "value" => value}]
-      end
-    end)
-  end
+  defp media(projection), do: ComponentMedia.list(projection)
 
   defp ticket(%{"ticket" => %{} = ticket}) do
     %{

@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionApi.PublicLifecycleProjection do
   @moduledoc false
 
+  alias Aiur.Commands.Media
   alias Aiur.{DecisionAnswer, DecisionRevision, DecisionSanitizer}
 
   @spec answer(DecisionAnswer.t() | term()) :: map() | nil
@@ -13,6 +14,7 @@ defmodule Aiur.DecisionApi.PublicLifecycleProjection do
       "selected_option_id" => answer.selected_option_id,
       "custom_response" => answer.custom_response,
       "rationale" => answer.rationale,
+      "media" => Media.public(Map.get(answer, :media)),
       "actor" => actor(answer.actor),
       "supervisor_basis" => supervisor_basis(answer.supervisor_basis),
       "accepted_at" => timestamp(answer.accepted_at)

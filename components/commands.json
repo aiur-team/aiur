@@ -22,6 +22,7 @@
     "src/lib/aiur/operator_relay.ex",
     "src/lib/aiur/supervisor_token.ex",
     "src/lib/aiur/supervisor_token/**",
+    "src/lib/aiur_web/command_media_response.ex",
     "src/lib/aiur_web/controllers/decision*.ex",
     "src/lib/aiur_web/routes/decisions.ex"
   ],
@@ -29,6 +30,7 @@
     "Aiur.Commands",
     "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.Media",
     "Aiur.Commands.NativeCapture",
     "Aiur.Commands.NativeCapture.Claude",
     "Aiur.Commands.NativeCapture.Codex",
@@ -38,7 +40,9 @@
     "Aiur.DecisionArtifact",
     "Aiur.DecisionEvent",
     "Aiur.DecisionRevision",
+    "AiurWeb.CommandMediaResponse",
     "AiurWeb.DecisionApiController",
+    "AiurWeb.DecisionMediaController",
     "AiurWeb.Routes.Decisions"
   ],
   "facade_pending": null,

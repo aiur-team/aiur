@@ -107,6 +107,53 @@
         "active_answer": null,
         "health": {"status": "partial", "partial": true, "reason": "retained_store_partial"}
       }
+    },
+    {
+      "name": "pending with typed prompt and option media",
+      "expected_state": "pending",
+      "projection": {
+        "decision_id": "dec_media",
+        "version": 1,
+        "question": "Which cover art?",
+        "ticket": {"identifier": "42", "title": "Game", "url": "https://example.test/42"},
+        "blocking": false,
+        "decision_status": "open",
+        "revision_sequence": 0,
+        "options": [
+          {
+            "id": "cover-a",
+            "label": "Cover A",
+            "description": "Brighter palette",
+            "media": [
+              {
+                "kind": "image",
+                "mime_type": "image/png",
+                "attachment_id": "med_cover_a",
+                "alt_text": "Cover A: bright meadow",
+                "caption": "Cover A",
+                "width": 1200,
+                "height": 630,
+                "locator": {"kind": "attachment", "attachment_id": "med_cover_a"}
+              }
+            ]
+          },
+          {"id": "cover-b", "label": "Cover B", "description": null}
+        ],
+        "recommendation": {"option_id": "cover-a"},
+        "media": [
+          {
+            "kind": "animated_image",
+            "mime_type": "image/gif",
+            "attachment_id": "med_walkthrough",
+            "alt_text": "Walkthrough of the opening scene",
+            "caption": "Opening scene walkthrough",
+            "locator": {"kind": "attachment", "attachment_id": "med_walkthrough"}
+          }
+        ],
+        "artifacts": [{"kind": "url", "value": "https://example.test/design-notes"}],
+        "answer": null,
+        "active_answer": null
+      }
     }
   ]
 }

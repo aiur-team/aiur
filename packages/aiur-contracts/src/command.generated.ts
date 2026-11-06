@@ -27,6 +27,8 @@ export interface CommandV2 {
     hold: "in_band" | "deferred" | "released";
     question_ids?: string[];
   } | null;
+  media?: CommandMedia[];
+  options?: CommandOption[];
   questions: {
     [k: string]: unknown;
   }[];
@@ -46,5 +48,56 @@ export interface CommandV2 {
     detail: string | null;
     decision_version: number;
   }[];
+  [k: string]: unknown;
+}
+/**
+ * Typed media on a Command prompt, option or answer. A local file is an attachment reference; a filesystem path is never projected.
+ */
+export interface CommandMedia {
+  kind: "image" | "animated_image" | "video" | "audio";
+  /**
+   * MIME type allowlisted for the media kind.
+   */
+  mime_type: string;
+  /**
+   * Stable, opaque identity for an attachment locator.
+   */
+  attachment_id: string;
+  locator:
+    | {
+        kind: "url";
+        value: string;
+      }
+    | {
+        kind: "attachment";
+        attachment_id: string;
+      };
+  poster?:
+    | {
+        kind: "url";
+        value: string;
+      }
+    | {
+        kind: "attachment";
+        attachment_id: string;
+      };
+  /**
+   * Required as accessible text for image and animated_image items.
+   */
+  alt_text?: string | null;
+  caption?: string | null;
+  byte_size?: number | null;
+  width?: number | null;
+  height?: number | null;
+  duration_ms?: number | null;
+}
+export interface CommandOption {
+  id: string;
+  label: string;
+  description?: string | null;
+  benefits?: string | null;
+  drawbacks?: string | null;
+  risk?: string | null;
+  media?: CommandMedia[];
   [k: string]: unknown;
 }
