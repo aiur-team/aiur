@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
   @moduledoc false
 
+  alias Aiur.Gateway.Identity
   alias Aiur.Instance.LeaseStore
 
   @spec metadata(keyword()) :: map()
@@ -8,11 +9,15 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
     statuses = Keyword.get(opts, :statuses_fun, &statuses/0).()
     ownership = Keyword.get(opts, :ownership_metadata_fun, &Aiur.Instance.heartbeat_metadata/0).()
     ownership_data = ownership_data(ownership)
+    gateway = Keyword.get(opts, :gateway_identity_fun, &Identity.current/0).()
 
     %{
       "version" => 1,
       "data" =>
         Map.merge(ownership_data, %{
+          "gateway_id" => gateway.gateway_id,
+          "gateway_label" => gateway.gateway_label,
+          "gateway_identity" => gateway.gateway_identity,
           "host_kind" => Keyword.get(opts, :host_kind_fun, &host_kind/0).(),
           "public_url" => Keyword.get(opts, :public_url_fun, &public_url/0).(),
           "agent_count" => count_agents(statuses),
