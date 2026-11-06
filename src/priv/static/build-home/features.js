@@ -58,7 +58,7 @@ export function renderFeatures() {
     '<div class="bd-fh-controls" style="display:flex;align-items:center;gap:.5rem"><div class="bd-seg">' +
     ['focus', 'compact'].map(m => '<button type="button" data-m="' + m + '" class="' + (S.fmode === m ? 'on' : '') + '">' + I[m] + (m === 'focus' ? 'Focus' : 'Compact') + '</button>').join('') +
     '</div><button class="bd-x" type="button" id="bd-fx" aria-label="Clear feature">' + I.x + '</button></div>' +
-    '<div class="bd-fh-ep">' + f.epics.filter(k => Object.hasOwn(D.epics, k)).map(k => '<span class="bd-chip" style="color:oklch(.7 .13 ' + hue + ')">' + I.lock + esc(D.epics[k].label) + '</span>').join('') +
+    '<div class="bd-fh-ep">' + f.epics.filter(k => Object.hasOwn(D.epics, k)).map(k => '<span class="bd-chip" style="color:oklch(.7 .13 ' + (D.epics[k].hue ?? hue) + ')">' + I.lock + esc(D.epics[k].label) + '</span>').join('') +
     (s?.also > 0 ? '<span class="bd-chip">+' + s.also + ' also affect</span>' : '') + '</div></div>';
   if (focusedMode) host.querySelector('[data-m="' + focusedMode + '"]')?.focus();
 }
