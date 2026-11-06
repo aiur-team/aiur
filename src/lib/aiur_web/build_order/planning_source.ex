@@ -112,7 +112,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           data:
             SelectedRoot.new(root_summary(pack, membership, live_progress), members(pack, membership), provider_health,
               planning?: not (pack.materialized? or pack.completed),
-              pack_metadata: pack.metadata
+              pack_metadata: pack_metadata(pack)
             ),
           health: provider_health,
           membership_health: membership_health(membership),
@@ -176,6 +176,28 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def unsubscribe_context(_identity), do: :ok
 
   # --- pack -> structs -------------------------------------------------------
+
+  # The published `build-order.v1` document joins every typed pack relation on
+  # the same member identifier the projection uses. Keeping the declared
+  # relations beside the pack metadata means the encoder never re-reads a pack.
+  defp pack_metadata(pack) do
+    relations =
+      Map.new(pack.tickets, fn ticket ->
+        {ticket_identity(pack, ticket).identifier,
+         Map.take(ticket, [
+           :id,
+           :kind,
+           :provenance,
+           :feature,
+           :serializes_with,
+           :suggested_after,
+           :contains,
+           :external_gates
+         ])}
+      end)
+
+    Map.put(pack.metadata, "ticket_relations", relations)
+  end
 
   defp root_summary(pack, membership, live_progress) do
     identity = root_identity(pack)

@@ -15,6 +15,10 @@ MAX_CHANGED_TEST_MODULES = 8
 TIME_BOMB_CHECK = os.environ.get('AIUR_TIME_BOMB_CHECK', str(Path(__file__).with_name('check-test-time-bombs.py')))
 TIME_BOMB_TIMEOUT_SECONDS = float(os.environ.get('AIUR_TIME_BOMB_TIMEOUT_SECONDS',
                                                  str(SELECTED_TEST_TIMEOUT_SECONDS)))
+# check-test-time-bombs.py shifts every fixture date literal this many days into
+# the past; its `--days` default must stay equal to this value.
+TIME_BOMB_SHIFT_DAYS = 35
+MAX_REPORTED_TIME_BOMB_FILES = 8
 
 
 def run_timed(label, command, **options):
@@ -49,6 +53,23 @@ def changed_test_files(base):
     return [path.removeprefix('src/') for path in paths if path.endswith('_test.exs')]
 
 
+def report_time_bomb_failure(selected):
+    """Name a failed time-bomb rerun in the step log.
+
+    The rerun's own error line only reaches the check run as an annotation, so a
+    reader of the step log sees a red step with no reason (#7545).
+    """
+    shown = ', '.join(selected[:MAX_REPORTED_TIME_BOMB_FILES])
+    if len(selected) > MAX_REPORTED_TIME_BOMB_FILES:
+        shown += f', +{len(selected) - MAX_REPORTED_TIME_BOMB_FILES} more'
+    print(f'::error::affected-tests merge-group time-bomb rerun failed: '
+          f'scripts/check-test-time-bombs.py exited non-zero for {len(selected)} changed test '
+          f'file(s) [{shown}] with every fixture date moved {TIME_BOMB_SHIFT_DAYS} days back. '
+          'This is the shifted-date rerun failing, not a timeout (#7545); a fixed date compared '
+          'with the real clock is the usual cause (#4691).',
+          file=sys.stderr, flush=True)
+
+
 def run_merge_group_time_bombs(selected):
     started = time.monotonic()
     label = 'merge-group time-bomb rerun'
@@ -65,6 +86,7 @@ def run_merge_group_time_bombs(selected):
                 timed_out = True
             except subprocess.CalledProcessError:
                 failed = True
+                report_time_bomb_failure(selected)
                 raise
         finally:
             elapsed = time.monotonic() - started

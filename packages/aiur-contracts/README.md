@@ -44,13 +44,15 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `ticket-decision-event.v1` | outbound webhook | canonical envelope v1; decision requests and answers |
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
 | `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
-| `build-order.v1` | Build Order projection read surface (producer lands with #7507) | `aiur.build_order` |
+| `build-order.v1` | `GET /api/v1/build-order` and `aiur build-orders --json --contract build-order.v1` | `aiur.build_order` |
 
 `build-order.v1` is the published graph of a Build Order: metadata, per-source status, epics,
 features, lanes, tickets, typed edges (`depends_on`, `serializes_with`, `suggested_after`, `contains`,
 `gates`), gates, waves, critical path and progress. Nodes carry `epic`, `feature` and `lane` as three
 distinct fields, and any unavailable source publishes `status: "unknown"` with a reason instead of an
-empty graph. `build-order-unavailable.v1.json` is the degraded golden fixture.
+empty graph. `build-order-unavailable.v1.json` is the degraded golden fixture, and
+`build-order.golden.v1.json` is the document the daemon encoder produces for the reference projection;
+`npm run check` validates all three against the schema.
 Every edge endpoint is a ticket `id` or a gate `key` from the same document, never a tracker number,
 and `state` is set on `depends_on` edges only.
 

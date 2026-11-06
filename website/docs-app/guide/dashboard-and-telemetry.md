@@ -67,6 +67,11 @@ tick to jump and highlight that event; hover for its label and time. Focus the
 conversation to scroll with the keyboard. The working indicator appears only
 for an active agent with live conversation state and a live dashboard link.
 
+Dividers mark work start/end, first progress reports at or above 25%, 50% and
+75%, PR open/reviews/merge, and each pause or resume. Earlier entries collapse
+under **Reading ticket**. Persisted events restore them after restart; a missing
+start alert falls back to the first file edit.
+
 ### Conversation event navigation
 
 At `/conversations/:id`, use the Events rail to jump to progress, pushes,
@@ -114,11 +119,11 @@ Each registry feature and `feature:<slug>` label in history gets a row with its 
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). Sort by most done or most left stays in `fsort`. The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 
-Epics counts matching general epics, including feature-owned tickets, so totals
+Epics counts matching lanes, including feature-owned tickets, so totals
 overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
 tickets. Planned pack tickets without area labels are excluded; incomplete
 history or labels stay unknown. With no matches, see
-[`general_epics`](../reference/configuration-build-order.md#general-epics).
+[`lanes`](../reference/configuration-build-order.md#lanes).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye

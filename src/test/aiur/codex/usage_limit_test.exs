@@ -84,7 +84,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     # 4. Assistant and tool text that quotes the refusal is not a refusal.
     assert {:ok, _session} = CodexAgent.run_turn(session, "quote the banner", issue, on_message: on_message)
 
-    # 5. A turn that goes silent is surfaced within the no-progress bound.
+    # 5. A turn that goes silent is surfaced within the bounded turn timeout.
     started = System.monotonic_time(:millisecond)
     assert {:error, :turn_timeout} = CodexAgent.run_turn(session, "silent", issue, on_message: on_message)
     elapsed = System.monotonic_time(:millisecond) - started

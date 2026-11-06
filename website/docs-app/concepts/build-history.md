@@ -35,13 +35,13 @@ Each ticket appears under exactly one epic column, resolved in this order:
 | Step | Source |
 | --- | --- |
 | 1 | The owning feature's epic. |
-| 2 | A confirmed local override set with [`aiur epic set`](/reference/build-history-commands#epics). |
-| 3 | The first configured general epic whose labels match the ticket. |
+| 2 | A confirmed local override set with [`aiur lane set`](/reference/build-history-commands#lanes). |
+| 3 | The first configured lane whose labels or lane label match the ticket. |
 | 4 | An unconfirmed backfill override, if no label matches. |
 | 5 | **Unsorted**. |
 
-General epics come from `build_order.general_epics`; see
-[General epics](/reference/configuration-build-order#general-epics) for the
+Lanes come from `build_order.lanes` (the deprecated `build_order.general_epics` loads as its alias); see
+[Lanes](/reference/configuration-build-order#lanes) for the
 defaults. Feature collections are managed with [feature
 commands](/reference/build-history-commands#features).
 
@@ -116,7 +116,7 @@ checkpoint is written before rows are returned, so an interrupted response can
 leave rows counted but unclassified. Report such gaps; a fresh batch can revisit
 remaining Unsorted tickets. The cap counts rows handed out, not successful writes.
 
-Review `aiur epic show --json` and `aiur feature show <slug> --json` for actor
+Review `aiur lane show --json` and `aiur feature show <slug> --json` for actor
 `agent:<batch ticket>`, source `backfill-agent`, and `confirmed: false`. Feature
 joins remain `held_backfill` and write no labels. The batch's own lifecycle
 labels and workpad are its only GitHub writes.
@@ -127,12 +127,12 @@ placements on the Build page; inspect provenance through the commands.
 For example, list this batch's still-unconfirmed overrides or members:
 
 ```bash
-aiur epic show --json | jq --arg actor 'agent:2901' '.overrides[] | select(.actor == $actor and .source == "backfill-agent" and .confirmed == false) | .number'
+aiur lane show --json | jq --arg actor 'agent:2901' '.overrides[] | select(.actor == $actor and .source == "backfill-agent" and .confirmed == false) | .number'
 aiur feature show app --json | jq --arg actor 'agent:2901' '.members[] | select(.actor == $actor and .source == "backfill-agent" and .confirmed == false) | .id'
 ```
 
 To undo, pause the batch, review those current records again, then use
-`aiur epic clear <ids>` and `aiur feature remove <slug> <ids>` only for the
+`aiur lane clear <ids>` and `aiur feature remove <slug> <ids>` only for the
 still-owned unconfirmed entries from that actor. Preserve intervening human
 work. There is no automatic actor filter or bulk undo.
 

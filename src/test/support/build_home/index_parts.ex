@@ -10,7 +10,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexParts do
   def source, do: %{state: "ok", observed_at: now(), reason: nil}
 
   def general do
-    %BuildOrderSchema{} |> BuildOrderSchema.changeset(%{}) |> Ecto.Changeset.apply_changes() |> Map.fetch!(:general_epics)
+    %BuildOrderSchema{} |> BuildOrderSchema.changeset(%{}) |> Ecto.Changeset.apply_changes() |> Map.fetch!(:lanes)
   end
 
   def parts(rows \\ []) do
@@ -20,7 +20,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexParts do
       catch_up: %{status: :ok, at: @now},
       features: {:ok, %{features: %{}, owners: %{}, also: %{}, health: health()}},
       overrides: {:ok, %{}, health()},
-      settings: {:ok, %{build_order: %{general_epics: general()}, tracker: %{github: %{label_prefix: "agent"}}}},
+      settings: {:ok, %{build_order: %{lanes: general()}, tracker: %{github: %{label_prefix: "agent"}}}},
       repository: {:ok, {"acme", "widgets"}},
       open: %Aiur.OpenTicketSource.Snapshot{status: :available, observed_at: @now},
       queue: %{status: :disabled},

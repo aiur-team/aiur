@@ -13,6 +13,10 @@ defmodule Aiur.Codex.SessionRecovery do
   @spec recoverable?(term()) :: boolean()
   def recoverable?(:port_closed), do: true
   def recoverable?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
+  def recoverable?({:response_timeout, :codex_liveness_probe, _state}), do: true
+  def recoverable?({:liveness_probe_failed, :port_closed}), do: true
+  def recoverable?({:liveness_probe_failed, {:response_error, _error}, _state}), do: true
+  def recoverable?({:liveness_probe_failed, :invalid_response, _state}), do: true
   def recoverable?({:turn_start_failed, reason}), do: transport_loss?(reason)
 
   def recoverable?({:turn_interrupt_failed, reason}) do
