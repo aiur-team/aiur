@@ -130,6 +130,59 @@ defmodule Aiur.AgentSkills.PreloadTest do
     end
   end
 
+  describe "feature mapping via the registry" do
+    defmodule StubFeatures do
+      use GenServer
+
+      def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+      @impl true
+      def init(opts), do: {:ok, opts}
+
+      @impl true
+      def handle_call({:read, {:owner, _number}}, _from, state) do
+        {:reply, {:ok, %{feature: state[:feature]}}, state}
+      end
+    end
+
+    defmodule SlowFeatures do
+      use GenServer
+
+      def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+      @impl true
+      def init(opts), do: {:ok, opts}
+
+      @impl true
+      def handle_call({:read, {:owner, _number}}, _from, state) do
+        Process.sleep(200)
+        {:reply, {:ok, %{feature: "slow"}}, state}
+      end
+    end
+
+    test "maps the owning feature from the registry", %{workspace: workspace} do
+      skill!(workspace, "feature-skill", "Feature.", "FEATURE BODY")
+      {:ok, pid} = StubFeatures.start_link(feature: "items-ui")
+      issue = %Issue{identifier: "42", title: "A task", description: "Do the work.", labels: ["area:art"]}
+
+      preload =
+        resolve(issue, workspace, %{"by_feature" => %{"items-ui" => ["feature-skill"]}}, feature_server: pid)
+
+      assert Enum.map(preload.mapped, &{&1.name, &1.reason}) == [{"feature-skill", "feature:items-ui"}]
+    end
+
+    test "a registry timeout does not crash and resolves without the feature", %{workspace: workspace} do
+      skill!(workspace, "lane-skill", "Lane.", "LANE BODY")
+      {:ok, pid} = SlowFeatures.start_link([])
+      issue = %Issue{identifier: "42", title: "A task", description: "Do the work.", labels: ["area:art"]}
+
+      preload =
+        resolve(issue, workspace, %{"by_lane" => %{"art" => ["lane-skill"]}}, feature_server: pid)
+
+      assert Enum.map(preload.mapped, & &1.name) == ["lane-skill"]
+    end
+  end
+
   describe "per-ticket override" do
     test "a `skills:` label adds a configured label's skills", %{workspace: workspace} do
       skill!(workspace, "lane-skill", "Lane.", "LANE BODY")
@@ -261,18 +314,19 @@ defmodule Aiur.AgentSkills.PreloadTest do
     test "keeps the first skills inside the budget and lists the rest to load on demand", %{workspace: workspace} do
       skill!(workspace, "first", "First.", String.duplicate("a", 200))
       skill!(workspace, "second", "Second.", String.duplicate("b", 200))
+      skill!(workspace, "third", "Third.", String.duplicate("c", 200))
 
       preload =
         resolve(issue(["area:art"]), workspace, %{
-          "by_lane" => %{"art" => ["first", "second"]},
-          "preload_max_bytes" => 400
+          "by_lane" => %{"art" => ["first", "second", "third"]},
+          "preload_max_bytes" => 500
         })
 
-      assert Enum.map(preload.mapped, & &1.name) == ["first"]
-      assert Enum.map(preload.truncated, & &1.name) == ["second"]
-      assert preload.bytes <= 400
+      assert Enum.map(preload.mapped, & &1.name) == ["first", "second"]
+      assert Enum.map(preload.truncated, & &1.name) == ["third"]
+      assert preload.bytes <= 500
       assert Preload.prompt_block(preload) =~ "### Mapped skills over the inline budget"
-      assert Preload.summary(preload) =~ "truncated: second"
+      assert Preload.summary(preload) =~ "truncated: third"
     end
   end
 

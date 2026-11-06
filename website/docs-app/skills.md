@@ -129,6 +129,7 @@ A game's features name the game domain a ticket works in, and its lanes name the
 ```yaml
 agent:
   skills:
+    # Lanes are the technical columns: the discipline a ticket is built with.
     by_lane:
       art: [pixel-art, palette-discipline]
       audio: [audio-design, sound-budget]
@@ -136,6 +137,7 @@ agent:
       backend: [save-schema, migration-safety]
       docs: [docs-style]
       qa: [playtest-checklists, regression-triage]
+    # Features are the game domains: the part of the game a ticket works on.
     by_feature:
       foundation: [repo-conventions, ci-plumbing]
       world: [level-design, tilemap-editing]
@@ -146,8 +148,10 @@ agent:
       audio: [audio-design]
       persistence: [save-schema]
       qa: [playtest-checklists]
+    # A label adds skills to one ticket without a config edit.
     by_label:
       pixel-art: [pixel-art, palette-discipline]
+    # Complexity is the last source, so it only fills in what the rest missed.
     by_complexity:
       1: [ce-work]
       3: [ce-plan, ce-work]

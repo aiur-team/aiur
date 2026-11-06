@@ -84,7 +84,7 @@ defmodule Aiur.AgentSkills.Preload do
     mapping = Keyword.get_lazy(opts, :mapping, fn -> SkillsMapping.normalize(agent_skills(settings)) end)
     installed = Keyword.get_lazy(opts, :installed, fn -> installed_skills(workspace) end)
     lanes = Keyword.get_lazy(opts, :lanes, fn -> Lane.resolve(issue, settings) end)
-    feature = Keyword.get_lazy(opts, :feature, fn -> feature_slug(issue) end)
+    feature = Keyword.get_lazy(opts, :feature, fn -> feature_slug(issue, opts) end)
     requests = requests(mapping, issue, lanes, feature)
     max_bytes = SkillsMapping.max_bytes(mapping)
     {mapped, truncated, bytes} = split_by_cap(requests, installed, max_bytes)
@@ -409,10 +409,12 @@ defmodule Aiur.AgentSkills.Preload do
   # The owning feature comes from the durable build-order registry. A registry
   # timeout means "no feature reason", not a failed dispatch: the ticket still
   # gets its lane, label and complexity skills.
-  defp feature_slug(issue) do
+  defp feature_slug(issue, opts) do
+    server = Keyword.get(opts, :feature_server, Features)
+
     with identifier when is_binary(identifier) <- Map.get(issue, :identifier),
          {number, ""} <- Integer.parse(identifier),
-         {:ok, owner} <- Features.owner(number, timeout: @owner_timeout_ms) do
+         {:ok, owner} <- Features.owner(number, timeout: @owner_timeout_ms, server: server) do
       Map.get(owner, :feature)
     else
       _none -> nil
