@@ -140,11 +140,14 @@ defmodule Aiur.BuildOrder.Epics.JournalValidation do
   defp valid(true, value), do: {:ok, value}
   defp valid(_false, _value), do: {:error, :invalid_record}
 
-  defp exactly?(value, keys) do
-    if is_map(value) and Enum.sort(Map.keys(value)) == Enum.sort(keys), do: :ok, else: {:error, :invalid_record}
+  # The map requirement lives in the head so the short-circuit `and` does not
+  # generate a dead false branch: every call site already has a map, which
+  # dialyzer proves, so `if is_map(value) and ...` reads as unreachable.
+  defp exactly?(%{} = value, keys) do
+    if Enum.sort(Map.keys(value)) == Enum.sort(keys), do: :ok, else: {:error, :invalid_record}
   end
 
-  defp only?(value, keys) do
-    if is_map(value) and Enum.all?(Map.keys(value), &(&1 in keys)), do: :ok, else: {:error, :invalid_record}
+  defp only?(%{} = value, keys) do
+    if Enum.all?(Map.keys(value), &(&1 in keys)), do: :ok, else: {:error, :invalid_record}
   end
 end

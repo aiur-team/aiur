@@ -130,8 +130,6 @@ defmodule Aiur.AgentTools.Feature do
     is_nil(lanes) or (is_list(lanes) and Enum.all?(lanes, &valid_lane?/1))
   end
 
-  defp valid_epics?(_), do: true
-
   # One clause on purpose: dialyzer proves the element type carries "key" and
   # "label", so a pattern clause plus a fallback reads as unreachable even
   # though a malformed lane can still arrive from JSON.
