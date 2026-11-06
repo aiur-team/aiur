@@ -7,12 +7,19 @@ defmodule Aiur.FeatureCLI.Arguments do
     op = args[:op]
 
     with :ok <- operation(op, args),
+         :ok <- epic_assignment(op, args),
          :ok <- fields(args),
          :ok <- provenance(op, args),
          :ok <- epics(args) do
       end_time(args[:end])
     end
   end
+
+  # `--in <epic>` assigns a new feature to an epic record, so it is a create-only
+  # flag whose value has to be a feature-shaped slug.
+  defp epic_assignment(_op, args) when not is_map_key(args, :in), do: :ok
+  defp epic_assignment(op, _args) when op != :create, do: usage("--in requires feature create")
+  defp epic_assignment(_op, args), do: if(FeatureData.slug?(args[:in]), do: :ok, else: usage("invalid epic slug"))
 
   defp operation(op, args) do
     cond do

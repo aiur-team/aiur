@@ -21,7 +21,7 @@ defmodule Aiur.FeatureCLI.Writes do
       labels = Output.label_states(ids, context)
       results = Enum.map(ids, &member_result(&1, args, snapshot, result, labels, meta))
       envelope = %{schema_version: 1, command: "feature #{args.op}", feature: args.slug, generation: result.generation, results: results}
-      {:ok, Map.merge(envelope, Map.take(result, [:outcome, :previous_baseline, :kept]))}
+      {:ok, Map.merge(envelope, Map.take(result, [:outcome, :previous_baseline, :kept, :epic]))}
     end
   end
 
@@ -34,9 +34,16 @@ defmodule Aiur.FeatureCLI.Writes do
     attrs = apply_epic_icons(attrs, args[:epic_icons])
 
     cond do
-      is_nil(existing) -> with {:ok, result} <- Features.create(args.slug, attrs, meta), do: {:ok, Map.put(result, :outcome, :created)}
-      same_create?(existing, attrs, args.slug) -> {:ok, %{generation: snapshot.generation, changed: [], outcome: :unchanged}}
-      true -> {:error, {:feature_exists, args.slug}}
+      is_nil(existing) ->
+        with {:ok, result} <- Features.create(args.slug, attrs, meta) do
+          assign_epic({:ok, Map.put(result, :outcome, :created)}, args, meta)
+        end
+
+      same_create?(existing, attrs, args.slug) ->
+        {:ok, %{generation: snapshot.generation, changed: [], outcome: :unchanged}} |> assign_epic(args, meta)
+
+      true ->
+        {:error, {:feature_exists, args.slug}}
     end
   end
 
@@ -73,6 +80,12 @@ defmodule Aiur.FeatureCLI.Writes do
 
   defp write(%{op: :add} = args, _snapshot, meta, _context), do: Features.add(args.slug, Enum.uniq(args.ids), meta)
   defp write(%{op: :also} = args, _snapshot, meta, _context), do: Features.also(args.slug, Enum.uniq(args.ids), meta)
+
+  defp assign_epic({:ok, result}, %{in: epic} = args, meta) when is_binary(epic) do
+    with {:ok, _epic_result} <- Features.epic_add(epic, [args.slug], meta), do: {:ok, Map.put(result, :epic, epic)}
+  end
+
+  defp assign_epic(reply, _args, _meta), do: reply
 
   defp add_epic(epic, _previous, slug, meta) do
     case Features.add_epic(slug, epic, meta) do

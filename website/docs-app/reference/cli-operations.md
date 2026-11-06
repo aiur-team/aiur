@@ -217,11 +217,13 @@ Routing sends these Commands directly to the human with cause `executor_originat
 
 Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
 
-## Build history commands — [feature, lane and history export commands](/reference/build-history-commands)
+## Build history commands — [epic, feature, lane and history export commands](/reference/build-history-commands)
+
+`aiur epic create|edit|add|remove|show|list` manages epic records — an epic holds features in order and may name one Build Order root. `aiur feature create <slug> --in <epic>` puts a new feature in an epic; a feature belongs to at most one.
 
 `aiur lane set|clear|confirm|show|list` reads and writes the local lane override store; it never writes a GitHub label.
 
-The write verbs replace the deprecated `aiur epic set|clear|confirm` spelling. Those still run the same commands over the same store and print a deprecation line on stderr naming `aiur lane`, so existing scripts keep their output and exit codes.
+The lane write verbs replace the deprecated `aiur epic set|clear|confirm` spelling. Those still run the same commands over the same store and print a deprecation line on stderr naming `aiur lane`, so existing scripts keep their output and exit codes. `aiur epic show|list` now read epic records instead of lane overrides.
 
 ## Dashboard page commands
 `aiur units`, `aiur commands`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages; `aiur build-orders` reads the Build Order projection.

@@ -24,9 +24,17 @@ cmd_feature() {
       --move) [ "$op" = add ] || feature_usage_error '--move requires feature add'; flags="$flags, move: true" ;;
       --remove) [ "$op" = also ] || feature_usage_error '--remove requires feature also'; flags="$flags, remove: true" ;;
       --replace) [ "$op" = baseline ] || feature_usage_error '--replace requires feature baseline'; flags="$flags, replace: true" ;;
-      --as|--label|--hue|--epic|--add-epic|--epic-icon|--end|--source)
+      --as|--label|--hue|--lane|--epic|--add-lane|--add-epic|--lane-icon|--epic-icon|--end|--source|--in)
         [ "$#" -ge 2 ] && [ -n "$2" ] && [[ "$2" != --* ]] || feature_usage_error "$arg requires a value"
         value="$2"; shift
+        case "$arg" in
+          --lane) arg=--epic ;;
+          --add-lane) arg=--add-epic ;;
+          --lane-icon) arg=--epic-icon ;;
+          --epic) echo 'aiur: feature --epic is deprecated; use --lane' >&2 ;;
+          --add-epic) echo 'aiur: feature --add-epic is deprecated; use --add-lane' >&2 ;;
+          --epic-icon) echo 'aiur: feature --epic-icon is deprecated; use --lane-icon' >&2 ;;
+        esac
         case "$arg" in
           --as) [ "$op" != show ] || feature_usage_error '--as requires a feature write'; who="$value" ;;
           --label|--hue|--end|--add-epic)
@@ -61,6 +69,10 @@ cmd_feature() {
           --source)
             [ "$op" = add ] && [ "$value" = backfill-agent ] || feature_usage_error '--source accepts only backfill-agent on feature add'
             flags="$flags, source: $(feature_rpc_string "$value")" ;;
+          --in)
+            [ "$op" = create ] || feature_usage_error '--in requires feature create'
+            [[ "$value" =~ ^[a-z0-9][a-z0-9-]{0,41}$ ]] || feature_usage_error 'invalid epic slug'
+            flags="$flags, in: $(feature_rpc_string "$value")" ;;
         esac ;;
       -*) feature_usage_error "unknown feature option $arg" ;;
       *)

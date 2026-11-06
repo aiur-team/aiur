@@ -38,14 +38,12 @@ defmodule Aiur.LaneCLITest do
     assert run(LaneCLI, c.lane ++ [action: :show, ids: [812]], 0) =~ "#812  ui  cli:kevin"
   end
 
-  test "aiur lane show --json equals aiur epic show --json for the same store", c do
+  test "lane show --json reports stored lane, actor and confirmation", c do
     start_supervised!({Store, c.opts})
     run(LaneCLI, c.server ++ [action: :set, epic: "ui", ids: [812, 813], who: "kevin"], 0)
     run(LaneCLI, c.server ++ [action: :set, epic: "infra", ids: [813], who: "kevin"], 0)
 
     lane = run(LaneCLI, c.lane ++ [action: :show, json: true], 0)
-    epic = run(EpicCLI, c.lane ++ [action: :show, json: true], 0)
-    assert lane == epic
 
     decoded = Jason.decode!(lane)
     assert decoded["ok"] == true
@@ -54,12 +52,11 @@ defmodule Aiur.LaneCLITest do
     assert Enum.all?(decoded["overrides"], &(&1["epic_known"] == true))
   end
 
-  test "lane show and epic show print the same text row", c do
+  test "lane show prints the stored row", c do
     start_supervised!({Store, c.opts})
     run(LaneCLI, c.server ++ [action: :set, epic: "ui", ids: [812], who: "kevin"], 0)
 
     lane = run(LaneCLI, c.lane ++ [action: :show], 0)
     assert lane =~ "#812  ui  cli:kevin  cli:kevin  confirmed"
-    assert run(EpicCLI, c.lane ++ [action: :show], 0) == lane
   end
 end

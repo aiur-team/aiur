@@ -190,6 +190,26 @@ defmodule Aiur.FeatureCLITest do
     capture_io(fn -> assert FeatureCLI.run(op: :create, slug: "a", label: "A", who: "agent:77", error_fun: fn _ -> :ok end) == 64 end)
   end
 
+  test "--in puts a new feature in an epic and a second epic is refused", %{context: context, pid: pid} do
+    meta = [server: pid, source: "cli:tester", actor: "tester"]
+    assert {:ok, _} = Features.epic_create("combat-pack", %{label: "Combat pack"}, meta)
+    assert {:ok, _} = Features.epic_create("infra", %{label: "Infra"}, meta)
+
+    assert {:ok, %{epic: "combat-pack", outcome: :created}} = op(:create, context, label: "A", in: "combat-pack")
+    assert {:ok, %{features: ["a"]}} = Features.epic("combat-pack", server: pid)
+
+    assert {:error, {:feature_in_epic, "a", "combat-pack"}} = op(:create, context, label: "A", in: "infra")
+    assert {:ok, %{features: []}} = Features.epic("infra", server: pid)
+    assert {:error, {:unknown_epic, "missing"}} = op(:create, context, label: "B", in: "missing")
+    assert {:usage, _} = op(:add, context, ids: [1], in: "combat-pack")
+  end
+
+  test "a create --epic key=label still defines a lane on the feature", %{context: context, pid: pid} do
+    assert {:ok, %{outcome: :created}} = op(:create, context, label: "A", epics: [%{key: "k", label: "K"}])
+    assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
+    assert feature.epics == [%{key: "k", label: "K"}]
+  end
+
   defp create(context), do: op(:create, context, label: "A")
   defp op(op, context, opts \\ []), do: FeatureCLI.apply_op(Map.merge(%{op: op, slug: "a"}, Map.new(opts)), context)
 end

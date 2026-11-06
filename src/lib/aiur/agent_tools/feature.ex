@@ -4,11 +4,11 @@ defmodule Aiur.AgentTools.Feature do
 
   alias Aiur.AgentTools.{Args, Errors, Response}
 
-  @keys ~w(op slug ids epic move remove label hue epics backfill)
+  @keys ~w(op slug ids epic epics lane lanes move remove label hue backfill)
   @operations ~w(create add remove also show)
   @fields %{
-    "create" => ~w(op slug label hue epics backfill),
-    "add" => ~w(op slug ids epic move backfill),
+    "create" => ~w(op slug label hue epics lanes backfill),
+    "add" => ~w(op slug ids epic lane move backfill),
     "remove" => ~w(op slug ids backfill),
     "also" => ~w(op slug ids remove backfill),
     "show" => ~w(op slug backfill)
@@ -22,7 +22,8 @@ defmodule Aiur.AgentTools.Feature do
     [
       %{
         "name" => "aiur_feature",
-        "description" => "Create features, batch owning membership or also-affects links, and show feature records. Actor is fixed by the daemon; baseline and edit are operator-only.",
+        "description" =>
+          "Create features, batch owning membership or also-affects links, and show feature records. A feature sits in at most one epic; the lanes it belongs to are its technical columns. Actor is fixed by the daemon; baseline and edit are operator-only.",
         "inputSchema" => %{
           "type" => "object",
           "additionalProperties" => false,
@@ -33,9 +34,16 @@ defmodule Aiur.AgentTools.Feature do
             "label" => %{"type" => "string"},
             "hue" => %{"type" => "integer", "minimum" => 0, "maximum" => 359},
             "ids" => %{"type" => "array", "items" => %{"type" => "integer", "minimum" => 1, "maximum" => 2_147_483_647}, "minItems" => 1, "maxItems" => 200},
-            "epic" => %{"type" => "string"},
+            "lane" => %{"type" => "string", "description" => "Lane key a membership joins; the deprecated name is epic."},
+            "epic" => %{"type" => "string", "description" => "Deprecated alias of lane."},
+            "lanes" => %{
+              "type" => "array",
+              "description" => "Lanes the feature spans. The deprecated name is epics.",
+              "items" => %{"type" => "object", "additionalProperties" => false, "required" => ["key", "label"], "properties" => %{"key" => %{"type" => "string"}, "label" => %{"type" => "string"}}}
+            },
             "epics" => %{
               "type" => "array",
+              "description" => "Deprecated alias of lanes.",
               "items" => %{"type" => "object", "additionalProperties" => false, "required" => ["key", "label"], "properties" => %{"key" => %{"type" => "string"}, "label" => %{"type" => "string"}}}
             },
             "move" => %{"type" => "boolean"},
@@ -66,8 +74,8 @@ defmodule Aiur.AgentTools.Feature do
          {:ok, op} <- Args.string(args, "op", :invalid_feature_arguments),
          :ok <- allowed_operation(op, args),
          true <- Enum.all?(Map.keys(args), &(&1 in @fields[op])),
-         true <- valid_values?(args, op) do
-      normalized = Map.new(args, fn {key, value} -> {String.to_existing_atom(key), value} end)
+         true <- valid_values?(args, op),
+         {:ok, normalized} <- alias_lanes(Map.new(args, fn {key, value} -> {String.to_existing_atom(key), value} end)) do
       normalized = Map.put(normalized, :op, String.to_existing_atom(op))
       normalized = if Map.has_key?(normalized, :epics), do: Map.update!(normalized, :epics, &normalize_epics/1), else: normalized
       {:ok, if(Map.has_key?(normalized, :ids), do: Map.update!(normalized, :ids, &Enum.uniq/1), else: normalized)}
@@ -86,11 +94,25 @@ defmodule Aiur.AgentTools.Feature do
 
   defp normalize_epics(epics), do: Enum.map(epics, fn epic -> %{key: epic["key"], label: epic["label"]} end)
 
+  # `lane` and `lanes` are the current names; `epic` and `epics` stay accepted as
+  # the deprecated spelling of the same field.
+  defp alias_lanes(args) do
+    with {:ok, args} <- alias_lane(args, :lane, :epic), do: alias_lane(args, :lanes, :epics)
+  end
+
+  defp alias_lane(args, old_key, new_key) do
+    cond do
+      not Map.has_key?(args, old_key) -> {:ok, args}
+      Map.has_key?(args, new_key) -> {:error, {:conflicting_feature_arguments, old_key, new_key}}
+      true -> {:ok, args |> Map.put(new_key, Map.fetch!(args, old_key)) |> Map.delete(old_key)}
+    end
+  end
+
   defp valid_values?(args, op) do
     valid_strings?(args) and valid_flags?(args) and required_fields?(args, op) and valid_hue?(args) and valid_ids?(args, op) and valid_epics?(args)
   end
 
-  defp valid_strings?(args), do: Enum.all?(~w(slug label epic), fn key -> not Map.has_key?(args, key) or (is_binary(args[key]) and String.trim(args[key]) != "") end)
+  defp valid_strings?(args), do: Enum.all?(~w(slug label epic lane), fn key -> not Map.has_key?(args, key) or (is_binary(args[key]) and String.trim(args[key]) != "") end)
   defp valid_flags?(args), do: Enum.all?(~w(move remove backfill), fn key -> not Map.has_key?(args, key) or is_boolean(args[key]) end)
   defp required_fields?(args, op), do: (op == "show" or Map.has_key?(args, "slug")) and (op != "create" or Map.has_key?(args, "label"))
   defp valid_hue?(args), do: not Map.has_key?(args, "hue") or (is_integer(args["hue"]) and args["hue"] in 0..359)
@@ -102,12 +124,15 @@ defmodule Aiur.AgentTools.Feature do
 
   defp valid_ids?(_, _), do: true
 
-  defp valid_epics?(%{"epics" => epics}) do
-    is_list(epics) and
-      Enum.all?(epics, fn
-        %{"key" => key, "label" => label} = epic -> map_size(epic) == 2 and is_binary(key) and key != "" and is_binary(label) and String.trim(label) != ""
-        _ -> false
-      end)
+  defp valid_epics?(args) when is_map(args) do
+    lanes = Map.get(args, "lanes", Map.get(args, "epics"))
+
+    is_nil(lanes) or
+      (is_list(lanes) and
+         Enum.all?(lanes, fn
+           %{"key" => key, "label" => label} = lane -> map_size(lane) == 2 and is_binary(key) and key != "" and is_binary(label) and String.trim(label) != ""
+           _ -> false
+         end))
   end
 
   defp valid_epics?(_), do: true
