@@ -130,6 +130,7 @@ defmodule Aiur.ControlCall.Allowlist do
      %{
        question: :non_empty_string,
        options: :string_list,
+       media: :string_list,
        recommend: :non_empty_string,
        blocking: :boolean,
        urgency: {:enum, ["low", "normal", "high", "critical"]},
