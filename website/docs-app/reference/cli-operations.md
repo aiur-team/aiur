@@ -136,9 +136,8 @@ After-stop failures report that the daemon was not restarted; a failed rebuild r
 
 ### Which backends keep their agents
 
-`restart --keep-agents` asks each running agent's backend how its live session can
-cross the restart. The answer is a registry fact per backend, so a new backend
-cannot be silently assumed compatible:
+`restart --keep-agents` asks each backend's registry entry how its live session
+crosses the restart, so a new backend cannot be silently assumed compatible:
 
 | Backend | Handoff | What survives the restart |
 | --- | --- | --- |

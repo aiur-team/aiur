@@ -1,11 +1,11 @@
 defmodule Aiur.AgentRunner.Handoff do
   @moduledoc "Runner barrier and continuation for a daemon handoff."
 
+  alias Aiur.AgentRunner.Handoff.InDaemon
   alias Aiur.AgentRunner.Handoff.ProviderState, as: AppHandoff
   alias Aiur.AgentRunner.{SessionLifecycle, TurnLoop}
   alias Aiur.AppServer.ProviderTurnLedger
   alias Aiur.AppServer.RelayPort
-  alias Aiur.OpenAICompat.Handoff, as: SessionHandoff
   alias Aiur.Workspace.Ownership.Adoption
   alias Aiur.Workspace.WipPreservation
 
@@ -123,33 +123,10 @@ defmodule Aiur.AgentRunner.Handoff do
 
   Backends whose provider runs inside the daemon process cannot reach
   `before_turn/2` while a turn is in flight, so their run loop calls this at a
-  step boundary. A successful handoff captures the record and parks until the
-  daemon stops; an aborted preflight clears the hold and returns `:continue` so
-  the turn resumes.
+  step boundary. See `Aiur.AgentRunner.Handoff.InDaemon`.
   """
   @spec mid_turn_checkpoint(map(), map() | nil) :: :continue
-  def mid_turn_checkpoint(session, state) do
-    receive do
-      :handoff_hold ->
-        Process.put(:handoff_hold, true)
-        mid_turn_checkpoint(session, state)
-
-      :handoff_abort ->
-        Process.delete(:handoff_hold)
-        :continue
-
-      {:handoff_abort, from, ref} ->
-        Process.delete(:handoff_hold)
-        send(from, {:handoff_aborted, ref})
-        :continue
-
-      {:handoff_snapshot, from, ref} ->
-        if Process.get(:handoff_hold), do: capture(session, state, from, ref)
-        :continue
-    after
-      0 -> :continue
-    end
-  end
+  defdelegate mid_turn_checkpoint(session, state), to: InDaemon, as: :checkpoint
 
   @doc false
   @spec turn_prompt(map()) :: {String.t(), list()}
@@ -296,43 +273,13 @@ defmodule Aiur.AgentRunner.Handoff do
   # its adapter serializes the conversation instead. `state` is the run loop's
   # in-flight state when the handoff lands mid-turn, `nil` at a turn boundary.
   defp detach(%{backend: backend} = session, state) when is_binary(backend) do
-    case in_daemon_transport(backend, session, state) do
+    case InDaemon.detach(session, state) do
       {:ok, transport} -> {transport, []}
       :unsupported -> {%{"kind" => "unsupported", "os_pid" => session[:os_pid]}, []}
     end
   end
 
   defp detach(session, _state), do: {%{"kind" => "unsupported", "os_pid" => session[:os_pid]}, []}
-
-  defp in_daemon_transport(backend, session, state) do
-    with adapter when is_atom(adapter) and not is_nil(adapter) <- adapter_for(backend),
-         true <- Code.ensure_loaded?(adapter) and function_exported?(adapter, :handoff_state, 2),
-         {:ok, provider_state} <- adapter.handoff_state(session, state) do
-      {:ok,
-       %{
-         "kind" => "in_daemon",
-         "provider_state" => SessionHandoff.encode_provider_state(provider_state),
-         "os_pid" => session[:os_pid]
-       }}
-    else
-      _ -> in_daemon_failure(backend, session, state)
-    end
-  end
-
-  # An unknown backend key must not raise here: the record then carries an
-  # unsupported transport and the preflight reports it as a fallback.
-  defp adapter_for(backend) do
-    case Map.get(Aiur.CodingAgent.backends(), backend) do
-      %{adapter: adapter} -> adapter
-      _ -> nil
-    end
-  end
-
-  defp in_daemon_failure(backend, session, _state) do
-    if Aiur.CodingAgent.handoff_kind(backend) == :in_daemon,
-      do: {:ok, %{"kind" => "in_daemon_failed", "os_pid" => session[:os_pid]}},
-      else: :unsupported
-  end
 
   defp drain_hooks(identifier, acc) do
     receive do
@@ -447,14 +394,8 @@ defmodule Aiur.AgentRunner.Handoff do
 
   # An in-daemon session cannot be re-attached to: the successor daemon starts a
   # fresh provider session from the adapter's saved conversation.
-  def attach(%{"transport" => %{"kind" => "in_daemon"}} = record, _generation, opts) do
-    with adapter when is_atom(adapter) and not is_nil(adapter) <- adapter_for(record["backend"]),
-         true <- Code.ensure_loaded?(adapter) and function_exported?(adapter, :adopt_handoff_session, 2) do
-      adapter.adopt_handoff_session(record, opts)
-    else
-      _ -> {:error, :unsupported_handoff_backend}
-    end
-  end
+  def attach(%{"transport" => %{"kind" => "in_daemon"}} = record, _generation, opts),
+    do: InDaemon.attach(record, opts)
 
   # Fresh launches register their root with its ticket; an adopted root must too,
   # or run telemetry cannot attribute it and analytics reads an idle fleet (#4829).
@@ -490,8 +431,8 @@ defmodule Aiur.AgentRunner.Handoff do
   # holds its prompt and tool results, so re-running the cold-start prompt would
   # duplicate the brief. A turn-boundary snapshot starts the next turn normally.
   defp resume_in_daemon_turn(session, record, prompt, issue, opts) do
-    if SessionHandoff.interrupted?(record),
-      do: Aiur.CodingAgent.adapter(record["backend"]).resume_handoff_turn(session, opts),
+    if InDaemon.interrupted?(record),
+      do: InDaemon.resume_turn(session, record, opts),
       else: Aiur.CodingAgent.run_turn(session, prompt, issue, opts)
   end
 
