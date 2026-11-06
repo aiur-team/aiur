@@ -1,5 +1,6 @@
 defmodule Aiur.Machine.SettingsProjectsTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [refute_leak: 2]
   alias Aiur.Machine.Settings
 
   setup do
@@ -69,8 +70,8 @@ defmodule Aiur.Machine.SettingsProjectsTest do
 
     assert {"projects[0].repo", "must be owner/name"} in errors
     assert {"projects[1].config", "must be an absolute path"} in errors
-    refute inspect(errors) =~ "secret-checkout"
-    refute inspect(errors) =~ "pw@h"
+    refute_leak(errors, "secret-checkout")
+    refute_leak(errors, "pw@h")
   end
 
   test "unknown keys inside list entries and sections are rejected", %{path: path} do
@@ -90,7 +91,7 @@ defmodule Aiur.Machine.SettingsProjectsTest do
     assert {"projects", "a repo is listed more than once"} in invalid(path, "projects: [{repo: o/r, config: /a}, {repo: O/R, config: /b}]")
     errors = invalid(path, "projects: [{repo: o/r, config: /dup-path}, {repo: o/s, config: /dup-path}]")
     assert {"projects", "a config path is listed more than once"} in errors
-    refute inspect(errors) =~ "dup-path"
+    refute_leak(errors, "dup-path")
   end
 
   test "a project above the machine cap is accepted", %{path: path} do
@@ -99,6 +100,6 @@ defmodule Aiur.Machine.SettingsProjectsTest do
 
   test "inspect omits the config path", %{path: path} do
     assert {:ok, s} = load(path, "projects: [{repo: o/r, config: /private-checkout/config}]")
-    refute inspect(s.projects) =~ "private-checkout"
+    refute_leak(s.projects, "private-checkout")
   end
 end
