@@ -6,73 +6,108 @@ defmodule Aiur.ControlCall.GateParityTest do
   @remote_sh Path.expand("../../../../packaging/npm/aiur-cli/libexec/engine/remote.sh", __DIR__)
   @probes [[:Aiur, :ControlCallTestProbe], [:Aiur, :ControlControllerTestProbe]]
 
-  # Every allowlisted function name -> the client gate word(s) that send it, or why it is never sent.
-  # A new allowlisted function must be added here, and a remote word must be in `ensure_remote_command_allowed`.
-  @remote %{
-    status: ~w(status),
-    agents: ~w(agents),
-    watch: ~w(watch),
-    alerts: ~w(alerts),
-    executor_sweep: ~w(executor-sweep),
-    rpc: ~w(usage ticket-usage executor-sweep executor-session),
-    legacy_accounts: ~w(accounts),
-    commands: ~w(commands),
-    commands_repair: ~w(commands),
-    command_request: ~w(command),
-    units: ~w(units),
-    feature: ~w(feature),
-    lane: ~w(lane),
-    epic: ~w(epic),
-    build_orders: ~w(build-orders),
-    queue: ~w(queue),
-    analytics: ~w(analytics),
-    history_label_writes: ~w(history),
-    github_cost: ~w(github-cost),
-    experiments: ~w(experiments),
-    capabilities: ~w(capabilities),
-    github_usage: ~w(github-usage),
-    ticket_estimate: ~w(ticket),
-    operator_relay_answer: ~w(operator-relay-answer),
-    executor_ack: ~w(executor-ack),
-    executor_answer: ~w(executor-answer),
-    executor_escalate: ~w(executor-escalate),
-    executor_reclassify: ~w(executor-reclassify),
-    executor_moot: ~w(executor-moot),
-    executor_wait: ~w(executor-wait),
-    executor_session: ~w(executor-session),
-    executor_roster: ~w(executor-roster),
-    executor_fast_forward: ~w(executor-fast-forward),
-    executor_claim: ~w(executor-claim),
-    executor_release: ~w(executor-release),
-    executor_revoke: ~w(executor-revoke),
-    executor_emit: ~w(executor-emit),
-    executor_subscribe: ~w(executor-subscribe),
-    executor_unsubscribe: ~w(executor-unsubscribe),
-    executor_subscriptions: ~w(executor-subscriptions),
-    todo: ~w(--todo),
-    redispatch: ~w(redispatch),
-    reset_budget: ~w(reset-budget),
-    pause_global: ~w(pause),
-    resume_global: ~w(resume),
-    set_max_agents: ~w(set),
-    set_setting: ~w(set),
-    list_settings: ~w(set),
-    unset_setting: ~w(set),
-    message: ~w(message),
-    message_status: ~w(message),
-    pause: ~w(pause),
-    resume: ~w(resume),
-    park: ~w(park),
-    take: ~w(take),
-    release: ~w(release),
-    recover_workspace: ~w(workspace-recover),
-    run: ~w(listen-mode)
+  @segs %{
+    agent: [:Aiur, :AgentControlCLI],
+    handoff: [:Aiur, :Handoff, :CLI],
+    session: [:Aiur, :HarnessSessionCLI],
+    usage: [:Aiur, :Usage, :CLI],
+    ticket_usage: [:Aiur, :TicketUsageCLI],
+    sweep: [:Aiur, :ExecutorSweep, :CLI],
+    pr_merge: [:Aiur, :PrMerge, :Record],
+    listen: [:Aiur, :ListenModeCli]
   }
 
+  # {module, function, arities, client gate words that send it}. Keyed by {segments, function, arity}
+  # below, so a new row reusing a name (`rpc`, `run`) or adding an arity is unmapped until listed here.
+  # A remote word must be in `ensure_remote_command_allowed`.
+  @remote_rows [
+    {:agent, :status, [0, 1], ~w(status)},
+    {:agent, :agents, [0, 1], ~w(agents)},
+    {:agent, :watch, [0, 1], ~w(watch)},
+    {:agent, :alerts, [0, 1], ~w(alerts)},
+    {:agent, :executor_sweep, [1], ~w(executor-sweep)},
+    {:agent, :commands, [0, 1], ~w(commands)},
+    {:agent, :commands_repair, [0, 1], ~w(commands)},
+    {:agent, :command_request, [1], ~w(command)},
+    {:agent, :units, [0, 1], ~w(units)},
+    {:agent, :feature, [0, 1], ~w(feature)},
+    {:agent, :lane, [0, 1], ~w(lane)},
+    {:agent, :epic, [0, 1], ~w(epic)},
+    {:agent, :build_orders, [0, 1], ~w(build-orders)},
+    {:agent, :queue, [0, 1], ~w(queue)},
+    {:agent, :analytics, [0, 1], ~w(analytics)},
+    {:agent, :history_label_writes, [1], ~w(history)},
+    {:agent, :github_cost, [0, 1], ~w(github-cost)},
+    {:agent, :experiments, [0, 1], ~w(experiments)},
+    {:agent, :capabilities, [0, 1], ~w(capabilities)},
+    {:agent, :github_usage, [0, 1], ~w(github-usage)},
+    {:agent, :ticket_estimate, [0, 1], ~w(ticket)},
+    {:agent, :operator_relay_answer, [1], ~w(operator-relay-answer)},
+    {:agent, :executor_ack, [1], ~w(executor-ack)},
+    {:agent, :executor_answer, [1], ~w(executor-answer)},
+    {:agent, :executor_escalate, [1], ~w(executor-escalate)},
+    {:agent, :executor_reclassify, [1], ~w(executor-reclassify)},
+    {:agent, :executor_moot, [1], ~w(executor-moot)},
+    {:agent, :executor_wait, [0, 1], ~w(executor-wait)},
+    {:agent, :executor_session, [1], ~w(executor-session)},
+    {:agent, :executor_roster, [0, 1], ~w(executor-roster)},
+    {:agent, :executor_fast_forward, [1, 2], ~w(executor-fast-forward)},
+    {:agent, :executor_claim, [0, 1], ~w(executor-claim)},
+    {:agent, :executor_release, [0, 1], ~w(executor-release)},
+    {:agent, :executor_revoke, [1, 2], ~w(executor-revoke)},
+    {:agent, :executor_emit, [2], ~w(executor-emit)},
+    {:agent, :executor_subscribe, [1], ~w(executor-subscribe)},
+    {:agent, :executor_unsubscribe, [1], ~w(executor-unsubscribe)},
+    {:agent, :executor_subscriptions, [0], ~w(executor-subscriptions)},
+    {:agent, :todo, [1, 2], ~w(--todo)},
+    {:agent, :redispatch, [2], ~w(redispatch)},
+    {:agent, :reset_budget, [1], ~w(reset-budget)},
+    {:agent, :pause_global, [0], ~w(pause)},
+    {:agent, :resume_global, [0], ~w(resume)},
+    {:agent, :set_max_agents, [1], ~w(set)},
+    {:agent, :set_setting, [2, 3], ~w(set)},
+    {:agent, :list_settings, [0, 1], ~w(set)},
+    {:agent, :unset_setting, [1, 2], ~w(set)},
+    {:agent, :message, [2, 3], ~w(message)},
+    {:agent, :message_status, [1], ~w(message)},
+    {:agent, :pause, [1], ~w(pause)},
+    {:agent, :resume, [1], ~w(resume)},
+    {:agent, :park, [1], ~w(park)},
+    {:agent, :take, [2], ~w(take)},
+    {:agent, :release, [2], ~w(release)},
+    {:agent, :recover_workspace, [2], ~w(workspace-recover)},
+    {:handoff, :agents, [0], ~w(agents)},
+    {:session, :rpc, [1], ~w(executor-session)},
+    {:usage, :rpc, [2], ~w(usage)},
+    {:usage, :legacy_accounts, [2], ~w(accounts)},
+    {:ticket_usage, :rpc, [2], ~w(ticket-usage)},
+    {:sweep, :rpc, [1], ~w(executor-sweep)},
+    {:listen, :run, [2], ~w(listen-mode)}
+  ]
+
   # Deny-class or deliberately unsent functions.
-  @local_only ~w(operator_answer operator_answer_preview executor_check executor_attach executor_detach
-    executor_listen executor_listen_validate usage accounts usage_bar prepare_handoff prepare report main_watch_state
-    main_watch_inherited? print_watcher_state publish)a
+  @local_rows [
+    {:agent, :operator_answer, [1]},
+    {:agent, :operator_answer_preview, [1]},
+    {:agent, :executor_check, [1]},
+    {:agent, :executor_attach, [1]},
+    {:agent, :executor_detach, [1]},
+    {:agent, :executor_listen, [0, 1]},
+    {:agent, :executor_listen_validate, [1]},
+    {:agent, :usage, [0, 1, 2]},
+    {:agent, :accounts, [1, 2]},
+    {:agent, :usage_bar, [1]},
+    {:agent, :prepare_handoff, [0, 1]},
+    {:agent, :main_watch_state, [0]},
+    {:agent, :main_watch_inherited?, [2]},
+    {:handoff, :report, [0, 1]},
+    {:handoff, :prepare, [0]},
+    {:pr_merge, :print_watcher_state, [0]},
+    {:pr_merge, :publish, [1]}
+  ]
+
+  @remote for {m, f, arities, words} <- @remote_rows, a <- arities, into: %{}, do: {{@segs[m], f, a}, words}
+  @local for {m, f, arities} <- @local_rows, a <- arities, into: MapSet.new(), do: {@segs[m], f, a}
 
   defp gate_words do
     src = File.read!(@remote_sh)
@@ -83,31 +118,38 @@ defmodule Aiur.ControlCall.GateParityTest do
   end
 
   defp functions do
-    for {{segments, fun, _arity}, row} <- Allowlist.entries(), segments not in @probes, do: {fun, row.class}
+    for {{segments, _fun, _arity} = key, row} <- Allowlist.entries(), segments not in @probes, do: {key, row.class}
   end
+
+  # Allowlisted keys that are neither client-mapped nor declared local-only.
+  defp unmapped(keys, remote, local), do: for(k <- keys, not Map.has_key?(remote, k), k not in local, do: k)
 
   test "gate parser finds the accept arm" do
     assert "status" in gate_words()
     assert "redispatch" in gate_words()
   end
 
+  test "a new row reusing a mapped function name or adding an arity is unmapped" do
+    keys = [{[:Aiur, :Other, :CLI], :rpc, 1}, {[:Aiur, :AgentControlCLI], :status, 2}, {[:Aiur, :AgentControlCLI], :status, 1}]
+    assert unmapped(keys, @remote, @local) == [{[:Aiur, :Other, :CLI], :rpc, 1}, {[:Aiur, :AgentControlCLI], :status, 2}]
+  end
+
   test "every allowlisted function is mapped to a gate word or declared local-only" do
-    unmapped = for {fun, _} <- functions(), not Map.has_key?(@remote, fun), fun not in @local_only, uniq: true, do: fun
-    assert unmapped == []
+    assert unmapped(Enum.map(functions(), &elem(&1, 0)), @remote, @local) == []
   end
 
   test "every mapped gate word is accepted by the remote gate" do
     gate = gate_words()
-    missing = for {fun, words} <- @remote, word <- words, word not in gate, do: {fun, word}
+    missing = for {key, words} <- @remote, word <- words, word not in gate, do: {key, word}
     assert missing == []
   end
 
   test "deny-class functions are never mapped to a remote word" do
-    assert for({fun, :deny} <- functions(), Map.has_key?(@remote, fun), uniq: true, do: fun) == []
+    assert for({key, :deny} <- functions(), Map.has_key?(@remote, key), do: key) == []
   end
 
   test "mapping has no stale entries" do
-    names = MapSet.new(functions(), &elem(&1, 0))
-    assert for(fun <- Map.keys(@remote) ++ @local_only, fun not in names, do: fun) == []
+    keys = MapSet.new(functions(), &elem(&1, 0))
+    assert for(key <- Map.keys(@remote) ++ MapSet.to_list(@local), key not in keys, do: key) == []
   end
 end
