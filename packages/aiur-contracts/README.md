@@ -18,8 +18,8 @@ consumers lose the closed union and must handle unknown modes when switching on 
 `src/index.ts` exports generated `CapabilitiesReport`, `CapabilityEntry`,
 `CapabilityState`, `CapabilityReason`, `CapabilityError`, `AgentsStatus`,
 `FleetStatus`, `TicketStatus`, `TicketCancel`, `TicketUsage`, `TicketProgress`,
-`TicketSpendCap`, `TicketSpendCapReached`, `EventsFeed`, `EventsCatalog`, and
-`OutboundEvent` types,
+`TicketSpendCap`, `TicketSpendCapReached`, `EventsFeed`, `EventsCatalog`,
+`BuildOrder`, and `OutboundEvent` types,
 `KNOWN_CAPABILITY_IDS`, `KNOWN_CAPABILITY_ID_PATTERNS`, and `CAPABILITY_REASONS`.
 Harness patterns accept one lowercase `[a-z0-9_]+` segment.
 Run `npm run build` before importing runtime constants from this local package.
@@ -44,6 +44,15 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `ticket-decision-event.v1` | outbound webhook | canonical envelope v1; decision requests and answers |
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
 | `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
+| `build-order.v1` | Build Order projection read surface (producer lands with #7507) | `aiur.build_order` |
+
+`build-order.v1` is the published graph of a Build Order: metadata, per-source status, epics,
+features, lanes, tickets, typed edges (`depends_on`, `serializes_with`, `suggested_after`, `contains`,
+`gates`), gates, waves, critical path and progress. Nodes carry `epic`, `feature` and `lane` as three
+distinct fields, and any unavailable source publishes `status: "unknown"` with a reason instead of an
+empty graph. `build-order-unavailable.v1.json` is the degraded golden fixture.
+Every edge endpoint is a ticket `id` or a gate `key` from the same document, never a tracker number,
+and `state` is set on `depends_on` edges only.
 
 `command.v2` uses the existing read-API shape: optional `payload_version: 2`,
 without adding contract markers to the established endpoint. The golden fixture

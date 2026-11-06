@@ -149,8 +149,7 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.max_concurrent_agents_by_state | map | `%{}` | Per-state caps overriding the global cap. These caps also constrain fixer tickets. |
     field(:max_concurrent_agents_by_state, :map, default: %{})
     # Provider settings use registry names; built-in schemas remain typed views.
-    # New backends keep their settings here without adding another Ecto embed.
-    # Provider-specific map paths are expanded by scripts/check-config-docs.py.
+    # New backends need no embed; map paths: scripts/check-config-docs.py.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.enabled | boolean | backend registry default | Explicitly enables or disables dispatch for the backend. `agent.priority` takes precedence by enabling every backend it names. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
@@ -169,6 +168,7 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.transport | string | backend registry value | Overrides the OpenAI-compatible transport with `chat_completions` or `responses`. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.balance_baseline | number or nil | nil | Seeds prepaid-balance usage tracking for backends that expose a balance API. |
+    # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.max_output_tokens | integer | 16000 | Output-token cap sent as `max_tokens`; OpenRouter reserves credit for it. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.reasoning_content_replay | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength

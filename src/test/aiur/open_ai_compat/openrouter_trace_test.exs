@@ -22,10 +22,17 @@ defmodule Aiur.OpenAICompat.OpenRouterTraceTest do
     session = start(workspace, queue_fun(queue, self()), "openrouter", %{"openrouter_trace" => true})
     assert <<"openai-compat-", uuid::binary>> = session.thread_id
     assert {:ok, ^uuid} = UUID.cast(uuid)
+    parent = self()
+    observe = fn event -> if event.event == :session_started, do: send(parent, {:live_start, event}) end
     identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "aiur-team", repository: "aiur", provider_id: "node-1440", identifier: "1440", reason: nil}
     ticket = %{issue() | tracker_identity: identity, title: "PRIVATE TITLE", description: "PRIVATE DESCRIPTION", labels: ["complexity:2"]}
-    assert {:ok, _} = CodingAgent.run_turn(session, "PRIVATE PROMPT", ticket, [])
-    assert {:ok, _} = CodingAgent.run_turn(session, "PRIVATE FOLLOWUP", ticket, [])
+    assert {:ok, _} = CodingAgent.run_turn(session, "PRIVATE PROMPT", ticket, on_message: observe)
+    assert {:ok, _} = CodingAgent.run_turn(session, "PRIVATE FOLLOWUP", ticket, on_message: observe)
+    assert_receive {:live_start, %{thread_id: thread_id, turn_id: "1", session_id: live_id}}, 1_000
+    assert thread_id == session.thread_id
+    assert live_id == session.thread_id <> "-1"
+    assert_receive {:live_start, %{thread_id: ^thread_id, turn_id: "2", session_id: next_live_id}}, 1_000
+    assert next_live_id == session.thread_id <> "-2"
     [first, second, third] = collect_requests(3) |> Enum.map(& &1.json)
     assert first["session_id"] == "github:aiur-team/aiur#1440"
     assert first["user"] == first["trace"]["environment"] <> "/test-account"
@@ -72,6 +79,28 @@ defmodule Aiur.OpenAICompat.OpenRouterTraceTest do
     assert String.length(request.json["user"]) == 128
     assert String.valid?(request.json["session_id"])
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "credit and output-cap retries retain the turn and round identity", %{workspace: workspace} do
+    credit = {:ok, %{status: 402, body: %{"error" => %{"message" => "requires more credits; can only afford 4096"}}, headers: %{}}}
+    truncated = response(%{"id" => "short", "choices" => [%{"finish_reason" => "length", "message" => %{"role" => "assistant", "content" => "partial"}}]})
+
+    for {first_response, retry_cap} <- [{credit, 4_096}, {truncated, 32_000}] do
+      {:ok, queue} = Agent.start_link(fn -> [first_response, done_response()] end)
+      session = start(workspace, queue_fun(queue, self()), "openrouter", %{openrouter_trace: true})
+      assert {:ok, _} = CodingAgent.run_turn(session, "retry", issue(), [])
+      [first, retried] = collect_requests(2)
+      assert first.json["max_tokens"] == 16_000
+      assert retried.json["max_tokens"] == retry_cap
+      assert first.json["session_id"] == "unscoped:1440"
+      assert retried.json["session_id"] == "unscoped:1440"
+      assert retried.json["user"] == "trace-test/test-account"
+      assert first.json["trace"]["trace_id"] == session.thread_id <> ":1"
+      assert retried.json["trace"]["trace_id"] == session.thread_id <> ":1"
+      assert retried.json["trace"]["generation_name"] == "round 1"
+      assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+      Agent.stop(queue)
+    end
   end
 
   test "a failed turn consumes its trace ID", %{workspace: workspace} do

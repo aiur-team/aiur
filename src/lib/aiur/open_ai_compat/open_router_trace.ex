@@ -6,9 +6,8 @@ defmodule Aiur.OpenAICompat.OpenRouterTrace do
 
   @spec start_turn(map(), map(), Issue.t()) :: map()
   def start_turn(state, session, issue) do
-    turn = Map.get(state, :turn_seq, 0) + 1
-    context = identity(state.config, session, issue, turn)
-    state |> Map.put(:turn_seq, turn) |> Map.update!(:config, &Map.put(&1, :trace_identity, context))
+    context = identity(state.config, session, issue, state.turn_index)
+    Map.update!(state, :config, &Map.put(&1, :trace_identity, context))
   end
 
   @spec request_config(map(), non_neg_integer()) :: map()

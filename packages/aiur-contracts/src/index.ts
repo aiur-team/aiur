@@ -4,6 +4,7 @@ export type * from "./command.generated.js";
 export type * from "./generated.js";
 export type * from "./status.generated.js";
 export type * from "./spend-cap.generated.js";
+export type * from "./build-order.generated.js";
 export type {
   OutboundEvent,
   OutboundEventEnvelope,

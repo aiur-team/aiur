@@ -4,6 +4,7 @@ defmodule Aiur.OpenAICompat.Config do
   alias Aiur.CodingAgent
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Init.Dotenv
+  alias Aiur.OpenAICompat.OutputTokens
 
   @required ~w(base_url api_key_env transport)a
 
@@ -25,6 +26,7 @@ defmodule Aiur.OpenAICompat.Config do
        |> Map.put(:account_name, account_name)
        |> Map.put(:api_key, api_key)
        |> Map.put(:model, model)
+       |> Map.put(:max_output_tokens, OutputTokens.resolve(Map.get(config, :max_output_tokens)))
        |> Map.put(:request_fun, Keyword.get(opts, :request_fun, &request/1))}
     end
   end
@@ -144,7 +146,7 @@ defmodule Aiur.OpenAICompat.Config do
   @known_keys Map.new(
                 ~w(base_url api_key_env model default_model transport quirks management_api_key_env
                    model_discovery reasoning_content_replay text_tool_fallback openrouter_metadata openrouter_trace
-                   local_concurrency_limit provider order ignore allow_fallbacks sort),
+                   local_concurrency_limit provider order ignore allow_fallbacks sort max_output_tokens),
                 &{&1, String.to_atom(&1)}
               )
 
