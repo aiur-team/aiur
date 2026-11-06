@@ -95,8 +95,6 @@ defmodule Aiur.AgentSkills.Registry do
     end
   end
 
-  defp unquote_description(nil), do: nil
-
   defp unquote_description(description) do
     description = String.replace(description, ~r/\s+/, " ") |> String.trim()
 

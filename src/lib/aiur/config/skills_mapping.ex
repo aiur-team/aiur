@@ -243,4 +243,31 @@ defmodule Aiur.Config.SkillsMapping do
     do: {:error, "agent.skills.#{dimension}.#{key} must be a skill name or a non-empty list of skill names"}
 
   defp valid_skill_name?(skill), do: is_binary(skill) and Regex.match?(@skill_name_pattern, skill)
+
+  # The `agent.skills` reference-table rows live here rather than beside the
+  # field in `Aiur.Config.Schema.Agent`, which is at the file-size limit.
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.preload_max_bytes
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.preload_max_bytes | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.by_lane
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.by_lane | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured general epic's label matchers. |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.by_feature
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.by_feature | map | `%{}` | Owning feature slug to skill names. |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.by_label
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.by_label | map | `%{}` | Ticket label to skill names. A `skills:<name>` label selects the same entry, or names one skill directly. |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.by_complexity
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.by_complexity | map | `%{}` | Complexity level to skill names. |
 end
