@@ -25,8 +25,7 @@ from publication_operator import Publisher  # noqa: E402
 def apply_without_cli(driver):
     """Keep GitHub integration tests isolated from the live local registry."""
     with (
-        patch.object(Publisher, "_run_cli"),
-        patch.object(Publisher, "_read_cli", return_value=""),
+        patch.object(Publisher, "_run_cli", return_value=""),
         patch.object(Publisher, "_resolve_cli", return_value="aiur"),
     ):
         return driver.apply()

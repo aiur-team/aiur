@@ -61,7 +61,6 @@ def _publisher(registry: "FakeRegistry") -> Publisher:
         specs={ROOT_ID: SimpleNamespace(title="Game maker")},
     )
     publisher._run_cli = registry
-    publisher._read_cli = registry.read
     return publisher
 
 
@@ -69,9 +68,10 @@ class FakeRegistry:
     """The `aiur epic` and `aiur feature` commands publication drives.
 
     It models the documented registry contract: a create whose values match an
-    existing record changes nothing, a create whose values differ is refused,
-    and a membership add of already-joined tickets changes nothing.  Only real
-    state changes land in `writes`.
+    existing record changes nothing, a create whose values differ is refused, a
+    label outside 1 to 80 characters is refused, and a membership add of
+    already-joined tickets changes nothing.  Only real state changes land in
+    `writes`.
     """
 
     def __init__(self) -> None:
@@ -80,10 +80,7 @@ class FakeRegistry:
         self.calls: list[list[str]] = []
         self.writes: list[list[str]] = []
 
-    def read(self, arguments: list[str], _label: str) -> str:
-        self.calls.append(list(arguments))
-        if arguments != ["epic", "list", "--json"]:
-            raise AssertionError(f"unexpected registry read {arguments}")
+    def _read(self) -> str:
         return json.dumps({
             "command": "epic list",
             "epics": [
@@ -95,6 +92,8 @@ class FakeRegistry:
 
     def __call__(self, arguments: list[str], _label: str) -> str:
         self.calls.append(list(arguments))
+        if arguments == ["epic", "list", "--json"]:
+            return self._read()
         verb = arguments[0]
         if verb == "epic":
             self._epic(arguments)
@@ -110,6 +109,8 @@ class FakeRegistry:
         if action != "create":
             raise AssertionError(f"unexpected epic action {arguments}")
         label = _single(options, "label", arguments)
+        if not 1 <= len(label) <= 80:
+            raise AssertionError(f"invalid label: {label!r} is not 1 to 80 characters")
         existing = self.epics.get(slug)
         if existing is None:
             self.epics[slug] = {"label": label, "features": []}
@@ -278,6 +279,18 @@ class PublicationRegistryTest(unittest.TestCase):
 
         self.assertEqual(writes, registry.writes)
         self.assertEqual("Game maker", registry.epics["bo-41"]["label"])
+
+    def test_pack_title_over_the_epic_label_limit_is_refused(self) -> None:
+        registry = FakeRegistry()
+        long_title = _publisher(registry)
+        long_title.context.specs[ROOT_ID] = SimpleNamespace(title="G" * 81)
+
+        with self.assertRaisesRegex(PublicationError, "1 to 80"):
+            ensure_registry(long_title, _mappings())
+
+        self.assertEqual([], registry.calls)
+        self.assertEqual({}, registry.epics)
+        self.assertEqual([], registry.writes)
 
     def test_lane_labels_count_as_routing_labels(self) -> None:
         self.assertEqual(

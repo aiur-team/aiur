@@ -69,7 +69,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.skills.by_epic` | map | `%{}` | Epic slug to skill names. The epic is the one that holds the ticket's owning feature in the build-order registry. |
 | `agent.skills.by_feature` | map | `%{}` | Owning feature slug to skill names. |
 | `agent.skills.by_label` | map | `%{}` | Ticket label to skill names. A `skills:<name>` label selects the same entry, or names one skill directly. |
-| `agent.skills.by_lane` | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured general epic's label matchers. |
+| `agent.skills.by_lane` | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured lane's label matchers. |
 | `agent.skills.preload_max_bytes` | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
 | `agent.stall_timeout_ms` | integer | 3600000 | Final watchdog; Codex probes every 60s, then replaces silence. 0 disables only this watchdog. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |

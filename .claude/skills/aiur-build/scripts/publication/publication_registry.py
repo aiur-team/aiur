@@ -13,7 +13,8 @@ run. Re-issuing the create on a second run would therefore compare against a
 freshly derived hue and be refused as a difference. Reading first keeps the
 repeat a no-op. A pack title that changes after approval needs ``aiur epic
 edit``: a differing label is refused rather than renaming an operator's epic
-silently.
+silently. An epic label holds at most 80 characters, so a longer pack title is
+refused here with the limit named instead of failing inside ``epic create``.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from publication_context import (
 )
 
 BATCH = 200
+EPIC_LABEL_LIMIT = 80
 
 
 def ensure_registry(
@@ -81,10 +83,14 @@ def ensure_registry(
 def _epic(publisher: Any, mappings: dict[str, dict[str, Any]]) -> dict[str, str]:
     """The pack's epic: the slug root import derives and the approved pack title."""
     root = mappings[publisher.context.root_id]
-    return {
-        "slug": planning_epic_slug(root["number"]),
-        "label": publisher.context.specs[publisher.context.root_id].title,
-    }
+    title = publisher.context.specs[publisher.context.root_id].title
+    if not 1 <= len(title) <= EPIC_LABEL_LIMIT:
+        raise PublicationError(
+            f"the pack title is {len(title)} characters and an epic label allows "
+            f"1 to {EPIC_LABEL_LIMIT}; shorten the approved title in the pack's "
+            "root document before republishing"
+        )
+    return {"slug": planning_epic_slug(root["number"]), "label": title}
 
 
 def _ensure_epic(publisher: Any, epic: dict[str, str]) -> None:
@@ -106,7 +112,7 @@ def _ensure_epic(publisher: Any, epic: dict[str, str]) -> None:
 
 def _registered_epics(publisher: Any) -> dict[str, dict[str, Any]]:
     """Epic records already in the local registry, keyed by slug."""
-    raw = publisher._read_cli(["epic", "list", "--json"], "epic inspection")
+    raw = publisher._run_cli(["epic", "list", "--json"], "epic inspection")
     try:
         payload = json.loads(raw) if raw and raw.strip() else {}
     except json.JSONDecodeError:

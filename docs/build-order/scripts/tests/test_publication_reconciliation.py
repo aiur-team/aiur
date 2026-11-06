@@ -307,8 +307,8 @@ class ReconciliationTests(unittest.TestCase):
         client = FakeClient(responses)
 
         with patch.object(Publisher, "_resolve_cli", return_value="aiur"), patch.object(
-            Publisher, "_run_cli"
-        ), patch.object(Publisher, "_read_cli", return_value=""):
+            Publisher, "_run_cli", return_value=""
+        ):
             result = ValidationFreePublisher(client, self.ctx).apply()
 
         self.assertEqual(result["mode"], "apply-pending")

@@ -182,10 +182,6 @@ class Publisher:
             raise PublicationError(f"{label} failed:\n{detail}")
         return result.stdout
 
-    def _read_cli(self, arguments: list[str], label: str) -> str:
-        """Run one read command and return its JSON stdout."""
-        return self._run_cli(arguments, label)
-
     @staticmethod
     def _resolve_cli() -> str:
         requested = os.environ.get("AIUR_FEATURE_CLI") or "aiur"
