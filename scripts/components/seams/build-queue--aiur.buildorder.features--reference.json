@@ -5,7 +5,8 @@
   "only_paths": [
     "src/lib/aiur/build_queue/feature_watch.ex",
     "src/lib/aiur/build_queue/server.ex",
+    "src/lib/aiur/build_queue/sources/epic.ex",
     "src/lib/aiur/build_queue/sources/feature.ex"
   ],
-  "reason": "#7494 queued features follow the feature registry: the feature source reads it and the server subscribes to its change broadcast"
+  "reason": "#7494 queued features follow the feature registry: the feature and epic sources read it and the server subscribes to its change broadcast"
 }

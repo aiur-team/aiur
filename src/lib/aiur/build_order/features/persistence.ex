@@ -76,26 +76,80 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   end
 
   defp fold_records(records, state) do
-    result =
-      Enum.reduce_while(records, {:ok, Journal.empty()}, fn record, {:ok, projection} ->
-        case Journal.fold(projection, record) do
-          {:ok, next} -> {:cont, {:ok, next}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+    case fold(records) do
+      {:ok, projection} ->
+        {records, projection} = compact(records, projection, state)
+        replayed(records, projection, state)
 
-    case result do
-      {:ok, projection} -> replayed(records, projection, state)
-      {:error, _reason} -> fail(state, :features_corrupt)
+      {:error, _reason} ->
+        fail(state, :features_corrupt)
     end
   end
+
+  defp fold(records) do
+    Enum.reduce_while(records, {:ok, Journal.empty()}, fn record, {:ok, projection} ->
+      case Journal.fold(projection, record) do
+        {:ok, next} -> {:cont, {:ok, next}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # Rewrites the journal without repeated joins, only when the rewrite replays to the same
+  # features, owners and links; otherwise the original journal stays (#7680).
+  defp compact(records, projection, state) do
+    kept = drop_repeated_joins(records)
+
+    with true <- kept != records,
+         {:ok, compacted} <- fold(kept),
+         true <- Map.drop(compacted, [:seq, :events]) == Map.drop(projection, [:seq, :events]),
+         :ok <- AppendJournal.rewrite(state.path, Enum.map(kept, &[Jason.encode!(Journal.encode(&1)), "\n"])) do
+      Logger.info("build_features journal compacted from #{length(records)} to #{length(kept)} records")
+      {kept, compacted}
+    else
+      _ -> {records, projection}
+    end
+  end
+
+  # Within one unbroken membership only the first join (join time and basis) and the last
+  # (current epic, source and confirmation) shape the owner; the joins between are dropped.
+  defp drop_repeated_joins(records) do
+    indexed = records |> Enum.with_index() |> Enum.map(fn {record, r} -> record.events |> Enum.with_index() |> Enum.map(fn {event, e} -> {{r, e}, event} end) end)
+
+    {drop, _open} = indexed |> Enum.concat() |> Enum.reduce({MapSet.new(), %{}}, &repeated_join/2)
+
+    records
+    |> Enum.zip(indexed)
+    |> Enum.map(fn {record, events} -> %{record | events: for({at, event} <- events, not MapSet.member?(drop, at), do: event)} end)
+    |> Enum.reject(&(&1.events == []))
+    |> Enum.with_index(1)
+    |> Enum.map(fn {record, seq} -> %{record | seq: seq} end)
+  end
+
+  defp repeated_join({at, %{type: "member.added", feature: slug, number: n}}, {drop, open}) do
+    case open[{slug, n}] do
+      nil -> {drop, Map.put(open, {slug, n}, {at, nil})}
+      {first, nil} -> {drop, Map.put(open, {slug, n}, {first, at})}
+      {first, last} -> {MapSet.put(drop, last), Map.put(open, {slug, n}, {first, at})}
+    end
+  end
+
+  defp repeated_join({_at, %{type: "member.removed", feature: slug, number: n}}, {drop, open}), do: {drop, Map.delete(open, {slug, n})}
+  defp repeated_join(_event, acc), do: acc
 
   defp replayed(records, projection, state) do
     case File.stat(state.path) do
-      {:ok, stat} -> %{state | projection: projection, bytes: stat.size, health: healthy(projection, observed(records, state))}
+      {:ok, stat} -> near_limit(%{state | projection: projection, bytes: stat.size, health: healthy(projection, observed(records, state))}, 0)
       {:error, _reason} -> fail(state, :state_dir_unavailable)
     end
   end
+
+  defp near_limit(%{bytes: bytes, max_file_bytes: max} = state, before) when before * 5 < max * 4 and bytes * 5 >= max * 4 do
+    notify(state, "build_features.near_limit", "Feature registry journal #{inspect(state.path)} holds #{bytes} of #{max} bytes; feature writes stop at the limit.")
+    state
+  end
+
+  defp near_limit(state, _before), do: state
 
   # The epic journal is additive: a build without the epic level ignores the
   # file, and a broken epic file leaves every feature and member readable.
@@ -160,7 +214,7 @@ defmodule Aiur.BuildOrder.Features.Persistence do
 
   defp append_record(encoded, record, projection, bytes, state) do
     case state.append_fun.(state.path, encoded) do
-      :ok -> {:ok, %{state | projection: projection, bytes: state.bytes + bytes, health: healthy(projection, record.recorded_at)}}
+      :ok -> {:ok, near_limit(%{state | projection: projection, bytes: state.bytes + bytes, health: healthy(projection, record.recorded_at)}, state.bytes)}
       {:error, reason} -> {:error, {:journal_append_failed, reason}, fail(state, :journal_append_failed)}
     end
   end
@@ -237,13 +291,14 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   defp alert(state, prefix, path, failure) do
     topic = if structural?(failure), do: prefix <> ".corrupted", else: prefix <> ".unavailable"
     label = if prefix == "build_epics", do: "Epic registry", else: "Feature registry"
-    message = "#{label} unavailable: #{failure}; journal #{inspect(path)} requires operator recovery."
+    notify(state, topic, "#{label} unavailable: #{failure}; journal #{inspect(path)} requires operator recovery.")
+  end
+
+  defp notify(state, topic, message) do
     state.alert_fun.(topic, message, needs_attention: true, severity: "warning", reason: message)
   rescue
     error -> Logger.warning("build_features alert failed: #{Exception.message(error)}")
   catch
     kind, reason -> Logger.warning("build_features alert failed: #{inspect({kind, reason})}")
   end
-
-  # ponytail: no compaction until a production census finds the journal above 4 MB.
 end
