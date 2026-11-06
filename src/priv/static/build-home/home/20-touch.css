@@ -3,7 +3,7 @@
 @media (pointer: coarse) {
   .bd-vp { overflow-y: hidden; touch-action: pan-y; overscroll-behavior: auto; }
 }
-@media (max-width: 900px), (pointer: coarse) {
+@media (pointer: coarse) {
   #build-root.bd-root { max-height: calc(100dvh - 56px); }
   #build-root .bd-vpw { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   #build-root .bd-vpw > .bd-vp { flex: 1 1 auto; height: auto; min-height: 120px; }

@@ -54,6 +54,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
+  // #7686 local estimate: touch suite (three viewports plus pan/pinch cases) with fixture startup; refresh from the first CI shard log.
+  'test:browser-suite -- build-home-touch': 40,
   // Local estimate (loaded host ran 234s; CI hosts run the home suites about 2x faster); replace from its first shard log.
   'test:browser-suite -- build-home-performance': 150,
   // Local governed run: 11 cases in 139s including fixture startup; rounded up.
