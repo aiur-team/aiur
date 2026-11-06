@@ -184,14 +184,17 @@ instead of every worker carrying the whole library. See
 agent:
   skills:
     by_lane:
-      foundation: [repo-conventions, ci-plumbing]
-      items-ui: [ui-kit, design-import]
+      art: [pixel-art, palette-discipline]
+      frontend: [ui-kit, design-import]
       audio: [audio-design]
+    by_feature:
+      items-ui: [ui-kit, design-import]
+      combat: [combat-tuning]
     by_label:
       pixel-art: [pixel-art, palette-discipline]
 ```
 
-A lane is the epic column the work belongs to: a `lane:`, `area:` or
+A lane is the technical column the work belongs to: a `lane:`, `area:` or
 `build-lane:` label suffix, or a configured general epic's label matchers. Labels
 outrank lanes, lanes outrank the owning feature, and the feature outranks
 complexity; matching sets combine.

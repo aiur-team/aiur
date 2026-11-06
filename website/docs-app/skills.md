@@ -124,24 +124,30 @@ The mapping is read when a worker's prompt is built, so an edit applies to the n
 
 ### Example: a game repository
 
-A game's epics divide its skill library by the kind of work, so a pixel-art or world ticket starts with the design and art skills rather than the multiplayer, saves and CI ones.
+A game's features name the game domain a ticket works in, and its lanes name the discipline it is built with. Mapping both means a pixel-art ticket in the world feature starts with the art and world skills instead of the multiplayer, saves and CI ones.
 
 ```yaml
 agent:
   skills:
     by_lane:
+      art: [pixel-art, palette-discipline]
+      audio: [audio-design, sound-budget]
+      frontend: [ui-kit, design-import]
+      backend: [save-schema, migration-safety]
+      docs: [docs-style]
+      qa: [playtest-checklists, regression-triage]
+    by_feature:
       foundation: [repo-conventions, ci-plumbing]
       world: [level-design, tilemap-editing]
       combat: [combat-tuning, balance-simulation]
-      classes: [progression-design, balance-simulation]
+      classes: [progression-design]
       items-ui: [ui-kit, design-import]
       story-quests: [narrative-writing, quest-authoring]
-      audio: [audio-design, sound-budget]
-      persistence: [save-schema, migration-safety]
-      qa: [playtest-checklists, regression-triage]
+      audio: [audio-design]
+      persistence: [save-schema]
+      qa: [playtest-checklists]
     by_label:
       pixel-art: [pixel-art, palette-discipline]
-      visual-design: [design-import, ui-kit]
     by_complexity:
       1: [ce-work]
       3: [ce-plan, ce-work]
