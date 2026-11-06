@@ -26,8 +26,16 @@ defmodule Aiur.ControlCall.Allowlist do
     add_epics: :epic_list,
     json: :boolean
   }
+  @lane_options %{
+    action: {:enum, [:set, :clear, :confirm, :show, :list]},
+    epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
+    ids: :feature_ids,
+    who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
+    source: {:enum, [:cli, :"backfill-agent"]},
+    json: :boolean
+  }
   @epic_options %{
-    action: {:enum, [:set, :clear, :show, :list]},
+    action: {:enum, [:set, :clear, :confirm, :show, :list]},
     epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
     ids: :feature_ids,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
@@ -63,6 +71,8 @@ defmodule Aiur.ControlCall.Allowlist do
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},
     {:feature, 0, &__MODULE__.feature_scope/1, [], %{}},
+    {:lane, 1, &__MODULE__.lane_scope/1, [:keyword], @lane_options},
+    {:lane, 0, &__MODULE__.lane_scope/1, [], %{}},
     {:epic, 1, &__MODULE__.epic_scope/1, [:keyword], @epic_options},
     {:epic, 0, &__MODULE__.epic_scope/1, [], %{}},
     {:build_orders, 0, :read, [], %{}},
@@ -278,8 +288,11 @@ defmodule Aiur.ControlCall.Allowlist do
   @spec feature_scope(list()) :: :read | :write
   def feature_scope(args), do: if(option(args, :op) == :show, do: :read, else: :write)
 
+  @spec lane_scope(list()) :: :read | :write
+  def lane_scope(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :write)
+
   @spec epic_scope(list()) :: :read | :write
-  def epic_scope(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :write)
+  def epic_scope(args), do: lane_scope(args)
 
   @spec queue_scope(list()) :: :read | :write | :deny
   def queue_scope(args) do

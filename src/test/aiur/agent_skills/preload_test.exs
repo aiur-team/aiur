@@ -31,8 +31,8 @@ defmodule Aiur.AgentSkills.PreloadTest do
     %Issue{identifier: "ABC-1", title: "A task", description: description, labels: labels}
   end
 
-  defp settings(general_epics \\ []) do
-    %{build_order: %{general_epics: general_epics}}
+  defp settings(lanes \\ []) do
+    %{build_order: %{lanes: lanes}}
   end
 
   defp resolve(issue, workspace, mapping, opts \\ []) do
@@ -71,7 +71,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
              ]
     end
 
-    test "a lane from a configured general epic's label matcher counts", %{workspace: workspace} do
+    test "a lane from a configured lane's label matcher counts", %{workspace: workspace} do
       skill!(workspace, "infra-runbook", "Operate infra.", "INFRA BODY")
 
       preload =

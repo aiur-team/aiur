@@ -80,7 +80,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
         end
       end,
       overrides: fn -> {:ok, get.(:overrides), %{state: :healthy}} end,
-      settings: fn -> {:ok, %{build_order: %{general_epics: get.(:catalog)}}} end,
+      settings: fn -> {:ok, %{build_order: %{lanes: get.(:catalog)}}} end,
       history: fn numbers ->
         rows = Enum.map(numbers, &%{number: &1, labels: get.(:labels), lifecycle: %{state: get.(:lifecycle)}, observed_at: get.(:now)})
         {:ok, rows, %{state: get.(:health)}}

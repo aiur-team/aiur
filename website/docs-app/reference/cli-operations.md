@@ -145,7 +145,7 @@ crosses the restart, so a new backend cannot be silently assumed compatible:
 | `codex` | relay | The provider process keeps running; the new daemon re-attaches to its relay port and the in-flight turn continues. |
 | `claude` | relay | Same as `codex`: the app-server process is handed over and the turn continues. |
 | `claude-repl` | repl | The tmux pane keeps running; the new daemon rebinds to it and replays the drained hook events. |
-| `openrouter`, `deepseek`, `kimi` (OpenAI-compatible) | in daemon | The conversation lives in the daemon, so it is snapshotted at a safe step boundary and restored into a fresh session in the new daemon. The successor resolves its own credentials; the API key is never written to the handoff record. |
+| `openrouter`, `deepseek`, `kimi` (OpenAI-compatible) | in daemon | The conversation lives in the daemon, so it is snapshotted at a safe step boundary and restored into a fresh session in the new daemon. The successor resolves its own credentials; the API key is never written to the handoff record. The model the route resolved travels in the snapshot, so a model set only in `agent.priority` survives the restart instead of falling back with `:missing_model`. |
 | `muse` | none | The provider is a child of the daemon, so it cannot be handed over. Those tickets resume from their workspace after the restart. |
 
 The preflight refuses a fleet in which no running agent can be adopted, and names
@@ -219,7 +219,11 @@ Routing sends these Commands directly to the human with cause `executor_originat
 
 Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
 
-## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
+## Build history commands — [feature, lane and history export commands](/reference/build-history-commands)
+
+`aiur lane set|clear|confirm|show|list` reads and writes the local lane override store; it never writes a GitHub label.
+
+The write verbs replace the deprecated `aiur epic set|clear|confirm` spelling. Those still run the same commands over the same store and print a deprecation line on stderr naming `aiur lane`, so existing scripts keep their output and exit codes.
 
 ## Dashboard page commands
 `aiur units`, `aiur commands`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages; `aiur build-orders` reads the Build Order projection.

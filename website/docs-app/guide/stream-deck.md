@@ -184,7 +184,7 @@ unknown counts show “—” with a reason and sort last. A ticket counts under
 matching general epic, including tickets owned by a feature.
 
 Press an epic key to list its matching tickets; hold dial 4 for 500 ms to go
-back. With `build_order.general_epics: []`, or when every configured epic has zero total tickets, the view says “No epics configured”
+back. With `build_order.lanes: []`, or when every configured lane has zero total tickets, the view says “No epics configured”
 and names that setting, without showing a zero remaining count.
 
 Epic keys and the empty-state strip use the same shared SVG renderer in the
