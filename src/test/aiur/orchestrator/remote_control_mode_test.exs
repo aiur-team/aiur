@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{Dispatcher, RemoteControlMode, Slots, State}
+  alias Aiur.Orchestrator.{Calls, Dispatcher, RemoteControlMode, Slots, State}
   alias Aiur.Orchestrator.PauseResume.ControlCalls
   alias Aiur.Orchestrator.TrackerTasks
 
@@ -200,6 +200,20 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
 
     assert {{:error, :not_running}, ^paused_state} =
              RemoteControlMode.redispatch_call_unchecked(paused_state, issue.identifier, "codex", no_side_effects)
+  end
+
+  test "the orchestrator redispatch call returns a GenServer reply triple for each refusal" do
+    issue = %Issue{id: "wire-1", identifier: "repo#wire-1", labels: ["model:claude"]}
+    paused = %{running_entry(issue) | control: %{status: :paused}}
+    state = %State{running: %{issue.id => paused}}
+
+    assert {:reply, {:error, :not_running}, ^state} =
+             Calls.handle_call({:redispatch, issue.identifier, "codex"}, self(), state)
+
+    in_progress = %{state | tracker_tasks: %{make_ref() => %{key: {:redispatch, issue.identifier}}}}
+
+    assert {:reply, {:error, :redispatch_in_progress}, ^in_progress} =
+             Calls.handle_call({:redispatch, issue.identifier, "codex"}, self(), in_progress)
   end
 
   test "promotion preserves the live agent when redispatch is not ready" do

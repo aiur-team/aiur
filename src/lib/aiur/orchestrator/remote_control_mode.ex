@@ -32,7 +32,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       do: control_api_call(server, {:redispatch, identifier, backend}, 120_000)
 
   @doc false
-  @spec redispatch_call(State.t(), String.t(), String.t() | nil) :: {term(), State.t()}
+  @spec redispatch_call(State.t(), String.t(), String.t() | nil) :: {:reply, term(), State.t()}
   def redispatch_call(%State{} = state, identifier, backend) do
     ControlCalls.redispatch_call(state, identifier, backend)
   end

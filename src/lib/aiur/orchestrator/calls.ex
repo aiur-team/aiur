@@ -180,10 +180,8 @@ defmodule Aiur.Orchestrator.Calls do
   end
 
   def handle_call({:redispatch, identifier, backend}, _from, state)
-      when is_binary(identifier) and (is_nil(backend) or is_binary(backend)) do
-    {reply, next} = RC.redispatch_call(state, identifier, backend)
-    {:reply, reply, next}
-  end
+      when is_binary(identifier) and (is_nil(backend) or is_binary(backend)),
+      do: RC.redispatch_call(state, identifier, backend)
 
   def handle_call({:redispatch, _identifier, _backend}, _from, state),
     do: {:reply, {:error, :invalid_identifier}, state}

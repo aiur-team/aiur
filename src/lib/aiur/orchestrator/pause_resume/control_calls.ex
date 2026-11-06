@@ -29,7 +29,8 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
       if Orchestrator.TrackerTasks.running?(state, {:redispatch, identifier}) do
         {:reply, {:error, :redispatch_in_progress}, state}
       else
-        RemoteControlMode.redispatch_call_unchecked(state, identifier, backend)
+        {reply, next} = RemoteControlMode.redispatch_call_unchecked(state, identifier, backend)
+        {:reply, reply, next}
       end
     end)
   end
