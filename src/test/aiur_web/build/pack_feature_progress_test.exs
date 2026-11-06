@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.PackFeatureProgressTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
-  alias AiurWeb.Build.IndexReader
+  alias AiurWeb.Build.{IndexReader, Payload}
 
   test "raw feature manifests and deferred pack rows retain aliases without counting unpublished work twice" do
     epic = "f-bo-99-core"
@@ -43,7 +43,7 @@ defmodule AiurWeb.Build.PackFeatureProgressTest do
 
     # The browser reads the epic rows off the scrubbed payload, so the assembled index must
     # carry them under the key the payload schema declares.
-    assert %{"epics" => [payload_epic]} = AiurWeb.Build.Payload.scrub(index)["feature_progress"]
+    assert %{"epics" => [payload_epic]} = Payload.scrub(index)["feature_progress"]
     assert Map.take(payload_epic, ~w(key label merged total features)) == %{"key" => "program", "label" => "Program", "merged" => 1, "total" => 1, "features" => ["core"]}
   end
 
