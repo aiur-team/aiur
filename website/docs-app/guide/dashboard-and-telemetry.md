@@ -90,9 +90,7 @@ and the latest entries, with one retry after the next journal append.
 
 ### Build timeline filters
 
-Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
-Done, Weighted, and scope figures. Unknown figures show `—` with a reason on
-hover.
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature Done, Weighted, and scope figures. Unknown figures show `—` with a reason on hover.
 
 Focus dims unrelated tickets; Compact replaces unrelated runs with gap
 markers and retains loaded dependencies as dashed ghost cards. Earlier history
@@ -122,7 +120,7 @@ Finished features stay listed with green bars; partial bars are blue. The amber 
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 
-An [epic](../concepts/build-orders.md) that holds features gets its own merged/total row; its features follow, indented, in the epic's order, and a ticket two of them share counts once. Epics sort by their first feature's `feature_order` position, then creation; features no epic lists come last under **No epic**. Clicking an epic focuses the timeline on its features.
+An [epic](../concepts/build-orders.md) that holds features gets its own merged/total row; its features follow, indented, in the epic's order, and a shared ticket counts once. Epics sort by their first feature's `feature_order` position, then creation; features no epic lists come last under **No epic**. Clicking one focuses the timeline on its features.
 
 The Lanes list counts matching tickets per lane, including feature-owned ones, so totals overlap, and each row keeps the lane's stored colour.
 
