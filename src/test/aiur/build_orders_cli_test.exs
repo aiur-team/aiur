@@ -404,6 +404,16 @@ defmodule Aiur.BuildOrdersCLITest do
              BuildOrdersCLI.build(contract: "build-order.v1", root: "missing", source: Source)
   end
 
+  # The projection source reports a typed atom when a selected read fails. The
+  # published contract promises a message, so the atom must be translated here
+  # rather than leaking to the CLI's error line or the endpoint's envelope.
+  test "translates an unavailable selected root into a message on the published contract" do
+    Process.put(:build_orders_selected, {:error, :unavailable})
+
+    assert {:error, "could not read the Build Order projection"} =
+             BuildOrdersCLI.build(contract: "build-order.v1", root: "100", source: Source)
+  end
+
   defp root(identity) do
     RootSummary.new(%{
       identity: identity,

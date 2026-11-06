@@ -40,16 +40,19 @@ defmodule AiurWeb.BuildOrderApiController do
   defp root_opts(%{"root" => root}) when is_binary(root) and root != "", do: [root: root]
   defp root_opts(_params), do: []
 
-  defp failure(conn, reason) when is_binary(reason) do
+  # `BuildOrdersCLI.build/1` promises a message, but an injected projection source
+  # may still report a typed atom. Normalise once here so every failure becomes a
+  # typed envelope instead of a `FunctionClauseError`.
+  defp failure(conn, reason) do
+    message = if is_binary(reason), do: reason, else: "could not read the Build Order projection"
+
     cond do
-      reason =~ "could not find" -> error(conn, 404, :build_order_not_found, reason)
-      reason =~ "ambiguous" -> error(conn, 409, :build_order_ambiguous, reason)
-      reason =~ "expected --contract" -> error(conn, 422, :invalid_request, reason)
-      true -> error(conn, 503, :build_order_unavailable, reason)
+      message =~ "could not find" -> error(conn, 404, :build_order_not_found, message)
+      message =~ "ambiguous" -> error(conn, 409, :build_order_ambiguous, message)
+      message =~ "expected --contract" -> error(conn, 422, :invalid_request, message)
+      true -> error(conn, 503, :build_order_unavailable, message)
     end
   end
-
-  defp failure(conn, _reason), do: error(conn, 503, :build_order_unavailable, "could not read the Build Order projection")
 
   defp error(conn, status, code, message),
     do: respond(conn, status, %{error: %{code: code, message: message}})

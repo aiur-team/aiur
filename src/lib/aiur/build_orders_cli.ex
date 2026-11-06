@@ -53,7 +53,7 @@ defmodule Aiur.BuildOrdersCLI do
       @contract_name ->
         case published(opts) do
           {:ok, document} -> {:ok, JSONSafe.normalize(document)}
-          {:error, reason} -> {:error, contract_error(reason)}
+          {:error, reason} -> {:error, reason}
         end
 
       _other ->
@@ -93,17 +93,21 @@ defmodule Aiur.BuildOrdersCLI do
 
   def published(_opts), do: {:error, "could not read the Build Order projection"}
 
-  defp contract_error(:not_found), do: "could not find the requested Build Order"
-  defp contract_error(:ambiguous), do: "cannot select an ambiguous Build Order"
-  defp contract_error(:unavailable), do: "could not read the Build Order projection"
-  defp contract_error(reason) when is_binary(reason), do: reason
-  defp contract_error(_reason), do: "could not read the Build Order projection"
+  # The projection source reports a typed atom when a read fails, while the
+  # published contract promises a message. Translate at the projection seam so
+  # `published/1`'s contract stays honest and neither the CLI's error line nor
+  # the endpoint's envelope ever sees a bare atom.
+  defp published_error(:unavailable), do: "could not read the Build Order projection"
+  defp published_error(reason) when is_binary(reason), do: reason
+  defp published_error(_reason), do: "could not read the Build Order projection"
 
   defp published_selected(source, %Catalog{} = catalog, root, captured_at) do
     with {:ok, identity} <- root_identity(catalog, root),
          {:ok, %Snapshot{} = demanded} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}) do
       planning = refresh_due(source, identity, demanded, captured_at)
       {:ok, Published.encode(planning, now: captured_at)}
+    else
+      {:error, reason} -> {:error, published_error(reason)}
     end
   end
 
