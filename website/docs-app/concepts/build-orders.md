@@ -8,6 +8,15 @@ Existing Build Orders retain their typed members, lanes, phases, dependencies,
 complexity, and optional icons as readable planning history. The pack and root
 commands below describe those legacy artifacts.
 
+## The published graph
+
+A Build Order is also published as a versioned document, `build-order.v1`, from `@aiur/contracts`.
+It carries the epics, features, lanes, tickets, typed edges, gates, waves, critical path and progress
+of one root, so a tool can render the same review and graph without a running daemon.
+
+An unavailable tracker publishes `status: "unknown"` with a reason, never an empty graph. The schema,
+fixtures and generated types live in `packages/aiur-contracts`.
+
 ## Pack contents
 
 | File or field | Purpose |
