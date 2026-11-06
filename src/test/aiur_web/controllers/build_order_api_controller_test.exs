@@ -49,7 +49,11 @@ defmodule AiurWeb.BuildOrderApiControllerTest do
       BuildOrderApiController.show(api_conn(:get, PublishedReference.unavailable_source()), %{"root" => "7490"})
 
     assert conn.status == 503
-    assert %{"error" => %{"code" => "build_order_unavailable"}} = Jason.decode!(conn.resp_body)
+
+    # The source reports a typed atom; the projection seam turns it into a
+    # message before the endpoint matches on it, so the envelope stays typed.
+    assert %{"error" => %{"code" => "build_order_unavailable", "message" => "could not read the Build Order projection"}} =
+             Jason.decode!(conn.resp_body)
   end
 
   test "an unavailable catalog still returns a document with unknown sources" do
