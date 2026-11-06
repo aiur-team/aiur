@@ -78,7 +78,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
 - **Outcome.** `Aiur.Ownership.GitHubRef` reads, claims, transfers and releases the ownership record (S1) with
   compare-and-set only, and classifies every response as `:won`, `:lost` or `:unknown`.
 - **Next action.** Create `src/lib/aiur/ownership/github_ref.ex` with `read/2`, `claim/3`, `transfer/4`,
-  `release/3`. Every write sends `beforeOid` (the observed head, or zeros for a first claim).
+  `release/3`, and `list_owned/3` (paged prefix listing: a failed page is `{:unknown, _}`, never a partial `:ok`). Every write sends `beforeOid` (the observed head, or zeros for a first claim).
 - **Files.** `src/lib/aiur/ownership/github_ref.ex`, `src/lib/aiur/ownership/record.ex` (new); reuse
   `src/lib/aiur/github/transport/graphql.ex` and `src/lib/aiur/github/client.ex`; tests
   `src/test/aiur/ownership/github_ref_test.exs`, `src/test/aiur/ownership/record_test.exs`.
@@ -89,6 +89,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
   - [ ] `claim/3` and `transfer/4` both write `epoch = previous_epoch + 1`, including a claim of a `released` ticket; a stale `beforeOid` returns `:lost`.
   - [ ] The record carries `daemon_key` (the instance key) beside `gateway_id`.
   - [ ] Ownership reads bypass `Aiur.GitHub.ReadCache` (test asserts no cache lookup).
+  - [ ] `list_owned/3` over 127 refs returns all 127 in two pages; a page-2 failure returns `{:unknown, _}`, not a partial list.
 - **Research MPG-102R** (complexity 2, depends on MPG-101). Request shapes, the tree/commit write sequence, budget
   attribution through the GitHub budget broker, and the `owner.json` encoder.
 
