@@ -80,6 +80,10 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
 
   defp join_owner(nil, operation, plan, _), do: push(plan, :adds, operation)
   defp join_owner(%{feature: slug, epic: epic}, {slug, _, epic, _}, plan, _), do: plan
+  # A member whose lane label is absent from this snapshot keeps its lane epic: History
+  # drops and restores lane labels, and following it flapped 304 members 100k times (#7680).
+  # ponytail: a genuinely removed lane label leaves the member in its old lane epic.
+  defp join_owner(%{feature: slug}, {slug, _, "f-" <> slug, _}, plan, _), do: plan
   defp join_owner(%{feature: slug}, {slug, _, _, _} = operation, plan, _), do: push(plan, :adds, operation)
 
   defp join_owner(%{feature: "bo-" <> _, source: @source}, {_, [n], _, _} = operation, plan, context) do

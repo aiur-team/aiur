@@ -10,6 +10,9 @@ defmodule Aiur.BuildQueue.ReadModel.SetSources do
   def unavailable?(%{kind: :feature, feature: slug}, _build_orders, state),
     do: Map.get(Map.get(state, :sources, %{}), "feature:#{slug}") != :current
 
+  def unavailable?(%{kind: :epic, epic: slug}, _build_orders, state),
+    do: Map.get(Map.get(state, :sources, %{}), "epic:#{slug}") != :current
+
   def unavailable?(_queue, _build_orders, _state), do: false
 
   # The registry is a local read, so a current sync is observed now; a failed sync keeps its reason.
@@ -19,9 +22,9 @@ defmodule Aiur.BuildQueue.ReadModel.SetSources do
     sources = Map.get(state, :sources, %{})
 
     Map.new(
-      document.queues |> Enum.filter(&(&1.kind == :feature)),
+      document.queues |> Enum.filter(&(&1.kind in [:feature, :epic])),
       fn queue ->
-        key = "feature:#{queue.feature}"
+        key = BuildOrderCommands.source_status_key(queue)
 
         case Map.get(sources, key) do
           :current -> {key, ReadModel.source(now, now, max_age, [])}
@@ -34,7 +37,7 @@ defmodule Aiur.BuildQueue.ReadModel.SetSources do
 
   @doc "Registry or root members another entry already owns, named by the entry that holds them."
   @spec elsewhere(map(), map()) :: list()
-  def elsewhere(%{kind: kind} = queue, state) when kind in [:build_order, :feature],
+  def elsewhere(%{kind: kind} = queue, state) when kind in [:build_order, :feature, :epic],
     do: Map.get(Map.get(state, :sources, %{}), BuildOrderCommands.elsewhere_key(queue), [])
 
   def elsewhere(_queue, _state), do: []
