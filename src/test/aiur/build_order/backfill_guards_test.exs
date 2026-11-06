@@ -8,7 +8,7 @@ defmodule Aiur.BuildOrder.BackfillGuardsTest do
     dir = Aiur.TestSupport.tmp_root!("backfill-guards")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
-    start_supervised!({EpicOverrides, name: name, state_dir: Path.join(dir, "epics"), repository: "acme/app", settings_fun: fn -> {:ok, %{build_order: %{general_epics: @general}}} end})
+    start_supervised!({EpicOverrides, name: name, state_dir: Path.join(dir, "epics"), repository: "acme/app", settings_fun: fn -> {:ok, %{build_order: %{lanes: @general}}} end})
     features = start_supervised!({Features, name: nil, state_dir: Path.join(dir, "features"), general_epics: fn -> {:ok, @general} end})
     %{epics: [server: name], features: [server: features, actor: "cli:kevin", source: "cli:kevin"]}
   end

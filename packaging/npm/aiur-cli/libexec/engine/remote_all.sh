@@ -49,6 +49,9 @@ ensure_remote_all_read_command() {
     epic)
       case "${1:-}" in show | list) ;; *) allowed=0 ;; esac
       ;;
+    lane)
+      case "${1:-}" in show | list) ;; *) allowed=0 ;; esac
+      ;;
     feature)
       [ "${1:-}" = "show" ] || allowed=0
       ;;

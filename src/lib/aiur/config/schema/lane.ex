@@ -1,5 +1,11 @@
-defmodule Aiur.Config.Schema.GeneralEpic do
-  @moduledoc "One configured general epic, with normalized GitHub label matchers."
+defmodule Aiur.Config.Schema.Lane do
+  @moduledoc """
+  One configured lane: a technical column such as frontend, backend or docs.
+
+  A lane is matched by its GitHub label matchers, and a ticket labelled
+  `lane:<key>`, `area:<key>` or `build-lane:<key>` also lands in the lane
+  carrying that key. See `Aiur.Lane` for ticket-to-lane resolution.
+  """
 
   use Ecto.Schema
 
@@ -10,22 +16,22 @@ defmodule Aiur.Config.Schema.GeneralEpic do
   @primary_key false
 
   embedded_schema do
-    # @config-reference config-configuration-build-order-00 build_order.general_epics.key
+    # @config-reference config-configuration-build-order-00 build_order.lanes.key
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail build_order.general_epics.key | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
+    # @config-detail build_order.lanes.key | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
     field(:key, :string)
-    # @config-reference config-configuration-build-order-00 build_order.general_epics.label
-    # @config-detail build_order.general_epics.label | string | required | Column header text, without control characters. |
+    # @config-reference config-configuration-build-order-00 build_order.lanes.label
+    # @config-detail build_order.lanes.label | string | required | Column header text, without control characters. |
     field(:label, :string)
-    # @config-reference config-configuration-build-order-00 build_order.general_epics.labels
+    # @config-reference config-configuration-build-order-00 build_order.lanes.labels
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail build_order.general_epics.labels | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
+    # @config-detail build_order.lanes.labels | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one lane only. `epic:` matchers are refused because they mark parked tickets. |
     field(:labels, {:array, :string}, default: [])
-    # @config-reference config-configuration-build-order-00 build_order.general_epics.hue
-    # @config-detail build_order.general_epics.hue | integer | required | Colour hue, 0–359. |
+    # @config-reference config-configuration-build-order-00 build_order.lanes.hue
+    # @config-detail build_order.lanes.hue | integer | required | Colour hue, 0–359. |
     field(:hue, :integer)
-    # @config-reference config-configuration-build-order-00 build_order.general_epics.icon
-    # @config-detail build_order.general_epics.icon | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
+    # @config-reference config-configuration-build-order-00 build_order.lanes.icon
+    # @config-detail build_order.lanes.icon | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
     field(:icon, :string)
   end
 
@@ -33,12 +39,12 @@ defmodule Aiur.Config.Schema.GeneralEpic do
   def icons, do: Heroicons.names() ++ ~w(bug pen server docs)
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
-  def changeset(epic, attrs) do
-    epic
+  def changeset(lane, attrs) do
+    lane
     |> cast(attrs, [:key, :label, :labels, :hue, :icon], empty_values: [])
     |> validate_required([:key, :label, :hue, :icon])
     |> validate_format(:key, ~r/\A[a-z0-9][a-z0-9_-]*\z/, message: "must be a lowercase identifier (letters, digits, dash, underscore)")
-    |> validate_exclusion(:key, ["unsorted"], message: "is reserved for the column of tickets with no epic")
+    |> validate_exclusion(:key, ["unsorted"], message: "is reserved for the column of tickets with no lane")
     |> validate_change(:label, &validate_label/2)
     |> validate_number(:hue, greater_than_or_equal_to: 0, less_than: 360)
     |> validate_change(:icon, &validate_icon/2)
@@ -71,7 +77,7 @@ defmodule Aiur.Config.Schema.GeneralEpic do
     end
   end
 
-  @doc "Whether ticket labels match any configured label of a general epic."
+  @doc "Whether a ticket's labels are listed as matchers of this lane."
   @spec matches?(map(), list() | nil) :: boolean()
   def matches?(%{labels: matchers}, labels) do
     labels = normalize_labels(labels)

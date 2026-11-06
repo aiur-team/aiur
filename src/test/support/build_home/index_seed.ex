@@ -9,7 +9,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
   end
 
   def start(data, dir) when is_map(data) do
-    settings = %{build_order: %{general_epics: IndexParts.general()}, tracker: %{github: %{label_prefix: "agent"}}}
+    settings = %{build_order: %{lanes: IndexParts.general()}, tracker: %{github: %{label_prefix: "agent"}}}
     {:ok, history} = History.start_link(name: nil, repository: "example/aiur-fixture", state_dir: Path.join(dir, "history"), flush_ms: 60_000)
 
     {:ok, features} =

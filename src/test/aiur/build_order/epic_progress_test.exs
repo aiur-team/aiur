@@ -6,12 +6,12 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   alias Aiur.Heroicons
 
   test "epic progress counts every matching label regardless of feature ownership" do
-    ui = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: [" AREA:UI "], hue: 120, icon: "pen"}
-    docs = %Aiur.Config.Schema.GeneralEpic{key: "docs", label: "Docs", labels: ["area:docs"], hue: 240, icon: "docs"}
+    ui = %Aiur.Config.Schema.Lane{key: "ui", label: "UI", labels: [" AREA:UI "], hue: 120, icon: "pen"}
+    docs = %Aiur.Config.Schema.Lane{key: "docs", label: "Docs", labels: ["area:docs"], hue: 240, icon: "docs"}
     p = parts([row(1, %{labels: [" Area:Ui "], lifecycle: %Lifecycle{state: :open}}), row(2, %{labels: ["area:ui", "area:docs"]}), row(3)])
     feature = %{slug: "pag", label: "Pagination", hue: 175, epics: [%{key: "f-pag", label: "Page"}], from: now(), to: :none, baseline: :none}
 
-    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [ui, docs])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :lanes], [ui, docs])
 
     p =
       p
@@ -33,9 +33,9 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   end
 
   test "legacy snapshots count and incomplete rows preserve only certain epic membership" do
-    epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
+    epic = %Aiur.Config.Schema.Lane{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
     p = parts([row(1, %{labels: ["area:ui"], labels_complete: :unknown})])
-    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :lanes], [epic])
     p = Map.put(p, :settings, {:ok, settings})
 
     assert {:ok, index} = assemble(p)
@@ -52,10 +52,10 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   end
 
   test "incomplete labels only hide epics the row could still join" do
-    epic_a = %Aiur.Config.Schema.GeneralEpic{key: "a", label: "A", labels: ["area:a"], hue: 120, icon: "pen"}
-    epic_b = %Aiur.Config.Schema.GeneralEpic{key: "b", label: "B", labels: ["area:b"], hue: 240, icon: "docs"}
+    epic_a = %Aiur.Config.Schema.Lane{key: "a", label: "A", labels: ["area:a"], hue: 120, icon: "pen"}
+    epic_b = %Aiur.Config.Schema.Lane{key: "b", label: "B", labels: ["area:b"], hue: 240, icon: "docs"}
     p = parts([row(1, %{labels: ["area:a"], labels_complete: false}), row(2, %{labels: ["area:other"]})])
-    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic_a, epic_b])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :lanes], [epic_a, epic_b])
     p = Map.put(p, :settings, {:ok, settings})
 
     assert {:ok, index} = assemble(p)
@@ -80,7 +80,7 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   end
 
   test "epic progress counts history maps without a label completeness marker" do
-    epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
+    epic = %Aiur.Config.Schema.Lane{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
 
     sources = %{
       history: %{state: "ok", observed_at: now()},
@@ -98,9 +98,9 @@ defmodule Aiur.BuildOrder.EpicProgressTest do
   end
 
   test "epic progress excludes unpublished planned rows without label records" do
-    epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
+    epic = %Aiur.Config.Schema.Lane{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
     p = parts([row(1, %{labels: ["area:ui"]})])
-    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :lanes], [epic])
     p = p |> Map.put(:settings, {:ok, settings}) |> put_in([:planned, :rows], [plan_row(99)])
 
     assert {:ok, index} = assemble(p)

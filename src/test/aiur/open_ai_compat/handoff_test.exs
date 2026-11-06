@@ -19,6 +19,23 @@ defmodule Aiur.OpenAICompat.HandoffTest do
     ]
   end
 
+  # A provider whose own config names no model — the live OpenRouter registry
+  # entry. The dispatch-time route (`agent.priority: ["openrouter:<model>"]`)
+  # named the model once, in the session options; nothing else carries it.
+  defp route_only_opts(parent, responses, model) do
+    queue = start_response_queue(responses)
+
+    [
+      backend: "openrouter",
+      api_key_fetcher: fn _env -> @secret end,
+      request_fun: queue_fun(queue, parent)
+    ]
+    |> maybe_put_model(model)
+  end
+
+  defp maybe_put_model(opts, model) when is_binary(model), do: Keyword.put(opts, :model, model)
+  defp maybe_put_model(opts, _model), do: opts
+
   defp start_response_queue(responses) do
     {:ok, queue} = Agent.start_link(fn -> responses end)
     queue
@@ -132,6 +149,92 @@ defmodule Aiur.OpenAICompat.HandoffTest do
     assert Enum.any?(messages, &(&1["role"] == "user" and &1["content"] == "Inspect the workspace"))
     assert Enum.any?(messages, &(&1["role"] == "tool" and &1["content"] =~ "workspace evidence"))
     assert {:ok, _} = CodingAgent.stop_session(restored)
+  end
+
+  test "a snapshot carries the route's model and never the credentials", %{workspace: workspace} do
+    parent = self()
+    route_model = "deepseek/deepseek-v4.1-flash-1017"
+    {:ok, session} = CodingAgent.start_session(workspace, route_only_opts(parent, [final_response()], route_model))
+    session = Map.put(session, :backend, "openrouter")
+    assert {:ok, %{result: :turn_completed}} = CodingAgent.run_turn(session, "Inspect the workspace", issue(), turn_opts(parent))
+    flush_requests()
+
+    assert {:ok, provider_state} = Handoff.snapshot(session)
+    assert provider_state["model"] == route_model
+    assert Session.get(session.session_pid).config.model == route_model
+
+    encoded = Jason.encode!(provider_state)
+    assert encoded =~ route_model
+    refute encoded =~ @secret
+    refute encoded =~ "api_key"
+    assert {:ok, _} = CodingAgent.stop_session(session)
+  end
+
+  test "adoption starts the route's model when the provider config names none", %{workspace: workspace} do
+    parent = self()
+    route_model = "deepseek/deepseek-v4.1-flash-1017"
+    {:ok, session} = CodingAgent.start_session(workspace, route_only_opts(parent, [final_response()], route_model))
+    session = Map.put(session, :backend, "openrouter")
+    assert {:ok, %{result: :turn_completed}} = CodingAgent.run_turn(session, "Inspect the workspace", issue(), turn_opts(parent))
+    flush_requests()
+
+    assert {:ok, provider_state} = Handoff.snapshot(session)
+    saved_messages = provider_state["messages"]
+    assert {:ok, _} = CodingAgent.stop_session(session)
+
+    # The successor daemon's config resolves no model — `agent.priority` named it
+    # only in the route — so the snapshot's model is the only way this session
+    # comes back on the model dispatch chose instead of `:missing_model` (#7548).
+    record = in_daemon_record(workspace, provider_state) |> Map.put("backend", "openrouter")
+
+    assert {:ok, restored} = CodingAgent.adopt_handoff_session(record, route_only_opts(parent, [final_response()], nil))
+    assert restored.model == route_model
+    assert Session.get(restored.session_pid).config.model == route_model
+    assert %{messages: ^saved_messages} = Session.get(restored.session_pid)
+
+    # The restored conversation continues on the same model, not a backend default.
+    assert {:ok, %{result: :turn_completed}} = CodingAgent.resume_handoff_turn(restored, turn_opts(parent))
+    assert_receive {:request, request}, 1_000
+    assert request.json["model"] == route_model
+    assert {:ok, _} = CodingAgent.stop_session(restored)
+  end
+
+  test "adoption reads the saved session's model from a record written before the snapshot carried it", %{
+    workspace: workspace
+  } do
+    parent = self()
+    route_model = "deepseek/deepseek-v4.1-flash-1017"
+    {:ok, session} = CodingAgent.start_session(workspace, route_only_opts(parent, [final_response()], route_model))
+
+    # The runner tags a started session with the backend and model it resolved;
+    # that session map is what an older daemon's record carries in
+    # `session_state`, without a `model` field of its own in the snapshot.
+    session = session |> Map.put(:backend, "openrouter") |> Map.put(:model, route_model)
+    assert {:ok, %{result: :turn_completed}} = CodingAgent.run_turn(session, "Inspect the workspace", issue(), turn_opts(parent))
+    flush_requests()
+
+    assert {:ok, provider_state} = Handoff.snapshot(session)
+    assert {:ok, _} = CodingAgent.stop_session(session)
+
+    record =
+      in_daemon_record(workspace, Map.delete(provider_state, "model"))
+      |> Map.put("backend", "openrouter")
+      |> Map.put("session_state", RunnerHandoff.encode(session))
+
+    assert {:ok, restored} = CodingAgent.adopt_handoff_session(record, route_only_opts(parent, [final_response()], nil))
+    assert Session.get(restored.session_pid).config.model == route_model
+    assert {:ok, _} = CodingAgent.stop_session(restored)
+  end
+
+  test "adoption still names a missing model when the record carries none", %{workspace: workspace} do
+    parent = self()
+
+    # Nothing to restore and no config model, so the fallback must keep naming
+    # the cause rather than starting a session on an unknown model.
+    provider_state = %{"thread_id" => "thread-1", "turn_index" => 1, "next_request_id" => 2, "messages" => [], "model" => nil, "interrupted" => false}
+    record = in_daemon_record(workspace, provider_state) |> Map.put("backend", "openrouter")
+
+    assert {:error, :missing_model} = RunnerHandoff.attach(record, 2, route_only_opts(parent, [final_response()], nil))
   end
 
   test "a mid-turn hold captures at a step boundary and resumes the turn when the preflight aborts", %{workspace: workspace} do
