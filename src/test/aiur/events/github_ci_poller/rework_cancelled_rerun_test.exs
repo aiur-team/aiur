@@ -17,6 +17,11 @@ defmodule Aiur.Events.GithubCIPoller.ReworkCancelledRerunTest do
   }
 
   setup do
+    # `ReworkCICancel` reaches GitHub through `Access.parse_repo/0`, whose last
+    # fallback is the checkout's `origin` remote. The time-bomb rerun copies src
+    # to a directory outside any repository, so name the repo in the fixture
+    # instead of inheriting it from git (#7562).
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "aiur-team/aiur")
     root = Aiur.TestSupport.tmp_root!("rework_cancelled_rerun")
     File.mkdir_p!(root)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
