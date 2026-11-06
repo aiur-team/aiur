@@ -1,11 +1,11 @@
 defmodule Aiur.CommandsCLI.Repair do
   @moduledoc "`aiur commands repair`: quarantine unverifiable Decision journal records and restore writes (#7577)."
 
-  alias Aiur.DecisionStore
+  alias Aiur.Commands
 
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
-    case Keyword.get(opts, :repair_fun, &DecisionStore.repair_journal/0).() do
+    case Keyword.get(opts, :repair_fun, &Commands.repair_journal/0).() do
       {:ok, report} ->
         if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(json(report))), else: print(report)
         if report.health == :writable, do: 0, else: 1
