@@ -285,6 +285,12 @@ class ReviewCheckTests(unittest.TestCase):
             errors_for(document),
         )
 
+    def test_cyclic_pack_fails_even_with_a_supplied_document(self) -> None:
+        build = example()
+        build["tickets"][0]["depends_on"] = ["BO-002"]
+        errors = " ".join(errors_for(pack_walk_document(example()), build))
+        self.assertIn("review document: hard dependency cycle", errors)
+
     def test_missing_ticket_fails(self) -> None:
         document = pack_walk_document(example())
         document["tickets"] = [

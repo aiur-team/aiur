@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from publication_common import Report
 from publication_graph_document import (
     edges_of,
     pack_tickets,
     waves_by_ticket,
 )
+from validation_graph import dependency_closure
 
 
 def check_document_against_pack(
@@ -58,6 +60,10 @@ def _check_ticket_set(
 def _check_dependency_edges(
     tickets: dict[str, dict[str, Any]], document: dict[str, Any], report: Any,
 ) -> None:
+    closure_report = Report()
+    dependency_closure(tickets, closure_report)
+    for message in closure_report.errors:
+        report.error(f"review document: {message}")
     expected = {
         (ticket_id, dependency)
         for ticket_id, ticket in tickets.items()
