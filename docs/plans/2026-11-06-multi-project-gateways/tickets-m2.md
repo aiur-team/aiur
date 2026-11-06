@@ -10,7 +10,8 @@ Part of [the plan](../2026-11-06-multi-project-gateways.md). Conventions (titles
 ### Pin gateway identity in the remote registry
 
 - Plan id: MPG-201 · `lane:gateway-cli` · complexity 2 · depends on: MPG-001, MPG-201R
-- **Outcome.** Entries in `~/.aiur/remote-instances.yaml` may carry `gateway_id`, `label` and `tls_pin_sha256`. The
+- **Outcome.** Entries in `~/.aiur/remote-instances.yaml` may carry `gateway_id`, `label`, `tls_pin_sha256` and an
+  `allows` block (S2; read by MPG-206, ignored by the outbound parsers). The
   first successful call records the remote `gateway_id`; a later response with another id is refused.
 - **Next action.** Extend the awk parser in `engine/remote.sh` (around lines 93-328) to read the three optional keys,
   and compare `gateway_id` in each response before printing output.
@@ -98,14 +99,17 @@ Part of [the plan](../2026-11-06-multi-project-gateways.md). Conventions (titles
 ### Grant, revoke and inspect peer permissions on the receiving gateway
 
 - Plan id: MPG-206 · `lane:gateway-trust` · complexity 3 · depends on: MPG-205, MPG-002, MPG-206R
-- **Outcome.** `aiur gateway permissions [<peer>]`, `gateway grant <peer> <categories>`,
-  `gateway revoke <peer> [<categories>]` and `gateway trust <peer> --full` manage a `peers:` section in
-  `~/.aiur/machine`. They run only locally (refused over `--gateway`). Granting `read` takes effect at once; any
-  wider grant or `trust --full` is stored under `pending` and raised as a human-required Decision. It takes effect
-  only when answered from a signed-in dashboard session (Google or passkey); a client token cannot answer it.
+- **Outcome.** The receiving gateway enforces the `allows` block of its own registry entries (plan S2; Kevin
+  decided the grants live there). `aiur gateway permissions [<peer>]`, `gateway grant <peer> <categories>`,
+  `gateway revoke <peer> [<categories>]` and `gateway trust <peer> --full` edit that file locally and are refused
+  over `--gateway`. Granting `read` writes at once. A write category or `trust --full` raises a human-required
+  Decision and is written only after it is answered from a dashboard session signed in on this gateway (Google or
+  passkey); a client token cannot answer it. A hand edit of the file is equally valid and applies on reload.
 - **Settled.** Q5, decided by Kevin: read-only by default; full mutual trust is one command per side, confirmed by a signed-in human.
-- **Next action.** Add `src/lib/aiur/machine/settings/schema/peers.ex` and `src/lib/aiur/gateway/grants.ex`
-  (`allowed?(peer_id, category)`), and call `allowed?` from `control_controller.ex` for tokens with a `peer`.
+- **Next action.** Add `src/lib/aiur/gateway/registry.ex` (parse and validate S2, cached on file stat like
+  `Aiur.Machine.Settings.get/0`; `write/2` used only by local CLI and dashboard code) and
+  `src/lib/aiur/gateway/grants.ex` (`allowed?(peer_id, token_id, category)`), and call `allowed?` from
+  `control_controller.ex` for tokens with a `peer`.
 - **Files.** the two modules; `src/lib/aiur/gateway/cli.ex` (new); `packaging/npm/aiur-cli/libexec/aiur-gateway.sh`
   (new namespace file, sourced like `aiur-feature.sh`); `aiur-engine.sh` dispatch; tests
   `src/test/aiur/gateway/grants_test.exs`, `packaging/npm/aiur-cli/test/launcher-gateway.test.mjs`;
@@ -115,6 +119,12 @@ Part of [the plan](../2026-11-06-multi-project-gateways.md). Conventions (titles
   - [ ] Answering that Decision with a client token (any category) is refused.
   - [ ] `gateway trust <peer> --full`, once confirmed, grants `read, message, executor, agents, tickets, config` and never `trust`.
   - [ ] `aiur --gateway x gateway grant ...` exits 64 `grant changes are local to the receiving gateway`.
+  - [ ] **[fails without]** The receiver refuses every grant-changing call that arrives over `/api/v1/control`, even with a token whose peer holds every grantable category (403 `grants_are_local`), and audits it.
+  - [ ] **[fails without]** A hand edit adding `agents` to a peer entry's `allows.categories` lets that peer call `pause` after reload, with no command run.
+  - [ ] An entry with no `allows` block permits `read` only.
+  - [ ] A registry file with an inline `token:` value, or `trust` in `categories`, is rejected with the key named, and the last good registry stays in force.
+  - [ ] No allowlist entry reaches `Aiur.Gateway.Registry.write/2` (test walks the allowlisted modules' call graph via `xref`).
+  - [ ] A Decision raised by `gateway grant` on this gateway cannot be confirmed by a dashboard session on another gateway.
   - [ ] Every grant change and confirmation writes an audit line naming the actor kind.
 - **Research MPG-206R** (complexity 2). The Decision kind for pending grants, how the dashboard session proves a
   human, grant expiry (default: none for MVP), how revocation also revokes the peer's tokens.
@@ -154,12 +164,12 @@ Part of [the plan](../2026-11-06-multi-project-gateways.md). Conventions (titles
   `src/test/aiur/gateway/invites_test.exs`, `gateway_enroll_controller_test.exs`, `launcher-gateway.test.mjs`;
   docs `cli-gateways.md`.
 - **Acceptance.**
-  - [ ] **[fails without]** Join with a valid code creates a registry entry with `gateway_id`, a 0600 token file, and on B a `peers:` row with the invited grants.
+  - [ ] **[fails without]** Join with a valid code creates A's registry entry for B with `gateway_id` and a 0600 token file, and B's registry entry for A with `allows.categories` equal to the invited categories.
   - [ ] Reusing a code, using it after its TTL, or a hello fingerprint that differs from the code: refused, nothing written on either side.
-  - [ ] `invite` is local only; an invite wider than `read` creates pending grants (same rule as MPG-206).
-- **Settled.** Q5, decided by Kevin: read-only by default; full mutual trust is one command per side, confirmed by a signed-in human.
+  - [ ] `invite` is local only; an invite naming a write category needs the same signed-in confirmation on B as MPG-206 before B's entry gets it.
   - [ ] `gateway register <name> --url <u> --token-file <f>` (manual, no invite) works with no Tailscale.
   - [ ] `gateway rotate <peer>` issues a new token, keeps the old one valid for 10 minutes, then revokes it.
+- **Settled.** Q5, decided by Kevin: read-only by default; full mutual trust is one command per side, confirmed by a signed-in human.
 - **Research MPG-208R** (complexity 2). Code encoding (default: `aiur-invite:` + base64url JSON), TLS fingerprint
   source when a tunnel terminates TLS (default: pin disabled, token only, warn).
 
@@ -182,8 +192,9 @@ Part of [the plan](../2026-11-06-multi-project-gateways.md). Conventions (titles
 ### Prove registered gateways and remote control between PC and Nook
 
 - Plan id: MPG-210 · `lane:acceptance` · complexity 3 · depends on: MPG-202, -203, -204, -206, -208, -209, MPG-210R
-- **Outcome.** Live evidence for acceptance tests G1-G9 in the plan.
+- **Outcome.** Live evidence for acceptance tests G1-G10 in the plan.
 - **Acceptance.**
-  - [ ] Each of G1-G9 has a recorded command, its output (secrets and addresses redacted) and pass/fail.
+  - [ ] Each of G1-G10 has a recorded command, its output (secrets and addresses redacted) and pass/fail.
   - [ ] With a `message`-only token, POST a grant-changing expression straight to `/api/v1/control` (bypassing the CLI gate): 403 from the receiver, and the audit log shows the denial.
+  - [ ] G10: with PC fully trusted on Nook's side and Nook fully trusted on PC's side, PC sends Nook a remote command granting PC (and then a third registered gateway) `agents` on Nook: Nook refuses both, Nook's registry file is byte-for-byte unchanged, and Nook's audit log shows two denials.
 - **Research MPG-210R** (complexity 1). Runbook with exact commands and expected outputs.

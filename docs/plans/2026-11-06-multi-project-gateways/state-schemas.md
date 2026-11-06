@@ -3,17 +3,29 @@
 Part of [the plan](../2026-11-06-multi-project-gateways.md), which holds S1 (the ownership record). Field names here are
 the contract the tickets implement.
 
-**S2 Registry entry** (`~/.aiur/remote-instances.yaml`, version 1; new keys optional):
+**S2 Gateway registry config: one peer entry** (`~/.aiur/remote-instances.yaml`, version 1, mode 0600, outside
+Git; new keys optional). Kevin decided that a gateway's write grants live here: this file is the source of truth the
+gateway enforces for incoming calls. CLI and dashboard grant actions edit it; a hand edit is equally valid. No remote
+command can write it. Secrets never appear in it, only references to them.
 
 ```yaml
-instances:
+version: 1
+instances:                                   # one entry per peer gateway; the key is a local name
   nook:
-    url: https://<endpoint>
-    token_file: ~/.aiur/peers/nook.token      # mode 0600; or token_env: AIUR_TOKEN_NOOK
-    gateway_id: <26 base32>                   # pinned; a mismatch refuses the call
+    gateway_id: <26 base32>                  # peer identity, pinned; a response with another id is refused
     label: Nook
-    tls_pin_sha256: <hex>                     # only for self-signed endpoints
+    url: https://<endpoint>                  # where this gateway calls the peer; omit for an inbound-only peer
+    token_file: ~/.aiur/peers/nook.token     # credential reference for outbound calls (or token_env: AIUR_TOKEN_NOOK)
+    tls_pin_sha256: <hex>                    # optional, for self-signed endpoints
+    allows:                                  # what THIS peer may do on THIS gateway; enforced here
+      categories: [read]                     # default when absent: [read]
+      credentials: [<client token id>]       # ids of the peer's inbound tokens; hashes stay in client-tokens.json
 ```
+
+Directional: on Nook, the entry for PC says what PC may do on Nook; on PC, the entry for Nook says what Nook may do
+on PC. Categories: `read`, `message`, `executor`, `agents`, `tickets`, `config`; `trust` is rejected. Validation
+rejects inline secret keys (`token`, `secret`, `password`) and unknown categories. Today's launcher and Stream Deck
+parsers ignore the `allows` block.
 
 **S3 Machine config additions** (`~/.aiur/machine`, mode 0600, never in Git):
 
@@ -25,8 +37,6 @@ projects:
     priority: 1            # local fallback when no shared intent is known
 capacity: {max_agents: 12}
 coordination: {database_url_env: AIUR_LEASE_DATABASE_URL, offline_after_seconds: 180}
-peers:                     # receiver-side grants (MPG-206)
-  <peer gateway_id>: {label: PC, grants: [read, message], pending: [agents], token_ids: [<id>], added_at: <iso>}
 ```
 
 **S4 Shared intent** (coordination Postgres; mirrored locally as `intent/changes.ndjson`, `intent/registers.json`,

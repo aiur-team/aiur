@@ -225,7 +225,7 @@ Paths are under `src/lib/aiur/` unless they start with `src/`, `packaging/` or `
 
 - Plan id: MPG-701 · `lane:acceptance` · complexity 5 (capstone: two live machines, outages) · depends on:
   MPG-109, MPG-210, MPG-308..311, MPG-402, MPG-406, MPG-408, MPG-501, MPG-502, MPG-604, MPG-701R
-- **Outcome.** Recorded evidence for acceptance tests A1-A12 and G1-G9 (plan, section "Acceptance tests") on PC and
+- **Outcome.** Recorded evidence for acceptance tests A1-A12 and G1-G10 (plan, section "Acceptance tests") on PC and
   Nook, with PC running a second project, including restart cost before and after.
 - **Acceptance.**
   - [ ] Each test has its commands, redacted output and pass/fail in `docs/research/MPG-701-evidence.md`.

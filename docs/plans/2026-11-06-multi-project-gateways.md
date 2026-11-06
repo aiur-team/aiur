@@ -91,6 +91,8 @@ recommendation, not decided), **Open** (to settle; the plan proposes where noted
 | 33 | Verify identity before auto-enrol; stable ids independent of address | Recommended | Recommended | KTD-1, KTD-10 |
 | 34 | Trust | Per-peer, directional; easy human-approved full mutual trust | Decided | KTD-9, MPG-206 |
 | 34a | Default grant in a new invite (Q5) | Read-only; full mutual trust takes one command per side, confirmed by a signed-in human | Decided | MPG-206, MPG-208 |
+| 34b | Write authority over a gateway | Only the target gateway can grant another gateway write actions over it: through its own local config, CLI or dashboard, confirmed by a human signed in on that gateway. No self-grant, no grant by a third gateway, no grant by remote command even from a fully trusted peer | Decided | KTD-9, MPG-206, G10 |
+| 34c | Where grants live | In the receiving gateway's registry config, in its peer entries (S2): the enforced source of truth; CLI and dashboard edit it; a hand edit is equally valid; secrets only referenced; no remote command can write it | Decided | KTD-9, MPG-206 |
 | 39 | Merge the plan and file all 89 tickets | Approved | Decided | Ticket graph |
 | 35 | Remote operations | The full applicable CLI surface | Decided | MPG-203 |
 | 36 | Offline interactive requests | Fail at once; no queue in the MVP | Accepted | MPG-204 |
@@ -159,6 +161,7 @@ Run live on PC and Nook (MPG-109, MPG-210, MPG-701).
 | G7 | A command to an unreachable gateway fails promptly and clearly; nothing is queued |
 | G8 | Delegated tickets stay owned on GitHub while remote commands to the owner fail |
 | G9 | Existing `--instance` scripts and local CLI behave as before |
+| G10 | A peer with full trust on its own side tries, by remote command, to grant itself or a third gateway write access on a target: the target refuses, changes nothing and audits the denial |
 
 ### Scope boundaries
 
@@ -197,7 +200,8 @@ Run live on PC and Nook (MPG-109, MPG-210, MPG-701).
 - **KTD-8 Shared intent is a change log with per-writer slots** (section "Reconciliation").
 - **KTD-9 Permissions are a receiver-side, deny-by-default table per peer.** Categories: `read`, `message`,
   `executor`, `agents`, `tickets`, `config`, `trust`. `trust` is never granted to a peer. Grant changes are refused
-  over the network; locally a human or Executor may grant `read`, and wider grants wait for a human's confirmation.
+  over the network; locally a human or Executor may grant `read`, and wider grants wait for a human signed in on
+  that same gateway (Kevin decided: the target gateway authorises any write takeover of itself).
   Capability tokens (macaroons, Biscuit, UCAN) are rejected for now: no Elixir libraries, and attenuation does not
   stop an Executor asking for a wider token. Evidence:
   [gateway-enrollment-and-permissions.md](../research/multi-gateway/gateway-enrollment-and-permissions.md).
@@ -233,7 +237,7 @@ Each field has one owning layer. A higher layer may override a field only where 
 | Layer | Source | Owns |
 |---|---|---|
 | L0 | built-in defaults | everything, as fallback |
-| L1 | machine `~/.aiur/machine` | capacity, projects list, local paths, peers, coordination |
+| L1 | machine `~/.aiur/machine` | capacity, projects list, local paths, coordination (peer grants live in the registry config, S2) |
 | L2 | user global `~/.aiur/config` | workflow defaults for projects without their own file (today's behaviour) |
 | L3 | project `<repo>/.aiur/config` | tracker, prompts, hooks, routing, lanes, Build Order structure, project agent cap |
 | L4 | shared intent (Nook store, cached) | cross-project order, overrides, pause-all |
@@ -301,17 +305,22 @@ Rules for shared intent (S4), adopted from
 - **Registered** (an entry in the caller's registry) and **reachable** (answered within the timeout) are separate.
 - **Enrolment.** B runs `aiur gateway invite --grant <categories>` locally; A runs `aiur gateway join <code>`.
   The code carries B's url, gateway id, TLS fingerprint and a single-use secret with a 10-minute expiry. A checks B's
-  hello before sending anything. B stores a `peers:` row for A with the invited grants. Reverse access needs an invite
+  hello before sending anything. B writes its registry entry for A with `allows` set to the invited categories. Reverse access needs an invite
   on A: grants are directional. `gateway trust <peer> --full` grants every category except `trust`.
 - **Discovery** lists tailnet peers and registry entries that answer hello, marked `discovered (not enrolled)`.
   Discovery never grants anything. Manual `gateway register <name> --url --token-file` needs no Tailscale.
-- **Enforcement.** The receiver checks: token valid, token categories ∋ category, `peers[token.peer].grants` ∋
-  category, `dashboard_writable` for writes. `trust` is never reachable remotely.
-- **Who may grant.** Grant, revoke and invite are refused over the network. Locally a human or an Executor may
-  grant `read`. A wider grant, or `gateway trust --full`, is stored as `pending` and raised as a human-required
-  Decision; it takes effect only when answered from a signed-in dashboard session (Google or passkey), which no
-  Executor token can open. A TTY is not proof of a person: Executors drive terminals.
-- **Revocation and rotation.** `gateway revoke <peer>` deletes the row and revokes its tokens. `gateway rotate <peer>`
+- **Enforcement.** The receiver checks: token valid and listed in the peer entry's `allows.credentials`, token
+  categories ∋ category, the entry's `allows.categories` ∋ category (default `[read]`), `dashboard_writable` for writes. `trust` is never reachable remotely.
+- **Where grants live (Kevin decided).** In B's gateway registry config, in B's entry for each peer (`allows`, S2).
+  That file is what B enforces. B's CLI and dashboard grant actions edit it; a hand edit on B is equally valid and
+  takes effect on reload. Credentials are only referenced from it. No remote command can write it.
+- **Who may grant (Kevin decided).** Write authority that gateway A holds over gateway B exists only if B grants
+  it, on B. Grant, revoke and invite are refused over the network, whatever the caller's grants, so A cannot grant
+  itself access, a third gateway cannot grant it, and a fully trusted peer cannot either. Locally on B, `read` may be
+  granted by any local actor. Through B's CLI, a write category or `gateway trust --full` is written to the file
+  only after a human signed in on B's dashboard (Google or passkey) confirms the human-required Decision it raises;
+  no client token can confirm it. The dashboard grant action needs that same session. A TTY is not proof of a person: Executors drive terminals.
+- **Revocation and rotation.** `gateway revoke <peer>` empties the entry's `allows` and revokes its tokens. `gateway rotate <peer>`
   overlaps old and new tokens for 10 minutes.
 
 ### Remote CLI targeting and `--instance` compatibility
@@ -412,12 +421,12 @@ Each unit is a milestone; its tickets are the work packets. Milestone order foll
 |---|---|---|---|
 | U1 | M0 Contracts | MPG-001, 002 | unit tests; identity in every response |
 | U2 | M1 Durable ownership | MPG-101..109 | MPG-109 live: A1, A5, A6 with today's per-repo daemons |
-| U3 | M2 Gateways and remote CLI | MPG-201..210 | MPG-210 live: G1-G9 |
+| U3 | M2 Gateways and remote CLI | MPG-201..210 | MPG-210 live: G1-G10 |
 | U4 | M3 One daemon, many projects | MPG-301..311 | two-project test VM; A2, A3, A8 |
 | U5 | M4 Scheduler and shared intent | MPG-401..408 | allocation table tests; A4, A7, A11, A12 |
 | U6 | M5 Executors and delegation | MPG-501, 502 | A9, G8 |
 | U7 | M6 Project-first dashboard | MPG-601..604 | browser tests; A10 |
-| U8 | M7 MVP acceptance | MPG-701 | all of A1-A12 and G1-G9 |
+| U8 | M7 MVP acceptance | MPG-701 | all of A1-A12 and G1-G10 |
 
 Contracts: [M0-M1](2026-11-06-multi-project-gateways/tickets-m0-m1.md),
 [M2](2026-11-06-multi-project-gateways/tickets-m2.md), [M3](2026-11-06-multi-project-gateways/tickets-m3.md),
@@ -472,7 +481,7 @@ on its own.
 ## Definition of Done
 
 - All 89 tickets closed; every research doc exists at `docs/research/MPG-<n>.md`.
-- A1-A12 and G1-G9 recorded as passing in MPG-701's evidence.
+- A1-A12 and G1-G10 recorded as passing in MPG-701's evidence.
 - Single-repository installs and existing `--instance` users pass their current tests unchanged.
 - Docs updated: CLI reference (gateway namespace, `--gateway`, `--project`, ownership), configuration (machine
   sections, `instance.ownership`, server keys), concepts (gateways, ownership, shared intent).
