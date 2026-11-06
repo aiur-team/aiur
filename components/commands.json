@@ -40,6 +40,7 @@
     "Aiur.DecisionArtifact",
     "Aiur.DecisionEvent",
     "Aiur.DecisionRevision",
+    "AiurWeb.CommandMediaResponse",
     "AiurWeb.DecisionApiController",
     "AiurWeb.DecisionMediaController",
     "AiurWeb.Routes.Decisions"
