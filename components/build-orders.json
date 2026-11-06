@@ -9,10 +9,10 @@
     "src/lib/aiur/build_orders_cli.ex",
     "src/lib/aiur/build_progress.ex",
     "src/lib/aiur/epic_cli.ex",
-    "src/lib/aiur/lane_cli.ex",
     "src/lib/aiur/epic_confirmation_cli.ex",
     "src/lib/aiur/feature_cli.ex",
     "src/lib/aiur/feature_cli/**",
+    "src/lib/aiur/lane_cli.ex",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
     "src/lib/aiur_web/build_order_presenter/**"
