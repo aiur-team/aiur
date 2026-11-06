@@ -82,9 +82,9 @@ def check_graph_review(build_path: Path, review_path: Path) -> None:
     """Refuse a publication whose review contradicts its own graph.
 
     The published review reads waves, edges, critical path, progress and
-    grouping from one ``build-order.v1`` document. When the pack declares a
-    graph review, publication re-renders it from the pack walk and requires the
-    on-disk review to match, so a pack that would publish a contradictory
+    grouping from one ``build-order.v1`` document. When the operator passes the
+    published review, publication re-renders it from the pack walk and requires
+    the on-disk review to match, so a pack that would publish a contradictory
     review fails here instead.
     """
     publication_modules = Path(__file__).resolve().parent / "publication"

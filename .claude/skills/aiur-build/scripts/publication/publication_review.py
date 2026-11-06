@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import Any
 
 from publication_graph_document import (
-    DOCUMENT_DAEMON,
     DOCUMENT_PACK_WALK,
     document_source,
     edges_of,

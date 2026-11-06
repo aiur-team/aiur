@@ -26,7 +26,6 @@ from publication_graph_document import (  # noqa: E402
     load_document,
     pack_walk_document,
     read_daemon_document,
-    waves_by_ticket,
 )
 from publication_review import render_review  # noqa: E402
 from publication_review_checks import check_document_against_pack  # noqa: E402

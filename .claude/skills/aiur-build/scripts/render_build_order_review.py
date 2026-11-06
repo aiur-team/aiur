@@ -68,6 +68,8 @@ def main(argv: list[str]) -> int:
         help="compare the rendered review with this file instead of writing it",
     )
     args = parser.parse_args(argv[1:])
+    if args.root is not None and not args.from_daemon:
+        parser.error("--root is meaningful only with --from-daemon")
 
     try:
         build = json.loads(args.build.read_text(encoding="utf-8"))
