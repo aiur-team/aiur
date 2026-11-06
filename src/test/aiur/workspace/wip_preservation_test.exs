@@ -4,6 +4,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
 
   import Aiur.WipPreservationFixtures
 
+  alias Aiur.AgentPubSub
   alias Aiur.Workspace.{Refresh, Remove, WipPreservation}
 
   setup :runtime_state_dir!
@@ -40,7 +41,9 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert snapshot(workspace) == before
     end
 
-    test "a failed save keeps the dirty workspace, skips the recreate and names the hold reason", %{
+    # #7543: when the work cannot be saved, the workspace is kept and the
+    # worker runs in it. The ticket is not held on a pause nobody resumes.
+    test "a failed save keeps the dirty workspace, skips the recreate and dispatches into it", %{
       test_root: test_root,
       state_dir: state_dir
     } do
@@ -50,17 +53,22 @@ defmodule Aiur.Workspace.WipPreservationTest do
       before = snapshot(workspace)
       block_state_dir!(state_dir)
       subscribe!("ticket.#{identifier}.workspace.wip_preservation_failed")
+      subscribe!("ticket.#{identifier}.workspace.wip_preservation_skipped")
 
-      assert {:error, {:wip_preservation_failed, ^workspace, {:artifact_dir_unwritable, _path, _reason}}} =
-               Workspace.run_before_run_hook(workspace, todo_issue(identifier))
+      assert :ok = Workspace.run_before_run_hook(workspace, todo_issue(identifier))
 
+      # No recreate: the hook ran once and the dirty tree is untouched.
       assert trace_count(trace_path(trace_root, todo_issue(identifier))) == 1
       assert snapshot(workspace) == before
       assert git!(["-C", workspace, "status", "--porcelain"]) =~ "README.md"
 
-      assert_receive {:event, %{topic: "ticket." <> _} = event}, 1_000
-      assert event["message"] =~ "held"
-      assert event["message"] =~ workspace
+      failed = await_topic("ticket.#{identifier}.workspace.wip_preservation_failed")
+      assert failed["message"] =~ "could not be saved"
+
+      skipped = await_topic("ticket.#{identifier}.workspace.wip_preservation_skipped")
+      assert skipped["needs_attention"] == true
+      assert skipped["message"] =~ "dispatched into"
+      assert skipped["message"] =~ workspace
     end
 
     test "a remote worker holds the ticket instead of deleting its dirty checkout" do
@@ -76,6 +84,45 @@ defmodule Aiur.Workspace.WipPreservationTest do
                  context,
                  "worker-1"
                )
+    end
+  end
+
+  describe "untracked files the patch also touches" do
+    # #7543: the patch deletes a path the worktree still holds, because the
+    # agent dropped it from the index (`git rm --cached`) and kept the bytes.
+    # The reverse check of the saved patch must not read the untracked copy.
+    test "a path the patch deletes and the worktree still holds untracked is saved and restored", %{
+      test_root: test_root
+    } do
+      identifier = "WIP-UNTRACKED-DELETE-#{System.unique_integer([:positive])}"
+      workspace = cloned_workspace!(test_root, identifier)
+      git!(["-C", workspace, "rm", "--cached", "--quiet", "doomed.txt"])
+      File.write!(Path.join(workspace, "README.md"), "agent edit\n")
+      before = snapshot(workspace)
+
+      assert {:ok, _} = Remove.remove(workspace, nil, ticket: identifier)
+      refute File.exists?(workspace)
+
+      assert [artifact] = WipPreservation.pending_notices(workspace, identifier)
+      assert "doomed.txt" in artifact["tracked_files"]
+      assert "doomed.txt" in artifact["untracked_files"]
+      refute File.exists?(Path.join(artifact["artifact_dir"], "reverse-check.index"))
+
+      clone_at!(test_root, workspace)
+      run_restore!(artifact)
+      assert snapshot(workspace) == before
+    end
+
+    test "a stale leftover with such a path is recreated instead of holding the ticket", %{test_root: test_root} do
+      identifier = "WIP-UNTRACKED-RECREATE-#{System.unique_integer([:positive])}"
+      {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier)
+      git!(["-C", workspace, "rm", "--cached", "--quiet", "doomed.txt"])
+      File.write!(Path.join(workspace, "README.md"), "agent edit\n")
+
+      assert :ok = Workspace.run_before_run_hook(workspace, todo_issue(identifier))
+      assert trace_count(trace_path(trace_root, todo_issue(identifier))) == 2
+      assert git!(["-C", workspace, "status", "--porcelain", "--untracked-files=all"]) == ""
+      assert [_artifact] = WipPreservation.pending_notices(workspace)
     end
   end
 
@@ -113,31 +160,39 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert WipPreservation.pending_notices(workspace) == []
     end
 
-    test "a failed save holds the ticket on a before_run pause with the dirty workspace intact", %{
+    # #7543: a leftover whose work cannot be saved is kept, and the worker runs
+    # in it. Holding the ticket on a preflight pause stranded it silently.
+    test "a failed save dispatches the worker into the kept workspace and raises attention", %{
       test_root: test_root,
       state_dir: state_dir
     } do
-      identifier = "WIP-HOLD-#{System.unique_integer([:positive])}"
+      identifier = "WIP-CONTINUE-#{System.unique_integer([:positive])}"
       codex_trace = Path.join(test_root, "codex.trace")
       {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier, fake_codex_opts!(test_root, codex_trace))
       File.write!(Path.join(workspace, "README.md"), "unsaved agent edit\n")
       block_state_dir!(state_dir)
+      :ok = AgentPubSub.subscribe_agent(identifier)
 
-      issue = %Issue{id: "issue-#{identifier}", identifier: identifier, title: "WIP hold", state: "todo", labels: ["agent:todo"]}
+      issue = %Issue{id: "issue-#{identifier}", identifier: identifier, title: "WIP continue", state: "todo", labels: ["agent:todo"]}
       test_pid = self()
-      task = Task.async(fn -> AgentRunner.run(issue, test_pid) end)
-      on_exit(fn -> if Process.alive?(task.pid), do: Process.exit(task.pid, :kill) end)
+
+      task =
+        Task.async(fn ->
+          AgentRunner.run(issue, test_pid, issue_state_fetcher: fn [_id] -> {:ok, [%{issue | state: "Done"}]} end)
+        end)
+
+      assert {:ok, :ok} = Task.yield(task, 20_000)
 
       issue_id = issue.id
-      assert_receive {:worker_control_state, ^issue_id, :paused, %{kind: :before_run_failure}}, 10_000
-      refute_receive {:codex_worker_update, ^issue_id, %{event: :session_started}}, 200
+      refute_receive {:worker_control_state, ^issue_id, :paused, _payload}, 200
+      skipped = await_alert("ticket.#{identifier}.workspace.wip_preservation_skipped")
+      assert skipped.needs_attention == true
+      assert skipped.reason =~ "dispatched into"
 
+      # The workspace was not recreated: the hook ran once and the edit stayed.
       assert File.read!(Path.join(workspace, "README.md")) == "unsaved agent edit\n"
       assert trace_count(trace_path(trace_root, issue)) == 1
-      refute File.exists?(codex_trace)
-      assert File.read!(Path.join([workspace, "logs", "agent.ndjson"])) =~ "wip_preservation_failed"
-
-      Task.shutdown(task, :brutal_kill)
+      assert File.exists?(codex_trace)
     end
   end
 
