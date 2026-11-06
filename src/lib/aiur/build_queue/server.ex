@@ -12,6 +12,7 @@ defmodule Aiur.BuildQueue.Server do
     ClaimProbe,
     Clear,
     Events,
+    FeatureWatch,
     Hints,
     LastRead,
     ListCommands,
@@ -69,6 +70,7 @@ defmodule Aiur.BuildQueue.Server do
       actions: [],
       holds: MapSet.new(),
       build_order_projection: Keyword.get(opts, :build_order_projection, BuildOrderSource.projection()),
+      feature_registry: Keyword.get(opts, :feature_registry, Aiur.BuildOrder.Features),
       sources: %{},
       source_verdicts: %{},
       source_refreshes: %{},
@@ -169,16 +171,16 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:mutate, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
 
-  def handle_call({:mutate, command}, _from, %{status: :running} = state) when elem(command, 0) in [:adopt, :unadopt] do
+  def handle_call({:mutate, command}, _from, %{status: :running} = state) when elem(command, 0) in [:adopt, :unadopt, :adopt_feature, :unadopt_feature] do
     verb = elem(command, 0)
-    root = elem(command, 1)
+    target = elem(command, 1)
 
     case BuildOrderCommands.prepare(state, command) do
       {:ok, document, actions, observations, updates} ->
         {reply, state} = commit_mutation(state, document, actions, observations)
-        if state.status != :store_unavailable and verb == :unadopt, do: BuildOrderCommands.release(root, state)
+        if state.status != :store_unavailable and verb == :unadopt, do: BuildOrderCommands.release(target, state)
         state = if state.status != :store_unavailable, do: Map.merge(state, Map.delete(updates, :refusals)), else: state
-        state = if verb == :adopt, do: BuildOrderCommands.refresh_unavailable(state), else: state
+        state = if verb in [:adopt, :adopt_feature], do: BuildOrderCommands.refresh_unavailable(state), else: state
         reply = if reply == :ok, do: {:ok, updates.refusals}, else: reply
         {:reply, reply, request(state)}
 
@@ -244,7 +246,7 @@ defmodule Aiur.BuildQueue.Server do
 
   @impl true
   def handle_info({:open_issues_recorded, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
-  def handle_info({:graph_projection_reset, _}, state), do: {:noreply, request(state)}
+  def handle_info({kind, _}, state) when kind in [:graph_projection_reset, :build_order_features_changed], do: {:noreply, request(state)}
 
   def handle_info({:event, %{topic: "ticket." <> topic}}, state) do
     state =
@@ -378,7 +380,7 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   defp sync_sources(%{phase: :ready, status: status} = state, observations) when status in [:running, :writes_paused] do
-    {document, actions, sources, verdicts} = BuildOrderCommands.sync(state)
+    {document, actions, sources, verdicts} = BuildOrderCommands.sync(state, observations)
     state = %{state | sources: sources, source_verdicts: verdicts} |> BuildOrderCommands.refresh_unavailable()
 
     if document == state.document do
@@ -476,12 +478,12 @@ defmodule Aiur.BuildQueue.Server do
     })
   end
 
-  defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: state
+  defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: FeatureWatch.subscribe(state)
 
   defp subscribe(state) do
     case GenServer.whereis(state.exchange) do
-      nil -> state
-      pid -> bind(state, pid)
+      nil -> FeatureWatch.subscribe(state)
+      pid -> bind(FeatureWatch.subscribe(state), pid)
     end
   end
 
