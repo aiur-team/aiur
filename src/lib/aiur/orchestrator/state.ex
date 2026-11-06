@@ -431,6 +431,8 @@ defmodule Aiur.Orchestrator.State do
   defdelegate completed_provenance?(entry), to: __MODULE__.RunningEntries
   @spec deactivated_running_entry?(term()) :: boolean()
   defdelegate deactivated_running_entry?(entry), to: __MODULE__.RunningEntries
+  @spec control_map(term()) :: map()
+  defdelegate control_map(entry), to: __MODULE__.RunningEntries
   @spec find_running_key_by_identifier(map(), String.t()) :: term() | nil
   defdelegate find_running_key_by_identifier(running, identifier), to: __MODULE__.RunningEntries
   @spec apply_pause_runtime_clock(map(), atom(), atom(), term()) :: map()

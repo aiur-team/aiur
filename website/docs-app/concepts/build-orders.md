@@ -8,6 +8,64 @@ Existing Build Orders retain their typed members, lanes, phases, dependencies,
 complexity, and optional icons as readable planning history. The pack and root
 commands below describe those legacy artifacts.
 
+## The published graph
+
+A Build Order is also published as a versioned document, `build-order.v1`, from `@aiur/contracts`.
+It carries the epics, features, lanes, tickets, typed edges, gates, waves, critical path and progress
+of one root, so a tool can render the same review and graph without a running daemon.
+
+An unavailable tracker publishes `status: "unknown"` with a reason, never an empty graph. The schema,
+fixtures and generated types live in `packages/aiur-contracts`.
+
+### Reading the published document
+
+| Surface | Returns |
+| --- | --- |
+| `GET /api/v1/build-order` | The whole catalog as one `build-order.v1` document. |
+| `GET /api/v1/build-order?root=<number>` | One selected root's document. |
+| `aiur build-orders --json --contract build-order.v1 [<root>]` | The same document from the CLI. |
+
+The document is derived from the same projection the dashboard renders. The join, wave numbering,
+critical path and progress roll cannot drift between the endpoint, the CLI and the page.
+
+The GitHub review the `aiur-build` skill publishes reads the same document: the daemon document when
+one is running, and otherwise a pack walk whose tracker and progress sources are `unknown`. A
+published review therefore cannot describe a graph the dashboard disagrees with.
+
+Node `id`s are the planning-pack ids (`BO-001`) when the projection holds them and tracker identifiers
+otherwise. `number` carries the tracker number, or `null` for a draft.
+
+Every typed edge is published with its `source`: `depends_on`, `serializes_with`, `suggested_after`,
+`contains` and `gates`. A `depends_on` edge carries one of `cleared`, `blocking`,
+`terminal_unsatisfied` or `unknown`; the other kinds carry no state.
+
+`gates` also appears as a top-level list carrying each external-gate record. A `depends_on` edge reads
+`from` depends on `to`, so its source is the dependent ticket and its target the blocker.
+
+A failed tracker or progress read still answers `200`. The document carries `status: "unknown"` with a
+reason on the affected source, epic, feature, lane and `progress`, plus every ticket the daemon still
+knows about.
+
+A missing root answers `404`, and a projection the daemon cannot read answers `503`. Both use the API's
+`{"error": {"code", "message"}}` envelope.
+
+### Rendering a published document outside aiur
+
+[`aiur-build-order`](https://github.com/aiur-team/aiur/tree/main/packages/aiur-build-order) renders the
+review and the graph from one published document, with no daemon, no network call and no UI framework.
+
+It parses `build-order.v1`, returns the review as static HTML and the graph as SVG, and defines an
+`<aiur-build-order>` element for a plain page that mounts either or both from a URL or an inline
+document.
+
+Because it reads the fields above — `waves`, `critical_path`, `progress` and the typed edges — and
+recomputes none of them, a page rendering a published document cannot disagree with the dashboard
+about waves, the critical path or progress. An `unknown` source renders the same explicit banner
+instead of an empty graph.
+
+The package [README](https://github.com/aiur-team/aiur/blob/main/packages/aiur-build-order/README.md)
+documents its exports, the element's attributes and a complete static-HTML example.
+
 ## Pack contents
 
 | File or field | Purpose |

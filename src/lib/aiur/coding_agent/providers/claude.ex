@@ -33,6 +33,9 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       can_interrupt: true,
       safe_checkpoints: [:notification],
       control_application_confirmation: :confirmed,
+      # A daemon restart hands this app-server's live provider process to the
+      # successor daemon over its relay port. See `Aiur.CodingAgent.handoff_kind/1`.
+      handoff: :relay,
       remote_control: true,
       # Remote control physically runs on the persistent-REPL transport,
       # so an RC-promoted claude issue dispatches claude-repl (carrying
@@ -120,6 +123,9 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},
       immediate_delivery: true,
       control_application_confirmation: :confirmed,
+      # The tmux pane keeps running across the restart; the successor daemon
+      # rebinds to the same pane and hook spool. See `Aiur.CodingAgent.handoff_kind/1`.
+      handoff: :repl,
       remote_control: true,
       # A tmux/RC start failure must never strand an issue: a failed
       # claude-repl spawn falls back once to the headless claude

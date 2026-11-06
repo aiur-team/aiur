@@ -54,8 +54,71 @@ defmodule Aiur.Usage.CLI do
     header = "#{provider}  #{item["freshness"] || "unknown"}  #{age(item["age_ms"])}  #{item["source"] || "unknown"}"
     details = item["fields"] |> Enum.sort_by(&elem(&1, 0)) |> Enum.map_join("\n", fn {key, value} -> "  #{key}: #{inspect(value)}" end)
     details = if provider == "netlify", do: netlify_summary(item["fields"]) <> if(details == "", do: "", else: "\n" <> details), else: details
+    details = if provider == "openrouter", do: openrouter_summary(item["fields"]), else: details
     if details == "", do: header, else: header <> "\n" <> details
   end
+
+  # OpenRouter's reading is two facts a reader wants line by line: what is left
+  # on the key, and what each route has spent. The generic field dump would
+  # print both as nested maps.
+  defp openrouter_summary(fields) do
+    [credit_line(Map.get(fields, "credits")) | route_lines(Map.get(fields, "routes"))]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp credit_line(%{} = credits) do
+    remaining = number(Map.get(credits, "remaining"))
+    limit = number(Map.get(credits, "limit"))
+    used = number(Map.get(credits, "used_percent"))
+
+    text =
+      cond do
+        is_nil(remaining) and is_nil(limit) -> "no reading"
+        is_nil(limit) -> money(remaining) <> " remaining"
+        is_nil(remaining) -> money(limit) <> " limit"
+        true -> money(remaining) <> " remaining of " <> money(limit) <> " limit"
+      end
+
+    "  credits: " <> if(is_number(used), do: "#{text} (#{used}% used)", else: text)
+  end
+
+  defp credit_line(_absent), do: "  credits: no reading"
+
+  defp route_lines(routes) when is_list(routes) and routes != [] do
+    Enum.flat_map(routes, &route_line/1)
+  end
+
+  defp route_lines(_absent), do: ["  routes: none configured"]
+
+  defp route_line(%{} = route) do
+    head = "  route: #{Map.get(route, "route")}"
+
+    case Map.get(route, "readings") do
+      [] ->
+        [head <> "  no reading"]
+
+      readings when is_list(readings) ->
+        Enum.map(readings, fn reading -> head <> "  " <> spend_line(reading) end)
+    end
+  end
+
+  defp route_line(_absent), do: []
+
+  defp spend_line(%{} = reading) do
+    via = Map.get(reading, "upstream")
+    amount = money(Map.get(reading, "amount"))
+    basis = Map.get(reading, "basis")
+    label = if is_binary(via), do: "via #{via}", else: "upstream unknown"
+    "#{label} #{amount} #{Map.get(reading, "currency")} (#{basis})"
+  end
+
+  defp money(value) when is_number(value), do: "$" <> to_string(value)
+  defp money(value) when is_binary(value), do: "$" <> value
+  defp money(_value), do: "unknown"
+
+  defp number(value) when is_number(value), do: value
+  defp number(_value), do: nil
 
   defp netlify_summary(fields) do
     credits = Map.get(fields, "credits", %{})

@@ -40,7 +40,7 @@ defmodule Aiur.VoiceConversation.Selection do
   end
 
   defp provider("openai_realtime", settings), do: {:ok, {VoiceConversation.OpenAIProvider, [voice_id: settings.voice_id]}}
-  defp provider("elevenlabs_agents", %{agent_id: id}) when is_binary(id), do: {:ok, {VoiceConversation.Provider, [agent_id: id]}}
+  defp provider("elevenlabs_agents", _settings), do: {:ok, {VoiceConversation.Provider, []}}
   defp provider(_choice, _settings), do: {:error, :unconfigured}
   defp provider_id("openai_realtime"), do: :openai_realtime
   defp provider_id("elevenlabs_agents"), do: :elevenlabs_agents

@@ -67,6 +67,11 @@ tick to jump and highlight that event; hover for its label and time. Focus the
 conversation to scroll with the keyboard. The working indicator appears only
 for an active agent with live conversation state and a live dashboard link.
 
+Dividers mark work start/end, first progress reports at or above 25%, 50% and
+75%, PR open/reviews/merge, and each pause or resume. Earlier entries collapse
+under **Reading ticket**. Persisted events restore them after restart; a missing
+start alert falls back to the first file edit.
+
 ### Conversation event navigation
 
 At `/conversations/:id`, use the Events rail to jump to progress, pushes,
@@ -114,11 +119,11 @@ Each registry feature and `feature:<slug>` label in history gets a row with its 
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). Sort by most done or most left stays in `fsort`. The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 
-Epics counts matching general epics, including feature-owned tickets, so totals
+Epics counts matching lanes, including feature-owned tickets, so totals
 overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
 tickets. Planned pack tickets without area labels are excluded; incomplete
 history or labels stay unknown. With no matches, see
-[`general_epics`](../reference/configuration-build-order.md#general-epics).
+[`lanes`](../reference/configuration-build-order.md#lanes).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
@@ -137,6 +142,12 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
+With an `openrouter:` route configured, the provider row shows the key's
+remaining credit against the limit it was bought with, and
+`aiur usage openrouter` lists each route's spend per route and model beside that
+reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
+the row reports an unknown reading rather than zero credit.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so

@@ -69,12 +69,12 @@ defmodule VoiceConverse.TranscriptStore do
   `session_started`. Fails with `:exists` if the conversation already has a transcript.
 
   Options (for tests): `:datasync` (`fd -> :ok | {:error, _}`, default `:file.datasync/1`) and
-  `:sync_fs` (`-> :ok | {:error, _}`, the creation barrier, default `sync(1)`).
+  `:sync_fs` (`-> :ok | {:error, _}`, the directory-entry creation barrier).
   """
   @spec open(Path.t(), String.t(), map(), keyword()) :: {:ok, t()} | {:error, term()}
   def open(root, conversation_id, session_started, opts \\ []) when is_map(session_started) do
     datasync = Keyword.get(opts, :datasync, &:file.datasync/1)
-    sync_fs = Keyword.get(opts, :sync_fs, &sync_filesystem/0)
+    sync_fs = Keyword.get(opts, :sync_fs, fn -> VoiceConverse.DirectorySync.ancestors(root) end)
     record = Map.merge(stringify(session_started), %{"type" => "session_started", "conversation_id" => conversation_id})
 
     with {:ok, path} <- path(root, conversation_id),
@@ -83,7 +83,7 @@ defmodule VoiceConverse.TranscriptStore do
          {:ok, fd} <- create(path) do
       store = %__MODULE__{conversation_id: conversation_id, path: path, fd: fd, datasync: datasync}
 
-      with :ok <- sync_fs.(), :ok <- write_line(store, line) do
+      with :ok <- :file.sync(fd), :ok <- sync_fs.(), :ok <- write_line(store, line) do
         # The transcript is authoritative. A later boot rebuilds this derived index if its own
         # append fails, so a usable durable transcript is never discarded for index trouble.
         log_index_failure("opened", conversation_id, VoiceConverse.TranscriptIndex.record_opened(root, conversation_id))
@@ -313,13 +313,6 @@ defmodule VoiceConverse.TranscriptStore do
       end)
 
     {:ok, Enum.reverse(records), %{torn_tail: torn?, skipped_lines: Enum.reverse(skipped)}}
-  end
-
-  defp sync_filesystem do
-    case System.cmd("sync", [], stderr_to_stdout: true) do
-      {_output, 0} -> :ok
-      {output, status} -> {:error, {:sync_failed, status, output}}
-    end
   end
 
   defp log_index_failure(_operation, _conversation_id, :ok), do: :ok
