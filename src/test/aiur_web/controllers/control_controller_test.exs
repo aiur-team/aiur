@@ -20,6 +20,7 @@ defmodule AiurWeb.ControlControllerTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Aiur.Identity.Machine
   alias AiurWeb.Router
 
   @session_options Plug.Session.init(store: :cookie, key: "_aiur_control_test", signing_salt: "aiur-test-session")
@@ -48,6 +49,32 @@ defmodule AiurWeb.ControlControllerTest do
     end)
 
     %{read_token: read_token, write_token: write_token, audit_path: audit_path, previous_cap: previous_cap}
+  end
+
+  test "result carries the gateway identity, or null and unavailable without one", %{read_token: token} do
+    keys = [{Machine, :boot_result}, {Machine, :boot_context}]
+    key = hd(keys)
+    previous = Map.new(keys, &{&1, :persistent_term.get(&1, :absent)})
+    dir = Path.join(System.tmp_dir!(), "gw-ctl-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      for {k, v} <- previous, do: if(v == :absent, do: :persistent_term.erase(k), else: :persistent_term.put(k, v))
+      Aiur.TestCleanup.rm_rf!(dir)
+    end)
+
+    body = Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})
+
+    :persistent_term.put(key, {:degraded, :identity_unreadable, :x})
+    unavailable = Jason.decode!(post_control(token, body).resp_body)
+    assert unavailable["gateway_id"] == nil
+    assert Map.has_key?(unavailable, "gateway_id")
+    assert unavailable["gateway_identity"] == "unavailable"
+
+    {:ok, %{machine_id: id}} = Machine.ensure(dir: dir)
+    available = Jason.decode!(post_control(token, body).resp_body)
+    assert available["gateway_id"] == id
+    assert available["gateway_identity"] == "available"
+    assert Map.has_key?(available, "instance_id")
   end
 
   test "read token runs allowlisted calls and returns the local exit marker", %{read_token: token} do

@@ -4,7 +4,7 @@ defmodule Aiur.InstanceSummary.Guard do
 
   alias Aiur.InstanceSummary.ValueGuard
 
-  @keys ~w(contract version instance_id observed_at agents fleet commands executor build_orders background_agents capabilities status value reason age_ms freshness lower_bound active capacity globally_paused awaiting awaiting_blocking state consumers roots identity progress resolution truncated count)
+  @keys ~w(contract version instance_id gateway_id gateway_label gateway_identity observed_at agents fleet commands executor build_orders background_agents capabilities status value reason age_ms freshness lower_bound active capacity globally_paused awaiting awaiting_blocking state consumers roots identity progress resolution truncated count)
   @strict Mix.env() == :test
   @budget 4_096
 

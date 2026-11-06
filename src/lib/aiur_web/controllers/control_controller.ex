@@ -212,14 +212,14 @@ defmodule AiurWeb.ControlController do
   end
 
   defp result_body(output, elapsed_ms) do
-    %{
+    Map.merge(Aiur.Gateway.Identity.current(), %{
       contract: ControlCall.result_type(),
       contract_version: ControlCall.result_version(),
       instance_id: Aiur.Identity.instance_id(),
       build: build(),
       output: output,
       elapsed_ms: elapsed_ms
-    }
+    })
   end
 
   defp error(conn, status, code, reason, timeout_ms), do: conn |> put_status(status) |> json(error_body(code, reason, timeout_ms, status))
