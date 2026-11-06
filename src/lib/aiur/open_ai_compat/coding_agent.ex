@@ -77,13 +77,43 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       state = pid |> Session.get() |> begin_turn(prompt)
       emit(opts, LiveTurn.started(LiveTurn.identity(state)))
 
-      state |> run_loop(opts, 0) |> commit_turn(pid, session)
+      run_loop(session, state, opts, 0) |> commit_turn(pid, session)
     else
       {:error, :session_closed}
     end
   end
 
   def run_turn(_session, _prompt, _issue, _opts), do: {:error, :invalid_session}
+
+  @doc """
+  Continue a turn a daemon handoff interrupted, without re-appending its prompt.
+
+  The restored session already carries the interrupted turn's messages — the
+  prompt and every tool result collected before the safe step boundary — so the
+  loop resumes with the next provider request instead of starting a new turn.
+  """
+  @spec resume_handoff_turn(map(), keyword()) ::
+          {:ok, map()} | {:paused, map()} | {:error, term()}
+  def resume_handoff_turn(%{session_pid: pid} = session, opts) when is_pid(pid) and is_list(opts) do
+    if Process.alive?(pid) do
+      state = Session.get(pid)
+      emit(opts, LiveTurn.started(LiveTurn.identity(state)))
+
+      run_loop(session, state, opts, 0) |> commit_turn(pid, session)
+    else
+      {:error, :session_closed}
+    end
+  end
+
+  def resume_handoff_turn(_session, _opts), do: {:error, :invalid_session}
+
+  @doc "Serialize the in-daemon conversation for a keep-agents handoff record."
+  @spec handoff_state(map(), map() | nil) :: {:ok, map()} | {:error, term()}
+  defdelegate handoff_state(session, state \\ nil), to: Aiur.OpenAICompat.Handoff, as: :snapshot
+
+  @doc "Seed a fresh session from a handoff record's saved conversation."
+  @spec adopt_handoff_session(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate adopt_handoff_session(record, opts), to: Aiur.OpenAICompat.Handoff, as: :restore
 
   # A turn is admitted into the session agent before its first provider
   # request: the orchestrator keys the live turn on the turn-start update, and
@@ -142,11 +172,12 @@ defmodule Aiur.OpenAICompat.CodingAgent do
 
   def send_operator_message(_session, _payload), do: {:error, :unsupported_payload}
 
-  defp run_loop(state, _opts, rounds) when rounds >= @max_tool_rounds,
+  defp run_loop(_session, state, _opts, rounds) when rounds >= @max_tool_rounds,
     do: {:error, state, :tool_round_limit_exceeded}
 
-  defp run_loop(state, opts, rounds) do
-    with :continue <- pause_state(),
+  defp run_loop(session, state, opts, rounds) do
+    with :continue <- handoff_checkpoint(session, state),
+         :continue <- pause_state(),
          {:ok, completion} <- Transport.complete(state.config, state.messages, Tools.specs(state.config.transport)) do
       completion = maybe_parse_text_tool_calls(completion, state.config)
       MeterAdapter.observe(completion, state, opts)
@@ -154,8 +185,8 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       state = Conversation.append_assistant(state, completion)
 
       case completion.tool_calls do
-        [] -> finish_or_continue(state, completion, opts, rounds)
-        calls -> run_tool_round(state, calls, opts, rounds)
+        [] -> finish_or_continue(session, state, completion, opts, rounds)
+        calls -> run_tool_round(session, state, calls, opts, rounds)
       end
     else
       {:paused, payload} -> {:paused, state, payload}
@@ -163,6 +194,15 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       {:error, :credit_limited} -> {:paused, state, credit_limit_pause(state)}
       {:error, reason} -> {:error, state, reason}
     end
+  end
+
+  # In-process HTTP backends have no child process to hand over, so a daemon
+  # handoff is honored here: the loop's own state is the conversation, and this
+  # is the safe step boundary where it is consistent. A successful handoff parks
+  # the runner until the daemon stops; an aborted preflight returns control and
+  # the turn continues.
+  defp handoff_checkpoint(session, state) do
+    Aiur.AgentRunner.Handoff.mid_turn_checkpoint(session, state)
   end
 
   # A 429 is a quota event, and quota events have a home: the
@@ -197,10 +237,10 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     }
   end
 
-  defp finish_or_continue(state, completion, opts, rounds) do
+  defp finish_or_continue(session, state, completion, opts, rounds) do
     case Checkpoint.deliver(state, %{kind: :notification, method: "response/completed"}, opts) do
       {:delivered, state} ->
-        run_loop(state, opts, rounds + 1)
+        run_loop(session, state, opts, rounds + 1)
 
       {:noop, state} ->
         emit(opts, LiveTurn.completed(completion, LiveTurn.identity(state)))
@@ -208,13 +248,13 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     end
   end
 
-  defp run_tool_round(state, calls, opts, rounds) do
+  defp run_tool_round(session, state, calls, opts, rounds) do
     case execute_tools(state, calls, opts) do
       {:ok, next} ->
         # A pause landing between the last tool result and here must keep the
         # state the tool results were appended to, or the round is replayed.
         case pause_state() do
-          :continue -> run_loop(next, opts, rounds + 1)
+          :continue -> run_loop(session, next, opts, rounds + 1)
           {:paused, payload} -> {:paused, next, payload}
         end
 

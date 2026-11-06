@@ -42,6 +42,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"queue order display", "cmd_queue order", :read, []},
     {"units", "cmd_units --scope all --condition active --format records --json", :read, []},
     {"build orders", "cmd_build_orders 123 --json", :read, []},
+    {"build orders published contract", "cmd_build_orders 123 --json --contract build-order.v1", :read, []},
     {"analytics", "cmd_analytics --range full --since 2026-01-01 --build-order 123 --json", :read, []},
     {"GitHub cost", "usage_alias github-cost --json", :read, []},
     {"GitHub usage", "usage_alias github-usage --json", :read, []},

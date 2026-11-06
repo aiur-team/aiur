@@ -56,7 +56,7 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur message 142 --message-id ID "Check review"` | Names this send. A repeat with the same id, ticket and text returns the first copy and queues nothing new. The same id with other text is refused. Use it only to retry a send whose outcome was unknown. | `aiur message 142 --message-id cli-1a2b "Check the latest review"` |
 | `aiur stop` | Gracefully stops the BEAM and its tmux lifetime session, reaping agent process trees and workspace-rooted descendants before a final launcher backstop removes stragglers. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
 | `aiur restart` | Stops the running session, refreshes the release, and starts it again detached. See [Restart semantics](#restart-semantics). | `aiur restart` |
-| `aiur restart --keep-agents` | Hands compatible live providers to the new daemon. Paused agents are skipped; agents that time out or exit during snapshot are listed as ticket fallbacks and resumed by the new daemon. A failed preflight resumes captured workers before aborting; if the prepared daemon stays up without a stop, it releases the handoff after 10m. The preflight query waits up to 10s and prepare is bounded to 100s inside the 120s RPC; restart waits up to 120s for the old node name, retries one failed boot, then reports failures. | `aiurdev restart --keep-agents` |
+| `aiur restart --keep-agents` | Hands compatible live providers to the new daemon. Paused agents are skipped; agents that time out or exit during snapshot are listed as ticket fallbacks and resumed by the new daemon. A failed preflight resumes captured workers before aborting; if the prepared daemon stays up without a stop, it releases the handoff after 10m. The preflight query waits up to 10s and prepare is bounded to 100s inside the 120s RPC; restart waits up to 120s for the old node name, retries one failed boot, then reports failures. See [Which backends keep their agents](#which-backends-keep-their-agents). | `aiurdev restart --keep-agents` |
 | `aiur status --handoff [--json]` | Last handoff id, timestamps, gap and `adopted[]`/`fallback[]` with before/after provider pids and session ids; text output also shows the durable launcher phase/reason from the latest keep-agents restart; JSON is `null` before any handoff; alerts record `system.restart.handoff.completed` / `.fallback`. | `aiur status --handoff --json` |
 | `aiur agents [--all]` | Prints running and retrying agents plus idle tickets that need attention; summarizes the remaining idle count. `--all` includes every idle ticket. | `aiurdev agents --all` |
 | `aiur agents --json` | Current running agents with issue, provider pid, session id and adopted handoff id. The envelope is `aiur.agents` v1; its schema and generated `AgentsStatus` type are in `@aiur/contracts`. | `aiurdev agents --json` |
@@ -134,6 +134,31 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 | Startup boot fails | Cleans up and retries once; exits nonzero if the retry also fails. |
 
 After-stop failures report that the daemon was not restarted; a failed rebuild retains the handoff and providers until the configured relay orphan timeout (default 30 minutes). Without `--keep-agents`, restart reaps agents as `stop` does; with it, agent sockets, relays and the pidfile survive.
+
+### Which backends keep their agents
+
+`restart --keep-agents` asks each backend's registry entry how its live session
+crosses the restart, so a new backend cannot be silently assumed compatible:
+
+| Backend | Handoff | What survives the restart |
+| --- | --- | --- |
+| `codex` | relay | The provider process keeps running; the new daemon re-attaches to its relay port and the in-flight turn continues. |
+| `claude` | relay | Same as `codex`: the app-server process is handed over and the turn continues. |
+| `claude-repl` | repl | The tmux pane keeps running; the new daemon rebinds to it and replays the drained hook events. |
+| `openrouter`, `deepseek`, `kimi` (OpenAI-compatible) | in daemon | The conversation lives in the daemon, so it is snapshotted at a safe step boundary and restored into a fresh session in the new daemon. The successor resolves its own credentials; the API key is never written to the handoff record. |
+| `muse` | none | The provider is a child of the daemon, so it cannot be handed over. Those tickets resume from their workspace after the restart. |
+
+The preflight refuses a fleet in which no running agent can be adopted, and names
+the blocking backends with their agent counts, for example:
+
+```text
+no running agent supports handoff: muse (3 agents) cannot be adopted across a restart.
+Drain the fleet first (aiur pause --all, wait for those turns to end, then aiur stop
+and aiur run), or restart plainly without keep-agents: aiur restart
+```
+
+When only some agents are affected, the restart proceeds and reports which ones
+resume from their workspace instead of being adopted.
 
 A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes or commits not held by a remote; Aiur saves local work first ([Saved uncommitted work](#saved-uncommitted-work)), and under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
 
@@ -214,6 +239,7 @@ Executors cannot answer them through `executor-answer` or `operator-relay-answer
 | `aiur queue clear --remove-markers --yes` | Dequeues all items and removes queued markers from every open issue, keeping todo. | `aiur queue clear --remove-markers --yes` |
 | `aiur queue release <id\|--queue NAME>` | Clears holds and overrides on the selected item or every member of the named queue. | `aiur queue release 142` |
 | `aiur build-orders [root]` | Build Order catalog without a root; one root adds graph, execution, and activity detail. | `aiur build-orders 1567 --json` |
+| `aiur build-orders --json --contract build-order.v1 [root]` | Publishes the `build-order.v1` document instead of the schema-version-2 envelope: the same epics, features, lanes, typed edges, gates, waves, critical path and progress the daemon serves from `GET /api/v1/build-order`. Without a root it publishes the catalog document; with a root it publishes that root's document. An unavailable source stays `status: "unknown"` with a reason and the tickets the daemon still knows about. | `aiur build-orders 1567 --json --contract build-order.v1` |
 | `aiur analytics` | Analytics snapshot, including whole-host fleet/build pressure. Human output reports peaks, latest measured capacities, the binding admission signal with measured load, and longest live build wait; `--json` includes the timestamped pressure series. Choose `--range run\|full`, an ISO-8601 `--since`/`--until` window, an optional numeric `--build-order`, or `--json`. | `aiur analytics --range full --build-order 1567 --json` |
 | `aiur analytics --range full` | Selects the current run or all retained analytics observations. | `aiur analytics --range full` |
 | `aiur analytics --since 2026-08-01T00:00:00Z` | Sets the inclusive ISO-8601 start of an analytics window. | `aiur analytics --since 2026-08-01T00:00:00Z` |
@@ -233,6 +259,8 @@ Human output prints the same state as `80% (last known 12m ago)`, measured from 
 A member closed without completing (not planned, duplicate, cancelled) is resolved 0% regardless of any earlier reading. Catalog root completion is lifecycle-derived and does not carry these fields.
 
 `aiur build-orders <root>` requests a read when its graph is missing or stale. Concurrent reads coalesce and provider retry delays still apply. The command returns the held graph while refresh runs, preserving its observation time and stale status.
+
+`aiur build-orders --json --contract build-order.v1 [root]` publishes the `build-order.v1` document the dashboard endpoint serves, instead of the schema-version-2 envelope. Without `--contract`, both `--json` shapes stay unchanged.
 
 For a missing graph, `data.graph.status` and `sources.planning_graph.state` are `loading`. Run the command again to get the completed read. `provider_unavailable` means that a read failed.
 

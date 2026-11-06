@@ -33,6 +33,7 @@ writeFileSync(probe, [
   `export const voiceConverse: VoiceConverseFrame[] = ${fixture('voice-converse.v1.json')};`,
   `export const buildOrder: BuildOrder = ${fixture('build-order.v1.json')};`,
   `export const buildOrderUnavailable: BuildOrder = ${fixture('build-order-unavailable.v1.json')};`,
+  `export const buildOrderGolden: BuildOrder = ${fixture('build-order.golden.v1.json')};`,
 ].join('\n'));
 const tsc = join(root, 'node_modules/typescript/bin/tsc');
 const result = spawnSync(process.execPath, [tsc, '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2022', probe], { stdio: 'inherit' });

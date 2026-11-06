@@ -102,7 +102,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; queue add also accepts --json for per-ticket outcomes
        aiur queue add <ids…> [--json]           add tickets; other mutations steer the queue
-       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]

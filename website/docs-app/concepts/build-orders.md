@@ -17,6 +17,34 @@ of one root, so a tool can render the same review and graph without a running da
 An unavailable tracker publishes `status: "unknown"` with a reason, never an empty graph. The schema,
 fixtures and generated types live in `packages/aiur-contracts`.
 
+### Reading the published document
+
+| Surface | Returns |
+| --- | --- |
+| `GET /api/v1/build-order` | The whole catalog as one `build-order.v1` document. |
+| `GET /api/v1/build-order?root=<number>` | One selected root's document. |
+| `aiur build-orders --json --contract build-order.v1 [<root>]` | The same document from the CLI. |
+
+The document is derived from the same projection the dashboard renders. The join, wave numbering,
+critical path and progress roll cannot drift between the endpoint, the CLI and the page.
+
+Node `id`s are the planning-pack ids (`BO-001`) when the projection holds them and tracker identifiers
+otherwise. `number` carries the tracker number, or `null` for a draft.
+
+Every typed edge is published with its `source`: `depends_on`, `serializes_with`, `suggested_after`,
+`contains` and `gates`. A `depends_on` edge carries one of `cleared`, `blocking`,
+`terminal_unsatisfied` or `unknown`; the other kinds carry no state.
+
+`gates` also appears as a top-level list carrying each external-gate record. A `depends_on` edge reads
+`from` depends on `to`, so its source is the dependent ticket and its target the blocker.
+
+A failed tracker or progress read still answers `200`. The document carries `status: "unknown"` with a
+reason on the affected source, epic, feature, lane and `progress`, plus every ticket the daemon still
+knows about.
+
+A missing root answers `404`, and a projection the daemon cannot read answers `503`. Both use the API's
+`{"error": {"code", "message"}}` envelope.
+
 ## Pack contents
 
 | File or field | Purpose |
