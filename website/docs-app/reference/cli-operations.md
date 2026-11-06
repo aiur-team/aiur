@@ -213,6 +213,7 @@ Executors cannot answer them through `executor-answer` or `operator-relay-answer
 | `aiur queue clear --remove-markers --yes` | Dequeues all items and removes queued markers from every open issue, keeping todo. | `aiur queue clear --remove-markers --yes` |
 | `aiur queue release <id\|--queue NAME>` | Clears holds and overrides on the selected item or every member of the named queue. | `aiur queue release 142` |
 | `aiur build-orders [root]` | Build Order catalog without a root; one root adds graph, execution, and activity detail. | `aiur build-orders 1567 --json` |
+| `aiur build-orders --json --contract build-order.v1 [root]` | Publishes the `build-order.v1` document instead of the schema-version-2 envelope: the same epics, features, lanes, typed edges, gates, waves, critical path and progress the daemon serves from `GET /api/v1/build-order`. Without a root it publishes the catalog document; with a root it publishes that root's document. An unavailable source stays `status: "unknown"` with a reason and the tickets the daemon still knows about. | `aiur build-orders 1567 --json --contract build-order.v1` |
 | `aiur analytics` | Analytics snapshot, including whole-host fleet/build pressure. Human output reports peaks, latest measured capacities, the binding admission signal with measured load, and longest live build wait; `--json` includes the timestamped pressure series. Choose `--range run\|full`, an ISO-8601 `--since`/`--until` window, an optional numeric `--build-order`, or `--json`. | `aiur analytics --range full --build-order 1567 --json` |
 | `aiur analytics --range full` | Selects the current run or all retained analytics observations. | `aiur analytics --range full` |
 | `aiur analytics --since 2026-08-01T00:00:00Z` | Sets the inclusive ISO-8601 start of an analytics window. | `aiur analytics --since 2026-08-01T00:00:00Z` |
@@ -232,6 +233,8 @@ Human output prints the same state as `80% (last known 12m ago)`, measured from 
 A member closed without completing (not planned, duplicate, cancelled) is resolved 0% regardless of any earlier reading. Catalog root completion is lifecycle-derived and does not carry these fields.
 
 `aiur build-orders <root>` requests a read when its graph is missing or stale. Concurrent reads coalesce and provider retry delays still apply. The command returns the held graph while refresh runs, preserving its observation time and stale status.
+
+`aiur build-orders --json --contract build-order.v1 [root]` publishes the `build-order.v1` document the dashboard endpoint serves, instead of the schema-version-2 envelope. Without `--contract`, both `--json` shapes stay unchanged.
 
 For a missing graph, `data.graph.status` and `sources.planning_graph.state` are `loading`. Run the command again to get the completed read. `provider_unavailable` means that a read failed.
 

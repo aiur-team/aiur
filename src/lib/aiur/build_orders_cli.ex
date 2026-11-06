@@ -13,10 +13,13 @@ defmodule Aiur.BuildOrdersCLI do
   alias Aiur.BuildOrder.{Catalog, ProgressRenderer, ProviderHealth, RootSummary}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildOrder.Published
   alias Aiur.{JSONSafe, TrackerIdentity}
   alias AiurWeb.BuildOrder.{DataSource, Runtime}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
+
+  @contract_name "build-order.v1"
 
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
@@ -24,7 +27,10 @@ defmodule Aiur.BuildOrdersCLI do
 
     case build(Keyword.delete(opts, :error_fun)) do
       {:ok, envelope} ->
-        if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(envelope)), else: print_human(envelope)
+        if Keyword.get(opts, :json, false) or Keyword.has_key?(opts, :contract),
+          do: IO.puts(Jason.encode!(envelope)),
+          else: print_human(envelope)
+
         0
 
       {:error, reason} ->
@@ -40,6 +46,71 @@ defmodule Aiur.BuildOrdersCLI do
   def build(opts \\ [])
 
   def build(opts) when is_list(opts) do
+    case Keyword.get(opts, :contract) do
+      nil ->
+        envelope_build(opts)
+
+      @contract_name ->
+        case published(opts) do
+          {:ok, document} -> {:ok, JSONSafe.normalize(document)}
+          {:error, reason} -> {:error, contract_error(reason)}
+        end
+
+      _other ->
+        {:error, "expected --contract #{@contract_name}"}
+    end
+  end
+
+  def build(_opts), do: {:error, "expects command options"}
+
+  @doc """
+  The published `build-order.v1` document for the catalog or one selected root.
+
+  The same projection the dashboard reads is encoded once, so the endpoint and
+  `aiur build-orders --json --contract build-order.v1` cannot disagree.
+  """
+  @spec published(keyword()) :: {:ok, map()} | {:error, String.t()}
+  def published(opts \\ [])
+
+  def published(opts) when is_list(opts) do
+    source = Keyword.get(opts, :source, Application.get_env(:aiur, :build_order_data_source, DataSource))
+    captured_at = Keyword.get(opts, :now, DateTime.utc_now())
+
+    with {:ok, request} <- request(opts),
+         %Snapshot{} = catalog_snapshot <- Runtime.safe_source_call(source, :catalog, [], nil) do
+      case request do
+        request when map_size(request) == 0 ->
+          {:ok, Published.encode(catalog_snapshot, now: captured_at)}
+
+        %{root: root} ->
+          published_selected(source, catalog_snapshot.data, root, captured_at)
+      end
+    else
+      {:error, reason} when is_binary(reason) -> {:error, reason}
+      _other -> {:error, "could not read the Build Order projection"}
+    end
+  end
+
+  def published(_opts), do: {:error, "could not read the Build Order projection"}
+
+  defp contract_error(:not_found), do: "could not find the requested Build Order"
+  defp contract_error(:ambiguous), do: "cannot select an ambiguous Build Order"
+  defp contract_error(:unavailable), do: "could not read the Build Order projection"
+  defp contract_error(reason) when is_binary(reason), do: reason
+  defp contract_error(_reason), do: "could not read the Build Order projection"
+
+  defp published_selected(source, %Catalog{} = catalog, root, captured_at) do
+    with {:ok, identity} <- root_identity(catalog, root),
+         {:ok, %Snapshot{} = demanded} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}) do
+      planning = refresh_due(source, identity, demanded, captured_at)
+      {:ok, Published.encode(planning, now: captured_at)}
+    end
+  end
+
+  defp published_selected(_source, _data, root, _captured_at),
+    do: {:error, "could not find Build Order #{inspect(root)}"}
+
+  defp envelope_build(opts) do
     source = Keyword.get(opts, :source, Application.get_env(:aiur, :build_order_data_source, DataSource))
     captured_at = Keyword.get(opts, :now, DateTime.utc_now())
 
@@ -52,8 +123,6 @@ defmodule Aiur.BuildOrdersCLI do
       _other -> {:error, "could not read the Build Order catalog"}
     end
   end
-
-  def build(_opts), do: {:error, "expects command options"}
 
   defp request(opts) do
     case Keyword.get(opts, :root) do

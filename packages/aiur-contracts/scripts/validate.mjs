@@ -39,6 +39,7 @@ export const ticketSpendCapReached = read('fixtures/ticket-spend-cap-reached.v1.
 export const voiceConverse = read('fixtures/voice-converse.v1.json');
 export const buildOrder = read('fixtures/build-order.v1.json');
 export const buildOrderUnavailable = read('fixtures/build-order-unavailable.v1.json');
+export const buildOrderGolden = read('fixtures/build-order.golden.v1.json');
 export const commandSchema = read('schemas/command.v2.schema.json');
 export const command = read('fixtures/command.v2.json');
 export const ticketLifecycleEvent = read('fixtures/ticket-lifecycle-event.v1.json');
@@ -112,6 +113,7 @@ export const contractCases = [
   { name: 'ticket decision event', schema: ticketDecisionEventSchema, fixture: ticketDecisionEvent, validate: validateTicketDecisionEvent, marker: 'v', version: 'v', additive: false },
   { name: 'build order', schema: buildOrderSchema, fixture: buildOrder, validate: validateBuildOrder },
   { name: 'build order unavailable', schema: buildOrderSchema, fixture: buildOrderUnavailable, validate: validateBuildOrder },
+  { name: 'build order golden', schema: buildOrderSchema, fixture: buildOrderGolden, validate: validateBuildOrder },
 ];
 
 for (const [validate, fixture] of [

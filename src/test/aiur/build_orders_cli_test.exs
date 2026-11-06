@@ -357,6 +357,53 @@ defmodule Aiur.BuildOrdersCLITest do
     assert states == %{"Unknown closed" => "closed", "Unknown open" => "open"}
   end
 
+  test "publishes build-order.v1 for the catalog and one selected root" do
+    assert {:ok, document} = BuildOrdersCLI.build(contract: "build-order.v1", source: Source, now: @captured_at)
+
+    assert document["contract"] == "aiur.build_order"
+    assert document["contract_version"] == 1
+    assert document["root"]["id"] == "catalog"
+    assert document["generated_at"] == "2026-08-09T12:00:05Z"
+    assert [%{"number" => 100}] = document["tickets"]
+
+    assert {:ok, selected} =
+             BuildOrdersCLI.build(contract: "build-order.v1", root: "100", source: Source, now: @captured_at)
+
+    assert selected["contract"] == "aiur.build_order"
+    assert selected["root"]["id"] == "100"
+    assert selected["root"]["number"] == 100
+    assert Enum.map(selected["tickets"], & &1["id"]) == ["1", "2", "3"]
+
+    # The published document reads the same projection the page does, so the
+    # directed edges and their states must agree with the envelope's graph.
+    assert %{"from" => "2", "to" => "1", "kind" => "depends_on", "state" => "cleared", "source" => "tracker"} =
+             Enum.find(selected["edges"], &(&1["kind"] == "depends_on" and &1["from"] == "2"))
+
+    assert %{"from" => "3", "to" => "2", "kind" => "depends_on", "state" => "blocking", "source" => "tracker"} =
+             Enum.find(selected["edges"], &(&1["kind"] == "depends_on" and &1["from"] == "3"))
+  end
+
+  test "prints the published document on stdout when --contract is given" do
+    output =
+      capture_io(fn ->
+        assert 0 == BuildOrdersCLI.run(contract: "build-order.v1", json: true, source: Source, now: @captured_at)
+      end)
+
+    document = Jason.decode!(output)
+    assert document["contract"] == "aiur.build_order"
+    assert document["root"]["id"] == "catalog"
+  end
+
+  test "rejects an unknown contract name without reading the projection" do
+    assert {:error, "expected --contract build-order.v1"} =
+             BuildOrdersCLI.build(contract: "build-order.v2", source: Source)
+  end
+
+  test "reports a published document failure instead of an envelope" do
+    assert {:error, "could not find Build Order \"missing\""} =
+             BuildOrdersCLI.build(contract: "build-order.v1", root: "missing", source: Source)
+  end
+
   defp root(identity) do
     RootSummary.new(%{
       identity: identity,
