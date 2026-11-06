@@ -10,6 +10,12 @@ defmodule Aiur.InstanceSummaryTest do
 
   defp available(value), do: Fact.available(value, DateTime.utc_now() |> DateTime.to_iso8601())
 
+  test "summary carries the injected gateway identity" do
+    identity = %{gateway_id: "gw1", gateway_label: "lab", gateway_identity: "available"}
+    result = summary(%{}, gateway_identity_fun: fn -> identity end)
+    assert Map.take(result, [:gateway_id, :gateway_label, :gateway_identity]) == identity
+  end
+
   test "nil identity returns the complete value-free skeleton" do
     now = DateTime.utc_now()
     result = summary(%{}, now: now)
