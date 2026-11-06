@@ -20,6 +20,7 @@ defmodule Aiur.CodingAgent do
   alias Aiur.CodingAgent.Routing
   alias Aiur.Config
   alias Aiur.Harness.Capabilities
+  alias Aiur.OpenAICompat.Handoff, as: InDaemonHandoff
 
   @type backend :: String.t()
   @type provider_descriptor :: ProvidersView.provider_descriptor()
@@ -291,6 +292,21 @@ defmodule Aiur.CodingAgent do
   @doc "Optional display source module, including its daemon handoff callbacks."
   @spec display_tailer(backend()) :: module() | nil
   def display_tailer(backend), do: get_in(backends(), [backend, :display_tailer])
+
+  @doc """
+  Whether a daemon handoff record's transport decodes cleanly.
+
+  An in-daemon provider serializes its conversation into the record instead of
+  handing over a live process, so a damaged snapshot must fall back rather than
+  start a session from partial history. Transports that carry a live handle are
+  validated by their own probe.
+  """
+  @spec valid_handoff_transport?(map()) :: boolean()
+  def valid_handoff_transport?(%{"kind" => "in_daemon"} = transport) do
+    match?({:ok, _state}, InDaemonHandoff.provider_state(%{"transport" => transport}))
+  end
+
+  def valid_handoff_transport?(_transport), do: true
 
   @doc """
   How a live session's OS-level runtime is reported to the orchestrator

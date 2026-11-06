@@ -61,7 +61,7 @@ defmodule Aiur.AgentRunner.Handoff.InDaemon do
       {:ok,
        %{
          "kind" => @transport_kind,
-         "provider_state" => Aiur.OpenAICompat.Handoff.encode_provider_state(provider_state),
+         "provider_state" => RunnerHandoff.encode(provider_state),
          "os_pid" => session[:os_pid]
        }}
     else
@@ -82,7 +82,13 @@ defmodule Aiur.AgentRunner.Handoff.InDaemon do
 
   @doc "Whether the snapshot was taken mid-turn, so adoption continues that turn."
   @spec interrupted?(map()) :: boolean()
-  def interrupted?(record), do: Aiur.OpenAICompat.Handoff.interrupted?(record)
+  def interrupted?(%{"transport" => %{"provider_state" => encoded}}) when is_binary(encoded) do
+    match?(%{"interrupted" => true}, RunnerHandoff.decode(encoded))
+  rescue
+    _ -> false
+  end
+
+  def interrupted?(_record), do: false
 
   @doc """
   Continue a turn the handoff interrupted.

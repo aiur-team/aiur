@@ -11,6 +11,7 @@ defmodule Aiur.Handoff.InDaemonAdoptionTest do
   use Aiur.TestSupport.OpenAICompatAgent
 
   alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
+  alias Aiur.AgentRunner.Handoff.InDaemon
   alias Aiur.AppServer.ToolCallLedger
   alias Aiur.Handoff
   alias Aiur.Handoff.{Adopter, Record, Report}
@@ -114,6 +115,25 @@ defmodule Aiur.Handoff.InDaemonAdoptionTest do
 
     assert {:ok, %{adopted: report_adopted, fallback: []}} = Report.latest(dir: dir)
     assert length(report_adopted) == 2
+  end
+
+  test "a mid-turn snapshot reports interrupted and a damaged one does not" do
+    interrupted = in_daemon_record(%{"interrupted" => true, "messages" => []})
+    boundary = in_daemon_record(%{"interrupted" => false, "messages" => []})
+
+    assert InDaemon.interrupted?(interrupted)
+    refute InDaemon.interrupted?(boundary)
+    refute InDaemon.interrupted?(%{"transport" => %{"kind" => "in_daemon", "provider_state" => "not-a-snapshot"}})
+    refute InDaemon.interrupted?(%{})
+  end
+
+  defp in_daemon_record(provider_state) do
+    %{
+      "transport" => %{
+        "kind" => "in_daemon",
+        "provider_state" => RunnerHandoff.encode(provider_state)
+      }
+    }
   end
 
   defp adoption_opts(dir, parent, workspace) do

@@ -50,9 +50,9 @@ defmodule Aiur.Handoff.Compatibility do
   defp in_daemon_supported(_agent), do: :ok
 
   defp transport(%{"kind" => "in_daemon"} = expected, _probe) do
-    case Aiur.OpenAICompat.Handoff.provider_state(%{"transport" => expected}) do
-      {:ok, _state} -> :ok
-      {:error, _reason} -> {:error, :provider_state_invalid}
+    case CodingAgent.valid_handoff_transport?(expected) do
+      true -> :ok
+      false -> {:error, :provider_state_invalid}
     end
   end
 
