@@ -198,7 +198,9 @@ to existing work), join the registry, and enqueue every executable member.
 Feature ownership and queue membership are separate writes; read both back and
 repair partial intake before declaring success. Never create a Build Order root.
 If the operator says “prioritize”, place the collection before the prior next-up
-using priority labels and queue ordering, and report the displaced work.
+using priority labels and queue ordering, and report the displaced work. If the
+operator gave no position, ask before enqueueing. Show the current queue order
+and offer "Before <set>" choices, as the intake reference describes in step 1.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.
