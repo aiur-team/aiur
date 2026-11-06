@@ -110,11 +110,9 @@ In List view, **List shows** switches between Tickets, Features and Epics. The
 selection is kept in the `list` link parameter; `tickets` is the default and
 omitted.
 
-The Features list shows closed, published-open, and planned-not-published
-segments for each feature. Percentages use closed tickets divided by the full
-planned feature total. Unavailable counts show `—` with a reason; incomplete
-history does not appear as zero progress. Each row opens the existing feature
-focus in Tickets view.
+Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Merged means closed with a merged PR, or closed as done without a PR. Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them.
+
+Rows follow [`feature_order`](../reference/configuration-build-order.md). Sort by most done or most left stays in `fsort`. The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 
 Epics counts matching general epics, including feature-owned tickets, so totals
 overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
@@ -139,6 +137,12 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
+With an `openrouter:` route configured, the provider row shows the key's
+remaining credit against the limit it was bought with, and
+`aiur usage openrouter` lists each route's spend per route and model beside that
+reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
+the row reports an unknown reading rather than zero credit.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so

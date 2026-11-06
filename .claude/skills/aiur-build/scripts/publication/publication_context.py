@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Any
+import re
 
 from publication_common import load_json, Report, SHA
 from publication_rendering import render_approved_issue_content, repository_root
@@ -14,6 +16,7 @@ from validation_github_rendering import inspect_issue_body, render_template_body
 from validation_git_approved_source import approved_text
 from publication_client import PublicationError
 from publication_materialize import recover_materialization_transaction
+from publication_titles import has_logical_id_prefix
 
 
 CREATABLE_LABELS = {
@@ -111,7 +114,6 @@ def build_context(
                 "manifest_key": "skill_issue", "labels": ["human:todo"],
             },
             "external_edges_field": "external_blocker_relations",
-            "feature_title_prefix": "BO:",
             "additional_title_must_be_unprefixed": True,
             "reconciliation_comment": True,
             "creatable_labels": CREATABLE_LABELS,
@@ -146,21 +148,17 @@ def build_context(
         titles = expectations.titles
         bodies = expectations.rendered_bodies
         evidence = dict(expectations.bodies)
-    feature_prefix = extension.get("feature_title_prefix")
     feature_ids = {
-        root_id,
         *(
             item.get("id") for item in build.get("tickets", [])
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         ),
     }
-    if isinstance(feature_prefix, str) and any(
-        not titles.get(logical_id, "").startswith(feature_prefix)
-        for logical_id in feature_ids
+    if any(
+        has_logical_id_prefix(titles.get(logical_id, ""), logical_id)
+        for logical_id in {*feature_ids, root_id}
     ):
-        raise PublicationError(
-            f"every feature issue title must start with {feature_prefix}"
-        )
+        raise PublicationError("published issue titles must not start with a logical ID")
     tickets = build.get("tickets")
     if not isinstance(tickets, list) or not tickets:
         raise PublicationError("operator requires a non-empty reviewed ticket manifest")
@@ -235,9 +233,7 @@ def build_context(
         )
         if not title or body is None or report.errors:
             raise PublicationError("; ".join(report.errors))
-        if extension.get("additional_title_must_be_unprefixed") and (
-            isinstance(feature_prefix, str) and title.startswith(feature_prefix)
-        ):
+        if extension.get("additional_title_must_be_unprefixed") and has_logical_id_prefix(title, skill_id):
             raise PublicationError(
                 "the declared additional issue title must remain unprefixed"
             )
@@ -280,6 +276,10 @@ def build_context(
         build_path.parent / extra_validator
         if isinstance(extra_validator, str) else None
     )
+    try:
+        validate_product_feature_publication(build)
+    except (KeyError, ValueError) as exc:
+        raise PublicationError(str(exc)) from None
     return Context(
         root=root, build_path=build_path, publication_path=publication_path,
         discovery_path=root / ".aiur" / "build_orders" / f"{slug}.json",
@@ -296,3 +296,114 @@ def build_context(
         additional_document=additional_document,
         extra_validator=validator_path,
     )
+
+
+def feature_epics(build: dict[str, Any]) -> list[dict[str, str]]:
+    """Build stable home-page epic keys from the approved lane and phase model."""
+    root_id = build.get("build_order_id")
+    slug = root_id.rsplit(":", 1)[-1] if isinstance(root_id, str) else ""
+    lanes = {
+        ticket.get("workstream") for ticket in build.get("tickets", [])
+        if isinstance(ticket, dict) and isinstance(ticket.get("workstream"), str)
+    }
+    records = {
+        item["id"]: item for item in build.get("workstreams", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    epics = []
+    for lane in sorted(lanes):
+        record = records.get(lane)
+        icon = record.get("icon") if isinstance(record, dict) else None
+        if (
+            not isinstance(record, dict) or not isinstance(record.get("title"), str)
+            or not isinstance(icon, str) or not icon or icon == "squares-2x2"
+        ):
+            raise ValueError(f"workstream {lane} requires a non-default epic icon")
+        key = _bounded_identifier(f"f-{slug}", lane, 64)
+        if len(key) > 64:
+            raise ValueError(f"feature epic key exceeds 64 characters for workstream {lane}")
+        epics.append({"key": key, "label": record["title"], "icon": icon, "lane": lane})
+    icons = [epic["icon"] for epic in epics]
+    if len(icons) != len(set(icons)):
+        raise ValueError("feature epic icons must be unique")
+    return epics
+
+
+def product_features(build: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate explicit product groups and return their lane membership."""
+    groups = build.get("product_features")
+    tickets = {
+        item["id"]: item for item in build.get("tickets", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("build order requires explicit product_features groups")
+    assigned: set[str] = set()
+    result = []
+    seen_slugs: set[str] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            raise ValueError("product feature group must be an object")
+        slug, label, ids = group.get("slug"), group.get("label"), group.get("ticket_ids")
+        if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+            raise ValueError("product feature slug must be lowercase kebab-case")
+        if slug in seen_slugs:
+            raise ValueError(f"duplicate product feature slug {slug}")
+        seen_slugs.add(slug)
+        if not isinstance(label, str) or not label.strip() or not isinstance(ids, list) or not ids:
+            raise ValueError(f"product feature {slug} needs a label and ticket_ids")
+        if any(not isinstance(ticket_id, str) for ticket_id in ids):
+            raise ValueError(f"product feature {slug} has invalid ticket_ids")
+        if len(ids) != len(set(ids)) or any(ticket_id not in tickets for ticket_id in ids):
+            raise ValueError(f"product feature {slug} has duplicate or unknown ticket_ids")
+        if assigned.intersection(ids):
+            raise ValueError("each ticket must belong to exactly one product feature")
+        assigned.update(ids)
+        result.append({"slug": slug, "label": label, "ticket_ids": ids})
+    expected = set(tickets)
+    if assigned != expected:
+        raise ValueError("product feature groups must assign every ticket exactly once")
+    return result
+
+
+def published_feature_slug(root_slug: str, group_slug: str) -> str:
+    """Build a deterministic Aiur slug within its 42-character limit."""
+    raw = f"{root_slug}-{group_slug}"
+    if len(raw) <= 42:
+        return raw
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:8]
+    return f"{root_slug[:19]}-{digest}-{group_slug[:13]}"
+
+
+def validate_product_feature_publication(build: dict[str, Any]) -> None:
+    """Fail before tracker writes when product grouping or lane icons are invalid."""
+    groups = product_features(build)
+    root_slug = build["build_order_id"].rsplit(":", 1)[-1]
+    tickets = {ticket["id"]: ticket for ticket in build["tickets"]}
+    workstreams = {item["id"]: item for item in build["workstreams"]}
+    feature_slugs = set()
+    for group in groups:
+        slug = published_feature_slug(root_slug, group["slug"])
+        if len(slug) > 42 or slug in feature_slugs:
+            raise ValueError("product feature slugs must be unique and at most 42 characters")
+        feature_slugs.add(slug)
+        selected = [tickets[ticket_id] for ticket_id in group["ticket_ids"]]
+        lanes = sorted({ticket.get("workstream") for ticket in selected})
+        if any(not isinstance(lane, str) or lane not in workstreams for lane in lanes):
+            raise ValueError(f"product feature {group['slug']} references an unknown workstream")
+        feature_epics({
+            "build_order_id": f"{build['repository']}:{slug}",
+            "workstreams": [workstreams[lane] for lane in lanes],
+            "tickets": selected,
+        })
+
+
+def _bounded_identifier(prefix: str, suffix: str, limit: int) -> str:
+    raw = f"{prefix}-{suffix}"
+    if len(raw) <= limit:
+        return raw
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:8]
+    budget = limit - 10
+    prefix_budget = budget // 2
+    suffix_budget = budget - prefix_budget
+    return f"{prefix[:prefix_budget]}-{digest}-{suffix[-suffix_budget:]}"

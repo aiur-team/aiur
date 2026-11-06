@@ -405,6 +405,15 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     assert out =~ ~s|RPC:Aiur.Usage.CLI.rpc(Base.decode64!("Y29kZXg="), true)|
   end
 
+  # The launcher owns the provider-name allowlist, so a provider added to the
+  # Elixir read model is unreachable until this gate accepts it. #7505 was
+  # exactly that: `aiur usage openrouter` died in the shell with "unknown usage
+  # provider" while the reading itself existed.
+  test "usage accepts the openrouter provider" do
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_usage openrouter --json|, [])
+    assert out =~ ~s|RPC:Aiur.Usage.CLI.rpc(Base.decode64!("b3BlbnJvdXRlcg=="), true)|
+  end
+
   test "status RPCs the status expression" do
     rel = fake_release()
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])

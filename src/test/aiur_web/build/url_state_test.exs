@@ -4,11 +4,12 @@ defmodule AiurWeb.Build.URLStateTest do
   alias AiurWeb.Build.URLState
 
   test "parse keeps every valid design key in canonical order" do
-    q = "view=gantt&list=epics&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
+    q = "view=gantt&list=epics&fsort=left&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
 
     assert URLState.parse(URI.decode_query(q)) == %{
              view: "gantt",
              list: "epics",
+             fsort: "left",
              span: 7,
              feature: "f-docs",
              fmode: "compact",
@@ -125,6 +126,7 @@ defmodule AiurWeb.Build.URLStateTest do
     check all(
             view <- member_of(["graph", "gantt", "list"]),
             list <- member_of(["tickets", "features", "epics"]),
+            fsort <- member_of(["goal", "pct", "left"]),
             span <- member_of([1, 2, 3, 5, 7, 10, 14, 21, 30]),
             feature <- member_of([nil, "f-docs", "Outside-window._1"]),
             compact <- boolean(),
@@ -140,6 +142,7 @@ defmodule AiurWeb.Build.URLStateTest do
       state = %{
         view: view,
         list: list,
+        fsort: fsort,
         span: span,
         feature: feature,
         fmode: if(feature && compact, do: "compact", else: "focus"),

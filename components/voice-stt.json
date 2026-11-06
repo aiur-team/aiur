@@ -18,6 +18,7 @@
   "requires": [
     "config",
     "identity",
+    "voice-transcribe-core",
     "web-kit"
   ],
   "optional": [],

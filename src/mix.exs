@@ -189,11 +189,12 @@ defmodule Aiur.MixProject do
       {:decimal, "~> 3.0"},
       {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
-      {:ecto, "~> 3.13.6"},
+      {:ecto, "~> 3.14.3"},
       {:postgrex, "~> 0.22.4"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:voice_converse, path: "../packages/elixir/voice_converse"},
+      {:voice_transcribe, path: "../packages/elixir/voice_transcribe"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.5", sparse: "optimized", app: false, compile: false, depth: 1}

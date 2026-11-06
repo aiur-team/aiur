@@ -17,6 +17,7 @@ defmodule Aiur.BuildOrder.History.Codec do
   defp encode_value(value) when is_boolean(value), do: value
   defp encode_value(value) when is_atom(value), do: Atom.to_string(value)
   defp encode_value(value), do: value
+  defp encode_field(:label_descriptions, value), do: value
   # Preserve literal strings that otherwise collide with the version-1 sentinels.
   defp encode_field(key, value) when key in @strings and value in ["unknown", "none"], do: %{"value" => value}
   defp encode_field(_key, value), do: encode_value(value)
@@ -25,7 +26,11 @@ defmodule Aiur.BuildOrder.History.Codec do
   def decode(value) when is_map(value) do
     keys = [:number, :observed_at, :sources, :state, :state_reason] ++ (Row.fields() -- [:lifecycle])
 
-    with true <- Enum.sort(Map.keys(value)) == Enum.sort(Enum.map(keys, &Atom.to_string/1)),
+    expected = Enum.map(keys, &Atom.to_string/1)
+    legacy = List.delete(expected, "label_descriptions")
+
+    with true <- Enum.sort(Map.keys(value)) in [Enum.sort(expected), Enum.sort(legacy)],
+         value <- Map.put_new(value, "label_descriptions", %{}),
          {:ok, fields} <- decode_fields(value, keys),
          lifecycle = %Lifecycle{state: fields.state, state_reason: fields.state_reason},
          true <- Row.valid?(:lifecycle, lifecycle) do
@@ -54,6 +59,7 @@ defmodule Aiur.BuildOrder.History.Codec do
   end
 
   defp decode_value(:sources, value) when is_list(value), do: Enum.map(value, &atom/1)
+  defp decode_value(:label_descriptions, value) when is_map(value), do: value
   defp decode_value(key, value) when key in [:label_events, :sub_issues_added, :blocked_by] and is_list(value), do: Enum.map(value, &nested/1)
   defp decode_value(:parent, value) when is_map(value), do: nested(value)
 

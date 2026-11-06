@@ -17,6 +17,18 @@
   are configured, their sessions remain on the orchestrator host. They are
   deliberately non-resumable, so backend switches continue from shared
   workspace state rather than a cross-provider transcript.
+- Every OpenAI-compatible request carries an output-token cap:
+  `agent.backend_configs.<backend>.max_output_tokens`, default `16000`, sent as
+  `max_tokens` (`max_output_tokens` on the `responses` transport). OpenRouter
+  reserves credit for the whole cap before a request runs, so an unbounded cap
+  refuses every request on a key with a modest balance. A completion that stops
+  on the cap is retried once with twice the cap. A provider refusal for credits
+  or a too-large cap (HTTP 402) is retried once with a smaller cap — the largest
+  the provider says the balance affords, or half — and if that is refused too
+  the backend is recorded as limited exactly as a usage limit is: the claim is
+  kept, the next claim takes the next `agent.priority` route, and a
+  `system.provider.credit_limited` alert names the fix (add credits or raise the
+  key's credit limit).
 - `agent.prior_work_continuation` defaults to `true`; a cold redispatch or
   backend switch receives continuation guidance based on the existing shared
   workspace instead of pretending the provider conversation was resumed.

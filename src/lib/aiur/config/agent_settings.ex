@@ -106,6 +106,19 @@ defmodule Aiur.Config.AgentSettings do
   end
 
   @doc """
+  Every routing level's full route list, merging the single-string
+  `agent.routing` table with the `agent.routing_candidates` lists validation
+  derives from it. One route per level stays a one-route list; an empty config
+  yields an empty map.
+  """
+  @spec agent_routing_candidates() :: %{optional(pos_integer()) => [String.t()]}
+  def agent_routing_candidates do
+    agent = Aiur.Config.settings!().agent
+    single = Map.new(agent.routing || %{}, fn {level, value} -> {level, List.wrap(value)} end)
+    Map.merge(single, Map.get(agent, :routing_candidates) || %{})
+  end
+
+  @doc """
   Claim-time fallback order: `agent.priority` when present, else the deprecated
   `agent.switch_model_on_ratelimit` field. Returns **routes**, not backends —
   selection consumes the model segment, so stripping it here would collapse
@@ -227,6 +240,22 @@ defmodule Aiur.Config.AgentSettings do
       # Map.get (not dot access) so a config cached before this field existed
       # returns %{} rather than raising KeyError after a schema upgrade.
       {:ok, settings} -> Map.get(settings.agent, :max_turns_by_complexity) || %{}
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  The `agent.skills` mapping: which skills a worker loads first, keyed by lane,
+  owning feature, label and complexity. Returns the empty mapping when unset or
+  when the config cannot be loaded, so prompt building never fails on this
+  lookup. Read per call, so an edit takes effect on the next dispatch.
+  """
+  @spec agent_skills() :: map()
+  def agent_skills do
+    case Aiur.Config.settings() do
+      # Map.get (not dot access) so a config cached before this field existed
+      # returns %{} rather than raising KeyError after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :skills) || %{}
       _ -> %{}
     end
   end
