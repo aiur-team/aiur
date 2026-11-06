@@ -2,7 +2,6 @@ defmodule AiurWeb.Build.Index do
   @moduledoc "One async, coalescing build-home index per dashboard daemon."
   use GenServer
   alias Aiur.BuildOrder.Index, as: Core
-  alias Aiur.BuildOrder.Index.Parts
   alias AiurWeb.Build.{Freshness, HistoryCarry, IndexReader}
   alias AiurWeb.Build.Index.RefreshState
   require Logger
@@ -18,17 +17,14 @@ defmodule AiurWeb.Build.Index do
     build_progress_changed: ~w(queue planned not_queued packs)a,
     build_queue_changed: ~w(queue planned not_queued packs)a,
     open_tickets_updated: ~w(open planned not_queued packs)a,
-    # Either label source can rename a Features row without a history row changing.
     open_issues_recorded: [:labels],
     label_catalogue_changed: [:label_catalogue],
     build_order_pack_status_changed: [:packs],
     ticket_activity_changed: ~w(now planned not_queued)a,
     running_changed: ~w(now planned not_queued)a
   }
-  # Every part `Parts.keys/0` names, plus the dirty-only markers the dashboard tracks itself.
-  # Derived so a part cannot be read here once and then never refreshed — the drift that left
-  # Features row names stuck on their slug.
-  @read_parts Parts.keys() ++ ~w(now planned not_queued packs)a
+  # Derived from `Parts.keys/0` so a declared part cannot be left unread (Features names stuck on slugs).
+  @read_parts Core.Parts.keys() ++ ~w(now planned not_queued packs)a
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []),
