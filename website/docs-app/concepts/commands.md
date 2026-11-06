@@ -210,6 +210,24 @@ A crash during sending can repeat an event ID; consumers must
 deduplicate it. Existing projections without these fields are upgraded without
 replaying historical notifications. Journal corruption still makes writes read-only.
 
+### Repairing a read-only journal
+
+A record fails verification when its content hash no longer matches. Aiur also
+accepts a record whose stored hash matches its data exactly as written, so an
+upgrade or rollback that changes how Commands are encoded leaves the journal valid.
+
+A record that still fails is damaged. Replay stops there, the store goes
+read-only, and an answer returns `{:store_unavailable, {:corrupt, line, reason}}`.
+
+Run `aiur commands repair` against the running daemon. It moves each record that
+fails, and any later record that depends on it, byte for byte into a sibling
+`decisions.quarantine-<UTC>.ndjson`. It keeps every valid record, rewrites the
+journal and reloads the store as writable, then lists each quarantined line.
+
+Afterwards you can answer open Commands and retire one whose ticket closed with
+[`aiur executor-moot`](/reference/cli-decisions). A Command whose `requested`
+record was quarantined is no longer listed; its line stays in the quarantine file.
+
 ## Operator answers relayed in conversation
 
 When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli) if you enabled `executor.relay_operator_answers`. This accepts human-only Commands without granting the Executor decision authority.

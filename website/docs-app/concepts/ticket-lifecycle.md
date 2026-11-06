@@ -162,12 +162,12 @@ state, or `todo` if only a released claim survives. Parked or untriaged tickets
 without it are alerted and left alone. An open workflow ticket with no live
 agent or scheduled claim is re-queued and alerted.
 
-Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
+Agents use `aiur_set_lane` for local lane overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
 marks an unconfirmed guess.
 
 `aiur_history_export` gives only `history-backfill`
-tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [epic commands](../reference/cli.md#build-history-epic-commands).
+tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [lane commands](../reference/build-history-commands#lanes).
 
 ### Model labels
 

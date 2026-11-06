@@ -101,7 +101,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
 
   defp adoption_withdrawal?(f) do
     f.todo and f.item.override == nil and not own_promotion?(f) and f.verdict != :ready and
-      (Map.fetch!(f.context.queues, f.item.queue_id).kind == :build_order or prequeued_todo?(f))
+      (Map.fetch!(f.context.queues, f.item.queue_id).kind in [:build_order, :feature] or prequeued_todo?(f))
   end
 
   defp prequeued_todo?(f) do

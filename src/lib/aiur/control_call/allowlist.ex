@@ -68,6 +68,8 @@ defmodule Aiur.ControlCall.Allowlist do
        search: :string,
        cursor: :string
      }},
+    {:commands_repair, 0, :write, [], %{}},
+    {:commands_repair, 1, :write, [:keyword], %{json: :boolean}},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},

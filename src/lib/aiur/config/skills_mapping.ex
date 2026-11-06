@@ -266,7 +266,7 @@ defmodule Aiur.Config.SkillsMapping do
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.by_lane
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-  # @config-detail agent.skills.by_lane | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured general epic's label matchers. |
+  # @config-detail agent.skills.by_lane | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured lane's label matchers. |
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.by_feature
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
