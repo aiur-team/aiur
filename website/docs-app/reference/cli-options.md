@@ -74,7 +74,9 @@ Use an `AIUR_TOKEN_*` environment variable for write tokens. A `token_file` is i
 The client refuses commands that need local files, processes, or terminal streaming before it makes an HTTP request:
 
 - Local lifecycle and maintenance: bare `aiur`, `run`, `--bg`, `stop`, `restart`, `aiurdev build`, `cleanup-stale`, `doctor`, `upgrade`, and `pre-pr`.
-- Streaming, setup, and client-only commands: `listen`, `executor-listen`, `init`, `login`, `logout`, `pr`, `findings`, `ask`, `asks`, `answer`, help, and `--version`.
+- Streaming, setup, and client-only commands: `listen`, `executor-listen`, `init`, `login`, `logout`, `pr`, `findings`, `ask`, `asks`, `answer`, `history export`, help, and `--version`.
+
+`redispatch`, `ticket estimate`, `operator-relay-answer`, and `history label-writes` work with `--instance`.
 
 Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast-forward` require `--as <id>`.
 
