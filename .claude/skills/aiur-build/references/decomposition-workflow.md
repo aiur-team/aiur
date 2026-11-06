@@ -123,6 +123,16 @@ ticket exactly once, resolved dependencies, and planned phase/complexity
 metadata. A pack whose only defect is a stale live status table is reported as
 stale, never corrected in prose.
 
+The graph review that publication carries is rendered from `build-order.v1`, not
+recomputed from the pack: run `scripts/render_build_order_review.py --build
+<pack>/build-order.json --out <pack>/graph-review.md` (add `--from-daemon
+[--root <n>]` to read live tracker and progress truth).
+
+The pack stays the authored artifact; the document is what the review reads. The
+renderer refuses a document that disagrees with the pack's typed edges, waves,
+critical path or gates, and `publish_build_order.py --graph-review` refuses a
+stale review.
+
 ## Stage 8: Executor-owned GitHub promotion
 
 This stage requires issue-creation authority; reuse explicit authorization

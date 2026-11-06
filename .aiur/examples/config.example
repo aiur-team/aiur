@@ -131,7 +131,7 @@ agent:
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
-  # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
+  # stall_timeout_ms: 3600000            # final silent-agent watchdog; Codex also probes every 60s (long test/coverage work can be quiet)
   # max_cpu_pressure: 20.0              # Linux CPU PSI some avg60 percent ceiling; null disables
   # target_cpu_pressure: 10.0           # PSI AIMD target percent; null disables
   # max_load_average: 1.5                # per-scheduler ceiling only when PSI unavailable; null disables
