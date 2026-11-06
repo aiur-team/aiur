@@ -7,12 +7,16 @@ on:
       - 'packages/aiur-build-order/**'
       - 'packages/aiur-contracts/fixtures/build-order*.json'
       - 'packages/aiur-contracts/schemas/build-order*.json'
+      - 'src/priv/static/aiur-build-order/**'
+      - 'scripts/sync-aiur-build-order'
       - '.github/workflows/aiur-build-order.yml'
   pull_request:
     paths:
       - 'packages/aiur-build-order/**'
       - 'packages/aiur-contracts/fixtures/build-order*.json'
       - 'packages/aiur-contracts/schemas/build-order*.json'
+      - 'src/priv/static/aiur-build-order/**'
+      - 'scripts/sync-aiur-build-order'
       - '.github/workflows/aiur-build-order.yml'
   # A merge group takes no paths filter; the package job is cheap and must run
   # on the merged result the queue actually tests.
@@ -41,6 +45,13 @@ jobs:
       - run: npm test
       - name: Pack the tarball and render it in an isolated consumer
         run: npm run pack:check
+      - name: Check the committed dashboard copy matches dist
+        working-directory: .
+        run: |
+          # diff -r reports changed files and files missing from either side.
+          mkdir -p "$RUNNER_TEMP/aiur-build-order-sync"
+          scripts/sync-aiur-build-order "$RUNNER_TEMP/aiur-build-order-sync"
+          diff -r "$RUNNER_TEMP/aiur-build-order-sync/aiur-build-order" src/priv/static/aiur-build-order || { echo "committed copy differs from dist; run scripts/sync-aiur-build-order"; exit 1; }
 
   browser:
     if: ${{ github.event_name != 'merge_group' }}

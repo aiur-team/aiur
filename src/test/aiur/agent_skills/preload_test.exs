@@ -10,6 +10,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentSkills.Preload
+  alias Aiur.BuildOrder.Features
   alias Aiur.Config.SkillsMapping
   alias Aiur.Issue
 
@@ -30,6 +31,25 @@ defmodule Aiur.AgentSkills.PreloadTest do
   defp issue(labels, description \\ "Do the work.") do
     %Issue{identifier: "ABC-1", title: "A task", description: description, labels: labels}
   end
+
+  defp ticket(number) do
+    %Issue{identifier: Integer.to_string(number), title: "A task", description: "Do the work.", labels: ["area:art"]}
+  end
+
+  # A real build-order registry in a private directory, so the epic resolution
+  # runs against the registry's own journal and projection rather than a stub.
+  defp start_registry!(workspace) do
+    dir = Path.join(workspace, "registry")
+    File.mkdir_p!(dir)
+
+    start_supervised!(
+      {Features, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, general_epics: [], alert_fun: fn _, _, _ -> :ok end},
+      id: make_ref(),
+      restart: :temporary
+    )
+  end
+
+  defp registry_meta(pid), do: [server: pid, source: "cli:executor", actor: "executor"]
 
   defp settings(lanes \\ []) do
     %{build_order: %{lanes: lanes}}
@@ -85,8 +105,8 @@ defmodule Aiur.AgentSkills.PreloadTest do
   end
 
   describe "merge order" do
-    test "label, lane, feature and complexity combine in that order", %{workspace: workspace} do
-      for name <- ~w(label-skill lane-skill feature-skill complexity-skill) do
+    test "label, lane, feature, epic and complexity combine in that order", %{workspace: workspace} do
+      for name <- ~w(label-skill lane-skill feature-skill epic-skill complexity-skill) do
         skill!(workspace, name, "#{name} description.", "#{name} body")
       end
 
@@ -98,12 +118,14 @@ defmodule Aiur.AgentSkills.PreloadTest do
             "by_label" => %{"design" => ["label-skill"]},
             "by_lane" => %{"art" => ["lane-skill"]},
             "by_feature" => %{"items-ui" => ["feature-skill"]},
+            "by_epic" => %{"v1-launch" => ["epic-skill"]},
             "by_complexity" => %{"3" => ["complexity-skill"]}
           },
-          feature: "items-ui"
+          feature: "items-ui",
+          epic: "v1-launch"
         )
 
-      assert Enum.map(preload.mapped, & &1.reason) == ["label:design", "lane:art", "feature:items-ui", "complexity:3"]
+      assert Enum.map(preload.mapped, & &1.reason) == ["label:design", "lane:art", "feature:items-ui", "epic:v1-launch", "complexity:3"]
     end
 
     test "a skill named by two sources keeps the earlier reason", %{workspace: workspace} do
@@ -179,6 +201,43 @@ defmodule Aiur.AgentSkills.PreloadTest do
         resolve(issue, workspace, %{"by_lane" => %{"art" => ["lane-skill"]}}, feature_server: pid)
 
       assert Enum.map(preload.mapped, & &1.name) == ["lane-skill"]
+    end
+  end
+
+  describe "epic mapping via the registry" do
+    test "maps the epic whose feature list holds the owning feature", %{workspace: workspace} do
+      skill!(workspace, "epic-skill", "Epic.", "EPIC BODY")
+      registry = start_registry!(workspace)
+      {:ok, _} = Features.create("combat", %{label: "Combat"}, registry_meta(registry))
+      {:ok, _} = Features.add("combat", [7], registry_meta(registry))
+      {:ok, _} = Features.epic_create("v1-launch", %{label: "V1 launch", hue: 120}, registry_meta(registry))
+      {:ok, _} = Features.epic_add("v1-launch", ["combat"], registry_meta(registry))
+
+      preload =
+        resolve(ticket(7), workspace, %{"by_epic" => %{"v1-launch" => ["epic-skill"]}}, feature_server: registry)
+
+      assert Enum.map(preload.mapped, &{&1.name, &1.reason}) == [{"epic-skill", "epic:v1-launch"}]
+      assert Preload.summary(preload) =~ "epic-skill (epic:v1-launch)"
+      assert Preload.dispatch_record(preload).skill_reasons == %{"epic-skill" => "epic:v1-launch"}
+    end
+
+    test "a feature no epic holds resolves without an epic reason or an error", %{workspace: workspace} do
+      skill!(workspace, "lane-skill", "Lane.", "LANE BODY")
+      skill!(workspace, "epic-skill", "Epic.", "EPIC BODY")
+      registry = start_registry!(workspace)
+      {:ok, _} = Features.create("combat", %{label: "Combat"}, registry_meta(registry))
+      {:ok, _} = Features.create("items", %{label: "Items"}, registry_meta(registry))
+      {:ok, _} = Features.add("combat", [7], registry_meta(registry))
+      # The epic exists and holds another feature, so the registry read runs and
+      # finds no epic for "combat".
+      {:ok, _} = Features.epic_create("v1-launch", %{label: "V1 launch", hue: 120}, registry_meta(registry))
+      {:ok, _} = Features.epic_add("v1-launch", ["items"], registry_meta(registry))
+
+      preload =
+        resolve(ticket(7), workspace, %{"by_lane" => %{"art" => ["lane-skill"]}, "by_epic" => %{"v1-launch" => ["epic-skill"]}}, feature_server: registry)
+
+      assert Enum.map(preload.mapped, &{&1.name, &1.reason}) == [{"lane-skill", "lane:art"}]
+      assert preload.missing == []
     end
   end
 

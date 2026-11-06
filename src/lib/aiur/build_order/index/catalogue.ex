@@ -30,7 +30,7 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
     epics = general_epics(general)
     feature_epics = feature_epics(sorted, feature_metadata, general)
     order = Enum.map(general, & &1.key) ++ Enum.flat_map(sorted, fn {_, f} -> Enum.map(f.epics, & &1.key) end) ++ ["unsorted"]
-    %{features: feature_rows, epics: epics |> Map.merge(feature_epics) |> Map.put("unsorted", Epic.unsorted()), order: order}
+    %{features: feature_rows, lanes: epics |> Map.merge(feature_epics) |> Map.put("unsorted", Epic.unsorted()), order: order}
   end
 
   defp feature_rows(sorted, metadata_by_id, stats, oldest_for) do

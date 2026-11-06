@@ -24,6 +24,11 @@ defmodule AiurWeb.CommandsApiControllerTest do
       send(self(), {:host_api_called, :answer, [scope, decision_id, payload, opts]})
       Process.get({__MODULE__, :answer}, {:error, :not_found})
     end
+
+    def media(scope, decision_id, attachment_id, opts) do
+      send(self(), {:host_api_called, :media, [scope, decision_id, attachment_id, opts]})
+      Process.get({__MODULE__, :media}, {:error, :not_found})
+    end
   end
 
   test "a scoped list returns the component payload" do
@@ -92,6 +97,44 @@ defmodule AiurWeb.CommandsApiControllerTest do
 
     assert conn.status == 503
     assert Jason.decode!(conn.resp_body)["error"]["code"] == "commands_unavailable"
+  end
+
+  test "a scoped media read redirects to the item's public URL" do
+    Process.put(
+      {FakeHostApi, :media},
+      {:ok, %{kind: :image, mime_type: "image/png", locator: %{kind: :url, value: "https://github.com/a/b.png"}}}
+    )
+
+    conn =
+      scoped_conn(:get)
+      |> CommandsApiController.media(%{"decision_id" => "dec_1", "attachment_id" => "med_abc"})
+
+    assert conn.status == 302
+    assert get_resp_header(conn, "location") == ["https://github.com/a/b.png"]
+
+    assert_receive {:host_api_called, :media, [scope, "dec_1", "med_abc", opts]}, 1_000
+    assert scope.tickets == ["42"]
+    assert opts[:store] == :fake_store
+  end
+
+  test "an out-of-scope or missing media attachment is a 404" do
+    conn =
+      scoped_conn(:get)
+      |> CommandsApiController.media(%{"decision_id" => "dec_hidden", "attachment_id" => "med_abc"})
+
+    assert conn.status == 404
+    assert Jason.decode!(conn.resp_body)["error"]["code"] == "media_not_found"
+  end
+
+  test "an unavailable store is a 503 on a media read" do
+    Process.put({FakeHostApi, :media}, {:error, :store_unavailable})
+
+    conn =
+      scoped_conn(:get)
+      |> CommandsApiController.media(%{"decision_id" => "dec_1", "attachment_id" => "med_abc"})
+
+    assert conn.status == 503
+    assert Jason.decode!(conn.resp_body)["error"]["code"] == "decision_store_unavailable"
   end
 
   test "a request without a verified scope assigns nothing and is refused" do

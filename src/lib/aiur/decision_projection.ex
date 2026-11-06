@@ -10,7 +10,7 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
-  alias Aiur.Commands.Overrides
+  alias Aiur.Commands.{Media, Overrides}
   alias Aiur.Commands.Projection, as: CommandProjection
   alias Aiur.Commands.Routing.Facts
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
@@ -301,7 +301,7 @@ defmodule Aiur.DecisionProjection do
       "reversibility" => Atom.to_string(decision.reversibility),
       "question" => decision.question,
       "context" => stringify_keys(decision.context),
-      "options" => Enum.map(decision.options, &stringify_keys/1),
+      "options" => Media.options_to_json_safe(decision.options),
       "recommendation" => decision.recommendation && stringify_keys(decision.recommendation),
       "consequence_of_delay" => decision.consequence_of_delay,
       "artifacts" => Enum.map(decision.artifacts, &stringify_artifact/1),
@@ -327,6 +327,7 @@ defmodule Aiur.DecisionProjection do
     }
     |> then(fn raw -> if decision.overrides == [], do: raw, else: Map.put(raw, "overrides", Overrides.public(decision)) end)
     |> Map.merge(JSONSafe.normalize(Facts.public(decision)))
+    |> Media.put_snapshot_media(decision.media)
     |> maybe_put_legacy_attention(decision.legacy_attention)
     |> maybe_put_provenance(decision.provenance)
   end
@@ -347,6 +348,7 @@ defmodule Aiur.DecisionProjection do
       "question",
       "context",
       "options",
+      "media",
       "recommendation",
       "consequence_of_delay",
       "artifacts"

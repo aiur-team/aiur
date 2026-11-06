@@ -76,9 +76,11 @@ For a home-page epic, issue workers use `aiur_set_lane` or `aiur_feature`; Execu
 
 Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, and every other installed skill after them as a name and description to load on demand.
 
-`agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, label and complexity to skill names, and the matching sets are combined.
+`agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, epic, label and complexity to skill names, and the matching sets are combined.
 
 A lane is the technical column the work belongs to, and it is the same column a general epic describes: it comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured general epic's label matchers. A configured epic therefore needs no GitHub relabel.
+
+An epic is the build-order record above features. A ticket's epic is the one whose ordered feature list holds the ticket's owning feature; a feature no epic holds contributes no epic skills and no error.
 
 ### Merge order and precedence
 
@@ -87,9 +89,10 @@ A lane is the technical column the work belongs to, and it is the same column a 
 | Label | `agent.skills.by_label` | Label, without its `skills:` prefix |
 | Lane | `agent.skills.by_lane` | Lane slug |
 | Feature | `agent.skills.by_feature` | Owning feature slug |
+| Epic | `agent.skills.by_epic` | Owning feature's epic slug |
 | Complexity | `agent.skills.by_complexity` | Complexity level |
 
-Labels come first, then lanes, then the owning feature, then complexity. Each source contributes its whole set and the sets combine; when two sources name the same skill, the earlier source owns the stated reason.
+Labels come first, then lanes, then the owning feature, then its epic, then complexity. Each source contributes its whole set and the sets combine; when two sources name the same skill, the earlier source owns the stated reason.
 
 Matching is case-insensitive, and complexity keys accept both `3` and `"3"`.
 
@@ -148,6 +151,9 @@ agent:
       audio: [audio-design]
       persistence: [save-schema]
       qa: [playtest-checklists]
+    # An epic groups features under a milestone; its skills reach every ticket below it.
+    by_epic:
+      v1-launch: [launch-checklist]
     # A label adds skills to one ticket without a config edit.
     by_label:
       pixel-art: [pixel-art, palette-discipline]

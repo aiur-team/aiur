@@ -8,6 +8,11 @@ Existing Build Orders retain their typed members, lanes, phases, dependencies,
 complexity, and optional icons as readable planning history. The pack and root
 commands below describe those legacy artifacts.
 
+Three words carry the hierarchy: an **Epic** holds features in order and may name
+one Build Order root; a **Feature** holds tickets; a **Lane** is a technical
+column. Epics are records in `build-features/epics.ndjson` beside
+`features.ndjson`; `aiur epic list` shows them.
+
 ## The published graph
 
 A Build Order is also published as a versioned document, `build-order.v1`, from `@aiur/contracts`.
@@ -57,6 +62,11 @@ review and the graph from one published document, with no daemon, no network cal
 It parses `build-order.v1`, returns the review as static HTML and the graph as SVG, and defines an
 `<aiur-build-order>` element for a plain page that mounts either or both from a URL or an inline
 document.
+
+The dashboard's Build home mounts that same package in its **Build order** view, so the review and the
+graph an operator reads on `/build` are the package's rendering of the published document, not a second
+implementation. The page reads `GET /api/v1/build-order`, the document the daemon already produced, and
+needs no tracker credential of its own.
 
 Because it reads the fields above — `waves`, `critical_path`, `progress` and the typed edges — and
 recomputes none of them, a page rendering a published document cannot disagree with the dashboard
@@ -355,9 +365,11 @@ also remove it from open issues before you downgrade.
 
 `aiur queue show` reads the held queue model: queues, completion progress, items in start order, prerequisite verdicts, rank, source freshness, and open attentions. Manage membership and holds through the CLI.
 
-Build Order roots appear as features named `bo-<number>`. Membership follows
-direct sub-issues, and build lanes become feature epics. The import writes no
-GitHub labels and sets no baseline.
+Build Order roots appear as features named `bo-<number>` and as an epic record of
+the same slug. Membership follows direct sub-issues, and the root's build lanes
+stay lane assignments on that feature. The import writes no GitHub labels and
+sets no baseline; a later root title updates the imported epic label unless an
+operator has edited it.
 
 Explicit feature ownership and an operator’s
 removal of an imported member are preserved. Imports wait for history backfill;

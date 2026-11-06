@@ -73,8 +73,8 @@ defmodule AiurWeb.Build.PayloadSchema do
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
       "icons" => {:dictionary, :string},
-      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted svg summary wave))},
-      "epic_progress" =>
+      "lanes" => {:dictionary, object(lane(), ~w(general feature temp unsorted svg summary wave))},
+      "lane_progress" =>
         {:dictionary,
          object(%{
            "closed" => nullable(:nonnegative),
@@ -83,7 +83,7 @@ defmodule AiurWeb.Build.PayloadSchema do
            "observed_at" => nullable(:integer),
            "reason" => nullable(:string)
          })},
-      "epic_progress_meta" => object(%{"unmatched" => nullable(:nonnegative), "observed_at" => nullable(:integer), "reason" => nullable(:string)}),
+      "lane_progress_meta" => object(%{"unmatched" => nullable(:nonnegative), "observed_at" => nullable(:integer), "reason" => nullable(:string)}),
       "features" =>
         {:dictionary,
          object(
@@ -236,7 +236,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
   defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier ticket)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 
-  defp epic,
+  defp lane,
     do: %{
       "key" => :string,
       "label" => :string,

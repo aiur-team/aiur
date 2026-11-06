@@ -22,6 +22,7 @@ let pendingLive;
 onReset(() => { pendingLive = { changed: new Set(), removed: new Set(), dirty: false }; });
 
 export function viewport() {
+    if (S.view === 'build-order') return buildOrderViewport();
     ctx.vp.innerHTML =
       '<div class="bd-content" id="bd-content">' +
         '<div class="bd-lanes" id="bd-lanes"><span class="bd-lane-g">' + (S.view === "gantt" ? "Time" : "Order") + "</span></div>" +
@@ -55,6 +56,16 @@ export function viewport() {
     });
   }
 
+// The Build order view is rendered by the aiur-build-order package, not by this
+// board: no geometry, no cards and no edges survive a switch to it.
+export function buildOrderViewport() {
+  ctx.content = null; ctx.lanesEl = null; ctx.guidesEl = null; ctx.svg = null; ctx.bandEl = null;
+  ctx.L = null; ctx.lt = null; ctx.lockId = null;
+  ctx.R.clear(); ctx.RL.clear(); ctx.laneEls.clear(); ctx.guideEls.clear();
+  ctx.cols = []; ctx.colMap = {}; ctx.bandMap = {};
+  if (!ctx.vp.querySelector('#bd-bo')) ctx.vp.innerHTML = '<div class="bd-bo" id="bd-bo" style="padding:16px"></div>';
+}
+
 function noanim(el) {
   el.classList.add('noanim');
   ctx.life.frame(el, () => ctx.life.frame(el, () => el.classList.remove('noanim')));
@@ -66,6 +77,7 @@ function restoreFocus(id) {
   (card || ctx.vp).focus({ preventScroll: true });
 }
 function relayoutImpl({ live = false } = {}) {
+  if (S.view === 'build-order') return fx.mountBuildOrder();
   if (S.loading) return fx.renderLoading();
   setLastKey(layoutKey(S));
   syncStates();
@@ -156,7 +168,7 @@ function renderSection(s, keep, keepL, focused) {
   return created;
 }
 function updateImpl(force) {
-  if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
+  if (!ctx.L || !ctx.content || S.loading || S.view === 'list' || S.view === 'build-order') return;
   fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;

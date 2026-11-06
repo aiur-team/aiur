@@ -6,12 +6,14 @@ defmodule AiurWeb.CommandsApiController do
   `AiurWeb.CommandsScopeAuth`; the controller never accepts a ticket set from
   request content. It owns only the HTTP vocabulary: the domain decisions live
   in `Aiur.Commands.HostApi` and the component contract in
-  `Aiur.Commands.ComponentState`.
+  `Aiur.Commands.ComponentState`. A Command's typed media is read through the
+  same grant on `:media`, which re-checks the Command's own attachment list.
   """
 
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.Commands.{ComponentState, HostApi, Scope}
+  alias AiurWeb.CommandMediaResponse
   alias AiurWeb.CommandsScopeAuth
   alias Plug.Conn
 
@@ -38,6 +40,26 @@ defmodule AiurWeb.CommandsApiController do
     case scope(conn) do
       {:ok, scope} -> answer_with_scope(conn, scope, decision_id, Map.delete(params, "decision_id"))
       :error -> unauthorized(conn)
+    end
+  end
+
+  @doc """
+  Serves one media attachment of a scoped Command.
+
+  The grant's ticket set is re-checked on every read and the attachment must
+  belong to that Command, so a host cannot fetch media by guessing an id. The
+  response itself (redirect, contained file, hardening headers) comes from
+  `AiurWeb.CommandMediaResponse`, the same module the dashboard route uses.
+  """
+  @spec media(Conn.t(), map()) :: Conn.t()
+  def media(conn, %{"decision_id" => decision_id, "attachment_id" => attachment_id}) do
+    case scope(conn) do
+      {:ok, scope} ->
+        result = invoke(conn, :media, [scope, decision_id, attachment_id, api_opts(conn)])
+        CommandMediaResponse.respond(conn, result)
+
+      :error ->
+        unauthorized(conn)
     end
   end
 

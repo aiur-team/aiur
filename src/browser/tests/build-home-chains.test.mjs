@@ -105,7 +105,7 @@ test('U8 unknown status fields never claim known progress, dates, state or queue
   assert.equal(treeStatus({ sec: 'nq' }), 'Not queued');
 });
 
-test('U9 null numbers sort by stable id after numbered members and epic order', () => {
+test('U9 null numbers sort by stable id after numbered members and lane order', () => {
   const D = chainsD([{ id: 'root', deps: ['z', 'a', 'numbered', 'infra'] },
     { id: 'z', num: null }, { id: 'a', num: null }, { id: 'numbered', num: 7 }, { id: 'infra', epic: 'infra', num: 1 }]);
   assert.deepEqual(treeLayout(D, 'root', 800, 600).rows[0], ['numbered', 'a', 'z', 'infra']);

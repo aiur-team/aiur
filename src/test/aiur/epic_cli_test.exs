@@ -1,8 +1,15 @@
 defmodule Aiur.EpicCLITest do
+  @moduledoc """
+  `aiur epic set|clear|confirm` are the deprecated spelling of `aiur lane`, so
+  they run the lane override store. `aiur epic show|list` now read epic records,
+  which `Aiur.EpicRecordsCLITest` covers; these cases keep the override store
+  honest through the lane commands those spellings alias.
+  """
   use ExUnit.Case, async: true
   import ExUnit.CaptureIO
   alias Aiur.BuildOrder.EpicOverrides, as: Store
   alias Aiur.EpicCLI
+  alias Aiur.LaneCLI
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("epic-cli")
@@ -15,7 +22,14 @@ defmodule Aiur.EpicCLITest do
   end
 
   defp run(opts, code) do
-    capture_io(fn -> assert EpicCLI.run(Keyword.put(opts, :error_fun, &IO.puts/1)) == code end)
+    capture_io(fn -> assert LaneCLI.run(Keyword.put(opts, :error_fun, &IO.puts/1)) == code end)
+  end
+
+  test "the deprecated epic write verbs still reach the lane store", c do
+    start_supervised!({Store, c.opts})
+    text = capture_io(fn -> assert EpicCLI.run(c.server ++ [action: :set, epic: "bugs", ids: [12], who: "kevin", error_fun: fn _ -> :ok end]) == 0 end)
+    assert text =~ "set bugs"
+    assert {:ok, %{12 => %{epic: "bugs"}}, _} = Store.all(c.server)
   end
 
   test "V-21 unavailable show text and JSON never imply no override", c do
@@ -24,7 +38,7 @@ defmodule Aiur.EpicCLITest do
     text = run(c.server ++ [action: :show, ids: [12]], 1)
     assert text =~ "unavailable (epic_overrides_corrupt)"
     refute text =~ "no override"
-    json = capture_io(fn -> assert EpicCLI.run(c.server ++ [action: :show, json: true, error_fun: fn _ -> :ok end]) == 1 end) |> Jason.decode!()
+    json = capture_io(fn -> assert LaneCLI.run(c.server ++ [action: :show, json: true, error_fun: fn _ -> :ok end]) == 1 end) |> Jason.decode!()
     assert json["ok"] == false
     assert json["health"]["failure"] == "epic_overrides_corrupt"
     refute Map.has_key?(json, "overrides")

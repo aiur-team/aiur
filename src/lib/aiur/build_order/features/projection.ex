@@ -24,11 +24,12 @@ defmodule Aiur.BuildOrder.Features.Projection do
     end
   end
 
-  defp apply_event(projection, %{type: "feature.created", feature: slug, data: data}, _record) do
+  defp apply_event(projection, %{type: "feature.created", feature: slug, data: data}, record) do
     if Map.has_key?(projection.features, slug) or data.slug != slug do
       {:error, {:invariant, :feature_exists}}
     else
-      {:ok, put_in(projection.features[slug], data)}
+      projection = put_in(projection.features[slug], data)
+      {:ok, if(imported_source?(record), do: %{projection | imported: MapSet.put(projection.imported, slug)}, else: projection)}
     end
   end
 
@@ -109,6 +110,8 @@ defmodule Aiur.BuildOrder.Features.Projection do
   defp apply_existing(_, _, _, _), do: {:error, {:invariant, :unknown_event}}
 
   defp valid_relabels?(before, after_epics), do: Enum.map(before, & &1.key) == Enum.map(after_epics, & &1.key)
+  defp imported_source?(%{source: "import:build-order"}), do: true
+  defp imported_source?(_record), do: false
 
   defp invariants(projection) do
     keys = for {_slug, feature} <- projection.features, epic <- feature.epics, do: epic.key

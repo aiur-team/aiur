@@ -2,19 +2,27 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   @moduledoc false
   require Logger
 
+  alias Aiur.BuildOrder.Epics.Journal, as: EpicJournal
+  alias Aiur.BuildOrder.Epics.Projection, as: EpicProjection
   alias Aiur.BuildOrder.Features.Journal
   alias Aiur.BuildOrder.ProviderHealth
   alias Aiur.{Config, Fs, Signal}
   alias Aiur.Journal, as: AppendJournal
+
+  @feature_file "features.ndjson"
+  @epic_file "epics.ndjson"
 
   @spec boot(keyword()) :: map()
   def boot(opts) do
     state = options(opts)
 
     with {:ok, dir} <- state_dir(opts),
-         path = Path.join(dir, "features.ndjson"),
+         path = Path.join(dir, @feature_file),
          :ok <- AppendJournal.prepare(dir, path, state.sync_fun) do
-      replay(%{state | path: path})
+      state
+      |> Map.merge(%{path: path, epic_path: Path.join(dir, @epic_file)})
+      |> replay()
+      |> replay_epics()
     else
       {:error, reason} -> fail(state, boot_failure(reason))
     end
@@ -23,10 +31,15 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   defp options(opts) do
     %{
       path: nil,
+      epic_path: nil,
       projection: Journal.empty(),
+      epic_projection: EpicProjection.empty(),
       writable?: true,
+      epic_writable?: true,
       bytes: 0,
+      epic_bytes: 0,
       health: nil,
+      epic_health: nil,
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       append_fun: Keyword.get(opts, :append_fun, &AppendJournal.append/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
@@ -78,17 +91,60 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   end
 
   defp replayed(records, projection, state) do
-    observed =
-      case List.last(records) do
-        nil -> state.clock.()
-        record -> record.recorded_at
-      end
-
     case File.stat(state.path) do
-      {:ok, stat} -> %{state | projection: projection, bytes: stat.size, health: healthy(projection, observed)}
+      {:ok, stat} -> %{state | projection: projection, bytes: stat.size, health: healthy(projection, observed(records, state))}
       {:error, _reason} -> fail(state, :state_dir_unavailable)
     end
   end
+
+  # The epic journal is additive: a build without the epic level ignores the
+  # file, and a broken epic file leaves every feature and member readable.
+  # When the feature journal already failed, the one alert stands for both.
+  defp replay_epics(%{writable?: false} = state) do
+    %{state | epic_writable?: false, epic_health: failed_health(%{state | health: state.epic_health}, :features_unavailable)}
+  end
+
+  defp replay_epics(state) do
+    limits = [max_record_bytes: state.max_record_bytes, max_file_bytes: state.max_file_bytes]
+
+    case AppendJournal.prepare(Path.dirname(state.epic_path), state.epic_path, state.sync_fun) do
+      :ok -> replay_epic_records(state, limits)
+      {:error, reason} -> fail_epics(state, epic_replay_failure(reason))
+    end
+  end
+
+  defp replay_epic_records(state, limits) do
+    case AppendJournal.replay(state.epic_path, &EpicJournal.validate/1, limits) do
+      {:ok, records, nil} -> fold_epic_records(records, state)
+      {:ok, _prefix, {:corrupt, _, reason}} -> fail_epics(state, epic_corruption_failure(reason))
+      {:error, reason} -> fail_epics(state, epic_replay_failure(reason))
+    end
+  end
+
+  defp fold_epic_records(records, state) do
+    result =
+      Enum.reduce_while(records, {:ok, EpicProjection.empty()}, fn record, {:ok, projection} ->
+        case EpicJournal.fold(projection, record) do
+          {:ok, next} -> {:cont, {:ok, next}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+
+    case result do
+      {:ok, projection} -> replayed_epics(records, projection, state)
+      {:error, _reason} -> fail_epics(state, :epics_corrupt)
+    end
+  end
+
+  defp replayed_epics(records, projection, state) do
+    case File.stat(state.epic_path) do
+      {:ok, stat} -> %{state | epic_projection: projection, epic_bytes: stat.size, epic_health: healthy_epics(projection, observed(records, state))}
+      {:error, _reason} -> fail_epics(state, :state_dir_unavailable)
+    end
+  end
+
+  defp observed([], state), do: state.clock.()
+  defp observed(records, _state), do: List.last(records).recorded_at
 
   @spec append(map(), map(), map()) :: {:ok, map()} | {:error, term(), map()}
   def append(record, projection, state) do
@@ -109,7 +165,30 @@ defmodule Aiur.BuildOrder.Features.Persistence do
     end
   end
 
+  @spec append_epic(map(), map(), map()) :: {:ok, map()} | {:error, term(), map()}
+  def append_epic(record, projection, state) do
+    encoded = EpicJournal.encode(record)
+    bytes = byte_size(Jason.encode!(encoded)) + 1
+
+    cond do
+      bytes > state.max_record_bytes -> {:error, :record_too_large, state}
+      state.epic_bytes + bytes > state.max_file_bytes -> {:error, :epics_too_large, state}
+      true -> append_epic_record(encoded, record, projection, bytes, state)
+    end
+  end
+
+  defp append_epic_record(encoded, record, projection, bytes, state) do
+    case state.append_fun.(state.epic_path, encoded) do
+      :ok -> {:ok, %{state | epic_projection: projection, epic_bytes: state.epic_bytes + bytes, epic_health: healthy_epics(projection, record.recorded_at)}}
+      {:error, reason} -> {:error, {:epic_journal_append_failed, reason}, fail_epics(state, :epic_journal_append_failed)}
+    end
+  end
+
   defp healthy(projection, observed) do
+    ProviderHealth.new(projection.seq + 1, :healthy, true, observed_at: observed, last_success_at: observed)
+  end
+
+  defp healthy_epics(projection, observed) do
     ProviderHealth.new(projection.seq + 1, :healthy, true, observed_at: observed, last_success_at: observed)
   end
 
@@ -121,25 +200,44 @@ defmodule Aiur.BuildOrder.Features.Persistence do
   defp corruption_failure(:record_too_large), do: :features_too_large
   defp corruption_failure(:version_unsupported), do: :version_unsupported
   defp corruption_failure(_), do: :features_corrupt
+  defp epic_replay_failure({:symlink_rejected, _}), do: :unsafe_path
+  defp epic_replay_failure(:recovery_file_too_large), do: :epics_too_large
+  defp epic_replay_failure(_), do: :state_dir_unavailable
+  defp epic_corruption_failure(:record_too_large), do: :epics_too_large
+  defp epic_corruption_failure(:version_unsupported), do: :version_unsupported
+  defp epic_corruption_failure(_), do: :epics_corrupt
 
   defp fail(state, failure) do
     health = failed_health(state, failure)
-    alert(state, failure)
+    alert(state, "build_features", state.path, failure)
     %{state | writable?: false, health: health}
+  end
+
+  defp fail_epics(state, failure) do
+    health = failed_health(%{state | health: state.epic_health}, failure)
+    alert(state, "build_epics", state.epic_path, failure)
+    %{state | epic_writable?: false, epic_health: health}
   end
 
   defp failed_health(%{health: %ProviderHealth{} = health}, :journal_append_failed) do
     %{health | state: :stale, failure: :journal_append_failed}
   end
 
+  defp failed_health(%{health: %ProviderHealth{} = health}, :epic_journal_append_failed) do
+    %{health | state: :stale, failure: :epic_journal_append_failed}
+  end
+
   defp failed_health(state, failure) do
-    status = if failure in [:features_corrupt, :features_too_large], do: :structurally_invalid, else: :unavailable
+    status = if structural?(failure), do: :structurally_invalid, else: :unavailable
     ProviderHealth.new(:unknown, status, false, observed_at: state.clock.(), failure: failure)
   end
 
-  defp alert(state, failure) do
-    topic = if failure == :features_corrupt, do: "build_features.corrupted", else: "build_features.unavailable"
-    message = "Feature registry unavailable: #{failure}; journal #{inspect(state.path)} requires operator recovery."
+  defp structural?(failure), do: failure in [:features_corrupt, :features_too_large, :epics_corrupt, :epics_too_large]
+
+  defp alert(state, prefix, path, failure) do
+    topic = if structural?(failure), do: prefix <> ".corrupted", else: prefix <> ".unavailable"
+    label = if prefix == "build_epics", do: "Epic registry", else: "Feature registry"
+    message = "#{label} unavailable: #{failure}; journal #{inspect(path)} requires operator recovery."
     state.alert_fun.(topic, message, needs_attention: true, severity: "warning", reason: message)
   rescue
     error -> Logger.warning("build_features alert failed: #{Exception.message(error)}")

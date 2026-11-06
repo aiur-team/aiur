@@ -257,6 +257,7 @@ defmodule Aiur.Config.Schema.AgentValidationTest do
             %{},
             %{"by_lane" => %{"art" => ["pixel-art", "palette"]}},
             %{"by_feature" => %{"items-ui" => "ce-work"}},
+            %{"by_epic" => %{"v1-launch" => ["ce-plan"]}},
             %{"by_label" => %{"design" => ["design-import"]}},
             %{"by_complexity" => %{1 => ["ce-work"]}},
             %{"preload_max_bytes" => 32_768}

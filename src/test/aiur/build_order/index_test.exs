@@ -13,9 +13,9 @@ defmodule Aiur.BuildOrder.IndexTest do
     p = put_in(p[:features], {:ok, features})
 
     assert {:ok, index} = assemble(p)
-    assert index.epics["first"].hue == 280
-    assert index.epics["second"].hue == 170
-    assert index.epics["first"].hue != index.epics["second"].hue
+    assert index.lanes["first"].hue == 280
+    assert index.lanes["second"].hue == 170
+    assert index.lanes["first"].hue != index.lanes["second"].hue
   end
 
   test "legacy epic colours follow creation order, not day-of-month" do
@@ -27,8 +27,8 @@ defmodule Aiur.BuildOrder.IndexTest do
     p = parts([row(7)]) |> put_in([:features], {:ok, %{features: %{"early" => early, "late" => late}, owners: %{}, also: %{}, health: health()}})
 
     assert {:ok, index} = assemble(p)
-    assert index.epics["f-early"].hue == 280
-    assert index.epics["f-late"].hue == 170
+    assert index.lanes["f-early"].hue == 280
+    assert index.lanes["f-late"].hue == 170
   end
 
   test "joins history facts, resolved membership, timing, edges and merged PR" do
@@ -115,13 +115,13 @@ defmodule Aiur.BuildOrder.IndexTest do
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
     for key <- ~w(bugs design infra docs) do
-      assert Payload.scrub(Map.delete(index.epics[key], :svg)) |> Map.delete("hue") == Map.delete(design["epics"][key], "hue")
-      assert index.epics[key].svg =~ "<svg"
+      assert Payload.scrub(Map.delete(index.lanes[key], :svg)) |> Map.delete("hue") == Map.delete(design["lanes"][key], "hue")
+      assert index.lanes[key].svg =~ "<svg"
     end
 
-    assert Enum.map(~w(bugs design infra docs), &index.epics[&1].hue) == [8, 120, 55, 215]
+    assert Enum.map(~w(bugs design infra docs), &index.lanes[&1].hue) == [8, 120, 55, 215]
 
-    assert index.epics["f-aaa"] == %{
+    assert index.lanes["f-aaa"] == %{
              key: "f-aaa",
              label: "aaa",
              hue: 170,

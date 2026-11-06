@@ -52,7 +52,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
 
         window
         |> put_in([:features, slug], %{label: "Parent #{n}", epics: [lane]})
-        |> put_in([:epics, lane], %{feature: slug})
+        |> put_in([:lanes, lane], %{feature: slug})
         |> put_in([:feature_progress, :features, lane], progress)
         |> Map.update!(:order, &(&1 ++ [lane]))
         |> update_in([:sections, :plan], &(&1 ++ [row]))
@@ -119,7 +119,7 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
         nq: []
       },
       order: ["lane"],
-      epics: %{"lane" => %{feature: "parent"}},
+      lanes: %{"lane" => %{feature: "parent"}},
       features: %{"parent" => %{label: "Parent", epics: ["lane"]}},
       feature_progress: %{
         observed_at: System.system_time(:millisecond) - 120_000,
