@@ -168,9 +168,11 @@ Stale, partial or unavailable graph evidence makes that root's items unknown and
 
 ## Queueing a feature
 
-`aiur queue add --feature <slug> [--queue NAME] [--rank N] [--start-on TRIGGER]` queues a feature registry entry as one set. The set has no stored positions: its members are whatever the registry owns for that slug, so a ticket filed into the feature later joins the set on the next reconcile with no Executor action. Removing a ticket from the feature unmarks it and drops it from the set.
+`aiur queue add --feature <slug> [--queue NAME] [--rank N] [--start-on TRIGGER]` queues a feature registry entry as one set. Its members are whatever the registry owns for that slug: a ticket filed into the feature later joins on the next reconcile with no Executor action, and a removed ticket is unmarked.
 
-Inside a feature set, order comes from `blocked_by`, then the critical path, then priority. Holds, set ranks, start triggers and `blocked_by` gating behave exactly as they do for lists and Build Order roots. A member another set already owns stays there: a list owns a ticket it already holds, the queued feature lists that member as owned elsewhere with the set that owns it, and the add still succeeds.
+The set stores no positions. Order inside it comes from `blocked_by`, then the critical path, then priority. Holds, set ranks, start triggers and `blocked_by` gating behave exactly as for lists and Build Order roots.
+
+A member another set already owns stays there. A list owns a ticket it already holds, so the queued feature lists that member as owned elsewhere with the set that owns it and the add still succeeds.
 
 A feature set has no declared order of its own, so `queue add --feature` warns when `build_queue.set_order` is `none` (the default). Set it to `ranked` to order sets by rank.
 
