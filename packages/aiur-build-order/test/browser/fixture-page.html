@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aiur-build-order fixtures</title>
+<!--
+  A plain consumer page: no bundler, no framework and no daemon. `tokens.css` is
+  served from the @aiur/style token source by scripts/serve-fixtures.mjs; a real
+  page loads `aiur-style/tokens.css` instead.
+-->
+<link rel="stylesheet" href="/tokens.css">
+<script type="module">
+  import { registerAiurBuildOrder } from '/src/index.js';
+  registerAiurBuildOrder();
+</script>
+</head>
+<body>
+<h1>Published build orders</h1>
+<aiur-build-order id="reference" src="/fixtures/build-order.v1.json" view="both"></aiur-build-order>
+<aiur-build-order id="unavailable" src="/fixtures/build-order-unavailable.v1.json" view="review"></aiur-build-order>
+<aiur-build-order id="graph-only" src="/fixtures/build-order.golden.v1.json" view="graph"></aiur-build-order>
+<aiur-build-order id="broken" src="/fixtures/build-order-invalid.v1.json"></aiur-build-order>
+</body>
+</html>
