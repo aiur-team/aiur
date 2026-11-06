@@ -18,6 +18,19 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert index.epics["first"].hue != index.epics["second"].hue
   end
 
+  test "legacy epic colours follow creation order, not day-of-month" do
+    # "early" starts on the 28th and "late" on the 3rd of the next month, so a
+    # raw DateTime struct comparison (day-of-month first) would order "late"
+    # first and recolour "early" as more features appear.
+    early = %{slug: "early", label: "Early", hue: 175, epics: [%{key: "f-early", label: "Early"}], from: ~U[2026-09-28 00:00:00Z], to: :none, baseline: :none}
+    late = %{slug: "late", label: "Late", hue: 175, epics: [%{key: "f-late", label: "Late"}], from: ~U[2026-10-03 00:00:00Z], to: :none, baseline: :none}
+    p = parts([row(7)]) |> put_in([:features], {:ok, %{features: %{"early" => early, "late" => late}, owners: %{}, also: %{}, health: health()}})
+
+    assert {:ok, index} = assemble(p)
+    assert index.epics["f-early"].hue == 280
+    assert index.epics["f-late"].hue == 170
+  end
+
   test "joins history facts, resolved membership, timing, edges and merged PR" do
     r = row(7, %{labels: ["bug", "complexity:2"], merged_at: ~U[2026-10-07 14:20:00Z], pr_number: 233, agent_model: "codex", agent_effort: "high"})
     p = parts([r])

@@ -72,7 +72,7 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
     initial_colors = FeatureData.used_epic_colors(general, %{})
 
     sorted
-    |> Enum.sort_by(fn {slug, feature} -> {Map.get(feature, :created_at, Map.get(feature, :from)), slug} end)
+    |> Enum.sort_by(fn {slug, feature} -> {FeatureData.epic_order_time(feature), slug} end)
     |> Enum.reduce({%{}, initial_colors}, fn {slug, feature}, {epics_by_key, used_colors} ->
       assigned = FeatureData.assign_epic_colors(feature.epics, used_colors)
       new_colors = Enum.map(assigned, &FeatureData.epic_palette_name/1) |> Enum.filter(&is_binary/1)

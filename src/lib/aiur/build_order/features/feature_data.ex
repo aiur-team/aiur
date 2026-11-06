@@ -1,5 +1,6 @@
 defmodule Aiur.BuildOrder.Features.FeatureData do
   @moduledoc false
+  alias Aiur.BuildOrder.SourceFreshness
   alias Aiur.Heroicons
   @hues [175, 55, 285, 128, 232, 18, 330, 80, 250, 150, 272]
   @palette [
@@ -86,12 +87,21 @@ defmodule Aiur.BuildOrder.Features.FeatureData do
 
   def epic_palette_name(_epic), do: nil
 
+  # Colour order follows creation order. Compare epoch milliseconds, not raw
+  # DateTime structs: struct comparison orders by day-of-month first, so two
+  # features a month apart could swap places and recolour stored epics.
+  @spec epic_order_time(map()) :: non_neg_integer() | :unknown
+  def epic_order_time(feature) when is_map(feature),
+    do: SourceFreshness.ms(Map.get(feature, :created_at) || Map.get(feature, :from)) || :unknown
+
+  def epic_order_time(_feature), do: :unknown
+
   @spec used_epic_colors(list(), map()) :: [String.t()]
   def used_epic_colors(general, features) do
     general_colors = Enum.with_index(general) |> Enum.map(fn {epic, index} -> Map.get(epic, :color) || palette_name(index) end)
 
     features
-    |> Enum.sort_by(fn {slug, feature} -> {Map.get(feature, :created_at, Map.get(feature, :from)), slug} end)
+    |> Enum.sort_by(fn {slug, feature} -> {epic_order_time(feature), slug} end)
     |> Enum.reduce(MapSet.new(general_colors), fn {_slug, feature}, used ->
       feature.epics |> assign_epic_colors(MapSet.to_list(used)) |> add_epic_colors(used)
     end)
