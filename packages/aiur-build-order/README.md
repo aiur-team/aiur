@@ -22,8 +22,9 @@ so install the tarball from the release you are consuming.
 
 `aiur-style` is declared as a peer dependency because the package owns no
 colour, spacing or type value: every declaration in `aiur-build-order.css`
-reads a `var(--aiur-*)` token. Load the tokens once per page
-(`aiur-style/tokens.css`), then the package stylesheet:
+reads a `var(--aiur-*)` token. The design docs and the ticket call those tokens
+`@aiur/style`; the package that publishes them is named `aiur-style`. Load the
+tokens once per page (`aiur-style/tokens.css`), then the package stylesheet:
 
 ```html
 <link rel="stylesheet" href="/node_modules/aiur-style/dist/tokens.css">

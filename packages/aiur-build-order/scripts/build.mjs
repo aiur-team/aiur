@@ -7,28 +7,20 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { STYLES, STYLESHEET_NAME } from '../src/styles.js';
+import { MODULES } from './modules.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dist = `${root}dist`;
 
-const MODULES = [
-  'contract.js',
-  'element.js',
-  'graph.js',
-  'html.js',
-  'index.js',
-  'parse.js',
-  'review.js',
-  'styles.js',
-];
+const moduleNames = Object.keys(MODULES);
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
-for (const module of MODULES) await copyFile(`${root}src/${module}`, `${dist}/${module}`);
+for (const name of moduleNames) await copyFile(`${root}src/${name}`, `${dist}/${name}`);
 await copyFile(`${root}src/index.d.ts`, `${dist}/index.d.ts`);
 
-const stylesheet = `/* ${STYLESHEET_NAME} - generated from src/styles.js; every value is an @aiur/style token. */\n${STYLES}`;
+const stylesheet = `/* ${STYLESHEET_NAME} - generated from src/styles.js; every value is an aiur-style token. */\n${STYLES}`;
 await writeFile(`${dist}/${STYLESHEET_NAME}`, stylesheet, 'utf8');
 
 // A consumer that imports the package from `dist` should get the source it was
@@ -37,4 +29,4 @@ const source = await readFile(`${root}src/index.js`, 'utf8');
 const built = await readFile(`${dist}/index.js`, 'utf8');
 if (source !== built) throw new Error('dist/index.js does not match src/index.js');
 
-process.stdout.write(`built ${MODULES.length} modules and ${STYLESHEET_NAME} into dist/\n`);
+process.stdout.write(`built ${moduleNames.length} modules and ${STYLESHEET_NAME} into dist/\n`);

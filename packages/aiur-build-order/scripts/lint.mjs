@@ -7,12 +7,16 @@
 // that matches `src/`.
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { MODULES } from './modules.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const problems = [];
 
 const files = (await readdir(`${root}src`)).filter((name) => name.endsWith('.js')).sort();
 if (files.length === 0) problems.push('src/ has no ES modules');
+for (const name of files) {
+  if (!MODULES[name]) problems.push(`src/${name} is not listed in scripts/modules.mjs, so nothing imports it`);
+}
 
 for (const name of files) {
   const path = `${root}src/${name}`;
@@ -21,7 +25,7 @@ for (const name of files) {
 
   // Import every module, so a syntax error or a missing export fails here too.
   try {
-    await import(path);
+    if (MODULES[name]) await MODULES[name]();
   } catch (error) {
     problems.push(`${where} does not load: ${error.message}`);
     continue;

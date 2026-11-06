@@ -2,7 +2,7 @@
 // `pack:check`: the tarball this package would publish installs and renders on
 // its own, in a directory that has nothing else in it.
 //
-// The consumer is deliberately bare — no `@aiur/style`, no bundler, no daemon —
+// The consumer is deliberately bare — no `aiur-style`, no bundler, no daemon —
 // because that is the claim the package makes: a plain page can parse the
 // document and render both views from it.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,39 +12,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const consumer = mkdtempSync(join(tmpdir(), 'aiur-build-order-consumer-'));
 
-try {
-  const packed = run('npm', ['pack', '--json', '--pack-destination', consumer], root);
-  const [{ filename, files }] = JSON.parse(packed.stdout);
-  assertFiles(files.map((file) => file.path));
-
-  writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'aiur-build-order-consumer', private: true, type: 'module' }), 'utf8');
-  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(consumer, filename)], consumer);
-
-  writeFileSync(join(consumer, 'consumer.mjs'), consumerSource, 'utf8');
-  const output = run(process.execPath, ['consumer.mjs'], consumer).stdout.trim();
-  process.stdout.write(`${output}\npack:check ok: ${filename} renders in an isolated consumer\n`);
-} finally {
-  rmSync(consumer, { recursive: true, force: true });
-}
-
-function assertFiles(paths) {
-  const required = ['dist/index.js', 'dist/index.d.ts', 'dist/aiur-build-order.css', 'README.md', 'package.json'];
-  const missing = required.filter((path) => !paths.includes(path));
-  if (missing.length > 0) throw new Error(`the tarball is missing: ${missing.join(', ')}`);
-}
-
-function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
-  if (result.status !== 0) {
-    process.stderr.write(result.stdout);
-    process.stderr.write(result.stderr);
-    process.exit(result.status ?? 1);
-  }
-  return result;
-}
-
+// Declared before the pack/install block so the consumer can be written as soon
+// as the tarball is installed. A `const` read before its declaration throws
+// instead of yielding `undefined`, so the order here is load-bearing.
 const consumerSource = `
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -70,7 +41,7 @@ if (!parsed.ok) throw new Error(parsed.error.message);
 if (parsed.document.tickets.length !== 6) throw new Error('the document lost tickets');
 
 const review = renderReview(reference);
-for (const needle of ['data-ticket="BO-004"', 'data-edge-kind="terminal_unsatisfied"', 'aiur-bo-legend-item']) {
+for (const needle of ['data-ticket="BO-004"', 'data-edge-kind="depends_on"', 'data-edge-state="terminal_unsatisfied"', 'aiur-bo-legend-item']) {
   if (!review.includes(needle)) throw new Error('the review is missing ' + needle);
 }
 
@@ -90,3 +61,37 @@ if (!stylesheet.includes('var(--aiur-')) throw new Error('the stylesheet does no
 
 process.stdout.write('rendered review ' + review.length + ' bytes, graph ' + graph.length + ' bytes');
 `;
+
+const consumer = mkdtempSync(join(tmpdir(), 'aiur-build-order-consumer-'));
+
+try {
+  const packed = run('npm', ['pack', '--json', '--pack-destination', consumer], root);
+  const [{ filename, files }] = JSON.parse(packed.stdout);
+  assertFiles(files.map((file) => file.path));
+
+  writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'aiur-build-order-consumer', private: true, type: 'module' }), 'utf8');
+  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(consumer, filename)], consumer);
+
+  writeFileSync(join(consumer, 'consumer.mjs'), consumerSource, 'utf8');
+  const output = run(process.execPath, ['consumer.mjs'], consumer).stdout.trim();
+  process.stdout.write(`${output}\npack:check ok: ${filename} renders in an isolated consumer\n`);
+} catch (error) {
+  process.stderr.write(`pack:check failed: ${error.message}\n`);
+  process.exitCode = 1;
+} finally {
+  rmSync(consumer, { recursive: true, force: true });
+}
+
+function assertFiles(paths) {
+  const required = ['dist/index.js', 'dist/index.d.ts', 'dist/aiur-build-order.css', 'README.md', 'package.json'];
+  const missing = required.filter((path) => !paths.includes(path));
+  if (missing.length > 0) throw new Error(`the tarball is missing: ${missing.join(', ')}`);
+}
+
+function run(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(' ')} exited ${result.status ?? 'without a status'}\n${result.stdout}${result.stderr}`);
+  }
+  return result;
+}

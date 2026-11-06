@@ -38,7 +38,7 @@ test('every value the stylesheet reads is an aiur-style token', () => {
     return;
   }
   const missing = used.filter((token) => !defined.has(token));
-  assert.deepEqual(missing, [], `tokens missing from @aiur/style: ${missing.join(', ')}`);
+  assert.deepEqual(missing, [], `tokens missing from aiur-style: ${missing.join(', ')}`);
 });
 
 test('each typed edge reads its own token, so the five styles cannot collapse', () => {

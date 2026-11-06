@@ -3,7 +3,7 @@
 //
 // Two things are served that a published consumer would get elsewhere: the
 // package source itself (no build step needed) and `tokens.css`, generated from
-// the @aiur/style token source so the fixture page reads the real `--aiur-*`
+// the aiur-style token source so the fixture page reads the real `--aiur-*`
 // names rather than a hand-copied palette.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -47,7 +47,7 @@ function send(response, status, type, body) {
   response.end(body);
 }
 
-/** `@aiur/style` tokens as light-theme custom properties. */
+/** `aiur-style` tokens as light-theme custom properties. */
 async function tokensCss() {
   const source = await readFile(new URL('src/tokens/tokens.json', stylePackage), 'utf8');
   const tokens = JSON.parse(source);
