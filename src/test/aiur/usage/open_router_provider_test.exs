@@ -143,6 +143,10 @@ defmodule Aiur.Usage.OpenRouterProviderTest do
   defp openrouter_record(opts) do
     Cells.openrouter_record(1,
       upstream_provider: Keyword.get(opts, :upstream_provider),
+      # Date the fixture relative to now so the price-table lookup always lands
+      # on an effective revision. A fixed date becomes a time bomb once the
+      # clock passes it (#4691).
+      pricing_date: Date.utc_today(),
       tokens: %{input: 1_000_000, output: 1_000_000}
     )
   end
