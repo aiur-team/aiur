@@ -101,4 +101,6 @@ Every remote write carries a UUIDv7 `request_id`, and the daemon runs each `(tok
 | `outcome_unknown` (HTTP 409) | 124 | The daemon restarted mid-call. The write is never re-run; check state, then use a new id. |
 | `request_id_reused` (HTTP 422) | 64 | The id was already used with a different command. |
 
-The client generates the id (control contract version 2); `--request-id <id>` or `AIUR_REQUEST_ID` supplies your own, and a repeat returns the stored response. `--request-id` cannot be combined with `--instance all`. A daemon on contract version 1 ignores `request_id` and keeps the old behavior. Audit lines in `control-audit.ndjson` carry `request_id`, `origin_gateway` and `actor`; a repeat is audited as `replayed`.
+The client generates the id (control contract version 2); `--request-id <id>` or `AIUR_REQUEST_ID` supplies your own. It cannot be combined with `--instance all`.
+
+A contract version 1 daemon ignores `request_id`. Audit lines carry `request_id`, `origin_gateway` and `actor`; a repeat is audited as `replayed`.
