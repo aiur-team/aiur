@@ -119,9 +119,8 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
       document = ListCommands.record(state, document, actions, observations)
 
       updates = %{
-        sources: Map.merge(state.sources, sources),
+        sources: sources |> Map.merge(state.sources) |> with_elsewhere(queue, document, refusals),
         source_verdicts: Map.merge(state.source_verdicts, verdicts),
-        elsewhere: Map.put(%{}, key(queue), Enum.map(refusals, &{elem(&1, 0), owner(document, &1)})),
         refusals: refusals
       }
 
@@ -155,9 +154,8 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
       document = ListCommands.record(state, document, actions, observations)
 
       updates = %{
-        sources: Map.merge(state.sources, sources),
+        sources: sources |> Map.merge(state.sources) |> with_elsewhere(queue, document, refusals),
         source_verdicts: Map.merge(state.source_verdicts, verdicts),
-        elsewhere: Map.put(%{}, key(queue), Enum.map(refusals, &{elem(&1, 0), owner(document, &1)})),
         refusals: refusals
       }
 
@@ -188,20 +186,30 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
     {:ok, document, actions, observations, %{sources: Map.delete(state.sources, key(queue)), source_verdicts: Map.drop(state.source_verdicts, ids), refusals: []}}
   end
 
-  @spec sync(map(), map()) :: {map(), list(), map(), map(), map()}
+  @spec sync(map(), map()) :: {map(), list(), map(), map()}
   def sync(state, observations) do
     queues = Enum.filter(state.document.queues, &(&1.kind in [:build_order, :feature]))
     snapshots = watch_all(queues, state)
 
-    Enum.reduce(queues, {state.document, [], %{}, %{}, %{}}, fn queue, {document, actions, sources, verdicts, elsewhere} ->
+    Enum.reduce(queues, {state.document, [], %{}, %{}}, fn queue, {document, actions, sources, verdicts} ->
       snapshot = Map.fetch!(snapshots, source_key(queue))
       {document, marks, source, unknowns, refusals} = import(document, queue, snapshot, observations)
-      elsewhere = Map.put(elsewhere, key(queue), Enum.map(refusals, &{elem(&1, 0), owner(document, &1)}))
-      {document, actions ++ marks, Map.merge(sources, source), Map.merge(verdicts, unknowns), elsewhere}
+      {document, actions ++ marks, Map.merge(sources, with_elsewhere(source, queue, document, refusals)), Map.merge(verdicts, unknowns)}
     end)
   end
 
+  @doc "Key under which a set's members owned by another set are held in the transient sources map."
+  @spec elsewhere_key(map()) :: String.t()
+  def elsewhere_key(queue), do: key(queue) <> ":elsewhere"
+
   # A source member another entry owns stays with that entry; the operator sees who holds it.
+  defp with_elsewhere(sources, queue, document, refusals) do
+    case Enum.map(refusals, &{elem(&1, 0), owner(document, &1)}) do
+      [] -> sources
+      entries -> Map.put(sources, elsewhere_key(queue), entries)
+    end
+  end
+
   defp owner(document, {id, _reason}) do
     with %{queue_id: queue_id} <- Enum.find(document.items, &(&1.issue_id == id)),
          %{name: name} <- Enum.find(document.queues, &(&1.id == queue_id)) do

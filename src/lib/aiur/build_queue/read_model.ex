@@ -1,5 +1,6 @@
 defmodule Aiur.BuildQueue.ReadModel do
   @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
+  alias Aiur.BuildQueue.BuildOrderCommands
   alias Aiur.BuildQueue.Model.Edge
   alias Aiur.BuildQueue.{Progress, Readiness, SetSummary, Settings}
   alias Aiur.BuildQueue.ReadModel.Eligibility
@@ -383,10 +384,8 @@ defmodule Aiur.BuildQueue.ReadModel do
   end
 
   # Registry or root members another entry already owns, named by the entry that holds them.
-  defp elsewhere(queue, state) do
-    key = if queue.kind == :feature, do: "feature:#{queue.feature}", else: "build_order:#{queue.root}"
-    Map.get(Map.get(state, :elsewhere, %{}), key, [])
-  end
+  defp elsewhere(queue, state),
+    do: Map.get(Map.get(state, :sources, %{}), BuildOrderCommands.elsewhere_key(queue), [])
 
   defp unknown_item(member, context),
     do: item(member, %{state: :unknown, verdict: {:unknown, [:not_reconciled]}, rank: nil}, context)

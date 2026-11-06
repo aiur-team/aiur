@@ -12,6 +12,7 @@ defmodule Aiur.BuildQueue.Server do
     ClaimProbe,
     Clear,
     Events,
+    FeatureWatch,
     Hints,
     LastRead,
     ListCommands,
@@ -71,7 +72,6 @@ defmodule Aiur.BuildQueue.Server do
       build_order_projection: Keyword.get(opts, :build_order_projection, BuildOrderSource.projection()),
       feature_registry: Keyword.get(opts, :feature_registry, Aiur.BuildOrder.Features),
       sources: %{},
-      elsewhere: %{},
       source_verdicts: %{},
       source_refreshes: %{},
       published_pr_versions: %{},
@@ -159,7 +159,7 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call({:mutate, {:clear, opts}}, _from, %{status: status} = state) when status in [:running, :writes_paused] do
     case Clear.prepare(state, opts) do
       {:ok, document, actions, observations} ->
-        state = %{state | sources: %{}, elsewhere: %{}, source_verdicts: %{}, holds: MapSet.new()}
+        state = %{state | sources: %{}, source_verdicts: %{}, holds: MapSet.new()}
         {reply, state} = commit_mutation(state, document, actions, observations)
         reply = if state.status == :writes_paused, do: {:error, :writes_paused}, else: reply
         {:reply, reply, request(state)}
@@ -180,7 +180,6 @@ defmodule Aiur.BuildQueue.Server do
         {reply, state} = commit_mutation(state, document, actions, observations)
         if state.status != :store_unavailable and verb == :unadopt, do: BuildOrderCommands.release(target, state)
         state = if state.status != :store_unavailable, do: Map.merge(state, Map.delete(updates, :refusals)), else: state
-        state = if state.status != :store_unavailable, do: %{state | elsewhere: Map.merge(state.elsewhere, Map.get(updates, :elsewhere, %{}))}, else: state
         state = if verb in [:adopt, :adopt_feature], do: BuildOrderCommands.refresh_unavailable(state), else: state
         reply = if reply == :ok, do: {:ok, updates.refusals}, else: reply
         {:reply, reply, request(state)}
@@ -247,8 +246,7 @@ defmodule Aiur.BuildQueue.Server do
 
   @impl true
   def handle_info({:open_issues_recorded, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
-  def handle_info({:graph_projection_reset, _}, state), do: {:noreply, request(state)}
-  def handle_info({:build_order_features_changed, _result}, state), do: {:noreply, request(state)}
+  def handle_info({kind, _}, state) when kind in [:graph_projection_reset, :build_order_features_changed], do: {:noreply, request(state)}
 
   def handle_info({:event, %{topic: "ticket." <> topic}}, state) do
     state =
@@ -282,8 +280,6 @@ defmodule Aiur.BuildQueue.Server do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp rebuild(_from, state, force \\ false) do
-    subscribe_features(state)
-
     case Recovery.rebuild(state, force) do
       {:ok, document} ->
         if state.status == :store_unavailable do
@@ -291,7 +287,7 @@ defmodule Aiur.BuildQueue.Server do
           schedule_tick(state)
         end
 
-        state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new(), sources: %{}, elsewhere: %{}, source_verdicts: %{}}
+        state = %{state | document: document, status: :running, phase: :ready, freshness: :fresh, writer: Writer.new(), holds: MapSet.new(), sources: %{}, source_verdicts: %{}}
         {projections, _, _, _, _, published, _edges} = Reconcile.plan(state)
         state = %{state | published_pr_versions: published}
         Reconcile.write_hints(projections, state.holds, document, state.settings, state.observations)
@@ -352,7 +348,6 @@ defmodule Aiur.BuildQueue.Server do
   defp recover(state) do
     # Safe ETF decoding needs the producer atoms present before store recovery.
     Enum.each([Aiur.BuildQueue.Planner, Aiur.BuildQueue.PlannerPolicy, Aiur.BuildQueue.Readiness, Aiur.BuildQueue.Attention, Recovery], &Code.ensure_loaded!/1)
-    subscribe_features(state)
 
     case state.store.load() do
       {:ok, document} ->
@@ -368,16 +363,6 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   defp schedule_tick(state), do: state.schedule.(self(), :tick, state.settings.build_queue.reconcile_interval_seconds * 1000)
-
-  # A registry change is the only signal that a queued feature gained or lost a member.
-  defp subscribe_features(state) do
-    registry = state.feature_registry
-
-    if Process.whereis(Aiur.PubSub) != nil and Code.ensure_loaded?(registry) and function_exported?(registry, :subscribe, 0),
-      do: registry.subscribe()
-
-    :ok
-  end
 
   defp request(%{status: status, pending: nil} = state) when status in [:running, :writes_paused] do
     token = make_ref()
@@ -395,11 +380,8 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   defp sync_sources(%{phase: :ready, status: status} = state, observations) when status in [:running, :writes_paused] do
-    {document, actions, sources, verdicts, elsewhere} = BuildOrderCommands.sync(state, observations)
-
-    state =
-      %{state | sources: sources, source_verdicts: verdicts, elsewhere: elsewhere}
-      |> BuildOrderCommands.refresh_unavailable()
+    {document, actions, sources, verdicts} = BuildOrderCommands.sync(state, observations)
+    state = %{state | sources: sources, source_verdicts: verdicts} |> BuildOrderCommands.refresh_unavailable()
 
     if document == state.document do
       state
@@ -499,6 +481,8 @@ defmodule Aiur.BuildQueue.Server do
   defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: state
 
   defp subscribe(state) do
+    FeatureWatch.subscribe(state)
+
     case GenServer.whereis(state.exchange) do
       nil -> state
       pid -> bind(state, pid)
