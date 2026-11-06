@@ -100,7 +100,11 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   @doc false
   @spec startup_work_state(map()) :: atom()
   def startup_work_state(entry) do
-    case get_in(entry, [:control, :status]) || :working do
+    # Row reads must survive a corrupt control value; the projection is a
+    # read-only path and must not raise (#7537).
+    control_status = Map.get(State.control_map(entry), :status)
+
+    case control_status || :working do
       :working -> if(is_nil(Map.get(entry, :session_id)), do: :starting, else: :working)
       other -> other
     end
