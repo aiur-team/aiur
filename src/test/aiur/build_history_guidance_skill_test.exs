@@ -7,7 +7,18 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
   @filing ~w(aiur-agent/conventions.md aiur-run/references/run-contract.md aiur-run/references/executor.md aiur-meta/SKILL.md aiur-build/SKILL.md aiur-build/references/planning-contract.md)
   @full ~w(aiur-agent/conventions.md aiur-run/references/executor.md)
   @planning ~w(aiur-build/SKILL.md aiur-run/references/run-contract.md)
-  @fill %{"<lane>" => "infra", "<epic>" => "infra", "<ids…>" => "101 102", "<id>" => "101", "<slug>" => "docs-site", "<hours>" => "7", "<cause>" => "needs review", "<old>" => "2", "<new>" => "7", "<why>" => "review done"}
+  @fill %{
+    "<lane>" => "infra",
+    "<epic>" => "infra",
+    "<ids…>" => "101 102",
+    "<id>" => "101",
+    "<slug>" => "docs-site",
+    "<hours>" => "7",
+    "<cause>" => "needs review",
+    "<old>" => "2",
+    "<new>" => "7",
+    "<why>" => "review done"
+  }
 
   test "every filing doc states the home-page lane rule" do
     for path <- @filing, do: assert(blocks(path, "home-page lane") != "", "#{path} no longer states the home-page lane rule")
