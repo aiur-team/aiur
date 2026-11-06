@@ -412,7 +412,7 @@ run_remote_rpc_with_timeout() {
       const expression = fs.readFileSync(0, "utf8");
       process.stdout.write(JSON.stringify({
         contract: "aiur.control.call",
-        contract_version: 2,
+        contract_version: process.env.AIUR_REMOTE_REQUEST_ID ? 2 : 1,
         request_id: process.env.AIUR_REMOTE_REQUEST_ID || undefined,
         expression,
         command: process.env.AIUR_REMOTE_COMMAND,
@@ -472,7 +472,11 @@ run_remote_rpc_with_timeout() {
         reason="$(remote_json_field "$response_file" "error.reason" 2>/dev/null || true)"
         detail="$(remote_json_field "$response_file" "error.detail" 2>/dev/null || true)"
         build="$(remote_build_label "$response_file")"
-        if [ "$reason" = "unknown_on_build" ] || [ "$reason" = "option_not_allowed" ]; then
+        if [ -n "$request_id" ] && [ "$code" = "parse_error" ]; then
+          # An older daemon refused contract 2 before running anything, so one v1 retry is safe; it just has no replay safety.
+          control_rpc_say "aiur: $name runs a build without replay-safe writes; retrying without a request id (upgrade it)"
+          AIUR_REMOTE_NO_REQUEST_ID=1 run_remote_rpc_with_timeout "$expression" || rpc_status=$?
+        elif [ "$reason" = "unknown_on_build" ] || [ "$reason" = "option_not_allowed" ]; then
           control_rpc_say "aiur: $(control_command_label) is unsupported on $name ($build)"
         else
           control_rpc_say "aiur: $(control_command_label) was refused by $name${reason:+: $reason}${detail:+ ($detail)}${code:+ [$code]}"

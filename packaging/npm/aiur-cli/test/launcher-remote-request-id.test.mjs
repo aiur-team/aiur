@@ -18,6 +18,16 @@ function withServer(options, run) {
   }
 }
 
+test("a contract-1-only daemon's parse_error is retried once on contract 1 without a request id", () => {
+  withServer({ status: 422, body: { error: { code: "parse_error" } } }, (server, setup) => {
+    const result = runRemote(setup, ["--instance", "t", "pause"]);
+    expect(result.stderr).toContain("runs a build without replay-safe writes; retrying without a request id");
+    const bodies = server.requests().map((r) => r.body);
+    expect(bodies.map((b) => b.contract_version)).toEqual([2, 1]);
+    expect(bodies.map((b) => b.request_id === undefined)).toEqual([false, true]);
+  });
+});
+
 test("a remote write sends contract 2 and a generated UUIDv7 request id", () => {
   withServer({ body: successBody() }, (server, setup) => {
     expect(runRemote(setup, ["--instance", "t", "pause"]).status).toBe(0);
