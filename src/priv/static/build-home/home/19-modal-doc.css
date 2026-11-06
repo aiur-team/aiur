@@ -75,6 +75,11 @@ button.fp-row:hover, button.fp-row:focus-visible { background: color-mix(in srgb
 .fp-count { text-align: right; font: .9rem "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
 .fp-all { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); border-radius: 0; }
 .fp-all .fp-name { font-weight: 700; }
+/* Epic grouping: the epic's row first, its features indented under it, "No epic" last. */
+.fp-epic + .fp-epic { margin-top: .45rem; }
+.fp-epic-row .fp-name, .fp-epic-name { font-weight: 700; }
+.fp-epic-name { margin: 0; padding: .55rem .25rem .2rem; color: var(--muted); font-size: .8rem; letter-spacing: .04em; text-transform: uppercase; }
+.fp-feats { border-left: 2px solid var(--line); margin-left: .25rem; padding-left: .75rem; }
 @media (max-width: 480px) {
   #build-root.feature-list #bd-usage { display: none; }
   #build-root.feature-list #bd-vp { height: auto; max-height: none; overflow: visible; }
@@ -85,6 +90,9 @@ button.fp-row:hover, button.fp-row:focus-visible { background: color-mix(in srgb
   .fp-name { font-size: .8rem; }.fp-count { font-size: .75rem; }
   .fp-bar { height: 9px; }
   .fp-all { margin-top: .5rem; padding-top: .5rem; }
+  .fp-epic + .fp-epic { margin-top: .3rem; }
+  .fp-epic-name { padding: .4rem 0 .15rem; font-size: .7rem; }
+  .fp-feats { margin-left: .15rem; padding-left: .45rem; }
 }
 @media (max-width: 480px) {
   .bd-toolbar:has(.bd-list-shows) { flex-wrap: wrap; }

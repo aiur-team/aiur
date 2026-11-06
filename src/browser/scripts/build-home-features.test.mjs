@@ -60,6 +60,44 @@ test('feature list rows carry only name, bar and merged/total; registry rows are
   S.fsort = 'pct';
   assert.ok(listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('mp-e2') < listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('"pag"'));
 });
+test('epic rows carry their own bar and their features follow in the epic order', () => {
+  resetState(); S.list = 'features';
+  const bars = [
+    { key: 'pag', label: 'Pagination', merged: 3, total: 4 },
+    { key: 'mp-e2', label: 'Commands', merged: 2, total: 2 },
+    { key: 'loose', label: 'Loose ends', merged: 1, total: 3 }
+  ];
+  const epics = [{ key: 'launch', label: 'Launch', merged: 4, total: 6, features: ['mp-e2', 'pag'] }];
+  const D = { features: { pag: { label: 'Pagination' }, 'mp-e2': { label: 'Commands' } }, feature_progress: { bars, epics } };
+  const html = listHTML(D, S, {}, {}, Date.UTC(2026, 10, 1));
+  // The epic row keeps the shipped row shape: name, bar, merged/total.
+  assert.match(html, /<div class="fp-epic"><button type="button" class="fp-row fp-epic-row" data-epic="launch" aria-label="Focus Launch epic features"><span class="fp-name" title="Launch">Launch<\/span><span class="fp-bar" role="img" aria-label="4 of 6 merged"><i style="width:66\.6[0-9]*%"><\/i><\/span><span class="fp-count">4\/6<\/span><\/button>/);
+  // Its features follow it in the epic's order; the feature no epic lists comes last, under "No epic".
+  assert.deepEqual([...html.matchAll(/data-feature="([^"]+)"/g)].map(match => match[1]), ['mp-e2', 'pag', 'loose']);
+  assert.match(html, /<\/div><div class="fp-epic fp-noepic"><p class="fp-epic-name">No epic<\/p><div class="fp-feats"><div class="fp-row feat" data-feature="loose">/);
+  // The flat "All features" total still sums the feature rows and sits outside the groups.
+  assert.match(html, /<div class="fp-row fp-all">/);
+  assert.ok(html.indexOf('fp-all') > html.indexOf('fp-noepic'));
+});
+test('toolbar sorting reorders features inside an epic without moving the epic row', () => {
+  resetState(); S.list = 'features'; S.fsort = 'pct';
+  const bars = [
+    { key: 'low', label: 'Low', merged: 1, total: 4 },
+    { key: 'high', label: 'High', merged: 3, total: 4 },
+    { key: 'other', label: 'Other', merged: 0, total: 2 }
+  ];
+  const epics = [{ key: 'launch', label: 'Launch', merged: 4, total: 8, features: ['low', 'high'] }, { key: 'second', label: 'Second', merged: 0, total: 2, features: ['other'] }];
+  const html = listHTML({ features: {}, feature_progress: { bars, epics } }, S, {}, {}, 0);
+  assert.deepEqual([...html.matchAll(/data-(?:epic|feature)="([^"]+)"/g)].map(match => match[1]), ['launch', 'high', 'low', 'second', 'other']);
+});
+test('a payload without epic rows keeps the flat feature list', () => {
+  resetState(); S.list = 'features';
+  const bars = [{ key: 'pag', label: 'Pagination', merged: 3, total: 4 }];
+  const html = listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0);
+  assert.ok(!html.includes('fp-epic'));
+  assert.ok(!html.includes('No epic'));
+  assert.match(html, /<div class="fp-rows"><div class="fp-row" data-feature="pag">/);
+});
 test('unavailable feature bars render no invented totals', () => {
   resetState(); S.list = 'features';
   const html = listHTML({ features: {}, feature_progress: { bars: null } }, S, {}, {}, 0);

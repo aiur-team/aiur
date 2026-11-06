@@ -134,12 +134,24 @@ defmodule AiurWeb.Build.PayloadSchema do
                  ~w(feature label observed_at plan_version icon summary wave)
                )},
             "bars" => nullable(list(object(%{"key" => :string, "label" => :string, "merged" => :nonnegative, "total" => :positive}))),
+            "epics" =>
+              nullable(
+                list(
+                  object(%{
+                    "key" => :string,
+                    "label" => :string,
+                    "merged" => :nonnegative,
+                    "total" => :positive,
+                    "features" => list(:string)
+                  })
+                )
+              ),
             "observed_at" => nullable(:integer),
             "plan_version" => nullable(:string),
             "extras" => nullable(:nonnegative),
             "reason" => nullable(:string)
           },
-          ["bars"]
+          ["bars", "epics"]
         ),
       "history" => object(history()),
       "sources" => object(sources()),

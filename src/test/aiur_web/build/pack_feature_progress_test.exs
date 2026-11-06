@@ -28,6 +28,20 @@ defmodule AiurWeb.Build.PackFeatureProgressTest do
     assert repeated.all["1"].was == "pack:program/FILED"
   end
 
+  test "the index carries epic rows beside the flat feature bars" do
+    registry = %{
+      features: %{"core" => %{slug: "core", label: "Core", hue: 40, epics: [], from: now(), to: :none, baseline: :none}},
+      owners: %{1 => %{feature: "core", epic: "f-core", joined_at: DateTime.from_unix!(now(), :millisecond)}},
+      also: %{},
+      epics: [%{slug: "program", label: "Program", features: ["core"], created_at: DateTime.from_unix!(now(), :millisecond)}],
+      health: health()
+    }
+
+    assert {:ok, index} = parts([row(1)]) |> Map.put(:features, {:ok, registry}) |> assemble()
+    assert %{bars: [%{key: "core", merged: 1, total: 1}], epics: [epic]} = index.feature_progress
+    assert Map.take(epic, [:key, :label, :merged, :total, :features]) == %{key: "program", label: "Program", merged: 1, total: 1, features: ["core"]}
+  end
+
   defp pack(lane) do
     %{
       completed: false,

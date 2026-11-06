@@ -14,7 +14,12 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
     do: struct(%Row{lifecycle: %Lifecycle{state: :closed, state_reason: reason}, labels: labels, created_at: ago(20), closed_at: ago(1)}, extra)
 
   defp parts(rows, opts \\ []) do
-    registry = %{features: Map.new(Keyword.get(opts, :registry, []), fn {slug, label} -> {slug, %{label: label}} end), owners: Keyword.get(opts, :owners, %{})}
+    registry = %{
+      features: Map.new(Keyword.get(opts, :registry, []), fn {slug, label} -> {slug, %{label: label}} end),
+      owners: Keyword.get(opts, :owners, %{}),
+      epics: Keyword.get(opts, :epics, [])
+    }
+
     %{history: {:ok, %{rows: rows}}, features: {:ok, registry}, settings: {:ok, %{build_order: %{feature_order: Keyword.get(opts, :order, [])}}}, labels: Keyword.get(opts, :labels)}
   end
 
@@ -146,5 +151,81 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsTest do
 
   test "unknown history yields no bars rather than zeros" do
     assert FeatureBars.compute(%{history: {:error, :unavailable}}, @now) == nil
+    assert FeatureBars.grouped(%{history: {:error, :unavailable}}, @now) == nil
+  end
+
+  test "each epic row sums its features and keeps them in the epic's order" do
+    rows = %{
+      1 => closed(["feature:launch-api"], :completed, merged_at: ago(1), pr_number: 11),
+      2 => open(["feature:launch-api"]),
+      3 => closed(["feature:launch-ui"], :completed, merged_at: ago(2), pr_number: 12),
+      4 => open(["feature:launch-ui"]),
+      5 => open(["feature:later-data"]),
+      6 => closed(["feature:later-ops"], :completed, merged_at: ago(3), pr_number: 13)
+    }
+
+    epics = [
+      %{slug: "later", label: "Later", features: ["later-data", "later-ops"], created_at: ago(2)},
+      %{slug: "launch", label: "Launch", features: ["launch-api", "launch-ui"], created_at: ago(9)}
+    ]
+
+    # Goal order lists launch-ui before launch-api, so the epic sorts on launch-ui's position
+    # while its own features keep the order its record holds.
+    %{bars: bars, epics: groups} = FeatureBars.grouped(parts(rows, epics: epics, order: ["launch-ui", "launch-api"]), @now)
+
+    assert Enum.map(bars, & &1.key) == ~w(launch-ui launch-api later-ops later-data)
+
+    assert Enum.map(groups, &Map.take(&1, [:key, :label, :merged, :total, :features])) == [
+             %{key: "launch", label: "Launch", merged: 2, total: 4, features: ~w(launch-api launch-ui)},
+             %{key: "later", label: "Later", merged: 1, total: 2, features: ~w(later-data later-ops)}
+           ]
+  end
+
+  test "an epic counts a shared ticket once and leaves features no epic lists ungrouped" do
+    rows = %{
+      1 => closed(["feature:shared-a"], :completed, merged_at: ago(1), pr_number: 21),
+      2 => open(["feature:shared-a", "feature:shared-b"]),
+      3 => open(["feature:shared-b"]),
+      4 => open(["feature:loose"])
+    }
+
+    epics = [%{slug: "both", label: "Both", features: ["shared-a", "shared-b"], created_at: ago(4)}]
+    %{bars: bars, epics: [group]} = FeatureBars.grouped(parts(rows, epics: epics), @now)
+
+    assert Map.new(bars, &{&1.key, {&1.merged, &1.total}}) == %{"shared-a" => {1, 2}, "shared-b" => {0, 2}, "loose" => {0, 1}}
+    # shared-a and shared-b both hold ticket 2; the epic counts it once.
+    assert Map.take(group, [:key, :merged, :total, :features]) == %{key: "both", merged: 1, total: 3, features: ~w(shared-a shared-b)}
+    refute "loose" in group.features
+  end
+
+  test "epics with no ticketed features are not rows and an unreadable registry leaves grouping unknown" do
+    rows = %{1 => open(["feature:known"])}
+    epics = [%{slug: "empty", label: "Empty", features: ["missing"], created_at: ago(1)}]
+    known = parts(rows, epics: epics)
+    unreadable = %{known | features: {:error, %{state: :unavailable}}}
+
+    assert %{epics: []} = FeatureBars.grouped(known, @now)
+    assert %{bars: [%{key: "known"}], epics: nil} = FeatureBars.grouped(unreadable, @now)
+  end
+
+  test "epic rows without a goal-order feature sort by creation" do
+    rows = %{1 => open(["feature:old"]), 2 => open(["feature:new"]), 3 => open(["feature:first"])}
+
+    epics = [
+      %{slug: "new", label: "New", features: ["new"], created_at: ago(1)},
+      %{slug: "first", label: "First", features: ["first"], created_at: ago(30)},
+      %{slug: "old", label: "Old", features: ["old"], created_at: ago(9)}
+    ]
+
+    assert %{epics: groups} = FeatureBars.grouped(parts(rows, epics: epics, order: ["first"]), @now)
+    assert Enum.map(groups, & &1.key) == ~w(first old new)
+  end
+
+  test "the flat bars are the grouped bars" do
+    rows = %{1 => open(["feature:a"]), 2 => open(["feature:a", "feature:b"])}
+    epics = [%{slug: "both", label: "Both", features: ~w(a b), created_at: ago(1)}]
+    parts = parts(rows, epics: epics)
+
+    assert FeatureBars.compute(parts, @now) == FeatureBars.grouped(parts, @now).bars
   end
 end

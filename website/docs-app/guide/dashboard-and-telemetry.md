@@ -98,7 +98,6 @@ Focus dims unrelated tickets; Compact replaces unrelated runs with gap
 markers and retains loaded dependencies as dashed ghost cards. Earlier history
 loads back to the feature’s oldest closed member. Clear the feature with ×.
 
-
 The Build toolbar filters by Epic, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL.
 
 Epic hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
@@ -113,11 +112,13 @@ List view and return when you switch to Timeline or Gantt.
 
 In List view, **List shows** switches between Tickets, Features and Epics. The selection is kept in the `list` link parameter; `tickets` is the default and omitted. A one-line summary above the rows shows the same total and the viewer's local date; the list has no title or card and starts directly under the toolbar.
 
-Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
+Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not feature rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
 
 Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label, then the label description, then the title-cased slug; logical ids such as `MP-E1` and `BO:` are stripped.
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+
+An [epic](../concepts/build-orders.md) that holds features gets its own merged/total row; its features follow, indented, in the epic's order, and a ticket two of them share counts once. Epics sort by their first `feature_order` position, then creation; features no epic lists come last under **No epic**. Clicking an epic focuses the timeline on its features.
 
 Epics counts matching lanes, including feature-owned tickets, so totals
 overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
