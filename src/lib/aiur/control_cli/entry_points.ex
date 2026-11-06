@@ -71,7 +71,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   def lane(opts \\ []), do: guarded("lane", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.LaneCLI.run() |> exit_marker() end)
 
   @spec epic(keyword()) :: :ok
-  def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.LaneCLI.run() |> exit_marker() end)
+  def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.EpicCLI.run() |> exit_marker() end)
 
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []), do: guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)

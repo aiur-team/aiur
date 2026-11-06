@@ -3,6 +3,7 @@ defmodule Aiur.EpicCLIConfirmTest do
   import ExUnit.CaptureIO
   alias Aiur.BuildOrder.EpicOverrides, as: Store
   alias Aiur.EpicCLI
+  alias Aiur.LaneCLI
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("epic-cli-confirm")
@@ -30,15 +31,15 @@ defmodule Aiur.EpicCLIConfirmTest do
 
   test "confirm JSON carries accepted lane and atomic previous provenance", c do
     opts = c.opts ++ [action: :confirm, ids: [12, 13], who: "kevin", json: true]
-    json = run(opts, 0) |> Jason.decode!()
+    json = run_epic(opts, 0) |> Jason.decode!()
     assert json["command"] == "lane confirm"
     assert [%{"number" => 12, "status" => "confirmed", "epic" => "infra", "previous" => %{"source" => "backfill-agent"}}, %{"status" => "unchanged"}] = json["results"]
-    assert run(Keyword.delete(opts, :json), 0) =~ "unchanged (already confirmed)"
+    assert run_epic(Keyword.delete(opts, :json), 0) =~ "unchanged (already confirmed)"
   end
 
   test "refusal JSON lists every invalid id and leaves accepted rows untouched", c do
     Store.set("design", [16], %{actor: "agent:2790", source: "backfill-agent"}, c.opts)
-    json = run(c.opts ++ [action: :confirm, ids: [12, 15, 16], expect_epic: "infra", who: "kevin", json: true], 1) |> Jason.decode!()
+    json = run_epic(c.opts ++ [action: :confirm, ids: [12, 15, 16], expect_epic: "infra", who: "kevin", json: true], 1) |> Jason.decode!()
     assert json["ok"] == false
     assert json["refused"] == [%{"number" => 15, "reason" => "no_override"}, %{"number" => 16, "reason" => "epic_changed", "current" => "design"}]
     assert {:ok, %{12 => %{confirmed: false}}, _} = Store.get_many([12], c.opts)
@@ -57,5 +58,7 @@ defmodule Aiur.EpicCLIConfirmTest do
     refute Map.has_key?(json, "unconfirmed_count")
   end
 
-  defp run(opts, code), do: capture_io(fn -> assert EpicCLI.run(opts) == code end)
+  defp run(opts, code), do: capture_io(fn -> assert LaneCLI.run(opts) == code end)
+
+  defp run_epic(opts, code), do: capture_io(fn -> assert EpicCLI.run(opts) == code end)
 end

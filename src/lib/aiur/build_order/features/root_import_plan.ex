@@ -3,13 +3,13 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
   alias Aiur.BuildOrder.CatalogStore
   alias Aiur.BuildOrder.Features.RootImportMapping, as: Mapping
   @source "import:build-order"
-  @lists ~w(creates updates new_epics moves removes adds also also_removes conflicts deferred)a
+  @lists ~w(epic_creates epic_updates creates updates new_epics moves removes adds also also_removes conflicts deferred)a
 
   @spec plan(map(), map(), map()) :: map()
   def plan(history, features, journals) do
     roots = history.rows |> Map.values() |> Enum.filter(&root?/1) |> Enum.sort_by(& &1.number)
     initial = Map.merge(Map.new(@lists, &{&1, []}), %{skipped_cross_repo: 0, skipped_lanes: 0})
-    context = %{history: history, features: features, journals: journals}
+    context = %{history: history, features: features, journals: journals, epics: Map.new(Map.get(features, :epics, []), &{&1.slug, &1})}
     plan = Enum.reduce(roots, initial, &root(&1, &2, context))
     moved = for {_, numbers, _, _} <- plan.moves, number <- numbers, do: number
     plan = Enum.reduce(@lists, plan, fn field, acc -> Map.update!(acc, field, &Enum.reverse/1) end)
@@ -35,12 +35,26 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
     members = context.history.rows |> Map.values() |> Enum.filter(&member?(&1, root.number, context.history.repository)) |> Enum.sort_by(& &1.number)
     feature = Mapping.feature(root, members)
     plan = feature(plan, feature, existing)
+    plan = epic(plan, root, feature, context)
     joins = Mapping.joined_at_index(root, context.history.repository)
     plan = Enum.reduce(members, plan, &join(&1, &2, root, Map.put(context, :joins, joins), events))
     plan = leaves(plan, feature.slug, members, context)
     cross = Enum.count(Mapping.entries(root), &(not Mapping.same_repository?(&1.ref, context.history.repository)))
     skipped = Enum.count(members, &Mapping.skipped_lane?(root.number, &1))
     %{plan | skipped_cross_repo: plan.skipped_cross_repo + cross, skipped_lanes: plan.skipped_lanes + skipped}
+  end
+
+  # A Build Order root is an epic as well as an imported feature. The import
+  # creates the epic once and follows the root's title afterwards, unless an
+  # operator has edited the label — then their label stays.
+  defp epic(plan, root, feature, context) do
+    desired = %{slug: feature.slug, label: feature.label, icon: nil, hue: nil, root: root.number}
+
+    case Map.get(context.epics, feature.slug) do
+      nil -> push(plan, :epic_creates, desired)
+      %{label_source: :import, label: label} when label != feature.label -> push(plan, :epic_updates, %{slug: feature.slug, label: feature.label})
+      _existing -> plan
+    end
   end
 
   defp feature(plan, desired, nil), do: push(plan, :creates, desired)

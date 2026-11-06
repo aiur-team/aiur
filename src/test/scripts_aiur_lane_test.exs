@@ -54,19 +54,20 @@ defmodule Aiur.ScriptsLaneTest do
     assert {text, 0} = shell("cmd_epic clear '#12' --as kevin --json")
     assert text =~ "action: :clear, ids: [12]"
 
-    assert shell("cmd_epic show 12 --json") ==
+    assert shell("cmd_lane show 12 --json") ==
              {"Aiur.AgentControlCLI.lane([action: :show, ids: [12], json: true])\n", 0}
   end
 
   test "V-25b list dispatch and help advertise lane commands" do
-    assert shell("cmd_epic list --json") ==
-             {"Aiur.AgentControlCLI.lane([action: :list, json: true])\n", 0}
-
-    assert shell("aiur_engine_main epic list --json") ==
+    assert shell("cmd_lane list --json") ==
              {"Aiur.AgentControlCLI.lane([action: :list, json: true])\n", 0}
 
     assert shell("aiur_engine_main lane list --json") ==
              {"Aiur.AgentControlCLI.lane([action: :list, json: true])\n", 0}
+
+    # `aiur epic list` now reads epic records, so it leaves the lane store alone.
+    assert shell("aiur_engine_main epic list --json") ==
+             {"Aiur.AgentControlCLI.epic([action: :list, json: true])\n", 0}
 
     {help, 0} = shell("usage")
     assert help =~ "lane set <lane>"
@@ -81,7 +82,7 @@ defmodule Aiur.ScriptsLaneTest do
     assert rpc("cmd_epic confirm 12 '#14' 12 --epic infra --as kevin --json") ==
              {"Aiur.AgentControlCLI.lane([action: :confirm, ids: [12, 14], expect_epic: Base.decode64!(\"aW5mcmE=\"), who: Base.decode64!(\"a2V2aW4=\"), json: true])\n", 0}
 
-    assert shell("cmd_epic show --unconfirmed --json") ==
+    assert shell("cmd_lane show --unconfirmed --json") ==
              {"Aiur.AgentControlCLI.lane([action: :show, unconfirmed: true, json: true])\n", 0}
 
     assert rpc("cmd_lane confirm 12 --lane infra --as kevin --json") ==
