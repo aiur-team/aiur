@@ -1,7 +1,7 @@
 defmodule Aiur.OpenAICompat.Transport do
   @moduledoc false
 
-  alias Aiur.OpenAICompat.{Concurrency, CreditLimit, OutputTokens}
+  alias Aiur.OpenAICompat.{Concurrency, CreditLimit, OpenRouterTrace, OutputTokens}
   alias Aiur.UsageEnvelope
 
   # One request, plus at most one retry — for two reasons only, both of which
@@ -22,7 +22,8 @@ defmodule Aiur.OpenAICompat.Transport do
   defp cap(config), do: OutputTokens.resolve(Map.get(config, :max_output_tokens))
 
   defp attempt(config, messages, tools, cap, stage) do
-    {result, in_flight} = request(config, build_request(config, messages, tools, cap))
+    request = config |> build_request(messages, tools, cap) |> OpenRouterTrace.attach(config)
+    {result, in_flight} = request(config, request)
 
     case result do
       {:ok, response} -> respond(config, response, in_flight, messages, tools, cap, stage)

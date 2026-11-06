@@ -174,3 +174,52 @@ aiur logout claude work
 
 Add `--purge` only when you also want to delete that named profile directory.
 Aiur never removes `default`.
+
+## Langfuse via OpenRouter Broadcast
+
+OpenRouter agents attach identity by default through
+`agent.backend_configs.openrouter.quirks.openrouter_trace`. Set it to `false`
+to disable. Other backends do not receive these fields.
+
+Create a Langfuse project and API key pair. In OpenRouter **Settings →
+Observability**, enable Broadcast and add a Langfuse destination with that
+key pair and the project's region/base URL.
+
+Enable **Cost**, **Identity** and
+**Request context**, turn **Privacy Mode** on, and filter the destination to
+Aiur's OpenRouter API key. Test the connection and save.
+
+Credentials stay in
+OpenRouter; Aiur uses no Langfuse SDK or credentials. See the
+[OpenRouter Langfuse setup](https://openrouter.ai/docs/guides/features/broadcast/langfuse)
+and [Broadcast settings](https://openrouter.ai/docs/guides/features/broadcast).
+
+Aiur sends the following identity fields:
+
+| Request field | Langfuse meaning | Aiur value |
+| --- | --- | --- |
+| `session_id` | Session per ticket | `github:owner/repo#number`; `unscoped:identifier` when repository identity is unavailable; max 256 characters |
+| `user` | Account filter | `instance/account_name`, max 128 characters; unnamed account is `default` |
+| `trace.trace_id` | Trace per turn | `<thread_id>:<turn_seq>` |
+| `trace.trace_name` | Trace name | `#<identifier> turn <n>` |
+| `trace.generation_name` | Generation per request round | `round <n>` within the turn |
+| `trace.environment` | Environment filter | Instance key, or `default` when absent |
+| `trace.release` | Release | Aiur version plus build commit when available |
+| Other `trace` keys | Metadata | `issue_identifier`, `backend`, `model`, `complexity`, `dispatch_id`, `thread_id` |
+
+The thread ID includes a random dispatch identifier, so a fresh dispatch
+cannot reuse a turn's trace ID. A `restart --keep-agents` handoff preserves
+the interrupted turn's trace and next round number. Turns and rounds start
+at 1; failed or paused turns still consume a turn number.
+
+Identity fields never copy titles, prompts
+or workspace paths. Privacy Mode excludes prompt/completion content while
+retaining identity, usage, cost and timing.
+
+Aiur's usage ledger does not yet
+store these trace IDs; use the ticket and thread identifiers for correlation.
+
+After deploying, dispatch an OpenRouter ticket with multiple tool rounds and
+turns. In Langfuse, confirm one session for the ticket, separate traces for
+turns, generations named by round, and filtering by environment. Record the
+result on the originating issue.

@@ -11,9 +11,9 @@ defmodule Aiur.OpenAICompat.Handoff do
 
   The resolved provider config carries the API key, so the config itself is
   deliberately never written to the handoff record: the conversation, thread id,
-  turn counters and the model the session resolved travel instead. The successor
-  re-resolves `Aiur.OpenAICompat.Config` from the same session options it already
-  had, with the recorded model as the default.
+  turn counters, safe trace identity and resolved model travel instead. The
+  successor re-resolves `Aiur.OpenAICompat.Config` from the same session options
+  it already had, with the recorded model as the default.
   """
 
   alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
@@ -41,6 +41,8 @@ defmodule Aiur.OpenAICompat.Handoff do
          "thread_id" => Map.get(source, :thread_id),
          "turn_index" => Map.get(source, :turn_index, 0),
          "next_request_id" => Map.get(source, :next_request_id, 1),
+         "trace_identity" => get_in(source, [:config, :trace_identity]),
+         "trace_round" => get_in(source, [:config, :trace_round]) || 1,
          "messages" => Map.get(source, :messages, []),
          "model" => resolved_model(source),
          "interrupted" => not is_nil(state)
@@ -146,7 +148,11 @@ defmodule Aiur.OpenAICompat.Handoff do
     Session.update(pid, fn state ->
       %{
         state
-        | messages: Map.get(provider_state, "messages", []),
+        | config:
+            state.config
+            |> Map.put(:trace_identity, Map.get(provider_state, "trace_identity"))
+            |> Map.put(:trace_round, Map.get(provider_state, "trace_round", 1)),
+          messages: Map.get(provider_state, "messages", []),
           thread_id: Map.get(provider_state, "thread_id") || Map.get(state, :thread_id),
           turn_index: Map.get(provider_state, "turn_index", Map.get(state, :turn_index, 0)),
           next_request_id: Map.get(provider_state, "next_request_id", Map.get(state, :next_request_id, 1))
