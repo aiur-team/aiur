@@ -98,7 +98,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
 - **Outcome.** With `instance.ownership: github`, a ticket starts only if this gateway owns it or wins its claim.
   PR-anchored units claim `pr-<N>`. The two lease bypasses are gone.
 - **Next action.** In `src/lib/aiur/orchestrator/dispatcher/shared_lease_dispatch.ex`, call a new
-  `Aiur.Ownership.ensure_owned/2` before `dispatch_with_shared_lease`, for every issue including `pr_head_ref` ones.
+  `Aiur.Ownership.ensure_owned/2` after the Capacity admit check (`GatewayDemand.admit/2`, MPG-402) and before `dispatch_with_shared_lease`, for every issue including `pr_head_ref` ones.
 - **Files.** `src/lib/aiur/ownership.ex` (new facade); `shared_lease_dispatch.ex` (remove the `pr_head_ref` branch at
   lines 67-73); `src/lib/aiur/agent_runner.ex` (remove lines 27-30 bypass); `src/lib/aiur/config/schema/instance.ex`
   (key `ownership: off | github`, default `off`); tests `src/test/aiur/orchestrator/ownership_dispatch_test.exs`;
@@ -107,6 +107,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
   - [ ] **[fails without]** Two orchestrators in one test, sharing the atomic stub, poll the same todo ticket: exactly one agent starts.
   - [ ] **[fails without]** A PR-anchored unit owned by another gateway is not dispatched.
   - [ ] **[fails without]** Two daemons with the same `gateway_id` and different `daemon_key` on one repository: only the claimant dispatches.
+  - [ ] A ticket Capacity denies makes no ownership reads or writes (claim runs after `admit/2`).
   - [ ] `:unknown` ownership declines dispatch with attention `ownership_unknown` and retries next poll.
   - [ ] With `instance.ownership: off`, the existing `shared_lease_dispatch_test.exs` passes unchanged.
 - **Research MPG-103R** (complexity 2, depends on MPG-101). Every caller of `do_dispatch_issue` and
