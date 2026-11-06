@@ -1,7 +1,7 @@
 defmodule Aiur.Config.Schema.AgentValidationTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentSkills.Mapping
+  alias Aiur.Config.SkillsMapping
   alias Aiur.Config.Schema.AgentValidation
   alias Ecto.Changeset
 
@@ -227,7 +227,7 @@ defmodule Aiur.Config.Schema.AgentValidationTest do
     test "returns the empty mapping for nil" do
       mapping = AgentValidation.normalize_skills(nil)
       assert mapping.by_lane == %{}
-      assert mapping.preload_max_bytes == Mapping.default_max_bytes()
+      assert mapping.preload_max_bytes == SkillsMapping.default_max_bytes()
     end
 
     test "normalizes dimension keys and skill names" do

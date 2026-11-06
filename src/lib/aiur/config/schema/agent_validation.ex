@@ -3,7 +3,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   import Ecto.Changeset, only: [add_error: 3, get_field: 2, validate_change: 3]
 
-  alias Aiur.AgentSkills.Mapping
+  alias Aiur.Config.SkillsMapping
   alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
 
@@ -475,13 +475,13 @@ defmodule Aiur.Config.Schema.AgentValidation do
   # @config-detail agent.skills.by_complexity | map | `%{}` | Complexity level to skill names. |
   @doc false
   @spec normalize_skills(nil | map()) :: map()
-  def normalize_skills(skills), do: Mapping.normalize(skills)
+  def normalize_skills(skills), do: SkillsMapping.normalize(skills)
 
   @doc false
   @spec validate_skills(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate_skills(changeset, field) do
     validate_change(changeset, field, fn ^field, skills ->
-      case Mapping.validate(skills) do
+      case SkillsMapping.validate(skills) do
         :ok -> []
         {:error, message} -> [{field, message}]
       end

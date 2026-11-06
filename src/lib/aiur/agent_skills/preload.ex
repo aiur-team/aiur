@@ -23,7 +23,7 @@ defmodule Aiur.AgentSkills.Preload do
 
   require Logger
 
-  alias Aiur.AgentSkills.Mapping
+  alias Aiur.Config.SkillsMapping
   alias Aiur.AgentSkills.Registry
   alias Aiur.BuildOrder.Features
   alias Aiur.Lane
@@ -81,12 +81,12 @@ defmodule Aiur.AgentSkills.Preload do
   @spec resolve(Aiur.Issue.t() | map(), Path.t() | nil, keyword()) :: t()
   def resolve(issue, workspace, opts \\ []) do
     settings = settings(opts)
-    mapping = Keyword.get_lazy(opts, :mapping, fn -> Mapping.normalize(agent_skills(settings)) end)
+    mapping = Keyword.get_lazy(opts, :mapping, fn -> SkillsMapping.normalize(agent_skills(settings)) end)
     installed = Keyword.get_lazy(opts, :installed, fn -> installed_skills(workspace) end)
     lanes = Keyword.get_lazy(opts, :lanes, fn -> Lane.resolve(issue, settings) end)
     feature = Keyword.get_lazy(opts, :feature, fn -> feature_slug(issue) end)
     requests = requests(mapping, issue, lanes, feature)
-    max_bytes = Mapping.max_bytes(mapping)
+    max_bytes = SkillsMapping.max_bytes(mapping)
     {mapped, truncated, bytes} = split_by_cap(requests, installed, max_bytes)
     missing = missing(requests, installed)
     warn_missing(issue, missing)
@@ -99,7 +99,7 @@ defmodule Aiur.AgentSkills.Preload do
       lanes: lanes,
       bytes: bytes,
       max_bytes: max_bytes,
-      configured?: Mapping.configured?(mapping)
+      configured?: SkillsMapping.configured?(mapping)
     }
   end
 
@@ -227,7 +227,7 @@ defmodule Aiur.AgentSkills.Preload do
       name = label |> String.replace_prefix("skills:", "") |> String.trim()
       reason = "override:#{label}"
 
-      case {name, Mapping.skills_for(mapping, "by_label", name)} do
+      case {name, SkillsMapping.skills_for(mapping, "by_label", name)} do
         {"", _skills} -> []
         {name, []} -> [{name, reason}]
         {_name, skills} -> Enum.map(skills, &{&1, reason})
@@ -292,15 +292,15 @@ defmodule Aiur.AgentSkills.Preload do
     issue
     |> Lane.labels()
     |> Enum.reject(&String.starts_with?(&1, "skills:"))
-    |> Enum.flat_map(fn label -> for skill <- Mapping.skills_for(mapping, "by_label", label), do: {skill, "label:#{label}"} end)
+    |> Enum.flat_map(fn label -> for skill <- SkillsMapping.skills_for(mapping, "by_label", label), do: {skill, "label:#{label}"} end)
   end
 
   defp lane_requests(mapping, lanes) do
-    Enum.flat_map(lanes, fn lane -> for skill <- Mapping.skills_for(mapping, "by_lane", lane), do: {skill, "lane:#{lane}"} end)
+    Enum.flat_map(lanes, fn lane -> for skill <- SkillsMapping.skills_for(mapping, "by_lane", lane), do: {skill, "lane:#{lane}"} end)
   end
 
   defp feature_requests(mapping, feature) when is_binary(feature) and feature != "" do
-    for skill <- Mapping.skills_for(mapping, "by_feature", feature), do: {skill, "feature:#{feature}"}
+    for skill <- SkillsMapping.skills_for(mapping, "by_feature", feature), do: {skill, "feature:#{feature}"}
   end
 
   defp feature_requests(_mapping, _feature), do: []
@@ -308,7 +308,7 @@ defmodule Aiur.AgentSkills.Preload do
   defp complexity_requests(mapping, issue) do
     case Aiur.CodingAgent.complexity_level(issue) do
       level when is_integer(level) ->
-        for skill <- Mapping.skills_for(mapping, "by_complexity", level), do: {skill, "complexity:#{level}"}
+        for skill <- SkillsMapping.skills_for(mapping, "by_complexity", level), do: {skill, "complexity:#{level}"}
 
       _none ->
         []

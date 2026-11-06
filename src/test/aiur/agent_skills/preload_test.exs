@@ -9,7 +9,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.AgentSkills.Mapping
+  alias Aiur.Config.SkillsMapping
   alias Aiur.AgentSkills.Preload
   alias Aiur.Issue
 
@@ -36,7 +36,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
   end
 
   defp resolve(issue, workspace, mapping, opts \\ []) do
-    Preload.resolve(issue, workspace, Keyword.merge([settings: settings(), mapping: Mapping.normalize(mapping)], opts))
+    Preload.resolve(issue, workspace, Keyword.merge([settings: settings(), mapping: SkillsMapping.normalize(mapping)], opts))
   end
 
   describe "lane mapping" do
@@ -77,7 +77,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
       preload =
         Preload.resolve(issue(["area:infra"]), workspace,
           settings: settings([%{key: "infra", labels: ["area:infra"]}]),
-          mapping: Mapping.normalize(%{"by_lane" => %{"infra" => ["infra-runbook"]}})
+          mapping: SkillsMapping.normalize(%{"by_lane" => %{"infra" => ["infra-runbook"]}})
         )
 
       assert Enum.map(preload.mapped, &{&1.name, &1.reason}) == [{"infra-runbook", "lane:infra"}]

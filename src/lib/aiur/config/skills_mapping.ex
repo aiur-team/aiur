@@ -1,4 +1,4 @@
-defmodule Aiur.AgentSkills.Mapping do
+defmodule Aiur.Config.SkillsMapping do
   @moduledoc """
   Normalizes and validates the `agent.skills` config that maps a ticket's lane,
   feature, label and complexity to the skills its worker loads first.
