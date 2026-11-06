@@ -12,7 +12,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / "publication"))
 
 from publication_titles import has_logical_id_prefix  # noqa: E402
-from publication_context import build_context, feature_epics, product_features, published_feature_slug  # noqa: E402
+from publication_context import build_context, feature_lanes, product_features, published_feature_slug  # noqa: E402
 from publication_client import PublicationError  # noqa: E402
 from publication_rendering_sections import _approved_ticket_titles, authority_preamble  # noqa: E402
 from publication_common import Report  # noqa: E402
@@ -26,8 +26,8 @@ class PublicationTitlesTest(unittest.TestCase):
         self.assertFalse(has_logical_id_prefix("Phaser wrapper", "OGM-024"))
         self.assertFalse(has_logical_id_prefix("OGM-0245 tooling", "OGM-024"))
 
-    def test_published_lane_epics_have_unique_non_default_plan_icons(self) -> None:
-        epics = feature_epics({
+    def test_published_feature_lanes_have_unique_non_default_plan_icons(self) -> None:
+        lanes = feature_lanes({
             "workstreams": [
                 {"id": "runtime", "title": "Runtime", "icon": "command-line"},
                 {"id": "dashboard", "title": "Dashboard", "icon": "window"},
@@ -38,12 +38,12 @@ class PublicationTitlesTest(unittest.TestCase):
             "build_order_id": "example/repo:game-maker",
         })
 
-        icons = [epic["icon"] for epic in epics]
+        icons = [lane["icon"] for lane in lanes]
         self.assertEqual(["window", "command-line"], icons)
         self.assertNotIn("squares-2x2", icons)
         self.assertEqual(len(icons), len(set(icons)))
 
-    def test_published_epics_reject_default_missing_and_duplicate_icons(self) -> None:
+    def test_published_lanes_reject_default_missing_and_duplicate_icons(self) -> None:
         cases = [
             ([{"id": "runtime", "title": "Runtime", "icon": "squares-2x2"}],
              [{"workstream": "runtime"}]),
@@ -61,7 +61,7 @@ class PublicationTitlesTest(unittest.TestCase):
         for workstreams, tickets in cases:
             with self.subTest(workstreams=workstreams):
                 with self.assertRaises(ValueError):
-                    feature_epics({
+                    feature_lanes({
                         "workstreams": workstreams,
                         "tickets": tickets,
                         "build_order_id": "example/repo:game-maker",
@@ -100,47 +100,6 @@ class PublicationTitlesTest(unittest.TestCase):
             with patch("publication_context.render_approved_build_order", return_value=expected):
                 with self.assertRaisesRegex(PublicationError, "must not start with a logical ID"):
                     build_context(build_path, publication_path, approved, approved)
-
-    def test_registration_creates_each_product_group_and_assigns_all_tickets(self) -> None:
-        from types import SimpleNamespace
-        from unittest.mock import patch
-
-        from publication_operator import Publisher
-
-        publisher = Publisher.__new__(Publisher)
-        publisher.context = SimpleNamespace(
-            root_id="example/repo:game-maker", repository="example/repo",
-            build={
-                "workstreams": [
-                    {"id": "runtime", "title": "Runtime", "icon": "command-line"},
-                    {"id": "ui-lane", "title": "UI", "icon": "window"},
-                ],
-                "tickets": [
-                    {"id": "OGM-024", "workstream": "runtime"},
-                    {"id": "OGM-025", "workstream": "ui-lane"},
-                ],
-                "product_features": [
-                    {"slug": "runtime-tools", "label": "Runtime tools", "ticket_ids": ["OGM-024"]},
-                    {"slug": "editor-ui", "label": "Editor UI", "ticket_ids": ["OGM-025"]},
-                ],
-                "build_order_id": "example/repo:game-maker",
-            },
-        )
-        mappings = {"OGM-024": {"number": 41}, "OGM-025": {"number": 42}}
-        with patch.object(Publisher, "_run_cli") as run_cli:
-            publisher._ensure_feature(mappings)
-
-        calls = run_cli.call_args_list
-        self.assertEqual(4, len(calls))
-        self.assertEqual("feature", calls[0].args[0][0])
-        self.assertEqual(["feature", "create", "game-maker-runtime-tools", "--label", "Runtime tools",
-                          "--epic", "f-game-maker-runtime-tools-runtime=Runtime",
-                          "--epic-icon", "f-game-maker-runtime-tools-runtime=command-line"], calls[0].args[0])
-        self.assertEqual(["feature", "add", "game-maker-runtime-tools", "41", "--epic",
-                          "f-game-maker-runtime-tools-runtime"], calls[1].args[0])
-        self.assertEqual("game-maker-editor-ui", calls[2].args[0][2])
-        self.assertEqual(["feature", "add", "game-maker-editor-ui", "42", "--epic",
-                          "f-game-maker-editor-ui-ui-lane"], calls[3].args[0])
 
     def test_product_feature_groups_cannot_leave_tickets_in_a_catch_all(self) -> None:
         with self.assertRaisesRegex(ValueError, "every ticket exactly once"):

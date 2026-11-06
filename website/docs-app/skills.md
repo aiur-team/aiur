@@ -70,7 +70,9 @@ runner.
 The `aiurdev --test` / `--test3` guard prevents destructive Aiur
 sandbox resets from issue workspaces, not ordinary repository tests.
 
-For a home-page epic, issue workers use `aiur_set_lane` or `aiur_feature`; Executors use `aiur lane set` or `aiur feature add`. Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
+For a home-page lane, issue workers use `aiur_set_lane` or `aiur_feature`; Executors use `aiur lane set` or `aiur feature add`. An epic holds features, a feature holds tickets, and a lane is the technical column a ticket belongs to.
+
+Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
 
 ## Matching skills to a ticket
 
@@ -78,7 +80,7 @@ Every ticket workspace installs the full skill set. A worker's cold prompt lists
 
 `agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, epic, label and complexity to skill names, and the matching sets are combined.
 
-A lane is the technical column the work belongs to, and it is the same column a general epic describes: it comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured general epic's label matchers. A configured epic therefore needs no GitHub relabel.
+A lane is the technical column the work belongs to: it comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured lane's label matchers. A configured lane therefore needs no GitHub relabel.
 
 An epic is the build-order record above features. A ticket's epic is the one whose ordered feature list holds the ticket's owning feature; a feature no epic holds contributes no epic skills and no error.
 
@@ -185,7 +187,7 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | Skill | Trigger | Covers |
 | --- | --- | --- |
 | [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
-| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Aiur's layer on the shared `build-order` skill: planning-pack formats, continuous-build collection, approval freeze, GitHub promotion, and Executor handoff. |
+| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Aiur's layer on the shared `build-order` skill: planning-pack formats, the continuous-build collection as one epic holding product features over lanes, approval freeze, GitHub promotion, and Executor handoff. |
 | [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, per-ticket deep dives through `research-spike`, per-feature progress at `/?view=list&list=features`, accepted boundary through review and merge. |
 | [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | Inspect a live run | Status board and alert feed. |
 | [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Executor sweep findings, five dashboard surfaces and per-feature progress at `/?view=list&list=features`, feature-work share, bottleneck, and durable findings. |

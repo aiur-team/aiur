@@ -41,7 +41,7 @@ LIFECYCLE_SLUGS = {
     "done", "error", "cancelled", "canceled", "paused",
 }
 RESERVED_ROUTING_PREFIXES = {
-    "human", "model", "phase", "complexity", "build-lane", "feature",
+    "human", "model", "phase", "complexity", "lane", "build-lane", "feature",
 }
 
 

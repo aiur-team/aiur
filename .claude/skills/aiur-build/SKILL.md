@@ -126,9 +126,10 @@ wave/critical-path analysis, validation report, and approved planning SHA in the
 reviewable planning pack. These remain durable intent, not live runtime state.
 
 Record each product feature group in `product_features` with a stable slug,
-display label, and a complete, non-overlapping `ticket_ids` partition. Its lane
-epics stay inside that product feature. Also record links to existing build
-tickets. Keep real prerequisites separate
+display label, and a complete, non-overlapping `ticket_ids` partition. An epic
+holds the pack's features, a feature holds tickets, and a lane is the technical
+column a ticket belongs to, so each product feature's lanes stay lanes on that
+feature. Also record links to existing build tickets. Keep real prerequisites separate
 from scheduling preferences. On promotion, record tracker-number mappings,
 `feature:<slug>` label verification, queue name and rank, and placement evidence.
 A collection is not a separate run or a new acceptance boundary for the repository.
@@ -170,14 +171,16 @@ is optional user complexity, never a hardcoded Aiur workflow.
 Use `agent:queued` in the same creation request for executable members; the queue
 promotes ready members to `agent:todo`. Never create first and label later.
 
-**Give promoted members a home-page epic through their feature collection.** Follow continuous-build intake below, defining feature epics and assigning members with `aiur feature add <slug> <ids…> --epic <epic>` when needed. Choose column names using the lane guidance in [decomposition workflow](references/decomposition-workflow.md); new collections need no Build Order root. Existing legacy roots retain their sub-issue and `build-lane:<lane>` mapping. Tickets filed outside the collection follow the [Executor home-page epic rule](../aiur-run/references/executor.md).
+**Give promoted members a home-page lane through their feature collection.** Follow continuous-build intake below, defining the collection's lanes and assigning members with `aiur feature add <slug> <ids…> --lane <lane>` when needed. Choose column names using the lane guidance in [decomposition workflow](references/decomposition-workflow.md); new collections need no Build Order root. New packs label tickets `lane:<lane>`; existing legacy roots keep their sub-issue and `build-lane:<lane>` mapping. Tickets filed outside the collection follow the [Executor home-page lane rule](../aiur-run/references/executor.md).
 
 Publication creates plain GitHub issue titles from the plan title; logical IDs
-remain in the ticket body and publication receipt. It registers one feature
-collection per `product_features` group, with that group's lane epics and
-workstream icons, then assigns every published issue to exactly one collection
-and its planned lane epic. Re-running publication reconciles the same
-collections and membership.
+remain in the ticket body and publication receipt. It registers one epic for the
+planning pack (`bo-<root number>`, the epic a Build Order root imports as), one
+feature per `product_features` group inside that epic, and each feature's lanes
+with their workstream icons, then assigns every published issue to exactly one
+collection and its planned lane. Re-running publication reconciles the same
+epic, collections and membership, and writes nothing new when they already
+match.
 The publisher runs the product `aiur` command from `PATH`; set
 `AIUR_FEATURE_CLI` to an executable `aiur` or `aiurdev` path when it is not on
 `PATH` or the package's runtime instance must be selected explicitly.
@@ -221,4 +224,4 @@ Do not start Aiur or implement the first ticket as a convenience.
 
 Add `experiment:feature` to the promoted root to measure it automatically; see `website/docs-app/concepts/experiments.md` (Measuring a feature).
 
-Workstream metadata: choose a unique Heroicons v2 outline icon, a one-line summary of at most 100 characters, and an optional wave in `build-order.json`. Feature icons must differ from matching general-epic icons on every ticket. See `references/planning-contract.md`.
+Workstream metadata: choose a unique Heroicons v2 outline icon, a one-line summary of at most 100 characters, and an optional wave in `build-order.json`. A feature's lane icons must differ from the icons of the configured lanes whose label matchers hit the same ticket. See `references/planning-contract.md`.
