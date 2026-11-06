@@ -1,0 +1,37 @@
+{
+  "id": "voice-transcribe-core",
+  "name": "Voice transcription core",
+  "layer": 3,
+  "kind": "package",
+  "paths": [
+    ".github/workflows/voice-transcribe-standalone.yml",
+    "packages/elixir/voice_transcribe/**",
+    "scripts/check-voice-transcribe-isolation.sh"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides a reusable streaming transcription contract and ElevenLabs Scribe session for voice hosts.",
+  "docs": [
+    "apis/elevenlabs.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "voice"
+}

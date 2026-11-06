@@ -3,6 +3,8 @@ defmodule Aiur.AgentRunner.SessionStartup do
   require Logger
   alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.CodingAgent
+  alias Aiur.Config.RoutingValue
+  alias Aiur.Config.Schema.OpenRouterBackend
   alias Aiur.Issue
   alias Aiur.ModelDiscovery
   alias Aiur.Signal
@@ -192,7 +194,7 @@ defmodule Aiur.AgentRunner.SessionStartup do
   @doc false
   @spec maybe_alert_unsupported_model(Issue.t(), Path.t() | nil, worker_host(), String.t(), String.t() | nil) :: :ok
   def maybe_alert_unsupported_model(issue, workspace, worker_host, backend, model) when is_binary(model) do
-    if ModelDiscovery.known_model?(backend, model) do
+    if ModelDiscovery.known_model?(backend, model) or routed_model?(backend, model) do
       :ok
     else
       reason = unsupported_model_reason(backend, model)
@@ -212,6 +214,22 @@ defmodule Aiur.AgentRunner.SessionStartup do
   end
 
   def maybe_alert_unsupported_model(_issue, _workspace, _worker_host, _backend, _model), do: :ok
+
+  # A model set — the inline `openrouter:{vendor/a, vendor/b}` form or a name
+  # declared under `backend_configs.openrouter.routes` — is a routing
+  # instruction, not a model aiur should recognise, so it is never an
+  # unsupported model.
+  defp routed_model?(backend, model) do
+    RoutingValue.model_set?(model) or OpenRouterBackend.named_route?(backend_config(backend), model)
+  end
+
+  defp backend_config(backend) do
+    Aiur.Config.backend_config(backend)
+  rescue
+    _unavailable -> %{}
+  catch
+    _kind, _reason -> %{}
+  end
 
   defp unsupported_model_reason(backend, model) do
     generic = List.first(CodingAgent.model_aliases(backend)) || List.first(CodingAgent.seedable_models(backend))

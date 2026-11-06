@@ -44,9 +44,10 @@ defmodule Aiur.UsageTest do
     assert output =~ "last failed #{DateTime.to_iso8601(observed_at)}"
   end
 
-  test "registry includes the Netlify provider adapter" do
-    assert Enum.sort(Aiur.Usage.providers()) == [:broker, :claude, :codex, :github, :netlify, :ticket]
+  test "registry includes the Netlify and OpenRouter provider adapters" do
+    assert Enum.sort(Aiur.Usage.providers()) == [:broker, :claude, :codex, :github, :netlify, :openrouter, :ticket]
     assert {:ok, %{"provider" => "netlify"}} = Aiur.Usage.provider("netlify", netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unavailable, fields: %{}})
+    assert {:ok, %{"provider" => "openrouter"}} = Aiur.Usage.provider("openrouter", meter_views: %{}, openrouter_routes: [], openrouter_spend: %{api_equivalent: [], provider_reported: []})
   end
 
   test "every unavailable provider remains unknown instead of becoming zero" do
@@ -56,7 +57,8 @@ defmodule Aiur.UsageTest do
       {"github", [github_quota: %{state: :unknown, windows: %{}}]},
       {"broker", [broker_usage: %{}]},
       {"ticket", [ticket_usage: %{}]},
-      {"netlify", [netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unknown, fields: %{}}]}
+      {"netlify", [netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unknown, fields: %{}}]},
+      {"openrouter", [meter_views: %{}, openrouter_routes: [], openrouter_spend: %{api_equivalent: [], provider_reported: []}]}
     ]
 
     for {provider, opts} <- cases do
