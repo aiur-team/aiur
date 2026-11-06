@@ -104,6 +104,8 @@ defmodule Aiur.OpenAICompat.Handoff do
     |> Map.put(:model, Map.get(session, :model) || Keyword.get(opts, :model))
   end
 
+  # `CodingAgent.start_session/2` always returns a live session pid, so the
+  # restored conversation is seeded into that agent directly.
   defp seed(%{session_pid: pid}, provider_state) when is_pid(pid) do
     Session.update(pid, fn state ->
       %{
@@ -115,8 +117,6 @@ defmodule Aiur.OpenAICompat.Handoff do
       }
     end)
   end
-
-  defp seed(_session, _provider_state), do: :ok
 
   @doc "Decode a record's saved conversation, failing loud on a damaged snapshot."
   @spec provider_state(map()) :: {:ok, map()} | {:error, term()}

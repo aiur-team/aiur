@@ -153,7 +153,7 @@ the blocking backends with their agent counts, for example:
 ```text
 no running agent supports handoff: muse (3 agents) cannot be adopted across a restart.
 Drain the fleet first (aiur pause --all, wait for those turns to end, then aiur stop
-and aiur start), or restart plainly without keep-agents: aiur restart
+and aiur run), or restart plainly without keep-agents: aiur restart
 ```
 
 When only some agents are affected, the restart proceeds and reports which ones

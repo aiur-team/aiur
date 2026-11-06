@@ -66,7 +66,7 @@ defmodule Aiur.Handoff.CLI do
 
   defp blocking_message(blocking) do
     "no running agent supports handoff: #{backend_breakdown(blocking)} cannot be adopted across a restart. " <>
-      "Drain the fleet first (aiur pause --all, wait for those turns to end, then aiur stop and aiur start), " <>
+      "Drain the fleet first (aiur pause --all, wait for those turns to end, then aiur stop and aiur run), " <>
       "or restart plainly without keep-agents: aiur restart"
   end
 
