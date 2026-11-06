@@ -179,6 +179,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_listen_validate, 1, :read, [:string], %{}},
     {:todo, 1, :write, [:string_list], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
     {:todo, 2, :write, [:string_list, :keyword], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
+    {:redispatch, 2, :write, [:string_list, {:nullable, :string}], %{}},
     {:reset_budget, 1, :write, [:string_list], %{}},
     {:pause_global, 0, :write, [], %{}},
     {:resume_global, 0, :write, [], %{}},
