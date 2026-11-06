@@ -26,6 +26,28 @@ graph, wave/critical-path analysis, `tickets/<ID>.md`, validation report, and
 approved planning commit. Planning documents describe approved intent; they do
 not supply current ticket state or progress.
 
+## The review reads the published document
+
+The Build Order review the skill publishes reads its graph facts — waves, typed
+edges, critical path, progress, epics, features and lanes — from a
+`build-order.v1` document (`packages/aiur-contracts`). The pack stays the
+authored artifact; the document is derived from it, so the GitHub review and the
+dashboard review cannot describe different graphs.
+
+`scripts/render_build_order_review.py` picks the document source:
+
+| Situation | Document source |
+| --- | --- |
+| A daemon is running | `aiur build-orders --json --contract build-order.v1 [<root>]` |
+| Planning only, before any daemon | the pack walk of `build-order.json` |
+
+The pack walk publishes the tracker and progress sources as `unknown`. Both
+sources feed the same renderer, and an unknown source publishes an explicit
+notice rather than an empty dependency table or a 0% bar. Before writing
+anything the renderer asserts the pack's `validation_graph.py` facts against the
+document; `publish_build_order.py --graph-review <path>` repeats that assertion
+and refuses a published review that no longer matches the document.
+
 ## Executor-owned promotion
 
 Promotion requires issue-creation authority. Encourage all researched members

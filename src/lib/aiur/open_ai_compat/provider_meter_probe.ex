@@ -148,8 +148,16 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
            max(credits - usage, 0),
            :openrouter_api,
            observed_at,
-           nil
+           # `total_credits` is the key's known limit, so the spend percentage
+           # is honest against it — the same field dispatch's usage floor reads
+           # (#7504). A key with no reported limit keeps dollar-only credits.
+           spend_used_percent(credits, usage)
          )
+         # The purchased-credit ceiling the remaining amount is measured
+         # against. Without it a credit reading is a bare number: a consumer
+         # cannot say "77.5 left of 100" or derive a remaining percentage.
+         |> Map.put(:limit, credits)
+         |> Map.put(:used, usage)
        ]}
     else
       _ -> {:error, :malformed}
@@ -183,6 +191,18 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
         nil
     end
   end
+
+  # A prepaid credit ceiling is its own durable baseline, so no stored state is
+  # needed: the consumed fraction is exact against the purchased credits. A key
+  # with no purchased credit has no denominator and stays dollar-only.
+  defp spend_used_percent(limit, used) when is_number(limit) and limit > 0 and is_number(used) do
+    (used / limit * 100)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(1)
+  end
+
+  defp spend_used_percent(_limit, _used), do: nil
 
   defp credit_window(id, amount, source, observed_at, used_percent) do
     window = %{

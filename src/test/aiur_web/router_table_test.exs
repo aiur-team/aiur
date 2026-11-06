@@ -152,6 +152,8 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/api/v1/events/catalog", AiurWeb.EventsController, :catalog, [:client_token_read], :debug},
     {:*, "/api/v1/events", AiurWeb.EventsController, :method_not_allowed, [:client_token_read], :debug},
     {:*, "/api/v1/events/catalog", AiurWeb.EventsController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/build-order", AiurWeb.BuildOrderApiController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/build-order", AiurWeb.BuildOrderApiController, :method_not_allowed, [:client_token_read], :debug},
     {:get, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :show, [:client_token_read], :debug},
     {:*, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :method_not_allowed, [:client_token_read], :debug},
     {:get, "/api/v1/state", AiurWeb.ObservabilityApiController, :state, [:client_token_read], :debug},

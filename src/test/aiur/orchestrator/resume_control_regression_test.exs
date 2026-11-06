@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   import ExUnit.CaptureIO
   alias Aiur.{AgentControlCLI, Issue}
   alias Aiur.Events.Exchange
-  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport.RunningSummaries}
+  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport, StatusReport.RunningSummaries}
   alias Aiur.TrackerIdentity
   import Aiur.SnapshotFenceSupport, only: [fence_snapshot_read_model: 0]
   import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 3, drain_tracker_tasks: 4]
@@ -174,6 +174,12 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       assert %{"44" => :unknown, "53" => :working} =
                RunningSummaries.running_summaries(:sys.get_state(pid))
                |> Map.new(&{&1.identifier, &1.work_state})
+
+      # The status projection reads the same corrupt entry. Before #7537 it
+      # raised here and crashed the orchestrator call instead of answering, so
+      # which error the pause call below saw depended on this read's timing.
+      assert %{running: rows} = StatusReport.snapshot_api(pid, @probe_timeout_ms)
+      assert %{control: %{unit_control: :request_only}} = Enum.find(rows, &(&1.identifier == "44"))
 
       :ok = Exchange.subscribe("ticket.44.agent.attention.control-call-crashed")
 
