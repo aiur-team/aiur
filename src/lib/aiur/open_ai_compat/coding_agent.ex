@@ -178,7 +178,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   defp run_loop(session, state, opts, rounds) do
     with :continue <- handoff_checkpoint(session, state),
          :continue <- pause_state(),
-         {:ok, completion} <- Transport.complete(state.config, state.messages, Tools.specs(state.config.transport)) do
+         {:ok, completion} <- provider_request(session, state) do
       completion = maybe_parse_text_tool_calls(completion, state.config)
       MeterAdapter.observe(completion, state, opts)
       emit_completion(completion, state, opts)
@@ -203,6 +203,51 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   # the turn continues.
   defp handoff_checkpoint(session, state) do
     Aiur.AgentRunner.Handoff.mid_turn_checkpoint(session, state)
+  end
+
+  # An in-daemon provider request is a blocking HTTP call whose receive timeout is
+  # minutes long, so a run loop sitting inside one cannot reach the step boundary
+  # `handoff_checkpoint/2` honors: a keep-agents preflight would time out and
+  # record the busy agent as a `:snapshot_timeout` fallback. The request therefore
+  # runs in a child process and this loop keeps listening for the handoff barrier
+  # while it waits — a hold that lands mid-request captures the state of the last
+  # completed step (the conversation as it stood when this request was issued) and
+  # the successor replays the request from that boundary (#7564). An aborted
+  # preflight leaves the request ours to finish, so the turn continues with its
+  # real completion.
+  defp provider_request(session, state) do
+    request = Task.async(fn -> Transport.complete(state.config, state.messages, Tools.specs(state.config.transport)) end)
+    await_request(session, state, request)
+  end
+
+  defp await_request(session, state, %Task{ref: ref} = request) do
+    receive do
+      {^ref, result} ->
+        Process.demonitor(ref, [:flush])
+        result
+
+      {:DOWN, ^ref, :process, _pid, reason} ->
+        {:error, {:provider_request_exit, reason}}
+
+      :handoff_hold ->
+        Process.put(:handoff_hold, true)
+        await_request(session, state, request)
+
+      :handoff_abort ->
+        Process.delete(:handoff_hold)
+        await_request(session, state, request)
+
+      {:handoff_abort, from, abort_ref} ->
+        Process.delete(:handoff_hold)
+        send(from, {:handoff_aborted, abort_ref})
+        await_request(session, state, request)
+
+      {:handoff_snapshot, from, snapshot_ref} ->
+        # `capture/4` parks this process until the daemon stops or the preflight
+        # aborts; on abort the in-flight request is still ours to finish.
+        if Process.get(:handoff_hold), do: Aiur.AgentRunner.Handoff.capture(session, state, from, snapshot_ref)
+        await_request(session, state, request)
+    end
   end
 
   # A 429 is a quota event, and quota events have a home: the
