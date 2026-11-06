@@ -13,7 +13,7 @@ general rule, `build-order` wins and this file is the defect.
 - Stage 1: the evidence the pack keeps
 - Stage 2: requirements and decisions the pack freezes
 - Stage 5: the ticket document contract
-- Stage 6: lanes, epics, and pack metadata
+- Stage 6: epics, features, lanes and pack metadata
 - Stage 7: Aiur validation of the pack
 - Stage 8: Executor-owned GitHub promotion
 - Stage 9: Executor handoff and stop
@@ -84,19 +84,23 @@ Give every requirement and finding exactly one disposition: owned by one or more
 tickets, deferred with reason, rejected with reason, or already satisfied with
 evidence.
 
-## Stage 6: lanes, epics, and pack metadata
+## Stage 6: epics, features, lanes and pack metadata
 
-General epics are the repository's cross-cutting areas (for example UI,
-frontend, backend and docs), configured in `build_order.general_epics`. Features
-are product slices, one per workstream. Give each workstream a distinct
-Heroicons v2 outline `icon`, a one-line `summary` of at most 100 characters, and
-an optional nonnegative integer or short-label `wave` in `build-order.json`.
+An epic holds the pack's features in order, a feature holds tickets, and a lane
+is the technical column a ticket belongs to. Lanes are the repository's
+cross-cutting areas (for example UI, frontend, backend and docs), configured in
+`build_order.lanes` (`build_order.general_epics` still loads as its alias).
+Product features are the slices inside the pack's epic, and each one carries the
+lanes its tickets use. Give each workstream, and so each lane it defines, a
+distinct Heroicons v2 outline `icon`, a one-line `summary` of at most 100
+characters, and an optional nonnegative integer or short-label `wave` in
+`build-order.json`.
 
-General epic icons and feature icons must not overlap on any ticket: inspect the
-target repository's configured general-epic label matchers and choose a
-different feature icon for every matching ticket. The validator checks icon
-names, uniqueness, and label-specific overlap. The legacy epic names `bug`,
-`pen`, `server` and `docs` remain valid aliases.
+Configured lane icons and feature lane icons must not overlap on any ticket:
+inspect the target repository's configured lane label matchers and choose a
+different lane icon for every matching ticket. The validator checks icon names,
+uniqueness, and label-specific overlap. The legacy lane names `bug`, `pen`,
+`server` and `docs` remain valid aliases.
 
 Record the planned edges as Aiur facts, not as prose: a real start/merge
 prerequisite becomes a native `blocked_by` link on promotion, a write-surface

@@ -31,12 +31,9 @@ import publication_client
 import publication_mappings
 import publication_materialize
 import publication_pending
+import publication_registry
 import publication_relationships
-from publication_context import (
-    feature_epics,
-    published_feature_slug,
-    validate_product_feature_publication,
-)
+from publication_context import validate_product_feature_publication
 from publication_client import (  # noqa: F401
     AUTHORITY_CHECKPOINT_MUTATIONS,
     Budget,
@@ -123,7 +120,7 @@ class Publisher:
                 raise PublicationError(
                     "publication did not materialize every planned identity"
                 )
-            self._ensure_feature(mappings)
+            registry = self._ensure_registry(mappings)
             self._ensure_relationships(mappings)
             comment = (
                 self._ensure_pending_comment(mappings[self.context.root_id])
@@ -144,6 +141,7 @@ class Publisher:
                 spec.kind == "ticket" for spec in self.context.specs.values()
             ),
             "blocked_by_edges": len(self.context.expected_edges),
+            "registry": registry,
             "reapproval": reapproval,
             **(
                 {"pending_comment": fresh["comment"]["url"]}
@@ -169,40 +167,7 @@ class Publisher:
         if error is not None:
             raise PublicationError(error)
 
-    def _ensure_feature(self, mappings: dict[str, dict[str, Any]]) -> None:
-        from publication_context import product_features
-
-        root_slug = self.context.root_id.removeprefix(f"{self.context.repository}:")
-        tickets = {item["id"]: item for item in self.context.build["tickets"]}
-        workstreams = {item["id"]: item for item in self.context.build["workstreams"]}
-        for product in product_features(self.context.build):
-            slug = published_feature_slug(root_slug, product["slug"])
-            group_tickets = [tickets[ticket_id] for ticket_id in product["ticket_ids"]]
-            lanes = sorted({ticket["workstream"] for ticket in group_tickets})
-            epics = feature_epics({
-                "build_order_id": f"{self.context.repository}:{slug}",
-                "workstreams": [workstreams[lane] for lane in lanes],
-                "tickets": group_tickets,
-            })
-            create_args = ["feature", "create", slug, "--label", product["label"]]
-            for epic in epics:
-                create_args.extend(("--epic", f"{epic['key']}={epic['label']}"))
-                create_args.extend(("--epic-icon", f"{epic['key']}={epic['icon']}"))
-            self._run_cli(create_args, "feature registration")
-            for epic in epics:
-                lane = epic["lane"]
-                grouped = [
-                    str(mappings[ticket_id]["number"])
-                    for ticket_id in product["ticket_ids"]
-                    if tickets[ticket_id]["workstream"] == lane
-                ]
-                for offset in range(0, len(grouped), 200):
-                    self._run_cli(
-                        ["feature", "add", slug, *grouped[offset:offset + 200], "--epic", epic["key"]],
-                        "feature membership",
-                    )
-
-    def _run_cli(self, arguments: list[str], label: str) -> None:
+    def _run_cli(self, arguments: list[str], label: str) -> str:
         try:
             command = self._resolve_cli()
             result = subprocess.run(
@@ -215,6 +180,11 @@ class Publisher:
         if result.returncode:
             detail = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
             raise PublicationError(f"{label} failed:\n{detail}")
+        return result.stdout
+
+    def _read_cli(self, arguments: list[str], label: str) -> str:
+        """Run one read command and return its JSON stdout."""
+        return self._run_cli(arguments, label)
 
     @staticmethod
     def _resolve_cli() -> str:
@@ -471,6 +441,7 @@ class Publisher:
     _atomic_write_json = staticmethod(publication_materialize.atomic_write_json)
     _validate_live_issue_identity = publication_relationships.validate_live_issue_identity
     _validate_live_issue_authority = publication_relationships.validate_live_issue_authority
+    _ensure_registry = publication_registry.ensure_registry
     _ensure_relationships = publication_relationships.ensure_relationships
     _ensure_pending_comment = publication_pending.ensure_pending_comment
     _fresh_evidence = publication_pending.fresh_evidence

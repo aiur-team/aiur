@@ -8,10 +8,17 @@ Existing Build Orders retain their typed members, lanes, phases, dependencies,
 complexity, and optional icons as readable planning history. The pack and root
 commands below describe those legacy artifacts.
 
-Three words carry the hierarchy: an **Epic** holds features in order and may name
-one Build Order root; a **Feature** holds tickets; a **Lane** is a technical
-column. Epics are records in `build-features/epics.ndjson` beside
-`features.ndjson`; `aiur epic list` shows them.
+## Epics, features and lanes
+
+Three words carry the hierarchy. An **Epic** holds features in order and may name one Build Order root. A **Feature** holds tickets. A **Lane** is the technical column the work belongs to.
+
+Epics are records in `build-features/epics.ndjson` beside `features.ndjson`; `aiur epic list` shows them and `aiur epic show <slug>` lists an epic's member features. A feature sits in at most one epic. A Build Order root projects as an epic, and the root's build lanes stay lane assignments on the imported feature.
+
+Publication of a planning pack registers the same three levels. It creates one epic for the pack (`bo-<root number>`, the slug a Build Order root imports as) and one feature per `product_features` group inside that epic.
+
+Each feature carries its planned lanes and their workstream icons. Re-running publication reconciles those records and writes nothing new when they already match.
+
+A lane comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured lane's label matchers. New packs label tickets `lane:<slug>`; `build-lane:` labels stay valid and keep their existing meaning. A lane is not an epic: an epic groups features, and a lane groups the tickets inside them.
 
 ## The published graph
 

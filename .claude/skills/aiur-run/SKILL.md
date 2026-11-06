@@ -5,10 +5,12 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 # Run Aiur as the Executor
 
-When publishing an `aiur-build` build order, register one feature per product
-feature group and its lane epics as part of publication. Assign every member
-to its product feature and planned lane epic. Use plain GitHub issue titles;
-keep logical IDs in ticket bodies and publication receipts.
+When publishing an `aiur-build` build order, publication registers one epic for
+the pack, one feature per product feature group inside that epic, and each
+feature's lanes. An epic holds features, a feature holds tickets, and a lane is
+the technical column a ticket belongs to. Assign every member to its product
+feature and planned lane. Use plain GitHub issue titles; keep logical IDs in
+ticket bodies and publication receipts.
 
 Before launch, resolve repository-local `.aiur/config`, then `~/.aiur/config`. If only global defaults exist, tell the user that Aiur will fall back to them; do not require `aiur init` or copy config into every repository. Global GitHub startup targets the current `origin` and ensures required workflow/marker and complexity labels before dispatch, without seeding model/effort/alias labels. Prefer config (`agent.priority`, backend settings, `agent.routing`) for model selection. Shared credentials belong in `~/.aiur/.env` outside Git, or configured App/keyring auth. Missing-label permission failures must be resolved before launch; existing pauses and human decisions remain binding. Omit `tracker.github.repo` in portable global defaults; a conflicting explicit repo fails safely. Use local `init` when repository-specific settings are needed.
 
@@ -195,7 +197,7 @@ agent:
 ```
 
 A lane is the technical column the work belongs to: a `lane:`, `area:` or
-`build-lane:` label suffix, or a configured general epic's label matchers. Labels
+`build-lane:` label suffix, or a configured lane's label matchers. Labels
 outrank lanes, lanes outrank the owning feature, and the feature outranks
 complexity; matching sets combine.
 
