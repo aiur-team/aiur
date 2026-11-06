@@ -216,6 +216,7 @@ run_remote_all_wait_instance() {
   local index="$1" name="$2" timeout="$3" as="$4" result_dir="$5" state_dir="$6" cursor_file="$state_dir/$name.wake-ack" cursor=0 instance_id="" expression status=0
   AIUR_REMOTE_INSTANCE="$name"
   AIUR_REMOTE_MAX_SCOPE=write
+  AIUR_REMOTE_NO_REQUEST_ID=1 # a long poll is not a replay-safe write; do not fill the daemon's replay store
   AIUR_CONTROL_COMMAND=executor-wait
   AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10))
   AIUR_REMOTE_INSTANCE_ID=""

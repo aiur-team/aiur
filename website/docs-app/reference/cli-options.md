@@ -59,7 +59,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 
 ## Remote instances
 
-`--instance <name>` selects a daemon from `~/.aiur/remote-instances.yaml` and must be the first argument. Commands without it keep using the local daemon. Each registry entry has a URL and exactly one token reference:
+`--instance <name>` selects a daemon from `~/.aiur/remote-instances.yaml` and must lead the arguments (optionally followed by `--request-id`). Commands without it keep using the local daemon. Each registry entry has a URL and exactly one token reference:
 
 ```yaml
 version: 1
@@ -83,8 +83,22 @@ Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast
 | Environment variable | Behavior |
 | --- | --- |
 | `AIUR_REMOTE_MAX_SCOPE` | Sets the `max_scope` sent with a remote control request. Defaults to `write`. |
+| `AIUR_REQUEST_ID` | A UUIDv7 sent as the `request_id` of a remote write, same as `--request-id`. Unset, the client generates one per write. |
 | `AIUR_JS_RUNTIME` | Selects the JavaScript runtime used to encode requests and decode responses. The npm launcher sets it to its current runtime; `aiurdev` defaults to `node` from `PATH`. |
 
 Remote `status` skips the local mise-doctor check. Tables use the daemon's default width because the remote capture has no terminal.
 
-A remote timeout is never retried. For writes, `outcome unknown on <name>` means inspect state before acting again.
+A remote timeout is never retried automatically. For writes, `outcome unknown on <name>` means the answer was lost, not that the write failed.
+
+### Replay-safe writes
+
+Every remote write carries a `request_id` (control contract version 2, a UUIDv7 the client generates; `--instance <name> --request-id <id> <command>` or `AIUR_REQUEST_ID` supplies your own). The daemon runs a given `(token, request_id)` at most once for 24 hours and answers a repeat with the stored response, so a lost answer is safe to retry with the same id. `--request-id` cannot be combined with `--instance all`.
+
+| Result | Exit | Meaning |
+| --- | --- | --- |
+| Timeout or lost connection | 124 | Prints `retry with --request-id <id> is safe`. A retry returns the stored result; it never runs the write again. |
+| `request_in_progress` (HTTP 409) | 75 | The first request is still running; retry later with the same id. |
+| `outcome_unknown` (HTTP 409) | 124 | The daemon restarted mid-call. The write is never re-run; check state, then use a new id. |
+| `request_id_reused` (HTTP 422) | 64 | The id was already used with a different command. |
+
+A daemon on contract version 1 ignores `request_id` and keeps the old behavior. Audit lines in `control-audit.ndjson` carry `request_id`, `origin_gateway` and `actor`; a repeat is audited as `replayed`.

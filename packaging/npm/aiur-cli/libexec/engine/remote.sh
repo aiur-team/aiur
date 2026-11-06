@@ -376,7 +376,7 @@ remote_build_label() {
 
 run_remote_rpc_with_timeout() {
   local expression="$1" name="$AIUR_REMOTE_INSTANCE" runtime token timeout_seconds timeout_ms curl_timeout
-  local request_file response_file http_status curl_status=0 curl_pid output code reason detail required_scope build rpc_status=0
+  local request_file response_file http_status curl_status=0 curl_pid output code reason detail required_scope build rpc_status=0 request_id
 
   if [ "$name" = all ]; then run_remote_all_rpc "$expression"; return $?; fi
 
@@ -397,6 +397,7 @@ run_remote_rpc_with_timeout() {
     return 69
   }
 
+  request_id="$(aiur_request_id_for_call)" || { control_rpc_say "aiur: could not generate a request id"; return 69; }
   timeout_seconds="$(control_rpc_timeout_seconds)"
   timeout_ms=$((timeout_seconds * 1000))
   curl_timeout=$((timeout_seconds + 15))
@@ -405,13 +406,14 @@ run_remote_rpc_with_timeout() {
   chmod 600 "$request_file" "$response_file" || { remote_rpc_finish 69 "$request_file" "$response_file" || true; return 69; }
   [ -z "${AIUR_REMOTE_CLEANUP_FILE:-}" ] || printf '%s\n%s\n%s.http-status\n' "$request_file" "$response_file" "$response_file" >"$AIUR_REMOTE_CLEANUP_FILE"
 
-  if ! printf '%s' "$expression" | AIUR_REMOTE_COMMAND="${AIUR_CONTROL_COMMAND:-control}" AIUR_REMOTE_TIMEOUT_MS="$timeout_ms" AIUR_REMOTE_MAX_SCOPE="${AIUR_REMOTE_MAX_SCOPE:-write}" \
+  if ! printf '%s' "$expression" | AIUR_REMOTE_COMMAND="${AIUR_CONTROL_COMMAND:-control}" AIUR_REMOTE_TIMEOUT_MS="$timeout_ms" AIUR_REMOTE_MAX_SCOPE="${AIUR_REMOTE_MAX_SCOPE:-write}" AIUR_REMOTE_REQUEST_ID="$request_id" \
     "$runtime" -e '
       const fs = require("node:fs");
       const expression = fs.readFileSync(0, "utf8");
       process.stdout.write(JSON.stringify({
         contract: "aiur.control.call",
-        contract_version: 1,
+        contract_version: 2,
+        request_id: process.env.AIUR_REMOTE_REQUEST_ID || undefined,
         expression,
         command: process.env.AIUR_REMOTE_COMMAND,
         timeout_ms: Number(process.env.AIUR_REMOTE_TIMEOUT_MS),
@@ -443,8 +445,7 @@ run_remote_rpc_with_timeout() {
   RELEASE_NODE="$name"
 
   if [ "$curl_status" -ne 0 ]; then
-    control_rpc_say "aiur: could not reach remote instance '$name' (curl exit $curl_status)"
-    rpc_status=69
+    aiur_remote_curl_failure "$name" "$curl_status" "$request_id" || rpc_status=$?
   else
     case "$http_status" in
       200)
@@ -479,9 +480,10 @@ run_remote_rpc_with_timeout() {
         rpc_status=64
         ;;
       504)
-        control_rpc_say "aiur: $(control_command_label) timed out on $name; outcome unknown on $name"
+        control_rpc_say "aiur: $(control_command_label) timed out on $name; outcome unknown on $name${request_id:+; $(aiur_request_id_hint "$request_id")}"
         rpc_status=124
         ;;
+      409) aiur_remote_conflict "$name" "$response_file" "$request_id" || rpc_status=$? ;;
       400 | 404 | 405 | 413)
         code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
         control_rpc_say "aiur: remote instance '$name' refused $(control_command_label) (HTTP $http_status${code:+, $code})"
