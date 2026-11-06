@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Shares the job's 25-minute cap with scripts/run-ci-affected-tests.py: a step
 # killed by that cap looks like a failing test, so a setup overrun reports its
-# own named timeout instead (#7545).
+# own named timeout instead (#7545). The runner reserves this same 300s
+# (SETUP_RESERVE_SECONDS) off its own budget, so setup plus runner plus the
+# steps before this one cannot outlive the cap.
 SETUP_TIMEOUT_SECONDS=300
 
 PR_BASE="$(git rev-parse HEAD^1)"

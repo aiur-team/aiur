@@ -98,9 +98,20 @@ else:
     def test_job_budget_and_timeout_are_pinned_to_the_workflow_cap(self):
         self.assertEqual(RUNNER.JOB_TIMEOUT_MINUTES, 25)
         self.assertEqual(RUNNER.JOB_BUDGET_SECONDS,
-                         RUNNER.JOB_TIMEOUT_SECONDS - RUNNER.PRE_RUNNER_RESERVE_SECONDS)
+                         RUNNER.JOB_TIMEOUT_SECONDS
+                         - RUNNER.PRE_RUNNER_RESERVE_SECONDS
+                         - RUNNER.SETUP_RESERVE_SECONDS)
         self.assertGreater(RUNNER.JOB_BUDGET_SECONDS, RUNNER.SELECTED_TEST_TIMEOUT_SECONDS,
                            'a single phase must still fit inside the job budget')
+
+    def test_reserves_plus_budget_cannot_outlive_the_job_cap(self):
+        pre_run_seconds = 233  # slowest pre-step total in the last 20 merge-group runs
+        setup_seconds = RUNNER.SETUP_RESERVE_SECONDS
+        self.assertLessEqual(pre_run_seconds + setup_seconds + RUNNER.JOB_BUDGET_SECONDS,
+                             RUNNER.JOB_TIMEOUT_SECONDS)
+        setup_script = SCRIPT.with_name('run-ci-affected-tests.sh').read_text(encoding='utf-8')
+        self.assertIn(f'SETUP_TIMEOUT_SECONDS={setup_seconds}\n', setup_script,
+                      'the shell setup cap and the runner reserve must stay the same number')
 
     def test_spent_job_budget_names_the_job_timeout_instead_of_a_test_failure(self):
         stderr = io.StringIO()

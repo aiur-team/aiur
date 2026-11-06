@@ -20,10 +20,13 @@ MAX_CHANGED_TEST_MODULES = 8
 JOB_TIMEOUT_MINUTES = 25
 JOB_TIMEOUT_SECONDS = JOB_TIMEOUT_MINUTES * 60
 # Checkout, toolchain setup and the architectural guards run before this script
-# inside the same job; the slowest of the last 20 merge-group runs spent 215s
-# there, so 300s of the cap stays reserved for them.
+# inside the same job; the slowest of the last 20 merge-group runs spent 233s
+# there, so 300s of the cap stays reserved for them. scripts/run-ci-affected-tests.sh
+# runs its dependency setup inside the same step and caps that at
+# SETUP_RESERVE_SECONDS, so this script's share is the cap minus both reserves.
 PRE_RUNNER_RESERVE_SECONDS = 300
-JOB_BUDGET_SECONDS = JOB_TIMEOUT_SECONDS - PRE_RUNNER_RESERVE_SECONDS
+SETUP_RESERVE_SECONDS = 300
+JOB_BUDGET_SECONDS = JOB_TIMEOUT_SECONDS - PRE_RUNNER_RESERVE_SECONDS - SETUP_RESERVE_SECONDS
 JOB_STARTED_AT = time.monotonic()
 TIME_BOMB_CHECK = os.environ.get('AIUR_TIME_BOMB_CHECK', str(Path(__file__).with_name('check-test-time-bombs.py')))
 TIME_BOMB_TIMEOUT_SECONDS = float(os.environ.get('AIUR_TIME_BOMB_TIMEOUT_SECONDS',
@@ -38,7 +41,8 @@ def job_budget_remaining():
 def report_job_budget():
     print(f'::notice::affected-tests job budget: {JOB_BUDGET_SECONDS}s for this step inside the '
           f'{JOB_TIMEOUT_MINUTES}-minute job timeout, keeping {PRE_RUNNER_RESERVE_SECONDS}s for the '
-          'checkout, toolchain setup and architectural guards that run before it',
+          'checkout, toolchain setup and architectural guards that run before it and '
+          f'{SETUP_RESERVE_SECONDS}s for the dependency setup that runs before this script',
           file=sys.stderr, flush=True)
 
 
@@ -113,6 +117,7 @@ def run_merge_group_time_bombs(selected):
             except subprocess.TimeoutExpired:
                 if budget_bounded:
                     report_job_timeout(label)
+                    timed_out = True
                     raise
                 timed_out = True
             except subprocess.CalledProcessError:

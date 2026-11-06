@@ -174,6 +174,9 @@ assert.ok(affectedRunner.includes('timeout "$SETUP_TIMEOUT_SECONDS" bash ../scri
   'dependency setup is bounded so it cannot consume the whole job cap');
 assert.ok(affectedRunner.includes('::error::affected-tests dependency setup exceeded its ${SETUP_TIMEOUT_SECONDS}s timeout'),
   'a setup overrun names its timeout instead of looking like a failing test');
+const setupReserveSeconds = Number(affectedRunnerPython.match(/^SETUP_RESERVE_SECONDS = (\d+)$/m)?.[1]);
+assert.equal(Number(affectedRunner.match(/^SETUP_TIMEOUT_SECONDS=(\d+)$/m)?.[1]), setupReserveSeconds,
+  'the shell setup cap and the runner reserve share one number so setup plus runner fit the job cap (#7545)');
 assert.ok(jobs.get('lint').includes('mix compile --warnings-as-errors'));
 assert.ok(jobs.get('workflow-security').includes('node scripts/test-ci-events.mjs'));
 const packageJson = JSON.parse(readFileSync(new URL('../src/browser/package.json', import.meta.url), 'utf8'));
