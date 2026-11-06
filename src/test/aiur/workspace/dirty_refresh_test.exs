@@ -155,7 +155,9 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
                    assert opts[:workspace_path] == workspace
                    assert :ok = Workspace.run_before_run_hook(workspace, dispatched_issue)
 
-                   replacement_pid = spawn(fn -> receive do: (:stop -> :ok) end)
+                   {:ok, replacement_pid} =
+                     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> receive do: (:stop -> :ok) end)
+
                    on_exit(fn -> if Process.alive?(replacement_pid), do: Process.exit(replacement_pid, :kill) end)
                    replacement = %{pid: replacement_pid, identifier: issue.identifier, issue: dispatched_issue}
                    %{current | running: Map.put(current.running, issue.id, replacement)}

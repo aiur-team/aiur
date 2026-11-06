@@ -13,4 +13,12 @@ defmodule Aiur.AgentControlCLIRedispatchTest do
     assert Redispatch.format_result("repo#19", {:error, :workspace_unavailable}) ==
              "aiur: redispatch failed for ticket repo#19 (:workspace_unavailable)"
   end
+
+  test "redispatch output names the ticket and the refused backend" do
+    message = Redispatch.format_result("repo#20", {:error, {:unknown_backend, "codex-xhigh"}})
+
+    assert message =~ "ticket repo#20"
+    assert message =~ ~s("codex-xhigh")
+    assert message =~ "not a configured backend name"
+  end
 end

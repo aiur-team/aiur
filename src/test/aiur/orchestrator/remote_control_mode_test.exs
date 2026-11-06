@@ -45,9 +45,13 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
     parent = self()
     workspace = Path.join(System.tmp_dir!(), "aiur-redispatch-#{System.unique_integer([:positive])}")
     File.mkdir_p!(workspace)
-    dirty_file = Path.join(workspace, "uncommitted.txt")
-    File.write!(dirty_file, "local edits survive")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    # Uncommitted-edit survival is asserted in
+    # Aiur.WorkspaceDirtyRefreshTest's "redispatch teardown and replacement
+    # before_run keep the existing dirty workspace", which drives the real
+    # RemoteControlMode.teardown_for_redispatch/3 and the real before_run hook.
+    # This test stubs both, so it only covers the plumbing around them.
 
     issue = %Issue{
       id: "1",
@@ -86,7 +90,6 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
 
     assert_received {:teardown, ^workspace}
     assert_received {:dispatch, "1", ^workspace}
-    assert File.read!(dirty_file) == "local edits survive"
     assert next.claimed == MapSet.new([issue.id])
     assert next.running[issue.id].lifecycle_fence == fence
     assert next.running[issue.id].redispatch_safety.workspace_path == workspace
@@ -151,21 +154,56 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
   end
 
   test "redispatch admission replaces the running ticket at the full global cap" do
-    # Future regression guard for the dispatcher admission path: a swap must
-    # consume the existing ticket slot instead of requiring a spare one.
+    # A swap must consume the ticket's existing slot instead of requiring a
+    # spare one: the real Dispatcher.admit_redispatch/3 sees the ticket's own
+    # entry in `running` and still admits, and the redispatch leaves exactly one
+    # slot in use.
     issue = %Issue{id: "full-1", identifier: "repo#full-1", labels: ["model:codex"]}
-    entry = running_entry(issue)
+
+    {:ok, worker} =
+      Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> receive do: (:stop -> :ok) end)
+
+    on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
+
+    entry = %{running_entry(issue) | pid: worker}
 
     state = %State{
       max_concurrent_agents: 1,
       effective_concurrent_agents: 1,
-      running: %{issue.id => entry}
+      running: %{issue.id => entry},
+      claimed: MapSet.new([issue.id])
     }
 
     assert Slots.used_slots(state) == 1
     assert {:ok, admitted} = Dispatcher.admit_redispatch(state, issue, nil)
     assert Slots.used_slots(admitted) == 1
     assert map_size(admitted.running) == map_size(state.running)
+
+    # The same real admission runs inside the redispatch call.
+    assert {{:ok, :redispatched}, next} =
+             RemoteControlMode.redispatch_call_unchecked(state, issue.identifier, nil,
+               select_backend_fun: fn current -> {:ok, %{current | selected_backend: "codex"}} end,
+               teardown_fun: &RemoteControlMode.teardown_for_redispatch/3,
+               dispatch_fun: fn dispatch_state, dispatched_issue, nil, nil, _opts ->
+                 {:ok, replacement} =
+                   Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> receive do: (:stop -> :ok) end)
+
+                 on_exit(fn ->
+                   if Process.alive?(replacement), do: Process.exit(replacement, :kill)
+                 end)
+
+                 %{
+                   dispatch_state
+                   | running: Map.put(dispatch_state.running, dispatched_issue.id, %{entry | pid: replacement})
+                 }
+               end,
+               schedule_retry_fun: fn retry_state, _id, _attempt, _metadata -> retry_state end
+             )
+
+    refute Process.alive?(worker)
+    assert Slots.used_slots(next) == 1
+    assert map_size(next.running) == 1
+    assert next.claimed == MapSet.new([issue.id])
   end
 
   test "refused redispatch paths leave the worker and labels untouched" do

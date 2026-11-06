@@ -20,6 +20,9 @@ defmodule Aiur.AgentControlCLI.Redispatch do
   def format_result(target, {:error, :not_running}),
     do: "aiur: ticket #{target} is not running; use `aiur --todo #{target}` to queue it"
 
+  def format_result(target, {:error, {:unknown_backend, backend}}),
+    do: "aiur: redispatch failed for ticket #{target}: #{inspect(backend)} is not a configured backend name; pass an exact backend name such as claude or codex"
+
   def format_result(target, {:error, reason}),
     do: "aiur: redispatch failed for ticket #{target} (#{inspect(reason)})"
 
