@@ -114,12 +114,12 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
       }
 
       document = %{state.document | queues: state.document.queues ++ [queue]}
-      {document, actions, sources, verdicts, refusals} = import(document, queue, {:ok, snapshot}, Reconcile.observations(state))
       observations = Reconcile.observations(state)
+      {document, actions, sources, verdicts, refusals} = import(document, queue, {:ok, snapshot}, observations)
       document = ListCommands.record(state, document, actions, observations)
 
       updates = %{
-        sources: sources |> Map.merge(state.sources) |> with_elsewhere(queue, document, refusals),
+        sources: Map.merge(state.sources, sources) |> with_elsewhere(queue, document, refusals),
         source_verdicts: Map.merge(state.source_verdicts, verdicts),
         refusals: refusals
       }
@@ -154,7 +154,7 @@ defmodule Aiur.BuildQueue.BuildOrderCommands do
       document = ListCommands.record(state, document, actions, observations)
 
       updates = %{
-        sources: sources |> Map.merge(state.sources) |> with_elsewhere(queue, document, refusals),
+        sources: Map.merge(state.sources, sources) |> with_elsewhere(queue, document, refusals),
         source_verdicts: Map.merge(state.source_verdicts, verdicts),
         refusals: refusals
       }

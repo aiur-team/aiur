@@ -170,7 +170,7 @@ Stale, partial or unavailable graph evidence makes that root's items unknown and
 
 `aiur queue add --feature <slug> [--queue NAME] [--rank N] [--start-on TRIGGER]` queues a feature registry entry as one set. The set has no stored positions: its members are whatever the registry owns for that slug, so a ticket filed into the feature later joins the set on the next reconcile with no Executor action. Removing a ticket from the feature unmarks it and drops it from the set.
 
-Inside a feature set, order comes from `blocked_by`, then the critical path, then priority. Holds, set ranks, start triggers and `blocked_by` gating behave exactly as they do for lists and Build Order roots. A member already owned by another set stays there; the feature set reports it as owned elsewhere and the add still succeeds. A list always wins over a feature.
+Inside a feature set, order comes from `blocked_by`, then the critical path, then priority. Holds, set ranks, start triggers and `blocked_by` gating behave exactly as they do for lists and Build Order roots. A member another set already owns stays there: a list owns a ticket it already holds, the queued feature lists that member as owned elsewhere with the set that owns it, and the add still succeeds.
 
 A feature set has no declared order of its own, so `queue add --feature` warns when `build_queue.set_order` is `none` (the default). Set it to `ranked` to order sets by rank.
 
@@ -186,7 +186,7 @@ Queue membership lets the Executor deliberately select maintenance work ahead of
 
 Queue summaries show ready and startable counts plus the largest blocker by downstream count. Cached GitHub blockers appear as `waiting on #N (github)`; cache misses do not fetch. `queue order` compares ranks with Build Order root dependency order.
 
-The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
+The queue read model reports each source under `sources["build_order:<root>"]` or `sources["feature:<slug>"]`, and whether the projection is available under `build_queue.build_order_source`.
 
 The instance capability report distinguishes queue availability from source availability:
 

@@ -50,7 +50,9 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
   end
 
   defmodule FeatureRegistry do
+    alias Aiur.BuildOrder.Features
     def snapshot(_opts), do: Agent.get(__MODULE__, & &1.snapshot)
+    def subscribe, do: Features.subscribe()
   end
 
   setup do
@@ -101,7 +103,14 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
     pid = server()
 
     assert :ok = Aiur.BuildQueue.add(["101"], "list")
-    assert {:ok, [{"Feature combat", :ok}, {"#101", {:error, {:already_queued, "list"}}}]} = adopt(pid)
+
+    output =
+      capture_io(fn ->
+        assert MutationCLI.run(verb: :add, feature: "combat", server: pid, settings: settings(), error_fun: fn _ -> :ok end) == 0
+      end)
+
+    assert output =~ "Feature combat: ok"
+    assert output =~ "#101: owned by queue list; stays there"
 
     list = Enum.find(get(:document).queues, &(&1.name == "list"))
     assert Enum.count(get(:document).items, &(&1.issue_id == "101")) == 1
@@ -118,6 +127,21 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
     reconcile(pid)
     assert Enum.find(Aiur.BuildQueue.show(pid).queues, &(&1.kind == :feature)).elsewhere == [{"101", "list"}]
     assert ids() == ["101", "102"]
+  end
+
+  test "unadopting a queued feature removes its members and their markers" do
+    set_registry({:ok, registry("combat", [101, 102])})
+    pid = server()
+    assert {:ok, _results} = adopt(pid)
+    clear_calls()
+
+    assert {:ok, _actions} = Aiur.BuildQueue.unadopt_feature("combat")
+
+    assert get(:document).queues == []
+    assert ids() == []
+    assert {:remove, "101", "agent:queued"} in get(:calls)
+    assert {:remove, "102", "agent:queued"} in get(:calls)
+    assert :sys.get_state(pid).sources == %{}
   end
 
   test "removing a registry member unmarks it and an item hold survives sync" do
@@ -181,11 +205,11 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
     assert {:ok, %{sources: %{"feature:combat" => {:unavailable, :partial}}}} = GenServer.call(Server, :show)
   end
 
-  test "a registry change asks the server to reconcile promptly" do
+  test "a registry broadcast asks the server to reconcile promptly" do
     set_registry({:ok, registry("combat", [101])})
     owner = self()
 
-    pid =
+    _pid =
       server(
         schedule: fn _server, message, _delay ->
           send(owner, {:scheduled, message})
@@ -194,7 +218,10 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
       )
 
     assert_receive {:scheduled, {:reconcile, _token}}, 1_000
-    send(pid, {:build_order_features_changed, {:ok, %{slug: "combat"}}})
+    flush_scheduled()
+
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "build-order-features:changed", {:build_order_features_changed, {:ok, %{slug: "combat"}}})
+
     assert_receive {:scheduled, {:reconcile, _token}}, 1_000
   end
 
@@ -280,6 +307,14 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
     token = :sys.get_state(pid).pending
     send(pid, {:reconcile, token})
     :sys.get_state(pid, 30_000)
+  end
+
+  defp flush_scheduled do
+    receive do
+      {:scheduled, _message} -> flush_scheduled()
+    after
+      0 -> :ok
+    end
   end
 
   defp ids, do: get(:document).items |> Enum.map(& &1.issue_id) |> Enum.sort_by(&String.to_integer/1)

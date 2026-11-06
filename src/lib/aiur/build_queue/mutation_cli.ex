@@ -160,14 +160,14 @@ defmodule Aiur.BuildQueue.MutationCLI do
     slug = opts[:feature]
     command = if Keyword.has_key?(opts, :start_on), do: {:adopt_feature, slug, opts[:queue], opts[:start_on]}, else: {:adopt_feature, slug, opts[:queue]}
     command = if Keyword.has_key?(opts, :rank), do: {:adopt_feature, slug, opts[:queue], opts[:start_on], opts[:rank]}, else: command
-    warn_set_order(opts)
     result = call({:mutate, command}, opts)
+    if match?({:ok, _refusals}, result), do: warn_set_order(opts)
 
     results =
       case result do
         {:ok, refusals} ->
           accepted = accepted_feature_rows(slug, opts)
-          refused = Enum.map(refusals, fn {id, reason} -> {"##{id}", {:error, owning_queue(reason, id, opts)}} end)
+          refused = Enum.map(refusals, &{"##{elem(&1, 0)}", elsewhere_result(&1, opts)})
           [{"Feature #{slug}", :ok} | accepted ++ refused]
 
         error ->
@@ -175,6 +175,17 @@ defmodule Aiur.BuildQueue.MutationCLI do
       end
 
     {:ok, results}
+  end
+
+  # A member another set already owns stays there; the feature set itself still succeeds (KTD9).
+  defp elsewhere_result({id, :already_queued}, opts), do: {:ok, {:owned_elsewhere, owner_name(id, opts)}}
+  defp elsewhere_result({_id, reason}, _opts), do: {:error, reason}
+
+  defp owner_name(id, opts) do
+    case owning_queue(:already_queued, id, opts) do
+      {:already_queued, name} -> name
+      _ -> nil
+    end
   end
 
   defp accepted_feature_rows(slug, opts) do
@@ -279,6 +290,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp successful?({_id, {:ok, {:not_observed, ids}}}) when is_list(ids), do: true
   defp successful?({_id, {:ok, unobserved}}) when is_list(unobserved), do: true
   defp successful?({_id, {:ok, {:marker_deferred, ids}}}) when is_list(ids), do: true
+  defp successful?({_id, {:ok, {:owned_elsewhere, _name}}}), do: true
   defp successful?(_), do: false
 
   defp target(opts) do
@@ -329,6 +341,8 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:ok, {:marker_deferred, ids}}), do: "queued; marker write deferred and will retry for #{Enum.map_join(ids, ", ", &"##{&1}")}"
   defp message({:ok, unobserved}) when is_list(unobserved), do: "released; no observation for ##{Enum.join(unobserved, ", #")}"
   defp message({:error, {:marker_write_failed, failures}}), do: marker_failure_message(failures)
+  defp message({:ok, {:owned_elsewhere, name}}) when is_binary(name), do: "owned by queue #{name}; stays there"
+  defp message({:ok, {:owned_elsewhere, _name}}), do: "owned by another set; stays there"
   defp message({:error, :feature_not_found}), do: "feature not found in the feature registry"
   defp message({:error, :too_many_features}), do: "too many feature entries"
   defp message({:error, :already_adopted}), do: "already queued as a feature or Build Order entry"
@@ -358,6 +372,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp outcome(:ok), do: :added
   defp outcome({:ok, {:not_observed, _ids}}), do: :queued_pending
   defp outcome({:ok, {:marker_deferred, _ids}}), do: :marker_deferred
+  defp outcome({:ok, {:owned_elsewhere, _name}}), do: :owned_elsewhere
   defp outcome({:ok, {:deferred, :paced}}), do: :marker_deferred
   defp outcome({:error, {:already_queued, _queue}}), do: :already_queued
   defp outcome({:error, :batch_aborted}), do: :batch_aborted

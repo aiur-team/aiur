@@ -384,8 +384,10 @@ defmodule Aiur.BuildQueue.ReadModel do
   end
 
   # Registry or root members another entry already owns, named by the entry that holds them.
-  defp elsewhere(queue, state),
+  defp elsewhere(%{kind: kind} = queue, state) when kind in [:build_order, :feature],
     do: Map.get(Map.get(state, :sources, %{}), BuildOrderCommands.elsewhere_key(queue), [])
+
+  defp elsewhere(_queue, _state), do: []
 
   defp unknown_item(member, context),
     do: item(member, %{state: :unknown, verdict: {:unknown, [:not_reconciled]}, rank: nil}, context)

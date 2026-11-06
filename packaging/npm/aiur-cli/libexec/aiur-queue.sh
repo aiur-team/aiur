@@ -91,7 +91,7 @@ cmd_queue() {
       { [ "${#ids[@]}" -eq 1 ] && [ -z "$queue" ]; } ||
         { [ "${#ids[@]}" -eq 0 ] && [ -n "$queue" ]; } || queue_usage_error "$verb requires one ticket ID or --queue NAME" ;;
   esac
-  [ -z "$rank" ] || [ -n "$queue" ] || queue_usage_error '--rank requires --queue NAME'
+  [ -z "$rank" ] || [ -n "$queue" ] || [ -n "$feature" ] || queue_usage_error '--rank requires --queue NAME or --feature SLUG'
   if [ "$verb" != show ]; then
     opts="verb: :$verb, caller_agent_workspace: $(queue_string "${AIUR_AGENT_WORKSPACE:-}")"
   fi

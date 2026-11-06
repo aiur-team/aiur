@@ -478,11 +478,13 @@ defmodule Aiur.BuildQueue.Server do
     })
   end
 
-  defp subscribe(%{exchange_pid: pid} = state) when is_pid(pid), do: state
-
   defp subscribe(state) do
-    FeatureWatch.subscribe(state)
+    state = FeatureWatch.subscribe(state)
 
+    if is_pid(state.exchange_pid), do: state, else: bind_exchange(state)
+  end
+
+  defp bind_exchange(state) do
     case GenServer.whereis(state.exchange) do
       nil -> state
       pid -> bind(state, pid)

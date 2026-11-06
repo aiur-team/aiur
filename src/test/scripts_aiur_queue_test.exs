@@ -62,6 +62,12 @@ defmodule Aiur.ScriptsQueueTest do
     assert output =~ "feature: Base.decode64!"
     assert output =~ "rank: 0"
 
+    # A feature set needs no name to take a creation rank.
+    assert {output, 0} = command(["add", "--feature", "combat", "--rank", "2"])
+    assert output =~ "feature: Base.decode64!"
+    assert output =~ "rank: 2"
+    assert {_, 64} = command(["add", "1", "--rank", "0"])
+
     for args <- [
           ["add", "--feature", "combat", "1"],
           ["add", "--feature", "combat", "--after", "9"],

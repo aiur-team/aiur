@@ -160,6 +160,7 @@ defmodule Aiur.BuildQueue.ModelTest do
     encoded = Model.encode(%{queues: [queue], items: [item], edges: [], intents: [], latches: []})
 
     assert Model.decode(put_in(encoded, ["queues", Access.at(0), "feature"], "")) == {:error, {:invalid, ["queues", 0, "feature"]}}
+    assert Model.decode(Map.update!(encoded, "queues", &[Map.delete(hd(&1), "feature")])) == {:error, {:invalid, ["queues", 0, "feature"]}}
     assert Model.decode(put_in(encoded, ["items", Access.at(0), "position"], 0)) == {:error, {:invalid, ["items", 0, "position"]}}
   end
 

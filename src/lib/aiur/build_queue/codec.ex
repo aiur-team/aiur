@@ -83,6 +83,7 @@ defmodule Aiur.BuildQueue.Codec do
       end
     end)
     |> assign_ranks()
+    |> validate_queues()
     |> validate_positions()
   end
 
@@ -96,6 +97,17 @@ defmodule Aiur.BuildQueue.Codec do
   end
 
   defp assign_ranks(error), do: error
+
+  # A feature entry without a slug cannot resolve its registry members, so refuse it on load.
+  defp validate_queues({:ok, document}) do
+    document.queues
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, document}, fn {queue, index}, acc ->
+      if queue.kind == :feature and not is_binary(queue.feature), do: {:halt, invalid(["queues", index, "feature"])}, else: {:cont, acc}
+    end)
+  end
+
+  defp validate_queues(error), do: error
 
   defp validate_positions({:ok, document}) do
     kinds = Map.new(document.queues, &{&1.id, &1.kind})
