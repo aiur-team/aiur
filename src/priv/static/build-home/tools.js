@@ -3,15 +3,15 @@ import { $, $$, esc } from './dom.js';
 import { writeURL } from './url.js';
 import { I } from './icons.js';
 
-const VIEWS = [['graph', 'Timeline'], ['gantt', 'Gantt'], ['list', 'List']];
+const VIEWS = [['graph', 'Timeline'], ['gantt', 'Gantt'], ['list', 'List'], ['build-order', 'Build order', 'layers']];
 const LISTS = [['tickets', 'Tickets', 'ticket'], ['features', 'Features', 'feature'], ['lanes', 'Lanes', 'layers']];
 const FSORTS = [['goal', 'Goal order'], ['pct', 'Most done'], ['left', 'Most left']];
 let lastKey = null, bound = false;
 onReset(() => { lastKey = null; bound = false; });
 
-function viewButton([view, label]) {
+function viewButton([view, label, icon]) {
   const on = S.view === view;
-  return `<button type="button" data-v="${view}" class="${on ? 'on' : ''}" title="${label}" role="tab" aria-selected="${on}" aria-label="${label}" tabindex="${on ? 0 : -1}">${I[view]}<span>${label}</span></button>`;
+  return `<button type="button" data-v="${view}" class="${on ? 'on' : ''}" title="${label}" role="tab" aria-selected="${on}" aria-label="${label}" tabindex="${on ? 0 : -1}">${I[icon ?? view]}<span>${label}</span></button>`;
 }
 function listButton([list, label, icon]) {
   const on = S.list === list;
@@ -48,7 +48,7 @@ function renderControls() {
   const left = $('#bd-tools-l', ctx.root), right = $('#bd-tools', ctx.root);
   if (!left || !right) return;
   bindOnce(left, right);
-  const span = S.view === 'list' ? '' : fx.spanToolsHTML();
+  const span = S.view === 'graph' || S.view === 'gantt' ? fx.spanToolsHTML() : '';
   const key = S.view + '|' + S.list + '|' + S.span + '|' + span;
   ctx.root.classList.toggle('feature-list', S.view === 'list' && S.list === 'features');
   if (lastKey === key) return;
@@ -66,9 +66,9 @@ export function renderStatus() {
   const host = $('#bd-status', ctx.root);
   if (!host) return;
   const daemon = fx.daemonView();
-  const key = S.view === 'list' ? '' : '<span class="bd-key"><span class="bd-leg"><span class="bd-leg-l"></span>Cleared</span>' +
+  const key = S.view === 'graph' || S.view === 'gantt' ? '<span class="bd-key"><span class="bd-leg"><span class="bd-leg-l"></span>Cleared</span>' +
     '<span class="bd-leg"><span class="bd-leg-l d"></span>Pending</span>' +
-    (S.view === 'gantt' ? '<span class="bd-leg"><span class="bd-leg-h"></span>Planned estimate</span>' : '') + '</span>';
+    (S.view === 'gantt' ? '<span class="bd-leg"><span class="bd-leg-h"></span>Planned estimate</span>' : '') + '</span>' : '';
   host.innerHTML = `<span class="bd-daemon${daemon.dotOff ? ' off' : ''}" title="${esc(daemon.dotTitle ?? daemon.dotText)}"><i></i>${esc(daemon.dotText)}</span>` + key;
 }
 export function renderTools() { renderControls(); renderStatus(); }

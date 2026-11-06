@@ -10,7 +10,7 @@ defmodule AiurWeb.Build.URLState do
   require Logger
   alias AiurWeb.OperatorControlCenter.UnitsURL
 
-  @views ~w(gantt list)
+  @views ~w(gantt list build-order)
   @spans [1, 2, 3, 5, 7, 10, 14, 21, 30]
   @tstates ["merged", "failed", "in progress", "queued", "held", "blocked", "open", "not planned"]
   @astates ~w(native_question active error retrying retries command paused parked merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off none)
