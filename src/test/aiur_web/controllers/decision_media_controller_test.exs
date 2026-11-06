@@ -48,6 +48,27 @@ defmodule AiurWeb.DecisionMediaControllerTest do
     GenServer.stop(store)
   end
 
+  test "refuses a file that resolves outside the safe root at read time", %{dir: dir, path: path} do
+    store = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} =
+             request(store, %{
+               question: "Which layout?",
+               blocking: false,
+               media: [%{"kind" => "image", "mime_type" => "image/png", "locator" => path, "alt_text" => "Evidence"}]
+             })
+
+    attachment_id = hd(PublicProjection.encode(decision)["media"])["attachment_id"]
+
+    # A symlink swapped in after ingestion must not escape the safe root.
+    File.rm!(path)
+    File.ln_s!("/etc/passwd", path)
+
+    assert show(store, decision.decision_id, attachment_id).status == 404
+
+    GenServer.stop(store)
+  end
+
   test "refuses an attachment that belongs to another Command", %{dir: dir, path: path} do
     store = start_store!(dir)
 
