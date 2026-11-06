@@ -102,12 +102,15 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; queue add also accepts --json for per-ticket outcomes
        aiur queue add <ids…> [--json]           add tickets; other mutations steer the queue
-       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
-       aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
-       aiur epic clear <ids...> [--as <who>] [--json]
-       aiur epic confirm <ids...> [--epic <key>] [--as <who>] [--json]
+       aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
+       aiur lane clear <ids...> [--as <who>] [--json]
+       aiur lane confirm <ids...> [--lane <key>] [--as <who>] [--json]
+       aiur lane show [<ids...>] [--unconfirmed] [--json]
+       aiur lane list [--json]
+       aiur epic set|clear|confirm ...  deprecated alias for aiur lane
        aiur epic show [<ids...>] [--unconfirmed] [--json]
        aiur epic list [--json]
        aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]... [--epic-hue <key>=<gruvbox-name or 0-359>]... [--epic-icon <key>=<heroicon>]... [--as <who>] [--json]
@@ -153,6 +156,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
+       aiur redispatch <ids> [--backend <backend>]  restart a ticket on current routing or a selected backend
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
        aiur listen-mode <id> [steer|sync|async|mute] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
@@ -339,15 +343,13 @@ aiur_engine_main() {
       shift
       cmd_executor_moot "$@"
       ;;
-    units)
-      shift
-      cmd_units "$@"
-      ;;
+    units) shift; cmd_units "$@" ;;
     queue)
       shift
       cmd_queue "$@"
       ;;
     ticket) shift; cmd_ticket "$@" ;;
+    lane) shift; cmd_lane "$@" ;;
     epic) shift; cmd_epic "$@" ;;
     feature) shift; cmd_feature "$@" ;;
     build-orders)
@@ -432,10 +434,8 @@ aiur_engine_main() {
         *) cmd_pause_resume "$cmd" "$@" ;;
       esac
       ;;
-    reset-budget)
-      shift
-      cmd_reset_budget "$@"
-      ;;
+    redispatch) shift; cmd_redispatch "$@" ;;
+    reset-budget) shift; cmd_reset_budget "$@" ;;
     workspace-recover)
       shift
       cmd_workspace_recover "$@"
@@ -485,6 +485,7 @@ aiur_engine_main() {
 }
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-daemon-supervisor.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-lane.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"

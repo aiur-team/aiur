@@ -6,6 +6,56 @@ defmodule Aiur.CodingAgent.RoutingTest do
 
   defp issue(labels), do: %Issue{labels: labels}
 
+  @floor_now ~U[2026-10-10 06:00:00Z]
+
+  # A per-account meter reading in the shape the daemon polls, keyed by account.
+  defp meters(by_account) do
+    fn
+      "claude", names ->
+        for name <- names, Map.has_key?(by_account, name), into: %{} do
+          {seven_day, five_hour} = Map.fetch!(by_account, name)
+
+          {name,
+           %{
+             reading: %{windows: [%{window: "seven_day", used_percent: seven_day}, %{window: "five_hour", used_percent: five_hour}]},
+             observed_at: @floor_now,
+             freshness: :fresh
+           }}
+        end
+
+      _harness, _names ->
+        %{}
+    end
+  end
+
+  # Options for the non-headroom (`priority`/`balance`) route chain with one
+  # polled Claude meter and the default 5% usage floor.
+  defp floor_opts(overrides) do
+    Keyword.merge(
+      [
+        account_selection: "balance",
+        backends: ["claude", "codex"],
+        configured_backends: ["claude", "codex"],
+        accounts: %{"claude" => ["default", "everdred"]},
+        account_list_fun: fn
+          "claude" -> [%{name: "default"}, %{name: "everdred"}]
+          _harness -> []
+        end,
+        account_capability_fun: fn
+          "claude" -> {:ok, %{supported: true, multi: :available}}
+          _harness -> {:error, :unsupported_account_backend}
+        end,
+        usage_snapshot: meters(%{"default" => {0, 0}, "everdred" => {36, 10}}),
+        state: %{"backends" => %{}},
+        path: Path.join(Aiur.TestSupport.tmp_root!("routing-floor"), "model-usage.json"),
+        avoid_peak_pricing: false,
+        now: @floor_now,
+        usage_floor_percent_fun: fn _backend -> 5 end
+      ],
+      overrides
+    )
+  end
+
   describe "select_for_dispatch/2" do
     test "uses the first configured, available fallback from an ordered list" do
       assert {:ok, %Issue{selected_backend: "claude"}} =
@@ -121,6 +171,44 @@ defmodule Aiur.CodingAgent.RoutingTest do
                  backends: ["claude", "codex"],
                  configured_backends: ["claude", "codex"],
                  state: state
+               )
+    end
+  end
+
+  # `agent.account_selection: priority` and `: balance` both route through this
+  # path, so the usage floor has to hold and fall through here too — not only
+  # under `headroom` (#7504).
+  describe "select_for_dispatch/2 under the usage floor" do
+    test "a route at the floor falls through to the next allowed agent.priority entry" do
+      assert {:ok, %Issue{selected_backend: "codex"}} =
+               CodingAgent.select_for_dispatch(issue([]), floor_opts(usage_snapshot: meters(%{"default" => {96, 0}, "everdred" => {97, 0}})))
+    end
+
+    test "a routed default at the floor falls through instead of dispatching into it" do
+      assert {:ok, %Issue{selected_backend: "codex"}} =
+               CodingAgent.select_for_dispatch(issue([]), floor_opts(routing_backend: "claude", usage_snapshot: meters(%{"default" => {96, 0}, "everdred" => {97, 0}})))
+    end
+
+    test "an account just above the floor keeps its route" do
+      assert {:ok, _issue} =
+               CodingAgent.select_for_dispatch(issue([]), floor_opts(usage_snapshot: meters(%{"default" => {94, 0}, "everdred" => {36, 10}})))
+    end
+
+    test "a pinned backend keeps its route even when the floor holds it" do
+      pinned = issue(["model:claude"])
+
+      assert {:ok, ^pinned} =
+               CodingAgent.select_for_dispatch(pinned, floor_opts(usage_snapshot: meters(%{"default" => {96, 0}, "everdred" => {97, 0}})))
+    end
+
+    test "every route at the floor holds the claim and names them" do
+      assert {:all_limited, ["claude", "codex"]} =
+               CodingAgent.select_for_dispatch(
+                 issue([]),
+                 floor_opts(
+                   usage_snapshot: meters(%{"default" => {96, 0}, "everdred" => {97, 0}}),
+                   state: %{"backends" => %{"codex" => %{"observed_at" => "2026-10-10T05:59:30Z", "weekly" => %{"used" => 98, "limit" => 100, "reset_at" => "2999-01-01T00:00:00Z"}}}}
+                 )
                )
     end
   end

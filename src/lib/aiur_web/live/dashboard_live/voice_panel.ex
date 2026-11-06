@@ -3,6 +3,9 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
 
   use Phoenix.Component
 
+  alias Aiur.Conversation
+  alias Aiur.Conversation.History
+  alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.{ConversationDrawer, ConversationLink, ExecutorVoice, UnitsPresenter}
 
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -27,17 +30,24 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
       listener_view: :unavailable,
       listener_feedback: %{},
       listener_receipts: [],
-      listener_receipts_busy: false
+      listener_receipts_busy: false,
+      voice_page: 0
     )
   end
 
   @spec panel(map()) :: Phoenix.LiveView.Rendered.t()
   def panel(assigns) do
     catalog = Map.get(assigns.payload, :units) || %{}
+    {workers, hidden} = worker_state(assigns, catalog)
+    page = min(Map.get(assigns, :voice_page, 0), max(page_count(workers) - 1, 0))
 
     assigns =
       assigns
-      |> assign(:voice_workers, workers(catalog))
+      |> assign(:voice_workers, workers)
+      |> assign(:voice_hidden_workers, hidden)
+      |> assign(:voice_page, page)
+      |> assign(:voice_page_rows, page_rows(workers, page))
+      |> assign(:voice_page_count, page_count(workers))
       |> assign(:voice_catalog_status, Map.get(catalog, :status, :unavailable))
       |> assign(:voice_catalog_message, Map.get(catalog, :message))
 
@@ -54,17 +64,24 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
       </p>
       <p :if={@voice_catalog_status == :stale} role="status">Worker list is stale. {@voice_catalog_message}</p>
       <p :if={@voice_workers == [] and @voice_catalog_status in [:ready, :empty]}>No workers are listed.</p>
+      <p :if={@voice_hidden_workers > 0} class="voice-hidden-count" data-hidden-workers={@voice_hidden_workers}>
+        {hidden_count_label(@voice_hidden_workers)}
+      </p>
+      <p :if={is_list(@voice_workers) and @voice_workers != []}>Showing {@voice_page + 1} of {@voice_page_count} pages.</p>
       <ul :if={is_list(@voice_workers)}>
-        <li :for={worker <- @voice_workers}>
+        <li :for={worker <- @voice_page_rows}>
           <span>{worker.label}</span>
           <button id={worker.id} class="aiur-button aiur-button--dashboard" type="button"
             phx-click="read-conversation" phx-value-unit={worker.token}
-            disabled={!worker.available} aria-label={"Open conversation for #{worker.label}"}>
+            aria-label={"Open conversation for #{worker.label}"}>
             Open conversation
           </button>
-          <span :if={!worker.available}>Conversation unavailable.</span>
         </li>
       </ul>
+      <nav :if={@voice_page_count > 1} aria-label="Worker conversation pages">
+        <button type="button" phx-click="voice-page" phx-value-page={max(@voice_page - 1, 0)} disabled={@voice_page == 0}>Previous</button>
+        <button type="button" phx-click="voice-page" phx-value-page={min(@voice_page + 1, @voice_page_count - 1)} disabled={@voice_page + 1 >= @voice_page_count}>Next</button>
+      </nav>
     </section>
     <ConversationDrawer.conversation_drawer
       id="voice-conversation-drawer"
@@ -94,25 +111,87 @@ defmodule AiurWeb.DashboardLive.VoicePanel do
   defp has_conversation?(%{live_conversation: %{generation_handle: handle}}), do: is_binary(handle)
   defp has_conversation?(_row), do: false
 
-  defp workers(catalog) do
-    case catalog do
-      %{status: status, snapshot: %{rows: rows}} when status in [:ready, :empty, :stale] and is_list(rows) ->
-        rows
-        |> Enum.with_index()
-        |> Enum.map(fn {row, index} ->
-          token = UnitsPresenter.row_token(row)
-          identity = Map.get(row, :identity) || %{}
+  # Resolving a worker costs a subject-index lookup and a snapshot read per row,
+  # so the panel resolves availability once per catalog change and renders the
+  # assigned result. Rendering a 745-row catalog must not re-resolve history.
+  @doc false
+  @spec assign_workers(Phoenix.LiveView.Socket.t(), keyword()) :: Phoenix.LiveView.Socket.t()
+  def assign_workers(socket, opts \\ [])
 
-          %{
-            token: token,
-            id: "voice-conversation-#{token || index}",
-            label: Map.get(identity, :identifier) || "Unknown ticket",
-            available: is_binary(token) and has_conversation?(row)
-          }
-        end)
+  def assign_workers(%{assigns: %{live_action: :voice}} = socket, opts) do
+    catalog = Map.get(socket.assigns[:payload] || %{}, :units) || %{}
 
-      _unavailable ->
-        nil
+    if Map.get(socket.assigns, :voice_worker_catalog) == catalog do
+      socket
+    else
+      %{workers: workers, hidden: hidden} = resolve(catalog, opts)
+      assign(socket, voice_worker_catalog: catalog, voice_workers: workers, voice_hidden_workers: hidden)
     end
   end
+
+  def assign_workers(socket, _opts), do: socket
+
+  defp worker_state(%{voice_workers: workers} = assigns, _catalog),
+    do: {workers, Map.get(assigns, :voice_hidden_workers) || 0}
+
+  defp worker_state(_assigns, catalog) do
+    %{workers: workers, hidden: hidden} = resolve(catalog)
+    {workers, hidden}
+  end
+
+  defp hidden_count_label(1), do: "1 ticket has no conversation."
+  defp hidden_count_label(count), do: "#{count} tickets have no conversation."
+
+  @doc false
+  @spec workers(map(), keyword()) :: [map()] | nil
+  def workers(catalog, opts \\ []), do: resolve(catalog, opts).workers
+
+  @doc false
+  @spec resolve(map(), keyword()) :: %{workers: [map()] | nil, hidden: non_neg_integer()}
+  def resolve(catalog, opts \\ []) do
+    history_resolver = Keyword.get(opts, :history_resolver, &History.resolve_worker/3)
+
+    case catalog do
+      %{status: status, snapshot: %{rows: rows}} when status in [:ready, :empty, :stale] and is_list(rows) ->
+        {available, hidden} = Enum.split_with(rows, &conversation_available?(&1, history_resolver))
+        %{workers: Enum.map(available, &worker_entry/1), hidden: length(hidden)}
+
+      _unavailable ->
+        %{workers: nil, hidden: 0}
+    end
+  end
+
+  defp worker_entry(row) do
+    token = UnitsPresenter.row_token(row)
+    identity = Map.get(row, :identity) || %{}
+
+    %{
+      id: "voice-conversation-#{token}",
+      label: Map.get(identity, :identifier) || "Unknown ticket",
+      token: token
+    }
+  end
+
+  @page_size 25
+  @spec conversation_available?(map(), (String.t(), String.t(), String.t() -> term())) :: boolean()
+  defp conversation_available?(row, history_resolver) do
+    has_conversation?(row) or
+      case Map.get(row, :identity) do
+        %TrackerIdentity{} = identity ->
+          case Conversation.Ref.worker(identity) do
+            {:ok, _ref} -> match?({:ok, _}, history_resolver.(identity.owner, identity.repository, identity.identifier))
+            _ -> false
+          end
+
+        _ ->
+          false
+      end
+  end
+
+  @spec page_rows([map()] | nil, non_neg_integer()) :: [map()]
+  def page_rows(workers, page) when is_list(workers), do: Enum.slice(workers, page * @page_size, @page_size)
+  def page_rows(_, _), do: []
+  @spec page_count([map()] | nil) :: non_neg_integer()
+  def page_count(workers) when is_list(workers), do: max(1, div(length(workers) + @page_size - 1, @page_size))
+  def page_count(_), do: 0
 end

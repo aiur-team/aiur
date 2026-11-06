@@ -38,6 +38,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   alias Aiur.Accounts
   alias Aiur.Accounts.{Headroom, UsageReadings}
   alias Aiur.{CodexProber, CodingAgent, Config, Issue, ModelAvailability}
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Config.RoutingValue
 
   @policy "headroom"
@@ -156,14 +157,32 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
       end
 
     candidates = routes |> order_by_priority(opts) |> Enum.flat_map(&expand(&1, &1, opts))
+    readings = readings(candidates, opts)
+    # A route whose freshest reading is at or below the usage floor is skipped
+    # exactly as an exhausted one is: dispatch takes the next allowed route
+    # (#7504). A candidate the floor does not hold keeps its usual score.
+    {allowed, held} = UsageFloorGate.split_candidates(candidates, readings, opts)
+    UsageFloorGate.record(held, Enum.map(candidates, &UsageFloorGate.label/1), opts)
 
-    case select_by_backend(candidates, readings(candidates, opts)) do
+    case select_by_backend(allowed, readings) do
       {:ok, chosen, ranked} ->
-        {:ok, apply_choice(issue, chosen, ranked, false, opts)}
+        {:ok, apply_choice(issue, chosen, ranked, false, opts, held)}
 
       {:error, :all_exhausted, ranked} ->
         log(issue, nil, ranked)
-        {:all_limited, ranked |> Enum.map(& &1.candidate.route) |> Enum.uniq()}
+        {:all_limited, limited_routes(ranked, held, routes)}
+    end
+  end
+
+  # A claim parks on every route that was considered, so the operator sees the
+  # exhausted ones and the floor-held ones together. When nothing was ranked at
+  # all (every candidate was held) the held routes are the whole list.
+  defp limited_routes(ranked, held, routes) do
+    combined = Enum.map(held, & &1.candidate.route) ++ Enum.map(ranked, & &1.candidate.route)
+
+    case Enum.uniq(combined) do
+      [] -> routes
+      considered -> considered
     end
   end
 
@@ -178,7 +197,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
       {:error, :all_exhausted, ranked} ->
         log(issue, nil, ranked)
-        {:ok, %{issue | selected_account: nil, dispatch_selection: selection(nil, ranked, true)}}
+        {:ok, %{issue | selected_account: nil, dispatch_selection: selection(nil, ranked, true, [])}}
     end
   end
 
@@ -206,21 +225,25 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   defp pinned_backend(issue, opts), do: CodingAgent.override_backend(issue, opts)
 
-  defp apply_choice(issue, %{candidate: candidate} = chosen, ranked, pinned?, opts) do
+  defp apply_choice(issue, %{candidate: candidate} = chosen, ranked, pinned?, opts, held \\ []) do
     log(issue, chosen, ranked)
 
     if chosen.status == :unknown do
       UsageReadings.mark_explored(account_backend(candidate.backend), candidate.account || "default", Keyword.get(opts, :now, DateTime.utc_now()))
     end
 
-    issue = %{issue | selected_account: candidate.account, dispatch_selection: selection(chosen, ranked, pinned?)}
+    issue = %{issue | selected_account: candidate.account, dispatch_selection: selection(chosen, ranked, pinned?, held)}
 
     if pinned?,
       do: issue,
       else: %{issue | selected_backend: candidate.backend, selected_model: RoutingValue.routing_model(candidate.route)}
   end
 
-  defp selection(chosen, ranked, pinned?) do
+  # A held candidate is not a scored alternative — dispatch could not choose it
+  # — so it is recorded after the ranking with the window that floored it, and
+  # named in the summary. That is the dispatch record's evidence for skipping a
+  # route that was configured and enabled (#7504).
+  defp selection(chosen, ranked, pinned?, held) do
     candidate = if chosen, do: chosen.candidate, else: %{}
 
     %{
@@ -229,8 +252,8 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
       backend: candidate[:backend],
       account: candidate[:account],
       route: candidate[:route],
-      summary: Headroom.summary(chosen, ranked),
-      candidates: Enum.map(ranked, &candidate_view/1)
+      summary: Headroom.summary(chosen, ranked) <> UsageFloorGate.held_summary(held),
+      candidates: Enum.map(ranked, &candidate_view/1) ++ Enum.map(held, &UsageFloorGate.held_view/1)
     }
   end
 
@@ -253,7 +276,14 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     Logger.info("headroom_dispatch issue_identifier=#{issue.identifier} " <> Headroom.summary(chosen, ranked))
   end
 
-  defp expand(backend_or_route, route, opts) do
+  @doc """
+  Every account a route can reach, as `%{backend:, account:, route:}` candidates.
+
+  `backend_or_route` names the backend to expand; `route` is carried through
+  untouched so a selected candidate keeps the route string that produced it.
+  """
+  @spec expand(String.t(), String.t() | nil, keyword()) :: [map()]
+  def expand(backend_or_route, route, opts \\ []) do
     backend = RoutingValue.routing_backend(backend_or_route)
     Enum.map(account_names(backend, opts), &%{backend: backend, account: &1, route: route})
   end
@@ -288,7 +318,15 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     end
   end
 
-  defp readings(candidates, opts) do
+  @doc """
+  One reading per candidate, keyed by `candidate_key/1`.
+
+  Sources are the availability ledger, the daemon's polled per-account meters,
+  and the ledger's usage windows for a backend with one account. Unknown
+  candidates keep a `nil` reading.
+  """
+  @spec readings([map()], keyword()) :: %{optional({String.t(), String.t() | nil}) => Headroom.reading()}
+  def readings(candidates, opts) when is_list(candidates) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     state = ledger_state(opts)
     opts = Keyword.put(opts, :max_reading_age_seconds, max_reading_age_seconds(opts))

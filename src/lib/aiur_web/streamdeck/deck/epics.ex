@@ -29,7 +29,7 @@ defmodule AiurWeb.Streamdeck.Deck.Epics do
 
     keys = if has_members?, do: keys, else: []
 
-    %{status: "ok", keys: keys, message: if(keys == [], do: "No epics configured. Define build_order.general_epics")}
+    %{status: "ok", keys: keys, message: if(keys == [], do: "No epics configured. Define build_order.lanes")}
   end
 
   defp key(id, epic, progress, sections) do

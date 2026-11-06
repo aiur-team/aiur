@@ -7,7 +7,7 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
   @statuses Map.new(~w(done failed not_planned closed running queued open)a, &{Atom.to_string(&1), &1})
 
   @spec general(map()) :: {:ok, list()} | {:error, :epic_config_unavailable | :settings_loading}
-  def general(%{settings: {:ok, %{build_order: %{general_epics: general}}}}) when is_list(general), do: {:ok, general}
+  def general(%{settings: {:ok, %{build_order: %{lanes: general}}}}) when is_list(general), do: {:ok, general}
   def general(%{settings: {:error, :workflow_not_loaded}}), do: {:error, :settings_loading}
   def general(%{settings: _read_result}), do: {:error, :epic_config_unavailable}
   def general(%{read_stale: stale}) when is_map(stale), do: {:error, :settings_loading}

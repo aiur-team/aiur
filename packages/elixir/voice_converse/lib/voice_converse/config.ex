@@ -6,6 +6,11 @@ defmodule VoiceConverse.Config do
   accept that audio and text go to a cloud provider. An instance still boots without them, but
   `check_session_start/1` refuses a session until both are set.
 
+  `agent_id` names the hosted provider agent a hosted-agent adapter talks through — for ElevenLabs
+  Agents, the Agent the conversation runs on. It is an account-visible identifier, never a
+  credential: the API key stays in the credentials port. Only adapters whose `descriptor/0`
+  reports `family: :hosted_agent` need it, and a session refuses to start without it.
+
   `limits.daily_minutes_cap` is an integer number of minutes (0 disables sessions) or `nil` for
   no cap. Minutes from a session that ended in a crash always count toward the cap.
   """
@@ -27,6 +32,7 @@ defmodule VoiceConverse.Config do
   defstruct name: VoiceConverse,
             provider: nil,
             llm: nil,
+            agent_id: nil,
             cloud_disclosure_accepted: nil,
             credentials: nil,
             credential_names: %{},
@@ -97,14 +103,33 @@ defmodule VoiceConverse.Config do
   end
 
   @doc """
-  Checks the settings a session needs before it may start: an `llm` and an explicit `true` for
-  `cloud_disclosure_accepted`. The error names the missing field.
+  Checks the settings a session needs before it may start: an `llm`, an explicit `true` for
+  `cloud_disclosure_accepted`, and — for a hosted-agent adapter — an `agent_id`. The error names
+  the missing field.
   """
   @spec check_session_start(t()) :: :ok | {:error, %{field: atom(), reason: atom()}}
-  def check_session_start(%__MODULE__{llm: llm} = config) do
-    if is_nil(llm) or String.trim(llm) == "",
+  def check_session_start(%__MODULE__{} = config) do
+    if blank?(config.llm),
       do: {:error, %{field: :llm, reason: :missing}},
-      else: check_disclosure(config)
+      else: with(:ok <- check_disclosure(config), do: check_agent_id(config, config.provider))
+  end
+
+  @doc """
+  Checks the hosted agent identifier a hosted-agent adapter needs. One argument reads
+  `config.provider`; two name the adapter a caller resolved at start time.
+
+  Adapters whose `descriptor/0` reports `family: :hosted_agent` cannot request a conversation
+  without one, so a missing or blank `agent_id` is refused here, before any provider transport
+  opens. The error names the field, never a value.
+  """
+  @spec check_agent_id(t(), module() | nil | {module(), keyword()}) ::
+          :ok | {:error, %{field: :agent_id, reason: :missing}}
+  def check_agent_id(%__MODULE__{} = config), do: check_agent_id(config, config.provider)
+
+  def check_agent_id(%__MODULE__{agent_id: agent_id}, provider) do
+    if hosted_agent?(provider) and blank?(agent_id),
+      do: {:error, %{field: :agent_id, reason: :missing}},
+      else: :ok
   end
 
   @doc "Loads and validates target-specific host tools, including reserved built-in names."
@@ -137,6 +162,24 @@ defmodule VoiceConverse.Config do
 
   defp check_disclosure(%__MODULE__{}),
     do: {:error, %{field: :cloud_disclosure_accepted, reason: :not_accepted}}
+
+  # A hosted agent is a provider-side object the host chooses; nothing can stand in for it.
+  defp hosted_agent?({module, _opts}) when is_atom(module), do: hosted_agent?(module)
+
+  defp hosted_agent?(module) when is_atom(module) do
+    Code.ensure_loaded?(module) and function_exported?(module, :descriptor, 0) and
+      Map.get(module.descriptor(), :family) == :hosted_agent
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
+
+  defp hosted_agent?(_provider), do: false
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
 
   defp check_known(opts) do
     case Enum.find(Map.keys(opts), &(not Map.has_key?(%__MODULE__{}, &1))) do
@@ -225,6 +268,9 @@ defmodule VoiceConverse.Config do
 
   defp check_session_settings(%{llm: llm}) when not (is_nil(llm) or is_binary(llm)),
     do: {:error, %{field: :llm, reason: :invalid}}
+
+  defp check_session_settings(%{agent_id: agent_id}) when not (is_nil(agent_id) or is_binary(agent_id)),
+    do: {:error, %{field: :agent_id, reason: :invalid}}
 
   defp check_session_settings(%{cloud_disclosure_accepted: accepted})
        when not (is_nil(accepted) or is_boolean(accepted)),

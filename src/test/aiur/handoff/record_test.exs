@@ -1,6 +1,7 @@
 defmodule Aiur.Handoff.RecordTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.Handoff, as: RunnerHandoff
   alias Aiur.Handoff.Record
   alias Aiur.JsonStore
 
@@ -56,6 +57,25 @@ defmodule Aiur.Handoff.RecordTest do
     assert {:ok, _, _} = DateTime.from_iso8601(archived["completed_at"])
   end
 
+  test "an in-daemon record and its archived copy are owner-only", %{opts: opts} do
+    record = in_daemon_record()
+    assert :ok = Record.write(record, opts)
+
+    file = Record.path(opts)
+    assert Bitwise.band(File.stat!(file).mode, 0o777) == 0o600
+    assert Bitwise.band(File.stat!(Path.dirname(file)).mode, 0o777) == 0o700
+
+    assert :ok = Record.consume([%{"status" => "adopted"}], opts)
+
+    consumed = file <> ".consumed"
+    assert Bitwise.band(File.stat!(consumed).mode, 0o777) == 0o600
+    assert {:ok, archived} = JsonStore.read(consumed)
+    # The archived copy keeps the adoption outcome but not the conversation.
+    refute Jason.encode!(archived) =~ "workspace evidence"
+    assert get_in(archived, ["agents", Access.at(0), "transport", "provider_state"]) == nil
+    assert get_in(archived, ["agents", Access.at(0), "issue_id"]) == "3844"
+  end
+
   test "records older than the relay orphan timeout are stale", %{opts: opts} do
     old = Map.put(record(), "written_at", DateTime.to_iso8601(DateTime.add(@now, -61, :second)))
     JsonStore.write!(Record.path(opts), old)
@@ -65,6 +85,30 @@ defmodule Aiur.Handoff.RecordTest do
     boundary = Map.put(old, "written_at", DateTime.to_iso8601(DateTime.add(@now, -60, :second)))
     JsonStore.write!(Record.path(opts), boundary)
     assert {:ok, ^boundary} = Record.read(opts)
+  end
+
+  defp in_daemon_record do
+    provider_state =
+      RunnerHandoff.encode(%{
+        "messages" => [%{"role" => "tool", "content" => "workspace evidence"}],
+        "interrupted" => false
+      })
+
+    %{
+      "handoff_schema" => 1,
+      "handoff_id" => "restart-in-daemon",
+      "written_at" => DateTime.to_iso8601(@now),
+      "from_version" => "0.1.0+abc123",
+      "generation" => 2,
+      "config_fingerprint" => "digest",
+      "agents" => [
+        %{
+          "issue_id" => "3844",
+          "backend" => "openrouter",
+          "transport" => %{"kind" => "in_daemon", "provider_state" => provider_state}
+        }
+      ]
+    }
   end
 
   defp record do

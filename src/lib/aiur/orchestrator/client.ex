@@ -168,6 +168,9 @@ defmodule Aiur.Orchestrator.Client do
   def set_remote_control(server, identifier, on?),
     do: RC.set_remote_control(server, identifier, on?)
 
+  @spec redispatch(String.t(), String.t() | nil) :: {:ok, atom()} | {:error, term()}
+  def redispatch(identifier, backend \\ nil), do: RC.redispatch(identifier, backend)
+
   @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
   def ensure_remote_control_trust(workspace), do: RC.ensure_remote_control_trust(workspace)
   @spec ensure_remote_control_trust(GenServer.server(), Path.t()) :: :ok | {:error, term()}

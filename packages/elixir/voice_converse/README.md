@@ -21,6 +21,31 @@ Calls run under a deadline. Their parameters and
 results use the configured redactor and normal transcript recording.
 `allowed_tools` filters host tools like every other advertised tool.
 
+## Hosted agents
+
+An adapter whose descriptor family is `:hosted_agent` talks through an agent object the host
+already owns, so it needs that agent's identifier. Set `VoiceConverse.Config.agent_id` to it;
+`VoiceConverse.Providers.ElevenLabsAgents` is the only such adapter today and the value is the
+ElevenLabs Agent the conversation runs on.
+
+```elixir
+VoiceConverse.Config.new(
+  provider: VoiceConverse.Providers.ElevenLabsAgents,
+  agent_id: "agent_your_agent_id",
+  llm: "your-model",
+  cloud_disclosure_accepted: true,
+  # ...
+)
+```
+
+The identifier is an account-visible id, **not** a credential: the API key still reaches the
+adapter only through the credentials port, and the id appears nowhere but the provider's
+signed-URL request. A missing, blank or whitespace-only identifier is refused with
+`{:error, %{field: :agent_id, reason: :missing}}` from `Config.check_session_start/1`, which
+`VoiceConverse.availability/1` reports as `{:unavailable, {:not_configured, :agent_id}}`; session
+start returns `{:error, :agent_id}` before any provider transport opens or any signed URL is
+requested. Adapters that are not hosted agents ignore the setting.
+
 ## Recording a session summary
 
 The `record_summary` client tool accepts three required string arrays:
@@ -79,6 +104,14 @@ short-lived token with the `"converse"` scope. Non-browser clients use
 `Authorization: Bearer <token>`; browser clients use `?token=<token>` because the WebSocket API
 cannot set an Authorization header. Invalid credentials close the socket with code `4401` before
 a session is started.
+
+`VoiceConverse.Transport.WebSock.Socket` implements the `WebSock` behaviour directly, so a host
+needs no adapter or opcode-normalizing wrapper of its own. `handle_in/2` accepts the callback
+shape `WebSock` specifies and Bandit delivers, `{payload, [opcode: :text | :binary]}`, and also
+the bare atom shape `{payload, :text | :binary}` for direct callback callers. Text frames are
+decoded as v1 JSON; binary frames are rejected with an `invalid_frame` error frame; opcode
+metadata naming anything else is ignored. Inbound frames over 400 000 bytes are refused before
+they are buffered.
 
 `priv/static/voice_converse_client.js` is a build-free ES module for host pages. Construct a
 `VoiceConverseClient` with the socket URL, target and a draft-card container, then call
