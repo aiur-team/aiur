@@ -212,22 +212,21 @@ replaying historical notifications. Journal corruption still makes writes read-o
 
 ### Repairing a read-only journal
 
-A record fails verification when its content hash no longer matches. Aiur
-accepts a record whose stored hash matches the data exactly as it was written, so
-a daemon upgrade or rollback that changes how Commands are encoded does not
-corrupt the journal. A record that still fails is damaged: replay stops there,
-the store goes read-only, and an answer returns
-`{:store_unavailable, {:corrupt, line, reason}}`.
+A record fails verification when its content hash no longer matches. Aiur also
+accepts a record whose stored hash matches its data exactly as written, so an
+upgrade or rollback that changes how Commands are encoded leaves the journal valid.
 
-Run `aiur commands repair` against the running daemon. It checks every record,
-moves each one that fails, plus any later record that depends on it, byte for
-byte into a sibling `decisions.quarantine-<UTC>.ndjson`. It keeps every valid
-record, rewrites the journal and reloads the store as writable. The report lists
-each quarantined line and its reason. Afterwards you can answer open Commands
-and retire one whose ticket closed with
+A record that still fails is damaged. Replay stops there, the store goes
+read-only, and an answer returns `{:store_unavailable, {:corrupt, line, reason}}`.
+
+Run `aiur commands repair` against the running daemon. It moves each record that
+fails, and any later record that depends on it, byte for byte into a sibling
+`decisions.quarantine-<UTC>.ndjson`. It keeps every valid record, rewrites the
+journal and reloads the store as writable, then lists each quarantined line.
+
+Afterwards you can answer open Commands and retire one whose ticket closed with
 [`aiur executor-moot`](/reference/cli-decisions). A Command whose `requested`
-record was quarantined is no longer listed; its original line is still in the
-quarantine file.
+record was quarantined is no longer listed; its line stays in the quarantine file.
 
 ## Operator answers relayed in conversation
 
