@@ -203,10 +203,12 @@ defmodule Aiur.RtkTest do
 
   test "the config flag only controls reporting and dispatch has no rtk gate" do
     schema = File.read!(Path.join(@repo_root, "src/lib/aiur/config/schema/agent.ex"))
+    rtk_schema = File.read!(Path.join(@repo_root, "src/lib/aiur/config/schema/rtk.ex"))
     rtk_module = File.read!(Path.join(@repo_root, "src/lib/aiur/rtk.ex"))
 
-    assert schema =~ "Controls whether the analytics panel reports host-level rtk output"
+    assert rtk_schema =~ "Controls whether the analytics panel reports host-level rtk output"
     refute schema =~ "Opt-in. rtk compresses shell output"
+    refute schema =~ "Controls whether the analytics panel reports host-level rtk output"
 
     assert rtk_module =~ "This module reports rtk status and recorded savings"
     assert rtk_module =~ "it does not opt dispatched agents into rtk"
