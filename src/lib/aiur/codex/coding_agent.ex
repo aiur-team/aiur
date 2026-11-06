@@ -273,7 +273,7 @@ defmodule Aiur.Codex.CodingAgent do
     |> ProviderTurnLedger.start_turn()
     |> Map.merge(InterruptHandshake.initial_state())
     |> Map.merge(%{auto_approve_requests: session.auto_approve_requests, turn_started?: false})
-    |> LivenessProbe.schedule()
+    |> LivenessProbe.schedule(session)
   end
 
   @impl Aiur.AppServer.Adapter

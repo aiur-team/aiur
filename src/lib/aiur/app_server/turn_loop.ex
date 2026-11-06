@@ -81,13 +81,6 @@ defmodule Aiur.AppServer.TurnLoop do
       :codex_liveness_probe ->
         receive_loop(session, state)
 
-      {^port, {:data, {:eol, chunk}}} ->
-        complete_line = state.pending_line <> to_string(chunk)
-        # Callbacks may wait for nested RPC responses from this same relay.
-        :ok = Transport.acknowledge(port)
-        result = handle_incoming(session, %{state | pending_line: ""}, complete_line)
-        continue_or_return(session, result)
-
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         continue_or_return(
           session,

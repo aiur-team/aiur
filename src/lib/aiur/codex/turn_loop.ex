@@ -13,10 +13,10 @@ defmodule Aiur.Codex.TurnLoop do
   def handle_method(session, %{liveness_probe_pending?: true} = state, %{"id" => id} = payload, _payload_string, _method)
       when id == 6 do
     case LivenessProbe.handle_response(session, state, payload) do
+      # An answered read is settled: LivenessProbe clears the pending marker and
+      # arms the next interval itself.
       {:continue, next_state} ->
-        timer = Map.get(next_state, :liveness_probe_timer)
-        if is_reference(timer), do: Process.cancel_timer(timer)
-        {:continue, next_state |> Map.delete(:liveness_probe_pending?) |> Map.delete(:liveness_probe_timer) |> LivenessProbe.schedule()}
+        {:continue, next_state}
 
       {:error, reason} ->
         Rpc.retain_late_sensitive_response(session.port, id)

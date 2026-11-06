@@ -6,6 +6,11 @@ defmodule Aiur.Codex.LivenessProbe do
   whether the account has quota remaining. An exhausted snapshot is classified
   as the existing usage-limit pause. A timed-out read is a recoverable session
   failure so the runner restores delivered work before replacing the session.
+
+  The probe runs every 60 seconds. A session may inject
+  `:liveness_probe_interval_ms` to shorten that interval; tests do, so they can
+  prove a silent app-server is detected without waiting a full minute. Every
+  real session keeps the 60-second default.
   """
 
   alias Aiur.AppServer.Rpc
@@ -14,14 +19,19 @@ defmodule Aiur.Codex.LivenessProbe do
 
   @probe_interval_ms 60_000
 
-  @doc false
-  @spec interval_ms() :: pos_integer()
-  def interval_ms, do: @probe_interval_ms
+  @doc "The probe interval for `session`, 60 seconds unless the session injects one."
+  @spec interval_ms(map()) :: pos_integer()
+  def interval_ms(session) do
+    case Map.get(session, :liveness_probe_interval_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> @probe_interval_ms
+    end
+  end
 
-  @doc false
-  @spec schedule(map()) :: map()
-  def schedule(state) do
-    timer = Process.send_after(self(), :codex_liveness_probe, @probe_interval_ms)
+  @doc "Arms the next periodic probe and records its timer in `state`."
+  @spec schedule(map(), map()) :: map()
+  def schedule(state, session) do
+    timer = Process.send_after(self(), :codex_liveness_probe, interval_ms(session))
     Map.put(state, :liveness_probe_timer, timer)
   end
 
@@ -60,6 +70,13 @@ defmodule Aiur.Codex.LivenessProbe do
     end
   end
 
+  # The receive loop hands this the decoded JSON-RPC payload, so the read's
+  # windows arrive under "result". A caller that already unwrapped the envelope
+  # is accepted too, so both shapes reach the same classification.
+  def handle_response(session, state, %{"result" => %{} = result}) do
+    handle_response(session, state, result)
+  end
+
   def handle_response(session, state, %{"rateLimits" => rate_limits} = response) when is_map(rate_limits) do
     ExhaustedReset.observe_snapshot(session, response)
 
@@ -73,7 +90,7 @@ defmodule Aiur.Codex.LivenessProbe do
          }}
 
       nil ->
-        {:continue, schedule(state)}
+        {:continue, complete_probe(state, session)}
     end
   end
 
@@ -100,6 +117,21 @@ defmodule Aiur.Codex.LivenessProbe do
   @doc false
   @spec probe_timeout_ms() :: pos_integer()
   def probe_timeout_ms, do: max(1_000, min(Aiur.Config.agent_read_timeout_ms(), 10_000))
+
+  # A read the app-server answered is settled: cancel the outstanding timeout so
+  # it cannot fire as a spurious second read, clear the pending marker, and arm
+  # the next interval.
+  defp complete_probe(state, session) do
+    case Map.get(state, :liveness_probe_timer) do
+      timer when is_reference(timer) -> Process.cancel_timer(timer)
+      _ -> :ok
+    end
+
+    state
+    |> Map.delete(:liveness_probe_pending?)
+    |> Map.delete(:liveness_probe_timer)
+    |> schedule(session)
+  end
 
   defp classify_timeout(session, state) do
     now = Map.get(session, :clock, &DateTime.utc_now/0).()
