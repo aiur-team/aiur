@@ -33,6 +33,7 @@ R-optional	Aiur.ProviderAccountGeneration.Context	baseline 22b2fa407c5d4218d25d6
 R-optional	Aiur.ProviderAccountGeneration.Snapshot	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeterProbe	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeterSnapshot	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.ProviderMeterProjection	#7504 the usage floor gate reads a credit key's remaining percent from the provider meter projection
 R-optional	Aiur.ProviderMeters	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeters.Events	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeters.HostObservations	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

@@ -38,7 +38,6 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   alias Aiur.ProviderMeterProjection
 
   @state_key {__MODULE__, :held}
-  @alert_topic "system.agent.usage_floor"
 
   @typedoc "One candidate whose reading is at or below the floor, with the window that floored it."
   @type held_entry :: %{candidate: map(), held: UsageFloor.held()}
@@ -354,7 +353,7 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   defp alert_fun(opts), do: Keyword.get(opts, :usage_floor_alert_fun, &Aiur.Signal.agent_alert/3)
 
   # Alert topics are slugs: a route or account name may contain `:` or `/`.
-  defp alert_name(route), do: @alert_topic <> "." <> String.replace(route, ~r/[^a-zA-Z0-9_-]+/, "-")
+  defp alert_name(route), do: "system.agent.usage_floor.#{String.replace(route, ~r/[^a-zA-Z0-9_-]+/, "-")}"
 
   defp configured_routes do
     case Config.agent_priority() do

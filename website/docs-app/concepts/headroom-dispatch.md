@@ -125,14 +125,17 @@ overrides the floor for one backend. The key hot-reloads like the rest of
 
 The floor affects only new dispatches and turn handoffs. **An agent already
 running is not stopped when its account crosses the floor**: it finishes its
-current turn on the account it started on. A turn handoff re-chooses an account
-on the backend dispatch already selected, so it skips floored accounts; when
-every account on that backend is floored it falls back to the least-used one,
-because a handoff cannot re-route to a different backend. `aiur status` and
-`aiur usage` list each held route (`held: 3% left ≤ 5% floor, resets in 2h`),
-and an alert fires when a route starts being floored and when it recovers. If
-every route is floored, the ticket waits for a reset instead of failing its
-dispatch.
+current turn on the account it started on.
+
+A turn handoff re-chooses an account on the backend dispatch already selected,
+so it skips floored accounts. When every account on that backend is floored it
+falls back to the least-used one, because a handoff cannot re-route to a
+different backend.
+
+`aiur status` and `aiur usage` list each held route (`held: 3% left ≤ 5% floor,
+resets in 2h`), and an alert fires when a route starts being floored and when it
+recovers. If every route is floored, the ticket waits for a reset instead of
+failing its dispatch.
 
 See also [`agent.account_selection`](/reference/configuration) and
 [Accounts by backend](/guide/claude-accounts).
