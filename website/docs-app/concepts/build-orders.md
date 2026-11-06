@@ -28,6 +28,10 @@ fixtures and generated types live in `packages/aiur-contracts`.
 The document is derived from the same projection the dashboard renders. The join, wave numbering,
 critical path and progress roll cannot drift between the endpoint, the CLI and the page.
 
+The GitHub review the `aiur-build` skill publishes reads the same document: the daemon document when
+one is running, and otherwise a pack walk whose tracker and progress sources are `unknown`. A
+published review therefore cannot describe a graph the dashboard disagrees with.
+
 Node `id`s are the planning-pack ids (`BO-001`) when the projection holds them and tracker identifiers
 otherwise. `number` carries the tracker number, or `null` for a draft.
 
