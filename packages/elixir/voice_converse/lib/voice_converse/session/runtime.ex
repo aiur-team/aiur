@@ -98,6 +98,7 @@ defmodule VoiceConverse.Session.Runtime do
       audio_in: :pcm_16000,
       audio_out: :pcm_16000,
       llm: config.llm,
+      agent_id: config.agent_id,
       target: target,
       fake: provider_opts
     }
@@ -131,6 +132,7 @@ defmodule VoiceConverse.Session.Runtime do
       audio_in: :pcm_16000,
       audio_out: :pcm_16000,
       llm: config.llm,
+      agent_id: config.agent_id,
       target: state.target,
       fake: state.provider_opts
     }

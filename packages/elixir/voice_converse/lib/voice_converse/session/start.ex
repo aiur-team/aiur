@@ -16,6 +16,7 @@ defmodule VoiceConverse.Session.Start do
          {:ok, descriptor} <- describe_target(config, target),
          {:ok, role} <- select_role(config, descriptor, opts),
          {:ok, provider, provider_opts} <- provider(config, opts),
+         :ok <- Config.check_agent_id(config, provider),
          :ok <- preflight(provider, Runtime.preflight_spec(config, target, provider, provider_opts)),
          :ok <- SessionLimits.under_daily_cap?(config),
          {:ok, store} <- open_transcript(config, descriptor, id, provider, role),

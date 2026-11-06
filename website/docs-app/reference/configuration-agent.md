@@ -171,14 +171,87 @@ Claude clock hints with an IANA timezone are converted to UTC; unknown reset tim
 
 #### `agent.backend_configs.openrouter`
 
-These settings control the OpenRouter *transport*; selection lives entirely in `agent.priority`.
+OpenRouter has its own routing controls, and aiur can use them two ways: name the upstreams yourself, or hand upstream and model choice to OpenRouter's router.
+`agent.priority` still decides which route a ticket dispatches on; this block decides what that route tells OpenRouter.
+
+Both modes live under `provider`, every field is optional, and a config with no block sends nothing so OpenRouter's default routing applies.
+Unknown fields are rejected at config load, so a misspelled key is an error rather than a request OpenRouter quietly ignores.
+
+**Pinned.** Name the providers in the order you want them used, and stop OpenRouter crossing to others:
+
+```yaml
+agent:
+  backend_configs:
+    openrouter:
+      provider:
+        order: [Anthropic, Together AI]
+        ignore: [Azure]
+        allow_fallbacks: false
+```
+
+**Handed off.** Rank by price instead: `sort: price` with no `order` is "cheapest available", and `max_price` caps what you are willing to pay:
+
+```yaml
+agent:
+  backend_configs:
+    openrouter:
+      provider:
+        sort: price
+        max_price:
+          prompt: 0.5
+          completion: 1.5
+        data_collection: deny
+```
+
+**Model sets.** A route may name several models and let OpenRouter pick between them.
+The first is the request's primary and the rest become OpenRouter's `models` fallback list, sent with `sort: price` unless the route pins an `order`.
+
+Cost is attributed to the model and provider that actually served the request, read from the response, not to the set that was asked for.
+
+```yaml
+agent:
+  priority:
+    - openrouter:{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}
+```
+
+**Named sets and per-route overrides.** `routes` is keyed by the route's model segment, so one route can stay pinned while another hands routing off.
+An entry may name a `models` set, a `provider` block, or both; `provider` here layers over the block above.
+
+```yaml
+agent:
+  priority:
+    - openrouter:anthropic/claude-sonnet-5  # pinned to Anthropic
+    - openrouter:cheap                     # cheapest of two DeepSeek models
+
+  backend_configs:
+    openrouter:
+      provider:
+        sort: price
+      routes:
+        anthropic/claude-sonnet-5:
+          provider:
+            only: [Anthropic]
+            allow_fallbacks: false
+        cheap:
+          models: [deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash]
+```
+
+The table below lists every field aiur forwards.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-02 -->
 | --- | --- | --- | --- |
 | `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
+| `agent.backend_configs.openrouter.provider.data_collection` | string or nil | omitted | `allow` or `deny`: whether a request may route to upstreams that train on or retain prompts. |
 | `agent.backend_configs.openrouter.provider.ignore` | array of strings or nil | omitted | Upstream providers to exclude. |
+| `agent.backend_configs.openrouter.provider.max_price` | map or nil | omitted | Price cap per million tokens, as `{prompt: <number>, completion: <number>}`; OpenRouter skips upstreams priced above it. |
+| `agent.backend_configs.openrouter.provider.only` | array of strings or nil | omitted | Restricts a request to these upstream providers. |
 | `agent.backend_configs.openrouter.provider.order` | array of strings or nil | omitted | Preferred upstream providers, most preferred first. |
-| `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
+| `agent.backend_configs.openrouter.provider.quantizations` | array of strings or nil | omitted | Restricts the request to these quantization levels (`int4`, `int8`, `fp8`, `fp16`, `bf16`, `fp32`, `unknown`). |
+| `agent.backend_configs.openrouter.provider.require_parameters` | boolean or nil | omitted | Only route to upstreams that support every request parameter aiur sends. |
+| `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. `price` with no `order` means "cheapest available". |
+| `agent.backend_configs.openrouter.routes` | map | `%{}` | Per-route overrides keyed by the route's model segment or by a named model set. Each entry takes `provider` (same fields as the block above) and/or `models` (a non-empty list of model slugs). |
+| `agent.backend_configs.openrouter.routes.<route>.models` | array of strings or nil | omitted | Names a model set: the route sends these as OpenRouter's `models` list and the first one is its primary model. |
+| `agent.backend_configs.openrouter.routes.<route>.provider` | map or nil | omitted | Provider preferences for this route only, layered over `agent.backend_configs.openrouter.provider`. |
 
 #### `agent.backend_configs.muse`
 
