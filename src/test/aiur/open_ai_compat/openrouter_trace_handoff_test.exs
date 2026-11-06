@@ -9,9 +9,17 @@ defmodule Aiur.OpenAICompat.OpenRouterTraceHandoffTest do
     {:ok, queue} = Agent.start_link(fn -> [tool_response(), done_response()] end)
 
     request_fun = fn request ->
-      send(parent, {:request, request})
+      send(parent, {:request, self(), request})
       response = Agent.get_and_update(queue, fn [next | rest] -> {next, rest} end)
-      if request.json["trace"]["generation_name"] == "round 1", do: send(self(), :handoff_hold)
+
+      if request.json["trace"]["generation_name"] == "round 1" do
+        receive do
+          :release_request -> :ok
+        after
+          5_000 -> flunk("first request was not released")
+        end
+      end
+
       response
     end
 
@@ -25,9 +33,11 @@ defmodule Aiur.OpenAICompat.OpenRouterTraceHandoffTest do
         CodingAgent.run_turn(session, "Inspect", issue(), [])
       end)
 
-    assert_receive {:request, first}, 5_000
+    assert_receive {:request, request_pid, first}, 5_000
     ref = make_ref()
+    send(turn.pid, :handoff_hold)
     send(turn.pid, {:handoff_snapshot, self(), ref})
+    send(request_pid, :release_request)
     assert_receive {^ref, {:ok, record}}, 5_000
     assert {:ok, saved} = Handoff.provider_state(record)
     assert saved["interrupted"]
@@ -35,7 +45,7 @@ defmodule Aiur.OpenAICompat.OpenRouterTraceHandoffTest do
     refute Jason.encode!(saved) =~ "private-api-key"
     send(turn.pid, :handoff_abort)
     assert {:ok, _} = Task.await(turn, 5_000)
-    assert_receive {:request, _old_completion}, 1_000
+    assert_receive {:request, _request_pid, _old_completion}, 1_000
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
 
     restore_opts =
