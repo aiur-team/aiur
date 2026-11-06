@@ -40,6 +40,11 @@ defmodule AiurWeb.Build.PackFeatureProgressTest do
     assert {:ok, index} = parts([row(1)]) |> Map.put(:features, {:ok, registry}) |> assemble()
     assert %{bars: [%{key: "core", merged: 1, total: 1}], epics: [epic]} = index.feature_progress
     assert Map.take(epic, [:key, :label, :merged, :total, :features]) == %{key: "program", label: "Program", merged: 1, total: 1, features: ["core"]}
+
+    # The browser reads the epic rows off the scrubbed payload, so the assembled index must
+    # carry them under the key the payload schema declares.
+    assert %{"epics" => [payload_epic]} = AiurWeb.Build.Payload.scrub(index)["feature_progress"]
+    assert Map.take(payload_epic, ~w(key label merged total features)) == %{"key" => "program", "label" => "Program", "merged" => 1, "total" => 1, "features" => ["core"]}
   end
 
   defp pack(lane) do
