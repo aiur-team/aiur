@@ -244,6 +244,14 @@ A feature set has no declared order of its own, so `queue add --feature` warns w
 
 The registry is a local read, so a feature set needs a fresh open-issue observation to tell a closed member from one that has not been polled. Without one the set's members stay unknown and no membership changes. An unavailable registry leaves membership untouched and marks the set's members unknown, while independent lists continue reconciling.
 
+## Queueing an epic
+
+`aiur queue add --epic <slug>` queues an epic as one set. Its members are the union of its features' registry members and, when the epic has a Build Order root, the root's open sub-issues, with no duplicates. A ticket filed into any of its features later joins on the next reconcile. Order inside the set comes from `blocked_by`, then the critical path, then priority.
+
+`--build-order <root>` adopts the root's epic when the registry has one; without an epic it adds a plain Build Order set, as before. A root whose projection is unavailable leaves the set's membership untouched.
+
+Ownership is ranked: a list owns over a feature, and a feature over an epic or Build Order set. A feature queued on its own keeps its tickets when its epic is also queued, in either order; the epic lists them as owned elsewhere.
+
 ### Feature sets
 
 A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
