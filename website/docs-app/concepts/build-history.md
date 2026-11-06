@@ -36,12 +36,12 @@ Each ticket appears under exactly one epic column, resolved in this order:
 | --- | --- |
 | 1 | The owning feature's epic. |
 | 2 | A confirmed local override set with [`aiur lane set`](/reference/build-history-commands#lanes). |
-| 3 | The first configured general epic whose labels match the ticket. |
+| 3 | The first configured lane whose labels or lane label match the ticket. |
 | 4 | An unconfirmed backfill override, if no label matches. |
 | 5 | **Unsorted**. |
 
 Lanes come from `build_order.lanes` (the deprecated `build_order.general_epics` loads as its alias); see
-[General epics](/reference/configuration-build-order#general-epics) for the
+[Lanes](/reference/configuration-build-order#lanes) for the
 defaults. Feature collections are managed with [feature
 commands](/reference/build-history-commands#features).
 

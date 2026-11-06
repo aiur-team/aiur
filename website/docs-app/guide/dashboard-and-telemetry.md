@@ -114,11 +114,11 @@ Each registry feature and `feature:<slug>` label in history gets a row with its 
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). Sort by most done or most left stays in `fsort`. The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 
-Epics counts matching general epics, including feature-owned tickets, so totals
+Epics counts matching lanes, including feature-owned tickets, so totals
 overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
 tickets. Planned pack tickets without area labels are excluded; incomplete
 history or labels stay unknown. With no matches, see
-[`general_epics`](../reference/configuration-build-order.md#general-epics).
+[`lanes`](../reference/configuration-build-order.md#lanes).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
