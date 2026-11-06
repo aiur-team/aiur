@@ -90,14 +90,20 @@
   Set it to `null` to disable the hard ceiling.
 - `agent.target_cpu_pressure` sets the AIMD target (default `10.0` percent).
   Three fresh above-target samples halve capacity, bounded by the decrease
-  cooldown. Ramps require pressure below 80% of target; unavailable samples
-  reset the streak. Set the target to `null` to disable PSI AIMD.
+  cooldown and floored at the recorded safe level. Ramps require pressure below
+  80% of target. Between 80% of target and the target the envelope holds, but
+  that hold is bounded: once it has outlasted `load_cooldown_seconds` while
+  tickets wait for slots, each poll probes upward by one step. A host parked in
+  that band therefore grows back to the configured cap instead of staying at
+  its reduced value; a host still above target reduces first. Unavailable
+  samples reset the streak. Set the target to `null` to disable PSI AIMD.
 - `agent.load_resume_max_age_seconds` retains safe capacity for 3600 seconds;
   0 disables resume. Five fresh occupied samples demonstrate a level. Boot
   starts at one and, without a valid saved level, the first fresh sample holds.
   With a valid saved level, each recovery poll below 80% of the PSI target adds
-  at least `load_ramp_step` while accelerating toward that level; a configured
-  step above 3 can exceed +3.
+  at least `load_ramp_step` while accelerating toward that level; below half
+  target it probes up to three steps per poll. A configured step above 3 can
+  exceed +3.
 - When PSI is unavailable, `max_load_average` (default `1.5`) and
   `target_load_average` (default `1.0`) are per-scheduler fallbacks. Status
   names the binding signal. Build cap, stagger and nice throttle bursts.

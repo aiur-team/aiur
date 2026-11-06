@@ -104,24 +104,30 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   end
 
   @spec update(State.t(), map(), integer(), boolean(), boolean()) :: State.t()
-  def update(state, %{cpu_pressure: %{avg60: pressure}} = probes, now_ms, _demand?, fresh?) do
+  def update(state, %{cpu_pressure: %{avg60: pressure}} = probes, now_ms, demand?, fresh?) do
     target = probes.pressure_target
     soft_pressure = discount_niced_background(pressure, Map.get(probes, :cpu_headroom, :unavailable))
     state = reset_signal(state, :cpu_pressure)
     previous = EnvelopeResume.validate(state.load_envelope_state, target, probes.schedulers)
     count = if fresh?, do: SustainedLoad.count(soft_pressure, target, 1, previous), else: Map.get(previous, :overload_samples, 0)
     effective = state.effective_concurrent_agents || Slots.max_concurrent_agent_limit(state)
+    limit = Slots.max_concurrent_agent_limit(state)
     bootstrap? = Map.get(previous, :bootstrap_complete?, false)
 
     {next, decreased_at} =
       if bootstrap_hold?(effective, previous, target, fresh?),
         do: {1, nil},
-        else: adjust(effective, previous, soft_pressure, target, count, now_ms, fresh?, %{limit: Slots.max_concurrent_agent_limit(state), used_slots: Slots.used_slots(state)})
+        else:
+          adjust(effective, previous, soft_pressure, target, count, now_ms, fresh?, %{
+            limit: limit,
+            used_slots: Slots.used_slots(state),
+            demand?: demand?
+          })
 
     previous = if fresh?, do: EnvelopeResume.observe(previous, Slots.used_slots(state), next, effective, soft_pressure, target, count), else: previous
     snapshot = if is_map(probes.cpu_snapshot), do: probes.cpu_snapshot, else: nil
     changed? = next != effective
-    reason = envelope_reason(next, effective, soft_pressure, target, count, fresh?)
+    reason = envelope_reason(next, effective, soft_pressure, target, count, fresh?, limit)
 
     envelope =
       Map.merge(previous, %{
@@ -132,6 +138,7 @@ defmodule Aiur.Orchestrator.PressureAdmission do
         cpu_snapshot: snapshot,
         last_change_at_ms: if(changed?, do: now_ms, else: Map.get(previous, :last_change_at_ms)),
         last_change_reason: if(changed?, do: reason, else: Map.get(previous, :last_change_reason)),
+        hold_since_ms: if(next < effective, do: nil, else: Map.get(previous, :hold_since_ms) || now_ms),
         hold_reason: reason
       })
 
@@ -170,7 +177,7 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   defp adjust(_effective, _previous, _pressure, nil, _count, _now, _fresh?, %{limit: limit}), do: {limit, nil}
   defp adjust(effective, previous, _pressure, _target, _count, _now, false, %{limit: limit}), do: {min(effective, limit), previous.last_decrease_ms}
 
-  defp adjust(effective, previous, pressure, target, count, now, true, %{limit: limit, used_slots: used_slots}) do
+  defp adjust(effective, previous, pressure, target, count, now, true, %{limit: limit, used_slots: used_slots} = opts) do
     last = previous.last_decrease_ms
 
     cond do
@@ -186,8 +193,27 @@ defmodule Aiur.Orchestrator.PressureAdmission do
         ramp(effective, previous, pressure, target, limit)
 
       true ->
-        {min(effective, limit), last}
+        bounded_hold(effective, previous, now, limit, Map.get(opts, :demand?, false))
     end
+  end
+
+  # Between 80% of the target and the target the envelope neither ramps nor
+  # reduces: that band is the hysteresis keeping growth from overshooting
+  # straight into a halving. Holding in it without a bound was the #7470 stall
+  # — a host that recovered to just under the target left the envelope at its
+  # reduced value while tickets waited for slots, because only samples below
+  # 80% of target ramp. With dispatchable work waiting, a hold therefore
+  # expires after the reduction cooldown and probes upward by one step per
+  # poll until the configured cap; a genuinely overloaded host still reduces
+  # first.
+  defp bounded_hold(effective, previous, now, limit, demand?) do
+    current = min(effective, limit)
+    next = min(current + Config.load_ramp_step(), limit)
+    held_ms = if is_integer(previous[:hold_since_ms]), do: now - previous.hold_since_ms, else: 0
+
+    if demand? and next > current and held_ms >= Config.load_cooldown_seconds() * 1_000,
+      do: {next, if(next == limit, do: nil, else: previous.last_decrease_ms)},
+      else: {current, previous.last_decrease_ms}
   end
 
   defp ramp(effective, previous, pressure, target, limit) do
@@ -201,12 +227,24 @@ defmodule Aiur.Orchestrator.PressureAdmission do
     {next, if(next == limit, do: nil, else: previous.last_decrease_ms)}
   end
 
-  defp envelope_reason(next, previous, _pressure, _target, _count, _fresh?) when next < previous, do: "CPU pressure above target; envelope reduced to #{next}"
-  defp envelope_reason(next, previous, _pressure, _target, _count, _fresh?) when next > previous, do: "CPU pressure below ramp threshold; envelope increased to #{next}"
-  defp envelope_reason(_next, _previous, _pressure, _target, count, false) when count > 0, do: "waiting for a fresh CPU pressure sample"
-  defp envelope_reason(_next, _previous, pressure, target, _count, _fresh?) when is_number(target) and pressure >= target, do: "holding: CPU pressure #{pressure}% is at or above target #{target}%"
-  defp envelope_reason(_next, _previous, _pressure, target, _count, _fresh?) when is_number(target), do: "holding: waiting for CPU pressure below #{target * 0.8}%"
-  defp envelope_reason(_next, _previous, _pressure, _target, _count, _fresh?), do: "holding: AIMD target unavailable"
+  defp envelope_reason(next, previous, _pressure, _target, _count, _fresh?, _limit) when next < previous, do: "CPU pressure above target; envelope reduced to #{next}"
+
+  defp envelope_reason(next, previous, pressure, target, _count, _fresh?, _limit)
+       when next > previous and is_number(target) and is_number(pressure) and pressure >= target * 0.8,
+       do: "CPU pressure #{pressure}% is in the target band; hold expired, envelope increased to #{next}"
+
+  defp envelope_reason(next, previous, _pressure, _target, _count, _fresh?, _limit) when next > previous, do: "CPU pressure below ramp threshold; envelope increased to #{next}"
+  defp envelope_reason(_next, _previous, _pressure, _target, count, false, _limit) when count > 0, do: "waiting for a fresh CPU pressure sample"
+
+  defp envelope_reason(_next, _previous, pressure, target, _count, _fresh?, _limit) when is_number(target) and pressure >= target,
+    do: "holding: CPU pressure #{pressure}% is at or above target #{target}%"
+
+  defp envelope_reason(next, _previous, _pressure, _target, _count, _fresh?, limit) when next >= limit, do: "holding: envelope is at the configured cap #{next}"
+
+  defp envelope_reason(_next, _previous, pressure, target, _count, _fresh?, _limit) when is_number(target),
+    do: "holding: CPU pressure #{pressure}% is in the target band (above #{target * 0.8}%, below #{target}%); probing upward after #{Config.load_cooldown_seconds()}s while work waits"
+
+  defp envelope_reason(_next, _previous, _pressure, _target, _count, _fresh?, _limit), do: "holding: AIMD target unavailable"
 
   @spec envelope_signal(map()) :: {number() | :unavailable, number() | nil, pos_integer()}
   def envelope_signal(%{cpu_pressure: %{avg60: value}, pressure_target: target}), do: {value, target, 1}

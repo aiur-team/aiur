@@ -44,6 +44,68 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
     assert Enum.map(recovered, & &1.effective_concurrent_agents) == [7, 8, 9, 10, 11, 12]
   end
 
+  test "PSI envelope keeps ramping every recovered poll while a saved safe level exists" do
+    state = %State{
+      max_concurrent_agents: 12,
+      effective_concurrent_agents: 6,
+      load_envelope_state: %{
+        last_decrease_ms: 240_000,
+        sustained_decrease?: true,
+        bootstrap_complete?: true,
+        signal: :cpu_pressure,
+        safe_level: 6,
+        resume_level: 6,
+        record_schedulers: 16,
+        recorded_at: DateTime.utc_now()
+      }
+    }
+
+    recovered = Enum.scan(1..6, state, fn poll, current -> update(current, 7.0, 240_000 + poll * 120_000) end)
+    assert Enum.map(recovered, & &1.effective_concurrent_agents) == [7, 8, 9, 10, 11, 12]
+  end
+
+  test "deeply recovered PSI probes faster than one step per poll after a sustained decrease" do
+    state = %State{
+      max_concurrent_agents: 12,
+      effective_concurrent_agents: 6,
+      load_envelope_state: %{
+        last_decrease_ms: 240_000,
+        sustained_decrease?: true,
+        bootstrap_complete?: true,
+        signal: :cpu_pressure,
+        safe_level: 6,
+        resume_level: 6,
+        record_schedulers: 16,
+        recorded_at: DateTime.utc_now()
+      }
+    }
+
+    recovered = Enum.scan(1..2, state, fn poll, current -> update(current, 4.0, 240_000 + poll * 120_000) end)
+    assert Enum.map(recovered, & &1.effective_concurrent_agents) == [9, 12]
+  end
+
+  test "PSI envelope grows back while a recovered sample stays in the target band" do
+    state = %State{
+      max_concurrent_agents: 12,
+      effective_concurrent_agents: 12,
+      load_envelope_state: %{last_decrease_ms: nil, bootstrap_complete?: true, signal: :cpu_pressure}
+    }
+
+    pressured = Enum.reduce(1..3, state, fn poll, current -> update(current, 25.0, poll * 120_000) end)
+    assert pressured.effective_concurrent_agents == 6
+
+    [held | recovered] = Enum.scan(1..8, pressured, fn poll, current -> update(current, 9.0, (poll + 3) * 120_000) end)
+
+    assert held.effective_concurrent_agents == 6
+
+    assert held.load_envelope_state.hold_reason ==
+             "holding: CPU pressure 9.0% is in the target band (above 8.0%, below 10.0%); probing upward after 60s while work waits"
+
+    assert Enum.map(recovered, & &1.effective_concurrent_agents) == [7, 8, 9, 10, 11, 12, 12]
+
+    assert List.last(recovered).load_envelope_state.hold_reason == "holding: envelope is at the configured cap 12"
+  end
+
   test "AIMD status reports the last change and current pressure hold reason" do
     initial = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12}
     decreased = Enum.reduce(1..3, initial, fn poll, current -> update(current, 11.0, poll * 120_000) end)
