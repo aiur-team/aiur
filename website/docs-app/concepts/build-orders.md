@@ -246,7 +246,7 @@ The registry is a local read, so a feature set needs a fresh open-issue observat
 
 ## Queueing an epic
 
-`aiur queue add --epic <slug>` queues an epic as one set. Its members are the union of its features' registry members and, when the epic has a Build Order root, the root's open sub-issues, with no duplicates. A ticket filed into any of its features later joins on the next reconcile. Order inside the set comes from `blocked_by`, then the critical path, then priority.
+`aiur queue add --epic <slug>` queues an epic as one set. Its members are the union of its features' registry members and, when the epic has a Build Order root, the root's open sub-issues, with no duplicates. A ticket filed into one of its features later joins on the next reconcile. Order is `blocked_by`, critical path, then priority.
 
 `--build-order <root>` adopts the root's epic when the registry has one; without an epic it adds a plain Build Order set, as before. A root whose projection is unavailable leaves the set's membership untouched.
 
