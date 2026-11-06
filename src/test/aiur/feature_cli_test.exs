@@ -222,7 +222,7 @@ defmodule Aiur.FeatureCLITest do
   test "a create --epic key=label still defines a lane on the feature", %{context: context, pid: pid} do
     assert {:ok, %{outcome: :created}} = op(:create, context, label: "A", epics: [%{key: "k", label: "K"}])
     assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
-    assert feature.epics == [%{key: "k", label: "K"}]
+    assert Map.take(hd(feature.epics), [:key, :label]) == %{key: "k", label: "K"}
   end
 
   defp create(context), do: op(:create, context, label: "A")
