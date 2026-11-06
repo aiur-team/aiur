@@ -5,7 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   import AiurWeb.Components.VoiceInput
 
   alias Aiur.Commands.Answering
-  alias AiurWeb.Components.VoiceDelivery
+  alias AiurWeb.Components.{CommandMedia, VoiceDelivery}
   alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionQuestionsForm, DecisionReplacement}
 
   attr(:decision, :map, required: true)
@@ -184,6 +184,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           <span class="decision-answer-label">{if Map.get(@decision, :revision_sequence, 0) > 0, do: "Current revised answer", else: "Recorded answer"}</span>
           <strong>{answer_label(@decision)}</strong>
           <p :if={present?(@decision.answer.rationale)}>{@decision.answer.rationale}</p>
+          <CommandMedia.command_media
+            :if={Map.get(@decision.answer, :media, []) != []}
+            items={Map.get(@decision.answer, :media, [])}
+            decision_id={@decision.decision_id}
+            label="Answer media"
+            path_prefix="/commands"
+          />
         </div>
         <dl>
           <div><dt>Action</dt><dd class="mono">{@decision.answer.action_id}</dd></div>

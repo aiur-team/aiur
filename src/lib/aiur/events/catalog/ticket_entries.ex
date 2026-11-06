@@ -90,6 +90,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.pr.approval_carried", "orchestration"},
     # aiur/events/github_ci_poller/recovery.ex
     {"ticket.*.pr.ci_recovery.*", "github-listeners"},
+    # aiur/events/github_ci_poller/recovery_safety.ex
+    {"ticket.*.pr.ci_recovery.rerun", "github-listeners"},
     # aiur/landing_watch/pr_rerun.ex
     {"ticket.*.pr.ci_recovery.rerun_limit", "orchestration"},
     # aiur/landing_watch.ex

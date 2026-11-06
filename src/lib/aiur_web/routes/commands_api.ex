@@ -13,6 +13,10 @@ defmodule AiurWeb.Routes.CommandsApi do
 
         get("/api/v1/commands", AiurWeb.CommandsApiController, :index)
         get("/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :show)
+        # Media reads stay on the same scoped grant: the host renders the
+        # Command's typed media through this route, and the controller re-checks
+        # the ticket set and the Command's own attachment list on every read.
+        get("/api/v1/commands/:decision_id/media/:attachment_id", AiurWeb.CommandsApiController, :media)
       end
     end
   end

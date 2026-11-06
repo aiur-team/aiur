@@ -408,6 +408,50 @@ Cleanup failures are logged without preventing the worker from starting.
 Answered Commands are unchanged. Releasing a hold leaves the Command open and
 answerable.
 
+## Media on a Command
+
+A Command's prompt, each of its options, and a submitted answer can carry typed
+media: `image`, `animated_image`, `video` or `audio`. Text-only Commands are
+unchanged, and a Command with no media decodes, persists and renders exactly as
+before.
+
+Each item names its kind and MIME type, a locator, and alt text or a caption:
+
+| Field | Meaning |
+| --- | --- |
+| Kind | `image`, `animated_image`, `video`, or `audio`. |
+| MIME type | Allowlisted for the kind, for example `image/png` or `video/mp4`. |
+| Locator | An allowlisted HTTPS URL, or a local file under a configured root. |
+| Alt text and caption | Accessible name and visible description. Alt text is required for still and animated images. |
+| Size, dimensions, duration | Optional bounds checked against the kind's limit. |
+| Poster | A still frame for video or audio. |
+
+A worker sends media in the `decision.requested` payload that already carries
+its question and options; `aiur command request` itself stays text-only.
+
+A local file is stored as an attachment reference, so a dashboard or API reader
+never receives a filesystem path. Media that would rot is refused: an expiring
+pre-signed URL is rejected instead of persisted, and a reference to an
+unapproved host or outside a safe root fails with a stable error.
+
+Readers fetch a local attachment through the Command's own media route. A
+bearer-token client uses
+`GET /api/v1/decisions/{decision_id}/media/{attachment_id}`; the dashboard uses
+`GET /commands/{decision_id}/media/{attachment_id}` with the credential the page
+was loaded with.
+
+The route re-checks containment against a configured root at read time and only
+resolves media the Command actually carries, so an attachment id belonging to
+another Command answers 404.
+
+The dashboard renders each kind with native controls, alt text and captions, and
+an unavailable panel when the media cannot be resolved.
+
+An embedding host renders the same presentation through the `@aiur/commands`
+package. It reads a local attachment from the ticket-scoped route
+`GET /api/v1/commands/{decision_id}/media/{attachment_id}`, using the Command
+grant it already holds.
+
 ## The Executor asks you
 
 The Executor can create its own Command with

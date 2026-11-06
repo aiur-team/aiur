@@ -18,10 +18,12 @@ defmodule Aiur.Commands.HostApi do
       attribution intact.
 
   The returned maps are the documented component contract from
-  `Aiur.Commands.ComponentState`.
+  `Aiur.Commands.ComponentState`. Media reads resolve one attachment of a scoped
+  Command and hand the item to the web layer, which serves it through the same
+  safe-root and header checks as the dashboard route.
   """
 
-  alias Aiur.Commands.{Answering, ComponentState, Scope}
+  alias Aiur.Commands.{Answering, ComponentState, Media, Scope}
   alias Aiur.DecisionApi.PublicProjection
   alias Aiur.DecisionQuery
   alias Aiur.JSONSafe
@@ -81,6 +83,31 @@ defmodule Aiur.Commands.HostApi do
   end
 
   def show(_scope, _decision_id, _opts), do: {:error, :not_found}
+
+  @doc """
+  Resolves one media attachment of a scoped Command for serving.
+
+  The Command must be in the grant's authorized ticket set *and* the attachment
+  must be one of that Command's prompt, option or answer media items, so an
+  attachment id belonging to another Command never resolves. An out-of-scope
+  Command stays `:not_found`, exactly as the read operations report it.
+  """
+  @spec media(scope(), String.t(), String.t(), keyword()) ::
+          {:ok, Media.item()} | {:error, :not_found | :store_unavailable}
+  def media(scope, decision_id, attachment_id, opts \\ [])
+
+  def media(%{ticket_set: _ticket_set} = scope, decision_id, attachment_id, opts)
+      when is_binary(attachment_id) do
+    with {:ok, decision} <- scoped_decision(authorized_tickets(scope, opts), decision_id, opts),
+         {:ok, item} <- Media.find_attachment(Media.all_items(decision), attachment_id) do
+      {:ok, item}
+    else
+      :error -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def media(_scope, _decision_id, _attachment_id, _opts), do: {:error, :not_found}
 
   @doc """
   Answers, supersedes or overrides one scoped Command as its authenticated user.

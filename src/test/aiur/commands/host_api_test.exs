@@ -1,7 +1,8 @@
 defmodule Aiur.Commands.HostApiTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Commands.{HostApi, Scope}
+  alias Aiur.Commands.{HostApi, Media, Scope}
+  alias Aiur.DecisionApi.PublicProjection
   alias Aiur.{DecisionQuery, DecisionStore}
 
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -14,6 +15,7 @@ defmodule Aiur.Commands.HostApiTest do
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Aiur.TestSupport.tmp_root!("aiur-host-api")
     Application.put_env(:aiur, :decision_state_dir, dir)
+    media_path = local_media_path!()
 
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
 
@@ -28,7 +30,7 @@ defmodule Aiur.Commands.HostApiTest do
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
-    %{store: store}
+    %{store: store, media_path: media_path}
   end
 
   test "list returns only Commands for the allowed ticket set", %{store: store} do
@@ -293,6 +295,107 @@ defmodule Aiur.Commands.HostApiTest do
   defp label_scope(labels, tickets \\ []) do
     {:ok, %{scope: scope}} = Scope.mint("player-7", tickets, secret: @secret, now: @now, labels: labels)
     scope
+  end
+
+  test "media resolves only an attachment of the scoped Command", %{store: store} do
+    decision = request_with_media!(store, "42", "media-command")
+    scope = scope_for(["42"])
+
+    [public] = PublicProjection.encode(decision)["media"]
+    attachment_id = public["attachment_id"]
+
+    assert {:ok, item} = HostApi.media(scope, decision.decision_id, attachment_id, store: store)
+    assert Media.fetch_field(item, :mime_type) == "image/png"
+    assert Media.fetch_field(item, :alt_text) == "Evidence"
+
+    # An attachment id that belongs to another Command never resolves, and a
+    # Command outside the grant stays not_found rather than confirming it exists.
+    other = request_with_media!(store, "99", "other-media")
+    other_attachment = hd(PublicProjection.encode(other)["media"])["attachment_id"]
+
+    assert {:error, :not_found} = HostApi.media(scope, decision.decision_id, other_attachment, store: store)
+    assert {:error, :not_found} = HostApi.media(scope, other.decision_id, other_attachment, store: store)
+    assert {:error, :not_found} = HostApi.media(scope, decision.decision_id, "med_missing", store: store)
+  end
+
+  test "a scoped Command's media is published without its filesystem path", %{store: store, media_path: media_path} do
+    decision = request_with_local_media!(store, "42", "media-contract", media_path)
+    scope = scope_for(["42"])
+
+    assert {:ok, %{"command" => command}} = HostApi.show(scope, decision.decision_id, store: store)
+
+    assert [%{"kind" => "image", "locator" => %{"kind" => "attachment"}, "alt_text" => "Evidence"}] =
+             command["media"]
+
+    Aiur.TestSupport.refute_leak(command, "evidence.png")
+
+    [public] = command["media"]
+    attachment_id = public["attachment_id"]
+
+    assert {:ok, item} = HostApi.media(scope, decision.decision_id, attachment_id, store: store)
+    assert item |> Media.fetch_field(:locator) |> Media.fetch_field(:value) =~ "evidence.png"
+  end
+
+  defp local_media_path! do
+    base = Aiur.DecisionValidation.safe_roots() |> Enum.find(&(Path.type(&1) == :absolute))
+    dir = Path.join(base, "aiur-host-api-media-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "evidence.png")
+    File.write!(path, "png-bytes")
+
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    path
+  end
+
+  defp request_with_local_media!(store, ticket, source_id, path) do
+    payload = %{
+      "source_id" => source_id,
+      "question" => "Which art for #{source_id}?",
+      "blocking" => false,
+      "kind" => "architecture",
+      "authority" => "supervisor_allowed",
+      "reversibility" => "reversible",
+      "options" => [],
+      "recommendation" => nil,
+      "artifacts" => [],
+      "media" => [%{"kind" => "image", "mime_type" => "image/png", "locator" => path, "alt_text" => "Evidence"}]
+    }
+
+    ticket_map = %{identifier: ticket, title: "Ticket #{ticket}", url: "https://example.test/issues/#{ticket}"}
+
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(payload, [ticket: ticket_map, source: @source, now: @now], store)
+
+    decision
+  end
+
+  defp request_with_media!(store, ticket, source_id) do
+    payload = %{
+      "source_id" => source_id,
+      "question" => "Which art for #{source_id}?",
+      "blocking" => false,
+      "kind" => "architecture",
+      "authority" => "supervisor_allowed",
+      "reversibility" => "reversible",
+      "options" => [],
+      "recommendation" => nil,
+      "artifacts" => [],
+      "media" => [
+        %{
+          "kind" => "image",
+          "mime_type" => "image/png",
+          "locator" => "https://github.com/aiur-team/aiur/issues/#{ticket}",
+          "alt_text" => "Evidence"
+        }
+      ]
+    }
+
+    ticket_map = %{identifier: ticket, title: "Ticket #{ticket}", url: "https://example.test/issues/#{ticket}"}
+
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(payload, [ticket: ticket_map, source: @source, now: @now], store)
+
+    decision
   end
 
   defp scope_for(tickets) do
