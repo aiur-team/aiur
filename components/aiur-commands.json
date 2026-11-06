@@ -1,0 +1,33 @@
+{
+  "id": "aiur-commands",
+  "name": "Command response component",
+  "layer": 5,
+  "kind": "package",
+  "paths": [
+    "packages/aiur-commands/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "7487",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Renders the Command component contract for an embedding host application.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
+}
