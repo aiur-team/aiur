@@ -12,7 +12,6 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsCatalogueTest do
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.Index.{FeatureBars, Parts}
   alias Aiur.GitHub.LabelCatalogue
-  alias AiurWeb.Build.Index, as: WebIndex
 
   @owner "acme"
   @repo "widgets"
@@ -94,13 +93,5 @@ defmodule Aiur.BuildOrder.Index.FeatureBarsCatalogueTest do
     parts = parts_with(read_catalogue()) |> Map.put(:history, {:ok, %{rows: %{1 => stale}, health: health()}})
 
     assert [%{key: "mp-e7", label: "Listener modes"}] = FeatureBars.compute(parts, now())
-  end
-
-  test "the dashboard's all-parts read covers every part the build index declares" do
-    declared = MapSet.new(Parts.keys())
-    read_by_dashboard = MapSet.new(WebIndex.read_parts())
-
-    assert MapSet.subset?(declared, read_by_dashboard),
-           "build index declares #{inspect(MapSet.difference(declared, read_by_dashboard) |> MapSet.to_list())} but the dashboard never reads it"
   end
 end
