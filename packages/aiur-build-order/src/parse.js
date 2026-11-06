@@ -47,11 +47,11 @@ export function parseBuildOrder(input) {
   const gates = readGates(raw.gates);
   if (!gates.ok) return gates;
 
-  const epics = readScopes(raw.epics, 'epics', ['key', 'title']);
+  const epics = readScopes(raw.epics, 'epics');
   if (!epics.ok) return epics;
-  const features = readScopes(raw.features, 'features', ['key', 'title']);
+  const features = readScopes(raw.features, 'features');
   if (!features.ok) return features;
-  const lanes = readScopes(raw.lanes, 'lanes', ['key', 'title', 'order']);
+  const lanes = readScopes(raw.lanes, 'lanes');
   if (!lanes.ok) return lanes;
 
   const ticketIds = new Set(tickets.value.map((ticket) => ticket.id));
@@ -197,7 +197,7 @@ function readGates(raw) {
   return { ok: true, value: gates };
 }
 
-function readScopes(raw, field, required) {
+function readScopes(raw, field) {
   if (!Array.isArray(raw)) return fail('invalid_field', `The document needs a ${field} array.`, [field]);
   const scopes = [];
   const seen = new Set();
@@ -208,7 +208,7 @@ function readScopes(raw, field, required) {
     if (key === null) return fail('invalid_field', `Each entry in ${field} needs a non-empty string key.`, [...at, 'key']);
     if (seen.has(key)) return fail('invalid_field', `${field} publishes ${key} more than once.`, [...at, 'key']);
     seen.add(key);
-    if (required.includes('title') && (typeof entry.title !== 'string' || entry.title.trim() === '')) {
+    if (typeof entry.title !== 'string' || entry.title.trim() === '') {
       return fail('invalid_field', `${field} entry ${key} needs a title.`, [...at, 'title']);
     }
     const progress = readProgress(entry.progress, [...at, 'progress']);

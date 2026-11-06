@@ -178,7 +178,7 @@ function layoutGraph(document, top) {
     .join('\n');
 
   const gates = document.gates
-    .map((gate, index) => gateMarkup(gate, gatePosition.get(gate.key), index))
+    .map((gate) => gateMarkup(gate, gatePosition.get(gate.key)))
     .filter(Boolean)
     .join('\n');
 
@@ -273,12 +273,12 @@ function nodeMarkup(document, ticket, box) {
 </g>`;
 }
 
-function gateMarkup(gate, box, index) {
+function gateMarkup(gate, box) {
   if (!box) return '';
   return `<g class="aiur-bo-graph-gate" data-gate="${escapeHtml(gate.key)}" data-status="${escapeHtml(gate.status)}" transform="translate(${round(box.x)} ${round(box.y)})">
 <rect class="aiur-bo-gate-box" width="${GATE_W}" height="${GATE_H}" rx="17"/>
 <text class="aiur-bo-gate-label" x="12" y="15">${escapeHtml(gate.key)} · ${escapeHtml(gate.status)}</text>
-<text class="aiur-bo-gate-title" x="12" y="27">${escapeHtml(truncate(gate.title, 20 + (index % 2)))}</text>
+<text class="aiur-bo-gate-title" x="12" y="27">${escapeHtml(truncate(gate.title, 20))}</text>
 </g>`;
 }
 

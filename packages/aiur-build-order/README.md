@@ -13,9 +13,12 @@ and a plain page can load it with no build step.
 ## Install
 
 ```sh
-npm install aiur-build-order
+npm install ./aiur-build-order-0.1.0.tgz
 npm install aiur-style   # the design tokens the package's stylesheet reads
 ```
+
+The package is packed and checked in CI; it is not published to a registry yet,
+so install the tarball from the release you are consuming.
 
 `aiur-style` is declared as a peer dependency because the package owns no
 colour, spacing or type value: every declaration in `aiur-build-order.css`
@@ -126,8 +129,9 @@ bundler and no server:
 </html>
 ```
 
-`tokens.css` is `aiur-style/tokens.css`, `aiur-build-order.css` and `index.js`
-are the two files in `dist/`, and `build-order.v1.json` is what
+`index.js` and `aiur-build-order.css` are the entry files of `dist/` (the other
+modules in `dist/` are what `index.js` imports), `tokens.css` is
+`aiur-style/tokens.css`, and `build-order.v1.json` is what
 `GET /api/v1/build-order` or `aiur build-orders --json --contract
 build-order.v1` returns.
 
