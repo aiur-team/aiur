@@ -30,7 +30,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
           required(:lifecycle) => Decision.decision_status() | :awaiting | :historic | :history | nil,
           required(:search) => String.t() | nil,
           required(:ticket) => String.t() | nil,
-          optional(:tickets) => MapSet.t(String.t())
+          optional(:tickets) => MapSet.t(String.t()) | nil,
+          optional(:labels) => [String.t()] | nil
         }
 
   @spec build_index(%{String.t() => Decision.t()}, %{optional(String.t()) => [Decision.t()]}) :: map()

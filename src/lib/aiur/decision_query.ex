@@ -181,8 +181,6 @@ defmodule Aiur.DecisionQuery do
     end)
   end
 
-  defp labelled_tickets(_label_set, _observed), do: MapSet.new()
-
   defp labels_of(%{} = observation) do
     case Map.get(observation, :labels) || Map.get(observation, "labels") do
       labels when is_list(labels) -> Enum.filter(labels, &is_binary/1)
