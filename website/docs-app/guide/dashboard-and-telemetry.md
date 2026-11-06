@@ -111,20 +111,19 @@ On the build timeline, Day, Week and Month set the visible range; − and + step
 through 1–30 days. The span is kept in the link. Range controls are hidden in
 List view and return when you switch to Timeline or Gantt.
 
-In List view, **List shows** switches between Tickets, Features and Lanes. The
-selection is kept in the `list` link parameter; `tickets` is the default and
-omitted. A bookmark with `list=epics` still opens the Lanes list.
+In List view, **List shows** switches between Tickets, Features and Lanes. The selection is kept in the `list` link parameter; `tickets` is the default and omitted. A bookmark with `list=epics` still opens the Lanes list.
 
-Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Merged means closed with a merged PR, or closed as done without a PR. Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them.
+A one-line summary above the rows shows the same total and the viewer's local date; the list has no title or card and starts directly under the toolbar.
 
-Rows follow [`feature_order`](../reference/configuration-build-order.md). Sort by most done or most left stays in `fsort`. The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
 
-The Lanes list counts matching tickets per lane, including feature-owned ones,
-so totals overlap, and each row keeps the lane's stored colour.
+Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label, then the label description, then the title-cased slug; logical ids such as `MP-E1` and `BO:` are stripped.
 
-Sort is remaining, then name; age is shown. Footer counts unmatched tickets. Planned pack tickets without
-area labels are excluded; incomplete history or labels stay unknown. With no
-matches, see [`lanes`](../reference/configuration-build-order.md#lanes).
+Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+
+The Lanes list counts matching tickets per lane, including feature-owned ones, so totals overlap, and each row keeps the lane's stored colour.
+
+Sort is remaining, then name; age is shown. Footer counts unmatched tickets. Planned pack tickets without area labels are excluded; incomplete history or labels stay unknown. With no matches, see [`lanes`](../reference/configuration-build-order.md#lanes).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
