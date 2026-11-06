@@ -72,6 +72,7 @@ KNOWN_MAP_SUBKEYS: dict[str, tuple[str, ...]] = {
         "<backend>.management_api_key_env",
         "<backend>.transport",
         "<backend>.balance_baseline",
+        "<backend>.max_output_tokens",
         "<backend>.quirks.reasoning_content_replay",
         "<backend>.quirks.text_tool_fallback",
         "<backend>.quirks.openrouter_metadata",

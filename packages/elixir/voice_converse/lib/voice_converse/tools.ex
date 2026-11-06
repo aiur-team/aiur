@@ -9,6 +9,7 @@ defmodule VoiceConverse.Tools do
 
   alias VoiceConverse.{Briefing, Config, Events, Ports, SummaryTool}
   alias VoiceConverse.Ports.HostTools
+  alias VoiceConverse.Tools.CommandAnswer
 
   @max_summary_chars 1_500
   @type host_tool_spec :: %{name: String.t(), description: String.t(), params: map()}
@@ -107,6 +108,14 @@ defmodule VoiceConverse.Tools do
   def handle(%{config: config, target: target}, %Events.ToolCall{name: "list_open_commands"}),
     do: list_open_commands(config, target)
 
+  # Also callable without the optional port, so a stale provider specification reports that
+  # answering is unavailable instead of silently dropping the operator's choice.
+  def handle(
+        %{config: config, target: target},
+        %Events.ToolCall{name: "answer_command", call_id: call_id, params: params}
+      ),
+      do: answer_command(config, target, call_id, params)
+
   def handle(_session, %Events.ToolCall{name: "end_conversation"}), do: result("Ending.", nil, end?: true)
   def handle(_session, %Events.ToolCall{}), do: result("Unknown tool.", nil, is_error: true)
 
@@ -170,6 +179,16 @@ defmodule VoiceConverse.Tools do
     end
   end
 
+  defp answer_command(%Config{command_source: nil} = config, _target, _call_id, _params),
+    do: result("Command answers unavailable.", config, is_error: true)
+
+  defp answer_command(%Config{command_source: source} = config, target, call_id, params) do
+    case CommandAnswer.answer(source, target, call_id, params) do
+      {:ok, text} -> result(text, config)
+      {:error, text} -> result(text, config, is_error: true)
+    end
+  end
+
   defp commands_text([]), do: "No open Commands."
 
   defp commands_text(commands) do
@@ -208,8 +227,12 @@ defmodule VoiceConverse.Tools do
 
   defp command_specs(%Config{command_source: nil}), do: []
 
-  defp command_specs(%Config{}),
-    do: [%{name: "list_open_commands", description: "List open operator Commands.", parameters: empty_parameters()}]
+  defp command_specs(%Config{}) do
+    [
+      %{name: "list_open_commands", description: "List open operator Commands.", parameters: empty_parameters()},
+      CommandAnswer.spec()
+    ]
+  end
 
   defp end_spec,
     do: %{

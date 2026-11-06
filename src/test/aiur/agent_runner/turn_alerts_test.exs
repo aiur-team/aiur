@@ -123,4 +123,45 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
                )
     end
   end
+
+  describe "credit-limited pauses" do
+    test "records the backend as limited, raises the credit alert, and advances the route" do
+      issue = %Issue{id: "gid-ta-20", identifier: "TA-20", labels: []}
+      payload = %{kind: :usage_limit_exhausted, reason: :credit_limited, credit_limited: true, backend: "openrouter"}
+      path = Path.join(Aiur.TestSupport.tmp_root!("turn-alert-credit-limited"), "model-usage.json")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
+
+      assert :ok = TurnAlerts.maybe_emit_usage_limit_alert(issue, nil, nil, payload, path: path)
+
+      refute ModelAvailability.available?("openrouter", path: path)
+
+      assert Enum.any?(
+               Aiur.AlertFeed.list(ledger_paths: [Aiur.AlertLedger.path()]),
+               &(&1["topic"] == "system.provider.credit_limited.openrouter")
+             )
+
+      # The next claim takes the next `agent.priority` route instead of retrying
+      # the credit-limited one, and never becomes `agent:error` (#7514).
+      assert {:ok, %Issue{selected_backend: "codex"}} =
+               Aiur.CodingAgent.select_for_dispatch(issue,
+                 backends: ["openrouter:deepseek/deepseek-v4-flash", "codex"],
+                 configured_backends: ["openrouter", "codex"],
+                 state: ModelAvailability.load(path)
+               )
+    end
+
+    test "leaves the generic quota alert to the plain usage-limit pause" do
+      identifier = "TA-credit-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-ta-21", identifier: identifier}
+      payload = %{kind: :usage_limit_exhausted, credit_limited: true, backend: "openrouter"}
+      path = Path.join(Aiur.TestSupport.tmp_root!("turn-alert-credit-quota"), "model-usage.json")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
+
+      Exchange.subscribe("ticket.#{identifier}.agent.usage_limit_exhausted")
+
+      assert :ok = TurnAlerts.maybe_emit_usage_limit_alert(issue, nil, nil, payload, path: path)
+
+      refute_received {:event, _}
+    end
+  end
 end

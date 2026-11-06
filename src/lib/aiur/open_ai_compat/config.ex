@@ -5,6 +5,7 @@ defmodule Aiur.OpenAICompat.Config do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.Schema.OpenRouterBackend
   alias Aiur.Init.Dotenv
+  alias Aiur.OpenAICompat.OutputTokens
 
   @required ~w(base_url api_key_env transport)a
 
@@ -26,6 +27,7 @@ defmodule Aiur.OpenAICompat.Config do
        |> Map.put(:account_name, account_name)
        |> Map.put(:api_key, api_key)
        |> Map.put(:model, model)
+       |> Map.put(:max_output_tokens, OutputTokens.resolve(Map.get(config, :max_output_tokens)))
        |> put_route_preferences(model)
        |> Map.put(:request_fun, Keyword.get(opts, :request_fun, &request/1))}
     end
@@ -157,7 +159,7 @@ defmodule Aiur.OpenAICompat.Config do
                    model_discovery reasoning_content_replay text_tool_fallback openrouter_metadata
                    local_concurrency_limit provider provider_preferences routes models order only ignore
                    allow_fallbacks sort max_price quantizations data_collection require_parameters
-                   prompt completion),
+                   prompt completion max_output_tokens),
                 &{&1, String.to_atom(&1)}
               )
 
