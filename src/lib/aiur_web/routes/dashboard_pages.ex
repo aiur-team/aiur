@@ -62,6 +62,11 @@ defmodule AiurWeb.Routes.DashboardPages do
         pipe_through([:browser_dashboard_auth, :dashboard_pages, :secure_document])
 
         get("/build-order-documents/:owner/:repository/:root_number/:member_number", AiurWeb.PlanningDocumentController, :show)
+        # Command media for the dashboard surfaces. The Decision API route needs
+        # a supervisor bearer token a browser `<img>` cannot present, so the
+        # dashboard renders the same attachment through the credential the page
+        # itself was loaded with.
+        get("/commands/:decision_id/media/:attachment_id", AiurWeb.DecisionMediaController, :show)
       end
     end
   end

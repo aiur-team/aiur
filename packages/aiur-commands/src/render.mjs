@@ -33,6 +33,9 @@ const LIST_COPY = {
 
 const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'revised', 'answered', 'pending'];
 
+/** The typed Command media kinds the contract can carry. */
+export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
+
 /** The human label for a Command or list state. */
 export function stateLabel(state) {
   return STATE_LABELS[state] ?? 'Command';
@@ -74,7 +77,7 @@ function recommendationLine(command) {
   return `<p class="aiur-command-recommendation" data-command-recommendation="${escapeHtml(command.recommendation.option_id)}">Recommended: ${escapeHtml(command.recommendation.label ?? command.recommendation.option_id)}</p>`;
 }
 
-function optionsMarkup(command) {
+function optionsMarkup(command, options) {
   if (!Array.isArray(command?.options) || command.options.length === 0) return '';
 
   const items = command.options
@@ -86,14 +89,32 @@ function optionsMarkup(command) {
         : '';
       const badge = recommended ? '<span class="aiur-command-chip">Recommended</span>' : '';
 
-      return `<label class="aiur-command-option${recommended ? ' is-recommended' : ''}" data-option-id="${escapeHtml(option.id)}">
+      const label = `<label class="aiur-command-option${recommended ? ' is-recommended' : ''}" data-option-id="${escapeHtml(option.id)}">
   <input type="radio" name="option_id" value="${escapeHtml(option.id)}"${checked}>
   <span class="aiur-command-option-copy"><strong>${escapeHtml(option.label)}</strong>${description}</span>${badge}
 </label>`;
+
+      return `${label}${optionMediaMarkup(option, command, options)}`;
     })
     .join('\n');
 
   return `<fieldset class="aiur-command-options"><legend>Choose an answer</legend>\n${items}\n</fieldset>`;
+}
+
+// An option's typed media renders beside the option rather than inside its
+// `<label>`, so a video or audio control is never swallowed by the label's
+// click target.
+function optionMediaMarkup(option, command, options) {
+  if (!Array.isArray(option?.media) || option.media.length === 0) return '';
+
+  const items = option.media
+    .map((entry) => (isTypedMedia(entry) ? typedMediaMarkup(entry, command, options) : artifactMediaMarkup(entry)))
+    .filter(Boolean)
+    .join('\n');
+
+  if (!items) return '';
+
+  return `<div class="aiur-command-option-media" data-option-media="${escapeHtml(option.id)}">\n${items}\n</div>`;
 }
 
 function freeResponseMarkup(command) {
@@ -131,20 +152,126 @@ function conflictMarkup(command) {
   return `<p class="aiur-command-conflict" role="status">${copy}</p>`;
 }
 
-function mediaMarkup(command) {
+function mediaMarkup(command, options) {
   if (!Array.isArray(command?.media) || command.media.length === 0) return '';
 
   const items = command.media
-    .map((entry) => {
-      if (entry.kind === 'url' && /^https:\/\//.test(entry.value)) {
-        return `<a class="aiur-command-media" href="${escapeHtml(entry.value)}" rel="noreferrer noopener">${escapeHtml(entry.value)}</a>`;
-      }
-
-      return `<span class="aiur-command-media" data-media-kind="${escapeHtml(entry.kind)}">${escapeHtml(entry.value)}</span>`;
-    })
+    .map((entry) => (isTypedMedia(entry) ? typedMediaMarkup(entry, command, options) : artifactMediaMarkup(entry)))
+    .filter(Boolean)
     .join('\n');
 
+  if (!items) return '';
+
   return `<div class="aiur-command-media-list">\n${items}\n</div>`;
+}
+
+// A typed item always carries a locator; a pre-existing artifact reference
+// carries a bare kind/value pair instead.
+function isTypedMedia(entry) {
+  return Boolean(entry?.locator) && MEDIA_KINDS.includes(entry?.kind);
+}
+
+function artifactMediaMarkup(entry) {
+  if (entry?.kind === 'url' && isHttps(entry.value)) {
+    return `<a class="aiur-command-media" href="${escapeHtml(entry.value)}" rel="noreferrer noopener">${escapeHtml(entry.value)}</a>`;
+  }
+
+  if (entry?.kind === 'url' || entry?.kind === 'path') {
+    return `<span class="aiur-command-media" data-media-kind="${escapeHtml(entry.kind)}">${escapeHtml(entry.value)}</span>`;
+  }
+
+  return '';
+}
+
+function typedMediaMarkup(item, command, options) {
+  const kind = item.kind;
+  const source = mediaSource(item, command, options);
+  const caption = captionMarkup(item);
+
+  if (!source) {
+    const hint = item.mime_type
+      ? `This ${escapeHtml(item.mime_type)} item could not be resolved.`
+      : 'This media item could not be resolved.';
+
+    return `<figure class="aiur-command-media-item" data-media-kind="${escapeHtml(kind)}">
+  <div class="aiur-command-media-unavailable" role="status"><strong>Media unavailable</strong><span>${hint}</span></div>
+  ${caption}
+</figure>`;
+  }
+
+  const size = [
+    dimension(item, 'width') ? ` width="${dimension(item, 'width')}"` : '',
+    dimension(item, 'height') ? ` height="${dimension(item, 'height')}"` : '',
+  ].join('');
+  const name = escapeHtml(item.alt_text ?? item.caption ?? 'Command media');
+
+  if (kind === 'image' || kind === 'animated_image') {
+    return `<figure class="aiur-command-media-item" data-media-kind="${escapeHtml(kind)}">
+  <img src="${escapeHtml(source)}" alt="${name}" loading="lazy" decoding="async"${size}>
+  ${caption}
+</figure>`;
+  }
+
+  if (kind === 'video') {
+    const poster = posterSource(item, command, options);
+    const posterAttribute = poster ? ` poster="${escapeHtml(poster)}"` : '';
+
+    return `<figure class="aiur-command-media-item" data-media-kind="video">
+  <video controls preload="metadata" playsinline aria-label="${name}"${posterAttribute}${size}>
+    <source src="${escapeHtml(source)}" type="${escapeHtml(item.mime_type ?? '')}">
+    <a href="${escapeHtml(source)}">Open video</a>
+  </video>
+  ${caption}
+</figure>`;
+  }
+
+  return `<figure class="aiur-command-media-item" data-media-kind="audio">
+  <audio controls preload="metadata" aria-label="${name}">
+    <source src="${escapeHtml(source)}" type="${escapeHtml(item.mime_type ?? '')}">
+    <a href="${escapeHtml(source)}">Open audio</a>
+  </audio>
+  ${caption}
+</figure>`;
+}
+
+function captionMarkup(item) {
+  if (!item?.caption) return '';
+  const kind = item.kind === 'animated_image' ? '<span class="aiur-command-media-kind">Animated</span>' : '';
+  return `<figcaption class="aiur-command-media-caption">${kind}${escapeHtml(item.caption)}</figcaption>`;
+}
+
+// An `https:` locator is used as-is; an attachment reference becomes the
+// scoped Commands media route when the host tells the renderer its base URL.
+// Anything else is unavailable rather than a broken element.
+function mediaSource(item, command, options) {
+  return locatorSource(item?.locator, command, options);
+}
+
+function posterSource(item, command, options) {
+  return locatorSource(item?.poster, command, options);
+}
+
+function locatorSource(locator, command, options) {
+  if (!locator || typeof locator !== 'object') return null;
+  if (locator.kind === 'url') return isHttps(locator.value) ? locator.value : null;
+  if (locator.kind !== 'attachment') return null;
+
+  const attachmentId = locator.attachment_id ?? null;
+  const decisionId = command?.decision_id ?? null;
+  const base = options?.mediaBaseUrl ?? null;
+  if (!attachmentId || !decisionId || !base) return null;
+
+  const prefix = String(base).replace(/\/+$/, '');
+  return `${prefix}/api/v1/commands/${encodeURIComponent(decisionId)}/media/${encodeURIComponent(attachmentId)}`;
+}
+
+function dimension(item, key) {
+  const value = item?.[key];
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function isHttps(value) {
+  return typeof value === 'string' && /^https:\/\//.test(value);
 }
 
 function pendingForm(command, options) {
@@ -156,7 +283,7 @@ function pendingForm(command, options) {
   const method = options.method ?? 'post';
 
   return `<form class="aiur-command-answer-form" data-aiur-command-form data-decision-id="${escapeHtml(command.decision_id)}" method="${escapeHtml(method)}"${action}>
-  ${optionsMarkup(command)}
+  ${optionsMarkup(command, options)}
   ${freeResponseMarkup(command)}
   <footer class="aiur-command-actions"><button type="submit">Record answer</button></footer>
 </form>`;
@@ -184,7 +311,7 @@ function noticeMarkup(command) {
  * Renders one Command component.
  *
  * @param {import('./contract.d.ts').CommandComponent} command
- * @param {{answerUrl?: string, method?: string}} [options]
+ * @param {{answerUrl?: string, method?: string, mediaBaseUrl?: string}} [options]
  * @returns {string}
  */
 export function renderCommand(command, options = {}) {
@@ -203,7 +330,7 @@ export function renderCommand(command, options = {}) {
   ${conflictMarkup(command)}
   ${pendingForm(command, options)}
   ${answerMarkup(command)}
-  ${mediaMarkup(command)}
+  ${mediaMarkup(command, options)}
 </article>`;
 }
 
