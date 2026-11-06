@@ -120,10 +120,11 @@ answer or revise.
 
 A Command's prompt and each of its options can carry typed media: `image`,
 `animated_image`, `video`, or `audio`. The component's `media[]` holds those
-items, and an option's own `media[]` sits on the option. A typed item has a
-`kind`, a `mime_type`, a `locator`, and alt text or a caption. A pre-existing
-artifact reference in the same list has a bare `kind` + `value`; the presence of
-`locator` is what tells the two apart.
+items, and an option's own `media[]` sits on the option.
+
+A typed item has a `kind`, a `mime_type`, a `locator`, and alt text or a caption.
+A pre-existing artifact reference in the same list has a bare `kind` + `value`.
+The presence of `locator` is what tells the two apart.
 
 ```json
 {
@@ -139,9 +140,11 @@ artifact reference in the same list has a bare `kind` + `value`; the presence of
 
 A `url` locator is already public and needs nothing from the host. An
 `attachment` locator is a file Aiur serves, so the host reads it from the media
-route with the same grant; Aiur re-checks the ticket set and the Command's own
-attachment list on every read. A signed or non-allowlisted URL never appears in
-the component, and a server-local path never appears at all.
+route with the same grant.
+
+Aiur re-checks the ticket set and the Command's own attachment list on every
+read. A signed or non-allowlisted URL never appears in the component, and a
+server-local path never appears at all.
 
 `renderCommand(command, { mediaBaseUrl })` points an `attachment` locator at the
 host's Aiur origin. Without it, an attachment item renders an unavailable panel

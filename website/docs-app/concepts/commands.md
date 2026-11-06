@@ -445,10 +445,12 @@ resolves media the Command actually carries, so an attachment id belonging to
 another Command answers 404.
 
 The dashboard renders each kind with native controls, alt text and captions, and
-an unavailable panel when the media cannot be resolved. An embedding host renders
-the same presentation through the `@aiur/commands` package and reads a local
-attachment from the ticket-scoped route
-`GET /api/v1/commands/{decision_id}/media/{attachment_id}` with its Command grant.
+an unavailable panel when the media cannot be resolved.
+
+An embedding host renders the same presentation through the `@aiur/commands`
+package. It reads a local attachment from the ticket-scoped route
+`GET /api/v1/commands/{decision_id}/media/{attachment_id}`, using the Command
+grant it already holds.
 
 ## The Executor asks you
 
