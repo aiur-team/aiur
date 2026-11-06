@@ -92,7 +92,7 @@ A remote timeout is never retried automatically. For writes, `outcome unknown on
 
 ### Replay-safe writes
 
-Every remote write carries a `request_id` (control contract version 2, a UUIDv7 the client generates; `--instance <name> --request-id <id> <command>` or `AIUR_REQUEST_ID` supplies your own). The daemon runs a given `(token, request_id)` at most once for 24 hours and answers a repeat with the stored response, so a lost answer is safe to retry with the same id. `--request-id` cannot be combined with `--instance all`.
+Every remote write carries a UUIDv7 `request_id`, and the daemon runs each `(token, request_id)` once for 24 hours.
 
 | Result | Exit | Meaning |
 | --- | --- | --- |
@@ -101,4 +101,4 @@ Every remote write carries a `request_id` (control contract version 2, a UUIDv7 
 | `outcome_unknown` (HTTP 409) | 124 | The daemon restarted mid-call. The write is never re-run; check state, then use a new id. |
 | `request_id_reused` (HTTP 422) | 64 | The id was already used with a different command. |
 
-A daemon on contract version 1 ignores `request_id` and keeps the old behavior. Audit lines in `control-audit.ndjson` carry `request_id`, `origin_gateway` and `actor`; a repeat is audited as `replayed`.
+The client generates the id (control contract version 2); `--request-id <id>` or `AIUR_REQUEST_ID` supplies your own, and a repeat returns the stored response. `--request-id` cannot be combined with `--instance all`. A daemon on contract version 1 ignores `request_id` and keeps the old behavior. Audit lines in `control-audit.ndjson` carry `request_id`, `origin_gateway` and `actor`; a repeat is audited as `replayed`.
