@@ -1,0 +1,461 @@
+defmodule VoiceTranscribe.ScribeTest do
+  @moduledoc """
+  The Scribe realtime transcription protocol, exercised without a socket and
+  without a clock.
+
+  Both are deliberate. The transport is a behaviour so no test opens a
+  connection, and the flush deadline goes through an injected scheduler so no
+  test waits for one — a suite that sleeps grows flakes.
+  """
+
+  use ExUnit.Case, async: false
+
+  import ExUnit.CaptureLog
+
+  alias VoiceTranscribe.Scribe
+
+  @api_key "sk-elevenlabs-supersecret-abc123"
+
+  # Captured as a named function rather than an anonymous one so the closure
+  # cannot be what holds the key: when the state assertion below says the key is
+  # absent, nothing in the state is quietly carrying it.
+  def api_key, do: @api_key
+  def no_api_key, do: nil
+  def blank_api_key, do: "   "
+
+  defmodule FakeTransport do
+    @moduledoc false
+    @behaviour VoiceTranscribe.Scribe.Transport
+
+    @impl true
+    def connect(url, headers) do
+      # GenServer records its starter even when the session has a different owner.
+      [observer | _] = Process.get(:"$ancestors")
+      send(observer, {:transport_connect, url, headers})
+      {:ok, observer}
+    end
+
+    @impl true
+    def send_text(conn, text) do
+      send(conn, {:transport_send, text})
+      {:ok, conn}
+    end
+
+    @impl true
+    def close(conn) do
+      send(conn, :transport_close)
+      :ok
+    end
+  end
+
+  defmodule FailingTransport do
+    @moduledoc """
+    Fails the way the real one can: the error value embeds the request headers,
+    and those headers carry the API key. Anything that renders this value leaks
+    the credential.
+    """
+    @behaviour VoiceTranscribe.Scribe.Transport
+
+    @impl true
+    def connect(url, headers), do: {:error, %Mint.TransportError{reason: {:request, url, headers}}}
+
+    @impl true
+    def send_text(conn, _text), do: {:ok, conn}
+
+    @impl true
+    def close(_conn), do: :ok
+  end
+
+  defmodule FailingSendTransport do
+    @moduledoc false
+    @behaviour VoiceTranscribe.Scribe.Transport
+
+    @impl true
+    def connect(url, headers), do: FakeTransport.connect(url, headers)
+
+    @impl true
+    def send_text(_conn, _text), do: {:error, :closed}
+
+    @impl true
+    def close(conn), do: FakeTransport.close(conn)
+  end
+
+  test "transport observation works while the former shared name is occupied" do
+    observer = start_supervised!({Agent, fn -> :unused end})
+    true = Process.register(observer, :scribe_test_observer)
+
+    for transport <- [FakeTransport, FailingSendTransport] do
+      session = ready_session(transport: transport)
+      Scribe.stop(session)
+      assert_receive :transport_close, 1000
+    end
+
+    assert Process.whereis(:scribe_test_observer) == observer
+  end
+
+  describe "the credential" do
+    test "travels in the xi-api-key request header and never in the connect URL" do
+      {:ok, _session} = start_session()
+
+      assert_receive {:transport_connect, url, headers}, 1000
+
+      # The header carries it…
+      assert {"xi-api-key", @api_key} in headers
+
+      # …and the URL carries neither the key nor the query-parameter form of a
+      # credential. ElevenLabs also accepts a single-use `token` parameter; that
+      # is the browser answer and it still puts a credential in a URL, which is
+      # the thing that ends up in logs and error messages.
+      refute url =~ @api_key
+      refute url =~ "token"
+
+      assert url =~ "model_id=scribe_v2_realtime"
+      assert url =~ "audio_format=pcm_16000"
+      assert url =~ "language_code=eng"
+      # Voice activity detection commits an utterance on a natural pause, which
+      # is what settles text while the operator is still holding the key.
+      assert url =~ "commit_strategy=vad"
+    end
+
+    test "omits the language hint when the host supplies none" do
+      {:ok, _session} = start_session(language_code: nil)
+
+      assert_receive {:transport_connect, url, _headers}, 1000
+      refute url =~ "language_code"
+    end
+
+    test "never enters the session's process state" do
+      {:ok, session} = start_session()
+      assert_receive {:transport_connect, _url, _headers}, 1000
+
+      rendered = inspect(:sys.get_state(session), limit: :infinity, printable_limit: :infinity, structs: false)
+
+      refute rendered =~ @api_key
+      refute rendered =~ "xi-api-key"
+    end
+
+    test "never reaches a log line or a failure reason when the session fails" do
+      log =
+        capture_log(fn ->
+          {:ok, session} = start_session(transport: FailingTransport)
+          ref = Process.monitor(session)
+
+          # The connection failure is described generically, because the
+          # underlying error can embed the request headers.
+          assert_receive {:voice_error, %{message: "Speech-to-text connection failed"}}, 1000
+          assert_receive {:voice_closed}, 1000
+          # The connect failure is immediate, so the session may already be gone
+          # by the time the monitor is set; either way it does not linger.
+          assert_receive {:DOWN, ^ref, :process, ^session, reason}, 1000
+          assert reason in [:normal, :noproc]
+        end)
+
+      refute log =~ @api_key
+    end
+
+    test "an absent or blank key is reported as unconfigured rather than as a failure" do
+      assert {:error, :unconfigured} = Scribe.start(owner: self(), api_key_fun: &__MODULE__.no_api_key/0)
+      assert {:error, :unconfigured} = Scribe.start(owner: self(), api_key_fun: &__MODULE__.blank_api_key/0)
+      refute_receive {:voice_error, _error}, 20
+    end
+
+    test "a missing api_key_fun is unconfigured, not a crash" do
+      assert {:error, :unconfigured} = Scribe.start(owner: self())
+    end
+  end
+
+  describe "readiness" do
+    test "audio captured before session_started is queued and flushed in order on it" do
+      {:ok, session} = started_session()
+
+      Scribe.push(session, "AAAA")
+      Scribe.push(session, "BBBB")
+      refute_receive {:transport_send, _frame}, 20
+
+      frame(session, %{"message_type" => "session_started"})
+
+      assert %{
+               "audio_base_64" => "AAAA",
+               "commit" => false,
+               "message_type" => "input_audio_chunk",
+               "sample_rate" => 16_000
+             } =
+               assert_sent_frame()
+
+      assert %{"audio_base_64" => "BBBB", "commit" => false} = assert_sent_frame()
+    end
+
+    test "audio after session_started is relayed verbatim with no transcode" do
+      session = ready_session()
+
+      Scribe.push(session, "Zm9vYmFy")
+      assert %{"audio_base_64" => "Zm9vYmFy"} = assert_sent_frame()
+    end
+  end
+
+  describe "transcripts" do
+    test "committed_transcript is final and final_transcript is only a partial" do
+      session = ready_session()
+
+      frame(session, %{"message_type" => "partial_transcript", "text" => "ship the"})
+      assert_receive {:voice_transcript, :partial, "ship the"}, 1000
+
+      # Despite its name, `final_transcript` is still revisable. Treating it as
+      # final duplicates phrases in the operator's outgoing message.
+      frame(session, %{"message_type" => "final_transcript", "text" => "ship the fix"})
+      assert_receive {:voice_transcript, :partial, "ship the fix"}, 1000
+
+      frame(session, %{"message_type" => "committed_transcript", "text" => "ship the fix"})
+      assert_receive {:voice_transcript, :final, "ship the fix"}, 1000
+    end
+
+    test "a malformed frame is ignored rather than ending a working session" do
+      session = ready_session()
+
+      send(session, {:scribe_transport, :text, "{not json"})
+      refute_receive {:voice_closed}, 20
+
+      frame(session, %{"message_type" => "partial_transcript", "text" => "still here"})
+      assert_receive {:voice_transcript, :partial, "still here"}, 1000
+    end
+  end
+
+  describe "provider errors" do
+    test "each documented error frame ends the session with an operator-readable reason" do
+      # The named ones are rewritten for an operator; the rest carry the
+      # provider's own detail, and fall back to a generic line when it has none.
+      # The set is explicit rather than a `*_error` suffix heuristic, which would
+      # silently miss `error`, `queue_overflow`, `quota_exceeded` and the rest
+      # and leave a dead session looking merely quiet.
+      for {type, detail, reason} <- [
+            {"auth_error", "raw", "ElevenLabs rejected the API key"},
+            {"quota_exceeded", "raw", "ElevenLabs quota exhausted"},
+            {"rate_limited", "raw", "ElevenLabs rate limit reached"},
+            {"commit_throttled", "raw", "ElevenLabs rate limit reached"},
+            {"unaccepted_terms", "raw", "ElevenLabs terms not accepted for this account"},
+            {"session_time_limit_exceeded", "raw", "ElevenLabs session time limit reached"},
+            {"queue_overflow", nil, "Speech-to-text failed"},
+            {"error", nil, "Speech-to-text failed"},
+            {"invalid_request", "the request was rejected", "the request was rejected"}
+          ] do
+        session = ready_session()
+        frame(session, %{"message_type" => type, "error" => detail})
+
+        assert_receive {:voice_error, %{message: ^reason}}, 1000
+        assert_receive {:voice_closed}, 1000
+        assert_receive :transport_close, 1000
+      end
+    end
+
+    test "error frames carry the contract code, and an unclassified one stays cause-neutral" do
+      for {type, code} <- [
+            {"auth_error", :provider_auth},
+            {"quota_exceeded", :provider_quota},
+            {"rate_limited", :provider_error}
+          ] do
+        session = ready_session()
+        frame(session, %{"message_type" => type, "error" => "raw"})
+
+        assert_receive {:voice_error, %{code: ^code}}, 1000
+      end
+    end
+
+    test "a transport failure mid-session is described generically" do
+      session = ready_session()
+
+      send(session, {:scribe_transport, :error, %{headers: [{"xi-api-key", @api_key}]}})
+
+      assert_receive {:voice_error, %{message: reason}}, 1000
+      refute reason =~ @api_key
+      assert_receive {:voice_closed}, 1000
+    end
+
+    test "a failed audio send ends the session instead of silently dropping speech" do
+      session = ready_session(transport: FailingSendTransport)
+
+      Scribe.push(session, "AAAA")
+
+      assert_receive {:voice_error, %{message: "Speech-to-text connection failed"}}, 1000
+      assert_receive {:voice_closed}, 1000
+      assert_receive :transport_close, 1000
+    end
+
+    test "a failed commit send ends the session instead of reporting a completed utterance" do
+      session = ready_session(transport: FailingSendTransport)
+
+      Scribe.commit(session)
+
+      assert_receive {:voice_error, %{message: "Speech-to-text connection failed"}}, 1000
+      assert_receive {:voice_closed}, 1000
+      assert_receive :transport_close, 1000
+    end
+
+    test "a peer close ends the session without inventing an error" do
+      session = ready_session()
+
+      send(session, {:scribe_transport, :closed})
+
+      assert_receive {:voice_closed}, 1000
+      refute_received {:voice_error, _error}
+    end
+  end
+
+  describe "the commit flush" do
+    test "seals the utterance with an empty commit chunk and arms the deadline" do
+      session = ready_session()
+      Scribe.push(session, "AAAA")
+      assert_sent_frame()
+
+      Scribe.commit(session)
+
+      # The documented way to seal the final utterance. Closing the socket
+      # without it drops whatever the server had not yet committed — the tail of
+      # what was just said.
+      assert %{"audio_base_64" => "", "commit" => true} = assert_sent_frame()
+      assert_receive {:flush_armed, 2_000}, 1000
+    end
+
+    test "closes as soon as the settled transcript arrives, without waiting out the deadline" do
+      session = ready_session()
+      Scribe.commit(session)
+      assert_sent_frame()
+      assert_receive {:flush_armed, _delay}, 1000
+
+      frame(session, %{"message_type" => "committed_transcript", "text" => "the tail"})
+
+      assert_receive {:voice_transcript, :final, "the tail"}, 1000
+      assert_receive {:voice_closed}, 1000
+    end
+
+    test "closes on the deadline when the settled transcript never arrives" do
+      session = ready_session()
+      Scribe.commit(session)
+      assert_sent_frame()
+      assert_receive {:flush_armed, _delay}, 1000
+
+      # Driven by hand: the deadline is a message, not an elapsed interval.
+      send(session, :flush_deadline)
+
+      assert_receive {:voice_closed}, 1000
+      assert_receive :transport_close, 1000
+    end
+
+    test "audio pushed after the commit is dropped rather than reopening the utterance" do
+      session = ready_session()
+      Scribe.commit(session)
+      assert_sent_frame()
+
+      Scribe.push(session, "TOOLATE")
+      refute_receive {:transport_send, _frame}, 20
+    end
+
+    test "a commit before the session is ready preserves queued audio and flushes after readiness" do
+      {:ok, session} = started_session()
+      Scribe.push(session, "AAAA")
+
+      Scribe.commit(session)
+      refute_receive {:voice_closed}, 20
+      refute_receive {:transport_send, _frame}, 20
+
+      frame(session, %{"message_type" => "session_started"})
+
+      assert %{"audio_base_64" => "AAAA", "commit" => false} = assert_sent_frame()
+      assert %{"audio_base_64" => "", "commit" => true} = assert_sent_frame()
+      assert_receive {:flush_armed, 2_000}, 1000
+    end
+  end
+
+  describe "readiness bounds" do
+    test "fails a session that never becomes ready" do
+      test_pid = self()
+      {:ok, session} = start_session(ready_scheduler: fn delay_ms -> send(test_pid, {:ready_armed, delay_ms}) end)
+      assert_receive {:transport_connect, _url, _headers}, 1000
+      assert_receive {:ready_armed, 10_000}, 1000
+
+      send(session, :ready_deadline)
+
+      assert_receive {:voice_error, %{message: "Speech-to-text session did not become ready"}}, 1000
+      assert_receive {:voice_closed}, 1000
+      assert_receive :transport_close, 1000
+    end
+
+    test "bounds audio queued before readiness" do
+      {:ok, session} = start_session(max_backlog_bytes: 4)
+      assert_receive {:transport_connect, _url, _headers}, 1000
+
+      Scribe.push(session, "AAAAA")
+
+      assert_receive {:voice_error, %{message: "Speech-to-text session did not become ready"}}, 1000
+      assert_receive {:voice_closed}, 1000
+      assert_receive :transport_close, 1000
+    end
+  end
+
+  describe "idempotent stop" do
+    test "stopping twice, and pushing or committing after a stop, is safe" do
+      session = ready_session()
+
+      assert :ok = Scribe.stop(session)
+      assert_receive :transport_close, 1000
+      # An explicit stop is caller-initiated, so it closes silently: the caller
+      # already knows. Only a session that ends on its own sends `:voice_closed`.
+      refute_receive {:voice_closed}, 20
+
+      assert :ok = Scribe.stop(session)
+      assert :ok = Scribe.push(session, "AAAA")
+      assert :ok = Scribe.commit(session)
+      refute_receive {:transport_send, _frame}, 20
+    end
+  end
+
+  test "the session stops with its owner so a connection cannot outlive the hold" do
+    owner = spawn(fn -> Process.sleep(:infinity) end)
+    {:ok, session} = Scribe.start(session_opts(owner: owner))
+    ref = Process.monitor(session)
+    # The monitor is a signal, and the owner's DOWN comes from another sender, so
+    # BEAM may hand the session that DOWN first and the monitor then reports
+    # `:noproc`. A call from this process is ordered after the monitor.
+    :sys.get_state(session)
+    assert_receive {:transport_connect, _url, _headers}, 1000
+
+    Process.exit(owner, :kill)
+
+    assert_receive {:DOWN, ^ref, :process, ^session, :normal}, 1000
+    assert_receive :transport_close, 1000
+  end
+
+  defp start_session(opts \\ []), do: Scribe.start(session_opts(opts))
+
+  defp session_opts(opts) do
+    test_pid = self()
+
+    [
+      owner: Keyword.get(opts, :owner, test_pid),
+      api_key_fun: &__MODULE__.api_key/0,
+      transport: Keyword.get(opts, :transport, FakeTransport),
+      language_code: "eng",
+      sample_rate: 16_000,
+      scheduler: fn delay_ms -> send(test_pid, {:flush_armed, delay_ms}) end
+    ]
+    |> Keyword.merge(opts)
+  end
+
+  defp started_session(opts \\ []) do
+    {:ok, session} = start_session(opts)
+    assert_receive {:transport_connect, _url, _headers}, 1000
+    {:ok, session}
+  end
+
+  defp ready_session(opts \\ []) do
+    {:ok, session} = started_session(opts)
+    frame(session, %{"message_type" => "session_started"})
+    session
+  end
+
+  defp frame(session, message), do: send(session, {:scribe_transport, :text, Jason.encode!(message)})
+
+  defp assert_sent_frame do
+    assert_receive {:transport_send, frame}, 1000
+    Jason.decode!(frame)
+  end
+end

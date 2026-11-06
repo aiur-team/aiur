@@ -172,6 +172,42 @@ one-second config poll reload it. Do not run `aiur stop` and relaunch just to
 change `agent.max_concurrent_agents`, `agent.target_cpu_pressure`, or
 `agent.max_cpu_pressure`; confirm the result with `"$AIUR_CMD" status`.
 
+### Skill mapping
+
+Workers load the skills that fit their ticket when `agent.skills` maps a lane,
+owning feature, label or complexity level to skill names. Configure it during
+preflight so each lane's workers start with its skills and the index of the rest,
+instead of every worker carrying the whole library. See
+[Matching skills to a ticket](../../../website/docs-app/skills.md#matching-skills-to-a-ticket).
+
+```yaml
+agent:
+  skills:
+    by_lane:
+      art: [pixel-art, palette-discipline]
+      frontend: [ui-kit, design-import]
+      audio: [audio-design]
+    by_feature:
+      items-ui: [ui-kit, design-import]
+      combat: [combat-tuning]
+    by_label:
+      pixel-art: [pixel-art, palette-discipline]
+```
+
+A lane is the technical column the work belongs to: a `lane:`, `area:` or
+`build-lane:` label suffix, or a configured general epic's label matchers. Labels
+outrank lanes, lanes outrank the owning feature, and the feature outranks
+complexity; matching sets combine.
+
+A `skills:<name>` label or a `Skills: a, b` body line adds skills to one ticket,
+and `Skills only: a, b` replaces the configured set for it.
+
+Config is read when a worker's prompt is built, so an edit applies to the next
+dispatch without a relaunch. Verify with `"$AIUR_CMD" agents`: each row shows the
+worker's mapped skills and the reason each was selected. A mapped name with no
+installed skill logs a warning and appears in the prompt and dispatch record as
+missing; report it rather than letting the worker stall on it.
+
 Preflight also covers the Executor wake path. The listener is armed on **every**
 run now, with or without `--executor`, so `LISTENER absent` no longer means "no
 Executor was intended" — it always means the recording path is broken and this
@@ -320,6 +356,20 @@ Read now: [Arm monitoring immediately](references/monitoring.md) after launch, i
 Command triage: [deadlines, acknowledgement, and asking the human](references/command-decisions.md).
 
 Read now: [Drive the run](references/driving.md) on every observation, and [Review and merge](references/review-and-merge.md) before review, merge, or closure.
+
+## Per-ticket deep dives
+
+Scoping one ticket — an open-ended question that decides that ticket's design,
+contract, or acceptance — is a research spike, not a run-log exercise. Use the
+`research-spike` skill for it: brainstorm, plan, research the ticket, then write
+the specs the worker executes. Whole-feature decomposition stays with
+`aiur-build` and the shared `build-order` skill; a spike never decomposes a
+feature.
+
+Put the spike's output where the fleet can see it — the ticket itself, or the
+artifacts the spike names, linked from the Executor handoff. An investigation
+that lives only inside an Executor turn is invisible to the workers who must act
+on it.
 
 ## 6. Backstop and defects
 

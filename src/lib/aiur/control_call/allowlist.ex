@@ -76,7 +76,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:epic, 1, &__MODULE__.epic_scope/1, [:keyword], @epic_options},
     {:epic, 0, &__MODULE__.epic_scope/1, [], %{}},
     {:build_orders, 0, :read, [], %{}},
-    {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean}},
+    {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean, contract: {:enum, ["build-order.v1"]}}},
     {:queue, 0, &__MODULE__.queue_scope/1, [], %{}},
     {:queue, 1, &__MODULE__.queue_scope/1, [:keyword],
      %{

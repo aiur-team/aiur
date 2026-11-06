@@ -82,5 +82,60 @@ account reason in `aiur status` and `aiur agents`.
 percentages and freshness where the backend exposes them. The `aiur accounts`
 compatibility alias is deprecated and now prints that same provider summary.
 
+## Usage floor
+
+`agent.usage_floor_percent` (default `5`, `0` turns it off) lets you leave every
+login enabled and still have Aiur stop *starting* work on one whose allowance is
+nearly gone. It applies under `priority`, `balance` and `headroom` selection.
+
+```yaml
+agent:
+  usage_floor_percent: 5      # 0 = never floor a route
+  priority: [claude, codex, openrouter]
+  accounts:
+    claude: [default, everdred]
+  backend_configs:
+    openrouter:
+      usage_floor_percent: 15  # this backend rests earlier than the others
+```
+
+At dispatch, a backend or account whose freshest reading shows this much or
+less remaining **in any rate window** is skipped, and the next allowed route in
+`agent.priority` and the ticket's routing list takes the work. A weekly window
+at 3% floors the route even while its 5-hour window has 80% left, because the
+tightest window is the one that runs out first.
+
+Three cases never floor a route:
+
+- **Unknown or stale readings.** Aiur keeps its existing behaviour rather than
+  invent a shortage it never observed, and the dispatch record shows the
+  reading's age.
+- **A credit-based key without a known limit.** OpenRouter and other API keys
+  use remaining credit against the key's limit when a reading exists (with the
+  management key where one is needed); a key whose limit is unknown is never
+  floored.
+- **A pinned route.** A `model:` label and a backend the rate-limit fallback
+  already chose are intent, and keep their route exactly as they ignore
+  exhaustion today.
+
+Recovery needs no config edit: when the reading shows the window reset, the next
+dispatch uses the route again. `agent.backend_configs.<backend>.usage_floor_percent`
+overrides the floor for one backend. The key hot-reloads like the rest of
+`agent`.
+
+The floor affects only new dispatches and turn handoffs. **An agent already
+running is not stopped when its account crosses the floor**: it finishes its
+current turn on the account it started on.
+
+A turn handoff re-chooses an account on the backend dispatch already selected,
+so it skips floored accounts. When every account on that backend is floored it
+falls back to the least-used one, because a handoff cannot re-route to a
+different backend.
+
+`aiur status` and `aiur usage` list each held route (`held: 3% left ≤ 5% floor,
+resets in 2h`), and an alert fires when a route starts being floored and when it
+recovers. If every route is floored, the ticket waits for a reset instead of
+failing its dispatch.
+
 See also [`agent.account_selection`](/reference/configuration) and
 [Accounts by backend](/guide/claude-accounts).
