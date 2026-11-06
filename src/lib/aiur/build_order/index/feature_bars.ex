@@ -11,6 +11,11 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
   A row name is the registry label, then the label description, then the title-cased slug.
   Logical ids such as `MP-E1` and `BO:` are not part of a product name, so they are stripped
   from every source.
+
+  The description comes from the repository's own label record first
+  (`Aiur.GitHub.LabelCatalogue`), then from the open-issue label observation, then from the
+  description a history row captured. The first source names a label whether or not a ticket
+  still wears it, which is what a feature whose tickets have all merged needs.
   """
   alias Aiur.BuildOrder.Features.FeatureData
 
@@ -30,7 +35,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
         rows
         |> members(registry)
         |> Enum.reject(fn {slug, _numbers} -> String.starts_with?(slug, "bo-") end)
-        |> Enum.map(fn {slug, numbers} -> bar(slug, Enum.map(numbers, &Map.get(rows, &1)), registry, parts[:labels]) end)
+        |> Enum.map(fn {slug, numbers} -> bar(slug, Enum.map(numbers, &Map.get(rows, &1)), registry, parts) end)
         |> Enum.reject(&is_nil/1)
         |> Enum.sort_by(fn bar -> {Enum.find_index(order, &(&1 == bar.key)) || length(order), bar.since || now, bar.key} end)
         |> Enum.map(&Map.delete(&1, :since))
@@ -55,7 +60,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
     |> Map.new(fn {slug, numbers} -> {slug, Enum.uniq(numbers)} end)
   end
 
-  defp bar(slug, rows, registry, label_snapshot) do
+  defp bar(slug, rows, registry, parts) do
     counted = Enum.reject(rows, &closed_unmerged?/1)
     total = length(counted)
     registered = registry.features[slug]
@@ -63,7 +68,7 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
     if total > 0 do
       %{
         key: slug,
-        label: display_label(slug, registered, rows, label_snapshot),
+        label: display_label(slug, registered, rows, parts),
         merged: Enum.count(counted, &merged?/1),
         total: total,
         since: rows |> Enum.map(&created_ms/1) |> Enum.reject(&is_nil/1) |> Enum.min(fn -> nil end)
@@ -82,19 +87,25 @@ defmodule Aiur.BuildOrder.Index.FeatureBars do
   defp unmerged_pr?(_row), do: false
 
   # A row name is the registry label, then the label description, then the title-cased slug.
-  defp display_label(slug, registered, rows, label_snapshot) do
-    registry_name(registered) || description_name(slug, rows, label_snapshot) || title_slug(slug)
+  defp display_label(slug, registered, rows, parts) do
+    registry_name(registered) || description_name(slug, rows, parts) || title_slug(slug)
   end
 
   defp registry_name(%{label: label}) when is_binary(label), do: label |> display_feature_label() |> present()
   defp registry_name(_registered), do: nil
 
-  defp description_name(slug, rows, label_snapshot) do
-    case current_label_description(slug, label_snapshot) || historical_label_description(slug, rows) do
+  defp description_name(slug, rows, parts) do
+    case catalogue_label_description(slug, parts) || current_label_description(slug, parts[:labels]) || historical_label_description(slug, rows) do
       description when is_binary(description) -> display_description(description)
       _unknown -> nil
     end
   end
+
+  # The repository's own label record names a label whether or not a ticket wears it.
+  defp catalogue_label_description(slug, %{label_catalogue: {:ok, descriptions, _read_at}}) when is_map(descriptions),
+    do: descriptions["feature:" <> slug]
+
+  defp catalogue_label_description(_slug, _parts), do: nil
 
   defp current_label_description(slug, {:ok, issues, _observed_at}) do
     issues |> Map.values() |> Enum.find_value(fn issue -> get_in(issue, [:label_descriptions, "feature:" <> slug]) end)

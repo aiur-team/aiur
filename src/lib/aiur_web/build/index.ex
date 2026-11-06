@@ -17,11 +17,20 @@ defmodule AiurWeb.Build.Index do
     build_progress_changed: ~w(queue planned not_queued packs)a,
     build_queue_changed: ~w(queue planned not_queued packs)a,
     open_tickets_updated: ~w(open planned not_queued packs)a,
+    # The open-issue label observation carries each open label's description, and the
+    # repository label catalogue names labels no open ticket wears; either can change a
+    # Features row name without any history row changing.
+    open_issues_recorded: [:labels],
+    label_catalogue_changed: [:label_catalogue],
     build_order_pack_status_changed: [:packs],
     ticket_activity_changed: ~w(now planned not_queued)a,
     running_changed: ~w(now planned not_queued)a
   }
-  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued estimates capacity packs pack_metadata)a
+  @read_parts ~w(history health catch_up features overrides settings repository open labels label_catalogue queue now planned not_queued estimates capacity packs pack_metadata)a
+
+  @doc false
+  @spec read_parts() :: [atom()]
+  def read_parts, do: @read_parts
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []),

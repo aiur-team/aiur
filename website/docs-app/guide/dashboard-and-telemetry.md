@@ -115,7 +115,7 @@ In List view, **List shows** switches between Tickets, Features and Epics. The s
 
 Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
 
-Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label, then the label description, then the title-cased slug; logical ids such as `MP-E1` and `BO:` are stripped.
+Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label, then the label description, then the title-cased slug; logical ids such as `MP-E1` and `BO:` are stripped. The description is read from the repository's own label record (refreshed hourly), so a feature whose tickets have all merged still shows its label's description instead of its slug.
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
 
