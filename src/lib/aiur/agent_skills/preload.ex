@@ -5,15 +5,20 @@ defmodule Aiur.AgentSkills.Preload do
   A worker's cold-start prompt used to carry no skill priority at all: every
   installed skill looked the same, so a pixel-art ticket started with the same
   context as a CI ticket. This module resolves which skills fit the ticket —
-  from its lanes, its owning feature, its labels and its complexity — and renders
-  a prompt block that inlines those skills' `SKILL.md` text while listing every
-  other installed skill as a one-line name and description to load on demand.
+  from its lanes, its owning feature, its epic, its labels and its complexity —
+  and renders a prompt block that inlines those skills' `SKILL.md` text while
+  listing every other installed skill as a one-line name and description to
+  load on demand.
 
   Merge order is the order the plan settled on: per-ticket override, label, lane,
-  feature, complexity. A set is combined rather than replaced, except for the
-  explicit `Skills only:` body line. Each resolved skill keeps the reason that
+  feature, epic, complexity. A set is combined rather than replaced, except for
+  the explicit `Skills only:` body line. Each resolved skill keeps the reason that
   selected it, so the dispatch record and `aiur agents` can answer "why did this
   worker get this skill".
+
+  The epic comes from the build-order registry: it is the epic record whose
+  ordered feature list holds the ticket's owning feature. A feature no epic holds
+  contributes no epic reason and no error.
 
   Skill text comes from the workspace after install, so the target repository's
   own skills and aiur's vendored ones both count. A name that resolves but is not
@@ -28,8 +33,9 @@ defmodule Aiur.AgentSkills.Preload do
   alias Aiur.Config.SkillsMapping
   alias Aiur.Lane
 
-  # The build-order registry read runs in the dispatch path; 100 ms is the same
-  # bound TelemetryCohort uses for the same owner lookup.
+  # The build-order registry reads (owning feature, then its epic) run in the
+  # dispatch path; 100 ms is the same bound TelemetryCohort uses for the owner
+  # lookup.
   @owner_timeout_ms 100
 
   defmodule Skill do
@@ -73,6 +79,7 @@ defmodule Aiur.AgentSkills.Preload do
     * `:installed` — an already-read installed-skill map.
     * `:lanes` — already-resolved lane slugs.
     * `:feature` — an already-resolved owning feature slug.
+    * `:epic` — an already-resolved epic slug for that feature.
 
   A missing or unreadable workspace resolves to "no installed skills" rather
   than raising: prompt building must never fail because a workspace is
@@ -85,7 +92,8 @@ defmodule Aiur.AgentSkills.Preload do
     installed = Keyword.get_lazy(opts, :installed, fn -> installed_skills(workspace) end)
     lanes = Keyword.get_lazy(opts, :lanes, fn -> Lane.resolve(issue, settings) end)
     feature = Keyword.get_lazy(opts, :feature, fn -> feature_slug(issue, opts) end)
-    requests = requests(mapping, issue, lanes, feature)
+    epic = Keyword.get_lazy(opts, :epic, fn -> epic_slug(feature, mapping, opts) end)
+    requests = requests(mapping, issue, lanes, feature, epic)
     max_bytes = SkillsMapping.max_bytes(mapping)
     {mapped, truncated, bytes} = split_by_cap(requests, installed, max_bytes)
     missing = missing(requests, installed)
@@ -210,8 +218,8 @@ defmodule Aiur.AgentSkills.Preload do
 
   # --- resolution -----------------------------------------------------------
 
-  defp requests(mapping, issue, lanes, feature) do
-    dedupe(override_requests(mapping, issue) ++ base_requests(mapping, issue, lanes, feature))
+  defp requests(mapping, issue, lanes, feature, epic) do
+    dedupe(override_requests(mapping, issue) ++ base_requests(mapping, issue, lanes, feature, epic))
   end
 
   # Per-ticket additions outrank the configured mapping in the merge order.
@@ -277,15 +285,17 @@ defmodule Aiur.AgentSkills.Preload do
   end
 
   # `Skills only:` replaces the configured set; per-ticket additions still apply.
-  defp base_requests(mapping, issue, lanes, feature) do
+  defp base_requests(mapping, issue, lanes, feature, epic) do
     case body_skills(issue, "Skills only:") do
-      [] -> configured_requests(mapping, issue, lanes, feature)
+      [] -> configured_requests(mapping, issue, lanes, feature, epic)
       only -> Enum.map(only, &{&1, "override:Skills only:"})
     end
   end
 
-  defp configured_requests(mapping, issue, lanes, feature) do
-    label_requests(mapping, issue) ++ lane_requests(mapping, lanes) ++ feature_requests(mapping, feature) ++ complexity_requests(mapping, issue)
+  defp configured_requests(mapping, issue, lanes, feature, epic) do
+    label_requests(mapping, issue) ++
+      lane_requests(mapping, lanes) ++
+      feature_requests(mapping, feature) ++ epic_requests(mapping, epic) ++ complexity_requests(mapping, issue)
   end
 
   defp label_requests(mapping, issue) do
@@ -304,6 +314,12 @@ defmodule Aiur.AgentSkills.Preload do
   end
 
   defp feature_requests(_mapping, _feature), do: []
+
+  defp epic_requests(mapping, epic) when is_binary(epic) and epic != "" do
+    for skill <- SkillsMapping.skills_for(mapping, "by_epic", epic), do: {skill, "epic:#{epic}"}
+  end
+
+  defp epic_requests(_mapping, _epic), do: []
 
   defp complexity_requests(mapping, issue) do
     case Aiur.CodingAgent.complexity_level(issue) do
@@ -416,6 +432,30 @@ defmodule Aiur.AgentSkills.Preload do
          {number, ""} <- Integer.parse(identifier),
          {:ok, owner} <- Features.owner(number, timeout: @owner_timeout_ms, server: server) do
       Map.get(owner, :feature)
+    else
+      _none -> nil
+    end
+  catch
+    _kind, _reason -> nil
+  end
+
+  # The epic above the owning feature comes from the same registry: it is the
+  # epic record whose ordered feature list holds that feature. The read runs only
+  # when `by_epic` maps a skill, so an unmapped config pays nothing for it. A
+  # registry timeout or an unreadable epic file means "no epic reason", never a
+  # failed dispatch.
+  defp epic_slug(feature, mapping, opts) when is_binary(feature) and feature != "" do
+    if SkillsMapping.dimension_configured?(mapping, "by_epic"), do: epic_from_registry(feature, opts)
+  end
+
+  defp epic_slug(_feature, _mapping, _opts), do: nil
+
+  defp epic_from_registry(feature, opts) do
+    server = Keyword.get(opts, :feature_server, Features)
+
+    with {:ok, %{epics: epics}} <- Features.epics(timeout: @owner_timeout_ms, server: server),
+         %{slug: slug} <- Enum.find(epics, &(feature in Map.get(&1, :features, []))) do
+      slug
     else
       _none -> nil
     end
