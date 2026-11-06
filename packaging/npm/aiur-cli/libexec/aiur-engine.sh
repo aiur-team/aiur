@@ -343,10 +343,7 @@ aiur_engine_main() {
       shift
       cmd_executor_moot "$@"
       ;;
-    units)
-      shift
-      cmd_units "$@"
-      ;;
+    units) shift; cmd_units "$@" ;;
     queue)
       shift
       cmd_queue "$@"
@@ -437,14 +434,8 @@ aiur_engine_main() {
         *) cmd_pause_resume "$cmd" "$@" ;;
       esac
       ;;
-    redispatch)
-      shift
-      cmd_redispatch "$@"
-      ;;
-    reset-budget)
-      shift
-      cmd_reset_budget "$@"
-      ;;
+    redispatch) shift; cmd_redispatch "$@" ;;
+    reset-budget) shift; cmd_reset_budget "$@" ;;
     workspace-recover)
       shift
       cmd_workspace_recover "$@"
