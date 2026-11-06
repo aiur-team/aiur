@@ -19,6 +19,11 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
   end
 
+  @spec commands_repair(keyword()) :: :ok
+  def commands_repair(opts \\ []) do
+    guarded("commands repair", fn -> CommandsCLI.Repair.run(opts) |> exit_marker() end)
+  end
+
   @spec operator_relay_answer(keyword()) :: :ok
   def operator_relay_answer(opts) when is_list(opts) do
     guarded("operator-relay-answer", fn -> opts |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
