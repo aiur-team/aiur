@@ -75,6 +75,28 @@ defmodule Aiur.Events.GithubCIPoller.ReworkCancelledRerunTest do
     refute_received {:alert, "ticket.3864.pr.ci_recovery.rerun"}
   end
 
+  # The journal match includes the head sha and the gate still holds head_changed,
+  # so a newer push never reruns the previous head's cancelled run.
+  test "a newer push supersedes the cancelled run instead of rerunning it", ctx do
+    assert {:ok, [99]} = cancel_for_rework(ctx.opts)
+    opts = Keyword.put(ctx.opts, :ci_recovery_observation, {:ok, Map.put(@approved_pr, "headRefOid", "newer")})
+
+    assert %{decision: :pending, recovery: "head_changed"} = Recovery.recover(ctx.issue, approved_cancelled_result(), opts)
+    assert reruns() == []
+  end
+
+  # A genuinely failed run keeps the pre-existing approved-landing path: only a run
+  # Aiur cancelled for rework is rerun, so the pending_reason guard stays load-bearing.
+  test "an approved head with a real CI failure does not take the rerun path", ctx do
+    assert {:ok, [99]} = cancel_for_rework(ctx.opts)
+
+    recovered = Recovery.recover(ctx.issue, approved_cancelled_result(%{decision: :failed, pending_reason: :ci_failed}), ctx.opts)
+
+    refute recovered[:recovery] == "rerun_requested"
+    assert reruns() == []
+    refute_received {:alert, "ticket.3864.pr.ci_recovery.rerun"}
+  end
+
   defp approved_cancelled_result(overrides \\ %{}) do
     Map.merge(%{pr_number: 42, head_sha: "head", decision: :pending, pending_reason: :ci_cancelled, failures: [], review_decision: "APPROVED"}, overrides)
   end
