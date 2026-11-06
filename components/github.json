@@ -49,6 +49,7 @@
     "Aiur.GitHub.IssueRelationships",
     "Aiur.GitHub.IssueState",
     "Aiur.GitHub.Issues",
+    "Aiur.GitHub.LabelCatalogue",
     "Aiur.GitHub.Labels",
     "Aiur.GitHub.LandingWithdrawal",
     "Aiur.GitHub.MainFixer",

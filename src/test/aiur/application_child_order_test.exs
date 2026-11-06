@@ -60,6 +60,7 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.RecentMergeStore,
     Aiur.Webhooks.DeliveryLog,
     Aiur.GitHub.CodeOwners,
+    Aiur.GitHub.LabelCatalogue,
     Aiur.Events.SubscriptionStoreRegistry,
     Aiur.Events.SubscriptionStoreSupervisor,
     Aiur.DecisionAttention,

@@ -246,9 +246,9 @@ defmodule Aiur.Config.AgentSettings do
 
   @doc """
   The `agent.skills` mapping: which skills a worker loads first, keyed by lane,
-  owning feature, label and complexity. Returns the empty mapping when unset or
-  when the config cannot be loaded, so prompt building never fails on this
-  lookup. Read per call, so an edit takes effect on the next dispatch.
+  owning feature, epic, label and complexity. Returns the empty mapping when
+  unset or when the config cannot be loaded, so prompt building never fails on
+  this lookup. Read per call, so an edit takes effect on the next dispatch.
   """
   @spec agent_skills() :: map()
   def agent_skills do

@@ -35,6 +35,7 @@
     "Aiur.BuildOrder.History.Timing",
     "Aiur.BuildOrder.HistoryBackfill",
     "Aiur.BuildOrder.Index",
+    "Aiur.BuildOrder.Index.Parts",
     "Aiur.BuildOrder.Metadata",
     "Aiur.BuildOrder.ProgressRenderer",
     "Aiur.BuildOrder.ProviderHealth",

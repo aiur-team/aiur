@@ -105,6 +105,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
      ]},
     Aiur.Webhooks.DeliveryLog,
     Aiur.GitHub.CodeOwners,
+    Aiur.GitHub.LabelCatalogue,
     {Registry, [keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry]},
     Aiur.Events.SubscriptionStoreSupervisor,
     {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
