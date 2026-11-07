@@ -67,7 +67,7 @@ defmodule Aiur.Commands.Routing.FactData do
 
   defp fields(:executor_claim_released, raw) do
     with {:ok, id} <- Validation.map_required_string(raw, :executor_id, 256),
-         {:ok, reason} <- enum(raw, :reason, [:released, :expired, :answered, :operator]) do
+         {:ok, reason} <- enum(raw, :reason, [:released]) do
       {:ok, %{executor_id: id, reason: reason}}
     end
   end
