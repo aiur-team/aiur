@@ -4,24 +4,21 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   alias Aiur.GitHub.{CIRecovery, PullRequests}
 
   alias Aiur.LandingWatch.{
-    FlakeFilingGate,
     FlakeRecorder,
     Journal,
     MainRunEvidence,
     MergeGroupFailureProcessor,
     MergeGroupQuarantine.JobEvidence,
+    MergeGroupQuarantine.ModuleQuarantine,
     MergeGroupQuarantineBlame,
     MergeGroupRequeue,
     QuarantineAnnotations,
     QuarantineEvidence,
-    QuarantinePR,
     QuarantineRetry
   }
 
   alias Aiur.MainWatch
   alias Aiur.TestQuarantine.Detector
-
-  require Logger
 
   @window_ms 24 * 60 * 60 * 1_000
 
@@ -41,7 +38,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
       group_opts = opts |> Keyword.put(:changed_paths_cache, cache) |> Keyword.put(:red_on_main, QuarantineEvidence.red_on_main(history))
       group = runs |> Enum.filter(&eligible_run?/1) |> first_error(&claim_and_process_run(&1, base, group_opts))
       main = record_main_failures(history, opts)
-      quarantine = quarantine_candidates(history, observations, base, opts)
+      quarantine = quarantine_candidates(history, base, opts)
       requeue = retry_requeues(observations, opts)
       Enum.find([group, main, quarantine, requeue], :ok, &(&1 != :ok))
     after
@@ -331,7 +328,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     if Process.whereis(MainWatch), do: Map.get(MainWatch.state(), :history, []), else: []
   end
 
-  defp quarantine_candidates(history, observations, base, opts) do
+  defp quarantine_candidates(history, base, opts) do
     with {:ok, state} <- Journal.state(opts) do
       rows = Map.get(state, "failure_observations", [])
       done = Map.get(state, "flakes", %{})
@@ -342,7 +339,8 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
       |> candidates(history, System.system_time(:millisecond))
       |> Enum.reject(&Map.has_key?(done, quarantine_claim(&1.identity)))
       |> Enum.filter(&QuarantineRetry.due?(state, quarantine_claim(&1.identity), now))
-      |> first_error(&quarantine_with_retry(&1, Map.get(tickets, &1.identity), done, rows, observations, base, opts))
+      |> ModuleQuarantine.group()
+      |> first_error(&ModuleQuarantine.quarantine_with_retry(&1, tickets, done, rows, base, opts))
     end
   end
 
@@ -367,77 +365,6 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
       matching = Enum.sort_by(matching, & &1["at_ms"], :desc)
       %{identity: identity, rows: matching, observations: Enum.map(matching, &QuarantineEvidence.observation/1)}
     end)
-  end
-
-  defp quarantine_with_retry(candidate, ticket, done, rows, observations, base, opts) do
-    name = quarantine_claim(candidate.identity)
-
-    case quarantine(candidate, ticket, done, rows, observations, base, opts) do
-      :ok -> QuarantineRetry.succeeded(name, opts)
-      {:error, _} = error -> QuarantineRetry.failed(name, error, opts)
-    end
-  end
-
-  defp quarantine(candidate, nil, done, rows, _observations, base, opts) do
-    [latest | _] = candidate.rows
-    skip_claim = "quarantine-skip :: #{candidate.identity} :: #{latest["run_url"]}"
-
-    if Map.has_key?(done, skip_claim) do
-      :ok
-    else
-      case QuarantinePR.already_quarantined?(candidate.identity, opts) do
-        {:ok, true} ->
-          Journal.claim_flake(skip_claim, opts) |> claim_result()
-
-        # An unreadable list falls back to filing; QuarantinePR.open re-checks it before publishing.
-        unknown ->
-          Logger.warning("quarantine list unreadable; filing without dedupe identity=#{candidate.identity} reason=#{inspect(unknown)}")
-          file_if_eligible(candidate, latest, rows, base, skip_claim, opts)
-      end
-    end
-  end
-
-  defp quarantine(candidate, ticket, _done, _rows, _observations, _base, opts),
-    do: open_quarantine(candidate, ticket, opts)
-
-  defp file_if_eligible(candidate, latest, rows, base, skip_claim, opts) do
-    case FlakeFilingGate.decide(failure(latest), run(latest), latest["at_ms"], rows, base, opts) do
-      :file -> file_ticket_then_quarantine(candidate, latest, opts)
-      {:skip, _reason} -> Journal.claim_flake(skip_claim, opts) |> claim_result()
-    end
-  end
-
-  defp file_ticket_then_quarantine(candidate, latest, opts) do
-    skip_claim = "quarantine-skip :: #{candidate.identity} :: #{latest["run_url"]}"
-    remember = fn ticket -> if ticket == :already_quarantined, do: Journal.claim_flake(skip_claim, opts) |> claim_result(), else: Journal.put_flake_ticket(candidate.identity, ticket, opts) end
-    recorder = Keyword.get(opts, :flake_recorder, &FlakeRecorder.record/4)
-
-    with :ok <- recorder.(failure(latest), run(latest), [], Keyword.put(opts, :issue_recorded_fun, remember)),
-         {:ok, state} <- Journal.state(opts) do
-      case {get_in(state, ["flake_tickets", candidate.identity]), Map.has_key?(Map.get(state, "flakes", %{}), skip_claim)} do
-        {ticket, _} when is_integer(ticket) -> open_quarantine(candidate, ticket, opts)
-        {_, true} -> :ok
-        _ -> {:error, :flake_ticket_unconfirmed}
-      end
-    end
-  end
-
-  defp open_quarantine(candidate, ticket, opts) do
-    claim = quarantine_claim(candidate.identity)
-
-    case Journal.claim_flake(claim, opts) do
-      {:ok, :already_claimed} ->
-        :ok
-
-      {:ok, :new} ->
-        case Keyword.get(opts, :quarantine_pr_fun, &QuarantinePR.open/3).(candidate, ticket, opts) do
-          {:ok, _} -> Journal.claim_flake(requeue_claim(candidate.identity), opts) |> claim_result()
-          {:error, _} = error -> release_flake_claim(claim, error, opts)
-        end
-
-      {:error, _} = error ->
-        error
-    end
   end
 
   defp release_flake_claim(claim, error, opts) do
@@ -477,18 +404,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     end)
   end
 
-  defp failure(row) do
-    [module, name] = String.split(row["identity"], " :: ", parts: 2)
-    %{module: module, name: name, job: row["job"] || "unknown job", excerpt: row["excerpt"] || "", path: row["path"]}
-  end
-
-  defp run(row), do: %{"id" => MainRunEvidence.run_id(row["run_url"]), "html_url" => row["run_url"], "head_sha" => row["head_sha"]}
-
-  defp quarantine_claim(identity), do: "quarantine-pr :: " <> to_string(identity)
-  defp requeue_claim(identity), do: "quarantine-requeue :: " <> to_string(identity)
-
-  defp claim_result({:ok, _}), do: :ok
-  defp claim_result(error), do: error
+  defp quarantine_claim(identity), do: ModuleQuarantine.claim(identity)
 
   defp run_prs(run, base) do
     prefix = "gh-readonly-queue/#{base}/"
