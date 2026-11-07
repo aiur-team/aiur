@@ -35,6 +35,13 @@ test('Fit waits for deferred columns before resolving its positioned lock', asyn
   await lock(page, '597')
   await installFitObserver(page)
   await page.evaluate(() => {
+    // #7446: the live snap that used to move columns during Fit is gone; a smooth programmatic
+    // scroll started from Fit's own centering scroll (here: Live docked at the bottom edge) stands in.
+    const mark = st.fx.markScrolling, { ctx } = st
+    st.fx.markScrolling = () => {
+      st.fx.markScrolling = mark; mark()
+      st.fx.scrollVP(ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h + ctx.L.band.h - ctx.vp.clientHeight, true)
+    }
     const later = st.ctx.life.later.bind(st.ctx.life)
     window.releaseColumns = null
     st.ctx.life.later = (key, delay, callback) => {

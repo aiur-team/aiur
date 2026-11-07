@@ -2,7 +2,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   @moduledoc "Owner-process conversation tail, subscriptions and bounded refresh."
   import AiurWeb.Streamdeck.Deck.ChatOwner, only: [assign: 2]
   alias Aiur.Conversation.History
-  alias AiurWeb.Build.{ConversationPayload, ConversationSource, Payload}
+  alias AiurWeb.Build.{ConversationEvents, ConversationPayload, ConversationSource, Payload}
   alias AiurWeb.Streamdeck.Deck.{ChatOwner, ChatPage}
 
   @spec init(ChatOwner.socket()) :: ChatOwner.socket()
@@ -11,7 +11,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   @spec open(ChatOwner.socket(), String.t()) :: ChatOwner.socket()
   def open(socket, id) do
     socket = clear(socket)
-    state = %{source: ConversationSource.source(), ref: %{id: id}, last: nil, latest: nil, entries: [], timer: nil, token: make_ref(), dirty: false, polls: 0, subscribed: false}
+    state = %{source: ConversationSource.source(), ref: %{id: id}, last: nil, latest: nil, entries: [], breakpoints: [], timer: nil, token: make_ref(), dirty: false, polls: 0, subscribed: false}
     nav = %{socket.assigns.deck_nav | chat: nil, selected: id, scroll: 0}
     socket |> assign(deck_chat: state, deck_nav: nav) |> refresh(true) |> schedule()
   end
@@ -78,6 +78,8 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
     with {:ok, view, reset?} <- tail(state),
          :ok <- Payload.validate(%{v: 1, kind: "conversation-append", id: state.ref.id, entries: view.entries, gap: false}) do
       incoming = Enum.map(view.entries, &mask_entry/1)
+      breakpoints = read_breakpoints(state, if(Map.get(view, :more?, false), do: [], else: view.entries))
+      socket = assign(socket, deck_chat: %{state | breakpoints: breakpoints})
       socket = ChatPage.retain(socket, view, if(reset?, do: :reset, else: :tail))
       state = socket.assigns.deck_chat
       latest = List.last(incoming) || if(reset?, do: nil, else: state.latest)
@@ -114,6 +116,19 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
 
       error ->
         error
+    end
+  end
+
+  @doc false
+  @spec read_breakpoints(map(), [map()]) :: [map()]
+  def read_breakpoints(state, transcript) do
+    case call(state, :events, [state.ref]) do
+      {:ok, %{log: {:ok, rows}} = facts} ->
+        ConversationEvents.breakpoints(rows, state.ref.id, ConversationEvents.progress_index(facts[:history]), transcript)
+        |> Enum.map(fn bp -> %{id: "bp:#{bp.source_id}:#{bp.kind}", k: "milestone", at: bp.at, label: bp.label, text: bp.label, detail: bp.detail} end)
+
+      _ ->
+        []
     end
   end
 

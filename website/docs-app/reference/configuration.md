@@ -94,6 +94,10 @@ Deploy a build that recognizes a new config key before adding that key to `.aiur
 
 [Read this section](./configuration-daemon#upgrade).
 
+## toolchain
+
+[Read this section](./configuration-daemon#toolchain).
+
 ## alerts
 
 [Read this section](./configuration-daemon#alerts).
@@ -171,6 +175,14 @@ the machine, independently of repository workflows.
 | `machine:transport.tls.advertise_host` | string | `null` | DNS name without scheme or port. |
 | `machine:transport.allow_cleartext_overlay` | boolean | `false` | Allows eligible overlay transport when consumed. |
 | `machine:transport.cleartext_overlay_cidrs` | CIDR array | `["100.64.0.0/10", "fd7a:115c:a1e0::/48"]` | IPv4 or IPv6 prefixes; catch-all `/0` ranges are rejected. |
+| `machine:projects` | list | `[]` | Repos this machine serves; duplicate `repo` (case-insensitive) or `config` is rejected. A write replaces the whole list. Nothing reads it yet. |
+| `machine:projects.repo` | string | required | `owner/name`. |
+| `machine:projects.config` | path | required | Absolute or `~/`-relative path to the project's `.aiur/config`; expanded on load, never printed in errors. |
+| `machine:projects.max_agents` | integer | `null` | At least 1; `null` means no project ceiling. |
+| `machine:projects.priority` | integer | `null` | At least 0; lower is served first, `null` last. |
+| `machine:capacity.max_agents` | integer | `null` | At least 1; `null` means no machine ceiling. |
+| `machine:coordination.database_url_env` | string | `AIUR_LEASE_DATABASE_URL` | Name of an environment variable, never a URL. |
+| `machine:coordination.offline_after_seconds` | integer | `180` | 30–86400 seconds. |
 
 Account registration, logout and settings writes preserve the other top-level
 sections. Malformed machine files cause account writes to return an error without

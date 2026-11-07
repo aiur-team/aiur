@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Refresh do
   @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles dirty-leftover preservation before recreation and skips in-flight WIP refreshes."
 
   require Logger
-  alias Aiur.{AgentBuildGuard, Config}
+  alias Aiur.{AgentBuildGuard, Config, Signal}
   alias Aiur.Workspace.{AttributionGuard, BootstrapImage, Context, GitMetadata, Hooks, Ownership, PendingRestack, Provisioner, Reconstruction, StaleGitLock}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
@@ -78,20 +78,15 @@ defmodule Aiur.Workspace.Refresh do
       # (#577): recreate the workspace clean off the configured base and re-run
       # before_run. The dirty content can still be an agent's unsaved work (a
       # restart mid-turn, #2743), so it is saved outside the workspace first.
-      # If it cannot be saved, the workspace is not touched and the ticket is
-      # held on the named reason.
+      # If it cannot be saved, the workspace is kept and the worker runs in it
+      # (#7543) rather than holding the ticket on a preflight pause nobody
+      # resumes.
       Context.todo_dispatch?(issue_context) ->
         Logger.warning(
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
 
-        with :ok <- preserve_then_recreate(workspace, issue_context, worker_host),
-             :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host),
-             :ok <- finalize_before_run_workspace(workspace, issue_context, worker_host) do
-          # Recreation deleted the support tree `create_for_issue/3` installed
-          # (#2697). Reinstall all of it, not only the build wrappers.
-          Provisioner.maybe_install_agent_support(workspace, worker_host)
-        end
+        recreate_or_continue(workspace, issue_context, worker_host, before_run)
 
       # An in-flight / resumed agent (NOT a todo dispatch) whose "dirty"
       # workspace is its legitimate uncommitted WIP (#653). A base-branch
@@ -116,6 +111,49 @@ defmodule Aiur.Workspace.Refresh do
   # workspace when it cannot (a failed save, or a remote worker).
   defp preserve_then_recreate(workspace, issue_context, worker_host) do
     Provisioner.recreate(workspace, worker_host, issue_context.pr_head_ref, issue_context.branch_name, issue_context.issue_identifier)
+  end
+
+  # A local leftover whose work cannot be saved stays in place, and the worker
+  # runs in it: the workspace holds that work, and a preflight pause would
+  # strand the ticket until someone resumes it (#7543). A remote checkout is
+  # still refused, because this daemon cannot inspect what a recreate would
+  # discard there.
+  defp recreate_or_continue(workspace, issue_context, worker_host, before_run) do
+    case preserve_then_recreate(workspace, issue_context, worker_host) do
+      :ok ->
+        with :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host),
+             :ok <- finalize_before_run_workspace(workspace, issue_context, worker_host) do
+          # Recreation deleted the support tree `create_for_issue/3` installed
+          # (#2697). Reinstall all of it, not only the build wrappers.
+          Provisioner.maybe_install_agent_support(workspace, worker_host)
+        end
+
+      {:error, {:wip_preservation_failed, _workspace, reason}} when is_nil(worker_host) ->
+        Logger.error("Could not save the dirty leftover workspace; dispatching the worker into it #{Context.log_context(issue_context)} workspace=#{workspace} reason=#{inspect(reason)}")
+
+        emit_continue_alert(workspace, issue_context, reason)
+        finalize_before_run_workspace(workspace, issue_context, worker_host)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp emit_continue_alert(workspace, issue_context, reason) do
+    identifier = issue_context.issue_identifier
+
+    message =
+      "The uncommitted work of the stale workspace of #{identifier} could not be saved (#{inspect(reason)}), so the workspace is kept. " <>
+        "The worker is dispatched into #{workspace} with those changes in place."
+
+    Signal.alert("ticket.#{identifier}.workspace.wip_preservation_skipped",
+      issue: identifier,
+      workspace: workspace,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning"
+    )
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do

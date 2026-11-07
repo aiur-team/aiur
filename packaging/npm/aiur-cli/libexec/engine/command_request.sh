@@ -1,4 +1,5 @@
 # Executor-originated Command requests. Context files are read on the caller's machine.
+# @cli-reference aiur command request <question> --media FILE-OR-URL[,kind=K,alt=TEXT,caption=TEXT,option=ID] | Attaches typed media to the prompt, or to one option with `option=ID`; repeatable. Local files must sit under a configured root and become attachments; HTTPS URLs must be allowlisted; expiring URLs are refused. MIME type and kind are inferred from the extension unless `mime=` or `kind=` is given. | aiur command request 'Which sprite?' --option a=Left --option b=Right --media shots/a.png,option=a,alt='Left sprite'
 cmd_command() {
   if [ "${1:-}" = request ]; then
     shift
@@ -76,7 +77,7 @@ cmd_command() {
 
 cmd_command_request() {
   local question="${1:-}" arg key value opts context_file="" context="" executor_id=""
-  local options="" recommend="" blocking=true urgency=normal ticket="" summary="" idempotency_key="" json=false
+  local options="" media="" recommend="" blocking=true urgency=normal ticket="" summary="" idempotency_key="" json=false
   [ -n "$question" ] && [[ "$question" != -* ]] || { echo "aiur: command request expects one question" >&2; exit 64; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -84,16 +85,20 @@ cmd_command_request() {
     case "$arg" in
       --blocking) blocking=true; shift; continue ;;
       --json) json=true; shift; continue ;;
-      --option|--recommend|--urgency|--ticket|--context-file|--short-summary|--executor-id|--idempotency-key)
+      --option|--media|--recommend|--urgency|--ticket|--context-file|--short-summary|--executor-id|--idempotency-key)
         [ "$#" -gt 1 ] && [ -n "$2" ] || { echo "aiur: command request $arg requires a value" >&2; exit 64; }
         key="$arg"; value="$2"; shift ;;
-      --option=*|--recommend=*|--urgency=*|--ticket=*|--context-file=*|--short-summary=*|--executor-id=*|--idempotency-key=*)
+      --option=*|--media=*|--recommend=*|--urgency=*|--ticket=*|--context-file=*|--short-summary=*|--executor-id=*|--idempotency-key=*)
         key="${arg%%=*}"; value="${arg#*=}"
         [ -n "$value" ] || { echo "aiur: command request $key requires a value" >&2; exit 64; } ;;
       *) echo "aiur: command request received an unexpected argument: $arg" >&2; exit 64 ;;
     esac
     case "$key" in
       --option) options="${options}${options:+, }Base.decode64!(\"$(encode_control_value "$value")\")" ;;
+      --media)
+        # The daemon may run elsewhere: resolve a relative file on the caller's machine.
+        case "$value" in https://*|http://*|/*) ;; *) value="$PWD/$value" ;; esac
+        media="${media}${media:+, }Base.decode64!(\"$(encode_control_value "$value")\")" ;;
       --recommend) recommend="$value" ;;
       --urgency) urgency="$value" ;;
       --ticket) ticket="$value" ;;
@@ -115,7 +120,7 @@ cmd_command_request() {
     local instance_key="${AIUR_INSTANCE_KEY:-default}"
     executor_id="${AIUR_EXECUTOR_ID:-$(hostname)-${instance_key:0:12}}"
   fi
-  opts="question: Base.decode64!(\"$(encode_control_value "$question")\"), options: [$options], blocking: $blocking, json: $json"
+  opts="question: Base.decode64!(\"$(encode_control_value "$question")\"), options: [$options], media: [$media], blocking: $blocking, json: $json"
   for key in recommend urgency ticket short_summary executor_id idempotency_key long_context_markdown; do
     case "$key" in
       recommend) value="$recommend" ;; urgency) value="$urgency" ;; ticket) value="$ticket" ;; short_summary) value="$summary" ;;

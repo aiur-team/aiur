@@ -234,6 +234,12 @@ defmodule Aiur.Application.Children do
       {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
+      # The repository's label descriptions, read once an hour and served locally to the
+      # build index's Features rows. A feature whose tickets have all merged wears no label
+      # an open-issue observation or a persisted history row can describe, so this is the
+      # only source that still names it. Refresh is off in tests via
+      # `:label_catalogue_refresh?`; the table is always there for tests to drive.
+      Aiur.GitHub.LabelCatalogue,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
       {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
@@ -325,6 +331,7 @@ defmodule Aiur.Application.Children do
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
+        [toolchain_child()] ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
         BuildOrders.child_specs(:label_backfill, opts) ++
@@ -335,6 +342,11 @@ defmodule Aiur.Application.Children do
         )
     )
   end
+
+  # Probes worker CLIs at boot and hourly (#7443). Dispatch reads its snapshot
+  # and holds nothing until the first probe lands. Off wherever the boot
+  # dispatch poll is off (the shared test app).
+  defp toolchain_child, do: {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++

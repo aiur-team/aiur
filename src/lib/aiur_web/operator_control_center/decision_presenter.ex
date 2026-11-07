@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   """
 
   alias Aiur.{Commands, Decision}
-  alias Aiur.Commands.Answering
+  alias Aiur.Commands.{Answering, Media}
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
 
@@ -85,6 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       recommendation: decision.recommendation,
       consequence_of_delay: decision.consequence_of_delay,
       artifacts: Commands.sanitize_artifacts(decision.artifacts),
+      media: Media.public(Map.get(decision, :media)),
       created_at: decision.created_at,
       source_created_at: decision.source_created_at,
       decision_status: decision.decision_status,
@@ -111,8 +112,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     |> Map.merge(Commands.public_v2(decision))
   end
 
+  # An option without media keeps the dashboard row shape it had before the
+  # media contract; only a media-carrying option adds the key.
   defp option_row(option) do
-    %{
+    row = %{
       id: Map.get(option, :id),
       label: Map.get(option, :label),
       description: Map.get(option, :description),
@@ -120,6 +123,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       drawbacks: Map.get(option, :drawbacks),
       risk: Map.get(option, :risk)
     }
+
+    case Media.public(Map.get(option, :media)) do
+      [] -> row
+      media -> Map.put(row, :media, media)
+    end
   end
 
   defp answer_row(nil), do: nil
@@ -131,6 +139,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       selected_option_id: answer.selected_option_id,
       custom_response: answer.custom_response,
       rationale: answer.rationale,
+      media: Media.public(Map.get(answer, :media)),
       actor: Commands.sanitize_actor(answer.actor),
       supervisor_basis: answer.supervisor_basis,
       operator_quote: answer.operator_quote,

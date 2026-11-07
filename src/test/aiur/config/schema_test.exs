@@ -25,7 +25,7 @@ defmodule Aiur.Config.SchemaTest do
       {Agent, ["codex.ex", "git_identity.ex", "pricing_policy.ex"]},
       {Github, ["github_app.ex", "github_credential.ex"]},
       {Experiments, ["experiments_analyst.ex", "experiments_auto.ex"]},
-      {BuildOrder, ["general_epic.ex"]},
+      {BuildOrder, ["lane.ex"]},
       {Voice, ["voice_conversation.ex"]}
     ]
 

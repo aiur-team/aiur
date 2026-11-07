@@ -18,6 +18,7 @@
 @import url("home/17-responsive-light.css");
 @import url("home/18-palette-fixes.css");
 @import url("home/19-modal-doc.css");
+@import url("home/20-touch.css");
 
 /* MP-E8-C10-T04: states the design lacks */
 .ax-seg.none { background: none; border: 1px dashed var(--line-strong); box-sizing: border-box; }

@@ -8,6 +8,81 @@ Existing Build Orders retain their typed members, lanes, phases, dependencies,
 complexity, and optional icons as readable planning history. The pack and root
 commands below describe those legacy artifacts.
 
+## Epics, features and lanes
+
+Three words carry the hierarchy. An **Epic** holds features in order and may name one Build Order root. A **Feature** holds tickets. A **Lane** is the technical column the work belongs to.
+
+Epics are records in `build-features/epics.ndjson` beside `features.ndjson`; `aiur epic list` shows them and `aiur epic show <slug>` lists an epic's member features. A feature sits in at most one epic. A Build Order root projects as an epic, and the root's build lanes stay lane assignments on the imported feature.
+
+Publication of a planning pack registers the same three levels. It creates one epic for the pack (`bo-<root number>`, the slug a Build Order root imports as) and one feature per `product_features` group inside that epic.
+
+Each feature carries its planned lanes and their workstream icons. Re-running publication reconciles those records and writes nothing new when they already match.
+
+A lane comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured lane's label matchers. New packs label tickets `lane:<slug>`; `build-lane:` labels stay valid and keep their existing meaning. A lane is not an epic: an epic groups features, and a lane groups the tickets inside them.
+
+## The published graph
+
+A Build Order is also published as a versioned document, `build-order.v1`, from `@aiur/contracts`.
+It carries the epics, features, lanes, tickets, typed edges, gates, waves, critical path and progress
+of one root, so a tool can render the same review and graph without a running daemon.
+
+An unavailable tracker publishes `status: "unknown"` with a reason, never an empty graph. The schema,
+fixtures and generated types live in `packages/aiur-contracts`.
+
+### Reading the published document
+
+| Surface | Returns |
+| --- | --- |
+| `GET /api/v1/build-order` | The whole catalog as one `build-order.v1` document. |
+| `GET /api/v1/build-order?root=<number>` | One selected root's document. |
+| `aiur build-orders --json --contract build-order.v1 [<root>]` | The same document from the CLI. |
+
+The document is derived from the same projection the dashboard renders. The join, wave numbering,
+critical path and progress roll cannot drift between the endpoint, the CLI and the page.
+
+The GitHub review the `aiur-build` skill publishes reads the same document: the daemon document when
+one is running, and otherwise a pack walk whose tracker and progress sources are `unknown`. A
+published review therefore cannot describe a graph the dashboard disagrees with.
+
+Node `id`s are the planning-pack ids (`BO-001`) when the projection holds them and tracker identifiers
+otherwise. `number` carries the tracker number, or `null` for a draft.
+
+Every typed edge is published with its `source`: `depends_on`, `serializes_with`, `suggested_after`,
+`contains` and `gates`. A `depends_on` edge carries one of `cleared`, `blocking`,
+`terminal_unsatisfied` or `unknown`; the other kinds carry no state.
+
+`gates` also appears as a top-level list carrying each external-gate record. A `depends_on` edge reads
+`from` depends on `to`, so its source is the dependent ticket and its target the blocker.
+
+A failed tracker or progress read still answers `200`. The document carries `status: "unknown"` with a
+reason on the affected source, epic, feature, lane and `progress`, plus every ticket the daemon still
+knows about.
+
+A missing root answers `404`, and a projection the daemon cannot read answers `503`. Both use the API's
+`{"error": {"code", "message"}}` envelope.
+
+### Rendering a published document outside aiur
+
+[`aiur-build-order`](https://github.com/aiur-team/aiur/tree/main/packages/aiur-build-order) renders the
+review and the graph from one published document, with no daemon, no network call and no UI framework.
+
+It parses `build-order.v1`, returns the review as static HTML and the graph as SVG, and defines an
+`<aiur-build-order>` element for a plain page that mounts either or both from a URL or an inline
+document.
+
+The dashboard's Build home mounts that same package in its **Build order** view, so the review and the
+graph an operator reads on `/build` are the package's rendering of the published document, not a second
+implementation. The page reads `GET /api/v1/build-order`, the document the daemon already produced, and
+needs no tracker credential of its own.
+
+Because it reads the fields above — `waves`, `critical_path`, `progress` and the typed edges — and
+recomputes none of them, a page rendering a published document cannot disagree with the dashboard
+about waves, the critical path or progress. An `unknown` source renders the same explicit banner
+instead of an empty graph.
+
+The package [README](https://github.com/aiur-team/aiur/blob/main/packages/aiur-build-order/README.md)
+documents its exports, the element's attributes and a complete static-HTML example.
+
 ## Pack contents
 
 | File or field | Purpose |
@@ -157,17 +232,37 @@ Adoption brings pre-labelled blocked members under queue control: the queue hold
 
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
 
+## Queueing a feature
+
+`aiur queue add --feature <slug> [--queue NAME] [--rank N] [--start-on TRIGGER]` queues a feature registry entry as one set. Its members are whatever the registry owns for that slug: a ticket filed into the feature later joins on the next reconcile with no Executor action, and a removed ticket is unmarked.
+
+The set stores no positions. Order inside it comes from `blocked_by`, then the critical path, then priority. Holds, set ranks, start triggers and `blocked_by` gating behave exactly as for lists and Build Order roots.
+
+A member another set already owns stays there. A list owns a ticket it already holds, so the queued feature lists that member as owned elsewhere with the set that owns it and the add still succeeds.
+
+A feature set has no declared order of its own, so `queue add --feature` warns when `build_queue.set_order` is `none` (the default). Set it to `ranked` to order sets by rank.
+
+The registry is a local read, so a feature set needs a fresh open-issue observation to tell a closed member from one that has not been polled. Without one the set's members stay unknown and no membership changes. An unavailable registry leaves membership untouched and marks the set's members unknown, while independent lists continue reconciling.
+
+## Queueing an epic
+
+`aiur queue add --epic <slug>` queues an epic as one set. Its members are the union of its features' registry members and, when the epic has a Build Order root, the root's open sub-issues, with no duplicates. A ticket filed into one of its features later joins on the next reconcile. Order is `blocked_by`, critical path, then priority.
+
+`--build-order <root>` adopts the root's epic when the registry has one; without an epic it adds a plain Build Order set, as before. A root whose projection is unavailable leaves the set's membership untouched.
+
+Ownership is ranked: a list owns over a feature, and a feature over an epic or Build Order set. A feature queued on its own keeps its tickets when its epic is also queued, in either order; the epic lists them as owned elsewhere.
+
 ### Feature sets
 
 A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
 
 Queue membership lets the Executor deliberately select maintenance work ahead of unqueued features. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
-`build_queue.set_order` selects `ranked` (default) or `none`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
+`build_queue.set_order` selects `none` (default) or `ranked`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
 
 Queue summaries show ready and startable counts plus the largest blocker by downstream count. Cached GitHub blockers appear as `waiting on #N (github)`; cache misses do not fetch. `queue order` compares ranks with Build Order root dependency order.
 
-The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
+The queue read model reports each source under `sources["build_order:<root>"]` or `sources["feature:<slug>"]`, and whether the projection is available under `build_queue.build_order_source`.
 
 The instance capability report distinguishes queue availability from source availability:
 
@@ -297,9 +392,11 @@ also remove it from open issues before you downgrade.
 
 `aiur queue show` reads the held queue model: queues, completion progress, items in start order, prerequisite verdicts, rank, source freshness, and open attentions. Manage membership and holds through the CLI.
 
-Build Order roots appear as features named `bo-<number>`. Membership follows
-direct sub-issues, and build lanes become feature epics. The import writes no
-GitHub labels and sets no baseline.
+Build Order roots appear as features named `bo-<number>` and as an epic record of
+the same slug. Membership follows direct sub-issues, and the root's build lanes
+stay lane assignments on that feature. The import writes no GitHub labels and
+sets no baseline; a later root title updates the imported epic label unless an
+operator has edited it.
 
 Explicit feature ownership and an operator’s
 removal of an imported member are preserved. Imports wait for history backfill;

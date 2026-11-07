@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive.Commands do
 
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.UnitsPanel
+  alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.OperatorControlCenter.DecisionPath
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
@@ -21,6 +22,7 @@ defmodule AiurWeb.DashboardLive.Commands do
     |> assign(:retained_counts, Map.get(payload, :retained_counts, unavailable_retained_counts()))
     |> assign(:now, DateTime.utc_now())
     |> UnitsPanel.assign_units_view()
+    |> VoicePanel.assign_workers()
     |> reload_decision_page()
     |> CommandHistory.load_history(:head)
     |> assign_selected_decision(socket.assigns.selected_decision_id)

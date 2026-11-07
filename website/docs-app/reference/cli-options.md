@@ -47,6 +47,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur command DECISION-ID --option ID --relayed --quote TEXT [--idempotency-key KEY]` | Relays an operator's already-given answer with the current version and a generated idempotency key unless one is supplied. Reuse a supplied key to safely retry after an unknown outcome; requires the relay config gate. | `aiur command dec_123 --option keep --relayed --quote 'Keep them' --idempotency-key relay-1` |
 | `aiur command request <question>` | Creates an Executor-originated Command for the human; requires a running daemon. | `aiur command request 'Ship today?' --option yes=Ship --option no=Wait` |
 | `aiur command request <question> --context-file PATH` | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | `aiur command request 'Ship?' --context-file release.md` |
+| `aiur command request <question> --media FILE-OR-URL[,kind=K,alt=TEXT,caption=TEXT,option=ID]` | Attaches typed media to the prompt, or to one option with `option=ID`; repeatable. Local files must sit under a configured root and become attachments; HTTPS URLs must be allowlisted; expiring URLs are refused. MIME type and kind are inferred from the extension unless `mime=` or `kind=` is given. | `aiur command request 'Which sprite?' --option a=Left --option b=Right --media shots/a.png,option=a,alt='Left sprite'` |
 | `aiur command request <question> --recommend ID` | Moves the named supplied option first; omitted by default. | `aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes` |
 | `aiur command request <question> --short-summary TEXT` | Adds a concise Command title; omitted by default. | `aiur command request 'Ship?' --short-summary 'Beta release'` |
 | `aiur executor-attach --check [--json]` | Diagnose Executor attachment without changing it; exit 1 for fail or unknown. | `aiur executor-attach --check --json` |
@@ -55,6 +56,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur executor-attach --harness claude --takeover` | Replaces a live binding; off by default. | `aiur executor-attach --harness claude --takeover` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
 | `aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR` | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1` |
+| `aiur redispatch 142 --backend codex` | Selects a backend for a ticket redispatch. | `aiur redispatch 142 --backend codex` |
 
 ## Remote instances
 
@@ -73,9 +75,25 @@ Use an `AIUR_TOKEN_*` environment variable for write tokens. A `token_file` is i
 The client refuses commands that need local files, processes, or terminal streaming before it makes an HTTP request:
 
 - Local lifecycle and maintenance: bare `aiur`, `run`, `--bg`, `stop`, `restart`, `aiurdev build`, `cleanup-stale`, `doctor`, `upgrade`, and `pre-pr`.
-- Streaming, setup, and client-only commands: `listen`, `executor-listen`, `init`, `login`, `logout`, `pr`, `findings`, `ask`, `asks`, `answer`, help, and `--version`.
+- Streaming, setup, and client-only commands: `listen`, `executor-listen`, `init`, `login`, `logout`, `pr`, `findings`, `ask`, `asks`, `answer`, `history export`, help, and `--version`.
+
+`redispatch`, `ticket estimate`, `operator-relay-answer`, and `history label-writes` work with `--instance`.
 
 Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast-forward` require `--as <id>`.
+
+### Pinning a gateway identity
+
+An entry may also carry `gateway_id` (26 lowercase base32 characters), `label` (display only), `tls_pin_sha256` and an `allows:` block (read by the inbound receiver; the CLI and Stream Deck skip it). Older launchers reject registries that use these keys.
+
+An entry with no `url` or token that carries `allows` or `gateway_id` is inbound-only: `--instance <name>` exits 64 and `--instance all` skips it.
+
+`tls_pin_sha256` is the lowercase hex SHA-256 of the server's public key (SPKI). The CLI then trusts that key alone, which allows a self-signed certificate; the Stream Deck sidecar does not enforce it. Derive it with `openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | xxd -p -c 64`.
+
+The first successful call to an unpinned entry prints, on stderr, the id the gateway answered with and the line to add under the entry. The id is remembered in `~/.aiur/remote-state/seen-gateway/<name>`; the registry is never written for you.
+
+With `gateway_id` set, a 200 response with a different id exits 77 with `gateway identity mismatch for '<name>'` and prints no command output. A pinned entry also refuses a response with no `gateway_id`, so pin only against a gateway build that reports one.
+
+The check runs after the request is sent: the bearer token has already reached that host, and a write may have run there.
 
 ### Remote environment
 

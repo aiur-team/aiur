@@ -60,6 +60,18 @@ defmodule Aiur.BuildQueue do
   @spec unadopt(pos_integer()) :: {:ok, list()} | {:error, term()}
   def unadopt(root), do: mutate({:unadopt, root})
 
+  @spec adopt_feature(String.t()) :: {:ok, list()} | {:error, term()}
+  def adopt_feature(slug), do: mutate({:adopt_feature, slug})
+
+  @spec adopt_epic(String.t()) :: {:ok, list()} | {:error, term()}
+  def adopt_epic(slug), do: mutate({:adopt_epic, slug})
+
+  @spec unadopt_epic(String.t()) :: {:ok, list()} | {:error, term()}
+  def unadopt_epic(slug), do: mutate({:unadopt_epic, slug})
+
+  @spec unadopt_feature(String.t()) :: {:ok, list()} | {:error, term()}
+  def unadopt_feature(slug), do: mutate({:unadopt_feature, slug})
+
   @spec remove(String.t()) :: :ok | {:error, term()}
   def remove(id), do: mutate({:remove, id})
 

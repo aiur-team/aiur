@@ -44,6 +44,25 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
            } = metadata
   end
 
+  test "heartbeat carries the gateway identity, null when unavailable" do
+    opts = [
+      statuses_fun: fn -> [] end,
+      capacity_fun: fn -> 1 end,
+      held_tickets_fun: fn -> [] end,
+      host_kind_fun: fn -> "home" end,
+      public_url_fun: fn -> nil end,
+      ownership_metadata_fun: fn -> %{} end
+    ]
+
+    available = %{gateway_id: "abc", gateway_label: "l", gateway_identity: "available"}
+    data = InstanceHeartbeatMetadata.metadata([gateway_identity_fun: fn -> available end] ++ opts)["data"]
+    assert Map.take(data, ["gateway_id", "gateway_label", "gateway_identity"]) == %{"gateway_id" => "abc", "gateway_label" => "l", "gateway_identity" => "available"}
+
+    gone = %{gateway_id: nil, gateway_label: nil, gateway_identity: "unavailable"}
+    data = InstanceHeartbeatMetadata.metadata([gateway_identity_fun: fn -> gone end] ++ opts)
+    assert %{"gateway_id" => nil, "gateway_identity" => "unavailable"} = data["data"]
+  end
+
   test "roster metadata preserves ownership, pool, and paused state for dispatch" do
     current = metadata_with_ownership(%{"owns" => [], "pool" => true, "dispatching" => true})
 

@@ -1,9 +1,14 @@
 defmodule Aiur.BuildOrder.Index.Parts do
   @moduledoc false
   alias Aiur.BuildOrder.{EpicOverrides, Features, History}
+  alias Aiur.GitHub.LabelCatalogue
   alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   require Logger
-  @keys ~w(history health catch_up features overrides settings repository open queue estimates capacity pack_metadata)a
+  @keys ~w(history health catch_up features overrides settings repository open labels label_catalogue queue estimates capacity pack_metadata)a
+
+  @doc "Every part this module can read."
+  @spec keys() :: [atom()]
+  def keys, do: @keys
 
   @spec read(MapSet.t() | :all, keyword()) :: map()
   def read(dirty, opts) do
@@ -42,6 +47,12 @@ defmodule Aiur.BuildOrder.Index.Parts do
   defp read_part(:overrides, opts), do: Keyword.get(opts, :overrides, EpicOverrides).all(Keyword.get(opts, :overrides_opts, []))
   defp read_part(:settings, opts), do: Keyword.get(opts, :settings_fun, &Aiur.Config.settings/0).()
   defp read_part(:repository, opts), do: Keyword.get(opts, :repository_fun, &Aiur.GitHub.Config.configured_repo/0).()
+  defp read_part(:labels, opts), do: Keyword.get(opts, :labels_fun, fn -> Aiur.Tracker.open_issue_labels(120_000) end).()
+
+  # The label's own description survives its tickets, so the read is allowed to be
+  # older than the ticket-level label observation; the refresh runs hourly.
+  defp read_part(:label_catalogue, opts),
+    do: Keyword.get(opts, :label_catalogue_fun, fn -> LabelCatalogue.fetch(7_200_000) end).()
 
   defp read_part(:open, opts) do
     source = Keyword.get(opts, :open_source, Aiur.OpenTicketSource)

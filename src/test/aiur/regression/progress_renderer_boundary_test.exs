@@ -28,6 +28,10 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # with each running member's reading. The ticket progress API does the same
   # with a ticket's TicketActivity or retained reading.
   # The deck adapter copies BuildQueue read-model progress fields unchanged to the wire; it formats nothing.
+  # The published `build-order.v1` encoder does the same for the contract document:
+  # it copies each member's raw reading and each catalog root's resolved percent
+  # into the wire fields and renders no terminal string. The encoder is split by
+  # document shape, so every module that touches a progress field is named here.
   @contract_boundary_files [
     "aiur/build_queue_cli.ex",
     "aiur/build_queue/read_model.ex",
@@ -37,6 +41,9 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_order/github_graph/normalizer.ex",
     "aiur/build_order/progress_observer.ex",
     "aiur/build_order/progress_renderer.ex",
+    "aiur/build_order/published/catalog.ex",
+    "aiur/build_order/published/document.ex",
+    "aiur/build_order/published/selected_root.ex",
     "aiur/build_order/root_summary.ex",
     "aiur_web/api/usage_progress.ex",
     "aiur_web/build_order/planning_source.ex",

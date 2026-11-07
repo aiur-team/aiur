@@ -19,6 +19,11 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
   end
 
+  @spec commands_repair(keyword()) :: :ok
+  def commands_repair(opts \\ []) do
+    guarded("commands repair", fn -> CommandsCLI.Repair.run(opts) |> exit_marker() end)
+  end
+
   @spec operator_relay_answer(keyword()) :: :ok
   def operator_relay_answer(opts) when is_list(opts) do
     guarded("operator-relay-answer", fn -> opts |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
@@ -27,6 +32,16 @@ defmodule Aiur.ControlCLI.EntryPoints do
   @spec executor_ack(keyword()) :: :ok
   def executor_ack(opts) when is_list(opts) do
     guarded("executor-ack", fn -> opts |> ExecutorCommandCLI.ack(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
+  @spec executor_claim_decision(keyword()) :: :ok
+  def executor_claim_decision(opts) when is_list(opts) do
+    guarded("executor-claim-decision", fn -> opts |> ExecutorCommandCLI.claim(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
+  @spec executor_release_decision(keyword()) :: :ok
+  def executor_release_decision(opts) when is_list(opts) do
+    guarded("executor-release-decision", fn -> opts |> ExecutorCommandCLI.release(error_fun: &control_error/1) |> exit_marker() end)
   end
 
   @spec command_request(keyword()) :: :ok
@@ -66,6 +81,9 @@ defmodule Aiur.ControlCLI.EntryPoints do
 
   @spec feature(keyword()) :: :ok
   def feature(opts \\ []), do: guarded("feature", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.FeatureCLI.run() |> exit_marker() end)
+
+  @spec lane(keyword()) :: :ok
+  def lane(opts \\ []), do: guarded("lane", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.LaneCLI.run() |> exit_marker() end)
 
   @spec epic(keyword()) :: :ok
   def epic(opts \\ []), do: guarded("epic", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.EpicCLI.run() |> exit_marker() end)

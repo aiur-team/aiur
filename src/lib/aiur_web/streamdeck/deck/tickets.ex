@@ -15,7 +15,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
     end
   end
 
-  @spec keys(map(), :all | {:feature | :epic | :state, term()}) :: [map()]
+  @spec keys(map(), :all | {:feature | :lane | :state, term()}) :: [map()]
   def keys(sections, filter \\ :all) do
     now = field(sections, :now) || []
     plan = field(sections, :plan) || []
@@ -23,7 +23,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
     now = Enum.filter(now, &filed?/1) |> Enum.sort_by(&{rank(state(&1)), field(&1, :num)})
     plan = Enum.filter(plan, &filed?/1) |> Enum.sort_by(&{field(&1, :qpos) || :unknown, field(&1, :num)})
 
-    extra = if match?({:epic, _}, filter), do: (field(sections, :nq) || []) ++ (field(sections, :hist) || []), else: []
+    extra = if match?({:lane, _}, filter), do: (field(sections, :nq) || []) ++ (field(sections, :hist) || []), else: []
 
     (now ++ plan ++ Enum.filter(extra, &filed?/1))
     |> Enum.uniq_by(&field(&1, :num))
@@ -56,7 +56,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
     end
   end
 
-  defp matches?(row, {:epic, key}, _sections) do
+  defp matches?(row, {:lane, key}, _sections) do
     case field(row, :general_epics) do
       nil -> field(row, :epic) == key
       epics -> key in epics

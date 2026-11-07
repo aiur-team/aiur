@@ -36,9 +36,9 @@ Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `
 
 [Read this section](./cli-operations#saved-uncommitted-work).
 
-## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
+## Build history commands — [epic, feature, lane and history export commands](/reference/build-history-commands)
 
-[Read this section](./cli-operations#build-history-commands-—-feature-epic-and-history-export-commands), including [confirming unconfirmed classifications](./build-history-commands#review-unconfirmed-classifications).
+[Read this section](./cli-operations#build-history-commands-—-epic-feature-lane-and-history-export-commands), including [confirming unconfirmed classifications](./build-history-commands#review-unconfirmed-classifications).
 
 ## Dashboard page commands
 

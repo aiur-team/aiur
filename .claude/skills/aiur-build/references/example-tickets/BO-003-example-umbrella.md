@@ -1,4 +1,4 @@
-# BO-003 — Group platform tickets
+# Group platform tickets
 
 **Kind:** umbrella
 

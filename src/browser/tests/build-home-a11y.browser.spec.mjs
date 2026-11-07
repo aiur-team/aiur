@@ -156,7 +156,7 @@ test('live detail-tier changes preserve an unchanged focused plan card', async (
     const item = ctx.L.secs.plan.items[0]
     if (!item) throw new Error('fixture must contain a planned row')
     state.fx.scrollVP(ctx.secs.plan.el.offsetTop + item.y - 70, false)
-    // The scroll event (which starts the settle and snap locks) fires in the next frame's rendering steps (#7189).
+    // The scroll event (which starts the scroll settle) fires in the next frame's rendering steps (#7189).
     await new Promise(requestAnimationFrame)
     window.boardHistory = await import('/build-home/history.js')
     return item.t.id

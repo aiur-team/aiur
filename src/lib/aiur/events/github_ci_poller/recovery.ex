@@ -59,7 +59,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp recover_cancelled_entry(issue, result, entry, sha, opts) do
     case digest(sha, opts) do
       {:ok, digest} ->
-        case Safety.cancelled_checks(digest, sha, entry) do
+        case Safety.rerun_checks(result, digest, entry) do
           [] -> attention(issue, result, "rerun_skipped", "cancelled_run", opts)
           checks -> recover_failure(issue, Map.merge(result, %{ci_failure_digest: digest, failures: checks}), entry, opts)
         end
@@ -201,7 +201,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp choose_recovery(issue, result, entry, pr, opts) do
-    case Safety.recovery_gate(result, pr) do
+    case Safety.recovery_gate(result, pr, entry) do
       {:held, reason} -> held(result, reason)
       {:skipped, reason} -> attention(issue, result, "rerun_skipped", reason, opts)
       :ready -> rerun(issue, result, entry, opts)
@@ -247,7 +247,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp start_rerun(issue, result, entry, opts) do
-    checks = Safety.cancelled_checks(result.ci_failure_digest, result.head_sha, entry)
+    checks = Safety.rerun_checks(result, result.ci_failure_digest, entry)
 
     if checks == [] and result.ci_failure_digest.checks != [] do
       attention(issue, result, "rerun_skipped", "cancelled_run", opts)
@@ -307,6 +307,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp request_reruns(issue, result, runs, opts) do
     case Enum.reduce_while(runs, :ok, &rerun_request(&1, &2, opts)) do
       :ok ->
+        Safety.record_rerun(issue, result, runs, opts)
         held(result, "rerun_requested")
 
       {:error, reason} ->

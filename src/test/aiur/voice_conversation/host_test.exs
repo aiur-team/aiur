@@ -19,7 +19,8 @@ defmodule Aiur.VoiceConversation.HostTest do
 
     assert {:ok, config} = VoiceConversation.build_config(settings, "/tmp/voice-transcripts")
     assert config.name == Aiur.VoiceConversation.Instance
-    assert config.provider == {Aiur.VoiceConversation.Provider, [agent_id: "agent_demo"]}
+    assert config.provider == {Aiur.VoiceConversation.Provider, []}
+    assert config.agent_id == "agent_demo"
     assert config.credentials == Aiur.VoiceConverse.Host.Credentials
     assert config.agent_channel == Aiur.VoiceConverse.Host.AgentChannel
     assert config.briefing_source == Aiur.VoiceConverse.Host.BriefingSource

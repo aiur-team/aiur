@@ -33,7 +33,7 @@ defmodule AiurWeb.Streamdeck.RenderDomTest do
     end
   end
 
-  test "all trusted provider and epic marks remain inside a single SVG root" do
+  test "all trusted provider and lane marks remain inside a single SVG root" do
     for provider <- ~w(claude codex deepseek kimi openrouter muse) do
       image =
         Render.key(%{identifier: provider, vendor: provider, bucket: :running, title: "Provider"})

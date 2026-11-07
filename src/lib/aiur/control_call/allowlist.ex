@@ -24,10 +24,19 @@ defmodule Aiur.ControlCall.Allowlist do
     source: {:enum, ["backfill-agent"]},
     epics: :epic_list,
     add_epics: :epic_list,
+    epic_hues: :epic_hue_map,
+    json: :boolean
+  }
+  @lane_options %{
+    action: {:enum, [:set, :clear, :confirm, :show, :list]},
+    epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
+    ids: :feature_ids,
+    who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
+    source: {:enum, [:cli, :"backfill-agent"]},
     json: :boolean
   }
   @epic_options %{
-    action: {:enum, [:set, :clear, :show, :list]},
+    action: {:enum, [:set, :clear, :confirm, :show, :list]},
     epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
     ids: :feature_ids,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
@@ -59,14 +68,18 @@ defmodule Aiur.ControlCall.Allowlist do
        search: :string,
        cursor: :string
      }},
+    {:commands_repair, 0, :write, [], %{}},
+    {:commands_repair, 1, :write, [:keyword], %{json: :boolean}},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},
     {:feature, 0, &__MODULE__.feature_scope/1, [], %{}},
+    {:lane, 1, &__MODULE__.lane_scope/1, [:keyword], @lane_options},
+    {:lane, 0, &__MODULE__.lane_scope/1, [], %{}},
     {:epic, 1, &__MODULE__.epic_scope/1, [:keyword], @epic_options},
     {:epic, 0, &__MODULE__.epic_scope/1, [], %{}},
     {:build_orders, 0, :read, [], %{}},
-    {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean}},
+    {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean, contract: {:enum, ["build-order.v1"]}}},
     {:queue, 0, &__MODULE__.queue_scope/1, [], %{}},
     {:queue, 1, &__MODULE__.queue_scope/1, [:keyword],
      %{
@@ -117,6 +130,7 @@ defmodule Aiur.ControlCall.Allowlist do
      %{
        question: :non_empty_string,
        options: :string_list,
+       media: :string_list,
        recommend: :non_empty_string,
        blocking: :boolean,
        urgency: {:enum, ["low", "normal", "high", "critical"]},
@@ -128,6 +142,8 @@ defmodule Aiur.ControlCall.Allowlist do
        json: :boolean
      }},
     {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
+    {:executor_claim_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
+    {:executor_release_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
@@ -179,6 +195,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_listen_validate, 1, :read, [:string], %{}},
     {:todo, 1, :write, [:string_list], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
     {:todo, 2, :write, [:string_list, :keyword], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
+    {:redispatch, 2, :write, [:string_list, {:nullable, :string}], %{}},
     {:reset_budget, 1, :write, [:string_list], %{}},
     {:pause_global, 0, :write, [], %{}},
     {:resume_global, 0, :write, [], %{}},
@@ -277,8 +294,11 @@ defmodule Aiur.ControlCall.Allowlist do
   @spec feature_scope(list()) :: :read | :write
   def feature_scope(args), do: if(option(args, :op) == :show, do: :read, else: :write)
 
+  @spec lane_scope(list()) :: :read | :write
+  def lane_scope(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :write)
+
   @spec epic_scope(list()) :: :read | :write
-  def epic_scope(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :write)
+  def epic_scope(args), do: lane_scope(args)
 
   @spec queue_scope(list()) :: :read | :write | :deny
   def queue_scope(args) do

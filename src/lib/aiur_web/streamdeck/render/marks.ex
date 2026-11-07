@@ -21,8 +21,8 @@ defmodule AiurWeb.Streamdeck.Render.Marks do
          |> List.flatten()
          |> Map.new()
 
-  @spec epic(term(), String.t()) :: iodata()
-  def epic(lane, accent) do
+  @spec lane(term(), String.t()) :: iodata()
+  def lane(lane, accent) do
     Svg.element("g", [color: accent], embed(EpicIcon.svg(lane), 13, 13, 18))
   end
 
