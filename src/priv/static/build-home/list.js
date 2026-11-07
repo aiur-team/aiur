@@ -145,22 +145,50 @@ export function listHTML(D, state, history, P, now) {
 // The list sits straight under the toolbar: one summary line, the rows and the total, with no
 // title of its own and no card box or margins around them. Sorting lives in the toolbar.
 export function featureListHTML(D, state, now) {
-  const bars = D.feature_progress?.bars, known = Array.isArray(bars);
+  const P = D.feature_progress, bars = P?.bars, known = Array.isArray(bars);
   const sorted = known ? [...bars] : [];
   if (state.fsort === 'pct') sorted.sort((a, b) => b.merged / b.total - a.merged / a.total);
   if (state.fsort === 'left') sorted.sort((a, b) => (b.total - b.merged) - (a.total - a.merged));
   const merged = sorted.reduce((sum, b) => sum + b.merged, 0), total = sorted.reduce((sum, b) => sum + b.total, 0);
   const bar = (m, t, cls) => `<span class="fp-bar${cls}" role="img" aria-label="${m} of ${t} merged"><i style="width:${t > 0 ? m / t * 100 : 0}%"></i></span>`;
-  const row = b => {
+  const row = (b, cls = '') => {
     const cells = `<span class="fp-name" title="${esc(b.label)}">${esc(b.label)}</span>${bar(b.merged, b.total, b.merged === b.total ? ' done' : '')}<span class="fp-count">${b.merged}/${b.total}</span>`;
     return Object.hasOwn(D.features, b.key)
-      ? `<button type="button" class="fp-row" data-feature="${esc(b.key)}" aria-label="Focus ${esc(b.label)} feature">${cells}</button>`
-      : `<div class="fp-row" data-feature="${esc(b.key)}">${cells}</div>`;
+      ? `<button type="button" class="fp-row${cls}" data-feature="${esc(b.key)}" aria-label="Focus ${esc(b.label)} feature">${cells}</button>`
+      : `<div class="fp-row${cls}" data-feature="${esc(b.key)}">${cells}</div>`;
   };
   const date = new Date(now).toLocaleDateString('en-CA');
   const summary = known ? `${merged} of ${total} tickets merged - ${date}` : `Feature progress unavailable - ${date}`;
   const all = known ? `<div class="fp-row fp-all"><span class="fp-name">All features</span>${bar(merged, total, ' all')}<span class="fp-count">${merged}/${total}</span></div>` : '';
-  return `<div class="fp-list"><p class="fp-sum">${esc(summary)}</p><div class="fp-rows">${sorted.map(row).join('') || '<p>No features with tickets</p>'}</div>${all}</div>`;
+  const body = known ? featureRowsHTML(D, sorted, P.epics, state, row) : '';
+  return `<div class="fp-list"><p class="fp-sum">${esc(summary)}</p><div class="fp-rows">${body}</div>${all}</div>`;
+}
+// Epics group the rows when the payload carries epic rows: the epic's own merged/total first,
+// then its features indented under it in the epic's order. Features no epic lists keep their flat
+// order under "No epic" at the end. A payload without epic rows keeps the flat list, so a build
+// with no epic records reads exactly as before.
+function featureRowsHTML(D, sorted, epics, state, row) {
+  const flat = () => sorted.map(b => row(b)).join('') || '<p>No features with tickets</p>';
+  const known = new Map(sorted.map(b => [b.key, b]));
+  const inGroup = list => state.fsort === 'goal' ? list : [...list].sort((a, b) => state.fsort === 'pct'
+    ? b.merged / b.total - a.merged / a.total
+    : (b.total - b.merged) - (a.total - a.merged));
+  const claimed = new Set();
+  const groups = (Array.isArray(epics) ? epics : []).map(epic => {
+    const feats = (epic.features || []).map(key => known.get(key)).filter(Boolean);
+    feats.forEach(f => claimed.add(f.key));
+    return feats.length ? { epic, feats } : null;
+  }).filter(Boolean);
+  if (!groups.length) return flat();
+  const group = ({ epic, feats }) => '<div class="fp-epic">' +
+    `<button type="button" class="fp-row fp-epic-row" data-epic="${esc(epic.key)}" aria-label="Focus ${esc(epic.label)} epic features">` +
+    `<span class="fp-name" title="${esc(epic.label)}">${esc(epic.label)}</span>` +
+    `<span class="fp-bar${epic.merged === epic.total ? ' done' : ''}" role="img" aria-label="${epic.merged} of ${epic.total} merged"><i style="width:${epic.total > 0 ? epic.merged / epic.total * 100 : 0}%"></i></span>` +
+    `<span class="fp-count">${epic.merged}/${epic.total}</span></button>` +
+    `<div class="fp-feats">${inGroup(feats).map(f => row(f, ' feat')).join('')}</div></div>`;
+  const rest = sorted.filter(b => !claimed.has(b.key));
+  const noEpic = rest.length ? '<div class="fp-epic fp-noepic"><p class="fp-epic-name">No epic</p><div class="fp-feats">' + inGroup(rest).map(f => row(f, ' feat')).join('') + '</div></div>' : '';
+  return groups.map(group).join('') + noEpic;
 }
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
@@ -199,6 +227,7 @@ function bindOnce(vp) {
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
     const lane = e.target.closest('.ep-row[data-lane]'); if (lane) { chooseLane(lane.dataset.lane); return; }
+    const group = e.target.closest('.fp-epic-row[data-epic]'); if (group) { focusEpic(group.dataset.epic); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
     const feature = e.target.closest('button.fp-row'); if (feature) focusFeature(feature.dataset.feature);
@@ -206,6 +235,7 @@ function bindOnce(vp) {
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;
     const lane = e.target.closest('.ep-row[data-lane]'); if (lane) { e.preventDefault(); chooseLane(lane.dataset.lane); return; }
+    const group = e.target.closest('.fp-epic-row[data-epic]'); if (group) { e.preventDefault(); focusEpic(group.dataset.epic); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
     const feature = e.target.closest('button.fp-row'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
@@ -215,8 +245,18 @@ function chooseLane(key) {
   S.f.lane = [key]; S.list = 'tickets'; writeURL(); fx.renderTools(); fx.renderList();
 }
 function focusFeature(key) {
-  S.view = 'graph'; S.list = 'tickets'; S.feature = key; S.fmode = 'focus';
-  writeURL(); fx.renderTools(); fx.viewport(); fx.relayout();
+  S.view = 'graph'; S.list = 'tickets'; S.feature = key; S.fmode = 'focus'; S.f.feature = [];
+  writeURL(); fx.renderTools(); fx.renderFilters(); fx.viewport(); fx.relayout();
+}
+// An epic row focuses the graph on every feature the epic holds: the feature filter carries the
+// epic's features, so the timeline lays out only their tickets. The toolbar shows the count and
+// Clear releases it, the same way the lane filter does.
+function focusEpic(key) {
+  const epics = ctx.D?.feature_progress?.epics;
+  const epic = Array.isArray(epics) ? epics.find(candidate => candidate.key === key) : null;
+  if (!epic || !Array.isArray(epic.features) || !epic.features.length) return;
+  S.view = 'graph'; S.list = 'tickets'; S.feature = null; S.fmode = 'focus'; S.f.feature = [...epic.features];
+  writeURL(); fx.renderFeatures(); fx.renderTools(); fx.renderFilters(); fx.viewport(); fx.relayout();
 }
 async function earlier(btn) {
   if (H.state === 'loading') return;

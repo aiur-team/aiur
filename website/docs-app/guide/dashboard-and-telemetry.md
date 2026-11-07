@@ -90,14 +90,11 @@ and the latest entries, with one retry after the next journal append.
 
 ### Build timeline filters
 
-Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
-Done, Weighted, and scope figures. Unknown figures show `—` with a reason on
-hover.
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature Done, Weighted, and scope figures. Unknown figures show `—` with a reason on hover.
 
 Focus dims unrelated tickets; Compact replaces unrelated runs with gap
 markers and retains loaded dependencies as dashed ghost cards. Earlier history
 loads back to the feature’s oldest closed member. Clear the feature with ×.
-
 
 The Build toolbar filters by Lane, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL as `lane=`, and the pre-rename `epic=` parameter still loads and is rewritten to `lane=` in the address bar.
 
@@ -117,11 +114,13 @@ In List view, **List shows** switches between Tickets, Features and Lanes. The s
 
 A one-line summary above the rows shows the same total and the viewer's local date; the list has no title or card and starts directly under the toolbar.
 
-Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
+Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not feature rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
 
 Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label (logical ids such as `MP-E1` stripped), then the label description, then the title-cased slug. Descriptions come from the repository's label list, read hourly, so fully merged features keep their names.
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+
+An [epic](../concepts/build-orders.md) that holds features gets its own merged/total row; its features follow, indented, in the epic's order, and a shared ticket counts once. Epics sort by their first feature's `feature_order` position, then creation; features no epic lists come last under **No epic**. Clicking one focuses the timeline on its features.
 
 The Lanes list counts matching tickets per lane, including feature-owned ones, so totals overlap, and each row keeps the lane's stored colour.
 
