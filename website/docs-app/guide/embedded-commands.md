@@ -122,11 +122,14 @@ answer, revise or escalate.
 
 A user who does not know the answer can hand a `pending` Command to the Executor.
 `POST /api/v1/commands/:decision_id/escalate` takes `idempotency_key`,
-`expected_version` and an optional `note`. The Command moves to `escalated`, the
-Executor is woken with the note, and the response is the updated component. An
-out-of-scope id is `404`, a stale version or a Command that policy will not defer
-(for example one that needs a human) is `409` with `command_conflict`, and a
-missing key or version is `422`. `actions.escalate` says when to offer the control.
+`expected_version` and an optional `note`. The Command moves to `escalated` and
+the Executor is woken with the note. `actions.escalate` says when to offer it.
+
+| Status | Cause |
+|--------|-------|
+| `404` | The id is out of scope. |
+| `409` `command_conflict` | The version is stale, or policy will not defer the Command. |
+| `422` | The key or version is missing. |
 
 ## Command media
 
