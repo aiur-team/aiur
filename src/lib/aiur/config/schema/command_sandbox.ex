@@ -25,14 +25,14 @@ defmodule Aiur.Config.Schema.CommandSandbox do
     end
   end
 
+  def validate(_other), do: {:error, "command_sandbox must be a map"}
+
   defp list_error(field, value) do
     case validate_list(field, value) do
       :ok -> nil
       error -> error
     end
   end
-
-  def validate(_other), do: {:error, "command_sandbox must be a map"}
 
   @doc "Validates the `command_sandbox` section of one backend config, if present."
   @spec validate_backend(term()) :: :ok | {:error, String.t()}
