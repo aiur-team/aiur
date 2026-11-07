@@ -6,6 +6,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Application.ExportChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Executor.Roster
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
@@ -401,12 +402,13 @@ defmodule Aiur.Application.Children do
   defp recording_children(false), do: []
 
   @doc false
+  @spec heartbeat_metadata() :: map()
   def heartbeat_metadata, do: InstanceHeartbeatMetadata.metadata(executor_fun: &executor_present/0)
 
   # Wired here because orchestration may not depend on the optional executor-attention component.
   # record?: false — a heartbeat must not move the roster's stall evidence.
   defp executor_present do
-    %{executors: executors} = Aiur.Executor.Roster.build(record?: false)
+    %{executors: executors} = Roster.build(record?: false)
     Enum.any?(executors, &(&1.state in [:active, :idle]))
   end
 
