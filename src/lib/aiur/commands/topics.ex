@@ -52,10 +52,11 @@ defmodule Aiur.Commands.Topics do
     |> Map.put("decision_version", payload_value(payload, :decision_version) || decision.version)
     |> Map.put("question", request["question"])
     |> Map.put("options", request["options"])
+    |> Map.put("tags", decision.tags)
     |> maybe_put_answer(slug, payload)
   end
 
-  defp export_payload(_decision, _slug, payload), do: payload
+  defp export_payload(decision, _slug, payload), do: Map.put(payload, "tags", decision.tags)
 
   defp maybe_put_answer(payload, "answered", event_payload) do
     case payload_value(event_payload, :data) do

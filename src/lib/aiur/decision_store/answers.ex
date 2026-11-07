@@ -253,7 +253,7 @@ defmodule Aiur.DecisionStore.Answers do
   defp restore_request_attributes(request, nil), do: request
 
   defp restore_request_attributes(request, current),
-    do: Map.merge(request, Map.take(current, [:native, :questions, :requester, :origin, :short_label]))
+    do: Map.merge(request, Map.take(current, [:native, :questions, :requester, :origin, :short_label, :tags]))
 
   defp evaluate_answer_replay(decision, accepted, replayed, state) do
     cond do

@@ -76,6 +76,10 @@ tickets currently carrying that label. Request labels only narrow: a label
 outside the grant lists nothing rather than widening its ticket set.
 `/api/v1/decisions` accepts the same filter.
 
+A list read also accepts one `tag=source:settings`, which keeps only Commands
+carrying that [tag](/concepts/commands#tags-and-sibling-commands). Like
+`labels`, it narrows within the grant and never widens it.
+
 The answer body names one option or a free response, plus the version the user
 was looking at and an idempotency key:
 
@@ -113,8 +117,8 @@ A collection carries its own status: `loading`, `empty`, `ready`,
 `unavailable`, or `error`.
 
 The component map also carries `options[]`, `recommendation`, `free_response`,
-`answer`, `conflict`, `media[]`, and `actions`, which says whether the caller may
-answer or revise.
+`answer`, `conflict`, `media[]`, `tags[]`, and `actions`, which says whether the
+caller may answer or revise.
 
 ## Command media
 
