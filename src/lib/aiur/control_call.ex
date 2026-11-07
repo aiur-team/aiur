@@ -55,7 +55,6 @@ defmodule Aiur.ControlCall do
     else
       {:error, _} = error -> error
       {:unknown_atom, name} -> {:error, {:unknown_on_build, name}}
-      {:unsupported, reason} -> {:error, reason}
       _ -> {:error, :non_literal_argument}
     end
   rescue

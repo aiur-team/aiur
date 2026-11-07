@@ -251,7 +251,6 @@ defmodule AiurWeb.ControlController do
 
   defp reason_name({:unknown_on_build, _name}), do: "unknown_on_build"
   defp reason_name(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp reason_name(_reason), do: "parse_error"
 
   defp max_scope("read"), do: :read
   defp max_scope(_), do: :write
