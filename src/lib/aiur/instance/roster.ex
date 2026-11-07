@@ -92,7 +92,10 @@ defmodule Aiur.Instance.Roster do
       agent_count: metadata["agent_count"],
       agent_capacity: metadata["agent_capacity"],
       held_tickets: metadata["held_tickets"],
-      agents: metadata["agents"]
+      agents: metadata["agents"],
+      projects: metadata["projects"],
+      executor_present: metadata["executor_present"],
+      trimmed: metadata["trimmed"]
     }
   end
 

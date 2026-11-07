@@ -39,7 +39,7 @@ capacity: {max_agents: 12}
 coordination: {database_url_env: AIUR_LEASE_DATABASE_URL, offline_after_seconds: 180}
 ```
 
-**S4 Shared intent** (coordination Postgres; mirrored locally as `intent/changes.ndjson`, `intent/registers.json`,
+**S4 Shared intent** (coordination Postgres; mirrored locally as `intent/changes.ndjson`, `intent/registers.json`, `intent/hlc.json`,
 `intent/outbox.ndjson` under the gateway state root):
 
 ```text
