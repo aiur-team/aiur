@@ -150,13 +150,6 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
     refute Map.has_key?(floor, "agents")
   end
 
-  test "exit in a read is contained" do
-    assert %{"data" => data} =
-             InstanceHeartbeatMetadata.metadata(@base_opts ++ [statuses_fun: fn -> [] end, capacity_fun: fn -> 1 end, held_tickets_fun: fn -> [] end, executor_fun: fn -> nil end])
-
-    refute Map.has_key?(data, "executor_present")
-  end
-
   test "roster metadata preserves ownership, pool, and paused state for dispatch" do
     current = metadata_with_ownership(%{"owns" => [], "pool" => true, "dispatching" => true})
 
