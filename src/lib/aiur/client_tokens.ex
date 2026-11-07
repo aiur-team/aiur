@@ -7,7 +7,12 @@ defmodule Aiur.ClientTokens do
   @name ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z/
   @digest ~r/\A[0-9a-f]{64}\z/
 
-  @categories Enum.map(Aiur.ControlCall.Allowlist.categories(), &Atom.to_string/1)
+  # Owned here so identity does not depend on the control-call allowlist, which derives its atoms from this list.
+  @categories ~w(read message executor agents tickets config)
+
+  @doc "Permission categories a token can be granted. `trust` is deliberately absent."
+  @spec categories() :: [String.t()]
+  def categories, do: @categories
 
   # A token without "categories" is a legacy token: read keeps only `read`, write keeps every category.
   @spec create(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}

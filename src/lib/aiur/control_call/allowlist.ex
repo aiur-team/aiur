@@ -262,7 +262,7 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@pr_merge, :publish, 1}, %{class: :deny, positional: [:string], options: %{}}}
           ] ++ @test_rows
   @table Map.new(@rows)
-  @categories [:read, :message, :executor, :agents, :tickets, :config]
+  @categories Enum.map(Aiur.ClientTokens.categories(), &String.to_atom/1)
 
   @doc "Permission categories a remote call can need. `:trust` is deliberately absent: nothing remote maps to it."
   @spec categories() :: [atom()]
