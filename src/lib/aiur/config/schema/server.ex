@@ -18,7 +18,7 @@ defmodule Aiur.Config.Schema.Server do
     # @config-detail server.host | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
     field(:host, :string, default: "127.0.0.1")
     # @config-reference config-configuration-18 server.public_url
-    # @config-detail server.public_url | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
+    # @config-detail server.public_url | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
     field(:public_url, :string)
     # @config-reference config-configuration-18 server.allowed_hosts
     # @config-detail server.allowed_hosts | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
