@@ -64,6 +64,31 @@ test('native questions validate as a group and submit all choices at 390px', asy
   await expect(page.locator('.decision-answer-summary')).toContainText('Which targets?: Alpha, Beta, Canary')
 })
 
+for (const width of [1440, 390]) {
+  test(`the dismiss × sits in the card's top-right corner at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await openFixture(page, 'writable')
+    await page.goto('/command-answer-control/answerable?native=true')
+    const decisionId = new URL(page.url()).pathname.split('/').pop()
+    const card = page.locator(`#decision-${decisionId}`)
+    const dismiss = card.getByRole('button', { name: 'Dismiss blocker' })
+    await expect(dismiss).toBeVisible()
+    // Measure both rects in one frame, after the detail's open animation settles.
+    await expect.poll(() => card.evaluate((el) => {
+      const own = el.querySelector('.decision-dismiss').getBoundingClientRect()
+      const box = el.getBoundingClientRect()
+      const top = own.top - box.top
+      const right = box.right - own.right
+      return top >= 0 && top <= 16 && right >= 0 && right <= 16 ? 'corner' : `top ${top}, right ${right}`
+    })).toBe('corner')
+
+    // Clicking it closes the blocking Command, which also leaves the shared fixture store clean.
+    await expect(dismiss).toBeEnabled()
+    await dismiss.click()
+    await expect.poll(async () => (await (await page.request.get('/command-answer-state')).json()).decision_status).toBe('dismissed')
+  })
+}
+
 async function openCommand(page) {
   // Load the checkout's assets so an isolated mutation worktree exercises its
   // own production source even when reusing the same synthetic HTTP fixture.

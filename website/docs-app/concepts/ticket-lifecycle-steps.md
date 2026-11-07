@@ -214,9 +214,11 @@ The parallel `supervisor` path additionally requires the answer's declared `poli
   durable operator attention is opened idempotently on topic
   `ticket.<id>.agent.attention.executor-command-<digest>` and cleared on any
   terminal decision (`src/lib/aiur/executor_command_attention.ex:7-30`).
-- **A blocking Command cannot be dismissed.**
-  `{:error, {:conflict, :blocking_requires_answer}}` (`decision_store/withdrawals.ex`)
-  — the answer path, including a custom response, is what releases the agent.
+- **The operator can always dismiss a Command, blocking ones included.**
+  Dismissal records who closed it and when, releases the dispatch gate, and
+  tells a live agent to proceed under its own judgement
+  (`decision_store/withdrawals.ex`). The answer-time duplicate sweep still
+  never closes a live agent-filed blocker.
 - **The pause is a dispatch gate, not an in-process block.** `blocked_ticket_ids`
   collects tickets with an open blocking Command (`decision_store/calls.ex`,
   `decision_store/withdrawals.ex`); the dispatcher refreshes it each poll and **fails closed** on
