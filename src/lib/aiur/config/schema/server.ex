@@ -37,9 +37,19 @@ defmodule Aiur.Config.Schema.Server do
     schema
     |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :trusted_proxies, :tailscale_funnel], empty_values: [])
     |> validate_number(:port, greater_than_or_equal_to: 0)
+    |> validate_change(:public_url, fn :public_url, url ->
+      if valid_public_url?(url), do: [], else: [public_url: "must be an absolute http:// or https:// URL with a host, such as https://host.ts.net:4001"]
+    end)
     |> validate_change(:trusted_proxies, fn :trusted_proxies, entries ->
       if Enum.all?(entries, &valid_proxy_entry?/1), do: [], else: [trusted_proxies: "must contain CIDRs or \"platform\""]
     end)
+  end
+
+  defp valid_public_url?(url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: scheme, host: host}} when scheme in ["http", "https"] and is_binary(host) and host != "" -> true
+      _ -> false
+    end
   end
 
   @doc false
