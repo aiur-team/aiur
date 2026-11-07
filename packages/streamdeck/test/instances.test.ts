@@ -31,6 +31,8 @@ describe("instance registry", () => {
     const peer = `  peer:\n    gateway_id: ${id}\n    allows:\n      categories: [read]\n`;
     expect(parseInstances(registry() + peer).map((t) => t.name)).toEqual(["remote"]);
     expect(() => parseInstances(registry() + "  bare:\n    label: Nook\n")).toThrow();
+    expect(parseInstances(registry() + `    label: ${"n".repeat(64)}\n`)[0]!.label).toBe("n".repeat(64));
+    expect(() => parseInstances(registry() + `    label: ${"n".repeat(65)}\n`)).toThrow();
     for (const bad of ["    gateway_id: short\n", "    tls_pin_sha256: ABCD\n", `    gateway_id: ${id}\n    gateway_id: ${id}\n`, "    allows:\n    allows:\n", "      categories: [read]\n"]) {
       expect(() => parseInstances(registry() + bad)).toThrow();
     }
