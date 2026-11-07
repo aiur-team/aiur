@@ -313,6 +313,8 @@ Unknown cost is never turned into zero, so the cap is not a guaranteed hard ceil
 
 If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce the cap again. Aiur does not stop an already-running agent merely because accounting became unavailable.
 
+If the spend-cap store itself cannot load, persist, or subscribe, dispatch closes for every tracked ticket and Aiur raises `system.spend_cap.unavailable` with the cause. It retries with backoff and emits `system.spend_cap.unavailable.resolved` once the store is healthy again.
+
 There is no cap-specific grace timer for that case; the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
 
 When known spend reaches the cap, Aiur persists `state` and `end_state` as `budget_exhausted` before stopping that ticket's agent. It then publishes `ticket.<id>.usage.spend_cap_reached` with contract `aiur.ticket_spend_cap_reached` version 1 and transitions the ticket to terminal state `agent:budget-exhausted`.
