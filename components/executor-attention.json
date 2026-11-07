@@ -5,6 +5,7 @@
   "kind": "in-app",
   "paths": [
     "src/lib/aiur/alert_*.ex",
+    "src/lib/aiur/gateway/liveness.ex",
     "src/lib/aiur/alert_feed/**",
     "src/lib/aiur/alert_ledger/**",
     "src/lib/aiur/alerts.ex",
