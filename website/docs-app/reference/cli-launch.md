@@ -45,7 +45,7 @@ Background and container runs persist Logger output at `<logs-root>/log/aiur.log
 
 `aiur status` shows `optimistic n/cap`, `MERGE POLICY`, watcher state (`running`, `unavailable`, `not_running`), CI SHA/age/red start date, degraded CODEOWNERS trust, empty-cycle causes/ages, and prewarm holds.
 
-When a lease store is configured, it also shows the shared instance roster. Daemon-read sections share a 1.5s bound: slow sections show last good output with `STALE` age, or `unavailable` and exit 1 without a saved result.
+When a lease store is configured, it also shows the shared instance roster, with `executor=` and `projects=`; an unpublished value shows `unknown`. Daemon-read sections share a 1.5s bound: slow sections show last good output with `STALE` age, or `unavailable` and exit 1 without a saved result.
 
 `CI WAIT` lists tickets, PRs, recovery state (including `draft_pr`) and failing checks, including tickets without workers. `aiur capabilities` shows `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
 

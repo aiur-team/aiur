@@ -58,6 +58,7 @@ defmodule AiurWeb.InstanceRosterLive do
               <p>Host: {instance.host_kind || "unknown"}; public URL: {instance.public_url || "unavailable"}</p>
               <p>Leader: {Presentation.leader_label(instance.leader?)}; agents: {Presentation.count(instance.agent_count)} / {Presentation.count(instance.agent_capacity)}</p>
               <p>Held tickets: {held_tickets(instance.held_tickets)}</p>
+              <p>Executor: {Presentation.executor(Map.get(instance, :executor_present))}; projects: {Presentation.projects(Map.get(instance, :projects))}</p>
               <ul :if={is_list(instance.agents)} aria-label={"Agents on #{instance.instance_id}"}>
                 <li :for={agent <- instance.agents} data-agent-instance={instance.instance_id} data-observation-age-ms={instance.age_ms}>
                   {agent["identifier"] || "unknown ticket"} — {agent["state"] || "unknown"} — {instance.instance_id} (observed {Presentation.age(instance.age_ms)} ago)
