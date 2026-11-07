@@ -61,12 +61,19 @@ defmodule AiurWeb.ClientTokenAuth do
     end
   end
 
-  defp authenticate(conn, token, write?) when is_binary(token) do
-    case Aiur.ClientTokens.authenticate(token) do
-      {:ok, name, scope} when not write? or scope == "write" ->
-        conn |> assign(:token_name, name) |> assign(:token_scope, scope)
+  defp assign_token(conn, t) do
+    conn |> assign(:token_name, t.name) |> assign(:token_scope, t.scope) |> assign(:token_peer, t.peer) |> assign(:token_categories, t.categories)
+  end
 
-      {:ok, _name, _scope} ->
+  defp authenticate(conn, token, write?) when is_binary(token) do
+    case Aiur.ClientTokens.authenticate_full(token) do
+      {:ok, %{scope: "write"} = t} ->
+        assign_token(conn, t)
+
+      {:ok, t} when not write? ->
+        assign_token(conn, t)
+
+      {:ok, _} ->
         conn |> send_resp(403, "forbidden") |> halt()
 
       :error ->

@@ -252,6 +252,21 @@ defmodule AiurWeb.ControlControllerTest do
     assert issue_route.plug == AiurWeb.ObservabilityApiController
   end
 
+  test "a token without the agents category is refused pause and the audit names category and peer", %{audit_path: path} do
+    {:ok, token} = Aiur.ClientTokens.create("peer-token", "write", peer: "gw-peer", categories: ["read", "message"])
+
+    refused = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.pause([\"1\"])"}))
+    assert refused.status == 403
+    assert Jason.decode!(refused.resp_body)["error"]["code"] == "category_not_granted: agents"
+
+    assert path |> File.read!() |> String.split("\n", trim: true) |> List.last() |> Jason.decode!() |> Map.take(["category", "peer", "outcome"]) ==
+             %{"category" => "agents", "peer" => "gw-peer", "outcome" => "refused"}
+
+    assert post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})).status == 200
+    granted = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.message(\"1\", \"hi\")"}))
+    refute granted.resp_body =~ "category_not_granted"
+  end
+
   defp post_control(token, payload), do: request(:post, "Bearer " <> token, payload)
 
   defp request(method, authorization, payload, path \\ "/api/v1/control") do

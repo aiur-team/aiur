@@ -46,15 +46,15 @@ defmodule Aiur.ControlCall do
          {:ok, args} <- Literal.convert(raw_args),
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, opts),
-         scope when scope in [:read, :write, :deny] <- classify(entry.class, args),
+         category <- classify(entry.class, args),
+         scope when scope in [:read, :write, :deny] <- Allowlist.scope_of(category),
          :ok <- allow_remote(scope, opts),
          :ok <- max_scope(scope, Keyword.get(opts, :max_scope, :write)) do
       module = Module.concat(segments)
-      {:ok, %{module: module, function: function, args: args, scope: scope}}
+      {:ok, %{module: module, function: function, args: args, scope: scope, category: category}}
     else
       {:error, _} = error -> error
       {:unknown_atom, name} -> {:error, {:unknown_on_build, name}}
-      {:unsupported, reason} -> {:error, reason}
       _ -> {:error, :non_literal_argument}
     end
   rescue
@@ -153,7 +153,7 @@ defmodule Aiur.ControlCall do
     with {:ok, entry} <- Allowlist.fetch(segments, function, length(args)),
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, remote: true),
-         true <- classify(entry.class, args) == scope and scope in [:read, :write] do
+         true <- Allowlist.scope_of(classify(entry.class, args)) == scope and scope in [:read, :write] do
       :ok
     else
       _ -> unauthorized_call()
