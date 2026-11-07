@@ -368,9 +368,11 @@ defmodule Aiur.Application.Children do
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
     store_children =
-      if LeaseStore.configured?(),
-        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
-        else: []
+      [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
+        if(LeaseStore.configured?(),
+          do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}, Aiur.Intent.Sync],
+          else: []
+        )
 
     services =
       []
