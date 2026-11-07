@@ -95,7 +95,7 @@ function rowHTML(t, D, state) {
   const dim = activeFeature(D, state) && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
   const ups = t.deps.length, dn = (D.children[t.id] || []).length, deps = ups + ' dependencies · unblocks ' + dn;
   const cell = (cls, html, attrs = '') => '<span class="' + cls + '" role="cell"' + attrs + '>' + html + '</span>';
-  return '<div class="lr ' + esc(t.sec) + (dim ? ' dim' : '') + '" role="row" tabindex="0" data-id="' + esc(t.id) + '"' + hue('--h', e.hue) +
+  return '<div class="lr ' + esc(t.sec) + (t.sec === 'hist' && t.status === 'done' ? ' completed' : '') + (dim ? ' dim' : '') + '" role="row" tabindex="0" data-id="' + esc(t.id) + '"' + hue('--h', e.hue) +
     ' aria-label="' + esc(refText(t) + ' ' + t.title + ', ' + stText(t)) + '">' +
     cell('c-id', '<span class="lr-ep' + (e.unsorted ? ' un' : '') + '" aria-hidden="true">' + (D.icons?.[e.icon] || e.svg || (Object.hasOwn(I, e.icon) ? I[e.icon] : '')) + '</span><span title="' + esc(refTitle(t)) + '">' + esc(refText(t)) + '</span>') +
     cell('c-tt', esc(t.title) + (f ? '<span class="lr-f"' + hue('--ft', f.hue) + ' title="' + esc(f.summary || f.label) + '" role="img" aria-label="' + esc('Feature: ' + f.label) + '">' + (D.icons?.[f.icon] || f.svg || '') + '</span>' : '')) +
