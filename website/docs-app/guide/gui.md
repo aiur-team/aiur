@@ -195,9 +195,10 @@ above the bottom navigation.
 
 The circle button on the right expands the footer into a panel of about 38% of the
 viewport (at most 360px; half the screen on a phone). Press the button again or
-Esc to collapse it. Each browser remembers whether the panel was open. The panel
-lists the latest Executor events, then the conversation and its message form.
-**Open full history** opens the complete conversation page, with paging and event
+Esc to collapse it. Each browser remembers whether the panel was open.
+
+The panel lists the latest Executor events, then the conversation and its message
+form. **Open full history** opens the complete conversation page, with paging and event
 filters.
 
 Attach with `aiur executor-attach --harness claude` or
