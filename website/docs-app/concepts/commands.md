@@ -245,7 +245,8 @@ A host can reject a Command with a free-text reason (`POST
 Unlike dismissal, which delivers nothing and is refused for a blocking Command,
 a rejection is recorded as the answer: the reason is stored verbatim, the
 agent receives a message naming the rejection and the reason, and a blocking
-Command unblocks. The component state is `rejected`.
+Command unblocks. The component state is `rejected`. A rejected or dismissed
+Command also moots its open [`group:` siblings](../guide/embedded-commands.md#tags-and-sibling-commands).
 
 ## Overriding an answer
 
@@ -484,12 +485,6 @@ An embedding host renders the same presentation through the `@aiur/commands`
 package. It reads a local attachment from the ticket-scoped route
 `GET /api/v1/commands/{decision_id}/media/{attachment_id}`, using the Command
 grant it already holds.
-
-## Tags and sibling Commands
-
-A `decision.requested` payload may carry `tags`: up to 8 lowercase slugs such as `group:proposal-7` or `source:settings`, each at most 96 bytes, with at most one `group:` tag. An invalid list is refused as `{:decision_invalid, {:tags, reason}}`. Tags persist with the Command and appear in the API and component map and on its lifecycle events.
-
-Commands that share a `group:` tag on one ticket are siblings. When one of them is rejected or dismissed, every other open or deferred sibling is mooted with `reason_class: sibling_rejected`; its detail and actor name the rejected Command. A sibling that was already answered keeps its answer, and other groups and tickets are untouched.
 
 ## The Executor asks you
 

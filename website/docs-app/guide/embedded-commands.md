@@ -78,7 +78,7 @@ outside the grant lists nothing rather than widening its ticket set.
 `/api/v1/decisions` accepts the same filter.
 
 A list read also accepts one `tag=source:settings`, which keeps only Commands
-carrying that [tag](/concepts/commands#tags-and-sibling-commands). Like
+carrying that [tag](#tags-and-sibling-commands). Like
 `labels`, it narrows within the grant and never widens it.
 
 The answer body names one option or a free response, plus the version the user
@@ -117,6 +117,20 @@ unblocks and receives a message that names the rejection and quotes the reason.
 
 Scope, version checks and idempotency behave as for `answer`. A blank reason is
 a 422, and a Command outside the grant is the same 404.
+
+## Tags and sibling Commands
+
+A `decision.requested` payload may carry `tags`: up to 8 lowercase slugs such
+as `group:proposal-7` or `source:settings`, each at most 96 bytes, with at most
+one `group:` tag. An invalid list is refused as `{:decision_invalid, {:tags,
+reason}}`. Tags persist with the Command and appear in the component map and on
+its lifecycle events.
+
+Commands that share a `group:` tag on one ticket are siblings. When one is
+rejected or dismissed, every other open or deferred sibling is mooted with
+`reason_class: sibling_rejected`; its detail and actor name the rejected
+Command. An answered sibling keeps its answer, and other groups and tickets are
+untouched.
 
 ## Component states
 

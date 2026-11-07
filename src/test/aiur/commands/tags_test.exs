@@ -129,6 +129,20 @@ defmodule Aiur.Commands.TagsTest do
     GenServer.stop(pid)
   end
 
+  test "a host rejection moots the open siblings in its group", %{dir: dir} do
+    pid = start_store!(dir)
+    rejected = ask(pid, "Adopt proposal E?", ["group:e"], "42")
+    sibling = ask(pid, "Which color for proposal E?", ["group:e"], "42")
+    other = ask(pid, "Adopt proposal F?", ["group:f"], "42")
+    {:ok, %{scope: scope}} = Scope.mint("player-7", ["42"], secret: String.duplicate("s", 64), now: DateTime.utc_now())
+    payload = %{"reason" => "Proposal E is out of scope.", "expected_version" => 1, "idempotency_key" => "reject-e"}
+
+    assert {:ok, %{"command" => %{"state" => "rejected"}}} = HostApi.reject(scope, rejected.decision_id, payload, store: pid)
+    assert {:ok, %{decision_status: :moot}} = DecisionStore.get(sibling.decision_id, pid)
+    assert {:ok, %{decision_status: :open}} = DecisionStore.get(other.decision_id, pid)
+    GenServer.stop(pid)
+  end
+
   # Only open siblings are mooted; an undelivered answer is withdrawable but is not "open".
   test "a decided-but-undelivered sibling keeps its answer when the group is rejected", %{dir: dir} do
     pid = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :unavailable} end, dispatch_delay_ms: 0, retry_delays_ms: [])
