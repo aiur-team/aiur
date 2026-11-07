@@ -14,11 +14,6 @@ defmodule Aiur.Config.Schema.CommandSandbox do
 
   @fields ~w(read_only_binds writable_binds path)
 
-  @doc "Validates the `command_sandbox` section of one backend config, if present."
-  @spec validate_backend(term()) :: :ok | {:error, String.t()}
-  def validate_backend(%{} = config), do: validate(Map.get(config, "command_sandbox", Map.get(config, :command_sandbox)))
-  def validate_backend(_config), do: :ok
-
   @spec validate(term()) :: :ok | {:error, String.t()}
   def validate(nil), do: :ok
 
@@ -38,6 +33,11 @@ defmodule Aiur.Config.Schema.CommandSandbox do
   end
 
   def validate(_other), do: {:error, "command_sandbox must be a map"}
+
+  @doc "Validates the `command_sandbox` section of one backend config, if present."
+  @spec validate_backend(term()) :: :ok | {:error, String.t()}
+  def validate_backend(%{} = config), do: validate(Map.get(config, "command_sandbox", Map.get(config, :command_sandbox)))
+  def validate_backend(_config), do: :ok
 
   defp reject_unknown(section) do
     case Map.keys(section) -- @fields do
