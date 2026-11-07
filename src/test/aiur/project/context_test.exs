@@ -36,17 +36,16 @@ defmodule Aiur.Project.ContextTest do
 
   test "a machine process starts work for a project it holds only briefly" do
     b = project("o/b")
-    parent = self()
 
-    {:ok, pid} =
-      Task.start(fn ->
+    result =
+      Task.async(fn ->
         Context.put(b)
         seen = Aiur.Project.Task.async(fn -> Context.current() end) |> Task.await()
         Context.delete()
-        send(parent, {:seen, seen, Context.current()})
+        {seen, Context.current()}
       end)
+      |> Task.await()
 
-    assert is_pid(pid)
-    assert_receive {:seen, ^b, nil}, 1_000
+    assert result == {b, nil}
   end
 end
