@@ -183,6 +183,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
     Aiur.BuildOrder.TicketTimelineCache,
+    Aiur.Intent.Hlc,
+    Aiur.Intent.Store,
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     Aiur.Netlify.Usage,
