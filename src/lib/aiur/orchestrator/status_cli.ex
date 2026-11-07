@@ -164,7 +164,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     Enum.each(instances, fn row ->
       IO.puts(
-        "  #{terminal_text(row.instance_id)} #{state_label(row.state)} #{terminal_text(row.version)} heartbeat_age_ms=#{row.age_ms} host=#{terminal_text(Map.get(row, :host_kind) || "unknown")} public_url=#{terminal_text(Map.get(row, :public_url) || "unavailable")} leader=#{Presentation.leader_label(Map.get(row, :leader?))} agents=#{Presentation.count(Map.get(row, :agent_count))}/#{Presentation.count(Map.get(row, :agent_capacity))} held_tickets=#{terminal_text(held_tickets(Map.get(row, :held_tickets)))}"
+        "  #{terminal_text(row.instance_id)} #{state_label(row.state)} #{terminal_text(row.version)} heartbeat_age_ms=#{row.age_ms} host=#{terminal_text(Map.get(row, :host_kind) || "unknown")} public_url=#{terminal_text(Map.get(row, :public_url) || "unavailable")} leader=#{Presentation.leader_label(Map.get(row, :leader?))} agents=#{Presentation.count(Map.get(row, :agent_count))}/#{Presentation.count(Map.get(row, :agent_capacity))} held_tickets=#{terminal_text(held_tickets(Map.get(row, :held_tickets)))} executor=#{Presentation.executor(Map.get(row, :executor_present))} projects=#{terminal_text(Presentation.projects(Map.get(row, :projects)))}"
       )
 
       Enum.each(Map.get(row, :agents) || [], fn agent ->
