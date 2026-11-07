@@ -8,6 +8,7 @@
     "src/lib/aiur/capabilities/**",
     "src/lib/aiur/client_tokens.ex",
     "src/lib/aiur/gateway/identity.ex",
+    "src/lib/aiur/gateway/liveness.ex",
     "src/lib/aiur/identity.ex",
     "src/lib/aiur/identity/**",
     "src/lib/aiur/machine/paths.ex",
