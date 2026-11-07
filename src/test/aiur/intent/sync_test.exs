@@ -232,7 +232,7 @@ defmodule Aiur.Intent.SyncTest do
     pulled = %{change(%{hlc_counter: 1}) | seq: 1}
     Fake.put(fake, pulled)
     :ok = Sync.sync_once(sync)
-    assert_receive {:pulled, [got]}
+    assert_receive {:pulled, [got]}, 1_000
     assert got.change_id == pulled.change_id
 
     # the same row arriving again (overlap, or a second pull) is a duplicate: no hook call
@@ -243,7 +243,7 @@ defmodule Aiur.Intent.SyncTest do
     direct = change(%{hlc_counter: 7})
     hook = &send(parent, {:direct, &1})
     assert {:ok, :applied} = Sync.apply_remote(direct, store: store, on_remote_applied: hook)
-    assert_receive {:direct, [^direct]}
+    assert_receive {:direct, [^direct]}, 1_000
     assert {:ok, :duplicate} = Sync.apply_remote(direct, store: store, on_remote_applied: hook)
     refute_receive {:direct, _}, 50
   end
