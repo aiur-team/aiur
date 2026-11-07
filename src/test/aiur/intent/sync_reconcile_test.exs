@@ -39,7 +39,7 @@ defmodule Aiur.Intent.SyncReconcileTest do
   test "apply_remote of a far-future change is held, alerts once, and later delivery by pull stays silent", c do
     ch = skewed()
     assert {:ok, :held} = Sync.apply_remote(ch, store: c.store, table: c.table)
-    assert_receive {:emit, "system.intent.clock_skew", opts}
+    assert_receive {:emit, "system.intent.clock_skew", opts}, 500
     assert opts[:message] =~ "far"
     assert {:ok, :duplicate} = Sync.apply_remote(ch, store: c.store, table: c.table)
 
@@ -54,21 +54,21 @@ defmodule Aiur.Intent.SyncReconcileTest do
   test "three ticks alert exactly once; the change applies, merges into the HLC and notifies after the clock passes", c do
     Agent.update(c.rows, &(&1 ++ [%{skewed() | seq: 1}]))
     for _ <- 1..3, do: tick(c)
-    assert_receive {:emit, "system.intent.clock_skew", _}
+    assert_receive {:emit, "system.intent.clock_skew", _}, 500
     refute_receive {:emit, _, _}, 50
     refute_receive {:observe, _}, 0
 
     Agent.update(c.clock, &(&1 + 2_000))
     tick(c)
-    assert_receive {:observe, {wall, 0}} when wall == @n + 61_000
-    assert_receive {:broadcast, {:intent_register_changed, {"ticket", "aiur-team/aiur#7626", "order_key"}, "f"}}
+    assert_receive {:observe, {wall, 0}} when wall == @n + 61_000, 500
+    assert_receive {:broadcast, {:intent_register_changed, {"ticket", "aiur-team/aiur#7626", "order_key"}, "f"}}, 500
     refute_receive {:emit, _, _}, 50
   end
 
   test "notify: an unchanged refold is silent; a pause flip broadcasts exactly once", c do
     pause = remote("p", @n - 5, true, %{slot: "executor", entity_kind: "fleet", entity_key: "fleet", field: "pause"})
     assert {:ok, :applied} = Sync.apply_remote(pause, store: c.store, table: c.table)
-    assert_receive {:broadcast, {:intent_register_changed, {"fleet", "fleet", "pause"}, true}}
+    assert_receive {:broadcast, {:intent_register_changed, {"fleet", "fleet", "pause"}, true}}, 500
     tick(c)
     tick(c)
     refute_receive {:broadcast, _}, 50

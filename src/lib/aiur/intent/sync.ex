@@ -11,8 +11,8 @@ defmodule Aiur.Intent.Sync do
 
   require Logger
 
-  alias Aiur.Instance.LeaseStore
   alias Aiur.Gateway.Identity
+  alias Aiur.Instance.LeaseStore
   alias Aiur.Intent.{Change, Hlc, Reconciler, Store}
 
   @page 500
@@ -28,12 +28,15 @@ defmodule Aiur.Intent.Sync do
   ]
 
   @doc false
+  @spec os_now() :: integer()
   def os_now, do: System.os_time(:millisecond)
 
   @doc false
+  @spec observe(term()) :: :ok | term()
   def observe(hlc), do: if(GenServer.whereis(Hlc), do: Hlc.observe(hlc), else: :ok)
 
   @doc false
+  @spec broadcast_default(term()) :: term()
   def broadcast_default(msg), do: broadcast(msg)
 
   @spec start_link(keyword()) :: GenServer.on_start()
