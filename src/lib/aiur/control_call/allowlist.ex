@@ -239,7 +239,8 @@ defmodule Aiur.ControlCall.Allowlist do
                   {{test_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
                   {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}},
                   {{controller_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
-                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
+                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
+                  {{[:Aiur, :ControlReplayTestProbe], :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
                 ]
               else
                 []

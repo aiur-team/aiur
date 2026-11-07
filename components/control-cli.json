@@ -125,7 +125,9 @@
       "AIUR_SCREEN_GRAB",
       "AIUR_SSH_CONFIG"
     ],
-    "state": [],
+    "state": [
+      "control_replay_state_dir"
+    ],
     "capabilities": []
   },
   "prior": [
