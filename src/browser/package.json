@@ -70,7 +70,7 @@
     "test:build-home-unfiled": "node scripts/run-browser-tests.mjs tests/build-home-unfiled.browser.spec.mjs",
     "test:build-home-list-unit": "TZ=America/Los_Angeles node --test scripts/build-home-list.test.mjs scripts/build-home-unfiled.test.mjs",
     "test:build-home-now-band": "TZ=America/Los_Angeles node --test scripts/build-home-band.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-now-band.browser.spec.mjs tests/build-home-live-size.browser.spec.mjs",
-    "test:build-home-usage": "node --test scripts/build-home-usage.test.mjs && node scripts/run-browser-tests.mjs tests/build-home-usage.browser.spec.mjs",
+    "test:build-home-usage": "node --test scripts/build-home-usage.test.mjs && node scripts/run-browser-tests.mjs tests/build-home-usage.browser.spec.mjs tests/build-home-usage-nav.browser.spec.mjs",
     "test:build-home-band-full": "npm run fixture:preflight && node scripts/run-build-home-band-full.mjs",
     "test:build-home-chains-unit": "TZ=America/Los_Angeles node --test tests/build-home-chains.test.mjs",
     "test:build-home-conversation-events-unit": "TZ=America/Los_Angeles node --test tests/build-home-conversation-events.test.mjs",
