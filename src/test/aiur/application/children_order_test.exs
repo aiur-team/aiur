@@ -46,6 +46,38 @@ defmodule Aiur.Application.ChildrenOrderTest do
       assert lease_store < heartbeat
     end
 
+    test "intent children: Hlc and Store always start; Sync starts after the lease store and heartbeat only when configured" do
+      previous_url = Application.get_env(:aiur, :lease_database_url)
+      previous_env = System.get_env("AIUR_LEASE_DATABASE_URL")
+
+      on_exit(fn ->
+        if previous_url,
+          do: Application.put_env(:aiur, :lease_database_url, previous_url),
+          else: Application.delete_env(:aiur, :lease_database_url)
+
+        if previous_env, do: System.put_env("AIUR_LEASE_DATABASE_URL", previous_env), else: System.delete_env("AIUR_LEASE_DATABASE_URL")
+      end)
+
+      opts = [interactive_cli?: false, headless?: true, dashboard?: false]
+
+      Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+      configured = modules(AiurApp.child_specs(opts))
+      idx = fn mods, mod -> Enum.find_index(mods, &(&1 == mod)) end
+
+      assert idx.(configured, Aiur.Intent.Hlc)
+      assert idx.(configured, Aiur.Intent.Store)
+      assert idx.(configured, Aiur.Instance.LeaseStore) < idx.(configured, Aiur.Instance.Heartbeat)
+      assert idx.(configured, Aiur.Instance.Heartbeat) < idx.(configured, Aiur.Intent.Sync)
+
+      Application.delete_env(:aiur, :lease_database_url)
+      System.delete_env("AIUR_LEASE_DATABASE_URL")
+      unconfigured = modules(AiurApp.child_specs(opts))
+
+      assert idx.(unconfigured, Aiur.Intent.Hlc)
+      assert idx.(unconfigured, Aiur.Intent.Store)
+      refute idx.(unconfigured, Aiur.Intent.Sync)
+    end
+
     test "the ActiveTurns table owner starts before agent tasks in every run shape" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],

@@ -9,7 +9,7 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
   def publish_intent_changes(changes, opts \\ []), do: call({:publish_intent_changes, changes}, opts, :disabled)
 
   @spec intent_changes_since(non_neg_integer(), pos_integer(), keyword()) :: term()
-  def intent_changes_since(cursor, limit, opts \\ []), do: call({:intent_changes_since, cursor, limit}, opts, :disabled)
+  def intent_changes_since(cursor, limit, opts \\ []), do: call({:intent_changes_since, cursor, limit, Keyword.get(opts, :overlap, false)}, opts, :disabled)
 
   @spec admit_github_budget(String.t(), String.t(), String.t(), String.t(), non_neg_integer(), pos_integer(), keyword()) :: term()
   def admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points \\ 1, opts \\ []) do
@@ -142,7 +142,7 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
   end
 
   def handle_call({:publish_intent_changes, changes}, state), do: intent(state, &IntentState.publish(&1, changes))
-  def handle_call({:intent_changes_since, cursor, limit}, state), do: intent(state, &IntentState.changes_since(&1, cursor, limit))
+  def handle_call({:intent_changes_since, cursor, limit, overlap?}, state), do: intent(state, &IntentState.changes_since(&1, cursor, limit, overlap?))
 
   def handle_call(_message, state), do: {:reply, {:error, :unknown_shared_state_command}, state}
 

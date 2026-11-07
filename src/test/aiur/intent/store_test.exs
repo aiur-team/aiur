@@ -23,8 +23,8 @@ defmodule Aiur.Intent.StoreTest do
 
   test "remote duplicates are written once and never reach the outbox", %{dir: dir, pid: pid} do
     c = change()
-    assert {:ok, 1} = Store.append_remote(pid, [c, c], cursor: 9)
-    assert {:ok, 0} = Store.append_remote(pid, [c])
+    assert {:ok, [^c]} = Store.append_remote(pid, [c, c], cursor: 9)
+    assert {:ok, []} = Store.append_remote(pid, [c])
     assert length(Store.changes(pid)) == 1
     assert length(lines(dir, "changes.ndjson")) == 1
     refute File.exists?(Path.join(dir, "outbox.ndjson"))

@@ -32,8 +32,8 @@ defmodule Aiur.Intent.Store do
   @spec append_local(GenServer.server(), Change.t()) :: :ok | {:error, :outbox_full | term()}
   def append_local(server \\ __MODULE__, %Change{} = c), do: GenServer.call(server, {:append_local, c})
 
-  @doc "Pulled or directly delivered changes. Never writes the outbox. Returns how many were new."
-  @spec append_remote(GenServer.server(), [Change.t()], keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  @doc "Pulled or directly delivered changes. Never writes the outbox. Returns the changes that were new."
+  @spec append_remote(GenServer.server(), [Change.t()], keyword()) :: {:ok, [Change.t()]} | {:error, term()}
   def append_remote(server \\ __MODULE__, changes, opts \\ []), do: GenServer.call(server, {:append_remote, changes, opts})
 
   @spec ack_outbox(GenServer.server(), [String.t()]) :: :ok | {:error, term()}
@@ -108,7 +108,7 @@ defmodule Aiur.Intent.Store do
     with :ok <- append(s.paths.changes, fresh),
          :ok <- write_cursor(s.paths.registers, cursor) do
       ids = Enum.reduce(fresh, s.ids, &MapSet.put(&2, &1.change_id))
-      {:reply, {:ok, length(fresh)}, %{s | changes: s.changes ++ fresh, ids: ids, cursor: cursor}}
+      {:reply, {:ok, fresh}, %{s | changes: s.changes ++ fresh, ids: ids, cursor: cursor}}
     else
       {:error, reason} -> {:reply, {:error, reason}, s}
     end

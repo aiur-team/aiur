@@ -85,18 +85,31 @@ defmodule Aiur.Instance.LeaseStore.IntentState do
     end)
   end
 
-  @doc "Rows after `cursor`, plus rows received in the last #{@overlap_seconds}s (bigserial is allocated at insert, not commit)."
-  @spec changes_since(Postgrex.conn(), non_neg_integer(), pos_integer()) :: {:ok, [Change.t()]} | {:error, term()}
-  def changes_since(conn, cursor, limit) do
-    sql = """
-    SELECT seq, change_id, hlc_wall_ms, hlc_counter, origin_gateway, slot, author_id, entity_kind, entity_key,
-           field, value_json, supersedes, force, reason, received_at
-    FROM aiur_intent_changes
-    WHERE seq > $1 OR received_at > clock_timestamp() - interval '#{@overlap_seconds} seconds'
-    ORDER BY seq LIMIT $2
-    """
+  @cols "seq, change_id, hlc_wall_ms, hlc_counter, origin_gateway, slot, author_id, entity_kind, entity_key, field, value_json, supersedes, force, reason, received_at"
 
-    case Postgrex.query(conn, sql, [cursor, limit], timeout: 5_000) do
+  @doc """
+  Up to `limit` rows after `cursor`, paged on `seq` alone. With `overlap: true` the rows at or
+  below the cursor received in the last #{@overlap_seconds}s come first, outside the page count
+  (bigserial is allocated at insert, not commit, so a late commit can land under the cursor).
+  """
+  @spec changes_since(Postgrex.conn(), non_neg_integer(), pos_integer(), boolean()) :: {:ok, [Change.t()]} | {:error, term()}
+  def changes_since(conn, cursor, limit, overlap? \\ false) do
+    with {:ok, late} <- if(overlap?, do: late_rows(conn, cursor), else: {:ok, []}),
+         {:ok, page} <- query_rows(conn, "SELECT #{@cols} FROM aiur_intent_changes WHERE seq > $1 ORDER BY seq LIMIT $2", [cursor, limit]) do
+      {:ok, late ++ page}
+    end
+  end
+
+  defp late_rows(conn, cursor) do
+    query_rows(
+      conn,
+      "SELECT #{@cols} FROM aiur_intent_changes WHERE seq <= $1 AND received_at > clock_timestamp() - interval '#{@overlap_seconds} seconds' ORDER BY seq",
+      [cursor]
+    )
+  end
+
+  defp query_rows(conn, sql, params) do
+    case Postgrex.query(conn, sql, params, timeout: 5_000) do
       {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &row/1)}
       {:error, reason} -> {:error, reason}
     end
