@@ -247,10 +247,14 @@ The usage strip has an **APIs** card and a **Models** card.
 
 A provider with several logins (Claude `×2`) draws one full-width bar per login
 for each window, stacked, each with its own % left and reset; hover or focus a
-bar for the account name. A configured provider whose read failed keeps its row
+bar for the account name.
+
+A configured provider whose read failed keeps its row
 and reads **unavailable**, with the age of its last reading. A provider that
 reports no limits reads **not observed**. Expired windows and
-stale readings are identified explicitly. Reset labels refresh every 30 seconds
+stale readings are identified explicitly.
+
+Reset labels refresh every 30 seconds
 while the tab is visible. Locked sessions show an authentication message
 without financial values.
 
