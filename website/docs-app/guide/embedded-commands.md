@@ -120,10 +120,7 @@ answer, revise or escalate.
 
 ### Escalate to the Executor
 
-A user who does not know the answer can hand a `pending` Command to the Executor.
-`POST /api/v1/commands/:decision_id/escalate` takes `idempotency_key`,
-`expected_version` and an optional `note`. The Command moves to `escalated` and
-the Executor is woken with the note. `actions.escalate` says when to offer it.
+`POST /api/v1/commands/:decision_id/escalate` (`idempotency_key`, `expected_version`, optional `note`) hands a `pending` Command to the Executor as `escalated`, and `actions.escalate` says when to offer it:
 
 | Status | Cause |
 |--------|-------|
