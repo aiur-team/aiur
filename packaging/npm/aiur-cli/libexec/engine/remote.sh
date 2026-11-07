@@ -103,121 +103,16 @@ load_remote_instance() {
   AIUR_REMOTE_URL=""
   AIUR_REMOTE_TOKEN_KIND=""
   AIUR_REMOTE_TOKEN_REF=""
+  AIUR_REMOTE_GATEWAY_ID=""
+  AIUR_REMOTE_LABEL=""
+  AIUR_REMOTE_TLS_PIN=""
 
   if [ ! -r "$file" ]; then
     echo "aiur: remote instance registry $AIUR_REMOTE_REGISTRY_DISPLAY is missing or unreadable" >&2
     return 64
   fi
 
-  if record="$(awk -v target="$name" -v display="$AIUR_REMOTE_REGISTRY_DISPLAY" '
-    function trim(value) {
-      sub(/^[[:space:]]+/, "", value)
-      sub(/[[:space:]]+$/, "", value)
-      return value
-    }
-    function invalid(message) {
-      print "aiur: invalid remote instance registry " display ":" NR ": " message > "/dev/stderr"
-      failed = 1
-      exit 65
-    }
-    function scalar(raw, value, quote, inner) {
-      value = trim(raw)
-      quote = substr(value, 1, 1)
-      if (quote == "\"" || quote == sprintf("%c", 39)) {
-        if (length(value) < 2 || substr(value, length(value), 1) != quote) invalid("unterminated quoted scalar")
-        inner = substr(value, 2, length(value) - 2)
-        if (index(inner, quote) || index(inner, "\\")) invalid("quoted scalars cannot contain escapes")
-        value = inner
-      } else {
-        sub(/[[:space:]]+#.*$/, "", value)
-        value = trim(value)
-      }
-      if (value == "" || value == "~" || value == "null") invalid("expected a non-empty scalar")
-      if (value ~ /^[\[\{&*!|>]/) invalid("collections, aliases and tagged scalars are not supported")
-      return value
-    }
-    function finish_instance() {
-      if (current == "") return
-      if (current_url == "") invalid("instance " current " is missing url")
-      if ((current_token_file == "") == (current_token_env == "")) invalid("instance " current " must set exactly one of token_file or token_env")
-      if (target == "*") {
-        print current "\t" current_url
-        found = 1
-      } else if (current == target) {
-        print "url\t" current_url
-        if (current_token_file != "") print "token_file\t" current_token_file
-        else print "token_env\t" current_token_env
-        found = 1
-      }
-      current = current_url = current_token_file = current_token_env = ""
-    }
-    {
-      sub(/\r$/, "")
-      if ($0 ~ /\t/) invalid("tabs are not allowed")
-      if ($0 ~ /^[[:space:]]*($|#)/) next
-
-      match($0, /^ */)
-      indent = RLENGTH
-      text = substr($0, indent + 1)
-
-      if (indent == 0) {
-        finish_instance()
-        if (text ~ /^version:[[:space:]]*/) {
-          if (seen_version) invalid("duplicate version")
-          version_value = text
-          sub(/^version:[[:space:]]*/, "", version_value)
-          if (scalar(version_value) != "1") invalid("version must be 1")
-          seen_version = 1
-        } else if (text ~ /^instances:[[:space:]]*(#.*)?$/) {
-          if (seen_instances) invalid("duplicate instances map")
-          seen_instances = 1
-        } else invalid("expected version or instances")
-        next
-      }
-
-      if (indent == 2) {
-        if (!seen_instances) invalid("instance appears before instances map")
-        finish_instance()
-        if (text !~ /^[A-Za-z0-9._-]+:[[:space:]]*(#.*)?$/) invalid("invalid instance name")
-        current = text
-        sub(/:[[:space:]]*(#.*)?$/, "", current)
-        if (current == "all") invalid("instance name all is reserved")
-        if (seen_name[current]) invalid("duplicate instance " current)
-        seen_name[current] = 1
-        next
-      }
-
-      if (indent == 4) {
-        if (current == "") invalid("field appears outside an instance")
-        if (text !~ /^(url|token_file|token_env):[[:space:]]*/) invalid("unsupported instance field")
-        key = text
-        sub(/:.*/, "", key)
-        value = text
-        sub(/^[^:]+:[[:space:]]*/, "", value)
-        value = scalar(value)
-        if (key == "url") {
-          if (current_url != "") invalid("duplicate url")
-          current_url = value
-        } else if (key == "token_file") {
-          if (current_token_file != "") invalid("duplicate token_file")
-          current_token_file = value
-        } else {
-          if (current_token_env != "") invalid("duplicate token_env")
-          current_token_env = value
-        }
-        next
-      }
-
-      invalid("expected zero, two or four spaces of indentation")
-    }
-    END {
-      if (failed) exit 65
-      finish_instance()
-      if (!seen_version) invalid("missing version")
-      if (!seen_instances) invalid("missing instances map")
-      if (!found && target != "*") exit 64
-    }
-  ' "$file")"; then
+  if record="$(awk -f "$engine_dir/engine/registry.awk" -v target="$name" -v display="$AIUR_REMOTE_REGISTRY_DISPLAY" "$file")"; then
     :
   else
     status=$?
@@ -232,12 +127,30 @@ load_remote_instance() {
   while IFS=$'\t' read -r key value; do
     case "$key" in
       url) AIUR_REMOTE_URL="$value" ;;
+      gateway_id) AIUR_REMOTE_GATEWAY_ID="$value" ;;
+      label) AIUR_REMOTE_LABEL="$value" ;;
+      tls_pin_sha256) AIUR_REMOTE_TLS_PIN="$value" ;;
+      inbound_only)
+        echo "aiur: remote instance '$name' is inbound-only (no url)" >&2
+        return 64
+        ;;
       token_file | token_env)
         AIUR_REMOTE_TOKEN_KIND="$key"
         AIUR_REMOTE_TOKEN_REF="$value"
         ;;
     esac
   done <<<"$record"
+}
+
+# curl's --pinnedpubkey wants sha256//<base64>; the registry stores the SPKI hash as hex.
+# The pin is the sole endpoint authentication, so --insecure (self-signed certs) is added with it.
+remote_tls_pin_args() {
+  local runtime pin
+  AIUR_REMOTE_CURL_TLS=()
+  [ -n "$AIUR_REMOTE_TLS_PIN" ] || return 0
+  runtime="$(remote_js_runtime)"
+  pin="$("$runtime" -e 'process.stdout.write(Buffer.from(process.argv[1], "hex").toString("base64"))' "$AIUR_REMOTE_TLS_PIN")" || return 69
+  AIUR_REMOTE_CURL_TLS=(--insecure --pinnedpubkey "sha256//$pin")
 }
 
 remote_js_runtime() {
@@ -330,6 +243,36 @@ load_remote_token() {
   AIUR_REMOTE_TOKEN="$token"
 }
 
+# Compare the gateway_id in a 200 response with the registry pin; unpinned entries
+# get a one-time hint on stderr. Never writes the registry (the human pastes the line).
+remote_gateway_check() {
+  local name="$1" file="$2" seen state_dir marker old
+  seen="$(remote_json_field "$file" "gateway_id" 2>/dev/null || true)"
+  if [ -n "$AIUR_REMOTE_GATEWAY_ID" ]; then
+    if [ -z "$seen" ]; then
+      control_rpc_say "aiur: gateway identity unverified for '$name' (response carries no gateway_id)"
+      return 77
+    fi
+    [ "$seen" = "$AIUR_REMOTE_GATEWAY_ID" ] && return 0
+    control_rpc_say "aiur: gateway identity mismatch for '$name'"
+    control_rpc_say "aiur: expected $AIUR_REMOTE_GATEWAY_ID, got $seen; the command may have run on the gateway that answered"
+    return 77
+  fi
+  [ -n "$seen" ] || return 0
+  state_dir="${AIUR_REMOTE_STATE_DIR:-${HOME:?HOME is required}/.aiur/remote-state}/seen-gateway"
+  marker="$state_dir/$name"
+  old="$(cat "$marker" 2>/dev/null || true)"
+  [ "$old" != "$seen" ] || return 0
+  if [ -n "$old" ]; then
+    echo "aiur: '$name' now answers as gateway $seen; it answered as $old before. Pin the one you trust." >&2
+    return 0
+  fi
+  echo "aiur: '$name' answered as gateway $seen. To pin it, add under $name: in $AIUR_REMOTE_REGISTRY_DISPLAY:" >&2
+  echo "    gateway_id: $seen" >&2
+  # A failed marker write is non-fatal: the hint just prints again.
+  (umask 077; mkdir -p "$state_dir" && printf '%s' "$seen" >"$marker") 2>/dev/null || true
+}
+
 remote_json_field() {
   local file="$1" field="$2" runtime
   runtime="$(remote_js_runtime)"
@@ -387,6 +330,7 @@ run_remote_rpc_with_timeout() {
   load_remote_instance "$name" || return $?
   validate_remote_url "$name" "$AIUR_REMOTE_URL" || return $?
   load_remote_token "$name" || return $?
+  remote_tls_pin_args || return $?
   token="$AIUR_REMOTE_TOKEN"
   unset AIUR_REMOTE_TOKEN
 
@@ -429,7 +373,7 @@ run_remote_rpc_with_timeout() {
   printf 'Authorization: Bearer %s\n' "$token" | (
     [ -z "${AIUR_REMOTE_CURL_PID_FILE:-}" ] || printf '%s' "$BASHPID" >"$AIUR_REMOTE_CURL_PID_FILE"
     exec curl \
-      --silent --show-error --request POST \
+      --silent --show-error --request POST ${AIUR_REMOTE_CURL_TLS[@]+"${AIUR_REMOTE_CURL_TLS[@]}"} \
       --max-time "$curl_timeout" \
       --header @- \
       --header 'Content-Type: application/json' \
@@ -452,6 +396,7 @@ run_remote_rpc_with_timeout() {
     case "$http_status" in
       200)
         if output="$(remote_json_output "$response_file")"; then
+          remote_gateway_check "$name" "$response_file" || { rpc_status=$?; remote_rpc_finish "$rpc_status" "$request_file" "$response_file"; return; }
           AIUR_CONTROL_RPC_OUTPUT="$output"
           AIUR_REMOTE_INSTANCE_ID="$(remote_json_field "$response_file" "instance_id" 2>/dev/null || true)"
         else
