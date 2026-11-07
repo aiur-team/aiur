@@ -18,6 +18,7 @@ defmodule Aiur.DecisionDispatch do
 
   alias Aiur.Commands.{DeliveryTarget, NativeAnswer}
   alias Aiur.{Decision, DecisionAnswer, DecisionRevisionDispatch}
+  alias Aiur.DecisionAnswer.Feedback
 
   @max_message_chars 7_800
 
@@ -75,12 +76,13 @@ defmodule Aiur.DecisionDispatch do
   def render(%Decision{answer: %DecisionAnswer{} = answer} = decision) do
     response = NativeAnswer.render(decision, answer) || response_text(decision, answer)
     rationale = if answer.rationale, do: "Rationale: #{answer.rationale}", else: nil
+    feedback = if answer.feedback != [], do: "Option feedback:\n" <> Feedback.render(answer.feedback), else: nil
 
     lifecycle =
       Enum.join([lifecycle_correlation(decision, answer), lifecycle_instruction()], "\n\n")
 
     prefix =
-      [response, rationale]
+      [response, rationale, feedback]
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n\n")
 

@@ -413,7 +413,12 @@ defmodule Aiur.Commands.ComponentState do
       "rationale" => text(answer, "rationale"),
       "accepted_at" => get_key(answer, "accepted_at")
     }
+    |> put_feedback(get_key(answer, "feedback"))
   end
+
+  # Text-only answers keep the old shape.
+  defp put_feedback(map, [_ | _] = feedback), do: Map.put(map, "feedback", feedback)
+  defp put_feedback(map, _none), do: map
 
   defp conflict(%{"state" => "conflict"} = projection), do: Map.get(projection, "conflict")
   defp conflict(_projection), do: nil

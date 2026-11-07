@@ -113,7 +113,8 @@ defmodule Aiur.Commands.HostApi do
   Answers, supersedes or overrides one scoped Command as its authenticated user.
 
   `payload` accepts `idempotency_key`, `expected_version`, one of `option_id` /
-  `custom_response` / `question_answers`, an optional `rationale`, and
+  `custom_response` / `question_answers`, an optional `rationale`, optional
+  per-option `feedback`, and
   `replace: true` to replace an answer that already exists.
   """
   @spec answer(scope(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, answer_error()}
@@ -195,7 +196,8 @@ defmodule Aiur.Commands.HostApi do
         "option_id",
         "custom_response",
         "question_answers",
-        "rationale"
+        "rationale",
+        "feedback"
       ])
 
     with {:ok, key} <- required_binary(payload, "idempotency_key", :idempotency_key),

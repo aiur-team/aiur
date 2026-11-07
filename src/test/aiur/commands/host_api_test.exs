@@ -120,6 +120,22 @@ defmodule Aiur.Commands.HostApiTest do
     assert answered.answer.custom_response == "Ship it once the tests are green."
   end
 
+  test "an answer carries per-option feedback and refuses an unknown option", %{store: store} do
+    decision = request!(store, "42", "allowed")
+    scope = scope_for(["42"])
+    feedback = [%{"option_id" => "hold", "verdict" => "dislike", "reason" => "too slow"}]
+    payload = Map.put(answer_payload(decision.version, "approve"), "feedback", feedback)
+
+    assert {:ok, %{"command" => command}} = HostApi.answer(scope, decision.decision_id, payload, store: store)
+    assert command["answer"]["feedback"] == feedback
+
+    other = request!(store, "42", "allowed-2")
+    bad = Map.put(answer_payload(other.version, "approve"), "feedback", [%{"option_id" => "nope", "verdict" => "like"}])
+
+    assert {:ok, %{"command" => rejected}} = HostApi.answer(scope, other.decision_id, bad, store: store)
+    assert rejected["state"] != "answered"
+  end
+
   test "a stale expected version is a conflict with the current version", %{store: store} do
     decision = request!(store, "42", "allowed")
     scope = scope_for(["42"])

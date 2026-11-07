@@ -45,7 +45,17 @@ export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
  * @property {string | null} selected_option_id
  * @property {string | null} custom_response
  * @property {string | null} rationale
+ * @property {CommandOptionFeedback[]} [feedback] - present only when the answer carried feedback
  * @property {string | null} accepted_at
+ */
+
+/**
+ * Per-option feedback sent with an answer; `verdict` is a closed set.
+ *
+ * @typedef {object} CommandOptionFeedback
+ * @property {string} option_id
+ * @property {'like' | 'dislike'} verdict
+ * @property {string} [reason] - up to 500 characters
  */
 
 /**
