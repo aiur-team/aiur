@@ -238,6 +238,15 @@ Enabling the relay gate raises an info alert. Every relay also raises an info al
 
 <span id="who-can-replace-an-answer"></span>
 
+## Rejecting a Command
+
+A host can reject a Command with a free-text reason (`POST
+/api/v1/commands/:id/reject`, see [embedded Commands](../guide/embedded-commands.md)).
+Unlike dismissal, which delivers nothing and is refused for a blocking Command,
+a rejection is recorded as the answer: the reason is stored verbatim, the
+agent receives a message naming the rejection and the reason, and a blocking
+Command unblocks. The component state is `rejected`.
+
 ## Overriding an answer
 
 The first accepted answer wins. If another responder answers first, the conflict

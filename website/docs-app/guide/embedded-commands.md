@@ -69,6 +69,7 @@ exactly like a missing one, so a guessed identifier reveals nothing.
 | `GET /api/v1/commands` | `{"commands": [...], "count": n, "pagination": {...}, "scope": {...}, "health": {...}}` |
 | `GET /api/v1/commands/:decision_id` | `{"command": {...}, "scope": {...}}` |
 | `POST /api/v1/commands/:decision_id/answer` | `{"command": {...}, "scope": {...}}` |
+| `POST /api/v1/commands/:decision_id/reject` | `{"command": {...}, "scope": {...}}` |
 | `GET /api/v1/commands/:decision_id/media/:attachment_id` | the media file, or a redirect to its public URL |
 
 A list read also accepts `labels=game:chess`, which narrows the page to the
@@ -93,6 +94,25 @@ Aiur's canonical human-answer path, so optimistic version checks, idempotency,
 replacement precedence, and audit attribution all behave exactly as they do on
 the dashboard.
 
+## Reject a Command
+
+A user can refuse a Command, including a blocking one, and say why. Post the
+reason, the version the user was looking at, and an idempotency key:
+
+```json
+{
+  "idempotency_key": "9a41…",
+  "expected_version": 3,
+  "reason": "This question is wrong: the build already shipped."
+}
+```
+
+The reason is kept verbatim (up to 4,000 bytes) in the Command's record and in
+the answer event. The rejection is the Command's answer, so a waiting agent
+unblocks and receives a message that names the rejection and quotes the reason.
+Scope, version checks and idempotency behave as for `answer`; a blank reason is
+a 422, and a Command outside the grant is the same 404.
+
 ## Component states
 
 Every Command renders to one component map with a stable `state` that the
@@ -104,6 +124,7 @@ dashboard card and the embeddable renderer both derive from
 | `pending` | waiting for an answer; options and free response are available |
 | `answered` | an answer is recorded |
 | `revised` | an answer was replaced and recorded as a revision |
+| `rejected` | rejected with a reason; `reason` and `answer.custom_response` carry it verbatim, `answer.rejected` is `true` |
 | `expired` | expired, moot, or dismissed; nothing can be answered |
 | `unavailable` | the retained store is partial, so the state is unknown |
 | `conflict` | another answer won, the version moved, or delivery is in flight |
@@ -114,7 +135,7 @@ A collection carries its own status: `loading`, `empty`, `ready`,
 
 The component map also carries `options[]`, `recommendation`, `free_response`,
 `answer`, `conflict`, `media[]`, and `actions`, which says whether the caller may
-answer or revise.
+answer, reject or revise.
 
 ## Command media
 
@@ -160,7 +181,7 @@ Stable HTTP and component states let a host show one message per outcome.
 
 | HTTP | Component `state` | When |
 | --- | --- | --- |
-| 200 | `answered` or `revised` | recorded; a repeat with the same idempotency key is `answered` with `reason: duplicate_submit` |
+| 200 | `answered`, `revised` or `rejected` | recorded; a repeat with the same idempotency key is `answered` with `reason: duplicate_submit` |
 | 404 | — | the Command does not exist, or is outside the grant |
 | 409 | `conflict` | stale version, already answered, or the answer was already delivered |
 | 422 | `error` | the answer failed validation |
