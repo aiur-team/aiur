@@ -1,11 +1,13 @@
 /* #7686: on touch, a one-finger swipe over the board scrolls the page (the board is not a touch
    scroller; touch.js pans it with two fingers), and the section fits the screen below the header. */
+/* The board wrapper keeps the root's column rhythm so desktop layout is unchanged. */
+#build-root .bd-board { display: flex; flex-direction: column; gap: .9rem; min-width: 0; }
 @media (pointer: coarse) {
   .bd-vp { overflow-y: hidden; touch-action: pan-y; overscroll-behavior: auto; }
 }
 @media (pointer: coarse) {
   /* --app-top / --app-bottom are measured from the real header and fixed bottom nav (touch.js). */
-  #build-root .bd-board { display: flex; flex-direction: column; gap: .9rem; min-height: 0; height: calc(100dvh - var(--app-top, 56px) - var(--app-bottom, 0px)); scroll-margin-top: var(--app-top, 56px); }
+  #build-root .bd-board { min-height: 0; height: calc(100dvh - var(--app-top, 56px) - var(--app-bottom, 0px)); scroll-margin-top: var(--app-top, 56px); }
   #build-root .bd-vpw { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   #build-root .bd-vpw > .bd-vp { flex: 1 1 auto; height: auto; min-height: 120px; }
 }
