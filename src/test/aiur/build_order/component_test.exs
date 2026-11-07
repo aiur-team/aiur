@@ -118,6 +118,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.CurrentRunMembership.Store,
     Aiur.LiveConversation,
     Aiur.ProgressRetention,
+    Aiur.ControlCall.ReplayStore,
     Aiur.TicketActivity,
     Aiur.Claude.Telemetry,
     Aiur.BuildOrder.History,
