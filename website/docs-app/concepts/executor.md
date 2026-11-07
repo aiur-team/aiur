@@ -38,6 +38,16 @@ When a designated Executor takes a Command, it records
 receiving a wake does not acknowledge it. Repeated acknowledgements are safe.
 Acknowledgement means “seen”, not “answered” or “resolved”.
 
+Every wake record carries `gateway_id` and `gateway_label`, naming the gateway
+whose daemon observed the event, so an Executor reading
+`--gateway all executor-wait --json` can tell machines apart. Both are `null`
+when that daemon's gateway identity is unavailable. To keep two Executors from
+answering the same Command, one can run
+`aiur executor-claim-decision <decision-id> --as <executor>`: other Executors'
+answers are refused with the claimant's id until the claim expires, is released
+(`executor-release-decision`), or the Command is answered. The claim is held by
+the gateway that stores the Command.
+
 By default, an Executor has five minutes to acknowledge and fifteen minutes from
 routing to answer. Acknowledgement removes only the acknowledgement deadline.
 Urgent blocking Commands halve both deadlines.

@@ -9,6 +9,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionTimeline do
     routed: "Routed",
     escalated: "Escalated",
     executor_acknowledged: "Executor acknowledged",
+    executor_claimed: "Executor claimed",
+    executor_claim_released: "Executor claim released",
     human_needed: "Human needed",
     answer_recorded: "Answer recorded",
     revision_recorded: "Revision recorded",

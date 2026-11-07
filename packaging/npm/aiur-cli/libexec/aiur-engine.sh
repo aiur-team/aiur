@@ -94,6 +94,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur commands [repair | <decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
        aiur executor-ack <decision-id> [--executor-id <id>]
+       aiur executor-claim-decision <decision-id> --as <executor> [--ttl <seconds>]
+       aiur executor-release-decision <decision-id> --as <executor>
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -326,6 +328,9 @@ aiur_engine_main() {
     executor-ack)
       shift
       cmd_executor_ack "$@"
+      ;;
+    executor-claim-decision | executor-release-decision)
+      cmd_executor_claim_decision "$@"
       ;;
     executor-answer)
       shift
