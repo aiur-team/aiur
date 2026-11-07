@@ -171,16 +171,16 @@ defmodule Aiur.BuildQueue.Server do
 
   def handle_call({:mutate, _}, _from, %{phase: :awaiting_first_observation, status: :running} = state), do: {:reply, {:error, :awaiting_first_observation}, state}
 
-  def handle_call({:mutate, command}, _from, %{status: :running} = state) when elem(command, 0) in [:adopt, :unadopt, :adopt_feature, :unadopt_feature] do
+  def handle_call({:mutate, command}, _from, %{status: :running} = state) when elem(command, 0) in [:adopt, :unadopt, :adopt_feature, :unadopt_feature, :adopt_epic, :unadopt_epic] do
     verb = elem(command, 0)
     target = elem(command, 1)
 
     case BuildOrderCommands.prepare(state, command) do
       {:ok, document, actions, observations, updates} ->
         {reply, state} = commit_mutation(state, document, actions, observations)
-        if state.status != :store_unavailable and verb == :unadopt, do: BuildOrderCommands.release(target, state)
-        state = if state.status != :store_unavailable, do: Map.merge(state, Map.delete(updates, :refusals)), else: state
-        state = if verb in [:adopt, :adopt_feature], do: BuildOrderCommands.refresh_unavailable(state), else: state
+        if state.status != :store_unavailable, do: BuildOrderCommands.release_after(state, verb, target, updates)
+        state = if state.status != :store_unavailable, do: Map.merge(state, Map.drop(updates, [:refusals, :release_root])), else: state
+        state = if verb in [:adopt, :adopt_feature, :adopt_epic], do: BuildOrderCommands.refresh_unavailable(state), else: state
         reply = if reply == :ok, do: {:ok, updates.refusals}, else: reply
         {:reply, reply, request(state)}
 
@@ -246,7 +246,7 @@ defmodule Aiur.BuildQueue.Server do
 
   @impl true
   def handle_info({:open_issues_recorded, _}, state), do: {:noreply, state |> BuildOrderCommands.hint() |> request()}
-  def handle_info({kind, _}, state) when kind in [:graph_projection_reset, :build_order_features_changed], do: {:noreply, request(state)}
+  def handle_info({kind, _}, state) when kind in [:graph_projection_reset, :build_order_features_changed, :build_order_epics_changed], do: {:noreply, request(state)}
 
   def handle_info({:event, %{topic: "ticket." <> topic}}, state) do
     state =

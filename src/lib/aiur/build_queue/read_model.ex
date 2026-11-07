@@ -342,6 +342,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       kind: queue.kind,
       root: queue.root,
       feature: queue.feature,
+      epic: queue.epic,
       name: queue.name,
       start_trigger: context.trigger,
       start_trigger_override: queue.start_trigger,

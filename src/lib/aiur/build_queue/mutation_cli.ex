@@ -26,6 +26,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
       cond do
         opts[:build_order] -> adopt(opts)
         opts[:feature] -> adopt_feature(opts)
+        opts[:epic] -> adopt_epic(opts)
         true -> dispatch(Keyword.fetch!(opts, :verb), opts)
       end
     end
@@ -54,14 +55,14 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp valid_rank?(opts) do
     not Keyword.has_key?(opts, :rank) or
       (position?(opts[:rank]) and
-         (is_binary(opts[:queue]) or not is_nil(opts[:build_order]) or not is_nil(opts[:feature])))
+         (is_binary(opts[:queue]) or not is_nil(opts[:build_order]) or not is_nil(opts[:feature]) or not is_nil(opts[:epic])))
   end
 
   defp allowed_options(:order), do: [:queue, :to]
 
   defp allowed_options(verb) do
     case verb do
-      :add -> [:ids, :queue, :after, :at, :build_order, :feature, :start_on, :rank, :json]
+      :add -> [:ids, :queue, :after, :at, :build_order, :feature, :epic, :start_on, :rank, :json]
       :set -> [:queue, :start_on]
       :recover -> [:force]
       :clear -> [:remove_markers, :yes]
@@ -76,6 +77,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     cond do
       opts[:build_order] -> valid_root_add?(ids, opts)
       opts[:feature] -> valid_feature_add?(ids, opts)
+      opts[:epic] -> valid_epic_add?(ids, opts)
       true -> valid_id_add?(ids, opts)
     end
   end
@@ -90,16 +92,20 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp valid_command?(_, _, _), do: false
 
   defp valid_root_add?(ids, opts) do
-    ids == [] and positive?(opts[:build_order]) and is_nil(opts[:after]) and is_nil(opts[:at]) and is_nil(opts[:feature])
+    ids == [] and positive?(opts[:build_order]) and is_nil(opts[:after]) and is_nil(opts[:at]) and is_nil(opts[:feature]) and is_nil(opts[:epic])
   end
 
   defp valid_feature_add?(ids, opts) do
-    ids == [] and valid_slug?(opts[:feature]) and is_nil(opts[:after]) and is_nil(opts[:at]) and is_nil(opts[:build_order])
+    ids == [] and valid_slug?(opts[:feature]) and is_nil(opts[:after]) and is_nil(opts[:at]) and is_nil(opts[:build_order]) and is_nil(opts[:epic])
+  end
+
+  defp valid_epic_add?(ids, opts) do
+    ids == [] and valid_slug?(opts[:epic]) and is_nil(opts[:after]) and is_nil(opts[:at]) and is_nil(opts[:build_order]) and is_nil(opts[:feature])
   end
 
   defp valid_id_add?(ids, opts) do
     ids != [] and valid_after?(opts[:after], ids) and (is_nil(opts[:at]) or position?(opts[:at])) and
-      is_nil(opts[:feature]) and is_nil(opts[:build_order])
+      is_nil(opts[:feature]) and is_nil(opts[:build_order]) and is_nil(opts[:epic])
   end
 
   defp valid_after?(nil, _ids), do: true
@@ -177,6 +183,37 @@ defmodule Aiur.BuildQueue.MutationCLI do
     {:ok, results}
   end
 
+  defp adopt_epic(opts) do
+    slug = opts[:epic]
+    command = if Keyword.has_key?(opts, :start_on), do: {:adopt_epic, slug, opts[:queue], opts[:start_on]}, else: {:adopt_epic, slug, opts[:queue]}
+    command = if Keyword.has_key?(opts, :rank), do: {:adopt_epic, slug, opts[:queue], opts[:start_on], opts[:rank]}, else: command
+    result = call({:mutate, command}, opts)
+    if match?({:ok, _refusals}, result), do: warn_set_order(opts)
+
+    results =
+      case result do
+        {:ok, refusals} ->
+          accepted = accepted_epic_rows(slug, opts)
+          refused = Enum.map(refusals, &{"##{elem(&1, 0)}", elsewhere_result(&1, opts)})
+          [{"Epic #{slug}", :ok} | accepted ++ refused]
+
+        error ->
+          [{"Epic #{slug}", error}]
+      end
+
+    {:ok, results}
+  end
+
+  defp accepted_epic_rows(slug, opts) do
+    if Keyword.get(opts, :json, false) do
+      BuildQueue.show(server(opts)).queues
+      |> Enum.find(&(&1.epic == slug))
+      |> accepted_member_rows()
+    else
+      []
+    end
+  end
+
   # A member another set already owns stays there; the feature set itself still succeeds (KTD9).
   defp elsewhere_result({id, :already_queued}, opts), do: {:ok, {:owned_elsewhere, owner_name(id, opts)}}
   defp elsewhere_result({_id, reason}, _opts), do: {:error, reason}
@@ -203,7 +240,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
     case settings(opts) do
       {:ok, %{build_queue: %{set_order: "none"}}} ->
         Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1)).(
-          "aiur: build_queue.set_order is none, so feature entries have no declared order; set build_queue.set_order to ranked to order entries by rank"
+          "aiur: build_queue.set_order is none, so feature and epic entries have no declared order; set build_queue.set_order to ranked to order entries by rank"
         )
 
       _ ->
@@ -344,6 +381,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:ok, {:owned_elsewhere, name}}) when is_binary(name), do: "owned by queue #{name}; stays there"
   defp message({:ok, {:owned_elsewhere, _name}}), do: "owned by another set; stays there"
   defp message({:error, :feature_not_found}), do: "feature not found in the feature registry"
+  defp message({:error, :epic_not_found}), do: "epic not found in the feature registry"
   defp message({:error, :too_many_features}), do: "too many feature entries"
   defp message({:error, :already_adopted}), do: "already queued as a feature or Build Order entry"
   defp message({:error, :observation_unavailable}), do: "ticket observation unavailable; retry after the next poll"
