@@ -4,9 +4,9 @@ AIUR_REMOTE_REGISTRY_DISPLAY="~/.aiur/remote-instances.yaml"
 
 validate_remote_instance_name() {
   local name="${AIUR_REMOTE_INSTANCE:-}"
-  [ -n "$name" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
+  [ -n "$name" ] || { echo "aiur: ${AIUR_REMOTE_SELECTOR_FLAG:---instance} requires a name" >&2; return 64; }
   [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$name" != "." ] && [ "$name" != ".." ] || {
-    echo "aiur: --instance expects a name containing only letters, numbers, '.', '_' or '-'" >&2
+    echo "aiur: ${AIUR_REMOTE_SELECTOR_FLAG:---instance} expects a name containing only letters, numbers, '.', '_' or '-'" >&2
     return 64
   }
 }
@@ -38,7 +38,11 @@ ensure_remote_command_allowed() {
       [ "${2:-}" = label-writes ] || { echo "aiur: history export is local to the instance's host" >&2; return 64; }
       ;;
     stop | restart)
-      echo "aiur: $command is local to the instance's host" >&2
+      if [ "${AIUR_REMOTE_SELECTOR_FLAG:-}" = --gateway ]; then
+        echo "aiur: $command is local to the gateway's host; run it there" >&2
+      else
+        echo "aiur: $command is local to the instance's host" >&2
+      fi
       return 64
       ;;
     run | --bg | "")
@@ -70,15 +74,15 @@ ensure_remote_command_allowed() {
       return 64
       ;;
     listen | executor-listen)
-      echo "aiur: $command is a local streaming command and is unavailable with --instance" >&2
+      echo "aiur: $command is a local streaming command and is unavailable with ${AIUR_REMOTE_SELECTOR_FLAG:---instance}" >&2
       return 64
       ;;
     --version | help | -h | -help | --h | --help)
-      echo "aiur: $command describes this local client and is unavailable with --instance" >&2
+      echo "aiur: $command describes this local client and is unavailable with ${AIUR_REMOTE_SELECTOR_FLAG:---instance}" >&2
       return 64
       ;;
     *)
-      echo "aiur: $command is unavailable with --instance" >&2
+      echo "aiur: $command is unavailable with ${AIUR_REMOTE_SELECTOR_FLAG:---instance}" >&2
       return 64
       ;;
   esac
@@ -86,7 +90,7 @@ ensure_remote_command_allowed() {
   case "$command" in
     executor-wait | executor-claim | executor-release | executor-fast-forward)
       remote_command_has_as "$@" || {
-        echo "aiur: $command with --instance requires --as <id>" >&2
+        echo "aiur: $command with ${AIUR_REMOTE_SELECTOR_FLAG:---instance} requires --as <id>" >&2
         return 64
       }
       ;;
