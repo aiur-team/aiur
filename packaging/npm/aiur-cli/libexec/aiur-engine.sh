@@ -65,7 +65,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all gateway node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -77,6 +77,7 @@ usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
        aiur --instance <name|all> <command>  run a supported control command against one or every remote instance
+       aiur --gateway <name|label|id|all|local> <command>  like --instance, matching a registry name, label or gateway id
        aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]  explicit launch form
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur token create <name> [--scope read|write] | list | revoke <name>  manage machine credentials
@@ -94,6 +95,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur commands [repair | <decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
        aiur executor-ack <decision-id> [--executor-id <id>]
+       aiur executor-claim-decision|executor-release-decision <decision-id> --as <executor> [--ttl <seconds>]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -210,18 +212,9 @@ aiur_engine_main() {
   # inherited value before parsing so a leaked shell variable cannot redirect
   # a direct shared-engine invocation.
   unset AIUR_REMOTE_INSTANCE
-  case "${1:-}" in
-    --instance)
-      [ "$#" -gt 1 ] && [ -n "${2:-}" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
-      export AIUR_REMOTE_INSTANCE="$2"
-      shift 2
-      ;;
-    --instance=*)
-      export AIUR_REMOTE_INSTANCE="${1#--instance=}"
-      [ -n "$AIUR_REMOTE_INSTANCE" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
-      shift
-      ;;
-  esac
+  unset AIUR_REMOTE_SELECTOR_FLAG
+  parse_remote_selector "$@" || return $?
+  shift "$AIUR_SELECTOR_SHIFT"
 
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
@@ -323,9 +316,8 @@ aiur_engine_main() {
       shift
       cmd_operator_relay_answer "$@"
       ;;
-    executor-ack)
-      shift
-      cmd_executor_ack "$@"
+    executor-ack | executor-claim-decision | executor-release-decision)
+      if [ "$1" = executor-ack ]; then shift; cmd_executor_ack "$@"; else cmd_executor_claim_decision "$@"; fi
       ;;
     executor-answer)
       shift
