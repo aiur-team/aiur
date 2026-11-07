@@ -19,7 +19,7 @@ defmodule Aiur.InstanceSummary do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0) |> DateTime.to_iso8601()
     facts = collect(opts)
 
-    %{
+    Map.merge(Keyword.get(opts, :gateway_identity_fun, &Aiur.Gateway.Identity.current/0).(), %{
       contract: "aiur.instance_summary",
       version: 1,
       instance_id: facts.instance_id,
@@ -31,7 +31,7 @@ defmodule Aiur.InstanceSummary do
       build_orders: facts.build_orders,
       background_agents: facts.background_agents,
       capabilities: facts.capabilities
-    }
+    })
     |> Guard.check!()
   end
 
