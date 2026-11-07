@@ -484,18 +484,15 @@ run_remote_rpc_with_timeout() {
         fi
         ;;
       504)
-        control_rpc_say "aiur: $(control_command_label) timed out on $name; outcome unknown on $name${request_id:+; $(aiur_request_id_hint "$request_id")}"
-        rpc_status=124
+        control_rpc_say "aiur: $(control_command_label) timed out on $name; outcome unknown on $name${request_id:+; $(aiur_request_id_hint "$request_id")}"; rpc_status=124
         ;;
       409) aiur_remote_conflict "$name" "$response_file" "$request_id" || rpc_status=$? ;;
       400 | 404 | 405 | 413)
         code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
-        control_rpc_say "aiur: remote instance '$name' refused $(control_command_label) (HTTP $http_status${code:+, $code})"
-        rpc_status=64
+        control_rpc_say "aiur: remote instance '$name' refused $(control_command_label) (HTTP $http_status${code:+, $code})"; rpc_status=64
         ;;
       *)
-        control_rpc_say "aiur: remote instance '$name' failed $(control_command_label) with HTTP ${http_status:-unknown}"
-        rpc_status=69
+        control_rpc_say "aiur: remote instance '$name' failed $(control_command_label) with HTTP ${http_status:-unknown}"; rpc_status=69
         ;;
     esac
   fi
