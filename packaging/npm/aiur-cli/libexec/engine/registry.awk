@@ -26,6 +26,13 @@
     }
     function finish_instance() {
       if (current == "") return
+      if (target == "@resolve") {
+        how = ""
+        if (current == ENVIRON["AIUR_GATEWAY_SELECTOR"]) how = "name"
+        if (current_label != "" && tolower(current_label) == tolower(ENVIRON["AIUR_GATEWAY_SELECTOR"])) how = how (how == "" ? "" : ", ") "label \"" current_label "\""
+        if (current_gateway_id != "" && current_gateway_id == tolower(ENVIRON["AIUR_GATEWAY_SELECTOR"])) how = how (how == "" ? "" : ", ") "id " current_gateway_id
+        if (how != "") print current "\t" how
+      }
       # An inbound-only peer (no url, no token) exists so the receiver can read allows; it is not callable.
       inbound_only = current_url == "" && current_token_file == "" && current_token_env == "" && (seen_allows || current_gateway_id != "")
       if (inbound_only) {
@@ -135,5 +142,5 @@
       finish_instance()
       if (!seen_version) invalid("missing version")
       if (!seen_instances) invalid("missing instances map")
-      if (!found && target != "*") exit 64
+      if (!found && target != "*" && target != "@resolve") exit 64
     }

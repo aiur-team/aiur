@@ -251,7 +251,7 @@ defmodule Aiur.DecisionEvent.Codec do
 
   # Routing is projected from facts and must never alter frozen request hash material.
   defp request_json(decision) do
-    Map.drop(DecisionProjection.to_json_safe(decision), ~w(route_policy route_state routed_at human_visible_at escalations executor_acknowledged_at))
+    Map.drop(DecisionProjection.to_json_safe(decision), ~w(route_policy route_state routed_at human_visible_at escalations executor_acknowledged_at executor_claim))
   end
 
   defp normalize_actor(actor) when is_map(actor) do

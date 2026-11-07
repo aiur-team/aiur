@@ -351,6 +351,8 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:escalated), do: "escalated"
   def lifecycle_slug(:human_needed), do: "human-needed"
   def lifecycle_slug(:executor_acknowledged), do: "executor-acknowledged"
+  def lifecycle_slug(:executor_claimed), do: "executor-claimed"
+  def lifecycle_slug(:executor_claim_released), do: "executor-claim-released"
   def lifecycle_slug(:native_released), do: "native-released"
   def lifecycle_slug(:request_attributed), do: "request-attributed"
   def lifecycle_slug(:requester_notified), do: "requester-notified"
