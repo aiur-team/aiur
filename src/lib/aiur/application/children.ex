@@ -369,7 +369,7 @@ defmodule Aiur.Application.Children do
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
     store_children =
       if LeaseStore.configured?(),
-        do: [LeaseStore, {Heartbeat, metadata_fun: fn -> InstanceHeartbeatMetadata.metadata(executor_fun: &executor_present/0) end}],
+        do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}],
         else: []
 
     services =
@@ -399,6 +399,9 @@ defmodule Aiur.Application.Children do
     do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
 
   defp recording_children(false), do: []
+
+  @doc false
+  def heartbeat_metadata, do: InstanceHeartbeatMetadata.metadata(executor_fun: &executor_present/0)
 
   # Wired here because orchestration may not depend on the optional executor-attention component.
   # record?: false — a heartbeat must not move the roster's stall evidence.
