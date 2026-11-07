@@ -104,6 +104,27 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
            ]
   end
 
+  test "production-shaped rows (bare-number identifier + mixed-case tracker_identity) group under the downcased repo of held keys" do
+    row = fn number ->
+      issue = %{"node_id" => "I_#{number}", "database_id" => number, "number" => number, "title" => "t"}
+      {:ok, identity} = Aiur.TrackerIdentity.from_github(issue, {"Aiur-Team", "Aiur"}, {"Aiur-Team", "Aiur"})
+      %{identifier: to_string(number), tracker_identity: identity, title: "t", state: :running}
+    end
+
+    data =
+      InstanceHeartbeatMetadata.metadata(
+        @base_opts ++
+          [
+            statuses_fun: fn -> [row.(7718), row.(7636)] end,
+            capacity_fun: fn -> 2 end,
+            held_tickets_fun: fn -> ["aiur-team/aiur#7718", "aiur-team/aiur#7636"] end,
+            executor_fun: fn -> true end
+          ]
+      )["data"]
+
+    assert data["projects"] == [%{"repo" => "aiur-team/aiur", "running" => 2, "owned_tickets" => 2}]
+  end
+
   test "unreadable fields are omitted, not zero-filled, and the roster renders unknown" do
     data =
       InstanceHeartbeatMetadata.metadata(

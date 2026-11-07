@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
   @moduledoc false
 
-  alias Aiur.Executor.Roster, as: ExecutorRoster
   alias Aiur.Gateway.Identity
   alias Aiur.Instance.LeaseStore
+  alias Aiur.Instance.LeaseStore.TicketKey
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata.SizeBudget
 
   @spec metadata(keyword()) :: map()
@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
         "agent_count" => count_agents(statuses),
         "agent_capacity" => contained(Keyword.get(opts, :capacity_fun, &agent_capacity/0)),
         "held_tickets" => held,
-        "executor_present" => contained(Keyword.get(opts, :executor_fun, &executor_present/0)),
+        "executor_present" => contained(Keyword.get(opts, :executor_fun, fn -> nil end)),
         "projects" => projects(statuses, held),
         "agents" => agent_rows(statuses)
       })
@@ -51,11 +51,13 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
 
   defp projects(statuses, held) when is_list(statuses) do
     active = Enum.filter(statuses, &active_agent?/1)
-    running = Enum.frequencies_by(active, &repo_of(&1.identifier))
+    running = Enum.frequencies_by(active, &repo_of/1)
 
-    repos = Enum.uniq(Enum.map(active, &repo_of(&1.identifier)) ++ if(is_list(held), do: Enum.map(held, &repo_of/1), else: []))
+    repos = Enum.uniq(Enum.map(active, &repo_of/1) ++ if(is_list(held), do: Enum.map(held, &repo_of/1), else: []))
 
-    Enum.map(repos, fn repo ->
+    repos
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(fn repo ->
       drop_nil(%{
         "repo" => repo,
         "running" => Map.get(running, repo, 0),
@@ -66,23 +68,20 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
 
   defp projects(_, _), do: nil
 
-  defp repo_of(identifier), do: identifier |> to_string() |> String.split("#") |> hd()
-
-  defp executor_present do
-    # record?: false — a heartbeat must not move the roster's stall evidence.
-    %{executors: executors} = ExecutorRoster.build(record?: false)
-    Enum.any?(executors, &(&1.state in [:active, :idle]))
-  rescue
-    _ -> nil
-  catch
-    :exit, _ -> nil
+  # Project id = downcased owner/name from the lease store's own ticket key, so running rows (bare-number
+  # identifier + tracker_identity) and held keys (owner/repo#N) group under one key.
+  defp repo_of(row_or_key) do
+    case TicketKey.ticket_key(row_or_key) do
+      {:ok, key} -> key |> String.split("#") |> hd()
+      _ -> nil
+    end
   end
 
   defp ownership_data(%{"version" => 1, "data" => data}) when is_map(data), do: data
   defp ownership_data(_), do: %{}
 
   defp statuses do
-    case Aiur.Orchestrator.status() do
+    case Aiur.Orchestrator.status(Aiur.Orchestrator, 1_000) do
       statuses when is_list(statuses) -> statuses
       _ -> nil
     end
