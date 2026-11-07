@@ -125,6 +125,20 @@ defmodule Aiur.Commands.TagsTest do
 
     assert {:ok, %{status: :accepted}} = DecisionStore.dismiss(rejected.decision_id, @operator, pid)
     assert {:ok, %{decision_status: :decided, answer: %{selected_option_id: "yes"}}} = DecisionStore.get(decided.decision_id, pid)
+    assert DecisionStore.health(pid) == :writable
+    GenServer.stop(pid)
+  end
+
+  # Only open siblings are mooted; an undelivered answer is withdrawable but is not "open".
+  test "a decided-but-undelivered sibling keeps its answer when the group is rejected", %{dir: dir} do
+    pid = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :unavailable} end, dispatch_delay_ms: 0, retry_delays_ms: [])
+    rejected = ask(pid, "Adopt proposal D?", ["group:d"])
+    decided = ask(pid, "Which size for proposal D?", ["group:d"])
+    assert {:ok, _} = answer(pid, decided.decision_id, %{expected_version: 1, option_id: "yes", idempotency_key: "undelivered-sibling"})
+    refute Decision.delivered?(elem(DecisionStore.get(decided.decision_id, pid), 1))
+
+    assert {:ok, %{status: :accepted}} = DecisionStore.dismiss(rejected.decision_id, @operator, pid)
+    assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decided.decision_id, pid)
     GenServer.stop(pid)
   end
 end
