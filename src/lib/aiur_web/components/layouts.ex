@@ -196,6 +196,30 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            // Open/closed is per viewer: localStorage, or ?executor=open from the retired /executor page.
+            Hooks.ExecutorFooter = {
+              mounted: function () {
+                this.toggle = this.el.querySelector("[data-executor-footer-toggle]");
+                this.panel = this.el.querySelector("#executor-footer-panel");
+                var stored = null;
+                try { stored = window.localStorage.getItem("aiur-executor-footer"); } catch (_error) {}
+                this.setOpen(new URLSearchParams(window.location.search).get("executor") === "open" || stored === "open", false);
+                this.onClick = () => this.setOpen(!this.open, true);
+                this.onKey = (e) => { if (e.key === "Escape" && this.open) { this.setOpen(false, true); this.toggle.focus(); } };
+                this.toggle.addEventListener("click", this.onClick);
+                document.addEventListener("keydown", this.onKey);
+              },
+              setOpen: function (open, remember) {
+                this.open = open;
+                this.el.dataset.open = String(open);
+                this.toggle.setAttribute("aria-expanded", String(open));
+                this.toggle.setAttribute("aria-label", open ? "Collapse Executor panel" : "Expand Executor panel");
+                this.panel.hidden = !open;
+                if (remember) { try { window.localStorage.setItem("aiur-executor-footer", open ? "open" : "closed"); } catch (_error) {} }
+              },
+              destroyed: function () { document.removeEventListener("keydown", this.onKey); }
+            };
+
             Hooks.CopyToClipboard = {
               mounted: function () {
                 this.source = this.el.querySelector("[data-copy-source]");
@@ -364,6 +388,7 @@ defmodule AiurWeb.Layouts do
     <main class="app-shell">
       {@inner_content}
     </main>
+    {if @socket.view != AiurWeb.ConversationLive, do: live_render(@socket, AiurWeb.ExecutorLive, id: "executor-footer-live", sticky: true)}
     """
   end
 
