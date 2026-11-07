@@ -1,6 +1,8 @@
 defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Instance.Roster
+  alias Aiur.Instance.Roster.Presentation
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata
 
   test "heartbeat publishes per-instance ticket rows and capacity" do
@@ -61,6 +63,98 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
     gone = %{gateway_id: nil, gateway_label: nil, gateway_identity: "unavailable"}
     data = InstanceHeartbeatMetadata.metadata([gateway_identity_fun: fn -> gone end] ++ opts)
     assert %{"gateway_id" => nil, "gateway_identity" => "unavailable"} = data["data"]
+  end
+
+  @base_opts [
+    host_kind_fun: &__MODULE__.home/0,
+    public_url_fun: &__MODULE__.nil_fun/0,
+    ownership_metadata_fun: &__MODULE__.empty/0,
+    gateway_identity_fun: &__MODULE__.identity/0
+  ]
+
+  def home, do: "home"
+  def nil_fun, do: nil
+  def empty, do: %{}
+  def identity, do: %{gateway_id: "g", gateway_label: "l", gateway_identity: "available"}
+
+  test "publishes projects and executor presence from real workload" do
+    rows = [
+      %{identifier: "acme/widgets#1", title: "a", state: :running},
+      %{identifier: "acme/widgets#2", title: "b", state: :running},
+      %{identifier: "acme/api#9", title: "c", state: :running}
+    ]
+
+    data =
+      InstanceHeartbeatMetadata.metadata(
+        @base_opts ++
+          [
+            statuses_fun: fn -> rows end,
+            capacity_fun: fn -> 4 end,
+            held_tickets_fun: fn -> ["acme/widgets#1", "acme/widgets#2", "acme/api#9"] end,
+            executor_fun: fn -> true end
+          ]
+      )["data"]
+
+    assert data["agent_count"] == 3
+    assert data["executor_present"] == true
+
+    assert data["projects"] == [
+             %{"repo" => "acme/widgets", "running" => 2, "owned_tickets" => 2},
+             %{"repo" => "acme/api", "running" => 1, "owned_tickets" => 1}
+           ]
+  end
+
+  test "unreadable fields are omitted, not zero-filled, and the roster renders unknown" do
+    data =
+      InstanceHeartbeatMetadata.metadata(
+        @base_opts ++
+          [
+            statuses_fun: fn -> nil end,
+            capacity_fun: fn -> nil end,
+            held_tickets_fun: fn -> exit(:timeout) end,
+            executor_fun: fn -> nil end
+          ]
+      )["data"]
+
+    for key <- ~w(agent_count agent_capacity held_tickets executor_present projects agents), do: refute(Map.has_key?(data, key), key)
+
+    now = DateTime.utc_now()
+    record = %{instance_id: "x", build_version: "1", metadata: %{"version" => 1, "data" => data}, heartbeat_at: now, expires_at: DateTime.add(now, 30)}
+    {:ok, %{instances: [row]}} = Roster.list(now: now, list_fun: fn _ -> {:ok, [record]} end, leader_fun: fn -> :unheld end)
+    assert Presentation.count(row.agent_count) == "unknown"
+    assert Presentation.executor(row.executor_present) == "unknown"
+  end
+
+  test "zero and false are facts and survive" do
+    data =
+      InstanceHeartbeatMetadata.metadata(@base_opts ++ [statuses_fun: fn -> [] end, capacity_fun: fn -> 2 end, held_tickets_fun: fn -> [] end, executor_fun: fn -> false end])["data"]
+
+    assert %{"agent_count" => 0, "held_tickets" => [], "executor_present" => false, "projects" => []} = data
+  end
+
+  test "oversized payload is trimmed in order, floor keys survive, cuts are named" do
+    rows = for i <- 1..20, do: %{identifier: "acme/r#{rem(i, 3)}##{i}", title: String.duplicate("t", 300), state: :running}
+    held = for i <- 1..200, do: "acme/r#{rem(i, 3)}##{i}"
+
+    opts = @base_opts ++ [statuses_fun: fn -> rows end, capacity_fun: fn -> 20 end, held_tickets_fun: fn -> held end, executor_fun: fn -> true end]
+
+    small = InstanceHeartbeatMetadata.metadata([max_bytes: 8_000] ++ opts)["data"]
+    assert small["trimmed"] == ["agent_titles"]
+    assert Enum.all?(small["agents"], &(byte_size(&1["title"]) <= 80))
+    assert byte_size(Jason.encode!(small)) <= 8_000
+
+    floor = InstanceHeartbeatMetadata.metadata([max_bytes: 1_200] ++ opts)["data"]
+    assert byte_size(Jason.encode!(floor)) <= 1_200
+    assert floor["trimmed"] == ["agent_titles", "agents", "held_tickets"]
+    assert %{"agent_count" => 20, "executor_present" => true} = floor
+    refute Map.has_key?(floor, "agents")
+  end
+
+  test "exit in a read is contained" do
+    assert %{"data" => data} =
+             InstanceHeartbeatMetadata.metadata(@base_opts ++ [statuses_fun: fn -> [] end, capacity_fun: fn -> 1 end, held_tickets_fun: fn -> [] end, executor_fun: fn -> nil end])
+
+    refute Map.has_key?(data, "executor_present")
   end
 
   test "roster metadata preserves ownership, pool, and paused state for dispatch" do
