@@ -154,6 +154,10 @@ The renderer covers all four kinds: images and animated images render with their
 alt text and caption, and video and audio use native `controls` with a poster
 where the item has one. A Command whose media cannot be resolved still renders.
 
+## Theme the component
+
+Every styled element carries a stable `data-part` attribute (and an `aiur-command-*` class). Import `@aiur/commands/theme.css` and set `--aiur-command-accent`, `--aiur-command-radius`, `--aiur-command-font`, `--aiur-command-fg`, `--aiur-command-muted`, `--aiur-command-bg`, `--aiur-command-border` or `--aiur-command-gap` on any ancestor. The `labels` render option (`submit`, `legend`, `recommended`, `recorded`, `revised`) replaces the visible copy. The package README lists every part name.
+
 ## Answer outcomes
 
 Stable HTTP and component states let a host show one message per outcome.
