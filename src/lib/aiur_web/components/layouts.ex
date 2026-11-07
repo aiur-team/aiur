@@ -196,14 +196,16 @@ defmodule AiurWeb.Layouts do
               }
             };
 
-            // Open/closed is per viewer: localStorage, or ?executor=open from the retired /executor page.
+            // Open/closed is per viewer: localStorage, or #executor from the retired /executor page (a fragment survives Build's query canonicalization).
             Hooks.ExecutorFooter = {
               mounted: function () {
                 this.toggle = this.el.querySelector("[data-executor-footer-toggle]");
                 this.panel = this.el.querySelector("#executor-footer-panel");
                 var stored = null;
                 try { stored = window.localStorage.getItem("aiur-executor-footer"); } catch (_error) {}
-                this.setOpen(new URLSearchParams(window.location.search).get("executor") === "open" || stored === "open", false);
+                var linked = window.location.hash === "#executor";
+                if (linked) window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+                this.setOpen(linked || stored === "open", false);
                 this.onClick = () => this.setOpen(!this.open, true);
                 this.onKey = (e) => { if (e.key === "Escape" && this.open) { this.setOpen(false, true); this.toggle.focus(); } };
                 this.toggle.addEventListener("click", this.onClick);

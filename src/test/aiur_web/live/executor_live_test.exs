@@ -4,7 +4,7 @@ defmodule AiurWeb.ExecutorLiveTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   import Aiur.TestSupport.BuildHome.ProtocolCase, except: [source: 1]
   import Aiur.Conversation.TestSupport
-  alias Aiur.Conversation.{Ingest, Store, TestSupport}
+  alias Aiur.Conversation.{Ingest, Ref, Store, TestSupport}
   alias Aiur.Executor.{CapabilityProvider, Session}
   alias AiurWeb.Endpoint
 
@@ -49,7 +49,7 @@ defmodule AiurWeb.ExecutorLiveTest do
   end
 
   test "worker conversation pages carry no footer" do
-    {:ok, page, _html} = live(build_conn(), "/conversations/" <> Aiur.Conversation.Ref.conversation_id(Aiur.Conversation.Ref.executor()))
+    {:ok, page, _html} = live(build_conn(), "/conversations/" <> Ref.conversation_id(Ref.executor()))
     refute has_element?(page, "#executor-footer")
   end
 
@@ -124,8 +124,8 @@ defmodule AiurWeb.ExecutorLiveTest do
   end
 
   test "/executor redirects to the expanded footer and old positions to full history" do
-    assert redirected_to(get(build_conn(), "/executor")) == "/?executor=open"
-    id = Aiur.Conversation.Ref.conversation_id(Aiur.Conversation.Ref.executor())
+    assert redirected_to(get(build_conn(), "/executor")) == "/#executor"
+    id = Ref.conversation_id(Ref.executor())
     assert redirected_to(get(build_conn(), "/executor?pos=3")) == "/conversations/#{URI.encode(id, &URI.char_unreserved?/1)}?pos=3"
   end
 

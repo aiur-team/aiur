@@ -1,6 +1,7 @@
 defmodule AiurWeb.ExecutorView do
   @moduledoc "Executor binding states and the footer presentation layered over the shared conversation chronology."
   use Phoenix.Component
+  alias Aiur.Conversation.JumpPoints
   alias Aiur.Executor.Session
 
   @spec present(map()) :: map()
@@ -53,7 +54,7 @@ defmodule AiurWeb.ExecutorView do
   defp compact(ms), do: "#{div(ms, 86_400_000)}d"
 
   @spec event_label(map()) :: String.t()
-  def event_label(anchor), do: anchor["label"] || Aiur.Conversation.JumpPoints.label(anchor["kind"], %{})
+  def event_label(anchor), do: anchor["label"] || JumpPoints.label(anchor["kind"], %{})
 
   attr(:view, :map, required: true)
   attr(:writable, :boolean, required: true)

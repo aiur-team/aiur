@@ -10,5 +10,5 @@ defmodule AiurWeb.ExecutorRedirectController do
     redirect(conn, to: "/conversations/#{URI.encode(Ref.conversation_id(Ref.executor()), &URI.char_unreserved?/1)}?#{query}")
   end
 
-  def show(conn, _params), do: redirect(conn, to: "/?executor=open")
+  def show(conn, _params), do: redirect(conn, to: "/#executor")
 end
