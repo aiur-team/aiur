@@ -57,6 +57,7 @@ case "${1:-}" in
     shift
     ;;
   # The engine resolves the selector (it owns the registry); `local` stays local.
+  # @cli-reference aiur --gateway NAME | Must be the first argument. Selects a registry gateway by name, label or `gateway_id` like `--instance`, or `all` or `local`; see [Selecting by `--gateway`](#selecting-by-gateway). | aiur --gateway nook status
   --gateway | --gateway=*)
     if [ "$1" = --gateway ]; then gateway_sel="${2:-}"; else gateway_sel="${1#--gateway=}"; fi
     [ -n "$gateway_sel" ] || { echo "aiur: --gateway requires a name" >&2; exit 64; }
