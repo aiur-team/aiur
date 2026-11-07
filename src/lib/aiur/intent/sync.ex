@@ -3,20 +3,38 @@ defmodule Aiur.Intent.Sync do
   Pushes the outbox to Postgres and pulls shared changes by `seq`. Started only when the
   coordination store is configured; `apply_remote/2` works without it.
 
-  Applying a pulled or directly delivered change never writes the outbox.
+  Applying a pulled or directly delivered change never writes the outbox. Every apply, and every
+  tick, refolds the registers (`Reconciler`), alerts once per far-future change, and broadcasts
+  `{:intent_register_changed, {kind, key, field}, effective}` on `"intent:registers"`.
   """
   use GenServer
 
   require Logger
 
   alias Aiur.Instance.LeaseStore
-  alias Aiur.Intent.{Change, Store}
+  alias Aiur.Gateway.Identity
+  alias Aiur.Intent.{Change, Hlc, Reconciler, Store}
 
   @page 500
   @min_backoff 5_000
   @max_backoff 60_000
   @nudge_ms 50
   @table :aiur_intent_sync
+  @env_defaults [
+    now_fun: &__MODULE__.os_now/0,
+    emit_fun: &Aiur.Alerts.emit_system/2,
+    observe_fun: &__MODULE__.observe/1,
+    broadcast_fun: &__MODULE__.broadcast_default/1
+  ]
+
+  @doc false
+  def os_now, do: System.os_time(:millisecond)
+
+  @doc false
+  def observe(hlc), do: if(GenServer.whereis(Hlc), do: Hlc.observe(hlc), else: :ok)
+
+  @doc false
+  def broadcast_default(msg), do: broadcast(msg)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -41,7 +59,7 @@ defmodule Aiur.Intent.Sync do
   end
 
   @doc "One change delivered by a direct control call. Validated, deduped, never queued for publishing."
-  @spec apply_remote(Change.t(), keyword()) :: {:ok, :applied | :duplicate} | {:error, atom()}
+  @spec apply_remote(Change.t(), keyword()) :: {:ok, :applied | :duplicate | :held} | {:error, atom()}
   def apply_remote(%Change{} = change, opts \\ []) do
     store = Keyword.get(opts, :store, Store)
 
@@ -52,12 +70,100 @@ defmodule Aiur.Intent.Sync do
 
         {:ok, fresh} ->
           notify(opts, fresh)
-          {:ok, :applied}
+          held = ingest(store, fresh, opts)
+          {:ok, if(change.change_id in held, do: :held, else: :applied)}
 
         {:error, _} ->
           {:error, :store_write_failed}
       end
     end
+  end
+
+  # Reconcile after new changes (or a tick, with none): alert on held ones once, merge only applied ones
+  # into the HLC, broadcast registers whose effective value changed. Returns the held change ids.
+  defp ingest(store, fresh, opts) do
+    env = env(opts)
+    now = env[:now_fun].()
+    own = env[:own_gateway] || Identity.current().gateway_id
+    all = Store.changes(store)
+    held = Reconciler.held(all, now, own)
+    held_ids = MapSet.new(held, & &1.change_id)
+
+    Enum.each(held, &alert_once(env, &1, now))
+
+    for c <- fresh ++ released(env, all, held_ids), c.change_id not in held_ids, c.origin_gateway != own do
+      env[:observe_fun].({c.hlc_wall_ms, c.hlc_counter})
+    end
+
+    prev = previous_registers(env, store, all, fresh, now, own)
+    regs = Reconciler.fold(all, now_ms: now, own_gateway: own)
+
+    for {reg, %{effective: eff}} <- regs, get_in(prev, [reg, :effective]) != eff do
+      env[:broadcast_fun].({:intent_register_changed, reg, eff})
+    end
+
+    if :ets.whereis(env[:table]) != :undefined, do: :ets.insert(env[:table], {:registers, regs})
+    held_ids
+  end
+
+  defp previous_registers(env, _store, all, fresh, now, own) do
+    with true <- :ets.whereis(env[:table]) != :undefined, [{:registers, regs}] <- :ets.lookup(env[:table], :registers) do
+      regs
+    else
+      _ ->
+        fresh_ids = MapSet.new(fresh, & &1.change_id)
+        Reconciler.fold(Enum.reject(all, &(&1.change_id in fresh_ids)), now_ms: now, own_gateway: own)
+    end
+  end
+
+  # Changes alerted as held earlier that the clock has now passed; each is merged into the HLC once.
+  defp released(env, all, held_ids) do
+    if :ets.whereis(env[:table]) == :undefined do
+      []
+    else
+      Enum.filter(all, fn c ->
+        c.change_id not in held_ids and :ets.member(env[:table], {:alerted, c.change_id}) and
+          :ets.insert_new(env[:table], {{:observed, c.change_id}})
+      end)
+    end
+  end
+
+  defp initial_registers(store, opts) do
+    env = env(opts)
+    Reconciler.fold(Store.changes(store), now_ms: env[:now_fun].(), own_gateway: env[:own_gateway] || Identity.current().gateway_id)
+  end
+
+  defp alert_once(env, c, now) do
+    first? = :ets.whereis(env[:table]) == :undefined or :ets.insert_new(env[:table], {{:alerted, c.change_id}})
+
+    if first? do
+      ahead = div(c.hlc_wall_ms - now, 1000)
+
+      env[:emit_fun].("system.intent.clock_skew",
+        message: "Shared intent change #{c.change_id} from gateway #{c.origin_gateway} is #{ahead}s ahead of local time; held until the clock passes it.",
+        needs_attention: true,
+        severity: "warning"
+      )
+    end
+  end
+
+  defp env(opts) do
+    table = Keyword.get(opts, :table, @table)
+
+    configured =
+      with true <- :ets.whereis(table) != :undefined, [{:env, kw}] <- :ets.lookup(table, :env) do
+        kw
+      else
+        _ -> []
+      end
+
+    @env_defaults |> Keyword.merge(configured) |> Keyword.merge(opts) |> Keyword.put(:table, table)
+  end
+
+  defp broadcast(msg) do
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "intent:registers", msg)
+  rescue
+    _ -> :ok
   end
 
   # Hook for MPG-405: called once with exactly the newly appended changes, never for a duplicate.
@@ -104,7 +210,7 @@ defmodule Aiur.Intent.Sync do
   @impl true
   def init(opts) do
     table = Keyword.get(opts, :table, @table)
-    :ets.new(table, [:named_table, :protected, read_concurrency: true])
+    :ets.new(table, [:named_table, :public, read_concurrency: true])
 
     state = %{
       table: table,
@@ -121,6 +227,8 @@ defmodule Aiur.Intent.Sync do
     }
 
     :ets.insert(table, {:hook, state.on_remote_applied})
+    :ets.insert(table, {:env, Keyword.take(opts, [:now_fun, :emit_fun, :observe_fun, :broadcast_fun, :own_gateway])})
+    :ets.insert(table, {:registers, initial_registers(state.store, opts)})
     flag(state, true, System.monotonic_time(:millisecond))
     {:ok, schedule(state, state.interval)}
   end
@@ -158,6 +266,9 @@ defmodule Aiur.Intent.Sync do
   def handle_info(_other, s), do: {:noreply, s}
 
   defp run(s) do
+    # Offline or not, a tick refolds so a held change applies once the clock passes it.
+    ingest(s.store, [], table: s.table)
+
     with {:ok, s} <- push(s), {:ok, s} <- pull_all(s) do
       flag(s, false, System.monotonic_time(:millisecond))
       {:ok, schedule(%{s | backoff: 0, last_ok_at: DateTime.utc_now(), last_error: nil}, s.interval)}
@@ -218,6 +329,7 @@ defmodule Aiur.Intent.Sync do
     case Store.append_remote(s.store, valid, cursor: max_seq) do
       {:ok, fresh} ->
         if fresh != [], do: s.on_remote_applied.(fresh)
+        if fresh != [], do: ingest(s.store, fresh, table: s.table)
         next_page(s, page_rows)
 
       {:error, reason} ->
