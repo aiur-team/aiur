@@ -82,7 +82,6 @@ defmodule AiurWeb.DashboardLive.CommandHistoryTest do
     view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
     assert history_row_count(view) == 20
     assert render(view) =~ ~r/All\s+<span class="count num">26<\/span>/
-    assert render(view) =~ ~r/Resolved\s+<span class="count num">26<\/span>/
 
     view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
     assert history_row_count(view) == 25

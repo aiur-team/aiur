@@ -54,7 +54,6 @@
 }
 
 .chip,
-.recommendation-chip,
 .risk-tag {
   display: inline-flex;
   align-items: center;
@@ -140,14 +139,6 @@
   border-color: var(--super-line);
   background: var(--super-soft);
   color: var(--super-ink);
-}
-
-.recommendation-chip {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font-family: inherit;
-  font-size: 0.73rem;
 }
 
 .lifecycle {
