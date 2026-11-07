@@ -180,10 +180,10 @@ history entry.
 ## The Live band
 
 The Live band shows active agents between history and the plan, in the same
-card style as the other tickets. It scrolls with the board, and when you scroll past it
-pins under the header or to the bottom edge, so it never leaves view (List included);
-the **Live** button scrolls to its place. Minimize keeps
-state counts visible (`live=min`), and a state preset expands it. The clock shows
+card style as the other tickets. It scrolls with the board, but pins under the
+header or to the bottom edge rather than leave view (List too).
+
+The **Live** button scrolls to its place. Minimize keeps state counts visible (`live=min`), and a state preset expands it. The clock shows
 cached observation time when stale and `—` when unknown.
 
 Each agent card names its state in text, not colour alone.
