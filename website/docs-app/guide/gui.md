@@ -49,10 +49,12 @@ The operator-facing UI and CLI call these records **Commands**.
 
 The Commands inbox keeps all open Commands visible, one compact card each: the ticket
 and title, the question, a **Blocking** pill when it blocks work, and when it was asked.
-Options are radio cards with one primary action. **Details** opens the rest: context,
-the recommendation and its rationale, lifecycle status, routing (**With Executor**,
-**Needs you**, **Needs you and Executor**, **From Executor**, or **Routing…** for older
-Commands), how long it has needed you, the agent and model, and the version.
+Options are radio cards with one primary action.
+
+**Details** opens the rest: context, the recommendation and its rationale, lifecycle
+status, routing, how long it has needed you, the agent and model, and the version.
+Routing reads **With Executor**, **Needs you**, **Needs you and Executor**, **From
+Executor**, or **Routing…** for older Commands.
 
 Filter with **Needs you**, **With Executor**, **From Executor**, **Blocking** or **All**;
 links keep the filter in the URL. All includes unrouted Commands. Resolved Commands

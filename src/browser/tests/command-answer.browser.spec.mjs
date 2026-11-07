@@ -350,7 +350,23 @@ for (const theme of ['light', 'dark']) {
       await page.evaluate(() => document.fonts.ready)
       // Sticky chrome and Commands left open by earlier specs (their shadows) would make the image order-dependent.
       const others = `.decision-card:not(#${await card.getAttribute('id')})`
-      await page.addStyleTag({ content: `.ax-top, #ax-title, .sidenav { visibility: hidden !important; } ${others} { display: none !important; }` })
+      await page.addStyleTag({ content: `.ax-top, #ax-title, .sidenav { visibility: hidden !important; } ${others} { display: none !important; } * { overflow-anchor: none !important; }` })
+      // Content above the list (daemon banner, fleet error) varies by run and leaves the card on a sub-pixel offset,
+      // which shifts the crop by a row; reset every scroller and snap the card to a whole pixel until it holds.
+      await expect.poll(() => card.evaluate((el) => {
+        el.style.top = ''
+        for (let n = el.parentElement; n; n = n.parentElement) n.scrollTop = 0
+        window.scrollTo(0, 0)
+        const top = el.getBoundingClientRect().top
+        el.style.position = 'relative'
+        el.style.top = `${Math.floor(top) - top}px`
+        const snapped = el.getBoundingClientRect().top
+        return snapped >= 0 && snapped === Math.round(snapped)
+      })).toBe(true)
+      // A pointer left over an option by an earlier spec renders its hover state.
+      await page.mouse.move(0, 0)
+      // The age is masked, but its width still moves the Blocking pill beside it.
+      await card.locator('.decision-card-head .decision-age').evaluate((el) => { el.textContent = 'asked just now' })
       await expect(card).toHaveScreenshot(`commands-card-${theme}-${width}.png`, { mask: [card.locator('.decision-age')] })
     })
   }
