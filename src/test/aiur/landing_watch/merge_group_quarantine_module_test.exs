@@ -39,6 +39,20 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineModuleTest do
     refute_received {:quarantine_pr, _}
   end
 
+  test "a module whose most recent failure is already listed files its ticket under a test still to quarantine", %{journal: journal} do
+    tests = Enum.map(~w(first second third), &%{identity: "Aiur.FleetCapacityTest :: #{&1}", path: "src/test/aiur/fleet_capacity_test.exs", classification: :new_failure})
+    digest = %FailureDigest{checks: [%{name: "coverage (2/4)", url: @run, tests: tests}], tests: tests}
+    red = %{sha: "fb9f75853ec58c7c402947274faa1562939d5dff", completed_at: System.system_time(:millisecond) - 15 * 60_000, run_urls: [], digest: digest}
+    listed = "Aiur.FleetCapacityTest\tfirst\t#7700\n"
+
+    opts = journal |> opts(self(), red) |> Keyword.put(:quarantine_list_fun, fn -> {:ok, listed} end)
+
+    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", opts)
+    assert_received {:flake_ticket, "Aiur.FleetCapacityTest", [_one_other]}
+    assert_received {:quarantine_pr, %{identities: identities}}
+    assert Enum.sort(identities) == ["Aiur.FleetCapacityTest :: second", "Aiur.FleetCapacityTest :: third"]
+  end
+
   defp opts(journal, parent, red) do
     [
       base_branch: "main",

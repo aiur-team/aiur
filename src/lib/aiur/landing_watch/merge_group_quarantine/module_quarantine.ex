@@ -39,14 +39,13 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine.ModuleQuarantine do
   def claim(identity), do: "quarantine-pr :: " <> to_string(identity)
 
   defp quarantine(candidate, nil, done, rows, base, opts) do
-    [latest | _] = candidate.rows
-    pending = Enum.reject(candidate.identities, &Map.has_key?(done, skip_claim(&1, latest)))
+    pending = Enum.reject(candidate.identities, &Map.has_key?(done, skip_claim(&1, candidate)))
     {listed, unlisted} = Enum.split_with(pending, &listed?(&1, opts))
 
-    with :ok <- skip(listed, latest, opts) do
+    with :ok <- skip(listed, candidate, opts) do
       case unlisted do
         [] -> :ok
-        _ -> file_if_eligible(%{candidate | identities: unlisted}, latest, rows, base, opts)
+        _ -> file_if_eligible(narrow(candidate, unlisted), rows, base, opts)
       end
     end
   end
@@ -65,16 +64,25 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine.ModuleQuarantine do
     end
   end
 
-  defp file_if_eligible(candidate, latest, rows, base, opts) do
+  # The filed ticket names the most recent failure among the tests still to quarantine.
+  defp narrow(candidate, identities) do
+    rows = Enum.filter(candidate.rows, &(&1["identity"] in identities))
+    latest = hd(rows)["identity"]
+    %{candidate | identity: latest, identities: [latest | List.delete(identities, latest)], rows: rows, observations: Enum.map(rows, &QuarantineEvidence.observation/1)}
+  end
+
+  defp file_if_eligible(candidate, rows, base, opts) do
+    [latest | _] = candidate.rows
+
     case FlakeFilingGate.decide(failure(latest, []), run(latest), latest["at_ms"], rows, base, opts) do
       :file -> file_ticket_then_quarantine(candidate, latest, opts)
-      {:skip, _reason} -> skip(candidate.identities, latest, opts)
+      {:skip, _reason} -> skip(candidate.identities, candidate, opts)
     end
   end
 
   defp file_ticket_then_quarantine(candidate, latest, opts) do
     remember = fn
-      :already_quarantined -> skip(candidate.identities, latest, opts)
+      :already_quarantined -> skip(candidate.identities, candidate, opts)
       ticket -> each(candidate.identities, &Journal.put_flake_ticket(&1, ticket, opts))
     end
 
@@ -83,7 +91,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine.ModuleQuarantine do
 
     with :ok <- recorder.(failure(latest, others), run(latest), [], Keyword.put(opts, :issue_recorded_fun, remember)),
          {:ok, state} <- Journal.state(opts) do
-      case {get_in(state, ["flake_tickets", latest["identity"]]), Map.has_key?(Map.get(state, "flakes", %{}), skip_claim(latest["identity"], latest))} do
+      case {get_in(state, ["flake_tickets", latest["identity"]]), Map.has_key?(Map.get(state, "flakes", %{}), skip_claim(latest["identity"], candidate))} do
         {ticket, _} when is_integer(ticket) -> open_quarantine(candidate, ticket, opts)
         {_, true} -> :ok
         _ -> {:error, :flake_ticket_unconfirmed}
@@ -124,9 +132,10 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine.ModuleQuarantine do
     end
   end
 
-  defp skip(identities, latest, opts), do: each(identities, &(Journal.claim_flake(skip_claim(&1, latest), opts) |> claim_result()))
+  defp skip(identities, candidate, opts), do: each(identities, &(Journal.claim_flake(skip_claim(&1, candidate), opts) |> claim_result()))
 
-  defp skip_claim(identity, latest), do: "quarantine-skip :: #{identity} :: #{latest["run_url"]}"
+  # Keyed by each test's own latest run, as before grouping.
+  defp skip_claim(identity, candidate), do: "quarantine-skip :: #{identity} :: #{Enum.find(candidate.rows, &(&1["identity"] == identity))["run_url"]}"
 
   defp each(items, fun) do
     Enum.reduce_while(items, :ok, fn item, :ok ->
