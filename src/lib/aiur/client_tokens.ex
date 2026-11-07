@@ -7,15 +7,23 @@ defmodule Aiur.ClientTokens do
   @name ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z/
   @digest ~r/\A[0-9a-f]{64}\z/
 
-  @spec create(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def create(name, scope \\ "write") do
+  @categories Enum.map(Aiur.ControlCall.Allowlist.categories(), &Atom.to_string/1)
+
+  # A token without "categories" is a legacy token: read keeps only `read`, write keeps every category.
+  @spec create(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def create(name, scope \\ "write", opts \\ []) do
+    peer = opts[:peer]
+    categories = opts[:categories]
+
     with :ok <- validate_name(name),
          :ok <- validate_scope(scope),
+         :ok <- validate_peer(peer),
+         :ok <- validate_categories(categories, scope),
          {:ok, path} <- store_path(),
          {:ok, records} <- read_records(path),
          false <- Enum.any?(records, &(&1["name"] == name)),
          token <- "aiur_" <> Base.url_encode64(:crypto.strong_rand_bytes(@token_bytes), padding: false),
-         record <- %{"name" => name, "scope" => scope, "hash" => hash(token), "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()},
+         record <- new_record(name, scope, peer, categories, hash(token)),
          :ok <- write_records(path, [record | records]) do
       {:ok, token}
     else
@@ -27,7 +35,7 @@ defmodule Aiur.ClientTokens do
   @spec list() :: {:ok, [map()]} | {:error, term()}
   def list do
     with {:ok, path} <- store_path(), {:ok, records} <- read_records(path) do
-      {:ok, Enum.map(records, &Map.take(&1, ["name", "scope", "created_at"]))}
+      {:ok, Enum.map(records, &Map.take(&1, ["name", "scope", "peer", "categories", "created_at"]))}
     end
   end
 
@@ -46,23 +54,54 @@ defmodule Aiur.ClientTokens do
   end
 
   @spec authenticate(term()) :: {:ok, String.t(), String.t()} | :error
-  def authenticate(token) when is_binary(token) do
+  def authenticate(token) do
+    with {:ok, %{name: name, scope: scope}} <- authenticate_full(token), do: {:ok, name, scope}
+  end
+
+  @spec authenticate_full(term()) :: {:ok, %{name: String.t(), scope: String.t(), peer: String.t() | nil, categories: [String.t()]}} | :error
+  def authenticate_full(token) when is_binary(token) do
     with {:ok, path} <- store_path(), {:ok, records} <- read_records(path) do
-      authenticate_records(records, token)
+      find_token(records, hash(token))
     else
       _ -> :error
     end
   end
 
-  def authenticate(_), do: :error
+  def authenticate_full(_), do: :error
 
-  defp authenticate_records(records, token) do
-    token_hash = hash(token)
-
+  defp find_token(records, token_hash) do
     Enum.find_value(records, :error, fn record ->
-      if secure_equal?(record["hash"], token_hash), do: {:ok, record["name"], record["scope"]}
+      if secure_equal?(record["hash"], token_hash), do: {:ok, effective(record)}
     end)
   end
+
+  defp effective(record) do
+    categories = record["categories"] || if(record["scope"] == "read", do: ["read"], else: @categories)
+    %{name: record["name"], scope: record["scope"], peer: record["peer"], categories: categories}
+  end
+
+  defp new_record(name, scope, peer, categories, digest) do
+    base = %{"name" => name, "scope" => scope, "hash" => digest, "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()}
+    # An older reader only knows scope, so categories beyond `read` must also store scope "write".
+    base = if categories, do: Map.merge(base, %{"categories" => categories, "scope" => if(categories == ["read"], do: "read", else: "write")}), else: base
+    if peer, do: Map.put(base, "peer", peer), else: base
+  end
+
+  defp validate_peer(nil), do: :ok
+  defp validate_peer(peer) when is_binary(peer), do: if(Regex.match?(@name, peer), do: :ok, else: {:error, :invalid_peer})
+  defp validate_peer(_), do: {:error, :invalid_peer}
+
+  defp validate_categories(nil, _scope), do: :ok
+
+  defp validate_categories(categories, scope) when is_list(categories) and categories != [] do
+    cond do
+      not Enum.all?(categories, &(&1 in @categories)) -> {:error, :invalid_categories}
+      scope == "read" and categories != ["read"] -> {:error, :scope_conflicts_with_categories}
+      true -> :ok
+    end
+  end
+
+  defp validate_categories(_, _), do: {:error, :invalid_categories}
 
   defp store_path do
     case Application.get_env(:aiur, :client_tokens_path) do
@@ -143,8 +182,9 @@ defmodule Aiur.ClientTokens do
 
   defp validate_name(_), do: {:error, :invalid_name}
 
-  defp valid_record?(%{"name" => name, "scope" => scope, "hash" => digest, "created_at" => created_at}) do
-    validate_name(name) == :ok and validate_scope(scope) == :ok and is_binary(created_at) and is_binary(digest) and Regex.match?(@digest, digest)
+  defp valid_record?(%{"name" => name, "scope" => scope, "hash" => digest, "created_at" => created_at} = record) do
+    validate_name(name) == :ok and validate_scope(scope) == :ok and is_binary(created_at) and is_binary(digest) and Regex.match?(@digest, digest) and
+      validate_peer(record["peer"]) == :ok and validate_categories(record["categories"], scope) == :ok
   end
 
   defp valid_record?(_), do: false

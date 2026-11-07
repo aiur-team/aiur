@@ -57,6 +57,9 @@ defmodule AiurWeb.ControlController do
           not allowed_scope?(conn.assigns.token_scope, requested_scope, call.scope) ->
             refusal(conn, expression, call, :scope_denied, 403, started)
 
+          not category_granted?(conn, call) ->
+            refusal_code(conn, expression, call, 403, "category_not_granted: #{call.category}", started)
+
           call.scope == :write and not dashboard_writable?() ->
             refusal(conn, expression, call, :dashboard_read_only, 403, started)
 
@@ -69,6 +72,9 @@ defmodule AiurWeb.ControlController do
         refusal(conn, expression, nil, reason, status, started)
     end
   end
+
+  # MPG-206 adds the peer's own grant as a second check here.
+  defp category_granted?(conn, call), do: to_string(call.category) in (conn.assigns[:token_categories] || [])
 
   defp allowed_scope?(token_scope, requested_scope, :write), do: token_scope == "write" and requested_scope == :write
   defp allowed_scope?(_token_scope, _requested_scope, _call_scope), do: true
@@ -201,6 +207,8 @@ defmodule AiurWeb.ControlController do
         actor: "token:" <> (conn.assigns[:token_name] || "unknown"),
         token: conn.assigns[:token_name] || "unknown",
         scope: conn.assigns[:token_scope] || "unknown",
+        peer: conn.assigns[:token_peer],
+        category: call && call.category,
         call: call_name(call),
         expression_sha256: if(is_binary(expression), do: :crypto.hash(:sha256, expression) |> Base.encode16(case: :lower)),
         outcome: outcome,
