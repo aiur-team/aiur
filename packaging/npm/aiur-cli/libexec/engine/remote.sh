@@ -127,12 +127,27 @@ load_remote_instance() {
       gateway_id) AIUR_REMOTE_GATEWAY_ID="$value" ;;
       label) AIUR_REMOTE_LABEL="$value" ;;
       tls_pin_sha256) AIUR_REMOTE_TLS_PIN="$value" ;;
+      inbound_only)
+        echo "aiur: remote instance '$name' is inbound-only (no url)" >&2
+        return 64
+        ;;
       token_file | token_env)
         AIUR_REMOTE_TOKEN_KIND="$key"
         AIUR_REMOTE_TOKEN_REF="$value"
         ;;
     esac
   done <<<"$record"
+}
+
+# curl's --pinnedpubkey wants sha256//<base64>; the registry stores the SPKI hash as hex.
+# The pin is the sole endpoint authentication, so --insecure (self-signed certs) is added with it.
+remote_tls_pin_args() {
+  local runtime pin
+  AIUR_REMOTE_CURL_TLS=()
+  [ -n "$AIUR_REMOTE_TLS_PIN" ] || return 0
+  runtime="$(remote_js_runtime)"
+  pin="$("$runtime" -e 'process.stdout.write(Buffer.from(process.argv[1], "hex").toString("base64"))' "$AIUR_REMOTE_TLS_PIN")" || return 69
+  AIUR_REMOTE_CURL_TLS=(--insecure --pinnedpubkey "sha256//$pin")
 }
 
 remote_js_runtime() {
@@ -312,6 +327,7 @@ run_remote_rpc_with_timeout() {
   load_remote_instance "$name" || return $?
   validate_remote_url "$name" "$AIUR_REMOTE_URL" || return $?
   load_remote_token "$name" || return $?
+  remote_tls_pin_args || return $?
   token="$AIUR_REMOTE_TOKEN"
   unset AIUR_REMOTE_TOKEN
 
@@ -354,7 +370,7 @@ run_remote_rpc_with_timeout() {
   printf 'Authorization: Bearer %s\n' "$token" | (
     [ -z "${AIUR_REMOTE_CURL_PID_FILE:-}" ] || printf '%s' "$BASHPID" >"$AIUR_REMOTE_CURL_PID_FILE"
     exec curl \
-      --silent --show-error --request POST \
+      --silent --show-error --request POST ${AIUR_REMOTE_CURL_TLS[@]+"${AIUR_REMOTE_CURL_TLS[@]}"} \
       --max-time "$curl_timeout" \
       --header @- \
       --header 'Content-Type: application/json' \

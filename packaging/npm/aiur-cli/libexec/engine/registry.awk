@@ -26,6 +26,13 @@
     }
     function finish_instance() {
       if (current == "") return
+      # An inbound-only peer (no url, no token) exists so the receiver can read allows; it is not callable.
+      inbound_only = current_url == "" && current_token_file == "" && current_token_env == "" && (seen_allows || current_gateway_id != "")
+      if (inbound_only) {
+        if (current == target) { print "inbound_only\t1"; found = 1 }
+        current = ""; current_gateway_id = current_label = current_tls_pin = ""; in_allows = seen_allows = 0
+        return
+      }
       if (current_url == "") invalid("instance " current " is missing url")
       if ((current_token_file == "") == (current_token_env == "")) invalid("instance " current " must set exactly one of token_file or token_env")
       if (target == "*") {

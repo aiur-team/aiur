@@ -24,6 +24,8 @@ export const parseInstances = (text: string): InstanceTarget[] => {
   let inAllows = false;
   const finish = (): void => {
     if (fields === null) return;
+    // Inbound-only peer (no url, no token, carries allows or gateway_id): not callable, so not a target.
+    if (!fields.url && !fields.token_file && !fields.token_env && (fields.allows || fields.gateway_id)) { fields = null; return; }
     if (!fields.url || Boolean(fields.token_file) === Boolean(fields.token_env)) invalid();
     entries.push({ name, baseUrl: fields.url, auth: fields.token_file ? { token_file: fields.token_file } : { token_env: fields.token_env! },
       ...(fields.gateway_id ? { gatewayId: fields.gateway_id } : {}), ...(fields.label ? { label: fields.label } : {}), ...(fields.tls_pin_sha256 ? { tlsPin: fields.tls_pin_sha256 } : {}) });

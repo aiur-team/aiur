@@ -28,6 +28,9 @@ describe("instance registry", () => {
       { name: "remote", baseUrl: "https://remote.test", auth: { token_env: "AIUR_TOKEN_REMOTE" }, gatewayId: id, label: "Nook", tlsPin: "0".repeat(64) },
       { name: "next", baseUrl: "https://next.test", auth: { token_env: "AIUR_TOKEN_NEXT" } },
     ]);
+    const peer = `  peer:\n    gateway_id: ${id}\n    allows:\n      categories: [read]\n`;
+    expect(parseInstances(registry() + peer).map((t) => t.name)).toEqual(["remote"]);
+    expect(() => parseInstances(registry() + "  bare:\n    label: Nook\n")).toThrow();
     for (const bad of ["    gateway_id: short\n", "    tls_pin_sha256: ABCD\n", `    gateway_id: ${id}\n    gateway_id: ${id}\n`, "    allows:\n    allows:\n", "      categories: [read]\n"]) {
       expect(() => parseInstances(registry() + bad)).toThrow();
     }
