@@ -62,6 +62,12 @@ defmodule AiurWeb.BuildLiveTest do
              {"div", [{"id", "bd-offline"}]},
              {"div", [{"id", "bd-fh"}]},
              {"div", [{"id", "bd-partial"}, {"class", "bd-partial"}, {"aria-live", "polite"}]},
+             {"div", [{"class", "bd-board"}]}
+           ]
+
+    [board] = Floki.find(root, "#build-root > .bd-board")
+
+    assert Enum.map(Floki.children(board, include_text: false), fn {tag, attrs, _} -> {tag, attrs} end) == [
              {"div", [{"class", "bd-toolbar"}]},
              {"div", [{"class", "bd-vpw"}]},
              {"div", [{"class", "bd-status"}, {"id", "bd-status"}]}
