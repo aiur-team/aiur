@@ -9,7 +9,7 @@
  */
 
 /** Every Command-level state the contract can carry. */
-export const COMMAND_STATES = ['pending', 'answered', 'revised', 'expired', 'unavailable', 'conflict', 'error'];
+export const COMMAND_STATES = ['pending', 'answered', 'revised', 'escalated', 'expired', 'unavailable', 'conflict', 'error'];
 
 /** Every list-level state the contract can carry. */
 export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error'];
@@ -18,6 +18,7 @@ const STATE_LABELS = {
   pending: 'Awaiting your answer',
   answered: 'Answered',
   revised: 'Answer revised',
+  escalated: 'Escalated to the Executor',
   expired: 'No longer answerable',
   unavailable: 'Command state unavailable',
   conflict: 'Answer conflict',
@@ -31,7 +32,7 @@ const LIST_COPY = {
   error: 'Commands could not be loaded.',
 };
 
-const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'revised', 'answered', 'pending'];
+const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'escalated', 'revised', 'answered', 'pending'];
 
 /** The typed Command media kinds the contract can carry. */
 export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
@@ -289,8 +290,24 @@ function pendingForm(command, options) {
 </form>`;
 }
 
+function escalateForm(command, options) {
+  if (stateOf(command) !== 'pending' || command?.actions?.escalate !== true) return '';
+
+  const action = options.escalateUrl ? ` action="${escapeHtml(options.escalateUrl)}"` : '';
+  const method = options.method ?? 'post';
+
+  return `<form class="aiur-command-escalate-form" data-aiur-command-escalate-form data-decision-id="${escapeHtml(command.decision_id)}" method="${escapeHtml(method)}"${action}>
+  <label>Note for the Executor (optional)<textarea name="note"></textarea></label>
+  <footer class="aiur-command-actions"><button type="submit">Escalate to Executor</button></footer>
+</form>`;
+}
+
 function noticeMarkup(command) {
   const state = stateOf(command);
+
+  if (state === 'escalated') {
+    return '<p class="aiur-command-notice" role="status">Escalated to the Executor. It is waiting on their decision.</p>';
+  }
 
   if (state === 'expired') {
     return `<p class="aiur-command-notice" role="status">This Command is no longer answerable${command.reason ? ` (${escapeHtml(command.reason)})` : ''}.</p>`;
@@ -311,7 +328,7 @@ function noticeMarkup(command) {
  * Renders one Command component.
  *
  * @param {import('./contract.d.ts').CommandComponent} command
- * @param {{answerUrl?: string, method?: string, mediaBaseUrl?: string}} [options]
+ * @param {{answerUrl?: string, escalateUrl?: string, method?: string, mediaBaseUrl?: string}} [options]
  * @returns {string}
  */
 export function renderCommand(command, options = {}) {
@@ -329,6 +346,7 @@ export function renderCommand(command, options = {}) {
   ${noticeMarkup(command)}
   ${conflictMarkup(command)}
   ${pendingForm(command, options)}
+  ${escalateForm(command, options)}
   ${answerMarkup(command)}
   ${mediaMarkup(command, options)}
 </article>`;

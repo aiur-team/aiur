@@ -11,6 +11,7 @@ export const COMMAND_STATES = [
   'pending',
   'answered',
   'revised',
+  'escalated',
   'expired',
   'unavailable',
   'conflict',
@@ -24,7 +25,7 @@ export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error']
 export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
 
 /**
- * @typedef {'pending' | 'answered' | 'revised' | 'expired' | 'unavailable' | 'conflict' | 'error'} CommandState
+ * @typedef {'pending' | 'answered' | 'revised' | 'escalated' | 'expired' | 'unavailable' | 'conflict' | 'error'} CommandState
  */
 
 /**
@@ -113,7 +114,7 @@ export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
  * @property {CommandAnswer | null} answer
  * @property {{kind: string, reason?: string, winner?: object | null} | null} conflict
  * @property {CommandMedia[]} media
- * @property {{answer: boolean, revise: boolean, enrich: boolean}} actions
+ * @property {{answer: boolean, revise: boolean, enrich: boolean, escalate: boolean}} actions
  * @property {string | null} [source]
  * @property {string} [message]
  */

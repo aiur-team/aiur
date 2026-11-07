@@ -25,6 +25,11 @@ defmodule AiurWeb.CommandsApiControllerTest do
       Process.get({__MODULE__, :answer}, {:error, :not_found})
     end
 
+    def escalate(scope, decision_id, payload, opts) do
+      send(self(), {:host_api_called, :escalate, [scope, decision_id, payload, opts]})
+      Process.get({__MODULE__, :escalate}, {:error, :not_found})
+    end
+
     def media(scope, decision_id, attachment_id, opts) do
       send(self(), {:host_api_called, :media, [scope, decision_id, attachment_id, opts]})
       Process.get({__MODULE__, :media}, {:error, :not_found})
@@ -66,6 +71,31 @@ defmodule AiurWeb.CommandsApiControllerTest do
     assert_receive {:host_api_called, :answer, [_scope, "dec_1", payload, _opts]}, 1_000
     assert payload["option_id"] == "approve"
     refute Map.has_key?(payload, "decision_id")
+  end
+
+  test "an escalation forwards the note and answers with the escalated component" do
+    Process.put(
+      {FakeHostApi, :escalate},
+      {:ok, %{"command" => ComponentState.from_projection(%{"decision_id" => "dec_1", "decision_status" => "deferred"})}}
+    )
+
+    conn = scoped_conn(:post) |> CommandsApiController.escalate(%{"decision_id" => "dec_1", "note" => "you decide"})
+
+    assert conn.status == 200
+    assert Jason.decode!(conn.resp_body)["command"]["state"] == "escalated"
+    assert_receive {:host_api_called, :escalate, [_scope, "dec_1", %{"note" => "you decide"} = payload, _opts]}, 1_000
+    refute Map.has_key?(payload, "decision_id")
+  end
+
+  test "escalating a non-deferrable Command is a 409 and an unknown one a 404" do
+    Process.put({FakeHostApi, :escalate}, {:error, {:conflict, :not_deferrable}})
+    conn = scoped_conn(:post) |> CommandsApiController.escalate(%{"decision_id" => "dec_1"})
+    assert conn.status == 409
+    assert Jason.decode!(conn.resp_body)["command"]["reason"] == "conflict"
+
+    Process.put({FakeHostApi, :escalate}, {:error, :not_found})
+    conn = scoped_conn(:post) |> CommandsApiController.escalate(%{"decision_id" => "dec_9"})
+    assert conn.status == 404
   end
 
   test "a stale version answer is a 409 with a conflict component" do

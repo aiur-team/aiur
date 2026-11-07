@@ -59,8 +59,9 @@ defmodule Aiur.DecisionEvent.Codec do
   end
 
   def normalize_data(:decision_deferred, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
-    with {:ok, actor} <- normalize_actor(Validation.get(raw, :actor)) do
-      {:ok, %{actor: actor}}
+    with {:ok, actor} <- normalize_actor(Validation.get(raw, :actor)),
+         {:ok, note} <- Validation.bounded_optional(Validation.get(raw, :note), @detail_max, :note) do
+      {:ok, if(note, do: %{actor: actor, note: note}, else: %{actor: actor})}
     end
   end
 
@@ -321,7 +322,8 @@ defmodule Aiur.DecisionEvent.Codec do
   end
 
   def data_to_json_safe(:decision_deferred, data) do
-    %{"actor" => ActorSource.to_json_safe(data.actor)}
+    base = %{"actor" => ActorSource.to_json_safe(data.actor)}
+    if Map.get(data, :note), do: Map.put(base, "note", data.note), else: base
   end
 
   def data_to_json_safe(:executor_escalated, data) do

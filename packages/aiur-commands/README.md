@@ -46,7 +46,7 @@ Every Command renders to one `CommandComponent`:
 | `answer` | the recorded answer, when there is one |
 | `conflict` | the winner of a lost race, when one exists |
 | `media[]` | typed media items (`kind`, `mime_type`, `locator`, alt/caption) plus pre-existing artifact references (`kind` + `value`) |
-| `actions` | which actions the caller may take: `{answer, revise, enrich}` |
+| `actions` | which actions the caller may take: `{answer, revise, enrich, escalate}` |
 
 A collection renders to a `CommandList`: `status` is `loading`, `empty`,
 `ready`, `unavailable` or `error`, with `commands[]` and an `error` detail.
@@ -67,7 +67,10 @@ document.querySelector('#commands').innerHTML = renderList(list, {
 `renderCommand(command, { answerUrl })` renders one Command. A `pending`
 Command with `actions.answer` renders a form carrying `data-aiur-command-form`
 and `data-decision-id`; the host posts the form to its own endpoint and then
-re-renders from the new component payload.
+re-renders from the new component payload. With `actions.escalate` true it also
+renders an "Escalate to Executor" form (`data-aiur-command-escalate-form`, an
+optional `note` field, posted to `escalateUrl`); an `escalated` Command shows a
+notice and no forms.
 
 The renderer escapes every interpolated value. Media is only turned into a
 link for `https:` URLs; anything else renders as inert text.

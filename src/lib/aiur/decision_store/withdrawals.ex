@@ -118,7 +118,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
          {:ok, actor} <- Answers.fetch_actor(opts),
          :ok <- if(Policy.deferrable?(decision), do: :ok, else: {:error, {:conflict, :not_deferrable}}) do
       case decision.decision_status do
-        :open -> persist_deferral(decision, actor, state)
+        :open -> persist_deferral(decision, actor, Keyword.get(opts, :note), state)
         :deferred -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
         status -> {:reply, {:error, {:conflict, status}}, state}
       end
@@ -127,8 +127,10 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
-  defp persist_deferral(decision, actor, state) do
-    case Persistence.build_and_persist_event(:decision_deferred, decision, %{actor: actor}, DateTime.utc_now(), state) do
+  defp persist_deferral(decision, actor, note, state) do
+    data = if is_binary(note), do: %{actor: actor, note: note}, else: %{actor: actor}
+
+    case Persistence.build_and_persist_event(:decision_deferred, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
         {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
 

@@ -19,13 +19,14 @@ defmodule Aiur.Commands.ComponentState do
   alias Aiur.Commands.Answering.Outcome
   alias Aiur.Commands.ComponentState.Media, as: ComponentMedia
 
-  @states ~w(pending answered revised expired unavailable conflict error)
+  @states ~w(pending answered revised escalated expired unavailable conflict error)
   @list_states ~w(loading empty ready unavailable error)
 
   @type state ::
           :pending
           | :answered
           | :revised
+          | :escalated
           | :expired
           | :unavailable
           | :conflict
@@ -72,7 +73,7 @@ defmodule Aiur.Commands.ComponentState do
       "answer" => answer(projection),
       "conflict" => conflict(projection),
       "media" => media(projection),
-      "actions" => actions(state, writable?),
+      "actions" => actions(state, writable?, projection),
       "source" => text(projection, "source")
     }
   end
@@ -98,7 +99,7 @@ defmodule Aiur.Commands.ComponentState do
       "answer" => nil,
       "conflict" => nil,
       "media" => [],
-      "actions" => actions(:error, false),
+      "actions" => actions(:error, false, %{}),
       "source" => nil,
       "message" => message
     }
@@ -303,6 +304,7 @@ defmodule Aiur.Commands.ComponentState do
       conflict?(projection) -> {:conflict, "stale_version"}
       answered?(projection) and revised?(projection) -> {:revised, "superseded_answer"}
       answered?(projection) -> {:answered, nil}
+      projection["decision_status"] in [:deferred, "deferred"] -> {:escalated, nil}
       true -> {:pending, nil}
     end
   end
@@ -343,9 +345,11 @@ defmodule Aiur.Commands.ComponentState do
     end
   end
 
-  defp actions(state, writable?) do
+  defp actions(state, writable?, projection) do
     %{
       "answer" => writable? and state == :pending,
+      # Mirrors Routing.Policy.deferrable?/1's authority rule; the store still decides.
+      "escalate" => writable? and state == :pending and projection["authority"] not in [:human_required, "human_required"],
       "revise" => writable? and state in [:answered, :revised],
       "enrich" => false
     }

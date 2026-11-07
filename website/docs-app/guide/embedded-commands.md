@@ -69,6 +69,7 @@ exactly like a missing one, so a guessed identifier reveals nothing.
 | `GET /api/v1/commands` | `{"commands": [...], "count": n, "pagination": {...}, "scope": {...}, "health": {...}}` |
 | `GET /api/v1/commands/:decision_id` | `{"command": {...}, "scope": {...}}` |
 | `POST /api/v1/commands/:decision_id/answer` | `{"command": {...}, "scope": {...}}` |
+| `POST /api/v1/commands/:decision_id/escalate` | `{"command": {...}, "scope": {...}}` |
 | `GET /api/v1/commands/:decision_id/media/:attachment_id` | the media file, or a redirect to its public URL |
 
 A list read also accepts `labels=game:chess`, which narrows the page to the
@@ -104,6 +105,7 @@ dashboard card and the embeddable renderer both derive from
 | `pending` | waiting for an answer; options and free response are available |
 | `answered` | an answer is recorded |
 | `revised` | an answer was replaced and recorded as a revision |
+| `escalated` | handed to the Executor; the host user can no longer answer it unless the Executor sends it back |
 | `expired` | expired, moot, or dismissed; nothing can be answered |
 | `unavailable` | the retained store is partial, so the state is unknown |
 | `conflict` | another answer won, the version moved, or delivery is in flight |
@@ -114,7 +116,17 @@ A collection carries its own status: `loading`, `empty`, `ready`,
 
 The component map also carries `options[]`, `recommendation`, `free_response`,
 `answer`, `conflict`, `media[]`, and `actions`, which says whether the caller may
-answer or revise.
+answer, revise or escalate.
+
+### Escalate to the Executor
+
+A user who does not know the answer can hand a `pending` Command to the Executor.
+`POST /api/v1/commands/:decision_id/escalate` takes `idempotency_key`,
+`expected_version` and an optional `note`. The Command moves to `escalated`, the
+Executor is woken with the note, and the response is the updated component. An
+out-of-scope id is `404`, a stale version or a Command that policy will not defer
+(for example one that needs a human) is `409` with `command_conflict`, and a
+missing key or version is `422`. `actions.escalate` says when to offer the control.
 
 ## Command media
 

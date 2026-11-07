@@ -26,6 +26,7 @@ defmodule Aiur.Commands.HostApi do
   alias Aiur.Commands.{Answering, ComponentState, Media, Scope}
   alias Aiur.DecisionApi.PublicProjection
   alias Aiur.DecisionQuery
+  alias Aiur.DecisionStore
   alias Aiur.JSONSafe
 
   @default_limit 25
@@ -142,6 +143,56 @@ defmodule Aiur.Commands.HostApi do
   end
 
   def answer(_scope, _decision_id, _payload, _opts), do: {:error, {:invalid_answer, :payload}}
+
+  @doc """
+  Escalates one scoped Command to the Executor as its authenticated user.
+
+  `payload` needs `idempotency_key` and `expected_version`, and may carry a
+  `note` the Executor sees on the deferred record. A repeat escalation of an
+  already-deferred Command is an idempotent success; a Command that policy
+  does not allow to defer is a `{:conflict, :not_deferrable}`.
+  """
+  @spec escalate(scope(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, answer_error()}
+  def escalate(scope, decision_id, payload, opts \\ [])
+
+  def escalate(%{subject: subject} = scope, decision_id, payload, opts) when is_map(payload) do
+    payload = Map.new(payload, fn {key, value} -> {to_string(key), value} end)
+
+    with {:ok, decision} <- scoped_decision(authorized_tickets(scope, opts), decision_id, opts),
+         {:ok, _key} <- required_binary(payload, "idempotency_key", :idempotency_key),
+         {:ok, version} <- expected_version(payload),
+         {:ok, note} <- escalation_note(payload),
+         :ok <- check_version(decision, version),
+         {:ok, %{decision: deferred}} <-
+           DecisionStore.defer(
+             decision.decision_id,
+             [actor: %{kind: :operator, id: subject}, actor_source: :host_api, note: note],
+             store(opts)
+           ) do
+      {:ok, %{"command" => component(deferred), "scope" => Scope.to_public(scope)}}
+    else
+      {:error, {:answer_invalid, reason}} -> {:error, {:invalid_answer, reason}}
+      {:error, {:conflict, _detail}} = conflict -> conflict
+      {:error, reason} when reason in [:not_found, :store_unavailable] -> {:error, reason}
+      {:error, {:invalid_answer, _detail}} = invalid -> invalid
+      {:error, _other} -> {:error, :store_unavailable}
+    end
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  def escalate(_scope, _decision_id, _payload, _opts), do: {:error, {:invalid_answer, :payload}}
+
+  defp escalation_note(payload) do
+    case Map.get(payload, "note") do
+      nil -> {:ok, nil}
+      note when is_binary(note) -> {:ok, note}
+      _invalid -> {:error, {:invalid_answer, {:note, :invalid}}}
+    end
+  end
+
+  defp check_version(%{version: version}, version), do: :ok
+  defp check_version(%{version: current}, expected), do: {:error, {:conflict, {:stale_version, expected, current}}}
 
   @doc "Renders one canonical Decision as the documented component map."
   @spec component(Aiur.Decision.t()) :: ComponentState.t()

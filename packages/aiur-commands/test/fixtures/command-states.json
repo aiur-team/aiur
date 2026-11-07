@@ -74,6 +74,22 @@
       }
     },
     {
+      "name": "escalated to the Executor",
+      "expected_state": "escalated",
+      "projection": {
+        "decision_id": "dec_escalated",
+        "version": 2,
+        "question": "Ship the build?",
+        "blocking": true,
+        "decision_status": "deferred",
+        "revision_sequence": 0,
+        "options": [{ "id": "approve", "label": "Approve" }],
+        "artifacts": [],
+        "answer": null,
+        "active_answer": null
+      }
+    },
+    {
       "name": "expired",
       "expected_state": "expired",
       "projection": {

@@ -36,16 +36,17 @@ defmodule Aiur.ExecutorEvents do
   @spec publish_deferred(Decision.t(), keyword()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
   def publish_deferred(%Decision{} = decision, opts \\ []) do
     renotify? = Keyword.get(opts, :renotify, false)
+    note = Keyword.get(opts, :note)
 
     case deferred_event_id(decision.decision_id) do
       {:ok, _id} when renotify? ->
-        publish("executor.decision.deferred", deferred_payload(decision, true), source: :internal)
+        publish("executor.decision.deferred", deferred_payload(decision, true, note), source: :internal)
 
       {:ok, id} ->
         {:ok, id, 0}
 
       :not_found ->
-        publish("executor.decision.deferred", deferred_payload(decision, false), source: :internal)
+        publish("executor.decision.deferred", deferred_payload(decision, false, note), source: :internal)
 
       {:error, reason} ->
         {:error, reason}
@@ -338,8 +339,8 @@ defmodule Aiur.ExecutorEvents do
     |> reject_github_source()
   end
 
-  defp deferred_payload(decision, renotify?) do
-    %{
+  defp deferred_payload(decision, renotify?, note) do
+    base = %{
       decision_id: decision.decision_id,
       issue_identifier: decision.ticket.identifier,
       title: decision.question,
@@ -349,6 +350,8 @@ defmodule Aiur.ExecutorEvents do
       provenance: :operator_dashboard,
       renotify: renotify?
     }
+
+    if is_binary(note), do: Map.put(base, :note, note), else: base
   end
 
   @doc """

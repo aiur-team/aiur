@@ -305,3 +305,28 @@ test('list states cover loading, empty, ready and error', () => {
   assert.match(failed, /data-command-list-state="error"/);
   assert.match(failed, /store_unavailable/);
 });
+
+test('a pending Command renders the escalate control only when actions.escalate is true', () => {
+  const on = renderCommand({ ...pending, actions: { ...pending.actions, escalate: true } }, { escalateUrl: '/api/v1/commands/dec_1/escalate' });
+  assert.match(on, /Escalate to Executor/);
+  assert.match(on, /data-aiur-command-escalate-form/);
+  assert.match(on, /action="\/api\/v1\/commands\/dec_1\/escalate"/);
+  assert.match(on, /<textarea name="note"/);
+
+  for (const escalate of [false, undefined]) {
+    const off = renderCommand({ ...pending, actions: { ...pending.actions, escalate } });
+    assert.doesNotMatch(off, /Escalate to Executor/);
+  }
+});
+
+test('an escalated Command shows the notice and no forms', () => {
+  const html = renderCommand({
+    ...pending,
+    state: 'escalated',
+    actions: { answer: false, revise: false, enrich: false, escalate: false },
+  });
+
+  assert.match(html, /data-command-state="escalated"/);
+  assert.match(html, /Escalated to the Executor/);
+  assert.doesNotMatch(html, /<form/);
+});

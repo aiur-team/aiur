@@ -336,9 +336,9 @@ defmodule Aiur.DecisionStore.Requests do
       Enum.each(decisions, &Audit.schedule_executor_request_retry(&1, state, 0))
   end
 
-  @spec notify_deferred_executor(term()) :: term()
-  def notify_deferred_executor(decision) do
-    case ExecutorEvents.publish_deferred(decision) do
+  @spec notify_deferred_executor(term(), String.t() | nil) :: term()
+  def notify_deferred_executor(decision, note \\ nil) do
+    case ExecutorEvents.publish_deferred(decision, note: note) do
       {:ok, _id, _subscribers} -> :ok
       {:error, reason} -> Logger.warning("aiur_decision_store phase=executor_notification_failed reason=#{inspect(reason)}")
     end

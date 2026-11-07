@@ -43,6 +43,20 @@ defmodule AiurWeb.CommandsApiController do
     end
   end
 
+  @spec escalate(Conn.t(), map()) :: Conn.t()
+  def escalate(conn, %{"decision_id" => decision_id} = params) do
+    case scope(conn) do
+      {:ok, scope} ->
+        case invoke(conn, :escalate, [scope, decision_id, Map.delete(params, "decision_id"), api_opts(conn)]) do
+          {:ok, body} -> json(conn, body)
+          {:error, reason} -> render_answer_error(conn, reason)
+        end
+
+      :error ->
+        unauthorized(conn)
+    end
+  end
+
   @doc """
   Serves one media attachment of a scoped Command.
 
