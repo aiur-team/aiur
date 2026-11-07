@@ -7,12 +7,10 @@ defmodule Aiur.Gateway.Summary do
   `pending_decisions` have no producer yet and are always `nil`.
   """
 
-  alias Aiur.Application.Children
-
   @spec build(keyword()) :: map()
   def build(opts \\ []) do
     now = Keyword.get(opts, :now_fun, &DateTime.utc_now/0).()
-    data = metadata(Keyword.get(opts, :metadata_fun, &Children.heartbeat_metadata/0))
+    data = metadata(Keyword.get(opts, :metadata_fun, metadata_source()))
     running = data["agent_count"]
     max = data["agent_capacity"]
     observed_at = now |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -30,6 +28,8 @@ defmodule Aiur.Gateway.Summary do
       executor_present: data["executor_present"]
     }
   end
+
+  defp metadata_source, do: Application.get_env(:aiur, :gateway_summary_metadata, fn -> %{} end)
 
   defp metadata(fun) do
     case fun.() do

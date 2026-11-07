@@ -29,6 +29,8 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    # The gateway summary (identity layer) reads this; it cannot name Children, which sits above it.
+    Application.put_env(:aiur, :gateway_summary_metadata, &Aiur.Application.Children.heartbeat_metadata/0)
     # Absolute times render in the viewer's timezone via `DateTime.shift_zone!`,
     # which needs a timezone database installed. `:tz` ships one.
     :ok = Calendar.put_time_zone_database(Tz.TimeZoneDatabase)

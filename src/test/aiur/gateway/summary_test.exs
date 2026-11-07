@@ -34,3 +34,20 @@ defmodule Aiur.Gateway.SummaryTest do
     end
   end
 end
+
+defmodule Aiur.Gateway.SummaryMetadataSourceTest do
+  use ExUnit.Case, async: false
+
+  test "default metadata comes from the :gateway_summary_metadata hook set at boot" do
+    previous = Application.get_env(:aiur, :gateway_summary_metadata)
+    Application.put_env(:aiur, :gateway_summary_metadata, fn -> %{"data" => %{"agent_count" => 2, "agent_capacity" => 5}} end)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:aiur, :gateway_summary_metadata, previous),
+        else: Application.delete_env(:aiur, :gateway_summary_metadata)
+    end)
+
+    assert Aiur.Gateway.Summary.build().capacity == %{max: 5, running: 2}
+  end
+end
