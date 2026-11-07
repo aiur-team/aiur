@@ -230,6 +230,7 @@ defmodule AiurWeb.BuildLive do
         data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
         <div id="bd-partial" class="bd-partial" aria-live="polite"></div>
+        <div class="bd-board">
         <div class="bd-toolbar"><div class="bd-bar-l" id="bd-tools-l"></div><div class="bd-filters" id="bd-filters"></div><div class="bd-bar-r" id="bd-tools"></div></div>
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">
           <div class="bd-lanes"><div class="bd-skel-lanes"><i class="bd-skel-i" style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i></div></div>
@@ -237,6 +238,7 @@ defmodule AiurWeb.BuildLive do
           <div class="bd-loading" role="status"><span class="bd-spin"></span>Loading build timeline…</div>
         </div><div class="bd-sb" id="bd-sb"><i></i></div><div class="bd-tree" id="bd-tree" hidden></div></div>
         <div class="bd-status" id="bd-status"></div>
+        </div>
       </div>
     </DashboardShell.dashboard_shell>
     <div id="usage-watch" phx-hook="UsageWatch" hidden></div>
