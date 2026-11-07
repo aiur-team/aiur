@@ -16,6 +16,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --dir PATH` | Selects a working directory for a supported command. | `aiur --dir ./project` |
 | `aiur --done TEXT` | Adds completion text to a supported command. | `aiur --done 'Merged'` |
 | `aiur --executor` | Marks the run as Executor-owned and registers its renewing principal in `executor-roster`. Recording is **not** gated on this flag: every run arms the supervised `executor.#` listener and the wake inbox, so PR-lifecycle, CI and attention records exist for a later agent to replay. What the flag adds is authority — created and deferred Commands are raised as needs-attention alerts only on an Executor-owned run. On startup it also records an informational, retrospective daemon heartbeat gap when the durable lifecycle journal confirms a clean stop or an unclosed prior start. This is not live monitoring: no alert is emitted while Aiur is stopped; the notice appears on the next Executor startup. `LISTENER absent` is therefore always a fault. | `aiur --bg --executor` |
+| `aiur --gateway NAME` | Must be the first argument. Selects a registry gateway by name, label or `gateway_id` like `--instance`, or `all` or `local`; see [Selecting by `--gateway`](#selecting-by-gateway). | `aiur --gateway nook status` |
 | `aiur --harness NAME` | Legacy parser option; does not change the configured agent harness. Use the workflow agent configuration. | `aiur --harness codex` |
 | `aiur --headless` | Requests no terminal UI. Background launch injects it unless `--interactive` is present. | `aiur run --headless` |
 | `aiur --host 127.0.0.1` | Overrides the dashboard bind host. A non-loopback host requires dashboard credentials. | `aiur --host 127.0.0.1` |
@@ -80,6 +81,10 @@ The client refuses commands that need local files, processes, or terminal stream
 `redispatch`, `ticket estimate`, `operator-relay-answer`, and `history label-writes` work with `--instance`.
 
 Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast-forward` require `--as <id>`.
+
+### Selecting by `--gateway`
+
+`--gateway <name|label|id|all|local>` behaves like `--instance`, but matches a registry name, a `label` (case-insensitive) or a full `gateway_id` (case-insensitive, no prefixes). It must be the first argument and cannot be combined with `--instance` (exit 64). `all` is the read-only fan-out. `local` always means this machine, reads no registry and makes no HTTP call; reach an entry literally named `local` with `--instance local`. A selector that matches no entry, or more than one, exits 64 and lists every match; use `--instance <name>` (an exact name) to disambiguate. `stop` and `restart` exit 64 with `stop is local to the gateway's host; run it there`. `aiurdev` accepts the same flag.
 
 ### Pinning a gateway identity
 
