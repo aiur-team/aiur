@@ -81,7 +81,9 @@ Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast
 
 ### Pinning a gateway identity
 
-An entry may also carry `gateway_id` (26 lowercase base32 characters), `label` (display only), `tls_pin_sha256` (parsed and validated; the CLI does not yet enforce it) and an `allows:` block (read by the inbound receiver; the CLI and Stream Deck skip it). Older launchers reject registries that use these keys.
+An entry may also carry `gateway_id` (26 lowercase base32 characters), `label` (display only), `tls_pin_sha256` and an `allows:` block (read by the inbound receiver; the CLI and Stream Deck skip it). Older launchers reject registries that use these keys. An entry with no `url` or token that carries `allows` or `gateway_id` is inbound-only: `--instance <name>` exits 64 and `--instance all` skips it.
+
+`tls_pin_sha256` is the lowercase hex SHA-256 of the server's public key (SPKI). The CLI then trusts that key alone, which allows a self-signed certificate; the Stream Deck sidecar does not enforce it. Derive it with `openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | xxd -p -c 64`.
 
 The first successful call to an unpinned entry prints, on stderr, the id the gateway answered with and the line to add under the entry. The id is remembered in `~/.aiur/remote-state/seen-gateway/<name>`; the registry is never written for you.
 
