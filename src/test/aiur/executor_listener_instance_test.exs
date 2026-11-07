@@ -5,6 +5,7 @@ defmodule Aiur.ExecutorListenerInstanceTest do
   alias Aiur.Events.Exchange
   alias Aiur.ExecutorListener
   alias Aiur.ExecutorWakeInbox
+  alias Aiur.Gateway.Identity
 
   @listener_name __MODULE__.Listener
   @inbox_name __MODULE__.Inbox
@@ -43,6 +44,20 @@ defmodule Aiur.ExecutorListenerInstanceTest do
     path = Workflow.workflow_file_path()
     write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [#{ticket}]\n")
     :ok = Aiur.WorkflowStore.force_reload()
+  end
+
+  test "a wake names the gateway whose daemon observed it (MPG-502)" do
+    ticket = System.unique_integer([:positive])
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: ["ticket.#{ticket}.pr.opened"], reconcile?: false)
+    topic = "ticket.#{ticket}.pr.opened"
+    Exchange.publish(topic, %{id: System.unique_integer([:positive]), topic: topic, action: "opened", pr: %{"number" => ticket, "draft" => false}})
+
+    assert {:ok, [wake]} = ExecutorWakeInbox.wait(500, @inbox_name)
+    expected = Identity.current()
+    assert wake["gateway_id"] == expected.gateway_id
+    assert wake["gateway_label"] == expected.gateway_label
+    assert Map.has_key?(wake, "gateway_id")
   end
 
   test "another instance's ticket events are not projected into this Executor's inbox (#5803)" do

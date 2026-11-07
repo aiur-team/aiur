@@ -6,7 +6,7 @@ defmodule Aiur.Events.Catalog.Entries do
   alias Aiur.Events.Catalog.{AttentionEntries, Entry, GithubSystemEntries, LegacyEntries, PlannedEntries, SystemEntries, TicketEntries}
 
   # aiur/decision_store/{requests,persistence,audit}.ex
-  @decision_slugs ~w(requested request-attributed native-released routed escalated human-needed executor-acknowledged requester-notified answered pending-for-session session-started answer-comment-published expired mooted dismissed
+  @decision_slugs ~w(requested request-attributed native-released routed escalated human-needed executor-acknowledged executor-claimed executor-claim-released requester-notified answered pending-for-session session-started answer-comment-published expired mooted dismissed
     deferred executor-escalated authority-reclassified enriched override-successor-ticket override-corrective-ticket override-corrective-implemented override-corrective-failed override-corrective-recovered override-corrective-closed override-implemented override-worker-handoff override-merge-settled override-resume-state override-prompt-delivered revision-recorded queued dispatch-outcome-unknown revision-dispatched
     revision-no-longer-applicable revision-follow-up-required revision-follow-up-handled handed-off delivered restored consumed failed acknowledged resolved)
   # aiur/executor_wake_projection.ex

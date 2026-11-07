@@ -142,6 +142,8 @@ defmodule Aiur.ControlCall.Allowlist do
        json: :boolean
      }},
     {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
+    {:executor_claim_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
+    {:executor_release_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,

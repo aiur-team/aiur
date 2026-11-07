@@ -3,14 +3,15 @@ defmodule Aiur.Commands.Routing.Facts do
 
   alias Aiur.DecisionEvent
   alias Aiur.DecisionProjection.TransitionValidation
+  alias Aiur.DecisionStore.Claims
 
-  @fields [:route_policy, :route_state, :routed_at, :human_visible_at, :escalations, :executor_acknowledged_at, :human_needed_at]
+  @fields [:route_policy, :route_state, :routed_at, :human_visible_at, :escalations, :executor_acknowledged_at, :human_needed_at, :executor_claim]
 
   @spec inherit(map(), map()) :: map()
   def inherit(current, candidate), do: struct!(candidate, Map.take(current, @fields))
 
   @spec public(map()) :: map()
-  def public(decision), do: Map.take(decision, @fields -- [:human_needed_at])
+  def public(decision), do: Map.take(decision, @fields -- [:human_needed_at, :executor_claim])
 
   @spec apply(map(), DecisionEvent.t()) :: {:ok, map()} | {:error, term()}
   def apply(decision, event) do
@@ -59,6 +60,20 @@ defmodule Aiur.Commands.Routing.Facts do
     if duplicate?(decision, :executor_acknowledged, data),
       do: {:error, :duplicate},
       else: {:ok, %{decision | executor_acknowledged_at: data.at}}
+  end
+
+  defp transition(decision, %{type: :executor_claimed, data: data}) do
+    case Claims.claim(decision, %{executor_id: data.executor_id, now: data.at, expires_at: data.expires_at}) do
+      {:ok, claim} -> {:ok, %{decision | executor_claim: claim}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp transition(decision, %{type: :executor_claim_released, data: data}) do
+    case Claims.release(decision, %{executor_id: data.executor_id, now: data.at}) do
+      {:ok, :released} -> {:ok, %{decision | executor_claim: nil}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp escalate(decision, data) do
