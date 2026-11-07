@@ -36,7 +36,9 @@ defmodule Aiur.OrchestratorStatusCliFailuresTest do
                "LOAD (local fallback diagnostic) #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
                  "(local host sample; over fallback load threshold, PSI governs dispatch when available)"
 
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
+      assert output =~
+               "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; daemon is alive but busy or not reachable. Outcome is unknown."
+
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
 
       # #1731: the old wording asserted a cause ("daemon may be
@@ -67,7 +69,9 @@ defmodule Aiur.OrchestratorStatusCliFailuresTest do
         )
       end)
 
-    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; outcome is unknown"
+    assert output =~
+             "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; daemon is alive but busy or not reachable. Outcome is unknown."
+
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
@@ -124,7 +128,9 @@ defmodule Aiur.OrchestratorStatusCliFailuresTest do
 
       output = capture_io(fn -> AgentControlCLI.status() end)
 
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s; outcome is unknown"
+      assert output =~
+               "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s; daemon is alive but busy or not reachable. Outcome is unknown."
+
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end
   end
