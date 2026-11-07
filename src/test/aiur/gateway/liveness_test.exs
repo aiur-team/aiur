@@ -52,6 +52,11 @@ defmodule Aiur.Gateway.LivenessTest do
            ]
   end
 
+  test "a silent sibling daemon of our own gateway is not an outage" do
+    run([[row("me", 240_000)]])
+    assert emits() == []
+  end
+
   test "freshest instance of a gateway wins" do
     run([[row("g1", 240_000), row("g1", 5_000)]])
     assert emits() == []

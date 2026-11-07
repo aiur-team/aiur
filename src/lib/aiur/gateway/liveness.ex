@@ -33,9 +33,12 @@ defmodule Aiur.Gateway.Liveness do
   @doc "Freshest heartbeat age per remote gateway; `nil` unless this daemon is the leader."
   @spec ages(map()) :: %{String.t() => non_neg_integer()} | nil
   def ages(%{instances: rows}) do
-    if Enum.any?(rows, &(&1.current? and &1.leader? == true)) do
+    own = Enum.find(rows, & &1.current?)
+
+    if own && own.leader? == true do
+      # Sibling daemons of our own gateway are not peers: a silent one is not a gateway outage.
       rows
-      |> Enum.reject(&(&1.current? or is_nil(&1.gateway_id)))
+      |> Enum.reject(&(&1.current? or is_nil(&1.gateway_id) or &1.gateway_id == own.gateway_id))
       |> Enum.group_by(& &1.gateway_id, & &1.age_ms)
       |> Map.new(fn {id, ages} -> {id, Enum.min(ages)} end)
     end
