@@ -86,6 +86,12 @@ defmodule Aiur.DecisionHistory.EventProjection do
   def record(%DecisionEvent{type: :executor_acknowledged, data: data}, base, _revisions),
     do: Map.put(base, :actor, %{kind: :executor, id: data.executor_id})
 
+  def record(%DecisionEvent{type: :executor_claimed, data: data}, base, _revisions),
+    do: Map.put(base, :actor, %{kind: :executor, id: data.executor_id})
+
+  def record(%DecisionEvent{type: :executor_claim_released}, base, _revisions),
+    do: Map.put(base, :actor, %{kind: :system, id: "aiur"})
+
   def record(%DecisionEvent{type: :human_needed}, base, _revisions),
     do: Map.put(base, :actor, %{kind: :system, id: "aiur"})
 

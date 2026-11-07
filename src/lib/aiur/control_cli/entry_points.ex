@@ -34,6 +34,16 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("executor-ack", fn -> opts |> ExecutorCommandCLI.ack(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec executor_claim_decision(keyword()) :: :ok
+  def executor_claim_decision(opts) when is_list(opts) do
+    guarded("executor-claim-decision", fn -> opts |> ExecutorCommandCLI.claim(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
+  @spec executor_release_decision(keyword()) :: :ok
+  def executor_release_decision(opts) when is_list(opts) do
+    guarded("executor-release-decision", fn -> opts |> ExecutorCommandCLI.release(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec command_request(keyword()) :: :ok
   def command_request(opts) do
     guarded("command request", fn -> opts |> ExecutorRequest.request(error_fun: &control_error/1) |> exit_marker() end)

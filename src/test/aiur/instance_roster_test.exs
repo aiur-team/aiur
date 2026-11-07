@@ -2,6 +2,7 @@ defmodule Aiur.Instance.RosterTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Instance.Roster
+  alias Aiur.Instance.Roster.Presentation
 
   test "expired heartbeat remains stale with its age, then drops after retention" do
     now = ~U[2026-10-24 12:00:00Z]
@@ -12,7 +13,16 @@ defmodule Aiur.Instance.RosterTest do
         build_version: "1.2.3",
         metadata: %{
           "version" => 1,
-          "data" => %{"host_kind" => "home", "public_url" => "https://aiur.example", "agent_count" => 2, "agent_capacity" => 4, "leader" => true, "held_tickets" => ["acme/widgets#41"]}
+          "data" => %{
+            "host_kind" => "home",
+            "public_url" => "https://aiur.example",
+            "agent_count" => 2,
+            "agent_capacity" => 4,
+            "leader" => true,
+            "held_tickets" => ["acme/widgets#41"],
+            "executor_present" => true,
+            "projects" => [%{"repo" => "acme/widgets", "running" => 2}]
+          }
         },
         heartbeat_at: ~U[2026-10-24 11:59:50Z],
         expires_at: ~U[2026-10-24 12:00:20Z]
@@ -45,6 +55,10 @@ defmodule Aiur.Instance.RosterTest do
     assert home.agent_count == 2
     assert home.agent_capacity == 4
     assert home.held_tickets == ["acme/widgets#41"]
+    assert home.executor_present == true
+    assert home.projects == [%{"repo" => "acme/widgets", "running" => 2}]
+    assert expired.executor_present == nil
+    assert Presentation.executor(expired.executor_present) == "unknown"
 
     {:ok, removed} = Roster.list(now: DateTime.add(now, 61, :second), stale_retention_ms: 20_000, list_fun: fn _ -> {:ok, records} end)
     refute Enum.any?(removed.instances, &(&1.instance_id == "container-b"))
