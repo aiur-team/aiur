@@ -31,6 +31,19 @@ const LIST_COPY = {
   error: 'Commands could not be loaded.',
 };
 
+/** Default user-visible copy; override any key with the `labels` render option. */
+export const DEFAULT_LABELS = {
+  submit: 'Record answer',
+  legend: 'Choose an answer',
+  recommended: 'Recommended',
+  recorded: 'Recorded answer',
+  revised: 'Revised answer',
+};
+
+function labelOf(options, key) {
+  return escapeHtml(options?.labels?.[key] ?? DEFAULT_LABELS[key]);
+}
+
 const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'revised', 'answered', 'pending'];
 
 /** The typed Command media kinds the contract can carry. */
@@ -69,12 +82,12 @@ function ticketLine(command) {
   const body = command.ticket.url
     ? `<a href="${escapeHtml(command.ticket.url)}">${text}</a>`
     : text;
-  return `<p class="aiur-command-ticket">${body}</p>`;
+  return `<p class="aiur-command-ticket" data-part="ticket">${body}</p>`;
 }
 
-function recommendationLine(command) {
+function recommendationLine(command, options) {
   if (!command?.recommendation) return '';
-  return `<p class="aiur-command-recommendation" data-command-recommendation="${escapeHtml(command.recommendation.option_id)}">Recommended: ${escapeHtml(command.recommendation.label ?? command.recommendation.option_id)}</p>`;
+  return `<p class="aiur-command-recommendation" data-part="recommendation" data-command-recommendation="${escapeHtml(command.recommendation.option_id)}">${labelOf(options, 'recommended')}: ${escapeHtml(command.recommendation.label ?? command.recommendation.option_id)}</p>`;
 }
 
 function optionsMarkup(command, options) {
@@ -87,18 +100,18 @@ function optionsMarkup(command, options) {
       const description = option.description
         ? `<small>${escapeHtml(option.description)}</small>`
         : '';
-      const badge = recommended ? '<span class="aiur-command-chip">Recommended</span>' : '';
+      const badge = recommended ? `<span class="aiur-command-chip" data-part="chip">${labelOf(options, 'recommended')}</span>` : '';
 
-      const label = `<label class="aiur-command-option${recommended ? ' is-recommended' : ''}" data-option-id="${escapeHtml(option.id)}">
+      const label = `<label data-part="option" class="aiur-command-option${recommended ? ' is-recommended' : ''}" data-option-id="${escapeHtml(option.id)}">
   <input type="radio" name="option_id" value="${escapeHtml(option.id)}"${checked}>
-  <span class="aiur-command-option-copy"><strong>${escapeHtml(option.label)}</strong>${description}</span>${badge}
+  <span class="aiur-command-option-copy" data-part="option-copy"><strong>${escapeHtml(option.label)}</strong>${description}</span>${badge}
 </label>`;
 
       return `${label}${optionMediaMarkup(option, command, options)}`;
     })
     .join('\n');
 
-  return `<fieldset class="aiur-command-options"><legend>Choose an answer</legend>\n${items}\n</fieldset>`;
+  return `<fieldset class="aiur-command-options" data-part="options"><legend data-part="legend">${labelOf(options, 'legend')}</legend>\n${items}\n</fieldset>`;
 }
 
 // An option's typed media renders beside the option rather than inside its
@@ -114,7 +127,7 @@ function optionMediaMarkup(option, command, options) {
 
   if (!items) return '';
 
-  return `<div class="aiur-command-option-media" data-option-media="${escapeHtml(option.id)}">\n${items}\n</div>`;
+  return `<div class="aiur-command-option-media" data-option-media="${escapeHtml(option.id)}" data-part="option-media">\n${items}\n</div>`;
 }
 
 function freeResponseMarkup(command) {
@@ -122,21 +135,21 @@ function freeResponseMarkup(command) {
 
   const required = command.free_response.required ? ' required' : '';
 
-  return `<label class="aiur-command-response">
-  <span>Response</span>
+  return `<label class="aiur-command-response" data-part="response">
+  <span data-part="response-label">Response</span>
   <textarea name="custom_response" rows="4" maxlength="4000"${required} placeholder="State the Command response clearly…"></textarea>
 </label>`;
 }
 
-function answerMarkup(command) {
+function answerMarkup(command, options) {
   if (!command?.answer) return '';
 
   const label = command.answer.selected_option_id
     ? escapeHtml(command.answer.selected_option_id)
     : escapeHtml(command.answer.custom_response ?? 'Answer recorded');
 
-  return `<div class="aiur-command-answer" data-action-id="${escapeHtml(command.answer.action_id)}">
-  <span class="aiur-command-answer-label">${stateOf(command) === 'revised' ? 'Revised answer' : 'Recorded answer'}</span>
+  return `<div class="aiur-command-answer" data-part="answer" data-action-id="${escapeHtml(command.answer.action_id)}">
+  <span class="aiur-command-answer-label" data-part="answer-label">${stateOf(command) === 'revised' ? labelOf(options, 'revised') : labelOf(options, 'recorded')}</span>
   <strong>${label}</strong>
 </div>`;
 }
@@ -149,7 +162,7 @@ function conflictMarkup(command) {
     ? `Already answered by ${escapeHtml(winner.actor)}.`
     : 'Another answer already won. Refresh to see the current state.';
 
-  return `<p class="aiur-command-conflict" role="status">${copy}</p>`;
+  return `<p class="aiur-command-conflict" data-part="conflict" role="status">${copy}</p>`;
 }
 
 function mediaMarkup(command, options) {
@@ -162,7 +175,7 @@ function mediaMarkup(command, options) {
 
   if (!items) return '';
 
-  return `<div class="aiur-command-media-list">\n${items}\n</div>`;
+  return `<div class="aiur-command-media-list" data-part="media-list">\n${items}\n</div>`;
 }
 
 // A typed item always carries a locator; a pre-existing artifact reference
@@ -173,11 +186,11 @@ function isTypedMedia(entry) {
 
 function artifactMediaMarkup(entry) {
   if (entry?.kind === 'url' && isHttps(entry.value)) {
-    return `<a class="aiur-command-media" href="${escapeHtml(entry.value)}" rel="noreferrer noopener">${escapeHtml(entry.value)}</a>`;
+    return `<a class="aiur-command-media" data-part="media" href="${escapeHtml(entry.value)}" rel="noreferrer noopener">${escapeHtml(entry.value)}</a>`;
   }
 
   if (entry?.kind === 'url' || entry?.kind === 'path') {
-    return `<span class="aiur-command-media" data-media-kind="${escapeHtml(entry.kind)}">${escapeHtml(entry.value)}</span>`;
+    return `<span class="aiur-command-media" data-part="media" data-media-kind="${escapeHtml(entry.kind)}">${escapeHtml(entry.value)}</span>`;
   }
 
   return '';
@@ -193,8 +206,8 @@ function typedMediaMarkup(item, command, options) {
       ? `This ${escapeHtml(item.mime_type)} item could not be resolved.`
       : 'This media item could not be resolved.';
 
-    return `<figure class="aiur-command-media-item" data-media-kind="${escapeHtml(kind)}">
-  <div class="aiur-command-media-unavailable" role="status"><strong>Media unavailable</strong><span>${hint}</span></div>
+    return `<figure class="aiur-command-media-item" data-part="media-item" data-media-kind="${escapeHtml(kind)}">
+  <div class="aiur-command-media-unavailable" data-part="media-unavailable" role="status"><strong>Media unavailable</strong><span>${hint}</span></div>
   ${caption}
 </figure>`;
   }
@@ -206,7 +219,7 @@ function typedMediaMarkup(item, command, options) {
   const name = escapeHtml(item.alt_text ?? item.caption ?? 'Command media');
 
   if (kind === 'image' || kind === 'animated_image') {
-    return `<figure class="aiur-command-media-item" data-media-kind="${escapeHtml(kind)}">
+    return `<figure class="aiur-command-media-item" data-part="media-item" data-media-kind="${escapeHtml(kind)}">
   <img src="${escapeHtml(source)}" alt="${name}" loading="lazy" decoding="async"${size}>
   ${caption}
 </figure>`;
@@ -216,7 +229,7 @@ function typedMediaMarkup(item, command, options) {
     const poster = posterSource(item, command, options);
     const posterAttribute = poster ? ` poster="${escapeHtml(poster)}"` : '';
 
-    return `<figure class="aiur-command-media-item" data-media-kind="video">
+    return `<figure class="aiur-command-media-item" data-part="media-item" data-media-kind="video">
   <video controls preload="metadata" playsinline aria-label="${name}"${posterAttribute}${size}>
     <source src="${escapeHtml(source)}" type="${escapeHtml(item.mime_type ?? '')}">
     <a href="${escapeHtml(source)}">Open video</a>
@@ -225,7 +238,7 @@ function typedMediaMarkup(item, command, options) {
 </figure>`;
   }
 
-  return `<figure class="aiur-command-media-item" data-media-kind="audio">
+  return `<figure class="aiur-command-media-item" data-part="media-item" data-media-kind="audio">
   <audio controls preload="metadata" aria-label="${name}">
     <source src="${escapeHtml(source)}" type="${escapeHtml(item.mime_type ?? '')}">
     <a href="${escapeHtml(source)}">Open audio</a>
@@ -236,8 +249,8 @@ function typedMediaMarkup(item, command, options) {
 
 function captionMarkup(item) {
   if (!item?.caption) return '';
-  const kind = item.kind === 'animated_image' ? '<span class="aiur-command-media-kind">Animated</span>' : '';
-  return `<figcaption class="aiur-command-media-caption">${kind}${escapeHtml(item.caption)}</figcaption>`;
+  const kind = item.kind === 'animated_image' ? '<span class="aiur-command-media-kind" data-part="media-kind">Animated</span>' : '';
+  return `<figcaption class="aiur-command-media-caption" data-part="media-caption">${kind}${escapeHtml(item.caption)}</figcaption>`;
 }
 
 // An `https:` locator is used as-is; an attachment reference becomes the
@@ -282,10 +295,10 @@ function pendingForm(command, options) {
     : '';
   const method = options.method ?? 'post';
 
-  return `<form class="aiur-command-answer-form" data-aiur-command-form data-decision-id="${escapeHtml(command.decision_id)}" method="${escapeHtml(method)}"${action}>
+  return `<form class="aiur-command-answer-form" data-part="answer-form" data-aiur-command-form data-decision-id="${escapeHtml(command.decision_id)}" method="${escapeHtml(method)}"${action}>
   ${optionsMarkup(command, options)}
   ${freeResponseMarkup(command)}
-  <footer class="aiur-command-actions"><button type="submit">Record answer</button></footer>
+  <footer class="aiur-command-actions" data-part="actions"><button type="submit" data-part="submit">${labelOf(options, 'submit')}</button></footer>
 </form>`;
 }
 
@@ -293,15 +306,15 @@ function noticeMarkup(command) {
   const state = stateOf(command);
 
   if (state === 'expired') {
-    return `<p class="aiur-command-notice" role="status">This Command is no longer answerable${command.reason ? ` (${escapeHtml(command.reason)})` : ''}.</p>`;
+    return `<p class="aiur-command-notice" data-part="notice" role="status">This Command is no longer answerable${command.reason ? ` (${escapeHtml(command.reason)})` : ''}.</p>`;
   }
 
   if (state === 'unavailable') {
-    return '<p class="aiur-command-notice" role="status">Command state is unavailable right now.</p>';
+    return '<p class="aiur-command-notice" data-part="notice" role="status">Command state is unavailable right now.</p>';
   }
 
   if (state === 'error') {
-    return `<p class="aiur-command-notice" role="alert">${escapeHtml(command.message ?? 'The Command could not be loaded.')}</p>`;
+    return `<p class="aiur-command-notice" data-part="notice" role="alert">${escapeHtml(command.message ?? 'The Command could not be loaded.')}</p>`;
   }
 
   return '';
@@ -311,7 +324,7 @@ function noticeMarkup(command) {
  * Renders one Command component.
  *
  * @param {import('./contract.d.ts').CommandComponent} command
- * @param {{answerUrl?: string, method?: string, mediaBaseUrl?: string}} [options]
+ * @param {{answerUrl?: string, method?: string, mediaBaseUrl?: string, labels?: Partial<typeof DEFAULT_LABELS>}} [options]
  * @returns {string}
  */
 export function renderCommand(command, options = {}) {
@@ -319,17 +332,17 @@ export function renderCommand(command, options = {}) {
   const question = escapeHtml(command?.question ?? 'Command');
   const blocking = command?.blocking ? ' data-blocking="true"' : '';
 
-  return `<article class="aiur-command" data-command-state="${state}"${reasonAttribute(command)}${blocking}>
-  <header class="aiur-command-header">
-    <span class="aiur-command-state">${escapeHtml(stateLabel(state))}</span>
+  return `<article class="aiur-command" data-part="command" data-command-state="${state}"${reasonAttribute(command)}${blocking}>
+  <header class="aiur-command-header" data-part="header">
+    <span class="aiur-command-state" data-part="state">${escapeHtml(stateLabel(state))}</span>
   </header>
-  <h3 class="aiur-command-question">${question}</h3>
+  <h3 class="aiur-command-question" data-part="question">${question}</h3>
   ${ticketLine(command)}
-  ${recommendationLine(command)}
+  ${recommendationLine(command, options)}
   ${noticeMarkup(command)}
   ${conflictMarkup(command)}
   ${pendingForm(command, options)}
-  ${answerMarkup(command)}
+  ${answerMarkup(command, options)}
   ${mediaMarkup(command, options)}
 </article>`;
 }
@@ -351,10 +364,10 @@ export function renderList(list, options = {}) {
       ? ` (${escapeHtml(list.error.reason)})`
       : '';
 
-    return `<section class="aiur-commands" data-command-list-state="${escapeHtml(status)}"><p role="status">${copy}${detail}</p></section>`;
+    return `<section class="aiur-commands" data-part="list" data-command-list-state="${escapeHtml(status)}"><p data-part="list-status" role="status">${copy}${detail}</p></section>`;
   }
 
   const commands = (list.commands ?? []).map((command) => renderCommand(command, options)).join('\n');
 
-  return `<section class="aiur-commands" data-command-list-state="ready">\n${commands}\n</section>`;
+  return `<section class="aiur-commands" data-part="list" data-command-list-state="ready">\n${commands}\n</section>`;
 }
