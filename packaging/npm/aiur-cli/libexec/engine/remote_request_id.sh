@@ -5,28 +5,32 @@ aiur_valid_request_id() {
   [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
 }
 
-# Consumes leading --instance and --request-id flags (either order, `--flag value` or
-# `--flag=value`). Sets AIUR_REMOTE_INSTANCE, AIUR_REQUEST_ID and AIUR_FLAGS_CONSUMED (words to shift).
-# Only a flag may select a remote target, so any inherited AIUR_REMOTE_INSTANCE is cleared first.
+# Consumes a leading --request-id flag (`--request-id v` or `--request-id=v`) into AIUR_REQUEST_ID and
+# adds the words used to AIUR_FLAGS_CONSUMED. The selector flags are parsed by parse_remote_selector.
+aiur_parse_request_id_flag() {
+  local used
+  case "${1:-}" in
+    --request-id=*) AIUR_REQUEST_ID="${1#*=}" used=1 ;;
+    --request-id) AIUR_REQUEST_ID="${2:-}" used=2 ;;
+    *) return 0 ;;
+  esac
+  AIUR_FLAGS_CONSUMED=$((AIUR_FLAGS_CONSUMED + used))
+  [ -n "$AIUR_REQUEST_ID" ] || { echo "aiur: --request-id requires a value" >&2; return 64; }
+}
+
+# Parses leading --instance/--gateway and --request-id flags in either order; sets AIUR_FLAGS_CONSUMED.
+# Only a flag may select a remote target, so any inherited selector is cleared first.
 aiur_parse_remote_flags() {
-  local flag value used
-  unset AIUR_REMOTE_INSTANCE
+  unset AIUR_REMOTE_INSTANCE AIUR_REMOTE_SELECTOR_FLAG
   AIUR_FLAGS_CONSUMED=0
-  while :; do
-    case "${1:-}" in
-      --instance=*) flag=--instance value="${1#*=}" used=1 ;;
-      --request-id=*) flag=--request-id value="${1#*=}" used=1 ;;
-      --instance) flag=--instance value="${2:-}" used=2 ;;
-      --request-id) flag=--request-id value="${2:-}" used=2 ;;
-      *) break ;;
-    esac
-    AIUR_FLAGS_CONSUMED=$((AIUR_FLAGS_CONSUMED + used))
-    shift "$used" 2>/dev/null || shift "$#"
-    if [ -z "$value" ]; then
-      [ "$flag" = --instance ] && echo "aiur: --instance requires a name" >&2 || echo "aiur: --request-id requires a value" >&2
-      return 64
+  local step
+  for step in request selector request; do
+    if [ "$step" = selector ]; then
+      parse_remote_selector "${@:$((AIUR_FLAGS_CONSUMED + 1))}" || return $?
+      AIUR_FLAGS_CONSUMED=$((AIUR_FLAGS_CONSUMED + AIUR_SELECTOR_SHIFT))
+    else
+      aiur_parse_request_id_flag "${@:$((AIUR_FLAGS_CONSUMED + 1))}" || return $?
     fi
-    if [ "$flag" = --instance ]; then export AIUR_REMOTE_INSTANCE="$value"; else AIUR_REQUEST_ID="$value"; fi
   done
   [ -z "${AIUR_REQUEST_ID:-}" ] || aiur_valid_request_id "$AIUR_REQUEST_ID" || { echo "aiur: --request-id must be a UUIDv7" >&2; return 64; }
   [ -z "${AIUR_REQUEST_ID:-}" ] || [ "${AIUR_REMOTE_INSTANCE:-}" != all ] || { echo "aiur: --request-id cannot be combined with --instance all" >&2; return 64; }

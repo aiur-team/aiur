@@ -3,7 +3,7 @@ pageClass: cli-reference
 ---
 # CLI
 
-Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `aiur commands` and the explicit answer verbs remain supported for compatibility. Existing section links lead to the same reference content.
+Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `aiur commands` and the explicit answer verbs remain supported for compatibility. Existing section links lead to the same reference content. `--instance <name>` selects a remote daemon; `--gateway` also selects one, see [selecting by gateway](./cli-options#selecting-by-gateway).
 
 - [CLI launch and setup](./cli-launch)
 - [CLI operations](./cli-operations)
