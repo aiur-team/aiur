@@ -84,7 +84,14 @@ Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast
 
 ### Selecting by `--gateway`
 
-`--gateway <name|label|id|all|local>` behaves like `--instance`, but matches a registry name, a `label` (case-insensitive) or a full `gateway_id` (case-insensitive, no prefixes). It must be the first argument and cannot be combined with `--instance` (exit 64). `all` is the read-only fan-out. `local` always means this machine, reads no registry and makes no HTTP call; reach an entry literally named `local` with `--instance local`. A selector that matches no entry, or more than one, exits 64 and lists every match; use `--instance <name>` (an exact name) to disambiguate. `stop` and `restart` exit 64 with `stop is local to the gateway's host; run it there`. `aiurdev` accepts the same flag.
+`--gateway <name|label|id|all|local>` behaves like `--instance`. It must be the first argument and cannot be combined with `--instance` (exit 64).
+
+- A registry name matches exactly. A `label` or a full `gateway_id` matches case-insensitively; id prefixes do not match.
+- No match, or more than one, exits 64. An ambiguous selector lists every match; use `--instance <name>` to pick one.
+- `all` is the read-only fan-out, as with `--instance all`.
+- `local` always means this machine: no registry read, no HTTP. An entry literally named `local` is reached with `--instance local`.
+- `stop` and `restart` exit 64 with `stop is local to the gateway's host; run it there`.
+- `aiurdev` accepts the same flag.
 
 ### Pinning a gateway identity
 
