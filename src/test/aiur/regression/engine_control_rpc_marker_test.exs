@@ -407,7 +407,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       end)
 
       commands = [
-        {"set max-agents", "Aiur.AgentControlCLI.set_max_agents(2)", "failed to set max-agents (orchestrator unavailable)"},
+        {"set max-agents", ~s|require Logger; Logger.warning("fixture logger output must not use protocol stdout"); Aiur.AgentControlCLI.set_max_agents(2)|,
+         "failed to set max-agents (orchestrator unavailable)"},
         {"pause", ~s|Aiur.AgentControlCLI.pause(["44"])|, "orchestrator is not running"},
         {"resume", ~s|Aiur.AgentControlCLI.resume(["44"])|, "orchestrator is not running"},
         {"reset-budget", ~s|Aiur.AgentControlCLI.reset_budget(["44"])|, "failed to reset lifetime dispatch budget for #44 (orchestrator unavailable)"},
@@ -432,6 +433,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
         assert out =~ "STDOUT_BYTES=0", context
         assert out =~ "STDERR_LINES=1", context
         assert out =~ "aiur: #{diagnostic}", context
+        refute out =~ "fixture logger output must not use protocol stdout", context
         refute out =~ "timed out", context
         refute out =~ "__AIUR_CONTROL_", context
       end
@@ -456,12 +458,17 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
     bin = Path.join([rel, "bin", "aiur"])
 
     # Remote stderr belongs to the daemon; only stdout markers travel over RPC.
-    # Capture evaluated stderr, while leaving runtime startup failures visible.
+    # The default Logger handler writes to standard_io, so replace it with a
+    # standard_error handler before evaluating commands. Otherwise incidental
+    # Logger output contaminates the marker stream and can obscure a missing
+    # marker's source as ordinary RPC stdout.
     File.write!(bin, """
     #!/usr/bin/env bash
     set -euo pipefail
     exec #{shell_quote(elixir)} #{paths} -e '
       {:ok, _} = Application.ensure_all_started(:ex_unit)
+      :ok = :logger.remove_handler(:default)
+      :ok = :logger.add_handler(:default, :logger_std_h, %{config: %{type: :standard_error}})
       ExUnit.CaptureIO.capture_io(:stderr, fn -> Code.eval_string(hd(System.argv())) end)
     ' -- "${@: -1}"
     """)
