@@ -118,8 +118,8 @@ dependency graph — through the `aiur-build-order` package. A `bo-<root>` featu
 otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
 
 The Now band shows active agents between history and the plan, using the same
-card style as the other tickets. It scrolls with the board, so you can stop
-anywhere; **Live** scrolls to it. Minimize keeps state counts
+card style as the other tickets. It scrolls with the board and pins to the top
+or bottom edge instead of leaving view; **Live** scrolls to its place. Minimize keeps state counts
 visible (`live=min`), and a state preset expands it. The clock shows cached
 observation time when stale and `—` when unknown.
 

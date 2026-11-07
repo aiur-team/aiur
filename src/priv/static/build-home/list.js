@@ -139,7 +139,11 @@ export function listHTML(D, state, history, P, now) {
   const more = history.more ? '<div role="row"><div role="cell"><button type="button" class="lr-more" id="lr-more"' + (history.state === 'loading' ? ' disabled aria-busy="true"' : '') + '>Load earlier day</button></div></div>' : '';
   return '<div class="bd-list" role="table" aria-label="Build tickets" tabindex="-1"><div class="lr lr-h" role="row">' +
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Lane', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
-    ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
+    ['now', 'plan', 'nq', 'hist'].map(sec => {
+      const html = secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now);
+      // #7758: the Live group is one sticky block so it pins under the column header or to the bottom edge.
+      return sec === 'now' && html ? '<div class="lr-live" role="rowgroup">' + html + '</div>' : html;
+    }).join('') + '</div>';
 }
 // One row per feature: name, bar, merged/total. Bars come from the same block as the feature filter.
 // The list sits straight under the toolbar: one summary line, the rows and the total, with no
