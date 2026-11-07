@@ -34,9 +34,12 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   defp release(issue, opts) do
+    opts = Keyword.put_new(opts, :ticket_identifier, issue.identifier)
+
     case target(issue, opts) do
       {:ok, slug} -> write_release(issue, lifecycle_state_name(slug, opts), opts)
       {:error, reason} -> {:defer, reason}
+      {:defer, reason} -> {:defer, reason}
     end
   end
 
@@ -120,8 +123,87 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
   # An unresolved thread can belong to a review on an older head. Startup
   # recovery uses the same current-head review rule as agent handoff.
-  defp current_head_review_target(pr, opts),
-    do: {:ok, ReworkGate.post_agent_handoff_target(pr, "human-review", opts)}
+  defp current_head_review_target(pr, opts) do
+    target = ReworkGate.post_agent_handoff_target(pr, "human-review", opts)
+
+    preserve_newer_rework(target, pr, opts)
+  end
+
+  defp preserve_newer_rework(target, pr, opts) do
+    if DispatchPolicy.state_slug(target) == "ci-wait" do
+      rework_state_after_approval(target, pr, opts)
+    else
+      {:ok, target}
+    end
+  end
+
+  defp rework_state_after_approval(target, pr, opts) do
+    fetch_issue = Keyword.get(opts, :fetch_issue_states_fun, &Aiur.Tracker.fetch_issue_states_by_ids/1)
+    identifier = Keyword.fetch!(opts, :ticket_identifier)
+
+    case fetch_issue.([identifier]) do
+      {:ok, [latest_issue]} -> rework_issue_target(target, latest_issue, pr, opts)
+      _ -> {:defer, :ticket_state_unavailable}
+    end
+  end
+
+  defp rework_issue_target(target, issue, pr, opts) do
+    if DispatchPolicy.state_slug(issue.state) == "rework",
+      do: rework_approval_target(target, issue, pr, opts),
+      else: {:ok, target}
+  end
+
+  defp rework_approval_target(target, issue, pr, opts) do
+    case current_head_approval(pr, opts) do
+      {:ok, %{"submitted_at" => submitted_at}} ->
+        if approval_after_rework?(submitted_at, issue.updated_at), do: {:ok, target}, else: {:ok, "rework"}
+
+      {:ok, nil} ->
+        {:ok, "rework"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp current_head_approval(pr, opts) do
+    fetch_reviews = Keyword.get(opts, :reviews_fetcher, &Aiur.CodeHost.fetch_classified_pr_reviews/1)
+    head = get_in(pr, ["head", "sha"])
+
+    with true <- is_binary(head),
+         {:ok, reviews} <- fetch_reviews.(Map.fetch!(pr, "number")) do
+      case latest_head_approval(reviews, head) do
+        %{"state" => "APPROVED"} = approval -> {:ok, approval}
+        _ -> {:ok, nil}
+      end
+    else
+      _ -> {:error, :approval_unavailable}
+    end
+  end
+
+  defp latest_head_approval(reviews, head) do
+    latest_by_reviewer =
+      reviews
+      |> Enum.filter(&(&1[:authoritative] == true and &1["state"] in ["APPROVED", "CHANGES_REQUESTED"]))
+      |> Enum.group_by(&get_in(&1, ["user", "login"]))
+      |> Enum.map(fn {_reviewer, submissions} -> Enum.max_by(submissions, &{&1["submitted_at"], &1["id"]}) end)
+      |> Enum.filter(&(&1["commit_id"] == head))
+
+    if Enum.any?(latest_by_reviewer, &(&1["state"] == "CHANGES_REQUESTED")) do
+      nil
+    else
+      Enum.find(latest_by_reviewer, &(&1["state"] == "APPROVED"))
+    end
+  end
+
+  defp approval_after_rework?(approval_at, %DateTime{} = rework_at) when is_binary(approval_at) do
+    case DateTime.from_iso8601(approval_at) do
+      {:ok, approval_time, _} -> DateTime.compare(approval_time, rework_at) == :gt
+      _ -> false
+    end
+  end
+
+  defp approval_after_rework?(_, _), do: false
 
   defp guarded_update(identifier, target, expected, writer),
     do: TicketTransition.write_state(identifier, target, writer: writer, expected_state: expected)
