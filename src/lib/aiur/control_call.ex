@@ -10,7 +10,8 @@ defmodule Aiur.ControlCall do
   alias Aiur.ControlCall.Literal
 
   @call_type "aiur.control.call"
-  @call_version 1
+  @call_version 2
+  @accepted_call_versions [1, 2]
   @result_type "aiur.control.result"
   @result_version 1
   @actor_key {__MODULE__, :actor}
@@ -22,6 +23,9 @@ defmodule Aiur.ControlCall do
 
   @spec call_version() :: pos_integer()
   def call_version, do: @call_version
+
+  @spec accepted_call_versions() :: [pos_integer()]
+  def accepted_call_versions, do: @accepted_call_versions
 
   @spec result_type() :: binary()
   def result_type, do: @result_type

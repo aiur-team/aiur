@@ -14,7 +14,9 @@ defmodule Aiur.Instance.LeaseStore.Delegates do
          shared_provider_meter: [1, 2],
          publish_github_quota_snapshot: [1, 2],
          github_quota_snapshots: [0, 1],
-         budget_coordination_status: [0, 1]
+         budget_coordination_status: [0, 1],
+         publish_intent_changes: [1, 2],
+         intent_changes_since: [2, 3]
        ]}
     ]
 

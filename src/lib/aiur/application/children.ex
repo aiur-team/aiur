@@ -257,6 +257,8 @@ defmodule Aiur.Application.Children do
       # Durable last-known progress retention. Starts before TicketActivity so
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
+      # Remote-write replay ledger; must be up before the endpoint takes control calls.
+      Aiur.ControlCall.ReplayStore,
       Aiur.TicketActivity,
       # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
       Aiur.CodingAgent.child_specs(),
@@ -369,9 +371,11 @@ defmodule Aiur.Application.Children do
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
     store_children =
-      if LeaseStore.configured?(),
-        do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}],
-        else: []
+      [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
+        if(LeaseStore.configured?(),
+          do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}, Aiur.Intent.Sync],
+          else: []
+        )
 
     services =
       []
