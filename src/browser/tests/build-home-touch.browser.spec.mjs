@@ -6,7 +6,6 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // a pinch changes the same zoom percent the +/- control shows, and the section fits the screen.
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
 
-const HEADER = 56
 const percent = page => page.locator('#bd-tools .bd-zv').innerText()
 
 test.beforeEach(async ({ page }) => {
@@ -50,12 +49,24 @@ async function boardPoint(page) {
 
 const state = page => page.evaluate(() => ({ board: document.querySelector('#bd-vp').scrollTop, page: window.scrollY }))
 
-for (const [width, height] of [[390, 844], [360, 780], [844, 390]]) {
-  test(`the section fits below the header at ${width}x${height}`, async ({ page }) => {
+for (const [width, height] of [[390, 844], [360, 780], [430, 932], [844, 390]]) {
+  test(`the section fills the space between header and bottom nav at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height })
-    const box = await page.locator('#build-root').boundingBox()
-    expect(box.height).toBeLessThanOrEqual(height - HEADER + 1)
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.evaluate(() => document.querySelector('#build-root .bd-board').scrollIntoView({ behavior: 'instant' }))
+    const m = await page.evaluate(() => {
+      const r = document.querySelector('#build-root .bd-board').getBoundingClientRect()
+      const vp = document.querySelector('#bd-vp').getBoundingClientRect()
+      const nav = document.querySelector('.sidenav')
+      const navTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+      const live = document.querySelector('#bd-vp .bd-live')?.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, headerBottom: document.querySelector('.ax-top').getBoundingClientRect().bottom, navTop,
+        vp: vp.height, inner: innerHeight, live: live && { top: live.top, vpTop: vp.top }, overflow: document.documentElement.scrollWidth > innerWidth }
+    })
+    expect(Math.abs(m.top - m.headerBottom)).toBeLessThanOrEqual(2)
+    expect(Math.abs(m.bottom - m.navTop)).toBeLessThanOrEqual(2)
+    if (height > width) expect(m.vp).toBeGreaterThanOrEqual(m.inner * 0.55)
+    if (m.live) expect(m.live.top).toBeGreaterThanOrEqual(m.live.vpTop - 1)
+    expect(m.overflow).toBe(false)
   })
 }
 
