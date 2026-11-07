@@ -110,7 +110,8 @@ reason, the version the user was looking at, and an idempotency key:
 The reason is kept verbatim (up to 4,000 bytes) in the Command's record and in
 the answer event. The rejection is the Command's answer, so a waiting agent
 unblocks and receives a message that names the rejection and quotes the reason.
-Scope, version checks and idempotency behave as for `answer`; a blank reason is
+
+Scope, version checks and idempotency behave as for `answer`. A blank reason is
 a 422, and a Command outside the grant is the same 404.
 
 ## Component states
