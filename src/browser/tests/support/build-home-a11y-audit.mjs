@@ -3,7 +3,7 @@
 // violations or other unknown causes. Axe also calls the overlapping edge SVG
 // an imgNode: require its exact related-node evidence, not that key alone.
 // Token pairs are checked separately.
-function overlapCheck(check) {
+function overlapCheck(check, node) {
   if (check.data?.messageKey === 'bgOverlap') return true
   const key = check.data?.messageKey
   const related = (check.relatedNodes ?? []).map(node => node.target.join(''))
@@ -11,6 +11,9 @@ function overlapCheck(check) {
     const card = target => /^div\[data-id="[^"]+"\] > \.bd-in$/.test(target)
     return related.includes('#bd-lanes') && related.some(card) && related.every(target => target === '#bd-lanes' || card(target))
   }
+  // #7687: live-band edge paths cross card text; axe names no related node, so require the target to be a card interior.
+  if (key === 'elmPartiallyObscuring') return related.length === 0 && node.target.length === 1 &&
+    /^div\[data-id="[^"]+"\] > \.bd-in(?: > [\w.#:[\]=" -]+)*$/.test(node.target[0])
   if (key === 'pseudoContent') return related.length > 0 && related.every(target => target === '#bd-now')
   if (!['imgNode', 'shortTextContent'].includes(key)) return false
   const targets = (check.relatedNodes ?? []).map(node => node.target.join(''))
@@ -28,7 +31,7 @@ export function boardAudit(audit) {
       ...result,
       nodes: result.nodes.filter(node => {
         const checks = [...node.any, ...node.all, ...node.none]
-        return !checks.length || !checks.every(overlapCheck)
+        return !checks.length || !checks.every(check => overlapCheck(check, node))
       })
     })
   }

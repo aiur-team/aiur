@@ -41,8 +41,18 @@ defmodule Aiur.Machine.Settings.Validation do
   defp nested_errors(field, value, module, path, _prefix) do
     case module.__schema__(:embed, field) do
       %{related: related} when is_map(value) -> unknown_keys(value, related, path <> ".")
+      %{related: related} when is_list(value) -> list_unknown_keys(value, related, path)
       _ -> []
     end
+  end
+
+  defp list_unknown_keys(list, related, path) do
+    list
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {item, index} when is_map(item) -> unknown_keys(item, related, "#{path}[#{index}].")
+      _ -> []
+    end)
   end
 
   @spec errors(Ecto.Changeset.t()) :: [{String.t(), String.t()}]
@@ -60,7 +70,18 @@ defmodule Aiur.Machine.Settings.Validation do
   defp flatten(errors, prefix) do
     Enum.flat_map(errors, fn {key, value} ->
       path = prefix <> to_string(key)
-      if is_map(value), do: flatten(value, path <> "."), else: Enum.map(value, &{path, &1})
+      flatten_value(value, path)
+    end)
+  end
+
+  defp flatten_value(value, path) when is_map(value), do: flatten(value, path <> ".")
+
+  defp flatten_value(value, path) do
+    value
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {item, index} when is_map(item) -> flatten(item, "#{path}[#{index}].")
+      {message, _index} -> [{path, message}]
     end)
   end
 

@@ -1,6 +1,6 @@
 defmodule Aiur.Machine.Settings do
   @moduledoc """
-  Machine-wide mobile settings stored separately from workflow configuration.
+  Machine-wide settings (mobile, projects, capacity, coordination) stored separately from workflow configuration.
 
   `load/0` always reads the file. `get/0` returns the same tagged result, cached
   by path and file identity. If a later read fails, it returns the last good
@@ -14,6 +14,9 @@ defmodule Aiur.Machine.Settings do
             gateway: %Schema.Gateway{},
             pairing: %Schema.Pairing{},
             transport: %Schema.Transport{},
+            projects: [],
+            capacity: %Schema.Capacity{},
+            coordination: %Schema.Coordination{},
             last_error: nil
 
   @type t :: %__MODULE__{}
@@ -92,7 +95,7 @@ defmodule Aiur.Machine.Settings do
   end
 
   defp validate(attrs) do
-    changeset = Schema.changeset(%Schema{}, Map.take(attrs, ["mobile", "gateway", "pairing", "transport"]))
+    changeset = Schema.changeset(%Schema{}, Map.take(attrs, ["mobile", "gateway", "pairing", "transport", "projects", "capacity", "coordination"]))
     errors = Validation.unknown_keys(attrs, Schema) ++ Validation.errors(changeset)
 
     if errors == [] do
