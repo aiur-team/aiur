@@ -10,6 +10,8 @@ defmodule AiurWeb.DashboardCors do
 
   import Plug.Conn
 
+  alias Aiur.Config.DashboardOrigin
+
   @impl Plug
   def init(opts), do: opts
 
@@ -38,7 +40,7 @@ defmodule AiurWeb.DashboardCors do
   @spec listed_origin?(String.t()) :: boolean()
   def listed_origin?(origin) do
     # Compare the raw header to its normal form: `https://a.ts.net/` is not a browser Origin.
-    Aiur.Config.DashboardOrigin.normalize_origin(origin) == {:ok, origin} and origin in listed_origins()
+    DashboardOrigin.normalize_origin(origin) == {:ok, origin} and origin in listed_origins()
   end
 
   @spec listed_origins() :: [String.t()]
