@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.SpendCap.Health do
   # Reported cause when several faults overlap.
   @order [:load, :persistence, :subscription]
 
-  @spec status(%{faults: map()}) :: :healthy | {:unavailable, atom()}
+  @spec status(map()) :: :healthy | {:unavailable, atom()}
   def status(%{faults: faults}) do
     case Enum.find_value(@order, &Map.get(faults, &1)) do
       nil -> :healthy
