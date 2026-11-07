@@ -14,6 +14,7 @@ Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no co
 Aiur.GitHub.ResourceStore.MergeTest	merging into a held body concurrent merges lose nothing and the body never goes backwards	#6609	2026-11-10
 Aiur.LandingWatch.QuarantinePRTest	when only auto-merge fails, the retry reuses the committed branch and writes no new head	#7383	2026-11-15
 Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
+Aiur.Orchestrator.IssueSync.FleetCapacityTest	reports all-provider dispatch authorization denials as the binding constraint	#7741	2026-11-21
 Aiur.Orchestrator.NonblockingQuestionTest	a non-blocking Command records the question without pausing the worker	#6571	2027-01-25
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
