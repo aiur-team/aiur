@@ -109,6 +109,15 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @doc "Resolves the daemon-private remote-write replay store directory."
+  @spec control_replay_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def control_replay_state_dir do
+    case Application.get_env(:aiur, :control_replay_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "control-replay")}
+    end
+  end
+
   @doc "Resolves daemon-private retained-progress state beneath the decision root."
   @spec progress_retention_state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def progress_retention_state_dir do

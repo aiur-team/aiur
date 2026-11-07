@@ -76,6 +76,7 @@
     "components/harness-adapters.json",
     "components/identity.json",
     "components/init.json",
+    "components/intent.json",
     "components/kernel.json",
     "components/launcher.json",
     "components/linear.json",
