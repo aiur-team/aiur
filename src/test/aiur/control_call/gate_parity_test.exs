@@ -4,7 +4,7 @@ defmodule Aiur.ControlCall.GateParityTest do
   alias Aiur.ControlCall.Allowlist
 
   @remote_sh Path.expand("../../../../packaging/npm/aiur-cli/libexec/engine/remote.sh", __DIR__)
-  @probes [[:Aiur, :ControlCallTestProbe], [:Aiur, :ControlControllerTestProbe]]
+  @probes [[:Aiur, :ControlCallTestProbe], [:Aiur, :ControlControllerTestProbe], [:Aiur, :ControlReplayTestProbe]]
 
   @segs %{
     agent: [:Aiur, :AgentControlCLI],
