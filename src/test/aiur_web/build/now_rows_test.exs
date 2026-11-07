@@ -64,13 +64,13 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert ci.agent.state == "ci_wait"
     assert ci.agent.pause == "ci_wait"
 
-    for reason <- [:max_agent_duration, :github_budget_hold] do
+    for reason <- [:max_agent_duration, :github_budget_hold, :label_override] do
       assert facts(row(%{reasons: %{pause: reason}})).agent.state == "parked"
     end
 
     assert facts(row(%{reasons: %{pause: :blocker_dependency}})).agent.state == "blocked"
 
-    for reason <- [:operator_pause, :global_pause, :label_override] do
+    for reason <- [:operator_pause, :global_pause] do
       assert facts(row(%{reasons: %{pause: reason}})).agent.state == "paused"
     end
 
