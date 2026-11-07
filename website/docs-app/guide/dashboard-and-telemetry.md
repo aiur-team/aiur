@@ -16,7 +16,7 @@ The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider
 
 On `/build`, lane columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their lane colour without keeping an empty lane column. Feature focus follows its visible tickets.
 
-Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = lane”.
+Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = lane”. On touch, one finger scrolls the page, two fingers pan the board, and a pinch sets the zoom percent.
 
 If individual Build rows fail validation, Aiur omits those rows and shows how many are unavailable; the remaining board is marked partial.
 

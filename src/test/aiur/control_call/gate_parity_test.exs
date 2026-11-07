@@ -44,6 +44,8 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :ticket_estimate, [0, 1], ~w(ticket)},
     {:agent, :operator_relay_answer, [1], ~w(operator-relay-answer)},
     {:agent, :executor_ack, [1], ~w(executor-ack)},
+    {:agent, :executor_claim_decision, [1], ~w(executor-claim-decision)},
+    {:agent, :executor_release_decision, [1], ~w(executor-release-decision)},
     {:agent, :executor_answer, [1], ~w(executor-answer)},
     {:agent, :executor_escalate, [1], ~w(executor-escalate)},
     {:agent, :executor_reclassify, [1], ~w(executor-reclassify)},

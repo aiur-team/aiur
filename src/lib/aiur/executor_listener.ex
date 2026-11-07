@@ -15,6 +15,7 @@ defmodule Aiur.ExecutorListener do
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
+  alias Aiur.Gateway.Identity
   alias Aiur.Signal
 
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
@@ -308,7 +309,13 @@ defmodule Aiur.ExecutorListener do
 
   # Another instance's ticket wakes that instance's Executor, not this one (#5803).
   defp enqueue_wake(record, inbox) do
-    if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(record, inbox)
+    if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(stamp_gateway(record), inbox)
+  end
+
+  # Every wake names the gateway whose daemon observed it; nil when the identity is unavailable (MPG-502).
+  defp stamp_gateway(record) do
+    %{gateway_id: id, gateway_label: label} = Identity.current()
+    Map.merge(record, %{"gateway_id" => id, "gateway_label" => label})
   end
 
   # A structured Decision reaches the Executor only as `executor.decision.requested`,
