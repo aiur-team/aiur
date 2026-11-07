@@ -66,8 +66,12 @@ defmodule Aiur.Application.ChildrenOrderTest do
 
       assert idx.(configured, Aiur.Intent.Hlc)
       assert idx.(configured, Aiur.Intent.Store)
-      assert idx.(configured, Aiur.Instance.LeaseStore) < idx.(configured, Aiur.Instance.Heartbeat)
-      assert idx.(configured, Aiur.Instance.Heartbeat) < idx.(configured, Aiur.Intent.Sync)
+      # nil < integer is false and integer < nil is true in Erlang term order, so pin the exact order
+      lease = idx.(configured, Aiur.Instance.LeaseStore)
+      heartbeat = idx.(configured, Aiur.Instance.Heartbeat)
+      sync = idx.(configured, Aiur.Intent.Sync)
+      assert is_integer(lease) and is_integer(heartbeat) and is_integer(sync)
+      assert lease < heartbeat and heartbeat < sync
 
       Application.delete_env(:aiur, :lease_database_url)
       System.delete_env("AIUR_LEASE_DATABASE_URL")

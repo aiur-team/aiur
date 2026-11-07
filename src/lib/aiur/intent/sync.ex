@@ -56,8 +56,18 @@ defmodule Aiur.Intent.Sync do
 
   # Hook for MPG-405: called once with exactly the newly appended changes, never for a duplicate.
   defp notify(opts, fresh) do
-    Keyword.get(opts, :on_remote_applied, fn _ -> :ok end).(fresh)
+    hook = Keyword.get_lazy(opts, :on_remote_applied, fn -> configured_hook(Keyword.get(opts, :table, @table)) end)
+    hook.(fresh)
     true
+  end
+
+  # Sync's own configured hook (published in its table), so a direct call fires what the pull path fires.
+  defp configured_hook(table) do
+    with true <- :ets.whereis(table) != :undefined, [{:hook, hook}] <- :ets.lookup(table, :hook) do
+      hook
+    else
+      _ -> fn _ -> :ok end
+    end
   end
 
   @doc """
@@ -104,6 +114,7 @@ defmodule Aiur.Intent.Sync do
       skipped_invalid: 0
     }
 
+    :ets.insert(table, {:hook, state.on_remote_applied})
     flag(state, true, System.monotonic_time(:millisecond))
     {:ok, schedule(state, state.interval)}
   end

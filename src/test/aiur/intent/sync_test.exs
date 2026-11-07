@@ -248,6 +248,19 @@ defmodule Aiur.Intent.SyncTest do
     refute_receive {:direct, _}, 50
   end
 
+  test "apply_remote without the opt fires Sync's configured hook" do
+    parent = self()
+    {:ok, fake} = Fake.start_link([])
+    {:ok, store} = Store.start_link(dir: tmp_dir("intent-hook-default"), name: nil)
+    {_sync, table} = start_sync(fake, store, on_remote_applied: &send(parent, {:configured, &1}))
+
+    direct = change(%{hlc_counter: 9})
+    assert {:ok, :applied} = Sync.apply_remote(direct, store: store, table: table)
+    assert_receive {:configured, [^direct]}, 1_000
+    assert {:ok, :duplicate} = Sync.apply_remote(direct, store: store, table: table)
+    refute_receive {:configured, _}, 50
+  end
+
   test "pull without a running Sync is disabled" do
     assert Sync.pull(server: :no_such_sync) == {:error, :disabled}
   end
