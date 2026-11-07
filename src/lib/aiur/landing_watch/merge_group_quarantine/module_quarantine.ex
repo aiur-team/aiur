@@ -30,8 +30,12 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine.ModuleQuarantine do
     ticket = Enum.find_value(candidate.identities, &Map.get(tickets, &1))
 
     case quarantine(candidate, ticket, done, rows, base, opts) do
-      :ok -> each(candidate.identities, &QuarantineRetry.succeeded(claim(&1), opts))
-      {:error, _} = error -> Enum.each(candidate.identities, &QuarantineRetry.failed(claim(&1), error, opts)) && error
+      :ok ->
+        each(candidate.identities, &QuarantineRetry.succeeded(claim(&1), opts))
+
+      {:error, _} = error ->
+        Enum.each(candidate.identities, &QuarantineRetry.failed(claim(&1), error, opts))
+        error
     end
   end
 
