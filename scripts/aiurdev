@@ -65,6 +65,12 @@ case "${1:-}" in
       exec "$engine" "$@"
     fi
     if [ "$1" = --gateway ]; then shift 2; else shift; fi
+    case "${1:-}" in
+      --instance | --instance=* | --gateway | --gateway=*)
+        echo "aiur: use one of --gateway or --instance" >&2
+        exit 64
+        ;;
+    esac
     ;;
 esac
 AIUR_JS_RUNTIME="${AIUR_JS_RUNTIME:-$(command -v node 2>/dev/null || true)}"

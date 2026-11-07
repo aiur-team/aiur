@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { captureFile, useTempRoot } from "./launcher-support.mjs";
 import { runRemoteEngine, setupRemoteLauncher, startServer, successBody } from "./launcher-remote-support.mjs";
@@ -100,4 +101,13 @@ test("--gateway rejects two selectors, empty values, stop, and awk-special label
     expect(s1.requests()).toHaveLength(1);
     expect(existsSync(captureFile)).toBe(false);
   });
+});
+
+test("aiurdev --gateway local refuses a following selector with exit 64", () => {
+  const shim = new URL("../../../../scripts/aiurdev", import.meta.url).pathname;
+  for (const rest of [["--instance", "pc"], ["--instance=pc"], ["--gateway", "pc"], ["--gateway=pc"]]) {
+    const r = spawnSync(shim, ["--gateway", "local", ...rest, "status"], { encoding: "utf8", timeout: 20000 });
+    expect(r.status).toBe(64);
+    expect(r.stderr).toContain("use one of --gateway or --instance");
+  }
 });
