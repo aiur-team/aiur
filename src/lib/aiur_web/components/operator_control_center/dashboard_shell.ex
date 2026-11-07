@@ -26,6 +26,8 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   # Notices precede page content.
   slot(:status)
   slot(:banner)
+  # Desktop-only block pinned under the nav links (#7763); it scrolls inside itself.
+  slot(:sidebar)
   slot(:inner_block, required: true)
 
   # Legacy classes remain hook/feature-selector aliases; aiur-style owns the chrome.
@@ -69,7 +71,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <div class="ax-drag aiur-shell__drag" id="ax-drag" phx-hook="NavToggle" data-nav-collapsed={to_string(@nav_collapsed)}
             role="separator" aria-orientation="vertical" aria-label="Drag to resize navigation" title="Drag to resize"
             tabindex="0" aria-controls="ax-nav" aria-valuemin="60" aria-valuemax="188" aria-valuenow={if @nav_collapsed, do: 60, else: 188}></div>
-          <.navigation routes={@routes} current_route={@route} nav_counts={@nav_counts} />
+          <div class={["aiur-shell__rail", @sidebar != [] && "has-meters"]}>
+            <.navigation routes={@routes} current_route={@route} nav_counts={@nav_counts} />
+            <div :if={@sidebar != []} class="aiur-shell__meters">{render_slot(@sidebar)}</div>
+          </div>
         </aside>
         <section class="dashboard-shell aiur-page" aria-labelledby="route-title">
           <div :if={@pause_state.global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
