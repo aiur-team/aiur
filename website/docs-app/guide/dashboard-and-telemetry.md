@@ -115,7 +115,7 @@ range controls; Timeline and Gantt restore them.
 
 In List view, **List shows** switches between Tickets, Features and Lanes. The selection is kept in the `list` link parameter; `tickets` is the default and omitted. A bookmark with `list=epics` still opens the Lanes list.
 
-All three lists are the same plain table card: column headers, then rows of equal height. Features shows Feature, Progress, Merged and Remaining. Lanes shows Lane, Progress, Remaining and Done. Both use rounded progress bars. Each list's summary is one caption row under the table: the merged total and the viewer's local date for Features. On narrow screens, Remaining (Features) and Done (Lanes) are hidden.
+All three lists are the same plain table card with column headers. Features shows Feature, Progress, Merged and Remaining; Lanes shows Lane, Progress, Remaining and Done, both with rounded bars. A caption row under each table holds its summary; for Features, the merged total and the viewer's local date. Narrow screens hide Remaining (Features) and Done (Lanes).
 
 Each registry feature and `feature:<slug>` label in history gets a row with its name, progress bar, merged/total and remaining count. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
 
