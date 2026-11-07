@@ -49,7 +49,7 @@ defmodule Aiur.AgentGitMergeQueuePushGuardTest do
 
     result =
       System.cmd(context.git, ["-C", context.workspace, "push" | args],
-        env: [{"AIUR_REAL_GIT", context.fake_git}, {"AIUR_AGENT_WORKSPACE", context.workspace}, {"FAKE_QUEUE_STATE", state}, {"FAKE_TICKET_LABELS", labels}, {"FAKE_TICKET_STATE", ticket_state}],
+        env: [{"AIUR_REAL_GIT", context.fake_git}, {"AIUR_GITHUB_REPO", "owner/repo"}, {"AIUR_AGENT_WORKSPACE", context.workspace}, {"FAKE_QUEUE_STATE", state}, {"FAKE_TICKET_LABELS", labels}, {"FAKE_TICKET_STATE", ticket_state}],
         stderr_to_stdout: true
       )
 
