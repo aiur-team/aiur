@@ -33,9 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
     # Dismiss closes a Command outright: the operator waves it off and, when the
     # agent is live, the agent is told to proceed under its own judgement. Any
-    # open or deferred Command can be dismissed. The store still refuses to
-    # dismiss an agent-filed blocking Command with no legacy attention, because
-    # nothing would release the block.
+    # open or deferred Command can be dismissed, blocking ones included.
     dismissible? = status in [:open, :deferred]
 
     acknowledgeable? = decision.options == [] and status == :open and not blocking? and not dismissible?
