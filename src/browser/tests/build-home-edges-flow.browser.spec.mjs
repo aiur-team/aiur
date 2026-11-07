@@ -48,6 +48,28 @@ for (const vp of [PRODUCT_VIEWPORTS[0], PRODUCT_VIEWPORTS[2]]) {
       await expect(nowLine).toHaveCount(1)
       expect(await nowLine.evaluate(p => p.getTotalLength())).toBeGreaterThan(0)
       expect(Number(await page.locator('.bd-now > .bd-now-e').evaluate(el => getComputedStyle(el).opacity))).toBeGreaterThan(0)
+      // Visible = some point of a stroked .bd-e path is painted where nothing opaque covers it:
+      // band lines inside the band's clipped svg, board lines outside the opaque band.
+      const visible = await page.evaluate(() => {
+        const band = st.ctx.bandEl.getBoundingClientRect()
+        const inBand = (x, y) => x >= band.left && x <= band.right && y >= band.top && y <= band.bottom
+        const shown = (p, wantInBand) => {
+          const cs = getComputedStyle(p)
+          if (cs.stroke === 'none' || Number(cs.opacity) === 0 || Number(cs.strokeOpacity) === 0) return false
+          const m = p.getScreenCTM(), len = p.getTotalLength()
+          for (let i = 1; i < 20; i++) {
+            const q = p.getPointAtLength(len * i / 20)
+            const x = m.a * q.x + m.c * q.y + m.e, y = m.b * q.x + m.d * q.y + m.f
+            if (inBand(x, y) === wantInBand) return true
+          }
+          return false
+        }
+        return {
+          band: [...document.querySelectorAll('.bd-now > .bd-now-e .bd-e')].some(p => shown(p, true)),
+          board: [...document.querySelectorAll('#bd-edges .bd-e')].some(p => shown(p, false)),
+        }
+      })
+      expect(visible).toEqual({ band: true, board: true })
 
       // Hover and tree lock still highlight in flow mode.
       await page.evaluate(id => st.fx.setHover(id, [...st.ctx.R.values()].find(el => el.dataset.id === id)), pair.id)
