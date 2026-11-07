@@ -19,13 +19,14 @@ defmodule Aiur.Commands.ComponentState do
   alias Aiur.Commands.Answering.Outcome
   alias Aiur.Commands.ComponentState.Media, as: ComponentMedia
 
-  @states ~w(pending answered revised expired unavailable conflict error)
+  @states ~w(pending answered revised rejected expired unavailable conflict error)
   @list_states ~w(loading empty ready unavailable error)
 
   @type state ::
           :pending
           | :answered
           | :revised
+          | :rejected
           | :expired
           | :unavailable
           | :conflict
@@ -165,8 +166,10 @@ defmodule Aiur.Commands.ComponentState do
   def from_outcome(_outcome, opts), do: error(:store_unavailable, "Command state could not be read", opts)
 
   defp merge_outcome(base, status, _outcome) when status in [:accepted, :duplicate] do
-    reason = if status == :duplicate, do: "duplicate_submit", else: nil
-    base |> Map.merge(%{"state" => answer_state(base), "reason" => reason}) |> Map.put("conflict", nil)
+    state = answer_state(base)
+    # A rejection keeps its verbatim reason, even on a duplicate submit.
+    reason = if state == "rejected", do: base["reason"], else: if(status == :duplicate, do: "duplicate_submit")
+    base |> Map.merge(%{"state" => state, "reason" => reason}) |> Map.put("conflict", nil)
   end
 
   defp merge_outcome(base, :already_answered, outcome) do
@@ -255,7 +258,7 @@ defmodule Aiur.Commands.ComponentState do
   defp validation_state(reason, opts),
     do: error(:invalid_answer, "Answer could not be recorded", Keyword.put(opts, :reason, reason))
 
-  defp answer_state(%{"state" => "revised"}), do: "revised"
+  defp answer_state(%{"state" => state}) when state in ["revised", "rejected"], do: state
   defp answer_state(_base), do: "answered"
 
   defp projection_for_decision(nil, opts) do
@@ -301,6 +304,7 @@ defmodule Aiur.Commands.ComponentState do
     cond do
       terminal = terminal_state(projection) -> terminal
       unavailable?(projection) -> {:unavailable, "store_unavailable"}
+      rejected?(projection) -> {:rejected, rejection_reason(projection)}
       conflict?(projection) -> {:conflict, "stale_version"}
       answered?(projection) and revised?(projection) -> {:revised, "superseded_answer"}
       answered?(projection) -> {:answered, nil}
@@ -316,6 +320,11 @@ defmodule Aiur.Commands.ComponentState do
       _open -> nil
     end
   end
+
+  defp rejected?(projection), do: match?(%{} = answer when answer != %{}, active_answer(projection)) and get_key(active_answer(projection), "rejected") == true
+
+  # The verbatim reason the rejecting person gave, kept as the answer text.
+  defp rejection_reason(projection), do: text(active_answer(projection), "custom_response")
 
   defp conflict?(projection) do
     projection["conflict_summary"] not in [nil, %{}] and answered?(projection) and stale?(projection)
@@ -347,6 +356,7 @@ defmodule Aiur.Commands.ComponentState do
   defp actions(state, writable?) do
     %{
       "answer" => writable? and state == :pending,
+      "reject" => writable? and state == :pending,
       "revise" => writable? and state in [:answered, :revised],
       "enrich" => false
     }
@@ -412,6 +422,7 @@ defmodule Aiur.Commands.ComponentState do
       "selected_option_id" => text(answer, "selected_option_id"),
       "custom_response" => text(answer, "custom_response"),
       "rationale" => text(answer, "rationale"),
+      "rejected" => get_key(answer, "rejected") == true,
       "accepted_at" => get_key(answer, "accepted_at")
     }
   end
