@@ -87,4 +87,52 @@ defmodule Aiur.ConfigProjectTest do
       assert {:ok, %{who: :a}, 1, _} = Cache.fetch(a.config_path)
     end)
   end
+
+  describe "machine-level files ignore the project context" do
+    test "alerts directory", %{a: a} do
+      File.write!(Path.join(Path.dirname(a.config_path), "alerts"), "alerts:\n  project_only:\n    message: Hi\n")
+      machine = Aiur.Alerts.Config.definitions()
+
+      in_fresh_process(fn ->
+        Context.put(a)
+        refute Map.has_key?(Aiur.Alerts.Config.definitions(), "project_only")
+        assert Aiur.Alerts.Config.definitions() == machine
+      end)
+    end
+
+    test "model-usage.json", %{a: a} do
+      machine = Aiur.ModelAvailability.path()
+      refute Path.dirname(machine) == Path.dirname(a.config_path)
+
+      in_fresh_process(fn ->
+        Context.put(a)
+        assert Aiur.ModelAvailability.path() == machine
+      end)
+    end
+
+    test "model-catalog.json", %{a: a} do
+      machine = Aiur.ModelDiscovery.path()
+      refute Path.dirname(machine) == Path.dirname(a.config_path)
+
+      in_fresh_process(fn ->
+        Context.put(a)
+        assert Aiur.ModelDiscovery.path() == machine
+      end)
+    end
+  end
+
+  test "a nested snapshot for another project restores the outer one", %{a: a, b: b} do
+    in_fresh_process(fn ->
+      Context.put(a)
+
+      SettingsSnapshot.run(fn ->
+        Context.put(b)
+        SettingsSnapshot.run(fn -> assert repo!() == "o/b" end)
+        Context.put(a)
+        # A's file changes on disk; A's snapshot must still answer, not a reload.
+        write_workflow_file!(a.config_path, tracker_kind: "github", tracker_repo: "o/changed")
+        assert SettingsSnapshot.read(fn -> :reloaded end) != :reloaded
+      end)
+    end)
+  end
 end

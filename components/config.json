@@ -16,6 +16,8 @@
     "src/lib/aiur/machine/settings/**",
     "src/lib/aiur/machine/yaml.ex",
     "src/lib/aiur/merge_policy.ex",
+    "src/lib/aiur/project.ex",
+    "src/lib/aiur/project/**",
     "src/lib/aiur/workflow.ex",
     "src/lib/aiur/workflow_store.ex",
     "src/lib/aiur/workflow_store/**"
