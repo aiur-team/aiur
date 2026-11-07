@@ -480,7 +480,7 @@ grant it already holds.
 
 A `decision.requested` payload may carry `tags`: up to 8 lowercase slugs such as `group:proposal-7` or `source:settings`, each at most 96 bytes, with at most one `group:` tag. An invalid list is refused as `{:decision_invalid, {:tags, reason}}`. Tags persist with the Command and appear in the API and component map and on its lifecycle events.
 
-Commands that share a `group:` tag on one ticket are siblings. When one of them is dismissed (rejected), every other open or deferred sibling is mooted with `reason_class: sibling_rejected`; its detail and actor name the rejected Command. A sibling that was already answered keeps its answer, and other groups and tickets are untouched.
+Commands that share a `group:` tag on one ticket are siblings. When one of them is rejected or dismissed, every other open or deferred sibling is mooted with `reason_class: sibling_rejected`; its detail and actor name the rejected Command. A sibling that was already answered keeps its answer, and other groups and tickets are untouched.
 
 ## The Executor asks you
 

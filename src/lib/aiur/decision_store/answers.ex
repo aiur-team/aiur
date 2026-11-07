@@ -16,6 +16,7 @@ defmodule Aiur.DecisionStore.Answers do
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.DecisionStore.Siblings
   alias Aiur.DecisionStore.Withdrawals
 
   @spec handle_answer(term(), term(), term(), term()) :: term()
@@ -288,6 +289,7 @@ defmodule Aiur.DecisionStore.Answers do
           next_state
           |> Dispatch.maybe_schedule_after_answer(updated, false)
           |> Dedup.supersede_duplicates(updated)
+          |> Siblings.moot_if_rejected(updated, answer)
 
         {:reply,
          {:ok,
