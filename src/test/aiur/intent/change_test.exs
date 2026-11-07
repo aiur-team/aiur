@@ -53,6 +53,6 @@ defmodule Aiur.Intent.ChangeTest do
   end
 
   test "error terms never carry the offending path" do
-    refute inspect(Change.validate(base(%{entity_kind: "project", entity_key: "/home/u/secret", field: "priority"}))) =~ "secret"
+    Aiur.TestSupport.refute_leak(Change.validate(base(%{entity_kind: "project", entity_key: "/home/u/secret", field: "priority"})), "secret")
   end
 end

@@ -47,9 +47,15 @@ defmodule Aiur.Intent.Sync do
 
     with :ok <- Change.validate(change) do
       case Store.append_remote(store, [change]) do
-        {:ok, []} -> {:ok, :duplicate}
-        {:ok, fresh} -> notify(opts, fresh) && {:ok, :applied}
-        {:error, _} -> {:error, :store_write_failed}
+        {:ok, []} ->
+          {:ok, :duplicate}
+
+        {:ok, fresh} ->
+          notify(opts, fresh)
+          {:ok, :applied}
+
+        {:error, _} ->
+          {:error, :store_write_failed}
       end
     end
   end
@@ -58,7 +64,7 @@ defmodule Aiur.Intent.Sync do
   defp notify(opts, fresh) do
     hook = Keyword.get_lazy(opts, :on_remote_applied, fn -> configured_hook(Keyword.get(opts, :table, @table)) end)
     hook.(fresh)
-    true
+    :ok
   end
 
   # Sync's own configured hook (published in its table), so a direct call fires what the pull path fires.

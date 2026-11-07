@@ -177,7 +177,16 @@ defmodule Aiur.Intent.SyncTest do
   test "pull is bounded when the store hangs and leaves the cache untouched" do
     {:ok, store} = Store.start_link(dir: tmp_dir("intent-sync-hang"), name: nil)
     {:ok, fake} = Fake.start_link([])
-    {sync, _} = start_sync(fake, store, pull_fun: fn _, _, _ -> Process.sleep(5_000) end)
+
+    {sync, _} =
+      start_sync(fake, store,
+        pull_fun: fn _, _, _ ->
+          receive do
+            :never -> :ok
+          end
+        end
+      )
+
     {t, result} = :timer.tc(fn -> Sync.pull(server: sync, timeout_ms: 50) end)
     assert result == {:error, :timeout}
     assert t < 1_000_000
