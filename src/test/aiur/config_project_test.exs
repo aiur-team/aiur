@@ -72,4 +72,19 @@ defmodule Aiur.ConfigProjectTest do
       assert Context.without(&Aiur.Workflow.workflow_file_path/0) != a.config_path
     end)
   end
+
+  test "cache rows are per project: B's publication does not turn A's row stale", %{a: a, b: b} do
+    alias Aiur.WorkflowStore.Cache
+
+    in_fresh_process(fn ->
+      Context.put(a)
+      Cache.put(%{who: :a}, 1, a.config_path)
+      Context.put(b)
+      Cache.put(%{who: :b}, 1, b.config_path)
+
+      assert {:ok, %{who: :b}, 1, _} = Cache.fetch(b.config_path)
+      Context.put(a)
+      assert {:ok, %{who: :a}, 1, _} = Cache.fetch(a.config_path)
+    end)
+  end
 end
