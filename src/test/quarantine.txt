@@ -13,6 +13,7 @@ Aiur.GitHub.Budget.LedgerAndCeilingsTest	warn_metering_unavailable/0 stays silen
 Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no copy of the bodies on the store's heap	#6124	2027-01-22
 Aiur.GitHub.ResourceStore.MergeTest	merging into a held body concurrent merges lose nothing and the body never goes backwards	#6609	2026-11-10
 Aiur.LandingWatch.QuarantinePRTest	when only auto-merge fails, the retry reuses the committed branch and writes no new head	#7383	2026-11-15
+Aiur.OpenAICompat.OpenRouterTraceHandoffTest	*	#7766	2026-11-21
 Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
 Aiur.Orchestrator.NonblockingQuestionTest	a non-blocking Command records the question without pausing the worker	#6571	2027-01-25
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
