@@ -13,3 +13,5 @@ R-optional	Aiur.ExecutorCommandAttention	baseline 22b2fa407c5d4218d25d63b1aa1747
 R-optional	Aiur.ExecutorEvents	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Metrics	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.EndpointConfig	#4908 endpoint config seam, replaces the AiurWeb.Endpoint read
+R-declared	Aiur.Gateway.GrantConfirmation.Proof	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-private	Aiur.Gateway.GrantConfirmation.Proof	#7642 gateway grant and inspect edges; declare or move in a follow-up

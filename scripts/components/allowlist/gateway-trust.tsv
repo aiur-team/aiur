@@ -1,0 +1,13 @@
+# rule	target_module	reason
+R-declared	Aiur.ControlCall.Audit	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-declared	AiurWeb.FinancialDataAccess	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-down	Aiur.Commands	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-down	Aiur.Commands.Answering	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-down	Aiur.ControlCLI.Protocol	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-down	Aiur.ControlCall.Audit	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-down	Aiur.Decision	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-down	Aiur.DecisionStore	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-down	AiurWeb.FinancialDataAccess	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-optional	Aiur.ControlCall.Audit	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-optional	AiurWeb.FinancialDataAccess	#7642 gateway grant and inspect edges; declare or move in a follow-up
+R-private	Aiur.DecisionStore	#7642 gateway grant and inspect edges; declare or move in a follow-up
