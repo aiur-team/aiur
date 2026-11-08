@@ -359,8 +359,25 @@ defmodule Aiur.Application.Children do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
       List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       Fence.child_specs() ++
+      fence_socket_child() ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
+  end
+
+  defp fence_socket_child do
+    if Aiur.Ownership.enabled?() do
+      [
+        Supervisor.child_spec(
+          {Aiur.GitHub.AgentBudgetSocket,
+           name: Aiur.Ownership.FenceSocket,
+           socket_path: Aiur.GitHub.AgentBudgetSocket.fence_socket_path(),
+           command_fun: &Aiur.Ownership.FenceCommand.execute/1},
+          id: Aiur.Ownership.FenceSocket
+        )
+      ]
+    else
+      []
+    end
   end
 
   defp dashboard_cache_children(dashboard?, opts) do

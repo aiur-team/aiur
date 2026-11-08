@@ -11,9 +11,7 @@ defmodule Aiur.Ownership.Fence do
   """
   use GenServer
 
-  alias Aiur.GitHub.AgentBudgetSocket
   alias Aiur.Ownership
-  alias Aiur.Ownership.FenceCommand
   alias Aiur.Ownership.GitHubRef
 
   @max_age_ms 30_000
@@ -23,24 +21,9 @@ defmodule Aiur.Ownership.Fence do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
-  @spec socket_path() :: Path.t()
-  def socket_path, do: AgentBudgetSocket.fence_socket_path()
-
-  @doc "The fence and its socket, only while `instance.ownership: github`."
+  @doc "The fence, only while `instance.ownership: github`. Its socket is started by `Aiur.Application.Children`."
   @spec child_specs() :: [Supervisor.child_spec()]
-  def child_specs do
-    if Ownership.enabled?() do
-      [
-        __MODULE__,
-        Supervisor.child_spec(
-          {AgentBudgetSocket, name: Aiur.Ownership.FenceSocket, socket_path: socket_path(), command_fun: &FenceCommand.execute/1},
-          id: Aiur.Ownership.FenceSocket
-        )
-      ]
-    else
-      []
-    end
-  end
+  def child_specs, do: if(Ownership.enabled?(), do: [__MODULE__], else: [])
 
   @doc "Records the claim an agent starts under. `issue` supplies the identifier and repository."
   @spec register(Aiur.Issue.t(), Ownership.Record.t(), GenServer.server()) :: :ok
