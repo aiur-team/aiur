@@ -111,6 +111,9 @@ defmodule AiurWeb.RouterAuthTest do
     assert post.("/api/v1/AIUR-1/pause").status == 403
     assert post.("/api/v1/pane/hide").status == 403
     refute post.("/api/v1/AIUR-1/messages").status in [401, 403]
+
+    read = :get |> dashboard_conn("/api/v1/state", nil) |> put_req_header("authorization", "Bearer #{token}") |> Router.call(Router.init([]))
+    assert read.status == 200
   end
 
   test "read client tokens authorize reads and cannot call machine write routes" do
