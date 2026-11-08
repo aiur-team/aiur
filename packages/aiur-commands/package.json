@@ -12,6 +12,7 @@
       "types": "./src/contract.d.ts",
       "default": "./src/render.mjs"
     },
+    "./theme.css": "./src/theme.css",
     "./package.json": "./package.json"
   },
   "files": [

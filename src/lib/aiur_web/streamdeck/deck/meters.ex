@@ -15,13 +15,14 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
     load = EndpointConfig.get(:streamdeck_usage_load_fun) || (&Usage.load/2)
     inputs = load.(:streamdeck, Keyword.put(opts, :meter_source, RedactedMeterSource))
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    block = Usage.block({:ok, :streamdeck}, inputs, now)
+    # The deck keys meters by family position, so every family keeps its row here.
+    block = Usage.block({:ok, :streamdeck}, Map.put(inputs, :configured, inputs.families), now)
 
     inputs.families
     |> Usage.order_families()
     |> Enum.zip(block.providers)
     |> Map.new(fn {family, row} -> {Atom.to_string(family), meter(family, row, inputs.accounts)} end)
-    |> Map.put("apis", Enum.map(block.apis, &api(&1, DateTime.to_unix(now, :millisecond))))
+    |> Map.put("apis", for(row <- block.apis, row.lines != nil, do: api(row, DateTime.to_unix(now, :millisecond))))
   end
 
   defp api(row, now_ms) do
