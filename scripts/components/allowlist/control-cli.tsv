@@ -18,12 +18,9 @@ R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca5
 R-optional	Aiur.ExecutorSweep.CLI	#5211 routes the optional sweep CLI through the shared control-protocol guard
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.LandingWithdrawal	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner; auto-merge disable is the github owner
 R-optional	Aiur.LaneCLI	#7493 lane verbs are the canonical spelling and the control CLI delegates to the build-orders lane CLI
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OpencodeTheme	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.Ownership.GitHubRef	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner
-R-optional	Aiur.Ownership.Liveness	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner
 R-optional	Aiur.ProviderMeterProjection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ProviderMeters.CLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.RunTelemetry.Dashboard	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -46,5 +43,3 @@ R-optional	AiurWeb.OperatorControlCenter.UnitsPresenter	baseline 22b2fa407c5d421
 R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.Claude.Repl.Reaper	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.LaneCLI	#7493 lane verbs are the canonical spelling and the control CLI delegates to the build-orders lane CLI
-R-private	Aiur.Ownership.GitHubRef	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner
-R-private	Aiur.Ownership.Liveness	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner

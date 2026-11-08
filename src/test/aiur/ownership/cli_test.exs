@@ -138,6 +138,24 @@ defmodule Aiur.Ownership.CLITest do
       assert_received {:disable, 9}
     end
 
+    test "another daemon on this gateway is not self: transfers, even with --force" do
+      other = record(%{gateway_id: @nook, gateway_label: "Nook", daemon_key: "old"})
+      test = self()
+
+      opts =
+        assign_opts(
+          force: true,
+          read_fun: fn _, _ -> {:ok, %{oid: "oid1", repository_id: "R1", record: other}} end,
+          transfer_fun: fn _, _, _, owner ->
+            send(test, {:transfer, owner})
+            {:unknown, :probe}
+          end
+        )
+
+      capture_io(fn -> send(self(), {:code, CLI.assign(opts)}) end)
+      assert_received {:transfer, %{gateway_id: @nook, daemon_key: "nook"}}
+    end
+
     test "no open PR is auto_merge none; a failed mutation is exit 75 with the transfer kept" do
       out = capture_io(fn -> send(self(), {:code, CLI.assign(assign_opts(open_pr_fun: fn _ -> {:skip, :no_open_pr} end, json: true))}) end)
       assert_received {:code, 0}

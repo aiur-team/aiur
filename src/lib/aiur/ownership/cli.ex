@@ -151,9 +151,11 @@ defmodule Aiur.Ownership.CLI do
   defp owned(_observed, ticket), do: {:error, "##{ticket} has no current owner; it is claimed when dispatched"}
 
   # Already owned by the target: idempotent retry, no liveness question.
-  defp check_liveness(%{gateway_id: id}, %{gateway_id: id}, _opts) when not is_nil(id), do: :ok
+  defp check_liveness(record, target, opts) do
+    if same_owner?(record, target), do: :ok, else: check_owner_liveness(record, opts)
+  end
 
-  defp check_liveness(record, _target, opts) do
+  defp check_owner_liveness(record, opts) do
     force? = opts[:force] == true
 
     case liveness(record, opts) do
@@ -164,8 +166,11 @@ defmodule Aiur.Ownership.CLI do
     end
   end
 
+  # Self is {gateway_id, daemon_key}, as in the dispatch gate; another daemon on this gateway is not self.
+  defp same_owner?(record, target), do: record.gateway_id == target.gateway_id and record.daemon_key == target.daemon_key
+
   defp transfer(ticket, observed, record, target, note, opts) do
-    if record.gateway_id == target.gateway_id do
+    if same_owner?(record, target) do
       finish(ticket, record, record.epoch - 1, opts, true)
     else
       new_owner = %{gateway_id: target.gateway_id, gateway_label: target.gateway_label, daemon_key: target.daemon_key, actor: actor(opts), note: note}
