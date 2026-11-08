@@ -8,7 +8,7 @@ defmodule Aiur.Gateway.Hello do
 
   import Bitwise
 
-  alias Aiur.Gateway.Identity
+  alias Aiur.Gateway.{Identity, Invites}
 
   @keys ~w(gateway_id gateway_label build tls_fingerprint_sha256 enrollment)a
 
@@ -23,11 +23,19 @@ defmodule Aiur.Gateway.Hello do
       gateway_id: identity.gateway_id,
       gateway_label: identity.gateway_label,
       build: to_string(Application.spec(:aiur, :vsn) || "unknown"),
-      # ponytail: the daemon never terminates TLS itself, so there is no certificate to fingerprint yet.
-      tls_fingerprint_sha256: nil,
-      # ponytail: invites land with MPG-208; until then enrollment is always closed.
-      enrollment: "closed"
+      # The daemon never terminates TLS itself, so the pin is the operator-supplied SPKI hash or nil.
+      tls_fingerprint_sha256: tls_pin(),
+      enrollment: if(Invites.open?(), do: "open", else: "closed")
     }
+  end
+
+  @doc "`server.tls_pin_sha256`, or nil when unset or the config cannot be read."
+  @spec tls_pin() :: String.t() | nil
+  def tls_pin do
+    case Aiur.Config.settings() do
+      {:ok, settings} -> settings.server.tls_pin_sha256
+      _unavailable -> nil
+    end
   end
 
   @spec enabled?(boolean() | nil, :inet.ip_address()) :: boolean()

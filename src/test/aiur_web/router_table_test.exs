@@ -25,6 +25,7 @@ defmodule AiurWeb.RouterTableTest do
     {:post, "/api/v1/github/webhook", AiurWeb.GithubWebhookController, :create, [:github_webhook], false},
     {:get, "/api/v1/gateway/hello", AiurWeb.GatewayHelloController, :show, [], :debug},
     {:*, "/api/v1/gateway/hello", AiurWeb.GatewayHelloController, :method_not_allowed, [], :debug},
+    {:post, "/api/v1/gateway/enroll", AiurWeb.GatewayEnrollController, :create, [], false},
     {:post, "/api/v1/executor/hook/deliver", AiurWeb.ExecutorHookDeliveryController, :create, [:executor_hook_delivery_auth], :debug},
     {:post, "/api/v1/executor/hook", AiurWeb.ExecutorHookController, :create, [:executor_hook_auth], :debug},
     {:*, "/api/v1/executor/hook", AiurWeb.ExecutorHookController, :method_not_allowed, [:executor_hook_auth], :debug},

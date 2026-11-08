@@ -4,7 +4,8 @@ defmodule Aiur.Gateway.NoRemoteWriterTest do
   alias Aiur.ControlCall.Allowlist
 
   # Local-only writers. Anything else that calls Registry.write/2 must be added here deliberately.
-  @local_writers ~w(lib/aiur/gateway/cli.ex lib/aiur/gateway/grant_confirmation.ex lib/aiur/gateway/registry.ex)
+  # The enrol controller is not a control call: it adds one read-only entry, and only for a caller holding a live invite secret.
+  @local_writers ~w(lib/aiur/gateway/cli.ex lib/aiur/gateway/grant_confirmation.ex lib/aiur/gateway/registry.ex lib/aiur_web/controllers/gateway_enroll_controller.ex)
 
   # A source scan, not a call graph: it sees every direct reference to the writer, which is what an allowlist
   # entry would have to make. (An xref walk of the whole app was too slow to run in the suite.)

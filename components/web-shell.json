@@ -7,6 +7,7 @@
     "src/lib/aiur/control_call/replay_store.ex",
     "src/lib/aiur/gateway/discovery.ex",
     "src/lib/aiur/gateway/hello.ex",
+    "src/lib/aiur/gateway/invites.ex",
     "src/lib/aiur/http_server.ex",
     "src/lib/aiur/http_server/**",
     "src/lib/aiur/tailscale_funnel.ex",

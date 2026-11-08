@@ -12,9 +12,10 @@ defmodule Aiur.Gateway.Cli do
 
   alias Aiur.ClientTokens
   alias Aiur.ControlCall.Audit
-  alias Aiur.Gateway.{Discovery, GrantRequest, Registry, Status}
+  alias Aiur.Gateway.{Discovery, GrantRequest, Hello, Identity, Invites, Registry, Status}
 
   @actor "cli_local"
+  @overlap_seconds 600
 
   @spec permissions(keyword()) :: :ok
   def permissions(opts \\ []), do: guarded("gateway permissions", fn -> opts |> do_permissions() |> exit_marker() end)
@@ -28,6 +29,168 @@ defmodule Aiur.Gateway.Cli do
       code = if opts[:full] == true, do: do_grant(opts, Registry.categories()), else: fail("gateway trust requires --full", 64)
       exit_marker(code)
     end)
+  end
+
+  @doc """
+  Prints one `aiur-invite:` code for this gateway. Local only; the grants live in the invite record, not the code.
+  Options: `categories`, `ttl` (seconds), `url` (else `server.public_url`), `tls_pin` (else `server.tls_pin_sha256`).
+  """
+  @spec invite(keyword()) :: :ok
+  def invite(opts), do: guarded("gateway invite", fn -> opts |> do_invite() |> exit_marker() end)
+
+  defp do_invite(opts) do
+    grants = Enum.uniq(["read" | Keyword.get(opts, :categories, [])])
+    pin = opts[:tls_pin] || Hello.tls_pin()
+
+    with :ok <- check_categories(grants),
+         {:ok, url} <- invite_url(opts[:url] || public_url()),
+         :ok <- check_pin(pin),
+         %{gateway_id: id} when is_binary(id) <- Identity.current(),
+         {:ok, invite} <- Invites.create(grants, Keyword.get(opts, :ttl, Invites.default_ttl())) do
+      if is_nil(pin), do: control_error("warning: no TLS pin; the joiner will trust whatever certificate answers at #{url}")
+      payload = %{v: 1, url: url, gateway_id: id, fp: pin, id: invite.id, secret: invite.secret, exp: invite.exp}
+      IO.puts("aiur-invite:" <> Base.url_encode64(Jason.encode!(payload), padding: false))
+      audit("invite_created", %{gateway_id: id, name: invite.id}, %{categories: grants, exp: invite.exp, actor: @actor})
+      0
+    else
+      {:error, {code, message}} -> fail(message, code)
+      {:error, :invalid_ttl} -> fail("--ttl must be between 1 second and #{Invites.max_ttl()} seconds", 64)
+      {:error, reason} -> fail("could not create the invite: #{inspect(reason)}", 1)
+      _unavailable -> fail("this gateway has no identity yet", 1)
+    end
+  end
+
+  defp public_url do
+    case Aiur.Config.settings() do
+      {:ok, settings} -> settings.server.public_url
+      _unavailable -> nil
+    end
+  end
+
+  defp invite_url(url) when is_binary(url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: scheme, host: host}} when scheme in ["http", "https"] and is_binary(host) and host != "" -> {:ok, String.trim_trailing(url, "/")}
+      _invalid -> {:error, {64, "--url must be an absolute http(s) URL"}}
+    end
+  end
+
+  defp invite_url(_none), do: {:error, {64, "set server.public_url or pass --url so the joiner can reach this gateway"}}
+
+  defp check_pin(nil), do: :ok
+  defp check_pin(pin), do: if(Regex.match?(~r/\A[0-9a-f]{64}\z/, pin), do: :ok, else: {:error, {64, "--tls-pin must be 64 lowercase hex characters"}})
+
+  @doc "Deletes the registry entry for a peer and revokes every client token bound to it. Local only."
+  @spec remove(keyword()) :: :ok
+  def remove(opts), do: guarded("gateway remove", fn -> opts |> do_remove() |> exit_marker() end)
+
+  defp do_remove(opts) do
+    case registered(opts[:peer]) do
+      {:ok, peer} -> remove_peer(peer)
+      {:error, {code, message}} -> fail(message, code)
+    end
+  end
+
+  defp remove_peer(peer) do
+    names = token_names(peer) |> Enum.concat(peer.credentials) |> Enum.uniq()
+
+    case Registry.write(&Map.delete(&1, peer.name), @actor) do
+      :ok ->
+        Enum.each(names, &ClientTokens.revoke/1)
+        audit("peer_removed", peer, %{tokens: names, actor: @actor})
+        IO.puts("Removed #{label(peer)} and #{length(names)} client token(s).")
+        0
+
+      {:error, reason} ->
+        fail("could not write #{Registry.path()}: #{inspect(reason)}", 1)
+    end
+  end
+
+  # A manually registered peer may have no gateway_id, so remove also matches the instance name.
+  defp registered(selector) do
+    with {:ok, %{peers: peers}} <- Registry.get(), %{} = peer <- Map.get(peers, selector) do
+      {:ok, peer}
+    else
+      {:error, reason} -> {:error, {1, "gateway registry unavailable: #{inspect(reason)}"}}
+      _by_name_missed -> find(selector)
+    end
+  end
+
+  @doc "Mints a new token for a peer; the old one stays valid for 10 minutes, then is revoked. Prints the new token once."
+  @spec rotate(keyword()) :: :ok
+  def rotate(opts), do: guarded("gateway rotate", fn -> opts |> do_rotate() |> exit_marker() end)
+
+  defp do_rotate(opts) do
+    with {:ok, peer} <- find(opts[:peer]),
+         {:ok, [_ | _] = old} <- peer_tokens(peer),
+         current = Enum.max_by(old, &generation(&1["name"], peer)),
+         name = "peer-#{peer.name}-#{generation(current["name"], peer) + 1}",
+         {:ok, token} <- ClientTokens.create(name, current["scope"], peer: peer.gateway_id, categories: current["categories"]),
+         :ok <- ClientTokens.expire(current["name"], DateTime.utc_now() |> DateTime.add(@overlap_seconds) |> DateTime.to_iso8601()),
+         :ok <- add_credential(peer, current["name"], name) do
+      Task.start(fn ->
+        Process.sleep(@overlap_seconds * 1000)
+        finish_rotation(peer.gateway_id, current["name"])
+      end)
+
+      audit("token_rotated", peer, %{token: name, old: current["name"], actor: @actor})
+      IO.puts("New token for #{label(peer)} (shown once; the old one works for 10 minutes):")
+      IO.puts(token)
+      IO.puts("Give it to the peer with: aiur gateway register #{peer.name} --url <url> --token-file <file>")
+      0
+    else
+      {:ok, []} -> fail("#{label_of(opts)} has no client token to rotate", 66)
+      {:error, {code, message}} -> fail(message, code)
+      {:error, reason} -> fail("could not rotate: #{inspect(reason)}", 1)
+    end
+  end
+
+  defp label_of(opts), do: opts[:peer]
+
+  defp peer_tokens(peer) do
+    with {:ok, tokens} <- ClientTokens.list(), do: {:ok, Enum.filter(tokens, &(&1["peer"] == peer.gateway_id))}
+  end
+
+  defp generation(name, peer) do
+    prefix = "peer-#{peer.name}-"
+
+    with true <- String.starts_with?(name, prefix),
+         {n, ""} <- name |> String.replace_prefix(prefix, "") |> Integer.parse() do
+      n
+    else
+      _manual -> 0
+    end
+  end
+
+  defp add_credential(peer, old, new) do
+    Registry.write(
+      fn instances ->
+        Map.new(instances, fn
+          {name, %{"gateway_id" => id} = entry} when id == peer.gateway_id ->
+            allows = Map.get(entry, "allows") || %{}
+            {name, Map.put(entry, "allows", Map.put(allows, "credentials", Enum.uniq(Map.get(allows, "credentials", []) ++ [old, new])))}
+
+          other ->
+            other
+        end)
+      end,
+      @actor
+    )
+  end
+
+  @doc false
+  @spec finish_rotation(String.t(), String.t()) :: :ok | {:error, term()}
+  def finish_rotation(peer_id, old) do
+    ClientTokens.revoke(old)
+
+    Registry.write(
+      fn instances ->
+        Map.new(instances, fn
+          {name, %{"gateway_id" => ^peer_id, "allows" => %{"credentials" => names} = allows} = entry} -> {name, %{entry | "allows" => %{allows | "credentials" => names -- [old]}}}
+          other -> other
+        end)
+      end,
+      @actor
+    )
   end
 
   @doc "One row per registry entry from the launcher's `agents --json` results (`:data`); an unreachable entry shows its cached last answer with its age."
