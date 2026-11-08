@@ -59,7 +59,6 @@ defmodule Aiur.Ownership.GitHubRef do
       parse_read(body)
     else
       {:error, reason} -> {:unknown, reason}
-      {:unknown, _} = unknown -> unknown
     end
   end
 
@@ -237,7 +236,9 @@ defmodule Aiur.Ownership.GitHubRef do
   # that did not apply; transport, 5xx, auth and rate errors are never retried.
   defp retry_or_unknown(ctx, reason, attempt) do
     if retriable?(reason) and attempt < Keyword.get(ctx.opts, :max_attempts, 3) do
-      Keyword.get(ctx.opts, :sleep_fun, &Process.sleep/1).(Enum.at([0, 250, 1000], attempt, 1000))
+      sleep = Keyword.get(ctx.opts, :sleep_fun, &Process.sleep/1)
+      delay = Enum.at([0, 250, 1000], attempt, 1000)
+      _ = sleep.(delay)
       send_update(ctx, attempt + 1)
     else
       {:unknown, reason}
