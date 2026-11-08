@@ -29,10 +29,15 @@ export async function anchor(locator) {
   await locator.scrollIntoViewIfNeeded()
   await locator.evaluate((element) => {
     const topbar = document.querySelector('header.ax-top')
-    if (!topbar) return
-
-    const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
-    if (overlap > 0) window.scrollBy({ top: -overlap - 8, behavior: 'instant' })
+    if (topbar) {
+      const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
+      if (overlap > 0) window.scrollBy({ top: -overlap - 8, behavior: 'instant' })
+    }
+    // The fixed Executor footer covers the viewport's bottom edge the same way.
+    const footer = document.querySelector('#executor-footer')
+    if (!footer) return
+    const under = element.getBoundingClientRect().bottom - footer.getBoundingClientRect().top
+    if (under > 0) window.scrollBy({ top: under + 8, behavior: 'instant' })
   })
 }
 

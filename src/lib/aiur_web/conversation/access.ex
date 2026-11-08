@@ -6,6 +6,10 @@ defmodule AiurWeb.Conversation.Access do
   def session(conn), do: %{"conversation_loopback" => loopback?(conn.remote_ip)}
 
   @spec principal(map(), Phoenix.LiveView.Socket.t()) :: {:operator, :loopback | :basic_auth}
+  # A nested LiveView (the Executor footer) has no connect info, so it never
+  # claims the loopback principal: masked entries stay masked there.
+  def principal(_session, %{private: private}) when not is_map_key(private, :connect_info), do: {:operator, :basic_auth}
+
   def principal(session, socket) do
     peer = Phoenix.LiveView.get_connect_info(socket, :peer_data)
     local? = session["conversation_loopback"] == true and is_map(peer) and loopback?(peer.address)

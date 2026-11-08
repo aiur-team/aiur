@@ -209,7 +209,7 @@ test('first-paint feature focus loads oldest history, back/forward restores focu
   await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.khala.oldest)).toBe(true)
   expect(await page.evaluate(() => m.ctx.D.hist.filter(t => t.feature === 'khala').length)).toBeGreaterThan(0)
   expect(Math.abs(await bandTop() - before)).toBeLessThanOrEqual(1)
-  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.appendChild(a) })
+  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.prepend(a) })
   await page.locator('#feature-navigation').click()
   await expect(page.locator('.bd-fh-name')).toContainText('Events pagination')
   await page.goBack()
