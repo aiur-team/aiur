@@ -48,7 +48,7 @@ function applyColsImpl(next, immediate) {
   ctx.colMap.g = { x: g, w: avail };
   { const b = ctx.L?.band, BK = b?.BK || 1, bg = b?.bg ?? 16, bw = b?.cw ?? Math.min(380, (avail - bg * (BK - 1)) / BK); ctx.bandMap = {}; for (let i = 0; i < BK; i++) ctx.bandMap["b" + i] = { x: g + i * (bw + bg), w: bw }; }
   ctx.content.style.width = w + "px";
-  if (S.flow) { ctx.laneEls.forEach((el) => el.remove()); ctx.laneEls.clear(); ctx.guideEls.forEach((el) => el.remove()); ctx.guideEls.clear(); ctx.lanesEl.querySelector(".bd-lane-g").textContent = "Colour = lane"; ctx.R.forEach((el) => place(el, el._it)); ctx.L.band.items.forEach((it) => place(it.el, it)); ctx.svg.classList.add("hide"); fx.drawEdgesSoon(immediate ? 30 : 380); return; }
+  if (S.flow) { ctx.laneEls.forEach((el) => el.remove()); ctx.laneEls.clear(); ctx.guideEls.forEach((el) => el.remove()); ctx.guideEls.clear(); ctx.lanesEl.querySelector(".bd-lane-g").textContent = "Colour = lane"; ctx.R.forEach((el) => place(el, el._it)); ctx.L.band.items.forEach((it) => place(it.el, it)); ctx.svg.classList.remove("hide"); fx.drawEdgesSoon(immediate ? 30 : 380); return; }
   ctx.lanesEl.querySelector(".bd-lane-g").textContent = S.view === "gantt" ? "Time" : "Order";
   syncKeyed(ctx.laneEls, ctx.lanesEl, "bd-lane", (k, el) => {
     const e = ctx.D.lanes[k], locked = activeFeature() && ctx.D.features[S.feature].epics.includes(k);
