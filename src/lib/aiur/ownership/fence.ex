@@ -69,7 +69,23 @@ defmodule Aiur.Ownership.Fence do
   end
 
   @impl true
-  def init(opts), do: {:ok, %{registered: %{}, reads: %{}, read_fun: Keyword.get(opts, :read_fun, &GitHubRef.read/3)}}
+  def init(opts) do
+    {:ok,
+     %{
+       registered: %{},
+       reads: %{},
+       notified: MapSet.new(),
+       read_fun: Keyword.get(opts, :read_fun, &GitHubRef.read/3),
+       notify: Keyword.get(opts, :notify, &notify_orchestrator/2)
+     }}
+  end
+
+  defp notify_orchestrator(id, epoch) do
+    case GenServer.whereis(Aiur.Project.whereis(Aiur.Orchestrator)) do
+      nil -> :ok
+      pid -> send(pid, {:ownership_moved, id, epoch})
+    end
+  end
 
   @impl true
   def handle_call({:register, id, record}, _from, state) do
@@ -84,9 +100,24 @@ defmodule Aiur.Ownership.Fence do
       {:ok, record} ->
         now = Keyword.get_lazy(opts, :now_ms, fn -> System.monotonic_time(:millisecond) end)
         {observed, state} = observe(state, id, record, now)
-        {:reply, verdict(observed, record), state}
+        verdict = verdict(observed, record)
+        {:reply, verdict, notify_moved(state, id, record, verdict)}
     end
   end
+
+  # Once per {ticket, epoch}, so the orchestrator stops the run and alerts once.
+  defp notify_moved(state, id, record, {:moved, _}) do
+    key = {id, record.epoch}
+
+    if MapSet.member?(state.notified, key) do
+      state
+    else
+      state.notify.(id, record.epoch)
+      %{state | notified: MapSet.put(state.notified, key)}
+    end
+  end
+
+  defp notify_moved(state, _id, _record, _verdict), do: state
 
   @impl true
   def handle_cast({:unregister, id}, state) do

@@ -31,7 +31,9 @@ defmodule Aiur.Ownership.FenceTest do
       end
     end
 
-    {:ok, fence} = Fence.start_link(name: nil, read_fun: read)
+    test_pid = self()
+    notify = fn id, epoch -> send(test_pid, {:ownership_moved, id, epoch}) end
+    {:ok, fence} = Fence.start_link(name: nil, read_fun: read, notify: notify)
     :ok = Fence.register(%{identifier: "42"}, @mine, fence)
     {fence, counter}
   end
@@ -80,6 +82,30 @@ defmodule Aiur.Ownership.FenceTest do
     {:ok, ref} = Agent.start_link(fn -> @mine end)
     {fence, _} = start_fence(ref)
     assert {:unknown, :no_registration} = Fence.check("43", server: fence)
+  end
+
+  test "a moved ref notifies the orchestrator once per ticket and epoch" do
+    {:ok, ref} = Agent.start_link(fn -> %{@mine | epoch: 4} end)
+    {fence, _} = start_fence(ref)
+    assert {:moved, _} = check(fence, 0)
+    assert {:moved, _} = check(fence, 1)
+    assert_received {:ownership_moved, "42", 3}
+    refute_received {:ownership_moved, _, _}
+  end
+
+  test "an unchanged owner does not notify" do
+    {:ok, ref} = Agent.start_link(fn -> @mine end)
+    {fence, _} = start_fence(ref)
+    assert {:ok, _} = check(fence, 0)
+    refute_received {:ownership_moved, _, _}
+  end
+
+  test "a finished run's workspace answers no_registration" do
+    {:ok, ref} = Agent.start_link(fn -> @mine end)
+    {fence, _} = start_fence(ref)
+    assert {:ok, _} = check(fence, 0)
+    Fence.unregister("42", fence)
+    assert {:unknown, :no_registration} = check(fence, 1)
   end
 
   test "command output separates moved from unknown from a bad request" do

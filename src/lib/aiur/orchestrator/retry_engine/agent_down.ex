@@ -91,6 +91,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
     )
 
     {_entry, state} = State.pop_running_entry(state, issue_id)
+    Aiur.Ownership.Fence.unregister(identifier)
 
     state =
       state
@@ -246,6 +247,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
       park_failed_fallback_replacement(state, issue_id, running_entry)
     else
       {_running_entry, popped_state} = State.pop_running_entry(state, issue_id)
+      Aiur.Ownership.Fence.unregister(Map.get(running_entry, :identifier, issue_id))
       popped_state
     end
   end

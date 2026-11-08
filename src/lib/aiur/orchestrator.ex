@@ -90,6 +90,9 @@ defmodule Aiur.Orchestrator do
   def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state),
     do: GlobalPause.fleet_pause_info(state)
 
+  def handle_info({:ownership_moved, identifier, epoch}, %State{} = state),
+    do: {:noreply, Aiur.Orchestrator.StaleOwner.handle(state, identifier, epoch)}
+
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.
   def handle_info(:run_poll_cycle, %State{poll_frozen: true} = state), do: {:noreply, state}

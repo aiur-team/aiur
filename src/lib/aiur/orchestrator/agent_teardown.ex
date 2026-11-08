@@ -107,6 +107,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         end
 
         state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
+        Aiur.Ownership.Fence.unregister(identifier)
 
         %{
           state

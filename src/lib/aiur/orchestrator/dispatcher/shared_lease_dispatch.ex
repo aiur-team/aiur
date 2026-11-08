@@ -138,9 +138,11 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         release_if_unstarted(next_state, selected_issue, opts)
 
       {:error, :shared_lease_held} ->
+        Fence.unregister(selected_issue.identifier)
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_held, false)
 
       {:error, {:shared_lease_unavailable, reason}} ->
+        Fence.unregister(selected_issue.identifier)
         Logger.warning("Shared ticket lease unavailable for #{State.issue_context(issue)}: #{inspect(reason)}; holding dispatch")
 
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_unavailable, true)
@@ -151,6 +153,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     if MapSet.member?(state.claimed, issue.id) do
       state
     else
+      Fence.unregister(issue.identifier)
       release_fun = Keyword.get(opts, :lease_release_fun, &LeaseStore.release/1)
       _ = release_fun.(issue)
       state

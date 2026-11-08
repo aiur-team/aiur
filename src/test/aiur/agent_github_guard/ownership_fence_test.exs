@@ -24,8 +24,11 @@ defmodule Aiur.AgentGitHubGuard.OwnershipFenceTest do
     {:ok, fence} = Fence.start_link(name: nil, read_fun: fn _, _, _ -> {:ok, %{record: current, oid: "x", repository_id: "r"}} end)
     :ok = Fence.register(%{identifier: "1670"}, @mine, fence)
     # A unix socket path must fit in ~100 bytes, which the long test tmp_dir does not.
-    path = Path.join(System.tmp_dir!(), "fence-#{System.unique_integer([:positive])}.sock")
-    on_exit(fn -> File.rm(path) end)
+    # AgentBudgetSocket chmods the socket's parent to 0700, so the socket gets its own directory.
+    dir = Path.join(System.tmp_dir!(), "fence-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "s.sock")
+    on_exit(fn -> File.rm_rf(dir) end)
 
     {:ok, _} =
       AgentBudgetSocket.start_link(name: nil, socket_path: path, command_fun: &FenceCommand.execute(&1, server: fence))
