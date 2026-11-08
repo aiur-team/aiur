@@ -54,16 +54,10 @@ test('nav items stay fully visible on a short desktop window; the meters scroll'
   expect(meters[1]).toBe('auto')
 })
 
-// #7774 adds a fixed full-width Executor footer; stand one in until it is on this branch.
+// #7774's fixed full-width Executor footer spans the nav; the meters must end above it.
 for (const height of [900, 700]) test(`meters stay above the Executor footer at 1440x${height}`, async ({ page }) => {
   await open(page, 1440, height)
-  await page.evaluate(() => {
-    if (document.querySelector('#executor-footer')) return
-    const f = document.createElement('div')
-    f.id = 'executor-footer'
-    f.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:44px;z-index:55'
-    document.body.append(f)
-  })
+  await expect(page.locator('#executor-footer')).toBeVisible()
   await expect(page.locator('#bd-usage-nav .ax-nl').first()).toBeAttached()
   const [meters, footer] = await Promise.all([page.locator('.aiur-shell__meters').boundingBox(), page.locator('#executor-footer').boundingBox()])
   expect(meters.y + meters.height).toBeLessThanOrEqual(footer.y)
