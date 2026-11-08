@@ -180,9 +180,10 @@ history entry.
 ## The Live band
 
 The Live band shows active agents between history and the plan, in the same
-card style as the other tickets. It scrolls with the board and stays wherever you
-stop; the **Live** button scrolls to it. Minimize keeps
-state counts visible (`live=min`), and a state preset expands it. The clock shows
+card style as the other tickets. It scrolls with the board, but pins under the
+header or to the bottom edge rather than leave view (List too).
+
+The **Live** button scrolls to its place. Minimize keeps state counts visible (`live=min`), and a state preset expands it. The clock shows
 cached observation time when stale and `—` when unknown.
 
 Each agent card names its state in text, not colour alone.
@@ -193,7 +194,7 @@ Each agent card names its state in text, not colour alone.
 | **Retrying** | The agent is in retry backoff; counted separately from running agents. |
 | **Error** | The agent hit an error or is stuck. |
 | **Awaiting command** | The agent raised a Command that is still open. |
-| **Paused** | The agent is paused. |
+| **Paused** | The agent is paused. An operator, agent-requested or input-required pause holds its slot; a pause from the `agent:paused` label, CI wait, a blocker dependency, the duration cap or a usage limit does not. |
 | **Parked** | The agent is paused without reserving a slot, for example during a GitHub budget hold. |
 | **State unknown** | Aiur could not determine the agent's state. |
 
@@ -240,10 +241,21 @@ The usage strip has an **APIs** card and a **Models** card.
 | --- | --- |
 | GitHub | REST core and GraphQL budget used in the current hour; see [GitHub API budgets](/apis/github-budgets#api-budgets). |
 | ElevenLabs | Credit quota used, only when a key is configured; see [ElevenLabs metering](/apis/elevenlabs#what-the-usage-meter-measures). |
-| Models | Session and weekly windows or credits for each configured provider. |
+| OpenRouter | Credits left, when `OPENROUTER_API_KEY` or `OPENROUTER_MANAGEMENT_KEY` is set. The credits read needs `OPENROUTER_MANAGEMENT_KEY`; with only the API key the row says so. |
+| DeepSeek | Prepaid balance (`/user/balance`), when `DEEPSEEK_API_KEY` is set. |
+| OpenAI | Shown as configured when `OPENAI_API_KEY` is set. A project key cannot read billing, so no balance is shown. |
+| Models | Session and weekly windows or credits for each provider the workflow routes to, or that has an observation. A provider with neither has no row. |
 
-A provider that reports no limits reads **not observed**. Expired windows and
-stale readings are identified explicitly. Reset labels refresh every 30 seconds
+A provider with several logins (Claude `×2`) draws one full-width bar per login
+for each window, stacked, each with its own % left and reset; hover or focus a
+bar for the account name.
+
+A configured provider whose read failed keeps its row
+and reads **unavailable**, with the age of its last reading. A provider that
+reports no limits reads **not observed**. Expired windows and
+stale readings are identified explicitly.
+
+Reset labels refresh every 30 seconds
 while the tab is visible. Locked sessions show an authentication message
 without financial values.
 

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.PackFeatureProgressTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
-  alias AiurWeb.Build.IndexReader
+  alias AiurWeb.Build.{IndexReader, Payload}
 
   test "raw feature manifests and deferred pack rows retain aliases without counting unpublished work twice" do
     epic = "f-bo-99-core"
@@ -26,6 +26,25 @@ defmodule AiurWeb.Build.PackFeatureProgressTest do
     assert {:ok, repeated} = assemble(cached)
     assert repeated.feature_progress.features[epic].total == 2
     assert repeated.all["1"].was == "pack:program/FILED"
+  end
+
+  test "the index carries epic rows beside the flat feature bars" do
+    registry = %{
+      features: %{"core" => %{slug: "core", label: "Core", hue: 40, epics: [], from: now(), to: :none, baseline: :none}},
+      owners: %{1 => %{feature: "core", epic: "f-core", joined_at: DateTime.from_unix!(now(), :millisecond)}},
+      also: %{},
+      epics: [%{slug: "program", label: "Program", features: ["core"], created_at: DateTime.from_unix!(now(), :millisecond)}],
+      health: health()
+    }
+
+    assert {:ok, index} = parts([row(1)]) |> Map.put(:features, {:ok, registry}) |> assemble()
+    assert %{bars: [%{key: "core", merged: 1, total: 1}], epics: [epic]} = index.feature_progress
+    assert Map.take(epic, [:key, :label, :merged, :total, :features]) == %{key: "program", label: "Program", merged: 1, total: 1, features: ["core"]}
+
+    # The browser reads the epic rows off the scrubbed payload, so the assembled index must
+    # carry them under the key the payload schema declares.
+    assert %{"epics" => [payload_epic]} = Payload.scrub(index)["feature_progress"]
+    assert Map.take(payload_epic, ~w(key label merged total features)) == %{"key" => "program", "label" => "Program", "merged" => 1, "total" => 1, "features" => ["core"]}
   end
 
   defp pack(lane) do

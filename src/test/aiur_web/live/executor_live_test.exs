@@ -4,7 +4,7 @@ defmodule AiurWeb.ExecutorLiveTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
   import Aiur.TestSupport.BuildHome.ProtocolCase, except: [source: 1]
   import Aiur.Conversation.TestSupport
-  alias Aiur.Conversation.{Ingest, Store, TestSupport}
+  alias Aiur.Conversation.{Ingest, Ref, Store, TestSupport}
   alias Aiur.Executor.{CapabilityProvider, Session}
   alias AiurWeb.Endpoint
 
@@ -32,42 +32,57 @@ defmodule AiurWeb.ExecutorLiveTest do
     context
   end
 
-  test "no binding is not opted in, never idle; static render loads history" do
-    conn = get(build_conn(), "/executor")
-    loading_html = html_response(conn, 200)
-    assert length(Regex.scan(~r/Loading Executor history/, loading_html)) == 1
-    refute loading_html =~ "Loading conversation"
-    {:ok, view, html} = live(build_conn(), "/executor")
-    assert has_element?(view, "#executor-frame [data-state=not_opted_in]")
+  defp footer(path \\ "/") do
+    {:ok, page, _html} = live(build_conn(), path)
+    footer = find_live_child(page, "executor-footer-live")
+    {page, footer, render(footer)}
+  end
+
+  test "footer on every dashboard page: label, state and a collapsed circle expand button" do
+    for path <- ["/", "/commands", "/analytics", "/streamdeck"] do
+      {_page, view, _html} = footer(path)
+      assert has_element?(view, "#executor-footer .executor-footer__label", "Executor")
+      assert has_element?(view, "#executor-footer-state", "not attached")
+      assert has_element?(view, "#executor-footer-toggle[aria-expanded=false][aria-controls=executor-footer-panel]")
+      assert has_element?(view, "#executor-footer-panel[hidden]")
+    end
+  end
+
+  test "worker conversation pages carry no footer" do
+    {:ok, page, _html} = live(build_conn(), "/conversations/" <> Ref.conversation_id(Ref.executor()))
+    refute has_element?(page, "#executor-footer")
+  end
+
+  test "no binding is not opted in, never idle, with the attach command" do
+    {_page, view, html} = footer()
+    assert has_element?(view, "#executor-footer[data-state=not_opted_in]")
     assert html =~ "aiur executor-attach --harness claude"
-    assert html =~ "aiur executor-attach --harness codex"
+    assert html =~ "--harness codex"
     assert has_element?(view, "#executor-frame a[href='https://aiur.team/docs/guide/gui#executor']")
-    refute html =~ "Idle"
-    refute html =~ "not_found"
+    refute render(element(view, "#executor-footer-state")) =~ "idle"
     refute html =~ "age unknown"
-    refute has_element?(view, "#executor-frame [data-freshness]")
   end
 
   test "awaiting first hook updates to detached on refresh" do
     assert {:ok, binding} = Session.attach(%{harness: "claude"})
-    {:ok, view, html} = live(build_conn(), "/executor")
+    {_page, view, html} = footer()
     assert has_element?(view, "[data-state=awaiting_hook]")
     assert html =~ "Waiting for the Executor session"
     assert html =~ "aiur executor-attach --check"
     assert {:ok, _} = Session.detach(binding.binding_id, :detached)
     send(view.pid, :age_tick)
-    assert has_element?(view, "[data-state=ended]")
+    assert has_element?(view, "#executor-footer[data-state=ended]")
+    assert has_element?(view, "#executor-footer-state", "ended")
   end
 
-  test "detached and removed bindings preserve history and jump highlights", %{ref: ref} do
+  test "detached and removed bindings preserve history", %{ref: ref} do
     assert {:ok, binding} = Session.attach(%{harness: "claude"})
     Ingest.append(ref, source(), [event(1), event(2)])
     assert :ok = flush(ref)
     assert {:ok, _} = Session.detach(binding.binding_id, :detached)
-    {:ok, view, html} = live(build_conn(), "/executor?pos=1")
+    {_page, view, html} = footer()
     assert html =~ "message 1"
-    assert has_element?(view, "[data-state=ended]")
-    assert has_element?(view, "#entry-1.conversation-highlight")
+    assert has_element?(view, "#executor-footer[data-state=ended]")
     stop_supervised!(Session)
     send(view.pid, :age_tick)
     assert has_element?(view, "[data-state=ended]")
@@ -78,13 +93,14 @@ defmodule AiurWeb.ExecutorLiveTest do
     Phoenix.Config.put(Endpoint, :dashboard_writable, false)
     assert {:ok, binding} = Session.attach(%{harness: "claude"})
     assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "session-one"})
-    {:ok, view, html} = live(build_conn(), "/executor")
+    {_page, view, html} = footer()
     assert html =~ "Read-only Executor view"
     refute has_element?(view, "#conversation-composer")
     Ingest.append(ref, source(), [event(1)])
     assert :ok = flush(ref)
     assert has_element?(view, "#entry-1", "message 1")
-    assert has_element?(view, "[data-state=live]")
+    assert has_element?(view, "#executor-footer[data-state=live]")
+    assert has_element?(view, "#executor-footer-state", "attached")
   end
 
   test "unreadable transcript and unsupported capture retain history", %{ref: ref} do
@@ -92,7 +108,7 @@ defmodule AiurWeb.ExecutorLiveTest do
     Ingest.gap(ref, :source_unreadable, DateTime.utc_now(), DateTime.utc_now())
     assert :ok = flush(ref)
     :ets.insert(:aiur_capabilities, {:report, {%{capabilities: %{"executor.conversation" => %{state: :unsupported, reason: :fixture_unsupported}}}, System.monotonic_time(:millisecond), nil}})
-    {:ok, view, html} = live(build_conn(), "/executor")
+    {_page, view, html} = footer()
     assert has_element?(view, "#entry-1", "message 1")
     assert html =~ "Executor transcript unreadable (source_unreadable)"
     assert html =~ "Executor transcript unsupported: fixture_unsupported"
@@ -102,14 +118,21 @@ defmodule AiurWeb.ExecutorLiveTest do
     Ingest.append(ref, source(), [event(1)])
     assert :ok = flush(ref)
     File.write!(Store.segment_path(dir, 1), "broken\n")
-    {:ok, view, _} = live(build_conn(), "/executor")
-    assert has_element?(view, "[data-state=unavailable]")
+    {_page, view, _} = footer()
+    assert has_element?(view, "#executor-footer[data-state=unavailable]")
     refute has_element?(view, "[data-state=not_opted_in]")
   end
 
-  test "dashboard navigation and advertised capability expose Executor" do
+  test "/executor redirects to the expanded footer and old positions to full history" do
+    assert redirected_to(get(build_conn(), "/executor")) == "/#executor"
+    id = Ref.conversation_id(Ref.executor())
+    assert redirected_to(get(build_conn(), "/executor?pos=3")) == "/conversations/#{URI.encode(id, &URI.char_unreserved?/1)}?pos=3"
+  end
+
+  test "navigation no longer lists Executor; the capability route still resolves" do
     {:ok, view, _} = live(build_conn(), "/")
-    assert has_element?(view, "a[href='/executor']", "Executor")
+    refute has_element?(view, "#ax-nav a", "Executor")
+    refute has_element?(view, "a[href='/executor']")
     assert CapabilityProvider.evaluate(%{})["executor.conversation"].route == "/executor"
   end
 end

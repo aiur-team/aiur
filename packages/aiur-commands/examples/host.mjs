@@ -25,6 +25,7 @@
  * exits, without touching the network.
  */
 
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { renderList } from '../src/render.mjs';
 
@@ -77,6 +78,8 @@ export async function listCommands({ baseUrl, token, query = {} }) {
   return response.json();
 }
 
+const themeCss = readFileSync(new URL('../src/theme.css', import.meta.url), 'utf8');
+
 function page(config, list) {
   return `<!doctype html>
 <html lang="en">
@@ -84,19 +87,17 @@ function page(config, list) {
     <meta charset="utf-8">
     <title>Aiur Commands for ${config.principal}</title>
     <style>
+${themeCss}
+      /* The host themes the component by setting properties only. */
+      :root { --aiur-command-accent: #0b7a53; --aiur-command-radius: 12px; --aiur-command-font: Georgia, serif; }
       body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 46rem; }
-      .aiur-command { border: 1px solid #d7dbe0; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
-      .aiur-command-state { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #58606a; }
-      .aiur-command-chip { font-size: 11px; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; }
-      .aiur-command-option { display: flex; gap: .5rem; align-items: flex-start; padding: .35rem 0; }
-      .aiur-commands[data-command-list-state="empty"] { color: #58606a; }
     </style>
   </head>
   <body>
     <h1>Commands for ${config.principal}</h1>
     <p>Ticket scope: ${config.tickets.join(', ') || 'none'}</p>
     <p>Label scope: ${config.labels.join(', ') || 'none'}</p>
-    ${renderList(list, { answerUrl: '/api/commands/answer' })}
+    ${renderList(list, { answerUrl: '/api/commands/answer', labels: { submit: 'Send answer' } })}
   </body>
 </html>`;
 }

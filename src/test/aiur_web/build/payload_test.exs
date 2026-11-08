@@ -172,6 +172,18 @@ defmodule AiurWeb.Build.PayloadTest do
     assert {"feature_progress.features.pag", :reference} in errors
   end
 
+  test "feature progress carries epic rows with their own merged and total" do
+    epic = %{"key" => "v1-launch", "label" => "V1 launch", "merged" => 3, "total" => 5, "features" => ["pag", "mp-e2"]}
+    data = put_in(fixture(), ["feature_progress", "epics"], [epic])
+    assert Payload.validate(data) == :ok
+
+    assert {:error, errors} = data |> put_in(["feature_progress", "epics"], [%{epic | "total" => 0}]) |> Payload.validate()
+    assert {"feature_progress.epics.0.total", :type} in errors
+
+    assert {:error, errors} = data |> put_in(["feature_progress", "epics"], [Map.delete(epic, "features")]) |> Payload.validate()
+    assert {"feature_progress.epics.0.features", :missing} in errors
+  end
+
   test "every source must be present" do
     for key <- ~w(history features queue agents index open_tickets) do
       data = fixture() |> update_in(["sources"], &Map.delete(&1, key))
