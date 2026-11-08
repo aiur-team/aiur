@@ -105,6 +105,8 @@ defmodule Aiur.DogfoodHooksFetchTest do
         {"PATH", Enum.join(Enum.reject([path_prefix, fixture_path()], &is_nil/1), ":")},
         {"THIS_REPOSITORY_URL", origin},
         {"THIS_BASE_BRANCH", configured_base()},
+        {"AIUR_GIT_NAME", "Hook Agent"},
+        {"AIUR_GIT_EMAIL", "hook-agent@example.test"},
         {"AIUR_TICKET_BRANCH", ticket_branch()},
         {"AIUR_REPO_STATE_PATH", cache_root(workspace)}
       ]

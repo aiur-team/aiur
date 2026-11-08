@@ -3,6 +3,7 @@ defmodule Aiur.Workspace.Hooks do
 
   require Logger
   alias Aiur.{AgentBuildGuard, BuildGate, Config, RepoBase, Signal}
+  alias Aiur.AgentEnvironment.GitIdentity
   alias Aiur.Workspace.{Context, Preflight, Reconstruction, Remote}
 
   @spec run_after_create(Path.t(), map(), boolean() | :materialized, String.t() | nil) ::
@@ -358,7 +359,13 @@ defmodule Aiur.Workspace.Hooks do
     remote? = Keyword.get(opts, :remote?, false)
     runner_pid = Keyword.get(opts, :runner_pid, self())
 
+    {git_name, git_email} = GitIdentity.identity()
+
+    # Hooks write these into the workspace's local git config so merges they
+    # make are not authored by the host's global identity.
     hook_context_env = [
+      {"AIUR_GIT_NAME", git_name},
+      {"AIUR_GIT_EMAIL", git_email},
       {"AIUR_HOOK_TICKET_ID", to_string(issue_context.issue_id || "")},
       {"AIUR_HOOK_TICKET_IDENTIFIER", to_string(issue_context.issue_identifier || "")},
       {"AIUR_HOOK_RUNNER_PID", inspect(runner_pid)}
