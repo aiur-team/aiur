@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata.ProjectSignals do
   @doc "Pending Decision count per repo, from the retained `needs_you_by_ticket` counts."
   @spec pending_decisions(keyword()) :: %{String.t() => non_neg_integer()} | nil
   def pending_decisions(opts \\ []) do
-    case contained(Keyword.get(opts, :counts_fun, &Aiur.DecisionQuery.counts/0)) do
+    case contained(Keyword.get(opts, :counts_fun, &Aiur.Commands.query_counts/0)) do
       {:ok, %{needs_you_by_ticket: by_ticket}} when is_map(by_ticket) -> group(by_ticket)
       _ -> nil
     end
