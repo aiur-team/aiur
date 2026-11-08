@@ -23,6 +23,20 @@ defmodule Aiur.Ownership do
     if Keyword.get_lazy(opts, :ownership_enabled, &enabled?/0), do: gate(issue, opts), else: :disabled
   end
 
+  @doc "Durable owner of the ticket from the GitHub ref, or `:unknown` when absent, released or unreadable."
+  @spec owner(Aiur.Issue.t(), keyword()) :: {:owner, :self | :other} | :unknown
+  def owner(issue, opts \\ []) do
+    read = Keyword.get(opts, :ownership_read_fun, &GitHubRef.read/3)
+
+    with {:ok, self} <- self_identity(opts),
+         {:ok, repo} <- repo(issue),
+         {:ok, %{record: %{state: "owned"} = record}} <- read.(repo, ticket_key(issue), []) do
+      if match?({:ok, _}, classify(record, self)), do: {:owner, :self}, else: {:owner, :other}
+    else
+      _ -> :unknown
+    end
+  end
+
   defp gate(issue, opts) do
     read = Keyword.get(opts, :ownership_read_fun, &GitHubRef.read/3)
     claim = Keyword.get(opts, :ownership_claim_fun, &GitHubRef.claim/4)
