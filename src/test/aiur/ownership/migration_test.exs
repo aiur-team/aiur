@@ -56,6 +56,14 @@ defmodule Aiur.Ownership.MigrationTest do
     )
   end
 
+  test "an unreadable ownership record plans as unknown, never claim" do
+    owners = fn -> {:ok, [{"1", {:unknown, {:undecodable, :bad}}}, {"2", {:ok, %{record: owner("PC")}}}]} end
+
+    out = capture_io(fn -> assert 0 == MigrateCLI.run(cli_opts(owners_fun: owners, json: true)) end)
+    assert %{"claim" => 0, "unknown" => 1, "already" => 1} = Jason.decode!(out)
+    refute_received {:claim, _, _}
+  end
+
   test "dry run performs no claims" do
     out = capture_io(fn -> assert MigrateCLI.run(cli_opts([])) == 0 end)
     refute_received {:claim, _, _}

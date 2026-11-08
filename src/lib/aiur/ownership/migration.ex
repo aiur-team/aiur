@@ -17,6 +17,7 @@ defmodule Aiur.Ownership.Migration do
           {:claim, String.t(), String.t()}
           | {:already, String.t(), String.t()}
           | {:conflict, String.t(), [labelled: String.t(), owner: String.t()]}
+          | {:unknown, String.t(), term()}
           | {:ambiguous, String.t(), [String.t()]}
           | {:skip, String.t(), :no_state_label}
 
@@ -37,6 +38,8 @@ defmodule Aiur.Ownership.Migration do
     end
   end
 
+  # A record we could not read is never absent: report it, do not plan a claim over it.
+  defp decide(t, _gateway, {:unknown, reason}), do: {:unknown, t, reason}
   defp decide(t, gateway, nil), do: {:claim, t, gateway}
   defp decide(t, gateway, %{state: "released"}), do: {:claim, t, gateway}
 
@@ -75,5 +78,6 @@ defmodule Aiur.Ownership.Migration do
   defp tally({:already, _, _}, acc, _), do: %{acc | already: acc.already + 1}
   defp tally({:conflict, _, _}, acc, _), do: %{acc | conflict: acc.conflict + 1}
   defp tally({:ambiguous, t, prefixes}, acc, _), do: %{acc | ambiguous: acc.ambiguous ++ [{t, prefixes}]}
+  defp tally({:unknown, _, _}, acc, _), do: %{acc | unknown: acc.unknown + 1}
   defp tally({:skip, _, _}, acc, _), do: %{acc | skipped: acc.skipped + 1}
 end

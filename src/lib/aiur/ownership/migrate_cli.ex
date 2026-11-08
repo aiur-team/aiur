@@ -38,12 +38,14 @@ defmodule Aiur.Ownership.MigrateCLI do
 
   defp summary(actions) do
     counts = Enum.frequencies_by(actions, &elem(&1, 0))
-    %{claim: counts[:claim] || 0, already: counts[:already] || 0, conflict: counts[:conflict] || 0, ambiguous: counts[:ambiguous] || 0, skip: counts[:skip] || 0, writes: 0}
+    %{claim: counts[:claim] || 0, already: counts[:already] || 0, conflict: counts[:conflict] || 0, ambiguous: counts[:ambiguous] || 0, unknown: counts[:unknown] || 0, skip: counts[:skip] || 0, writes: 0}
   end
 
   defp print(opts, result, plan, _result, code) do
     out = if result, do: Map.merge(plan, %{writes: result.writes, result: result}), else: plan
-    text = "plan: #{plan.claim} claim, #{plan.already} already, #{plan.conflict} conflict, #{plan.ambiguous} ambiguous, #{plan.skip} skip\nwrites: #{out.writes}"
+    text =
+      "plan: #{plan.claim} claim, #{plan.already} already, #{plan.conflict} conflict, #{plan.ambiguous} ambiguous, #{plan.unknown} unknown, #{plan.skip} skip\nwrites: #{out.writes}" <>
+        if(result, do: ", lost: #{result.lost}, unknown: #{result.unknown}", else: "")
     IO.puts(if opts[:json], do: Jason.encode!(Aiur.JSONSafe.normalize(out)), else: text)
     code
   end
@@ -89,10 +91,14 @@ defmodule Aiur.Ownership.MigrateCLI do
     fun = Keyword.get(opts, :owners_fun) || fn -> GitHubRef.list_owned(repo(opts)) end
 
     case fun.() do
-      {:ok, entries} -> {:ok, for({ticket, {:ok, %{record: record}}} <- entries, record, into: %{}, do: {ticket, record})}
+      {:ok, entries} -> {:ok, Enum.reduce(entries, %{}, &owner_entry/2)}
       other -> wrap(other, "ownership listing failed")
     end
   end
+
+  defp owner_entry({ticket, {:ok, %{record: record}}}, acc) when not is_nil(record), do: Map.put(acc, ticket, record)
+  defp owner_entry({ticket, {:unknown, reason}}, acc), do: Map.put(acc, ticket, {:unknown, reason})
+  defp owner_entry(_, acc), do: acc
 
   defp wrap({:ok, _} = ok, _), do: ok
   defp wrap({:error, reason}, what), do: {:unknown, "#{what} (#{inspect(reason)}); nothing written"}
