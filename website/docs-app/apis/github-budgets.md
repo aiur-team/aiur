@@ -102,14 +102,10 @@ quota. Use `aiur github-cost` for code-caller attribution.
 ### Ownership callers
 
 The ticket ownership refs (`refs/aiur/owners/<ticket>`) add two callers:
-`ownership_ref_read` (single-ref reads and the paged `list_owned` listing, one
-GraphQL point per page of 100 refs), `ownership_ref_write` (the git object REST
-calls and the `updateRefs` compare-and-set) and `ownership_repository_id`.
-Ownership reads bypass the read cache: a cached owner would defeat the
-compare-and-set. A write refused with a GraphQL `errors` result or a 422 while
-the ref is unchanged is retried up to three times, each retry costing one
-re-read and one `updateRefs`. Neither caller is a leader-fenced
-repo-global write.
+
+- `ownership_ref_read`: single-ref reads and the paged `list_owned` listing, one GraphQL point per page of 100 refs. Never cached, since a cached owner would defeat the compare-and-set.
+- `ownership_ref_write`: the git object REST calls and the `updateRefs` compare-and-set. A write refused with a GraphQL `errors` result or a 422 while the ref is unchanged is retried up to three times, each costing one re-read and one `updateRefs`.
+- Neither caller is a leader-fenced repo-global write.
 
 Below the ranking, one reconciliation line per budget compares the sum of the
 rows against `limit - remaining` on the credential's own window:
