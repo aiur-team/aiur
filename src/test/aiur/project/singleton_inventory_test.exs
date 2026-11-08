@@ -4,7 +4,7 @@ defmodule Aiur.Project.SingletonInventoryTest do
   @adr Path.expand("../../../../docs/research/MPG-301.md", __DIR__)
   @lib Path.expand("../../../lib", __DIR__)
   @row ~r/^\|\s*(?:\d+\s*\|\s*)?`([A-Za-z0-9_.]+)`\s*\|\s*(per-project|machine)\s*\|.*\|\s*([^|]+?)\s*\|$/
-  @registering ~r/name: __MODULE__|:name, __MODULE__/
+  @registering ~r/name: __MODULE__|:name, __MODULE__|Project\.via\(__MODULE__\)/
   # Rows whose process is not started with a literal `name: __MODULE__` (its supervisor child
   # spec or a caller names it), so the scan cannot see them.
   @unscanned ["Aiur.PubSub", "Aiur.TaskSupervisor", "Aiur.Orchestrator", "Aiur.Events.Exchange"]

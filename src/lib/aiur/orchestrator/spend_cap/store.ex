@@ -15,30 +15,30 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    case Keyword.get(opts, :name, __MODULE__) do
+    case Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)) do
       nil -> GenServer.start_link(__MODULE__, opts)
       name -> GenServer.start_link(__MODULE__, opts, name: name)
     end
   end
 
   @spec put(GenServer.server(), TrackerIdentity.t(), term()) :: {:ok, map()} | {:error, atom()}
-  def put(server \\ __MODULE__, identity, amount), do: GenServer.call(server, {:put, identity, amount})
+  def put(server \\ Aiur.Project.whereis(__MODULE__), identity, amount), do: GenServer.call(server, {:put, identity, amount})
 
   @spec get(GenServer.server(), String.t()) :: {:ok, map()} | {:error, atom()}
-  def get(server \\ __MODULE__, identifier), do: GenServer.call(server, {:get, identifier})
+  def get(server \\ Aiur.Project.whereis(__MODULE__), identifier), do: GenServer.call(server, {:get, identifier})
 
   @spec delete(GenServer.server(), String.t()) :: :ok | {:error, atom()}
-  def delete(server \\ __MODULE__, identifier), do: GenServer.call(server, {:delete, identifier})
+  def delete(server \\ Aiur.Project.whereis(__MODULE__), identifier), do: GenServer.call(server, {:delete, identifier})
 
   @spec health(GenServer.server()) :: :healthy | {:unavailable, atom()}
-  def health(server \\ __MODULE__), do: GenServer.call(server, :health)
+  def health(server \\ Aiur.Project.whereis(__MODULE__)), do: GenServer.call(server, :health)
 
   @spec admission(GenServer.server(), TrackerIdentity.t()) :: :allow | {:skip, :spend_cap_exhausted | :spend_cap_unavailable}
   def admission(server, %TrackerIdentity{} = identity), do: GenServer.call(server, {:admission, identity})
 
   @spec dispatch_admission(TrackerIdentity.t()) :: :allow | {:skip, :spend_cap_exhausted | :spend_cap_unavailable}
   def dispatch_admission(%TrackerIdentity{} = identity) do
-    case safe_lookup(@dispatch_table, :health) do
+    case safe_lookup(Aiur.Project.Table.ref(@dispatch_table), :health) do
       [{:health, :healthy}] -> dispatch_record_admission(identity)
       _other -> {:skip, :spend_cap_unavailable}
     end
@@ -47,7 +47,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   def dispatch_admission(_identity), do: {:skip, :spend_cap_unavailable}
 
   defp dispatch_record_admission(identity) do
-    case safe_lookup(@dispatch_table, Record.key(identity)) do
+    case safe_lookup(Aiur.Project.Table.ref(@dispatch_table), Record.key(identity)) do
       [{_key, :budget_exhausted}] -> {:skip, :spend_cap_exhausted}
       [{_key, :unavailable}] -> {:skip, :spend_cap_unavailable}
       _other -> :allow
@@ -56,6 +56,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   @impl true
   def init(opts) do
+    Aiur.Project.adopt(opts)
     repository = Keyword.get_lazy(opts, :repository, &Aiur.Tracker.project_identity/0)
     table = create_table(Keyword.get(opts, :table, @dispatch_table))
 
@@ -452,7 +453,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   defp create_table(nil), do: :ets.new(__MODULE__, [:protected, :set, read_concurrency: true])
 
   defp create_table(name) when is_atom(name) do
-    :ets.new(name, [:named_table, :protected, :set, read_concurrency: true])
+    Aiur.Project.Table.new(name, [:protected, :set, read_concurrency: true])
   end
 
   defp sync_table(state) do

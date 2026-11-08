@@ -65,7 +65,7 @@ defmodule Aiur.Project do
 
   @doc """
   The GenServer name for `module` in the current project: a `Registry` via-tuple
-  with a project context, the bare module (today's `name: __MODULE__`) without.
+  with a project context, the bare module (today's bare name) without.
   """
   @spec via(module()) :: GenServer.server()
   def via(module), do: name(module)

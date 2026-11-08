@@ -5,33 +5,34 @@ defmodule Aiur.Conversation.HeadTable do
   @table :aiur_conversation_heads
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
 
   @impl true
-  def init(_opts) do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-    :ets.new(:aiur_conversation_subjects, [:named_table, :public, :set, read_concurrency: true])
+  def init(opts) do
+    Aiur.Project.adopt(opts)
+    Aiur.Project.Table.new(@table, [:public, :set, read_concurrency: true])
+    Aiur.Project.Table.new(:aiur_conversation_subjects, [:public, :set, read_concurrency: true])
     {:ok, nil}
   end
 
   @spec put(String.t(), Path.t(), map()) :: :ok
   def put(id, dir, head) do
-    :ets.insert(@table, {{dir, id}, head})
+    :ets.insert(Aiur.Project.Table.ref(@table), {{dir, id}, head})
     :ok
   end
 
   @spec degraded?(String.t(), Path.t()) :: boolean()
-  def degraded?(id, dir), do: :ets.member(@table, {:degraded, dir, id})
+  def degraded?(id, dir), do: :ets.member(Aiur.Project.Table.ref(@table), {:degraded, dir, id})
 
   @spec degraded(String.t(), Path.t() | nil, boolean()) :: :ok
   def degraded(id, dir, value) do
-    if value, do: :ets.insert(@table, {{:degraded, dir, id}, true}), else: :ets.delete(@table, {:degraded, dir, id})
+    if value, do: :ets.insert(Aiur.Project.Table.ref(@table), {{:degraded, dir, id}, true}), else: :ets.delete(Aiur.Project.Table.ref(@table), {:degraded, dir, id})
     :ok
   end
 
   @spec get(String.t(), Path.t()) :: {:ok, map()} | :missing
   def get(id, dir) do
-    case :ets.lookup(@table, {dir, id}) do
+    case :ets.lookup(Aiur.Project.Table.ref(@table), {dir, id}) do
       [{_, head}] -> {:ok, head}
       [] -> :missing
     end

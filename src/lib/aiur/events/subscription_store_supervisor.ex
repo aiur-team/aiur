@@ -11,7 +11,7 @@ defmodule Aiur.Events.SubscriptionStoreSupervisor do
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
-    DynamicSupervisor.start_link(__MODULE__, opts, name: __MODULE__)
+    DynamicSupervisor.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
   end
 
   @impl true
