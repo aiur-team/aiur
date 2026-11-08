@@ -182,7 +182,7 @@ the machine, independently of repository workflows.
 | `machine:projects.priority` | integer | `null` | At least 0; lower is served first, `null` last. |
 | `machine:capacity.max_agents` | integer | `null` | At least 1; `null` means no machine ceiling. |
 | `machine:coordination.database_url_env` | string | `AIUR_LEASE_DATABASE_URL` | Name of an environment variable, never a URL. |
-| `machine:coordination.offline_after_seconds` | integer | `180` | 30–86400 seconds. |
+| `machine:coordination.offline_after_seconds` | integer | `180` | A gateway whose newest instance heartbeat is older than this raises one `system.gateway.<id>.offline` attention per outage, from the repository leader only; return closes it silently. Needs the shared store (`AIUR_LEASE_DATABASE_URL`); 30–86400 seconds. |
 
 Account registration, logout and settings writes preserve the other top-level
 sections. Malformed machine files cause account writes to return an error without

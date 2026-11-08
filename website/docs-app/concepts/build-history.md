@@ -180,9 +180,10 @@ history entry.
 ## The Live band
 
 The Live band shows active agents between history and the plan, in the same
-card style as the other tickets. It scrolls with the board and stays wherever you
-stop; the **Live** button scrolls to it. Minimize keeps
-state counts visible (`live=min`), and a state preset expands it. The clock shows
+card style as the other tickets. It scrolls with the board, but pins under the
+header or to the bottom edge rather than leave view (List too).
+
+The **Live** button scrolls to its place. Minimize keeps state counts visible (`live=min`), and a state preset expands it. The clock shows
 cached observation time when stale and `—` when unknown.
 
 Each agent card names its state in text, not colour alone.
@@ -193,7 +194,7 @@ Each agent card names its state in text, not colour alone.
 | **Retrying** | The agent is in retry backoff; counted separately from running agents. |
 | **Error** | The agent hit an error or is stuck. |
 | **Awaiting command** | The agent raised a Command that is still open. |
-| **Paused** | The agent is paused. |
+| **Paused** | The agent is paused. An operator, agent-requested or input-required pause holds its slot; a pause from the `agent:paused` label, CI wait, a blocker dependency, the duration cap or a usage limit does not. |
 | **Parked** | The agent is paused without reserving a slot, for example during a GitHub budget hold. |
 | **State unknown** | Aiur could not determine the agent's state. |
 

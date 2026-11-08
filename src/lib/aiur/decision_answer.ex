@@ -27,6 +27,7 @@ defmodule Aiur.DecisionAnswer do
           selected_option_id: String.t() | nil,
           custom_response: String.t() | nil,
           rationale: String.t() | nil,
+          rejected: boolean(),
           supervisor_basis: DecisionDelegation.basis() | nil,
           operator_quote: String.t() | nil,
           relayed_by: String.t() | nil,
@@ -52,6 +53,7 @@ defmodule Aiur.DecisionAnswer do
                 custom_response: nil,
                 media: [],
                 rationale: nil,
+                rejected: false,
                 supervisor_basis: nil,
                 operator_quote: nil,
                 relayed_by: nil,
@@ -76,6 +78,7 @@ defmodule Aiur.DecisionAnswer do
          :ok <- validate_option(selected_option_id, options, Keyword.get(opts, :allow_unchecked_option, false)),
          {:ok, rationale} <- optional_string(payload, :rationale, @rationale_max),
          {:ok, media} <- answer_media(payload, opts),
+         {:ok, rejected} <- rejected_flag(payload),
          {:ok, actor} <- normalize_actor(Keyword.fetch!(opts, :actor)),
          {:ok, relay} <- normalize_relay(payload, actor),
          {:ok, supervisor_basis} <- normalize_supervisor_basis(actor, opts),
@@ -95,6 +98,7 @@ defmodule Aiur.DecisionAnswer do
           actor: actor
         }
         |> maybe_put_media(media)
+        |> maybe_put_rejected(rejected)
         |> Map.merge(relay)
         |> maybe_put_supervisor_basis(supervisor_basis)
 
@@ -104,6 +108,7 @@ defmodule Aiur.DecisionAnswer do
          Map.merge(content, %{
            accepted_at: now,
            media: media,
+           rejected: rejected,
            content_hash: content_hash(content),
            ticket_comment_pending?: ticket_comment_pending?
          })
@@ -139,7 +144,8 @@ defmodule Aiur.DecisionAnswer do
                "rationale" => Map.get(raw, "rationale"),
                "operator_quote" => Map.get(raw, "operator_quote"),
                "relayed_by" => Map.get(raw, "relayed_by"),
-               "media" => Map.get(raw, "media")
+               "media" => Map.get(raw, "media"),
+               "rejected" => Map.get(raw, "rejected")
              },
              decision_id: decision_id,
              decision_version: decision_version,
@@ -199,6 +205,7 @@ defmodule Aiur.DecisionAnswer do
       "content_hash" => answer.content_hash
     }
     |> maybe_put_relay_json(answer)
+    |> maybe_put_rejected_json(answer.rejected)
   end
 
   defp validate_ticket_comment_pending(value) when is_boolean(value), do: :ok
@@ -400,6 +407,22 @@ defmodule Aiur.DecisionAnswer do
     index = if Keyword.get(opts, :allow_unchecked_media, false), do: nil, else: Keyword.get(opts, :command_media)
     Media.normalize_answer(get(payload, :media), index, Keyword.get(opts, :safe_roots) || DecisionValidation.safe_roots())
   end
+
+  # A rejection is an answer whose `custom_response` is the verbatim reason.
+  # The flag is only written when true, so ordinary answers keep their wire shape and hash.
+  defp rejected_flag(payload) do
+    case get(payload, :rejected) do
+      value when value in [nil, false] -> {:ok, false}
+      true -> {:ok, true}
+      _other -> {:error, {:rejected, :invalid_type}}
+    end
+  end
+
+  defp maybe_put_rejected(content, true), do: Map.put(content, :rejected, true)
+  defp maybe_put_rejected(content, false), do: content
+
+  defp maybe_put_rejected_json(json, true), do: Map.put(json, "rejected", true)
+  defp maybe_put_rejected_json(json, _false), do: json
 
   defp maybe_put_media(content, []), do: content
   defp maybe_put_media(content, media), do: Map.put(content, :media, media)

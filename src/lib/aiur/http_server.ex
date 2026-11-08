@@ -151,6 +151,7 @@ defmodule Aiur.HttpServer do
       decision_policy: Keyword.get(opts, :decision_policy),
       secret_key_base: secret_key_base(),
       allowed_hosts: allowed_hosts,
+      dashboard_origins: settings.dashboard_origins,
       check_origin: {AiurWeb.HostAllowlist, :check_origin, [AiurWeb.HostAllowlist.origins(public_url), allow_tailnet_hosts?]},
       allow_tailnet_hosts: allow_tailnet_hosts?,
       session_options: [

@@ -4,6 +4,8 @@ defmodule Aiur.Commands.NativeAnswer do
   alias Aiur.Commands.Answering
 
   @spec correlate(Aiur.Decision.t(), Aiur.DecisionAnswer.t(), map()) :: map()
+  def correlate(_decision, %{rejected: true}, correlation), do: correlation
+
   def correlate(%{native: %{hold: hold, native_ref: ref}, questions: questions}, answer, correlation) when hold in [:in_band, :deferred] do
     case complete_answers(questions, answer) do
       {:ok, answers} -> Map.merge(correlation, %{native_ref: ref, question_answers: answers})
@@ -14,6 +16,8 @@ defmodule Aiur.Commands.NativeAnswer do
   def correlate(_decision, _answer, correlation), do: correlation
 
   @spec validate(Aiur.Decision.t(), Aiur.DecisionAnswer.t()) :: :ok | {:error, term()}
+  def validate(_decision, %{rejected: true}), do: :ok
+
   def validate(%{questions: [_ | _] = questions}, answer) do
     case complete_answers(questions, answer) do
       {:ok, _answers} -> :ok
@@ -34,6 +38,8 @@ defmodule Aiur.Commands.NativeAnswer do
   end
 
   @spec render(Aiur.Decision.t(), Aiur.DecisionAnswer.t()) :: String.t() | nil
+  def render(_decision, %{rejected: true}), do: nil
+
   def render(%{questions: [_ | _] = questions}, answer) do
     case complete_answers(questions, answer) do
       {:ok, answers} -> Answering.render_question_answers(questions, answers)
