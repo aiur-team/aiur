@@ -15,6 +15,7 @@
     "src/lib/aiur/executor_events/**",
     "src/lib/aiur/executor_sweep/**",
     "src/lib/aiur/executor_wake_inbox/**",
+    "src/lib/aiur/gateway/liveness.ex",
     "src/lib/aiur/operator_wait_log.ex",
     "src/lib/aiur/progress_checkin/**",
     "src/lib/aiur/usage/alerts.ex"

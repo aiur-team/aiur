@@ -9,7 +9,7 @@
  */
 
 /** Every Command-level state the contract can carry. */
-export const COMMAND_STATES = ['pending', 'answered', 'revised', 'expired', 'unavailable', 'conflict', 'error'];
+export const COMMAND_STATES = ['pending', 'answered', 'revised', 'rejected', 'expired', 'unavailable', 'conflict', 'error'];
 
 /** Every list-level state the contract can carry. */
 export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error'];
@@ -18,6 +18,7 @@ const STATE_LABELS = {
   pending: 'Awaiting your answer',
   answered: 'Answered',
   revised: 'Answer revised',
+  rejected: 'Rejected',
   expired: 'No longer answerable',
   unavailable: 'Command state unavailable',
   conflict: 'Answer conflict',
@@ -38,13 +39,14 @@ export const DEFAULT_LABELS = {
   recommended: 'Recommended',
   recorded: 'Recorded answer',
   revised: 'Revised answer',
+  rejected: 'Rejection reason',
 };
 
 function labelOf(options, key) {
   return escapeHtml(options?.labels?.[key] ?? DEFAULT_LABELS[key]);
 }
 
-const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'revised', 'answered', 'pending'];
+const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'rejected', 'revised', 'answered', 'pending'];
 
 /** The typed Command media kinds the contract can carry. */
 export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
@@ -149,7 +151,7 @@ function answerMarkup(command, options) {
     : escapeHtml(command.answer.custom_response ?? 'Answer recorded');
 
   return `<div class="aiur-command-answer" data-part="answer" data-action-id="${escapeHtml(command.answer.action_id)}">
-  <span class="aiur-command-answer-label" data-part="answer-label">${stateOf(command) === 'revised' ? labelOf(options, 'revised') : labelOf(options, 'recorded')}</span>
+  <span class="aiur-command-answer-label" data-part="answer-label">${labelOf(options, stateOf(command) === 'rejected' ? 'rejected' : stateOf(command) === 'revised' ? 'revised' : 'recorded')}</span>
   <strong>${label}</strong>
 </div>`;
 }
