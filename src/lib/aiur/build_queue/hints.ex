@@ -7,6 +7,7 @@ defmodule Aiur.BuildQueue.Hints do
   """
 
   alias Aiur.BuildQueue.Settings
+  alias Aiur.Project.Table
 
   @table :aiur_build_queue_hints
   @sets_table :aiur_build_queue_sets
@@ -14,15 +15,18 @@ defmodule Aiur.BuildQueue.Hints do
   @spec table_name() :: atom()
   def table_name, do: @table
 
+  @doc "The hints table to read or write: this project's tid, or the named table."
+  @spec table_ref() :: :ets.table() | nil
+  def table_ref, do: Table.ref(@table)
+
   @spec publish_sets(map()) :: true
   def publish_sets(snapshot) do
-    if :ets.whereis(@sets_table) == :undefined, do: :ets.new(@sets_table, [:named_table, :set, :protected, read_concurrency: true])
-    :ets.insert(@sets_table, {:snapshot, snapshot})
+    :ets.insert(Table.new(@sets_table, [:set, :protected, read_concurrency: true]), {:snapshot, snapshot})
   end
 
   @spec sets() :: map() | nil
   def sets do
-    case :ets.lookup(@sets_table, :snapshot) do
+    case :ets.lookup(Table.ref(@sets_table), :snapshot) do
       [{:snapshot, snapshot}] -> snapshot
       [] -> nil
     end
@@ -41,7 +45,7 @@ defmodule Aiur.BuildQueue.Hints do
 
   @spec critical_rank(String.t()) :: {non_neg_integer(), non_neg_integer()} | nil
   def critical_rank(issue_id) do
-    case :ets.lookup(@table, issue_id) do
+    case :ets.lookup(Table.ref(@table), issue_id) do
       [{^issue_id, {downstream, _}, _, _, depth}] -> {depth, -downstream}
       [{^issue_id, {downstream, _}, _, _}] -> {0, -downstream}
       [{^issue_id, {downstream, _}, _}] -> {0, -downstream}
@@ -55,7 +59,7 @@ defmodule Aiur.BuildQueue.Hints do
   def observation_max_age_ms, do: Settings.observation_max_age_ms(Aiur.Config.settings!())
 
   defp lookup(issue_id) do
-    case :ets.lookup(@table, issue_id) do
+    case :ets.lookup(Table.ref(@table), issue_id) do
       [{^issue_id, sort_key, held?, trigger, _depth}] -> {sort_key, held?, trigger}
       [{^issue_id, sort_key, held?, trigger}] -> {sort_key, held?, trigger}
       [{^issue_id, sort_key, held?}] -> {sort_key, held?, nil}

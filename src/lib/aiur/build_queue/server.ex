@@ -1,6 +1,8 @@
 defmodule Aiur.BuildQueue.Server do
   @moduledoc "Owns dispatch hints and coalesces tracker signals into queue plans and executes paced label writes."
   use GenServer
+
+  alias Aiur.Project.Context
   require Logger
 
   alias Aiur.BuildQueue.{
@@ -31,17 +33,19 @@ defmodule Aiur.BuildQueue.Server do
 
   alias Aiur.BuildQueue.Sources.BuildOrder, as: BuildOrderSource
   alias Aiur.Events, as: EventBus
+  alias Aiur.Project.Table
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
   @debounce_ms 2_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    GenServer.start_link(__MODULE__, Context.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
   end
 
   @impl true
   def init(opts) do
+    Context.adopt(opts)
     {:ok, settings} = Keyword.get_lazy(opts, :settings, &Aiur.Config.settings/0)
 
     state = %{
@@ -340,7 +344,7 @@ defmodule Aiur.BuildQueue.Server do
     if state.tracker.open_issue_labels(1) == {:error, :unsupported} do
       %{state | status: :unsupported_tracker}
     else
-      :ets.new(Hints.table_name(), [:named_table, :set, :protected, read_concurrency: true])
+      Table.new(Hints.table_name(), [:set, :protected, read_concurrency: true])
       recover(state)
     end
   end

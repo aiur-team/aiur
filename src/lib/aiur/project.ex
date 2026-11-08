@@ -2,6 +2,7 @@ defmodule Aiur.Project do
   @moduledoc "One project (repository) the process serves: identity, config file and state directory."
 
   alias Aiur.Config.Paths
+  alias Aiur.Project.Context
 
   @enforce_keys [:id, :repo, :config_path, :state_root]
   defstruct [:id, :repo, :config_path, :state_root]
@@ -21,4 +22,16 @@ defmodule Aiur.Project do
   @doc "State root of the implicit (no-context) project."
   @spec default_state_root() :: {:ok, Path.t()} | {:error, atom()}
   def default_state_root, do: Paths.decision_state_dir()
+
+  @doc """
+  The GenServer name for `module` in the current project: a `Registry` via-tuple
+  with a project context, the bare module (today's `name: __MODULE__`) without.
+  """
+  @spec via(module()) :: module() | {:via, Registry, {atom(), {id(), module()}}}
+  def via(module) do
+    case Context.current_id() do
+      nil -> module
+      id -> {:via, Registry, {Aiur.ProjectRegistry, {id, module}}}
+    end
+  end
 end

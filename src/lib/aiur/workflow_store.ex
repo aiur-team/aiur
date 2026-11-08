@@ -52,7 +52,7 @@ defmodule Aiur.WorkflowStore do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    GenServer.start_link(__MODULE__, Context.carry(opts), name: Aiur.Project.via(__MODULE__))
   end
 
   @spec current() :: {:ok, Workflow.loaded_workflow()} | {:error, term()}
@@ -118,11 +118,8 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
-  # The singleton store serves the default project; a project context without
-  # a published row reads its own file until it has a store (MPG-304).
-  defp store_pid do
-    if Context.current_id(), do: nil, else: Process.whereis(__MODULE__)
-  end
+  # The store of the caller's project; none until that project has one.
+  defp store_pid, do: GenServer.whereis(Aiur.Project.via(__MODULE__))
 
   defp load_with_unknown_generation do
     with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
@@ -162,8 +159,8 @@ defmodule Aiur.WorkflowStore do
   @spec force_reload() :: :ok | {:error, term()}
   @spec force_reload(timeout()) :: :ok | {:error, term()}
   def force_reload(timeout \\ @call_timeout_ms) do
-    case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) -> call_force_reload(timeout)
+    case store_pid() do
+      pid when is_pid(pid) -> call_force_reload(pid, timeout)
       _ -> Reload.reload_without_store()
     end
   end
@@ -193,23 +190,23 @@ defmodule Aiur.WorkflowStore do
   #
   # The call is pinned the same way `current_from/1` pins its own, so an exit
   # raised by anything other than this call still propagates.
-  defp call_force_reload(timeout) do
-    GenServer.call(__MODULE__, :force_reload, timeout)
+  defp call_force_reload(server, timeout) do
+    GenServer.call(server, :force_reload, timeout)
   catch
     # Alive but not answering. `:workflow_store_call_timeout_ms` exists so the
     # saturation repro can exercise this path.
-    :exit, {:timeout, {GenServer, :call, [__MODULE__, :force_reload, _timeout]}} = reason ->
+    :exit, {:timeout, {GenServer, :call, [^server, :force_reload, _timeout]}} = reason ->
       exit(reason)
 
     # A real bug took the store down, e.g. config content that crashes the
     # reload. Absorbing that would turn a loud failure into a silent one.
-    :exit, {{exception, stacktrace}, {GenServer, :call, [__MODULE__, :force_reload, _timeout]}} = reason
+    :exit, {{exception, stacktrace}, {GenServer, :call, [^server, :force_reload, _timeout]}} = reason
     when is_exception(exception) and is_list(stacktrace) ->
       exit(reason)
 
     # Any other death — including a `{:stop, reason}` from a restarting
     # `init/1` — is the same situation as an absent store.
-    :exit, {_reason, {GenServer, :call, [__MODULE__, :force_reload, _timeout]}} ->
+    :exit, {_reason, {GenServer, :call, [^server, :force_reload, _timeout]}} ->
       Reload.reload_without_store()
 
     # A call to an already-dead pid can report the bare atom rather than the
@@ -222,7 +219,8 @@ defmodule Aiur.WorkflowStore do
   def subscribe(_pid \\ self()), do: Phoenix.PubSub.subscribe(Aiur.PubSub, Reload.configuration_topic())
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    Context.adopt(opts)
     Cache.init!()
 
     with {:ok, state} <- Reload.load_state(Workflow.workflow_file_path()),

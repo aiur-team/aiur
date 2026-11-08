@@ -2,6 +2,8 @@ defmodule Aiur.BuildOrder.Features do
   @moduledoc "Durable, single-writer feature and epic registry and membership journal."
   use GenServer
 
+  alias Aiur.Project.Context
+
   alias Aiur.BuildOrder.Epics.Journal, as: EpicJournal
   alias Aiur.BuildOrder.Epics.Operations, as: EpicOperations
   alias Aiur.BuildOrder.Features.{Journal, Operations, Persistence, Reads, RootImportMapping}
@@ -13,7 +15,7 @@ defmodule Aiur.BuildOrder.Features do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    GenServer.start_link(__MODULE__, Context.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
   end
 
   @spec create(String.t(), map(), keyword()) :: result()
@@ -71,7 +73,10 @@ defmodule Aiur.BuildOrder.Features do
   defdelegate root_slug(number), to: RootImportMapping, as: :slug
 
   @impl true
-  def init(opts), do: {:ok, Persistence.boot(opts)}
+  def init(opts) do
+    Context.adopt(opts)
+    {:ok, Persistence.boot(opts)}
+  end
 
   @impl true
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
@@ -212,7 +217,7 @@ defmodule Aiur.BuildOrder.Features do
 
   # ponytail: mailbox reads suffice; add ETS only after measured read latency exceeds 5 ms.
   defp call(message, opts, kind) do
-    GenServer.call(Keyword.get(opts, :server, __MODULE__), message, Keyword.get(opts, :timeout, 60_000))
+    GenServer.call(Keyword.get(opts, :server, Aiur.Project.via(__MODULE__)), message, Keyword.get(opts, :timeout, 60_000))
   catch
     :exit, {:noproc, _} -> missing(kind)
     :exit, {:normal, _} -> missing(kind)

@@ -9,13 +9,15 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   use GenServer
 
+  alias Aiur.Project.Context
+
   alias Aiur.{Issue, Orchestrator.TrackerIdentityStore}
   alias Aiur.Orchestrator.State
+  alias Aiur.Project.Table
 
   @table __MODULE__
   @identity_table Module.concat(__MODULE__, Identity)
   @table_opts [
-    :named_table,
     :public,
     :set,
     read_concurrency: true,
@@ -24,7 +26,7 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    GenServer.start_link(__MODULE__, Context.carry(opts), name: Aiur.Project.via(__MODULE__))
   end
 
   @spec reset([String.t() | integer()]) :: :ok
@@ -41,9 +43,9 @@ defmodule Aiur.Orchestrator.TrackedSet do
   def member?(nil), do: false
 
   def member?(issue_number) do
-    case :ets.whereis(@table) do
-      :undefined -> true
-      _table -> :ets.member(@table, to_string(issue_number))
+    case Table.ref(@table) do
+      nil -> true
+      table -> :ets.member(table, to_string(issue_number))
     end
   rescue
     ArgumentError -> true
@@ -53,7 +55,7 @@ defmodule Aiur.Orchestrator.TrackedSet do
   def tracker_identity(nil), do: nil
 
   def tracker_identity(identifier) do
-    case :ets.lookup(@identity_table, to_string(identifier)) do
+    case :ets.lookup(Table.ref(@identity_table), to_string(identifier)) do
       [{_identifier, %Aiur.TrackerIdentity{} = identity}] -> identity
       _ -> nil
     end
@@ -79,7 +81,8 @@ defmodule Aiur.Orchestrator.TrackedSet do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    Context.adopt(opts)
     ensure_table()
     ensure_identity_table()
     identities = TrackerIdentityStore.load()
@@ -102,9 +105,9 @@ defmodule Aiur.Orchestrator.TrackedSet do
   end
 
   defp call(message, attempts_left \\ 3) do
-    case Process.whereis(__MODULE__) do
+    case GenServer.whereis(Aiur.Project.via(__MODULE__)) do
       nil -> :ok
-      _pid -> GenServer.call(__MODULE__, message)
+      pid -> GenServer.call(pid, message)
     end
   catch
     # A busy-but-alive owner under host load can outlast the call's default
@@ -116,8 +119,8 @@ defmodule Aiur.Orchestrator.TrackedSet do
     :exit, _reason -> :ok
   end
 
-  defp replace_all(table, entries, attempts_left \\ 2) do
-    ensure_table(table)
+  defp replace_all(name, entries, attempts_left \\ 2) do
+    table = ensure_table(name)
     :ets.delete_all_objects(table)
 
     Enum.each(entries, fn
@@ -129,18 +132,13 @@ defmodule Aiur.Orchestrator.TrackedSet do
   rescue
     ArgumentError ->
       if attempts_left > 1 do
-        replace_all(table, entries, attempts_left - 1)
+        replace_all(name, entries, attempts_left - 1)
       else
         :ok
       end
   end
 
-  defp ensure_table(table \\ @table) do
-    case :ets.whereis(table) do
-      :undefined -> :ets.new(table, @table_opts)
-      existing -> existing
-    end
-  end
+  defp ensure_table(table \\ @table), do: Table.new(table, @table_opts)
 
   defp ensure_identity_table, do: ensure_table(@identity_table)
 end
