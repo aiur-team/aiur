@@ -42,7 +42,7 @@ defmodule Aiur.Project.SingletonIsolationTest do
   end
 
   test "exchanges deliver only to their own project's subscribers", %{a: a, b: b} do
-    for p <- [a, b], do: as(p, fn -> start(Exchange, name: Exchange.name()) end)
+    for p <- [a, b], do: as(p, fn -> start(Exchange, name: Aiur.Events.exchange_server()) end)
     me = self()
 
     for {tag, p} <- [a: a, b: b] do

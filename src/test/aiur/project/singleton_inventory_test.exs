@@ -7,7 +7,7 @@ defmodule Aiur.Project.SingletonInventoryTest do
   @registering ~r/name: __MODULE__|:name, __MODULE__|Project\.via\(__MODULE__\)/
   # Rows whose process is not started with a literal `name: __MODULE__` (its supervisor child
   # spec or a caller names it), so the scan cannot see them.
-  @unscanned ["Aiur.PubSub", "Aiur.TaskSupervisor", "Aiur.Orchestrator"]
+  @unscanned ["Aiur.PubSub", "Aiur.TaskSupervisor", "Aiur.Orchestrator", "Aiur.Events.Exchange", "Aiur.Events.SubscriptionStoreSupervisor"]
 
   # Module => {owner, ticket}, parsed from the ADR so the test cannot drift from a copy of it.
   defp adr do
