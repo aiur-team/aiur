@@ -21,7 +21,8 @@
     "control-cli",
     "gateway-registry",
     "identity",
-    "kernel"
+    "kernel",
+    "web-shell"
   ],
   "optional": [],
   "owns": {

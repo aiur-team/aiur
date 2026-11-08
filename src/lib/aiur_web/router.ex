@@ -131,14 +131,15 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewayPause, GatewaySummary, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewayHello, GatewayPause, GatewaySummary, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewayPause, GatewaySummary, GithubWebhook, Events, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewayHello, GatewayPause, GatewaySummary, GithubWebhook, Events, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
+  GatewayHello.receiver()
 
   scope "/", AiurWeb do
     pipe_through(:executor_hook_delivery_auth)

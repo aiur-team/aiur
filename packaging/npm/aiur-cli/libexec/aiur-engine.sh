@@ -131,6 +131,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature confirm <slug> <ids...> [--as <who>] [--json]
        aiur feature show [<slug>] [--unconfirmed] [--json]
        aiur gateway permissions [<peer>] [--json] | grant <peer> <categories> | revoke <peer> [<categories>] | trust <peer> --full  local only
+       aiur gateway discover [--port N] [--json]  list registry and tailnet gateways that answer hello (read-only)
        aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
