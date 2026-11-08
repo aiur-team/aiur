@@ -97,6 +97,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :operator_answer, [1]},
     {:agent, :operator_answer_preview, [1]},
     {:agent, :executor_check, [1]},
+    {:agent, :ownership_migrate, [1]},
     {:agent, :executor_attach, [1]},
     {:agent, :executor_detach, [1]},
     {:agent, :executor_listen, [0, 1]},
