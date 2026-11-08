@@ -126,6 +126,7 @@ defmodule Aiur.Application.Children do
       Aiur.AgentResourceGuard,
       Aiur.AgentProcessLog,
       Aiur.SaturationSentinel,
+      Aiur.MemoryWatchdog,
       Aiur.BuildGateHoldMonitor,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
