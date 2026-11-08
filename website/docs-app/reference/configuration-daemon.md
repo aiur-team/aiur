@@ -343,7 +343,7 @@ These policy keys never grant transport access by themselves. The supervisor API
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-18 -->
 | --- | --- | --- | --- |
 | `server.allowed_hosts` | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
-| `server.dashboard_origins` | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` cross-origin with credentials; `http` only on loopback. Writes stay same-origin. |
+| `server.dashboard_origins` | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` and to `POST` the four gateway/fleet pause routes cross-origin with credentials; `http` only on loopback. Every other write stays same-origin. |
 | `server.host` | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
 | `server.public_url` | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
