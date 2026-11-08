@@ -445,11 +445,9 @@ defmodule AiurWeb.Build.Index do
   end
 
   defp finish(state, parts, keys) do
-    {parts, history_at} =
-      HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
+    {parts, history_at} = HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
 
     {parts, now_unavailable?} = RefreshState.retain_unavailable_agents(parts, state.parts)
-
     next = Core.assemble(parts, now: clock(state))
 
     {parts, next, settings_loading_since_ms} =
@@ -481,8 +479,7 @@ defmodule AiurWeb.Build.Index do
     state = %{state | waiting: []}
 
     cond do
-      MapSet.size(state.dirty) > 0 -> schedule(state)
-      now_unavailable? -> schedule(state)
+      MapSet.size(state.dirty) > 0 or now_unavailable? -> schedule(state)
       true -> state
     end
   end
