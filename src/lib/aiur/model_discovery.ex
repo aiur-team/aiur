@@ -75,6 +75,7 @@ defmodule Aiur.ModelDiscovery do
   alias Aiur.{CodingAgent, Config, ModelCatalog, Workflow}
   alias Aiur.ModelDiscovery.{Cache, Fetch, PriceDrift, Report}
 
+  alias Aiur.Project.Context
   @cache_file "model-catalog.json"
   @ttl_seconds 86_400
   # A refresh attempt — success or failure — holds the next one off for this
@@ -96,10 +97,13 @@ defmodule Aiur.ModelDiscovery do
   """
   @spec path() :: Path.t() | nil
   def path do
-    Path.join(Path.dirname(Workflow.workflow_file_path()), @cache_file)
+    Path.join(Path.dirname(machine_config_path()), @cache_file)
   rescue
     _error -> nil
   end
+
+  # The model list is a machine fact: ignore any project context.
+  defp machine_config_path, do: Context.without(&Workflow.workflow_file_path/0)
 
   @doc "Whole cache document. A missing, unreadable, or corrupt file reads as empty."
   @spec load(Path.t() | nil) :: map()

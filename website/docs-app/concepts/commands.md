@@ -243,10 +243,12 @@ Enabling the relay gate raises an info alert. Every relay also raises an info al
 A host can reject a Command with a free-text reason (`POST
 /api/v1/commands/:id/reject`, see [embedded Commands](../guide/embedded-commands.md)).
 Unlike dismissal, which delivers nothing and is refused for a blocking Command,
-a rejection is recorded as the answer: the reason is stored verbatim, the
-agent receives a message naming the rejection and the reason, and a blocking
-Command unblocks. The component state is `rejected`. A rejected or dismissed
-Command also moots its open [`group:` siblings](../guide/embedded-commands.md#tags-and-sibling-commands).
+a rejection is recorded as the answer.
+
+The reason is stored verbatim, the agent receives a message naming the
+rejection and the reason, and a blocking Command unblocks. The component state is `rejected`.
+A rejected or dismissed Command also moots its open
+[`group:` siblings](../guide/embedded-commands.md#tags-and-sibling-commands).
 
 ## Overriding an answer
 
