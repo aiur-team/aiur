@@ -6,8 +6,8 @@ defmodule Aiur.Intent.PauseDeliveryTest do
 
   alias Aiur.ControlCLI.FleetPause
   alias Aiur.Intent.{Change, Registers, Store}
-  alias Aiur.Orchestrator.StatusCLI.Diagnostics
   alias Aiur.Orchestrator.{GlobalPause, Slots, State}
+  alias Aiur.Orchestrator.StatusCLI.Diagnostics
 
   @now 5_000_000
 
