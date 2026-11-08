@@ -31,7 +31,10 @@ defmodule AiurWeb.ExperimentsNavigationTest do
       assert route.plug_opts == action
       {AiurWeb.ExperimentsLive, ^action, _, session} = route.metadata.phoenix_live_view
       assert session.name == :dashboard
-      assert Enum.map(session.extra.on_mount, &elem(&1.id, 0)) == [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess]
+
+      assert Enum.map(session.extra.on_mount, &elem(&1.id, 0)) ==
+               [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess, AiurWeb.ProjectsHome.Gate]
+
       info = Phoenix.Router.route_info(AiurWeb.Router, "GET", String.replace(path, ":id", "example"), "localhost")
       assert info.pipe_through == [:browser_dashboard_auth, :dashboard_pages, :browser]
     end

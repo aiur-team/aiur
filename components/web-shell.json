@@ -75,6 +75,7 @@
   ],
   "owns": {
     "config": [
+      "dashboard",
       "dashboard_auth",
       "observability",
       "server"
@@ -102,6 +103,7 @@
     "guide/gui.md"
   ],
   "config": [
+    "dashboard",
     "dashboard_auth",
     "observability",
     "server"

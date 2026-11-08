@@ -129,6 +129,7 @@ export default withMermaid(defineConfig({
             { text: 'GUI', link: '/guide/gui' },
             { text: 'GUI conversations', link: '/guide/gui-conversations' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
+            { text: 'Projects home', link: '/guide/projects-home' },
             { text: 'Outbound events', link: '/guide/outbound-events' },
             { text: 'Embedded Commands', link: '/guide/embedded-commands' },
             { text: 'Daily newsletter', link: '/guide/newsletter' },
