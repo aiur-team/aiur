@@ -44,6 +44,19 @@ defmodule Aiur.Application.ChildrenOrderTest do
       assert is_integer(lease_store)
       assert is_integer(heartbeat)
       assert lease_store < heartbeat
+
+      liveness = Enum.find_index(mods, &(&1 == Aiur.Gateway.Liveness))
+      assert is_integer(liveness), "Gateway.Liveness must be supervised when the store is configured"
+      assert heartbeat < liveness, "Gateway.Liveness reads the roster, so it must follow the heartbeat publisher"
+    end
+
+    test "gateway liveness is not supervised without a lease store" do
+      previous_url = Application.get_env(:aiur, :lease_database_url)
+      Application.delete_env(:aiur, :lease_database_url)
+      on_exit(fn -> if previous_url, do: Application.put_env(:aiur, :lease_database_url, previous_url) end)
+
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
+      refute Aiur.Gateway.Liveness in mods
     end
 
     test "intent children: Hlc and Store always start; Sync starts after the lease store and heartbeat only when configured" do

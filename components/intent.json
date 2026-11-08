@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur/intent/dir.ex",
     "src/lib/aiur/intent/hlc.ex",
+    "src/lib/aiur/intent/reconciler.ex",
     "src/lib/aiur/intent/store.ex",
     "src/lib/aiur/intent/sync.ex",
     "src/lib/aiur/intent/writer.ex"

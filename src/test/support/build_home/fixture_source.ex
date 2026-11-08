@@ -7,7 +7,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile chains list-edges now0 now24)
   # In-memory scale sets derived from dense (MP-E8-C12-T06); no committed 10,000-row file.
-  @scaled ~w(scale10k nq300 nq1000 agents20)
+  @scaled ~w(scale10k nq300 nq1000 agents20 crowded)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   def datasets, do: @files ++ @scaled ++ ~w(degraded unavailable hold unfiled unfiled_unavailable)
@@ -175,6 +175,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   defp scale("nq300", dense), do: Scale.with_nq(dense, 300)
   defp scale("nq1000", dense), do: Scale.with_nq(dense, 1_000)
   defp scale("agents20", dense), do: dense |> Scale.dataset(10_000) |> Scale.with_active(20)
+  defp scale("crowded", dense), do: Scale.crowded(dense)
 
   defp page(data, before, zone, days, opts) do
     rows = data["sections"]["hist"]
