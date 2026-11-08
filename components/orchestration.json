@@ -45,6 +45,7 @@
     "github",
     "harness-adapters",
     "identity",
+    "intent",
     "kernel",
     "listener-modes",
     "signal",

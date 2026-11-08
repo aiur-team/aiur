@@ -6,7 +6,6 @@
   "paths": [
     "src/lib/aiur/intent/dir.ex",
     "src/lib/aiur/intent/hlc.ex",
-    "src/lib/aiur/intent/pause_delivery.ex",
     "src/lib/aiur/intent/reconciler.ex",
     "src/lib/aiur/intent/registers.ex",
     "src/lib/aiur/intent/store.ex",
@@ -16,7 +15,6 @@
   "facades": [
     "Aiur.Intent.Dir",
     "Aiur.Intent.Hlc",
-    "Aiur.Intent.PauseDelivery",
     "Aiur.Intent.Registers",
     "Aiur.Intent.Store",
     "Aiur.Intent.Sync",

@@ -1,4 +1,4 @@
-defmodule Aiur.Intent.PauseDelivery do
+defmodule Aiur.ControlCLI.FleetPause do
   @moduledoc """
   `aiur pause|resume --all-gateways`: records one `fleet.pause` change, pushes it to the shared
   store, applies it here, and hands the engine the change so it can deliver it directly to each

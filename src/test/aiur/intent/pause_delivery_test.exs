@@ -4,7 +4,8 @@ defmodule Aiur.Intent.PauseDeliveryTest do
   import ExUnit.CaptureIO
   import Aiur.IntentFixtures
 
-  alias Aiur.Intent.{Change, PauseDelivery, Registers, Store}
+  alias Aiur.ControlCLI.FleetPause
+  alias Aiur.Intent.{Change, Registers, Store}
   alias Aiur.Orchestrator.{GlobalPause, Slots, State}
 
   @now 5_000_000
@@ -78,7 +79,7 @@ defmodule Aiur.Intent.PauseDeliveryTest do
   end
 
   describe "apply_remote_change/2" do
-    defp deliver(c, opts), do: capture_io(fn -> PauseDelivery.apply_remote_change(c |> Change.to_json() |> Jason.encode!(), opts) end)
+    defp deliver(c, opts), do: capture_io(fn -> FleetPause.apply_remote_change(c |> Change.to_json() |> Jason.encode!(), opts) end)
 
     test "applies an executor pause once and reports a duplicate the second time", %{store: store, opts: opts} do
       c = pause_change("direct", 1_000, true, "executor")

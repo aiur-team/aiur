@@ -63,6 +63,7 @@
     "harness-adapters",
     "identity",
     "init",
+    "intent",
     "kernel",
     "launcher",
     "listener-modes",
