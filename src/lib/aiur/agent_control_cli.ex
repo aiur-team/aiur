@@ -87,6 +87,9 @@ defmodule Aiur.AgentControlCLI do
   defdelegate reset_budget(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate pause_global(), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume_global(), to: Aiur.Orchestrator.ControlCLI
+  defdelegate pause_fleet(opts \\ []), to: Aiur.ControlCLI.FleetPause, as: :pause_all
+  defdelegate resume_fleet(opts \\ []), to: Aiur.ControlCLI.FleetPause, as: :resume_all
+  defdelegate apply_fleet_pause_change(json), to: Aiur.ControlCLI.FleetPause, as: :apply_remote_change
   defdelegate set_max_agents(n), to: Aiur.Orchestrator.ControlCLI
   defdelegate set_setting(key, json_value), to: Aiur.ControlCLI.Settings, as: :set
   defdelegate set_setting(key, json_value, opts), to: Aiur.ControlCLI.Settings, as: :set

@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   alias Aiur.Config
   alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
@@ -61,7 +62,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   # widening envelope with agents still starting — is the intended behavior,
   # not starvation (#2447).
   defp fleet_capacity_starved?(context) do
-    not context.state.globally_paused and context.ready_count > 0 and
+    not PauseGuard.paused?(context.state) and context.ready_count > 0 and
       (hard_capacity_gate?(context) or fleet_at_capacity_bound?(context))
   end
 

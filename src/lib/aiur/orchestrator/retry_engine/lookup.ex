@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.MembershipLifecycle
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.RetryEngine.Scheduling
@@ -23,7 +24,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   def handle_retry_issue(%State{} = state, issue_id, attempt, metadata, opts \\ []) do
     state = if metadata[:retry_label?], do: sync_retrying_modifier(state, metadata, issue_id, :remove), else: state
 
-    if retry_capacity_available?(state, metadata) and not state.globally_paused do
+    if retry_capacity_available?(state, metadata) and not PauseGuard.paused?(state) do
       start_retry_poll(state, issue_id, attempt, metadata, opts)
     else
       {:noreply, schedule_capacity_retry(state, issue_id, attempt, metadata)}
@@ -79,7 +80,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   end
 
   defp apply_retry_poll_result(current, issue_id, attempt, metadata, opts, {:ok, issue}) do
-    if retry_capacity_available?(current, metadata) and not current.globally_paused do
+    if retry_capacity_available?(current, metadata) and not PauseGuard.paused?(current) do
       {:noreply, next} = handle_retry_issue_lookup(issue, current, issue_id, attempt, metadata, opts)
       next
     else

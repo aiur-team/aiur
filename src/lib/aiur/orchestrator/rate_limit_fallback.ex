@@ -18,6 +18,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   """
 
   require Logger
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Accounts.UsageReadings
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
   alias Aiur.Orchestrator.RateLimitFallback.PausedFallback
@@ -266,7 +268,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp apply_decision(state, _running_entry, _issue, :noop, _opts), do: {state, false}
 
-  defp apply_decision(%State{globally_paused: true} = state, _entry, _issue, :resume, _opts), do: {state, false}
+  defp apply_decision(%State{} = state, _entry, _issue, :resume, _opts) when effective_paused?(state), do: {state, false}
 
   defp apply_decision(state, running_entry, _issue, :resume, opts) do
     resume = Keyword.get(opts, :resume_fun, &PauseResume.resume_paused_issue(&1, &2, false))

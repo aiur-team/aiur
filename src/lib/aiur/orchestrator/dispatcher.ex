@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   Tracker work executes outside the owner; guarded results apply inside it.
   """
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
@@ -214,7 +216,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @doc false
   @spec start_candidate_poll(State.t(), (map() -> term())) :: State.t()
-  def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
+  def start_candidate_poll(%State{} = state, fetch_fun) when effective_paused?(state),
     do:
       PausedCandidatePoll.start(
         FeatureSupply.unavailable(state),
@@ -405,7 +407,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     choose_issues_in_order(state, candidates, opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
-  defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
+  defp choose_issues_in_order(%State{} = state, _issues, opts, _active, _terminal, _initial, _index) when effective_paused?(state),
     do: DispatchBatch.finish(state, opts, nil)
 
   defp choose_issues_in_order(state, [], opts, _active, _terminal, _initial, _index), do: DispatchBatch.finish(state, opts, nil)
