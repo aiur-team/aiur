@@ -106,8 +106,9 @@ defmodule Aiur.Commands.HostApiRejectTest do
     assert state != "rejected"
 
     long = %{payload(command.version) | "reason" => String.duplicate("x", 4_001)}
-    assert {:ok, %{"command" => %{"state" => long_state}}} = HostApi.reject(scope, command.decision_id, long, store: store)
-    assert long_state != "rejected"
+
+    assert {:error, {:invalid_answer, {:custom_response, :too_long}}} =
+             HostApi.reject(scope, command.decision_id, long, store: store)
   end
 
   test "a retry with the same idempotency key does not record a second rejection", %{store: store} do

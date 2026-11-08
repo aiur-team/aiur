@@ -191,6 +191,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.restart.handoff.fallback", "orchestration"},
     # aiur/rtk_startup_check.ex
     {"system.rtk.gh_rewrite", "harness-adapters"},
+    # aiur/orchestrator/spend_cap/health.ex
+    {"system.spend_cap.unavailable", "orchestration"},
+    # aiur/orchestrator/spend_cap/health.ex
+    {"system.spend_cap.unavailable.resolved", "orchestration"},
     # aiur/orchestrator/event_delivery.ex
     {"system.subscription_store.event_dead_lettered", "orchestration"},
     # aiur/supervision_health.ex

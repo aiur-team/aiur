@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   require Logger
 
   alias Aiur.{AgentPubSub, Events, Signal}
-  alias Aiur.Orchestrator.SpendCap.{Evaluation, OutboundEvents, Persistence, Record, Runtime, Stop}
+  alias Aiur.Orchestrator.SpendCap.{Evaluation, Health, OutboundEvents, Persistence, Record, Runtime, Stop}
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.TrackerIdentity
   alias Aiur.UsageAggregate
@@ -64,6 +64,11 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       repository: repository,
       records: %{},
       health: {:unavailable, :spend_cap_state_unavailable},
+      faults: %{},
+      health_alerted?: false,
+      health_retry_scheduled?: false,
+      health_retry_attempt: 0,
+      load_opts: Keyword.take(opts, [:state_dir, :writer]),
       path: nil,
       writer: Keyword.get(opts, :writer, &Aiur.Fs.atomic_write/3),
       table: table,
@@ -96,10 +101,10 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       if is_binary(repository) and repository != "" do
         case Persistence.load(opts, repository) do
           {:ok, path, records, writer} -> %{base | path: path, records: records, writer: writer, health: :healthy}
-          {:error, reason, path, writer} -> %{base | path: path, writer: writer, health: {:unavailable, reason}}
+          {:error, reason, path, writer} -> Health.fault(%{base | path: path, writer: writer}, :load, reason)
         end
       else
-        %{base | health: {:unavailable, :spend_cap_state_unavailable}}
+        Health.fault(base, :load, :spend_cap_state_unavailable)
       end
 
     sync_table(state)
@@ -115,9 +120,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
     else
       reason ->
         Logger.error("spend-cap subscription failed reason=#{inspect(reason)}")
-        state = %{state | health: {:unavailable, :spend_cap_subscription_failed}}
-        sync_table(state)
-        {:noreply, state}
+        {:noreply, Health.fault(state, :subscription, :spend_cap_subscription_failed)}
     end
   end
 
@@ -147,6 +150,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
           state = state |> Runtime.update_partial_attention(key, record, self()) |> drive_effects()
           {:reply, {:ok, Record.public(record)}, state}
         else
+          {:error, reason, state} -> {:reply, {:error, reason}, state}
           {:error, reason} -> {:reply, {:error, reason}, state}
         end
     end
@@ -175,7 +179,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       {:ok, key, _record} ->
         case persist_records(state, Map.delete(state.records, key)) do
           {:ok, state} -> {:reply, :ok, clear_retry(state, key)}
-          {:error, reason} -> {:reply, {:error, reason}, state}
+          {:error, reason, state} -> {:reply, {:error, reason}, state}
         end
 
       {:error, reason} ->
@@ -212,6 +216,8 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   def handle_info(:resume_spend_cap_effects, state), do: {:noreply, drive_effects(state)}
 
+  def handle_info(:retry_spend_cap_health, state), do: {:noreply, state |> Health.retry() |> drive_effects()}
+
   def handle_info({:spend_cap_partial_alert, key, disposition, result}, state) do
     {:noreply, Runtime.finish_partial_attention(state, key, disposition, result)}
   end
@@ -228,7 +234,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
         case persist_records(state, Map.put(state.records, key, record)) do
           {:ok, state} -> {:noreply, drive_effects(state)}
-          {:error, _reason} -> {:noreply, state}
+          {:error, _reason, state} -> {:noreply, state}
         end
 
       {%Record{} = record, false} ->
@@ -299,7 +305,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
         refreshed.state == :budget_exhausted ->
           case persist_records(state, Map.put(state.records, key, refreshed)) do
             {:ok, state} -> {refreshed, state}
-            {:error, _reason} -> {record, state}
+            {:error, _reason, state} -> {record, state}
           end
 
         true ->
@@ -316,12 +322,10 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       :ok ->
         state = %{state | records: records}
         sync_table(state)
-        {:ok, state}
+        {:ok, Health.clear(state, :persistence)}
 
       {:error, reason} ->
-        state = %{state | health: {:unavailable, reason}}
-        sync_table(state)
-        {:error, reason}
+        {:error, reason, Health.fault(state, :persistence, reason)}
     end
   end
 
@@ -350,7 +354,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
         case persist_records(state, Map.put(state.records, key, record)) do
           {:ok, state} -> start_effect(state, key, record, :event)
-          {:error, _reason} -> state
+          {:error, _reason, state} -> state
         end
 
       other ->
@@ -456,12 +460,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
     Aiur.Project.Table.new(name, [:protected, :set, read_concurrency: true])
   end
 
-  defp sync_table(state) do
-    :ets.delete_all_objects(state.table)
-    :ets.insert(state.table, {:health, state.health})
-    Enum.each(state.records, fn {key, record} -> :ets.insert(state.table, {key, record.state}) end)
-    :ok
-  end
+  defp sync_table(state), do: Health.sync_table(state)
 
   defp sync_record(table, key, record), do: :ets.insert(table, {key, record.state})
 
