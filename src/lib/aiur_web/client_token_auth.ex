@@ -67,6 +67,8 @@ defmodule AiurWeb.ClientTokenAuth do
 
   # REST write routes carry no category of their own: only a token holding every category
   # (legacy write) passes, except the messages route, which maps to `message`.
+  # The control endpoint checks the category per call in ControlController.
+  defp rest_write_allowed?(%Plug.Conn{path_info: ["api", "v1", "control"]}, _cats), do: true
   defp rest_write_allowed?(%Plug.Conn{path_info: ["api", "v1", _, "messages"]}, cats), do: "message" in cats or full?(cats)
   defp rest_write_allowed?(_conn, cats), do: full?(cats)
 
