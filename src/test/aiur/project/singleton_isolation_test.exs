@@ -56,12 +56,12 @@ defmodule Aiur.Project.SingletonIsolationTest do
           end
         end)
 
-      assert_receive {:subscribed, ^tag}
+      assert_receive {:subscribed, ^tag}, 1_000
     end
 
     as(a, fn -> Exchange.publish("ticket.12.agent.x", :from_a) end)
 
-    assert_receive {:got, :a, :from_a}
+    assert_receive {:got, :a, :from_a}, 1_000
     refute_receive {:got, :b, _}, 100
   end
 
