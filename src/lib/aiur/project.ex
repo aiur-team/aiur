@@ -18,6 +18,24 @@ defmodule Aiur.Project do
     %__MODULE__{id: String.downcase(repo), repo: repo, config_path: Path.expand(config), state_root: state_root}
   end
 
+  @doc "Scopes a machine-level key by the caller's project; the bare key with no context."
+  @spec scope_key(term()) :: term()
+  def scope_key(key) do
+    case Aiur.Project.Context.current_id() do
+      nil -> key
+      id -> {id, key}
+    end
+  end
+
+  @doc "Scopes a PubSub topic by the caller's project; the bare topic with no context."
+  @spec topic(String.t()) :: String.t()
+  def topic(base) do
+    case Aiur.Project.Context.current_id() do
+      nil -> base
+      id -> "project:" <> id <> ":" <> base
+    end
+  end
+
   @doc "State root of the implicit (no-context) project."
   @spec default_state_root() :: {:ok, Path.t()} | {:error, atom()}
   def default_state_root, do: Paths.decision_state_dir()
