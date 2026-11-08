@@ -352,6 +352,8 @@ aiur_engine_main() {
       cmd_build_orders "$@"
       ;;
     history) shift; cmd_history "$@" ;;
+    # @cli-reference aiur gateway reload | Starts projects added to `projects:` in `~/.aiur/machine`, stops removed ones and leaves the rest running; local only. | aiur gateway reload
+    gateway) shift; cmd_gateway "$@" ;;
     voice) shift; cmd_voice "$@" ;;
     analytics) shift; cmd_analytics "$@" ;;
     github-cost) shift; usage_alias github-cost "$@" ;;

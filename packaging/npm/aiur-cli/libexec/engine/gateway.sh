@@ -55,3 +55,10 @@ resolve_gateway() {
       ;;
   esac
 }
+
+# `aiur gateway reload`: start projects added to `projects:` in ~/.aiur/machine and
+# stop the removed ones, leaving every other project tree alone. Local only.
+cmd_gateway() {
+  [ "${1:-}" = reload ] && [ "$#" -eq 1 ] || { echo "aiur: gateway accepts: reload" >&2; return 64; }
+  run_control_rpc "Aiur.Gateway.CLI.reload()"
+}

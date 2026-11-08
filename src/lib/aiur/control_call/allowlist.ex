@@ -48,7 +48,7 @@ defmodule Aiur.ControlCall.Allowlist do
   # Each signature has {scope, positional constraints, keyword constraints}.
   @agent_rows [
     {:status, 0, :read, [], %{status_timeout_ms: :positive, section_timeout_ms: :positive}},
-    {:status, 1, :read, [:keyword], %{status_timeout_ms: :positive, section_timeout_ms: :positive}},
+    {:status, 1, :read, [:keyword], %{status_timeout_ms: :positive, section_timeout_ms: :positive, json: :boolean}},
     {:agents, 0, :read, [], %{}},
     {:agents, 1, :read, [:keyword], %{all: :boolean}},
     {:watch, 0, &__MODULE__.watch_category/1, [], %{mode: {:enum, [:full, :changes]}, json: :boolean}},

@@ -6,7 +6,10 @@ defmodule Aiur.AgentControlCLI do
   defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
 
   @spec status(keyword()) :: :ok
-  def status(opts \\ []) do
+  def status(opts \\ [])
+  def status(json: true), do: Aiur.Project.StatusRows.print()
+
+  def status(opts) do
     case StartupChecks.validate_hosted_secrets() do
       :ok -> :ok
       {:error, messages} -> Enum.each(messages, &IO.puts/1)
