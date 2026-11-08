@@ -154,4 +154,4 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 142 | `Aiur.Workspace.Ownership.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
 | 143 | `Aiur.Logs.Retention` | machine | Prunes log files on the machine. | — |
 
-| 144 | `Aiur.Ownership.Fence` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 144 | `Aiur.Ownership.Fence` | machine | Answers the git and gh guards for every agent the daemon runs; one fence per daemon. | MPG-105 |
