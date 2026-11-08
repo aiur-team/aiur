@@ -16,8 +16,7 @@ defmodule AiurWeb.Build.IndexAgentRecoveryTest do
     receive_barrier({:recovery_read, worker, dirty})
     assert MapSet.member?(dirty, :now)
     unavailable = put_in(initial, [:now], %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: "fleet_unavailable"}})
-    send(worker, {:return, unavailable})
-    assert await_read_finish(pid, 100)
+    finish_read(pid, worker, unavailable)
 
     assert {:ok, snapshot} = Index.window(pid, "Etc/UTC")
     assert Enum.map(snapshot.sections.now, & &1.id) == ["12"]
@@ -38,8 +37,7 @@ defmodule AiurWeb.Build.IndexAgentRecoveryTest do
     send(pid, :flush)
     receive_barrier({:recovery_read, worker, dirty})
     assert MapSet.member?(dirty, :now)
-    send(worker, {:return, ready})
-    assert await_read_finish(pid, 100)
+    finish_read(pid, worker, ready)
 
     assert {:ok, recovered} = Index.window(pid, "Etc/UTC")
     assert Enum.map(recovered.sections.now, & &1.id) == ["12"]
@@ -68,8 +66,7 @@ defmodule AiurWeb.Build.IndexAgentRecoveryTest do
 
     pid = start_supervised!({Index, opts}, id: {:index_agent_recovery, System.unique_integer([:positive])})
     receive_barrier({:recovery_read, worker, :all})
-    send(worker, {:return, initial})
-    true = await_read_finish(pid, 100)
+    finish_read(pid, worker, initial)
     pid
   end
 
@@ -78,18 +75,14 @@ defmodule AiurWeb.Build.IndexAgentRecoveryTest do
     :sys.get_state(pid)
     send(pid, :flush)
     receive_barrier({:recovery_read, worker, _dirty})
-    send(worker, {:return, value})
-    assert await_read_finish(pid, 100)
+    finish_read(pid, worker, value)
   end
 
-  defp await_read_finish(_pid, 0), do: false
-
-  defp await_read_finish(pid, attempts) do
-    if is_nil(:sys.get_state(pid).task) do
-      true
-    else
-      Process.sleep(10)
-      await_read_finish(pid, attempts - 1)
-    end
+  # The worker replies to the Index before it exits, so its DOWN orders after the reply.
+  defp finish_read(pid, worker, value) do
+    ref = Process.monitor(worker)
+    send(worker, {:return, value})
+    assert_receive {:DOWN, ^ref, :process, ^worker, _reason}, 1_000
+    assert :sys.get_state(pid).task == nil
   end
 end
