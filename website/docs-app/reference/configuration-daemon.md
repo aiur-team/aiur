@@ -368,14 +368,13 @@ A fixed `server.port` that is already bound — for example a second `aiur` inst
 The durable repository Executor state also records every daemon start and stop in `<repo>.control-lifecycle.json`, with the invoking process's OS pid, parent pid, and hostname. All runs for that repository share the journal, so a second instance or a crash is identifiable after the fact even when each run has a different log directory.
 
 ## dashboard
-| Key | Type | Default | Controls |
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-25 -->
 | --- | --- | --- | --- |
 | `dashboard.projects_home` | boolean | false | Serves the all-projects home at `/projects` and redirects a bare `/` to it. `/build` stays the Build page. |
 
 ## dashboard_auth
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-22 -->
 | --- | --- | --- | --- |
-| `dashboard.projects_home` | boolean | false | Serves the all-projects home at `/projects` and redirects a bare `/` to it. `/build` stays the Build page. |
 | `dashboard_auth.browser_basic_auth` | boolean | true | Allows Basic Auth fallback on browser pages; API and Stream Deck machine clients keep Basic Auth. |
 | `dashboard_auth.google.allowed_emails` | array | `[]` | Exact email allowlist for Google OpenID Connect; an empty list disables Google sign-in. |
 | `dashboard_auth.passkeys` | boolean | false | Enables passkey login and enrollment after a fresh Google sign-in. |
