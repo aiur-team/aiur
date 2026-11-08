@@ -92,7 +92,7 @@ defmodule Aiur.Gateway.Discovery do
   defp probe(target, get) do
     case get.(target.url) do
       {:ok, %{} = body} -> classify(target, body)
-      {:error, :unrecognised} -> row(target, "answered, unrecognised", nil)
+      {:error, reason} when reason in [:unrecognised, :hello_disabled] -> row(target, "answered, unrecognised", nil)
       {:error, _reason} -> if target.registered, do: row(target, "unreachable", nil), else: row(target, :omit, nil)
     end
   end
@@ -133,6 +133,9 @@ defmodule Aiur.Gateway.Discovery do
 
       {:ok, %{status: 200}} ->
         {:error, :unrecognised}
+
+      {:ok, %{status: 404}} ->
+        {:error, :hello_disabled}
 
       {:ok, _other} ->
         {:error, :unrecognised}

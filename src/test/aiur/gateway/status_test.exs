@@ -54,12 +54,26 @@ defmodule Aiur.Gateway.StatusTest do
 
     assert out =~ ~r/^pc\tyes\toffline\tunknown \(last active, 12m ago\)\t12m ago\t.*\t3 \(12m ago\)\t/m
     assert out =~ ~r/^nook\tyes\tonline\tactive\tnow\t/m
-    assert out =~ "agents total: 15\n"
+    assert out =~ "agents total: 15 (3 cached)\n"
 
     {0, json} = run([ok("nook", 12), down("pc")], now: now, http_get: hello([{"nook.test", @nook}]), json: true)
     pc = rows(json)["pc"]
     assert %{"connectivity" => "offline", "workload" => "unknown", "freshness" => "stale", "agents" => 3, "age_ms" => 720_000} = pc
     assert pc["last_seen_at"] == now |> DateTime.add(-720) |> DateTime.to_iso8601()
+  end
+
+  test "a 404 hello reads as error with the cause kept apart from an invalid hello", %{now: now} do
+    off = fn _url -> {:error, :hello_disabled} end
+    bad = fn _url -> {:error, :unrecognised} end
+
+    {0, json} = run([ok("nook", 2)], now: now, http_get: off, peer: nil, json: true)
+    assert %{"connectivity" => "error", "reason" => "hello disabled"} = rows(json)["nook"]
+
+    {0, json} = run([ok("nook", 2)], now: now, http_get: bad, json: true)
+    assert %{"connectivity" => "error", "reason" => "invalid hello"} = rows(json)["nook"]
+
+    {0, out} = run([ok("nook", 2)], now: now, http_get: off)
+    assert out =~ "error (hello disabled)"
   end
 
   test "a cached idle gateway that goes offline does not read as idle", %{now: now} do

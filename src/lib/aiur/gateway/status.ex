@@ -62,10 +62,11 @@ defmodule Aiur.Gateway.Status do
     outcome =
       case {agents(results, target.name), get.(target.url)} do
         {:transport, _hello} -> :unreachable
-        {{:ok, running}, {:ok, %{} = hello}} -> if target.pin && hello["gateway_id"] != target.pin, do: :error, else: {:ok, running, hello}
-        {{:ok, _running}, {:error, :unrecognised}} -> :error
+        {{:ok, running}, {:ok, %{} = hello}} -> if target.pin && hello["gateway_id"] != target.pin, do: {:error, "pin mismatch"}, else: {:ok, running, hello}
+        {{:ok, _running}, {:error, :hello_disabled}} -> {:error, "hello disabled"}
+        {{:ok, _running}, {:error, :unrecognised}} -> {:error, "invalid hello"}
         {{:ok, _running}, _transport_failure} -> :unreachable
-        {:refused, _hello} -> :error
+        {:refused, _hello} -> {:error, "refused"}
       end
 
     cached = StatusCache.read(target.name)
@@ -96,23 +97,28 @@ defmodule Aiur.Gateway.Status do
   end
 
   defp build(target, {:ok, running, hello}, _cached, now) do
-    finish(target, "online", %{observed_at: now, agents: length(running), gateway_id: hello["gateway_id"]}, "fresh", now, nil)
+    finish(target, "online", nil, %{observed_at: now, agents: length(running), gateway_id: hello["gateway_id"]}, "fresh", now, nil)
   end
 
   defp build(target, outcome, cached, now) do
-    connectivity = if(outcome == :error, do: "error", else: if(cached == :none, do: "unknown", else: "offline"))
+    {connectivity, reason} =
+      case outcome do
+        {:error, reason} -> {"error", reason}
+        _ -> {if(cached == :none, do: "unknown", else: "offline"), nil}
+      end
 
     case cached do
-      {:ok, cache} -> finish(target, connectivity, cache, "stale", now, Workload.derive("online", cache.agents))
-      :none -> finish(target, connectivity, nil, "none", now, nil)
+      {:ok, cache} -> finish(target, connectivity, reason, cache, "stale", now, Workload.derive("online", cache.agents))
+      :none -> finish(target, connectivity, reason, nil, "none", now, nil)
     end
   end
 
-  defp finish(target, connectivity, data, freshness, now, last_workload) do
+  defp finish(target, connectivity, reason, data, freshness, now, last_workload) do
     %{
       gateway: target.name,
       registered: true,
       connectivity: connectivity,
+      reason: reason,
       workload: Workload.derive(connectivity, data && data.agents),
       last_workload: last_workload,
       last_seen_at: data && DateTime.to_iso8601(data.observed_at),
@@ -139,9 +145,11 @@ defmodule Aiur.Gateway.Status do
   end
 
   defp print_table(rows, sum, unknown) do
+    cached = rows |> Enum.filter(&(&1.freshness == "stale")) |> Enum.map(& &1.agents) |> Enum.sum()
+
     IO.puts("gateway\tregistered\tconnectivity\tworkload\tlast_seen\tgateway_id\tprojects\tagents\ttickets\texecutor\tgrants")
     Enum.each(rows, &IO.puts(Enum.map_join(fields(&1), "\t", fn {_key, value} -> value end)))
-    IO.puts("agents total: #{sum}#{if unknown > 0, do: " + unknown"}")
+    IO.puts("agents total: #{sum}#{if cached > 0, do: " (#{cached} cached)"}#{if unknown > 0, do: " + unknown"}")
   end
 
   # Cached numbers count; only a gateway with no number at all makes the total "N + unknown".
@@ -153,7 +161,7 @@ defmodule Aiur.Gateway.Status do
     [
       {"gateway", row.gateway},
       {"registered", if(row.registered, do: "yes", else: "no")},
-      {"connectivity", row.connectivity},
+      {"connectivity", row.connectivity <> if(row.reason, do: " (#{row.reason})", else: "")},
       {"workload", row.workload <> if(row.last_workload, do: " (last #{row.last_workload}, #{age})", else: "")},
       {"last_seen", age},
       {"gateway_id", (row.gateway_id && String.slice(row.gateway_id, 0, 8)) || "unknown"},
