@@ -154,6 +154,33 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     assert_receive {:state_write, "gid-evidence", "ci-wait"}, 100
   end
 
+  # #6143: guards a future regression. The guard already refuses this on main; it pins the rework path.
+  test "rework human-review handback refuses stale PR body before writing state" do
+    head = String.duplicate("b", 40)
+    tested_head = String.duplicate("a", 40)
+    body = "## Local tests\n\nPolicy: partial\nTested head: #{tested_head}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused\n- `mix test` -> passed\n"
+    issue = %Issue{id: "gid-stale-rework", identifier: "6143", state: "rework"}
+    test_pid = self()
+
+    executor =
+      ToolExecutor.build(issue, nil, nil, %{},
+        rework_head_sha: tested_head,
+        coordination_runner: fn _key, operation, _opts -> operation.() end,
+        ticket_state_writer: fn issue_id, state -> send(test_pid, {:state_write, issue_id, state}) && :ok end,
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 6144, "body" => body, "head" => %{"sha" => head}}} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        pr_issue_comments_fetcher: fn _ -> {:ok, []} end
+      )
+
+    response = executor.("aiur_set_ticket_state", %{"state" => "human-review"})
+    error = Jason.decode!(response["output"])["error"]
+
+    refute response["success"]
+    assert error["reason"] == "stale_pr_body_evidence"
+    assert error["message"] =~ "Tested head #{tested_head} does not match PR head #{head}"
+    refute_received {:state_write, _, _}
+  end
+
   @tag :tmp_dir
   test "handoff applies a valid staged PR body through the daemon writer and verifies it", %{tmp_dir: tmp_dir} do
     head = String.duplicate("c", 40)

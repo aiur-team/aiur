@@ -127,6 +127,7 @@ export default withMermaid(defineConfig({
             { text: 'Build History Commands', link: '/reference/build-history-commands' },
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
+            { text: 'GUI conversations', link: '/guide/gui-conversations' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
             { text: 'Outbound events', link: '/guide/outbound-events' },
             { text: 'Embedded Commands', link: '/guide/embedded-commands' },

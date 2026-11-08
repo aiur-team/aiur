@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   alias Aiur.AgentQueueStore.Correlation
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.Scheduler
-  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseResume, State, TicketTransition}
+  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseGuard, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
 
   @doc false
@@ -293,7 +293,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
     do: PauseResume.pending_input_pause?(state, entry) and no_hold?(state, entry)
 
   defp no_hold?(state, entry),
-    do: not state.globally_paused and not Aiur.Issue.paused?(Map.get(entry, :issue))
+    do: not PauseGuard.paused?(state) and not Aiur.Issue.paused?(Map.get(entry, :issue))
 
   # Mirrors `enqueue_after_resume/5` for the `:deactivated → :working`
   # transition. The fresh agent task spawned by `reactivate_issue/2`
