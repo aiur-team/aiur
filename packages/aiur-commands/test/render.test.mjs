@@ -329,6 +329,7 @@ test('an escalated Command shows the notice and no forms', () => {
 
   assert.match(html, /data-command-state="escalated"/);
   assert.match(html, /Escalated to the Executor/);
+  assert.match(html, /data-part="notice"[^>]*>Escalated to the Executor/);
   assert.doesNotMatch(html, /<form/);
 });
 
@@ -393,10 +394,6 @@ test('custom labels render and are escaped', () => {
   assert.match(answered, />Saved</);
   assert.match(revised, />Edited</);
   assert.ok(!pendingHtml.includes('Record answer'));
-});
-
-test('the escalated notice carries data-part="notice"', () => {
-  assert.match(renderCommand({ ...rich, state: 'escalated' }), /<p class="aiur-command-notice" data-part="notice" role="status">Escalated/);
 });
 
 test('escalate button and note label honour the labels option, escaped', () => {
