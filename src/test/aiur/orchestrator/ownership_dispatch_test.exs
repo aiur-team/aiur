@@ -144,4 +144,34 @@ defmodule Aiur.Orchestrator.OwnershipDispatchTest do
     state = run(own_issue("46"), me(), boom, boom, ownership_enabled: false)
     assert MapSet.member?(state.claimed, "46")
   end
+
+  test "a Capacity-denied ticket makes no ownership reads or writes" do
+    no_read = fn _, _, _ -> flunk("read called") end
+    no_claim = fn _, _, _, _ -> flunk("claim called") end
+
+    state =
+      run(own_issue("47"), me(), no_read, no_claim, capacity_admit_fun: fn _ -> {:deny, :no_slot} end)
+
+    refute MapSet.member?(state.claimed, "47")
+  end
+
+  test "Capacity admit runs before the ownership read" do
+    parent = self()
+    {_store, read, claim} = stub()
+
+    logged_read = fn r, k, o ->
+      send(parent, :read)
+      read.(r, k, o)
+    end
+
+    admit = fn _ ->
+      send(parent, :admit)
+      :admit
+    end
+
+    run(own_issue("48"), me(), logged_read, claim, capacity_admit_fun: admit)
+
+    assert_receive :admit
+    assert_receive :read
+  end
 end

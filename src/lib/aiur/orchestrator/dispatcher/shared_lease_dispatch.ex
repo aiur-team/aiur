@@ -66,16 +66,25 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
     case ownership_eligibility(selected_issue, opts) do
       :eligible ->
-        case Aiur.Ownership.ensure_owned(selected_issue, opts) do
+        # Capacity asks first and has no side effects (Executor decision on #7639): a
+        # denied ticket makes no ownership reads or writes. MPG-402's
+        # GatewayDemand.admit/2 replaces this default seam when it lands.
+        admit = Keyword.get(opts, :capacity_admit_fun, fn _ -> :admit end)
+
+        with :admit <- admit.(selected_issue),
+             owned when owned == :disabled or elem(owned, 0) == :ok <-
+               Aiur.Ownership.ensure_owned(selected_issue, opts) do
+          dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
+        else
+          {:deny, reason} ->
+            Candidates.emit_dispatch_attempt_decline(state, issue, {:capacity_denied, reason}, false)
+
           {:declined, :not_owner, _} ->
             Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_not_owner, false)
 
           {:declined, :unknown, why} ->
             Logger.warning("Ownership unknown (#{inspect(why)}) for #{State.issue_context(issue)}; holding dispatch")
             Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_unknown, true)
-
-          _owned_or_disabled ->
-            dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
         end
 
       {:ineligible, _reason} ->
