@@ -7,6 +7,7 @@ defmodule Aiur.CLI.ReferenceOptions do
     logs_root: :string,
     port: :integer,
     host: :string,
+    backend: :string,
     version: :boolean,
     interactive: :boolean,
     headless: :boolean,
@@ -38,6 +39,7 @@ defmodule Aiur.CLI.ReferenceOptions do
   ]
 
   @switch_docs [
+    {:backend, "aiur redispatch 142 --backend codex", "Selects a backend for a ticket redispatch.", "aiur redispatch 142 --backend codex"},
     {:pause, "aiur --pause", "Cold-starts with the global provisioning switch paused.", "aiur --pause"},
     {:max_agents, "aiur --max-agents 6", "Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding.",
      "aiur --max-agents 6"},

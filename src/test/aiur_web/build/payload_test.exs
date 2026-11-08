@@ -7,15 +7,29 @@ defmodule AiurWeb.Build.PayloadTest do
   alias AiurWeb.Build.{Payload, PlannedRows, Read}
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
-  test "shared index presentation metadata stays outside the strict browser row schema" do
+  test "shared presentation metadata stays out while progress freshness is carried to the browser" do
     row = fixture()["sections"]["now"] |> hd() |> Map.new(fn {key, value} -> {String.to_atom(key), value} end)
     metadata = %{general_epics: ["runtime"], priority: 1, lane: "runtime", progress_freshness: "stale", dependency_ready: false}
     data = put_in(fixture(), ["sections", "now"], [Map.merge(row, metadata)])
     snapshot = Payload.snapshot(data, "epoch", 1)
 
     assert Payload.validate(snapshot) == :ok
-    assert snapshot["sections"]["now"] == [Payload.scrub(row)]
-    assert snapshot["sections"]["now"] |> hd() |> Map.get("pct") == row.pct
+    [wire_row] = snapshot["sections"]["now"]
+    assert wire_row["progress_freshness"] == "stale"
+    refute Map.has_key?(wire_row, "general_epics")
+    refute Map.has_key?(wire_row, "priority")
+    refute Map.has_key?(wire_row, "lane")
+    assert wire_row["pct"] == row.pct
+  end
+
+  test "rows preserve progress freshness and accept an optional observation timestamp" do
+    data = fixture()
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_observed_at"], 1_791_408_000_000)
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_freshness"], "stale")
+    assert Payload.validate(Payload.snapshot(fixture(), "epoch", 1)) == :ok
+    snapshot = Payload.snapshot(data, "epoch", 1)
+    assert Payload.validate(snapshot) == :ok
+    assert hd(snapshot["sections"]["now"])["progress_freshness"] == "stale"
   end
 
   test "fixtures reach the full strict schema (future fixture guard)" do
@@ -39,31 +53,31 @@ defmodule AiurWeb.Build.PayloadTest do
 
     data =
       fixture()
-      |> put_in(["epics", "bugs", "icon"], "home")
-      |> put_in(["epics", "bugs", "svg"], svg)
+      |> put_in(["lanes", "bugs", "icon"], "home")
+      |> put_in(["lanes", "bugs", "svg"], svg)
       |> put_in(["features", "khala", "icon"], "home")
       |> put_in(["features", "khala", "svg"], svg)
 
     snapshot = Payload.snapshot(data, "E", 1)
 
     assert snapshot["icons"] == %{"home" => svg}
-    refute Map.has_key?(snapshot["epics"]["bugs"], "svg")
+    refute Map.has_key?(snapshot["lanes"]["bugs"], "svg")
     refute Map.has_key?(snapshot["features"]["khala"], "svg")
   end
 
-  test "snapshot compacts feature progress metadata already carried by its lane epic" do
+  test "snapshot compacts feature progress metadata already carried by its lane" do
     metadata = %{"icon" => "cpu", "summary" => "Scheduler and memory work", "wave" => "0b"}
     progress = Map.merge(metadata, %{"feature" => "kernel", "label" => "Kernel · core", "closed" => 2, "open" => 1, "ci_wait" => 0, "unpublished" => 0, "total" => 3})
 
     data =
       fixture()
-      |> put_in(["epics", "f-kernel-core"], Map.merge(%{"key" => "f-kernel-core", "feature" => "kernel", "label" => "Kernel · core", "hue" => 210}, metadata))
+      |> put_in(["lanes", "f-kernel-core"], Map.merge(%{"key" => "f-kernel-core", "feature" => "kernel", "label" => "Kernel · core", "hue" => 210}, metadata))
       |> put_in(["features", "kernel"], %{"key" => "kernel", "label" => "Kernel", "icon" => "cpu", "epics" => ["f-kernel-core"]})
       |> put_in(["feature_progress"], %{"features" => %{"f-kernel-core" => progress}, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => 0, "reason" => nil})
 
     snapshot = Payload.snapshot(data, "epoch", 1)
 
-    assert Map.take(snapshot["epics"]["f-kernel-core"], ~w(icon summary wave)) == metadata
+    assert Map.take(snapshot["lanes"]["f-kernel-core"], ~w(icon summary wave)) == metadata
     refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "icon")
     refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "summary")
     refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "wave")
@@ -81,7 +95,7 @@ defmodule AiurWeb.Build.PayloadTest do
   for {name, path, value, expected} <- [
         {"pct is numeric", ["sections", "now", 0, "pct"], "50", "sections.now.0.pct"},
         {"effort is an enum", ["sections", "now", 0, "agent", "effort"], "<b>", "sections.now.0.agent.effort"},
-        {"hue is numeric", ["epics", "bugs", "hue"], "1);x", "epics.bugs.hue"},
+        {"hue is numeric", ["lanes", "bugs", "hue"], "1);x", "lanes.bugs.hue"},
         {"cue is plan-only", ["sections", "nq", 0, "cue"], %{}, "sections.nq.0.cue"},
         {"section is an enum", ["sections", "now", 0, "sec"], "x", "sections.now.0.sec"},
         {"history requires dated end", ["sections", "hist", 0, "end"], nil, "sections.hist.0.end"},
@@ -126,7 +140,7 @@ defmodule AiurWeb.Build.PayloadTest do
     assert {"counts.bugs", :missing} in errors
   end
 
-  test "feature progress is keyed by a feature-local epic and preserves unknown counts" do
+  test "feature progress is keyed by a feature-local lane and preserves unknown counts" do
     progress = %{
       "f-pag-api" => %{
         "feature" => "pag",

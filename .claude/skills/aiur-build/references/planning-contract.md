@@ -10,15 +10,50 @@ array records each occupy one line; the publisher and CI share this formatter.
 ## Collection and evidence contract
 
 A new feature outputs a collection into the repository's single continuous build.
-Record its stable feature slug, display label, optional epics, logical members,
-real prerequisites to new and existing tickets, proposed queue placement, and
-`plan_version`. Each `workstreams[]` record may also include `icon` (a unique Heroicons v2 outline name), `summary` (one line, at most 100 characters, no control characters), and `wave` (a nonnegative integer or short label). Feature icons must not match a configured general-epic icon for any ticket carrying that epic's label matcher. Do not create a standalone Build Order root or publish a new
+For publication, `product_features[]` defines one product feature per group;
+each record has a stable slug, display label, and `ticket_ids` that partition
+the published tickets exactly once. Publication registers the pack's epic
+(`bo-<root number>`), puts each product feature inside it, and gives each
+feature its planned lanes. Record real prerequisites to new and existing tickets,
+proposed queue placement, and `plan_version`. Each `workstreams[]` record may
+also include `icon` (a unique Heroicons v2 outline name), `summary` (one line,
+at most 100 characters, no control characters), and `wave` (a nonnegative
+integer or short label). A feature's lane icons must not match the icon of a
+configured lane whose label matcher hits the same ticket. Do not create a standalone Build Order root or publish a new
 legacy runtime pack. Existing packs remain readable history.
+
+`label_projection.workstreams` maps each workstream to the lane label its
+tickets carry. A new pack spells those labels `lane:<lane>` and declares the
+same names in its publication adapter's `creatable_labels`, so publication can
+create a missing label instead of refusing the pack. `build-lane:` labels stay
+valid on already-published packs.
 
 Preserve requirements, versioned design evidence, decisions, typed scheduling
 graph, wave/critical-path analysis, `tickets/<ID>.md`, validation report, and
 approved planning commit. Planning documents describe approved intent; they do
 not supply current ticket state or progress.
+
+## The review reads the published document
+
+The Build Order review the skill publishes reads its graph facts — waves, typed
+edges, critical path, progress, epics, features and lanes — from a
+`build-order.v1` document (`packages/aiur-contracts`). The pack stays the
+authored artifact; the document is derived from it, so the GitHub review and the
+dashboard review cannot describe different graphs.
+
+`scripts/render_build_order_review.py` picks the document source:
+
+| Situation | Document source |
+| --- | --- |
+| A daemon is running | `aiur build-orders --json --contract build-order.v1 [<root>]` |
+| Planning only, before any daemon | the pack walk of `build-order.json` |
+
+The pack walk publishes the tracker and progress sources as `unknown`. Both
+sources feed the same renderer, and an unknown source publishes an explicit
+notice rather than an empty dependency table or a 0% bar. Before writing
+anything the renderer asserts the pack's `validation_graph.py` facts against the
+document; `publish_build_order.py --graph-review <path>` repeats that assertion
+and refuses a published review that no longer matches the document.
 
 ## Executor-owned promotion
 
@@ -26,7 +61,7 @@ Promotion requires issue-creation authority. Encourage all researched members
 ready to begin together; per-phase promotion is optional. Follow `SKILL.md`
 § Optional GitHub promotion and its continuous-build intake procedure.
 
-For home-page epic assignment, follow the [promotion rule in SKILL.md](../SKILL.md#optional-github-promotion).
+For home-page lane assignment, follow the [promotion rule in SKILL.md](../SKILL.md#optional-github-promotion).
 
 Create each issue from its ticket document verbatim with feature and disposition
 labels in the creation request. Record tracker-number mappings; freeze promoted
@@ -102,5 +137,5 @@ verification; the Executor performs that rung during authorized promotion.
 - Missing/stale Aiur progress is `unknown`, never `0%`.
 - Provider failure preserves last-known-good data with visible health; unknown
   dependencies never become an empty or unblocked graph.
-- Phases are computed antichains of the hard-dependency graph; lanes and epics
-  carry thematic grouping, and summaries remain derived views.
+- Phases are computed antichains of the hard-dependency graph; lanes carry the
+  technical grouping and epics group features, and summaries remain derived views.

@@ -3,8 +3,9 @@ defmodule Aiur.BuildOrder.Index do
   alias Aiur.AgentPubSub
   alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued, PackStatus}
   alias Aiur.BuildOrder.Index.{Catalogue, EpicProgress, FeatureProgress, PackRows, Pages, Parts, Rows, Sources}
+  alias Aiur.GitHub.LabelCatalogue
   @topic "build-home:index"
-  @blocks ~w(epics epic_progress epic_progress_meta features order counts feature_progress sources history_meta repo capacity)a
+  @blocks ~w(lanes lane_progress lane_progress_meta features order counts feature_progress sources history_meta repo capacity)a
 
   @spec assemble(map(), keyword()) :: {:ok, map()} | {:error, atom()}
   def assemble(parts, opts \\ []) do
@@ -14,11 +15,12 @@ defmodule Aiur.BuildOrder.Index do
       {all, undated} = Rows.build(parts, general)
       catalogue = Catalogue.build(parts, general, all, now)
       feature_parts = Map.put(parts, :packs, Map.get(parts, :feature_packs, parts[:packs]))
-      packs = PackRows.read(parts[:packs], all, catalogue.epics)
+      packs = PackRows.read(parts[:packs], all, catalogue.lanes)
       parts = Map.put(parts, :packs, packs)
       sources = Sources.build(parts, now)
       complete? = sources.history.state not in ["unavailable", "incomplete"]
       feature_parts = Map.put(feature_parts, :labels, parts[:labels])
+      feature_parts = Map.put(feature_parts, :label_catalogue, parts[:label_catalogue])
       feature_progress = FeatureProgress.compute(feature_parts, all, catalogue.features, complete?, now)
       all = PackRows.merge(all, packs)
       counts = if complete?, do: counts(all, catalogue.order)
@@ -31,8 +33,8 @@ defmodule Aiur.BuildOrder.Index do
          all: all,
          hist: hist,
          counts: counts,
-         epic_progress: progress.epics,
-         epic_progress_meta: progress.meta,
+         lane_progress: progress.lanes,
+         lane_progress_meta: progress.meta,
          feature_progress: feature_progress,
          sources: sources,
          history_meta: %{total: if(available?, do: length(hist)), undated: if(available?, do: undated)},
@@ -113,7 +115,11 @@ defmodule Aiur.BuildOrder.Index do
       &Aiur.OpenTicketSource.subscribe/0,
       &Aiur.TicketActivity.subscribe/0,
       &Aiur.AgentPubSub.subscribe_running/0,
-      fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed") end
+      fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed") end,
+      # The open-issue label observation and the repository label catalogue name Features
+      # rows; without these two the index read their first value at boot and never again.
+      fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues") end,
+      fn -> Phoenix.PubSub.subscribe(Aiur.PubSub, LabelCatalogue.topic()) end
     ]
 
     Enum.reduce_while(subscribers, :ok, fn subscribe, :ok ->

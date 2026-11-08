@@ -17,11 +17,14 @@ defmodule AiurWeb.Build.Index do
     build_progress_changed: ~w(queue planned not_queued packs)a,
     build_queue_changed: ~w(queue planned not_queued packs)a,
     open_tickets_updated: ~w(open planned not_queued packs)a,
+    open_issues_recorded: [:labels],
+    label_catalogue_changed: [:label_catalogue],
     build_order_pack_status_changed: [:packs],
     ticket_activity_changed: ~w(now planned not_queued)a,
     running_changed: ~w(now planned not_queued)a
   }
-  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued estimates capacity packs pack_metadata)a
+  # Derived from `Parts.keys/0` so a declared part cannot be left unread (Features names stuck on slugs).
+  @read_parts Core.Parts.keys() ++ ~w(now planned not_queued packs)a
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []),

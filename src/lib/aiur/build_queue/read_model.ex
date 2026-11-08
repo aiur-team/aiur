@@ -2,7 +2,7 @@ defmodule Aiur.BuildQueue.ReadModel do
   @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
   alias Aiur.BuildQueue.Model.Edge
   alias Aiur.BuildQueue.{Progress, Readiness, SetSummary, Settings}
-  alias Aiur.BuildQueue.ReadModel.Eligibility
+  alias Aiur.BuildQueue.ReadModel.{Eligibility, SetSources}
   alias Aiur.BuildQueue.Sources.{BuildOrder, ProjectionRead}
 
   @spec build(map()) :: map()
@@ -30,8 +30,7 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     unavailable =
       for q <- document.queues,
-          context.tracker_source.freshness != :current or
-            (q.kind == :build_order and build_orders[q.root].source.freshness != :current),
+          context.tracker_source.freshness != :current or SetSources.unavailable?(q, build_orders, state),
           do: q.id
 
     native_blockers = Map.get(state, :native_blockers, %{})
@@ -54,6 +53,7 @@ defmodule Aiur.BuildQueue.ReadModel do
         document.queues |> Enum.filter(&(&1.kind == :build_order)),
         &{"build_order:#{&1.root}", build_orders[&1.root].source}
       )
+      |> Map.merge(SetSources.feature(document, state, now))
 
     %{
       schema_version: 1,
@@ -341,6 +341,8 @@ defmodule Aiur.BuildQueue.ReadModel do
       set_rank: queue.rank,
       kind: queue.kind,
       root: queue.root,
+      feature: queue.feature,
+      epic: queue.epic,
       name: queue.name,
       start_trigger: context.trigger,
       start_trigger_override: queue.start_trigger,
@@ -349,7 +351,8 @@ defmodule Aiur.BuildQueue.ReadModel do
       progress: progress,
       progress_reasons: Progress.reasons(queue, items, progress, context.build_orders[queue.root]),
       edges: context.summary_edges,
-      items: items
+      items: items,
+      elsewhere: SetSources.elsewhere(queue, context.state)
     }
   end
 

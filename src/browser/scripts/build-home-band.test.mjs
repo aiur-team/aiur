@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import { bandClock, bandCounts, bandEmptyText, bandAgentsFreshness, bandAgentsUsable } from '../../priv/static/build-home/band.js'
 import { bandLayout } from '../../priv/static/build-home/band-layout.js'
+import { laneWidth } from '../../priv/static/build-home/layout.js'
 import { etaLabel } from '../../priv/static/build-home/estimate.js'
 const live = JSON.parse(readFileSync(new URL('../../test/fixtures/build_home/live.json', import.meta.url)))
 
@@ -53,10 +54,10 @@ test('B6 unavailable is shown only before any reading or after stale data expire
   assert.equal(bandAgentsUsable(unknownAge, live.now), false)
   assert.equal(bandEmptyText(unknownAge, live.now), 'Agent states unavailable')
 })
-test('geometry stacks all agents despite epic filters and never caps tall bands', () => {
+test('geometry stacks all agents despite lane filters and never caps tall bands', () => {
   const D = { now: live.sections.now, order: live.order }, dims = { vpW: 1200, gut: 84 }
-  const sizes = { ch: 122.2, gap: 14, CH: { full: 122.2, line: 32.5 } }
-  const S = { view: 'graph', span: 1, f: { epic: ['missing'] } }
+  const sizes = { ch: 122.2, gap: 14, CH: { full: 122.2, line: 32.5 }, det: 'full', lanes: 4, laneWidth }
+  const S = { view: 'graph', span: 1, f: { lane: ['missing'] } }
   const band = bandLayout(D, S, dims, sizes)
   assert.equal(band.items.length, 8); assert.equal(band.BK, 4); assert.equal(band.h, 312.4)
   assert.equal(bandLayout(D, { ...S, liveMin: true }, dims, sizes).h, 38)
@@ -65,7 +66,7 @@ test('geometry stacks all agents despite epic filters and never caps tall bands'
 })
 test('#7446 live cards take the board row height and tier outside gantt', () => {
   const D = { now: live.sections.now, order: live.order }, dims = { vpW: 1200, gut: 84 }
-  const sizes = { ch: 10, gap: 2, CH: { full: 122.2, line: 32.5 }, gantt: { bandHeight: () => 50 } }
+  const sizes = { ch: 10, gap: 2, CH: { full: 122.2, line: 32.5 }, det: 'full', lanes: 4, laneWidth, gantt: { bandHeight: () => 50 } }
   for (const span of [1, 7]) {
     const items = bandLayout(D, { view: 'graph', span }, dims, sizes).items
     assert.deepEqual([...new Set(items.map(it => it.h + ':' + it.gt))], ['10:false'])

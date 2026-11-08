@@ -4,7 +4,7 @@ defmodule Aiur.Commands.Routing.FactData do
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionEvent.Validation
 
-  @types [:routed, :escalated, :human_needed, :executor_acknowledged]
+  @types [:routed, :escalated, :human_needed, :executor_acknowledged, :executor_claimed, :executor_claim_released]
   @causes ~w(executor_originated executor_offline executor_stalled authority_human_required executor_not_answerable executor_ack_timeout executor_answer_timeout executor_escalated)a
 
   @spec types() :: [atom()]
@@ -55,6 +55,20 @@ defmodule Aiur.Commands.Routing.FactData do
     with {:ok, id} <- Validation.map_required_string(raw, :executor_id, 256),
          {:ok, via} <- enum(raw, :via, [:explicit, :answer, :escalate, :moot, :supersede]) do
       {:ok, %{executor_id: id, via: via}}
+    end
+  end
+
+  defp fields(:executor_claimed, raw) do
+    with {:ok, id} <- Validation.map_required_string(raw, :executor_id, 256),
+         {:ok, expires_at} <- timestamp(Validation.get(raw, :expires_at)) do
+      {:ok, %{executor_id: id, expires_at: expires_at}}
+    end
+  end
+
+  defp fields(:executor_claim_released, raw) do
+    with {:ok, id} <- Validation.map_required_string(raw, :executor_id, 256),
+         {:ok, reason} <- enum(raw, :reason, [:released]) do
+      {:ok, %{executor_id: id, reason: reason}}
     end
   end
 

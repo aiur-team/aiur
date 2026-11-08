@@ -21,6 +21,7 @@ import './trees.js';
 import './band.js';
 import './states.js';
 import './list.js';
+import './build-order.js';
 import { controlMessage } from './modal/frame.js';
 import './modal/conversation.js';
 import './modal/live.js';
@@ -150,6 +151,7 @@ export function createBuildHomeHook() {
       if (!this.buildActive) return;
       fx.wireTrees();
       fx.renderTools(); fx.renderFilters(); fx.initModal();
+      if (S.view === 'build-order') fx.mountBuildOrder();
       writeOwnData();
       this.handleEvent('build-ticket-control', controlMessage);
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));

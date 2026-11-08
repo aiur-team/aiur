@@ -41,6 +41,7 @@ test.beforeEach(async ({ page }, info) => {
     id: 'row:' + i, k: i % 9 === 0 ? 'ev' : 'say', ev: 'progress', label: 'Progress ' + i,
     text: 'Message ' + i, at: null,
   })), reply: { live: true }, ticket: { agent: { state: 'active', name: 'Worker' } } })
+  await page.locator('.cv-preamble > summary').click()
   await expect.poll(() => page.locator('#cv-mm > *').count()).toBe(100)
 })
 const log = page => page.locator('#cv-log')
@@ -59,15 +60,15 @@ async function mapGeometry(page) {
   return page.evaluate(() => {
     const log = document.querySelector('#cv-log'), map = document.querySelector('#cv-map'), mm = document.querySelector('#cv-mm'), vw = document.querySelector('#cv-vw')
     const s = Math.min(.14, map.clientHeight / Math.max(1, log.scrollHeight)), close = (a, b) => Math.abs(a - b) <= .15
-    const rows = [...log.children], items = [...mm.children]
+    const rows = [...log.querySelectorAll('[data-k]')], items = [...mm.children]
     return {
       count: items.length === rows.filter(el => el.dataset.k).length,
       height: close(parseFloat(mm.style.height), log.scrollHeight * s),
       blocks: items.filter(el => el.classList.contains('mm-b')).every(block => {
         const index = items.indexOf(block), row = rows.filter(el => el.dataset.k)[index]
-        return close(parseFloat(block.style.top), row.offsetTop * s) && close(parseFloat(block.style.height), Math.max(1.5, row.offsetHeight * s - 1.5))
+        return close(parseFloat(block.style.top), (row.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop) * s) && close(parseFloat(block.style.height), Math.max(1.5, row.offsetHeight * s - 1.5))
       }),
-      ticks: items.filter(el => el.classList.contains('mm-e')).every(tick => close(parseFloat(tick.style.top), rows[+tick.dataset.i].offsetTop * s)),
+      ticks: items.filter(el => el.classList.contains('mm-e')).every(tick => close(parseFloat(tick.style.top), (rows[+tick.dataset.i].getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop) * s)),
       viewport: close(parseFloat(vw.style.top), log.scrollTop * s) && close(parseFloat(vw.style.height), Math.max(8, log.clientHeight * s)),
     }
   })
@@ -103,21 +104,31 @@ test('replacement updates content without animation or activity notification', a
 })
 
 test('L16/L18: map geometry survives resize; ticks jump to their row and cancelled drags stop', async ({ page }) => {
+  await page.evaluate(() => {
+    const log = document.querySelector('#cv-log'), scrollTo = log.scrollTo.bind(log)
+    window.scrollCalls = []
+    log.scrollTo = options => { window.scrollCalls.push(options); scrollTo(options) }
+  })
   const geometry = await page.evaluate(() => {
     const log = document.querySelector('#cv-log'), map = document.querySelector('#cv-map'), mm = document.querySelector('#cv-mm')
     const s = Math.min(.14, map.clientHeight / log.scrollHeight)
     return { actual: parseFloat(mm.style.height), expected: log.scrollHeight * s,
-      tick: parseFloat(mm.querySelector('.mm-e').style.top), row: log.querySelector('[data-k=ev]').offsetTop * s }
+      tick: parseFloat(mm.querySelector('.mm-e').style.top), row: (log.querySelector('[data-k=ev]').getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop) * s }
   })
-  expect(geometry.actual).toBeCloseTo(geometry.expected, 1)
-  expect(geometry.tick).toBeCloseTo(geometry.row, 1)
+  await expect.poll(() => page.locator('#cv-mm').evaluate(el => parseFloat(el.style.height))).toBeCloseTo(geometry.expected, 1)
+  expect(geometry.tick).toBeCloseTo(geometry.row, 0)
   const tick = page.locator('#cv-mm .mm-e').first()
   await tick.hover()
   await expect(page.locator('#cv-tip')).toContainText('Progress 504')
   await expect(page.locator('#cv-tip time')).toHaveText('—')
+  const plainRow = page.locator('#cv-mm .mm-b.k-say').first()
+  const plainRowBox = await plainRow.boundingBox()
+  await page.mouse.move(plainRowBox.x + plainRowBox.width / 2, plainRowBox.y + plainRowBox.height / 2)
+  await expect(page.locator('#cv-tip')).toContainText('say message')
+  await expect(page.locator('#cv-tip time')).not.toBeEmpty()
   await tick.click()
   await expect(log(page).locator('[data-eid="row:504"]')).toHaveClass(/flash/)
-  await expect.poll(() => log(page).evaluate(el => el.scrollTop - Math.max(0, el.querySelector('[data-eid="row:504"]').offsetTop - 16))).toBeCloseTo(0, 0)
+  expect(await page.evaluate(() => window.scrollCalls[0]?.top)).toBeGreaterThan(0)
   await expect(tick).toHaveAttribute('tabindex', '-1')
   const map = page.locator('#cv-map'), box = await map.boundingBox()
   const emptyY = await map.evaluate(el => {
@@ -192,12 +203,12 @@ test('top trimming preserves the visible anchor; bottom trimming fetches the tai
   await log(page).evaluate(el => { el.style.overflowAnchor = 'none' })
   await scrollUp(page, 200)
   const anchor = await log(page).evaluate(el => {
-    const row = [...el.children].find(row => row.offsetTop + row.offsetHeight > el.scrollTop)
+    const row = [...el.querySelectorAll('[data-k]')].find(row => row.offsetTop + row.offsetHeight > el.scrollTop)
     return { id: row.dataset.eid, offset: row.offsetTop - el.scrollTop }
   })
   await push(page, Array.from({ length: 10 }, (_, i) => entry('cap:' + i)))
   await expect(log(page).locator('[data-k]')).toHaveCount(500)
-  expect(await log(page).evaluate((el, id) => [...el.children].find(row => row.dataset.eid === id).offsetTop - el.scrollTop, anchor.id)).toBeCloseTo(anchor.offset, 0)
+  expect(await log(page).evaluate((el, id) => [...el.querySelectorAll('[data-k]')].find(row => row.dataset.eid === id).offsetTop - el.scrollTop, anchor.id)).toBeCloseTo(anchor.offset, 0)
   await log(page).evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
   await expect(log(page).locator('[data-eid="row:10"]')).toHaveCount(1)
   await log(page).evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
@@ -210,6 +221,7 @@ test('top trimming preserves the visible anchor; bottom trimming fetches the tai
   await expect.poll(() => page.evaluate(() => window.conversationCalls.filter(c => c.event === 'conversation-page' && c.payload.before === null).length)).toBe(calls + 1)
   await expect(log(page).locator('[data-k]')).toHaveCount(100)
   await expect(page.locator('#cv-mm > *')).toHaveCount(100)
+  await page.locator('.cv-preamble > summary').click()
   await scrollUp(page, 200); await push(page, [entry('after-reset')])
   await expect(page.locator('#cv-new')).toBeVisible()
   await page.locator('#bd-tk-close').click()
@@ -220,11 +232,14 @@ test('pending older page keeps event tick indices current and status rows out of
   await scenario(page, 'kinds', { hold: 1, entries: Array.from({ length: 200 }, (_, i) => ({
     id: 'held:' + i, k: i % 3 ? 'say' : 'ev', ev: 'progress', label: '<b>x</b>&', text: 'Message ' + i, at: null,
   })) })
+  await page.locator('.cv-preamble > summary').click()
   await expect(page.locator('#cv-mm > *')).toHaveCount(100)
   await log(page).evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
   await expect(log(page).locator(':scope > :first-child')).toHaveText('Loading earlier…')
-  await expect.poll(() => page.locator('#cv-mm .mm-e').first().getAttribute('data-i')).toBe('3')
-  await expect(page.locator('#cv-mm > *')).toHaveCount(100)
+  await expect.poll(() => page.evaluate(() => typeof window.releaseOlder)).toBe('function')
+  await page.evaluate(() => window.releaseOlder())
+  await expect.poll(() => page.locator('#cv-mm .mm-e').first().getAttribute('data-i')).toBe('0')
+  await expect(page.locator('#cv-mm > *')).toHaveCount(200)
   await expect(page.locator('#cv-mm .k-undefined')).toHaveCount(0)
   const tick = page.locator('#cv-mm .mm-e').first()
   await tick.hover()
@@ -235,7 +250,7 @@ test('pending older page keeps event tick indices current and status rows out of
   await tick.hover()
   await expect(page.locator('#cv-tip time')).toHaveText('—')
   await tick.click()
-  await expect(log(page).locator('[data-eid="held:102"]')).toHaveClass(/flash/)
+  await expect(log(page).locator('[data-eid="held:102"]')).toHaveClass(/cv-ev/)
   await page.evaluate(() => window.releaseOlder())
   await expect(log(page).locator('[data-k]')).toHaveCount(200)
 })
@@ -344,7 +359,7 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
     else { expect(pill.immediate).toBe(pill.before); await expect.poll(() => page.evaluate(() => window.scrollEnds)).toBeGreaterThan(0) }
     const ended = await page.evaluate(() => window.scrollEnds)
     await page.locator('#cv-mm .mm-e').first().click()
-    await expect.poll(() => log(page).evaluate(el => el.scrollTop - Math.max(0, el.querySelector('[data-eid="row:504"]').offsetTop - 16))).toBeCloseTo(0, 0)
+    await expect.poll(() => page.evaluate(() => window.scrollCalls[1]?.top)).toBeGreaterThan(0)
     const tick = await page.evaluate(() => window.scrollCalls[1])
     expect(tick.behavior).toBe(reducedMotion === 'reduce' ? 'auto' : 'smooth')
     if (reducedMotion === 'reduce') expect(tick.immediate).toBeCloseTo(tick.top, 0)

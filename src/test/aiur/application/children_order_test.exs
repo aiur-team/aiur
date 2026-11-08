@@ -44,6 +44,55 @@ defmodule Aiur.Application.ChildrenOrderTest do
       assert is_integer(lease_store)
       assert is_integer(heartbeat)
       assert lease_store < heartbeat
+
+      liveness = Enum.find_index(mods, &(&1 == Aiur.Gateway.Liveness))
+      assert is_integer(liveness), "Gateway.Liveness must be supervised when the store is configured"
+      assert heartbeat < liveness, "Gateway.Liveness reads the roster, so it must follow the heartbeat publisher"
+    end
+
+    test "gateway liveness is not supervised without a lease store" do
+      previous_url = Application.get_env(:aiur, :lease_database_url)
+      Application.delete_env(:aiur, :lease_database_url)
+      on_exit(fn -> if previous_url, do: Application.put_env(:aiur, :lease_database_url, previous_url) end)
+
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
+      refute Aiur.Gateway.Liveness in mods
+    end
+
+    test "intent children: Hlc and Store always start; Sync starts after the lease store and heartbeat only when configured" do
+      previous_url = Application.get_env(:aiur, :lease_database_url)
+      previous_env = System.get_env("AIUR_LEASE_DATABASE_URL")
+
+      on_exit(fn ->
+        if previous_url,
+          do: Application.put_env(:aiur, :lease_database_url, previous_url),
+          else: Application.delete_env(:aiur, :lease_database_url)
+
+        if previous_env, do: System.put_env("AIUR_LEASE_DATABASE_URL", previous_env), else: System.delete_env("AIUR_LEASE_DATABASE_URL")
+      end)
+
+      opts = [interactive_cli?: false, headless?: true, dashboard?: false]
+
+      Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+      configured = modules(AiurApp.child_specs(opts))
+      idx = fn mods, mod -> Enum.find_index(mods, &(&1 == mod)) end
+
+      assert idx.(configured, Aiur.Intent.Hlc)
+      assert idx.(configured, Aiur.Intent.Store)
+      # nil < integer is false and integer < nil is true in Erlang term order, so pin the exact order
+      lease = idx.(configured, Aiur.Instance.LeaseStore)
+      heartbeat = idx.(configured, Aiur.Instance.Heartbeat)
+      sync = idx.(configured, Aiur.Intent.Sync)
+      assert is_integer(lease) and is_integer(heartbeat) and is_integer(sync)
+      assert lease < heartbeat and heartbeat < sync
+
+      Application.delete_env(:aiur, :lease_database_url)
+      System.delete_env("AIUR_LEASE_DATABASE_URL")
+      unconfigured = modules(AiurApp.child_specs(opts))
+
+      assert idx.(unconfigured, Aiur.Intent.Hlc)
+      assert idx.(unconfigured, Aiur.Intent.Store)
+      refute idx.(unconfigured, Aiur.Intent.Sync)
     end
 
     test "the ActiveTurns table owner starts before agent tasks in every run shape" do

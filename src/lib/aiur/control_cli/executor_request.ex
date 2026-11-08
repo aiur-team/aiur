@@ -2,14 +2,16 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   @moduledoc "Creates human-directed Commands attributed to the requesting Executor."
 
   alias Aiur.Commands
+  alias Aiur.ControlCLI.MediaSpec
 
   @spec request(keyword(), keyword()) :: 0 | 1 | 64
   def request(params, deps \\ []) do
     with :ok <- validate_text(params),
          {:ok, options} <- options(Keyword.get(params, :options, [])),
          {:ok, options, recommendation} <- recommend(options, params[:recommend]),
+         {:ok, media, options} <- media(Keyword.get(params, :media, []), options),
          :ok <- validate_identity(params[:executor_id]) do
-      submit(params, options, recommendation, deps)
+      submit(params, options, recommendation, media, deps)
     else
       {:error, reason} -> error(deps, reason, 64)
     end
@@ -24,13 +26,14 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   defp validate_identity(id) when is_binary(id) and byte_size(id) > 0, do: :ok
   defp validate_identity(_id), do: {:error, "requester identity is required"}
 
-  defp submit(params, options, recommendation, deps) do
+  defp submit(params, options, recommendation, media, deps) do
     executor_id = params[:executor_id]
     source_id = params[:idempotency_key] || "exec-#{Ecto.UUID.generate()}"
 
     payload = %{
       question: params[:question],
       options: options,
+      media: media,
       recommendation: recommendation,
       authority: :human_required,
       blocking: Keyword.get(params, :blocking, true),
@@ -72,6 +75,25 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
         _ -> {:halt, {:error, "--option expects id=label"}}
       end
     end)
+  end
+
+  # Items stay untrusted here; the request validation applies the media contract.
+  defp media(specs, options) do
+    Enum.reduce_while(specs, {:ok, [], options}, fn spec, {:ok, prompt, options} ->
+      case MediaSpec.parse(spec) do
+        {:ok, {nil, item}} -> {:cont, {:ok, prompt ++ [item], options}}
+        {:ok, {id, item}} -> attach(id, item, prompt, options)
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp attach(id, item, prompt, options) do
+    if Enum.any?(options, &(&1.id == id)) do
+      {:cont, {:ok, prompt, Enum.map(options, &if(&1.id == id, do: Map.update(&1, :media, [item], fn media -> media ++ [item] end), else: &1))}}
+    else
+      {:halt, {:error, "--media option=#{id} must name one supplied option"}}
+    end
   end
 
   defp recommend(options, nil), do: {:ok, options, nil}

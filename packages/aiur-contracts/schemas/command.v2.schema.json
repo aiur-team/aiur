@@ -96,6 +96,18 @@
         "hold"
       ]
     },
+    "media": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/commandMedia"
+      }
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/commandOption"
+      }
+    },
     "questions": {
       "type": "array",
       "items": {
@@ -189,5 +201,200 @@
     "native",
     "questions",
     "short_label"
-  ]
+  ],
+  "$defs": {
+    "commandMedia": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed media on a Command prompt, option or answer. A local file is an attachment reference; a filesystem path is never projected.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "image",
+            "animated_image",
+            "video",
+            "audio"
+          ]
+        },
+        "mime_type": {
+          "type": "string",
+          "description": "MIME type allowlisted for the media kind."
+        },
+        "attachment_id": {
+          "type": "string",
+          "pattern": "^med_[0-9a-f]{24}$",
+          "description": "Stable, opaque identity for an attachment locator."
+        },
+        "locator": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "url"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "attachment"
+                },
+                "attachment_id": {
+                  "type": "string",
+                  "pattern": "^med_[0-9a-f]{24}$"
+                }
+              },
+              "required": [
+                "kind",
+                "attachment_id"
+              ]
+            }
+          ]
+        },
+        "poster": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "url"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "attachment"
+                },
+                "attachment_id": {
+                  "type": "string",
+                  "pattern": "^med_[0-9a-f]{24}$"
+                }
+              },
+              "required": [
+                "kind",
+                "attachment_id"
+              ]
+            }
+          ]
+        },
+        "alt_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 400,
+          "description": "Required as accessible text for image and animated_image items."
+        },
+        "caption": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        },
+        "byte_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "duration_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      },
+      "required": [
+        "kind",
+        "mime_type",
+        "attachment_id",
+        "locator"
+      ]
+    },
+    "commandOption": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "benefits": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "drawbacks": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "risk": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "media": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/commandMedia"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    }
+  }
 }

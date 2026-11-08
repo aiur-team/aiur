@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck do
   @moduledoc "Deck adapter over shared read models, with isolated section failures."
 
-  alias AiurWeb.Streamdeck.Deck.{BuildOrder, Counts, Epics, Features, Fleet, Tickets}
+  alias AiurWeb.Streamdeck.Deck.{BuildOrder, Counts, Features, Fleet, Lanes, Tickets}
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
@@ -14,7 +14,7 @@ defmodule AiurWeb.Streamdeck.Deck do
       queue_positions: positions,
       counts: counts,
       tickets: Tickets.read(opts),
-      epics: Epics.read(opts),
+      lanes: Lanes.read(opts),
       features: Features.read(opts),
       fleet: Fleet.read(Keyword.put(opts, :counts, counts))
     }
@@ -30,7 +30,7 @@ defmodule AiurWeb.Streamdeck.Deck do
       counts: Map.get(grid, :counts, Map.get(grid, "counts")),
       ticket: tickets,
       feature: Map.get(grid, :features, []),
-      epic: Map.get(grid, :epics, []),
+      lane: Map.get(grid, :lanes, []),
       fleet: Fleet.navigation(fleet)
     }
   end

@@ -65,12 +65,20 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   end
 
   @doc false
-  @spec issue_control_capabilities(State.t(), String.t(), map() | nil) :: map()
+  # The third argument is normally a running-entry map or nil, but a corrupt
+  # registry can hold anything; a read-only projection degrades rather than
+  # raising (#7537).
+  @spec issue_control_capabilities(State.t(), String.t(), term()) :: map()
   def issue_control_capabilities(%State{} = state, issue_identifier, running_entry)
-      when is_binary(issue_identifier) and (is_map(running_entry) or is_nil(running_entry)) do
-    can_interrupt = get_in(running_entry || %{}, [:control, :can_interrupt]) == true
-    safe_checkpoints = get_in(running_entry || %{}, [:control, :safe_checkpoints]) || []
-    immediate_delivery = get_in(running_entry || %{}, [:control, :immediate_delivery]) == true
+      when is_binary(issue_identifier) do
+    # A status projection reads this for every running row, so it must tolerate
+    # a corrupt entry rather than raise and take the read-only caller down with
+    # it (#7537). `State.control_map/1` degrades anything that is not a control
+    # map to "no control metadata", which fails closed for every flag below.
+    control = State.control_map(running_entry)
+    can_interrupt = Map.get(control, :can_interrupt) == true
+    safe_checkpoints = Map.get(control, :safe_checkpoints) || []
+    immediate_delivery = Map.get(control, :immediate_delivery) == true
     accepts_operator_messages = not is_nil(running_entry)
 
     %{
@@ -79,7 +87,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
       immediate_delivery: immediate_delivery,
       accepted_delivery_policies: accepted_delivery_policies(can_interrupt, immediate_delivery),
       safe_checkpoints: safe_checkpoints,
-      status: get_in(running_entry || %{}, [:control, :status]) || :working,
+      status: Map.get(control, :status) || :working,
       unit_control: unit_control_capability(running_entry),
       pending_control: pending_control(state, running_entry)
     }
@@ -139,7 +147,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   defp unit_control_capability(nil), do: :unsupported
 
   defp unit_control_capability(running_entry) do
-    get_in(running_entry, [:control, :application_confirmation]) || :request_only
+    Map.get(State.control_map(running_entry), :application_confirmation) || :request_only
   end
 
   defp pending_control(%State{control_lifecycle: lifecycle}, %{issue: %{id: issue_id}}) do

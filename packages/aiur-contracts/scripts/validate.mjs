@@ -25,6 +25,7 @@ export const ticketSpendCapReachedEventSchema = read('schemas/ticket-spend-cap-r
 export const ticketCancelResultEventSchema = read('schemas/ticket-cancel-result-event.v1.schema.json');
 export const ticketDecisionEventSchema = read('schemas/ticket-decision-event.v1.schema.json');
 export const voiceConverseSchema = read('schemas/voice-converse.v1.schema.json');
+export const buildOrderSchema = read('schemas/build-order.v1.schema.json');
 export const report = read('fixtures/capabilities.v1.json');
 export const error = read('fixtures/capability-error.v1.json');
 export const agents = read('fixtures/agents.v1.json');
@@ -36,6 +37,9 @@ export const ticketProgress = read('fixtures/ticket-progress.v1.json');
 export const ticketSpendCap = read('fixtures/ticket-spend-cap.v1.json');
 export const ticketSpendCapReached = read('fixtures/ticket-spend-cap-reached.v1.json');
 export const voiceConverse = read('fixtures/voice-converse.v1.json');
+export const buildOrder = read('fixtures/build-order.v1.json');
+export const buildOrderUnavailable = read('fixtures/build-order-unavailable.v1.json');
+export const buildOrderGolden = read('fixtures/build-order.golden.v1.json');
 export const commandSchema = read('schemas/command.v2.schema.json');
 export const command = read('fixtures/command.v2.json');
 export const ticketLifecycleEvent = read('fixtures/ticket-lifecycle-event.v1.json');
@@ -65,12 +69,14 @@ for (const schema of [
   ticketCancelResultEventSchema,
   ticketDecisionEventSchema,
   voiceConverseSchema,
+  buildOrderSchema,
 ]) {
   ajv.addSchema(schema);
 }
 export const validateEvents = ajv.getSchema(eventsSchema.$id);
 export const validateEventsCatalog = ajv.getSchema(eventsCatalogSchema.$id);
 export const validateCommand = ajv.compile(commandSchema);
+export const validateBuildOrder = ajv.compile(buildOrderSchema);
 export const validateReport = ajv.getSchema(reportSchema.$id);
 export const validateError = ajv.compile(errorSchema);
 export const validateAgents = ajv.getSchema(agentsSchema.$id);
@@ -105,6 +111,9 @@ export const contractCases = [
   { name: 'ticket spend cap reached event', schema: ticketSpendCapReachedEventSchema, fixture: ticketSpendCapReachedEvent, validate: validateTicketSpendCapReachedEvent, marker: 'v', version: 'v', additive: false },
   { name: 'ticket cancel result event', schema: ticketCancelResultEventSchema, fixture: ticketCancelResultEvent, validate: validateTicketCancelResultEvent, marker: 'v', version: 'v', additive: false },
   { name: 'ticket decision event', schema: ticketDecisionEventSchema, fixture: ticketDecisionEvent, validate: validateTicketDecisionEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'build order', schema: buildOrderSchema, fixture: buildOrder, validate: validateBuildOrder },
+  { name: 'build order unavailable', schema: buildOrderSchema, fixture: buildOrderUnavailable, validate: validateBuildOrder },
+  { name: 'build order golden', schema: buildOrderSchema, fixture: buildOrderGolden, validate: validateBuildOrder },
 ];
 
 for (const [validate, fixture] of [

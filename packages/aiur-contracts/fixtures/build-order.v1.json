@@ -1,0 +1,490 @@
+{
+  "contract": "aiur.build_order",
+  "contract_version": 1,
+  "build_order_id": "aiur-team/aiur:build-order-package",
+  "title": "Build Order package and published graph",
+  "repository": "aiur-team/aiur",
+  "root": {
+    "id": "7490",
+    "title": "Decompose Build Orders into a standalone package with a published graph contract",
+    "number": 7490,
+    "url": "https://github.com/aiur-team/aiur/issues/7490",
+    "epic": "build-order-package",
+    "plan_version": 1,
+    "researched_at_commit": "c16c731ad8a5f25f0b8f3d4d1b0cd0b4f8c9c1ab"
+  },
+  "generated_at": "2026-11-04T20:15:00Z",
+  "sources": {
+    "pack": {
+      "status": "known",
+      "observed_at": "2026-11-04T20:15:00Z",
+      "reason": null
+    },
+    "tracker": {
+      "status": "known",
+      "observed_at": "2026-11-04T20:14:40Z",
+      "reason": null
+    },
+    "progress": {
+      "status": "known",
+      "observed_at": "2026-11-04T20:14:52Z",
+      "reason": null
+    }
+  },
+  "epics": [
+    {
+      "key": "build-order-package",
+      "title": "Build Order package",
+      "label": "epic:build-order-package",
+      "url": "https://github.com/aiur-team/aiur/issues/7490",
+      "icon": "cube",
+      "hue": 206,
+      "features": [
+        "bo-research",
+        "bo-contract",
+        "bo-package",
+        "bo-adoption"
+      ],
+      "progress": {
+        "status": "known",
+        "total": 6,
+        "done": 1,
+        "open": 4,
+        "failed": 1,
+        "percent": 16,
+        "by_status": {
+          "done": 1,
+          "open": 3,
+          "failed": 1,
+          "closed": 1
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": null
+      }
+    }
+  ],
+  "features": [
+    {
+      "key": "bo-research",
+      "title": "Research and plan",
+      "label": "feature:bo-research",
+      "epic": "build-order-package",
+      "icon": "magnifying-glass",
+      "hue": 168,
+      "url": null,
+      "progress": {
+        "status": "known",
+        "total": 1,
+        "done": 1,
+        "open": 0,
+        "failed": 0,
+        "percent": 100,
+        "by_status": {
+          "done": 1
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": null
+      }
+    },
+    {
+      "key": "bo-contract",
+      "title": "Published graph contract",
+      "label": "feature:bo-contract",
+      "epic": "build-order-package",
+      "icon": "document-text",
+      "hue": 216,
+      "url": null,
+      "progress": {
+        "status": "known",
+        "total": 2,
+        "done": 0,
+        "open": 2,
+        "failed": 0,
+        "percent": 0,
+        "by_status": {
+          "open": 2
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": null
+      }
+    },
+    {
+      "key": "bo-package",
+      "title": "Framework-agnostic renderer",
+      "label": "feature:bo-package",
+      "epic": "build-order-package",
+      "icon": "paint-brush",
+      "hue": 276,
+      "url": null,
+      "progress": {
+        "status": "known",
+        "total": 2,
+        "done": 0,
+        "open": 1,
+        "failed": 1,
+        "percent": 0,
+        "by_status": {
+          "open": 1,
+          "failed": 1
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": null
+      }
+    },
+    {
+      "key": "bo-adoption",
+      "title": "Dashboard adoption",
+      "label": "feature:bo-adoption",
+      "epic": "build-order-package",
+      "icon": "window",
+      "hue": 32,
+      "url": null,
+      "progress": {
+        "status": "unknown",
+        "total": 1,
+        "done": 0,
+        "open": 1,
+        "failed": 0,
+        "percent": 0,
+        "by_status": {
+          "planned": 1
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": "feature has no published tickets yet"
+      }
+    }
+  ],
+  "lanes": [
+    {
+      "key": "backend",
+      "title": "Backend",
+      "label": "build-lane:backend",
+      "icon": "server",
+      "hue": 190,
+      "order": 0,
+      "progress": {
+        "status": "known",
+        "total": 3,
+        "done": 1,
+        "open": 2,
+        "failed": 0,
+        "percent": 33,
+        "by_status": {
+          "done": 1,
+          "open": 2
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": null
+      }
+    },
+    {
+      "key": "frontend",
+      "title": "Frontend",
+      "label": "build-lane:frontend",
+      "icon": "paint-brush",
+      "hue": 276,
+      "order": 1,
+      "progress": {
+        "status": "known",
+        "total": 2,
+        "done": 0,
+        "open": 1,
+        "failed": 1,
+        "percent": 0,
+        "by_status": {
+          "open": 1,
+          "failed": 1
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": null
+      }
+    },
+    {
+      "key": "docs",
+      "title": "Docs",
+      "label": "build-lane:docs",
+      "icon": "book-open",
+      "hue": 46,
+      "order": 2,
+      "progress": {
+        "status": "known",
+        "total": 1,
+        "done": 0,
+        "open": 1,
+        "failed": 0,
+        "percent": 0,
+        "by_status": {
+          "open": 1
+        },
+        "observed_at": "2026-11-04T20:14:52Z",
+        "reason": null
+      }
+    }
+  ],
+  "tickets": [
+    {
+      "id": "BO-001",
+      "number": 7490,
+      "title": "Inventory Build Orders and agree the package boundary",
+      "url": "https://github.com/aiur-team/aiur/issues/7490",
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": "build-order-package",
+      "feature": "bo-research",
+      "lane": "backend",
+      "phase": 1,
+      "wave": 1,
+      "complexity": 3,
+      "points": 3,
+      "estimate_hours": 6,
+      "status": "done",
+      "progress_percent": 100,
+      "started_at": "2026-11-04T09:10:00Z",
+      "ended_at": "2026-11-04T14:02:00Z"
+    },
+    {
+      "id": "BO-002",
+      "number": 7501,
+      "title": "Publish the build-order.v1 schema and fixtures",
+      "url": "https://github.com/aiur-team/aiur/issues/7501",
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": "build-order-package",
+      "feature": "bo-contract",
+      "lane": "backend",
+      "phase": 1,
+      "wave": 2,
+      "complexity": 3,
+      "points": 3,
+      "estimate_hours": 5,
+      "status": "running",
+      "progress_percent": 40,
+      "started_at": "2026-11-04T19:30:00Z",
+      "ended_at": null
+    },
+    {
+      "id": "BO-003",
+      "number": 7502,
+      "title": "Encode build-order.v1 from the daemon projection",
+      "url": "https://github.com/aiur-team/aiur/issues/7502",
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": "build-order-package",
+      "feature": "bo-contract",
+      "lane": "backend",
+      "phase": 1,
+      "wave": 3,
+      "complexity": 3,
+      "points": 3,
+      "estimate_hours": 8,
+      "status": "open",
+      "progress_percent": null,
+      "started_at": null,
+      "ended_at": null
+    },
+    {
+      "id": "BO-004",
+      "number": 7503,
+      "title": "Render the review and graph in packages/aiur-build-order",
+      "url": "https://github.com/aiur-team/aiur/issues/7503",
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": "build-order-package",
+      "feature": "bo-package",
+      "lane": "frontend",
+      "phase": 2,
+      "wave": 3,
+      "complexity": 4,
+      "points": 5,
+      "estimate_hours": 14,
+      "status": "failed",
+      "progress_percent": null,
+      "started_at": "2026-11-05T08:00:00Z",
+      "ended_at": "2026-11-05T09:41:00Z"
+    },
+    {
+      "id": "BO-005",
+      "number": null,
+      "title": "Adopt the package in the dashboard",
+      "url": null,
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": "build-order-package",
+      "feature": "bo-adoption",
+      "lane": "frontend",
+      "phase": 2,
+      "wave": 4,
+      "complexity": 4,
+      "points": 5,
+      "estimate_hours": 16,
+      "status": "planned",
+      "progress_percent": null,
+      "started_at": null,
+      "ended_at": null
+    },
+    {
+      "id": "BO-006",
+      "number": 7504,
+      "title": "Document the published graph contract",
+      "url": "https://github.com/aiur-team/aiur/issues/7504",
+      "kind": "audit",
+      "provenance": "discovered",
+      "epic": "build-order-package",
+      "feature": "bo-package",
+      "lane": "docs",
+      "phase": 2,
+      "wave": 4,
+      "complexity": 2,
+      "points": 2,
+      "estimate_hours": 3,
+      "status": "closed",
+      "progress_percent": null,
+      "started_at": "2026-11-05T10:00:00Z",
+      "ended_at": "2026-11-05T11:12:00Z"
+    }
+  ],
+  "edges": [
+    {
+      "from": "BO-002",
+      "to": "BO-001",
+      "kind": "depends_on",
+      "state": "cleared",
+      "source": "pack"
+    },
+    {
+      "from": "BO-003",
+      "to": "BO-002",
+      "kind": "depends_on",
+      "state": "blocking",
+      "source": "pack"
+    },
+    {
+      "from": "BO-004",
+      "to": "BO-002",
+      "kind": "depends_on",
+      "state": "blocking",
+      "source": "pack"
+    },
+    {
+      "from": "BO-005",
+      "to": "BO-004",
+      "kind": "depends_on",
+      "state": "terminal_unsatisfied",
+      "source": "pack"
+    },
+    {
+      "from": "BO-004",
+      "to": "BO-003",
+      "kind": "serializes_with",
+      "state": null,
+      "source": "pack"
+    },
+    {
+      "from": "BO-003",
+      "to": "BO-004",
+      "kind": "serializes_with",
+      "state": null,
+      "source": "pack"
+    },
+    {
+      "from": "BO-006",
+      "to": "BO-004",
+      "kind": "suggested_after",
+      "state": null,
+      "source": "pack"
+    },
+    {
+      "from": "BO-004",
+      "to": "BO-006",
+      "kind": "contains",
+      "state": null,
+      "source": "pack"
+    },
+    {
+      "from": "BO-004",
+      "to": "GATE-001",
+      "kind": "gates",
+      "state": null,
+      "source": "pack"
+    },
+    {
+      "from": "BO-006",
+      "to": "BO-002",
+      "kind": "depends_on",
+      "state": "cleared",
+      "source": "tracker"
+    }
+  ],
+  "gates": [
+    {
+      "key": "GATE-001",
+      "title": "Approve the review page component boundary",
+      "owner": "Product operator",
+      "resolution_criteria": "The review and graph render from build-order.v1 alone, with no daemon call.",
+      "status": "open"
+    }
+  ],
+  "waves": [
+    {
+      "index": 1,
+      "tickets": [
+        "BO-001"
+      ],
+      "starts_at": "2026-11-04T09:10:00Z",
+      "ends_at": "2026-11-04T14:02:00Z"
+    },
+    {
+      "index": 2,
+      "tickets": [
+        "BO-002"
+      ],
+      "starts_at": "2026-11-04T19:30:00Z",
+      "ends_at": null
+    },
+    {
+      "index": 3,
+      "tickets": [
+        "BO-003",
+        "BO-004"
+      ],
+      "starts_at": "2026-11-05T08:00:00Z",
+      "ends_at": null
+    },
+    {
+      "index": 4,
+      "tickets": [
+        "BO-005",
+        "BO-006"
+      ],
+      "starts_at": "2026-11-05T10:00:00Z",
+      "ends_at": null
+    }
+  ],
+  "critical_path": {
+    "status": "known",
+    "tickets": [
+      "BO-001",
+      "BO-002",
+      "BO-004",
+      "BO-005"
+    ],
+    "hours": 41,
+    "reason": null
+  },
+  "progress": {
+    "status": "known",
+    "total": 6,
+    "done": 1,
+    "open": 3,
+    "failed": 1,
+    "percent": 16,
+    "by_status": {
+      "done": 1,
+      "open": 3,
+      "failed": 1,
+      "closed": 1
+    },
+    "observed_at": "2026-11-04T20:14:52Z",
+    "reason": null
+  }
+}

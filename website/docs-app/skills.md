@@ -70,7 +70,101 @@ runner.
 The `aiurdev --test` / `--test3` guard prevents destructive Aiur
 sandbox resets from issue workspaces, not ordinary repository tests.
 
-For a home-page epic, issue workers use `aiur_set_epic` or `aiur_feature`; Executors use `aiur epic set` or `aiur feature add`. Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
+For a home-page lane, issue workers use `aiur_set_lane` or `aiur_feature`; Executors use `aiur lane set` or `aiur feature add`. An epic holds features, a feature holds tickets, and a lane is the technical column a ticket belongs to.
+
+Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
+
+## Matching skills to a ticket
+
+Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, and every other installed skill after them as a name and description to load on demand.
+
+`agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, epic, label and complexity to skill names, and the matching sets are combined.
+
+A lane is the technical column the work belongs to: it comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured lane's label matchers. A configured lane therefore needs no GitHub relabel.
+
+An epic is the build-order record above features. A ticket's epic is the one whose ordered feature list holds the ticket's owning feature; a feature no epic holds contributes no epic skills and no error.
+
+### Merge order and precedence
+
+| Source | Config key | Ticket value |
+| --- | --- | --- |
+| Label | `agent.skills.by_label` | Label, without its `skills:` prefix |
+| Lane | `agent.skills.by_lane` | Lane slug |
+| Feature | `agent.skills.by_feature` | Owning feature slug |
+| Epic | `agent.skills.by_epic` | Owning feature's epic slug |
+| Complexity | `agent.skills.by_complexity` | Complexity level |
+
+Labels come first, then lanes, then the owning feature, then its epic, then complexity. Each source contributes its whole set and the sets combine; when two sources name the same skill, the earlier source owns the stated reason.
+
+Matching is case-insensitive, and complexity keys accept both `3` and `"3"`.
+
+### Per-ticket override
+
+A `skills:<name>` label adds skills to one ticket without a config edit. It names a `by_label` entry when one exists, otherwise it names one skill directly.
+
+```yaml
+agent:
+  skills:
+    by_label:
+      design: [design-import, ce-brainstorm]
+```
+
+A `Skills: a, b` line in the ticket body adds skills the same way. A `Skills only: a, b` line replaces the configured set for that ticket. A line inside a fenced code block is documentation and does not count.
+
+### Worker prompt and the index
+
+Mapped skills are inlined in full under `## Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
+
+`agent.skills.preload_max_bytes` caps the inlined instructions. Mapped skills past the cap are listed to load on demand and reported as truncated, never dropped.
+
+A mapped name with no installed `SKILL.md` logs a warning naming the ticket, the skill and the reason. The prompt lists it under `### Mapped skills not installed here` and the worker carries on with the rest.
+
+### Visibility
+
+`aiur agents` shows each worker's mapped skills and their reasons on its status row. The ticket's dispatch record (`logs/agent.ndjson`, mirrored in `agent.md`) carries the full resolution: skills, reasons, missing names, truncated names and the inlined byte count.
+
+### Configuration is read per dispatch
+
+The mapping is read when a worker's prompt is built, so an edit applies to the next dispatch without a daemon restart. A resumed session keeps the prompt it started with.
+
+### Example: a game repository
+
+A game's features name the game domain a ticket works in, and its lanes name the discipline it is built with. Mapping both means a pixel-art ticket in the world feature starts with the art and world skills instead of the multiplayer, saves and CI ones.
+
+```yaml
+agent:
+  skills:
+    # Lanes are the technical columns: the discipline a ticket is built with.
+    by_lane:
+      art: [pixel-art, palette-discipline]
+      audio: [audio-design, sound-budget]
+      frontend: [ui-kit, design-import]
+      backend: [save-schema, migration-safety]
+      docs: [docs-style]
+      qa: [playtest-checklists, regression-triage]
+    # Features are the game domains: the part of the game a ticket works on.
+    by_feature:
+      foundation: [repo-conventions, ci-plumbing]
+      world: [level-design, tilemap-editing]
+      combat: [combat-tuning, balance-simulation]
+      classes: [progression-design]
+      items-ui: [ui-kit, design-import]
+      story-quests: [narrative-writing, quest-authoring]
+      audio: [audio-design]
+      persistence: [save-schema]
+      qa: [playtest-checklists]
+    # An epic groups features under a milestone; its skills reach every ticket below it.
+    by_epic:
+      v1-launch: [launch-checklist]
+    # A label adds skills to one ticket without a config edit.
+    by_label:
+      pixel-art: [pixel-art, palette-discipline]
+    # Complexity is the last source, so it only fills in what the rest missed.
+    by_complexity:
+      1: [ce-work]
+      3: [ce-plan, ce-work]
+      4: [ce-brainstorm, ce-plan, ce-work, ce-code-review]
+```
 
 ## Executor skills
 
@@ -93,12 +187,22 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | Skill | Trigger | Covers |
 | --- | --- | --- |
 | [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
-| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Requirements, ticket contracts, dependency graph, workstream icons and summaries, and Build Order handoff. |
-| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, per-feature progress at `/?view=list&list=features`, accepted boundary through review and merge. |
+| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Aiur's layer on the shared `build-order` skill: planning-pack formats, the continuous-build collection as one epic holding product features over lanes, approval freeze, GitHub promotion, and Executor handoff. |
+| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, per-ticket deep dives through `research-spike`, per-feature progress at `/?view=list&list=features`, accepted boundary through review and merge. |
 | [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | Inspect a live run | Status board and alert feed. |
 | [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Executor sweep findings, five dashboard surfaces and per-feature progress at `/?view=list&list=features`, feature-work share, bottleneck, and durable findings. |
 | [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | Executor handoff | Boot document for the next Executor. |
 | [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
+
+Build-order publication runs the product `aiur` command from `PATH`. Set
+`AIUR_FEATURE_CLI` to an executable `aiur` or `aiurdev` path when it is not
+available there or you need to select a particular runtime instance.
+
+`aiur-build` keeps only the Aiur-specific rules and defers the general
+decomposition method to the shared `build-order` skill; `aiur-run` sends
+per-ticket deep dives to `research-spike` the same way. Both general skills ship
+with the shared skill set, so a run that plans or researches without them is
+missing an install, not a section of these pages.
 
 `aiur-handoff`, `aiur-meta`, and `release` are Claude-only.
 

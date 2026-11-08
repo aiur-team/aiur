@@ -85,6 +85,7 @@ defmodule Aiur.Commands.Answering do
 
       encoded =
         cond do
+          Map.get(payload, :rejected, Map.get(payload, "rejected")) == true -> {:ok, payload}
           not is_nil(answers) -> QuestionAnswers.encode(payload, questions, answers)
           length(questions) > 1 -> {:error, {:question_answers, :incomplete}}
           true -> {:ok, payload}

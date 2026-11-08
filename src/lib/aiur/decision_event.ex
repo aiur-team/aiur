@@ -60,6 +60,8 @@ defmodule Aiur.DecisionEvent do
           | :escalated
           | :human_needed
           | :executor_acknowledged
+          | :executor_claimed
+          | :executor_claim_released
           | :requester_notified
           | :enriched
           | :decision_expired
@@ -203,21 +205,42 @@ defmodule Aiur.DecisionEvent do
          {:ok, persisted_hash} <- Validation.fetch_string(raw, "content_hash", :content_hash),
          {:ok, event} <-
            decode_typed_event(schema_version, type, decision_id, decision_version, data, event_id, run_id, occurred_at),
-         :ok <- verify_persisted_hash(event, persisted_hash) do
+         :ok <- verify_persisted_hash(event, persisted_hash, data) do
       {:ok, %{event | content_hash: persisted_hash}}
     end
   end
 
-  # Snapshots written while #5506 was live, before #6246, hashed the
-  # session-delivery keys as well; they replay against that material.
-  defp verify_persisted_hash(%__MODULE__{type: type} = event, persisted_hash) when type in [:requested, :enriched] do
+  # The recomputed hash re-encodes the decoded data with this build's encoder,
+  # so a build that adds or drops an encoded key strands records written by
+  # another build (#7577). Each fallback still proves the stored hash covers
+  # the stored record: snapshots written while #5506 was live (before #6246)
+  # hashed the session-delivery keys, and any record may match the data exactly
+  # as its writer persisted it.
+  defp verify_persisted_hash(event, persisted_hash, raw_data) do
     with {:error, _reason} = mismatch <- Validation.verify_hash(event.content_hash, persisted_hash) do
-      material = %{event_material(event) | data: event_hash_data(event.schema_version, type, event.data)}
-      if DecisionValidation.content_hash(material) == persisted_hash, do: :ok, else: mismatch
+      candidates = [%{event_material(event) | data: persisted_hash_data(event.schema_version, event.type, raw_data)}]
+
+      candidates =
+        if event.type in @snapshot_types,
+          do: [%{event_material(event) | data: event_hash_data(event.schema_version, event.type, event.data)} | candidates],
+          else: candidates
+
+      if Enum.any?(candidates, &(DecisionValidation.content_hash(&1) == persisted_hash)), do: :ok, else: mismatch
     end
   end
 
-  defp verify_persisted_hash(event, persisted_hash), do: Validation.verify_hash(event.content_hash, persisted_hash)
+  # The persisted data minus the keys the writer added after hashing.
+  defp persisted_hash_data(@schema_version, :requested, raw),
+    do: raw |> Map.drop(["provenance", "provenance_hash", "provenance_state"]) |> drop_unhashed_snapshot_keys(:requested)
+
+  defp persisted_hash_data(@schema_version, :enriched, raw) do
+    raw
+    |> Map.drop(["provenance_hash", "provenance_state"])
+    |> Map.update!("decision", &Map.delete(&1, "provenance"))
+    |> drop_unhashed_snapshot_keys(:enriched)
+  end
+
+  defp persisted_hash_data(_schema_version, type, raw), do: drop_unhashed_snapshot_keys(raw, type)
 
   @doc "JSON-safe durable representation."
   @spec to_json_safe(t()) :: map()

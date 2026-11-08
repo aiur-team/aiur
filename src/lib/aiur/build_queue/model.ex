@@ -14,17 +14,19 @@ defmodule Aiur.BuildQueue.Model do
   alias Aiur.BuildQueue.Codec
 
   defmodule Queue do
-    @moduledoc "A named list or imported build order."
+    @moduledoc "A named list, imported build order, or queued feature."
     @enforce_keys [:id, :name, :kind, :root, :held, :generation, :created_at]
-    defstruct @enforce_keys ++ [start_trigger: nil, rank: 0]
+    defstruct @enforce_keys ++ [start_trigger: nil, rank: 0, feature: nil, epic: nil]
 
     @type t :: %__MODULE__{
             id: String.t(),
             name: String.t(),
             rank: non_neg_integer(),
             start_trigger: Aiur.StartTrigger.trigger() | nil,
-            kind: :list | :build_order,
+            kind: :list | :build_order | :feature | :epic,
             root: pos_integer() | nil,
+            feature: String.t() | nil,
+            epic: String.t() | nil,
             held: boolean(),
             generation: non_neg_integer(),
             created_at: DateTime.t()
@@ -51,7 +53,7 @@ defmodule Aiur.BuildQueue.Model do
     @moduledoc "A prerequisite-to-dependent edge and its provenance."
     @enforce_keys [:prerequisite, :dependent, :source]
     defstruct @enforce_keys
-    @type t :: %__MODULE__{prerequisite: String.t(), dependent: String.t(), source: :list | :build_order | :native}
+    @type t :: %__MODULE__{prerequisite: String.t(), dependent: String.t(), source: :list | :build_order | :feature | :epic | :native}
   end
 
   defmodule Observation do

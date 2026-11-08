@@ -60,6 +60,7 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.RecentMergeStore,
     Aiur.Webhooks.DeliveryLog,
     Aiur.GitHub.CodeOwners,
+    Aiur.GitHub.LabelCatalogue,
     Aiur.Events.SubscriptionStoreRegistry,
     Aiur.Events.SubscriptionStoreSupervisor,
     Aiur.DecisionAttention,
@@ -144,6 +145,7 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.Usage.Alerts => "Subscribe before ProviderMeterRefresh emits baseline observations",
     # The first CI poll and queue reconcile need the seeded progress table before they run.
     Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress",
+    Aiur.ControlCall.ReplayStore => "Open the replay ledger before HttpServer accepts remote control calls",
     Aiur.Orchestrator.SpendCap.Store => "Seed fail-closed admission before Orchestrator starts its initial dispatch",
     Aiur.PostDeployChecklist => "Subscribe before Orchestrator's initial poll so merged PR checklist events are not missed"
   }

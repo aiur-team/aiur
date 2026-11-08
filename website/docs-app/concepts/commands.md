@@ -210,6 +210,24 @@ A crash during sending can repeat an event ID; consumers must
 deduplicate it. Existing projections without these fields are upgraded without
 replaying historical notifications. Journal corruption still makes writes read-only.
 
+### Repairing a read-only journal
+
+A record fails verification when its content hash no longer matches. Aiur also
+accepts a record whose stored hash matches its data exactly as written, so an
+upgrade or rollback that changes how Commands are encoded leaves the journal valid.
+
+A record that still fails is damaged. Replay stops there, the store goes
+read-only, and an answer returns `{:store_unavailable, {:corrupt, line, reason}}`.
+
+Run `aiur commands repair` against the running daemon. It moves each record that
+fails, and any later record that depends on it, byte for byte into a sibling
+`decisions.quarantine-<UTC>.ndjson`. It keeps every valid record, rewrites the
+journal and reloads the store as writable, then lists each quarantined line.
+
+Afterwards you can answer open Commands and retire one whose ticket closed with
+[`aiur executor-moot`](/reference/cli-decisions). A Command whose `requested`
+record was quarantined is no longer listed; its line stays in the quarantine file.
+
 ## Operator answers relayed in conversation
 
 When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli) if you enabled `executor.relay_operator_answers`. This accepts human-only Commands without granting the Executor decision authority.
@@ -219,6 +237,16 @@ Command detail, history and `aiur commands <decision-id>` distinguish it as **an
 Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; withdrawal delivery guards still apply.
 
 <span id="who-can-replace-an-answer"></span>
+
+## Rejecting a Command
+
+A host can reject a Command with a free-text reason (`POST
+/api/v1/commands/:id/reject`, see [embedded Commands](../guide/embedded-commands.md)).
+Unlike dismissal, which delivers nothing and is refused for a blocking Command,
+a rejection is recorded as the answer.
+
+The reason is stored verbatim, the agent receives a message naming the
+rejection and the reason, and a blocking Command unblocks. The component state is `rejected`.
 
 ## Overriding an answer
 
@@ -407,6 +435,56 @@ release open deferred Commands from the previous thread before starting work.
 Cleanup failures are logged without preventing the worker from starting.
 Answered Commands are unchanged. Releasing a hold leaves the Command open and
 answerable.
+
+## Media on a Command
+
+A Command's prompt, each of its options, and a submitted answer can carry typed
+media: `image`, `animated_image`, `video` or `audio`. Text-only Commands are
+unchanged, and a Command with no media decodes, persists and renders exactly as
+before.
+
+Each item names its kind and MIME type, a locator, and alt text or a caption:
+
+| Field | Meaning |
+| --- | --- |
+| Kind | `image`, `animated_image`, `video`, or `audio`. |
+| MIME type | Allowlisted for the kind, for example `image/png` or `video/mp4`. |
+| Locator | An allowlisted HTTPS URL, or a local file under a configured root. |
+| Alt text and caption | Accessible name and visible description. Alt text is required for still and animated images. |
+| Size, dimensions, duration | Optional bounds checked against the kind's limit. |
+| Poster | A still frame for video or audio. |
+
+A worker sends media in the `decision.requested` payload that already carries
+its question and options. The Executor attaches media from the shell with
+`aiur command request --media <file|https-url>[,alt=…,caption=…,option=<id>]`,
+which goes through the same validation and storage.
+
+Every worker harness, including the OpenAI-compatible (OpenRouter, DeepSeek)
+one, sends media through its `emit_event` tool. A worker cannot run
+`aiur command request`, because its sandbox has no daemon control access.
+
+A local file is stored as an attachment reference, so a dashboard or API reader
+never receives a filesystem path. Media that would rot is refused: an expiring
+pre-signed URL is rejected instead of persisted, and a reference to an
+unapproved host or outside a safe root fails with a stable error.
+
+Readers fetch a local attachment through the Command's own media route. A
+bearer-token client uses
+`GET /api/v1/decisions/{decision_id}/media/{attachment_id}`; the dashboard uses
+`GET /commands/{decision_id}/media/{attachment_id}` with the credential the page
+was loaded with.
+
+The route re-checks containment against a configured root at read time and only
+resolves media the Command actually carries, so an attachment id belonging to
+another Command answers 404.
+
+The dashboard renders each kind with native controls, alt text and captions, and
+an unavailable panel when the media cannot be resolved.
+
+An embedding host renders the same presentation through the `@aiur/commands`
+package. It reads a local attachment from the ticket-scoped route
+`GET /api/v1/commands/{decision_id}/media/{attachment_id}`, using the Command
+grant it already holds.
 
 ## The Executor asks you
 

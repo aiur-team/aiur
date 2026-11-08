@@ -56,7 +56,7 @@ defmodule AiurWeb.Build.SnapshotRows do
   defp retain_section(_section, rows, _message), do: {rows, []}
 
   defp retain_row(row, section, index, message, {valid, dropped}) do
-    case PayloadValidator.validate_row(row, section, message["epics"], message["features"]) do
+    case PayloadValidator.validate_row(row, section, message["lanes"], message["features"]) do
       :ok ->
         {[row | valid], dropped}
 

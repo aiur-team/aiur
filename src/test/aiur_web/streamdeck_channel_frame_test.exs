@@ -60,12 +60,12 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
     socket = joined_socket()
     assert_push("frame", _initial)
 
-    for view <- ["feature", "epic", "fleet"] do
+    for view <- ["feature", "lane", "fleet"] do
       ref = push(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "press"})
       assert_reply(ref, :ok, %{"view" => ^view})
       flush_frame(socket)
       assert_push("frame", %{keys: keys})
-      if view in ["feature", "epic"], do: assert(keys == List.duplicate(nil, 8))
+      if view in ["feature", "lane"], do: assert(keys == List.duplicate(nil, 8))
     end
 
     ref = push(socket, "input", %{"kind" => "key", "index" => 0, "action" => "down"})
