@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator do
 
   alias Aiur.Orchestrator.ListenerModes
   alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads}
+  alias Aiur.Project.Context
   require Logger
 
   alias Aiur.{Issue, Signal}
@@ -44,7 +45,15 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
-  def init(opts), do: Lifecycle.init(opts, &issue_tracked?/1)
+  def init(opts) do
+    # A per-project orchestrator adopts its project so config and stores resolve to it.
+    case Keyword.get(opts, :project) do
+      %Aiur.Project{} = project -> Context.put(project)
+      _ -> :ok
+    end
+
+    Lifecycle.init(opts, &issue_tracked?/1)
+  end
 
   @doc false
   @spec has_live_owner?(String.t()) :: boolean() | :unknown

@@ -97,7 +97,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     :ok = TestTicketScope.validate!()
     :ok = Protection.reset()
-    if Process.whereis(Listeners), do: Listeners.reset()
+    if GenServer.whereis(Aiur.Project.whereis(Listeners)), do: Listeners.reset()
     :ok = ProcessReaper.handoff([])
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
