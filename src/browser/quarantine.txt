@@ -1,5 +1,6 @@
 # BrowserSpec rows use spec path, title, line, and tracking ticket; legacy whole-spec rows use spec path and ticket. Tabs delimit fields.
 BrowserSpec	src/browser/tests/build-home-composer.browser.spec.mjs	#6089	2026-11-07
+BrowserSpec	src/browser/tests/build-home-features.browser.spec.mjs	Features list rows hold only name, bar and merged/total, with an all-features total and a URL sort	75	#7859
 BrowserSpec	src/browser/tests/build-home-modal-doc.browser.spec.mjs	body state stale stays explicit	134	#7471
 BrowserSpec	src/browser/tests/build-home-modal-doc.browser.spec.mjs	conversation opens skip body reads; doc close unsubscribes and pack ids never request GitHub	222	#7575
 BrowserSpec	src/browser/tests/build-home-render.browser.spec.mjs	#6153	2026-11-07
