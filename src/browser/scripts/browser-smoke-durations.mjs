@@ -18,6 +18,7 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-native-hold': 39,
   'test:projects-home-model': 5,
   'test:gateway-state': 5,
+  'test:gateway-state': 5,
   'test:browser-suite -- build-home-projects': 30,
   'test:browser-suite -- build-home-gateway-view': 30,
   // #7319 local two-case run: 21.1s, plus fixture/startup margin; refresh from the first CI shard log.
