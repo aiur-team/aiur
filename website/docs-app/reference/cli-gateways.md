@@ -51,7 +51,7 @@ On B, a valid enrolment burns the invite, creates a token bound to A's gateway i
 
 Any invited write category becomes a Decision you must confirm signed in (see below), and `join` prints `pending on <n>: …`. Mutual trust needs an invite in each direction.
 
-The enrol route allows 5 attempts a minute per remote IP, then answers 429 even for a correct secret. Behind a proxy or tunnel every caller shares one address, so five bad attempts pause all enrolment for a minute.
+The enrol route allows 5 attempts a minute per remote IP, then answers 429 even for a correct secret. Behind a proxy or tunnel not listed in `server.trusted_proxies`, every caller shares one address, so five bad attempts pause all enrolment for a minute.
 
 Unknown id and wrong secret return the same 401. A peer's token never exceeds its registry entry: an invited write category works only after you confirm it.
 
