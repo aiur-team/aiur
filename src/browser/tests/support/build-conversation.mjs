@@ -16,7 +16,7 @@ export async function mountConversation(page, info) {
   // ("Promise was collected"), which Playwright reports as a navigation (#7426).
   await page.evaluate(() => {
     Promise.all([import('/build-home/state.js'), import('/build-home/modal/frame.js')])
-      .then(([{ ctx }, { openModal }]) => { window.buildConversation = { ctx, openModal } })
+      .then(([{ ctx, fx }, { openModal, MS }]) => { window.buildConversation = { ctx, fx, openModal, MS } })
   })
   await expect.poll(() => page.evaluate(() => !!window.buildConversation?.ctx.D?.now.length)).toBe(true)
 }
