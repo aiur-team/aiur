@@ -98,6 +98,22 @@ Aiur's canonical human-answer path, so optimistic version checks, idempotency,
 replacement precedence, and audit attribution all behave exactly as they do on
 the dashboard.
 
+An answer can also carry `feedback`, a structured verdict per option beside the
+chosen one:
+
+```json
+{"option_id": "b", "feedback": [
+  {"option_id": "a", "verdict": "dislike", "reason": "too slow"},
+  {"option_id": "b", "verdict": "like"}
+]}
+```
+
+Each entry needs a known `option_id` (once per option) and a `verdict` of `like`
+or `dislike`; `reason` is optional, up to 500 characters. At most 20 entries.
+Anything else is a 422. The field is stored with the answer, returned in the
+component's `answer.feedback`, and shown to the agent as an "Option feedback"
+list. A text-only answer omits it.
+
 ## Reject a Command
 
 A user can refuse a Command, including a blocking one, and say why. Post the

@@ -159,13 +159,15 @@ defmodule AiurWeb.DashboardAuthController do
 
   def registration_finish(conn, _params), do: conn |> put_status(:bad_request) |> json(%{error: "invalid credential"})
 
-  defp google_config do
-    public_url = Config.settings!().server.public_url
+  @doc false
+  @spec google_redirect_uri() :: String.t()
+  def google_redirect_uri, do: String.trim_trailing(Config.settings!().server.public_url || "", "/") <> "/auth/google/callback"
 
+  defp google_config do
     [
       client_id: System.get_env("AIUR_GOOGLE_CLIENT_ID"),
       client_secret: System.get_env("AIUR_GOOGLE_CLIENT_SECRET"),
-      redirect_uri: String.trim_trailing(public_url || "", "/") <> "/auth/google/callback",
+      redirect_uri: google_redirect_uri(),
       nonce: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
       authorization_params: [scope: "openid email", prompt: "select_account"]
     ]

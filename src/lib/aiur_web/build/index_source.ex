@@ -22,12 +22,14 @@ defmodule AiurWeb.Build.IndexSource do
       usage = Keyword.get(opts, :usage, Usage)
       freshness = Keyword.get(opts, :freshness, Freshness)
 
-      {:ok,
-       Map.merge(data, %{
-         usage: step(:usage, fn -> usage.read(Keyword.get(opts, :financial, :locked), opts) end),
-         daemon: data.daemon || step(:daemon, fn -> freshness.read_daemon(opts) end),
-         writable: EndpointConfig.get(:dashboard_writable) == true
-       })}
+      snapshot =
+        Map.merge(data, %{
+          usage: step(:usage, fn -> usage.read(Keyword.get(opts, :financial, :locked), opts) end),
+          daemon: data.daemon || step(:daemon, fn -> freshness.read_daemon(opts) end),
+          writable: EndpointConfig.get(:dashboard_writable) == true
+        })
+
+      {:ok, snapshot}
     end
   end
 
@@ -56,6 +58,15 @@ defmodule AiurWeb.Build.IndexSource do
     case guard(fn -> GenServer.call(server(opts), :daemon, 1_000) end) do
       %{} = block -> block
       _ -> nil
+    end
+  end
+
+  @impl true
+  def last_agents(opts) do
+    case guard(fn -> GenServer.call(server(opts), :last_agent_snapshot, 1_000) end) do
+      {:ok, snapshot} -> {:ok, snapshot}
+      {:error, _reason} = error -> error
+      _ -> {:error, :unavailable}
     end
   end
 

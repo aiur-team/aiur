@@ -19,7 +19,8 @@ defmodule Aiur.Config.Schema.Server do
     # @config-detail server.host | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
     field(:host, :string, default: "127.0.0.1")
     # @config-reference config-configuration-18 server.public_url
-    # @config-detail server.public_url | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.public_url | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
     field(:public_url, :string)
     # @config-reference config-configuration-18 server.allowed_hosts
     # @config-detail server.allowed_hosts | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
@@ -42,6 +43,9 @@ defmodule Aiur.Config.Schema.Server do
     schema
     |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :dashboard_origins, :trusted_proxies, :tailscale_funnel], empty_values: [])
     |> validate_number(:port, greater_than_or_equal_to: 0)
+    |> validate_change(:public_url, fn :public_url, url ->
+      if valid_public_url?(url), do: [], else: [public_url: "must be an absolute http:// or https:// URL with a host, such as https://host.ts.net:4001"]
+    end)
     |> validate_change(:dashboard_origins, fn :dashboard_origins, entries ->
       if Enum.all?(entries, &match?({:ok, _}, DashboardOrigin.normalize_origin(&1))),
         do: [],
@@ -53,6 +57,13 @@ defmodule Aiur.Config.Schema.Server do
     |> validate_change(:trusted_proxies, fn :trusted_proxies, entries ->
       if Enum.all?(entries, &valid_proxy_entry?/1), do: [], else: [trusted_proxies: "must contain CIDRs or \"platform\""]
     end)
+  end
+
+  defp valid_public_url?(url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: scheme, host: host}} when scheme in ["http", "https"] and is_binary(host) and host != "" -> true
+      _ -> false
+    end
   end
 
   @doc false
