@@ -22,7 +22,7 @@ defmodule Aiur.Ownership.Fence do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
   @doc "The fence, only while `instance.ownership: github`. Its socket is started by `Aiur.Application.Children`."
-  @spec child_specs() :: [Supervisor.child_spec()]
+  @spec child_specs() :: [module()]
   def child_specs, do: if(Ownership.enabled?(), do: [__MODULE__], else: [])
 
   @doc "Records the claim an agent starts under. `issue` supplies the identifier and repository."
