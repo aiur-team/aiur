@@ -45,7 +45,6 @@
     "github",
     "harness-adapters",
     "identity",
-    "intent",
     "kernel",
     "listener-modes",
     "signal",
@@ -59,7 +58,8 @@
     "executor-attention",
     "github",
     "github-access",
-    "github-listeners"
+    "github-listeners",
+    "intent"
   ],
   "owns": {
     "config": [
