@@ -120,11 +120,11 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       end
     end
 
-    test "hands a no-PR active ticket to human review with a reason", ctx do
+    test "keeps a no-PR active ticket out of human review and records the reason", ctx do
       use_memory_tracker!(self())
       issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
 
-      assert {:completed, %{state: "human-review"}} =
+      assert {:completed, %{state: "in-progress"}} =
                run_loop(%{ctx | issue: issue},
                  run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-no-pr"}} end,
                  max_turns: nil,
@@ -137,7 +137,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert_receive {:memory_tracker_comment, identifier, comment}, 1000
       assert identifier == issue.identifier
       assert comment =~ "without making progress"
-      assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 1000
+      refute_received {:memory_tracker_state_update, ^identifier, "human-review"}
     end
 
     test "hands off a pushed rework PR after three no-op turns", ctx do
@@ -403,18 +403,20 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert Enum.at(prompts, 3) =~ "Aiur observed that the last"
     end
 
-    test "hands a no-PR no-op run to human review with a reason", ctx do
+    test "records a no-PR no-op run without a review handoff", ctx do
       use_memory_tracker!(self())
 
-      assert {:completed, %{state: "human-review"}} =
+      assert {:completed, %{state: state}} =
                run_loop(ctx,
                  run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-turn"}} end,
                  max_turns: nil,
                  workspace_probe: unchanging_probe(),
                  max_consecutive_noop_turns: 3,
-                 noop_backoff_ms: 0
+                 noop_backoff_ms: 0,
+                 open_pr_fetcher: fn _ -> {:ok, nil} end
                )
 
+      refute state == "human-review"
       log = File.read!(Path.join([ctx.workspace, "logs", "agent.ndjson"]))
 
       assert log =~ "ticket.#{ctx.issue.identifier}.agent.noop_turns_bounded"

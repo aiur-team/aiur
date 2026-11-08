@@ -141,23 +141,29 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     end
   end
 
+  # A no-op stop with no open PR has nothing to review: record the stop and keep
+  # the label instead of raising a false review item (#7797). An unreadable PR
+  # lookup keeps the earlier handoff.
   defp handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number) do
     reason = "Agent reached the no-op turn limit without making progress."
+    no_pr? = match?({:skip, :no_open_pr}, ReworkGate.open_pr(issue.identifier, open_pr_fetcher: Keyword.get(turn_context.opts, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1)))
 
-    case TicketTransition.write_comment(issue.identifier, reason, writer: :turn_loop) do
-      :ok ->
-        case TicketTransition.write_state(issue.identifier, "human-review", writer: :turn_loop) do
-          :ok ->
-            review_issue = %{issue | state: "human-review"}
-            emit_noop_bound_alert(review_issue, workspace, worker_host, progress, witness, cap, turn_number)
-            TurnLoop.return_completed(turn_context, review_issue)
+    with :ok <- TicketTransition.write_comment(issue.identifier, reason, writer: :turn_loop),
+         {:ok, review_issue} <- maybe_write_review_state(issue, no_pr?) do
+      emit_noop_bound_alert(review_issue, workspace, worker_host, progress, witness, cap, turn_number)
+      TurnLoop.return_completed(turn_context, review_issue)
+    else
+      {:error, {:state, write_reason}} -> {:error, {:noop_bound_state_write_failed, write_reason}}
+      {:error, comment_reason} -> {:error, {:noop_bound_comment_write_failed, comment_reason}}
+    end
+  end
 
-          {:error, write_reason} ->
-            {:error, {:noop_bound_state_write_failed, write_reason}}
-        end
+  defp maybe_write_review_state(issue, true), do: {:ok, issue}
 
-      {:error, comment_reason} ->
-        {:error, {:noop_bound_comment_write_failed, comment_reason}}
+  defp maybe_write_review_state(issue, false) do
+    case TicketTransition.write_state(issue.identifier, "human-review", writer: :turn_loop) do
+      :ok -> {:ok, %{issue | state: "human-review"}}
+      {:error, reason} -> {:error, {:state, reason}}
     end
   end
 
