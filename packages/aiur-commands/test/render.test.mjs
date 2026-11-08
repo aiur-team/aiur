@@ -395,6 +395,10 @@ test('custom labels render and are escaped', () => {
   assert.ok(!pendingHtml.includes('Record answer'));
 });
 
+test('the escalated notice carries data-part="notice"', () => {
+  assert.match(renderCommand({ ...rich, state: 'escalated' }), /<p class="aiur-command-notice" data-part="notice" role="status">Escalated/);
+});
+
 test('escalate button and note label honour the labels option, escaped', () => {
   const html = renderCommand({ ...pending, actions: { ...pending.actions, escalate: true } }, { labels: { escalate: 'Ask <boss>', escalate_note: 'Why?' } });
 
