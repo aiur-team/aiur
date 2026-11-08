@@ -6,7 +6,7 @@ defmodule AiurWeb.GatewayEnrollControllerTest do
   alias Aiur.ClientTokens
   alias Aiur.Gateway.{Invites, Registry}
   alias Aiur.Identity.Machine
-  alias AiurWeb.{Endpoint, GatewayEnrollController}
+  alias AiurWeb.Endpoint
   @endpoint Endpoint
 
   @path "/api/v1/gateway/enroll"
@@ -24,23 +24,26 @@ defmodule AiurWeb.GatewayEnrollControllerTest do
     Application.put_env(:aiur, :gateway_registry_path, Path.join(dir, "remote-instances.yaml"))
     Application.put_env(:aiur, :control_audit_file, Path.join(dir, "audit.ndjson"))
     Application.put_env(:aiur, :client_tokens_path, Path.join(dir, "tokens.json"))
-    Application.put_env(:aiur, :gateway_invites_path, Path.join(dir, "invites.json"))
+    Application.put_env(:aiur, :gateway_invites_path, Path.join([dir, "invites", "invites.json"]))
     {:ok, _} = Machine.ensure(dir: Path.join(dir, "machine"))
 
     Application.put_env(
       :aiur,
       Endpoint,
-      Keyword.merge(config || [], server: false, gateway_hello: Map.get(context, :hello, true), dashboard_auth_required: true, secret_key_base: String.duplicate("s", 64))
+      Keyword.merge(config || [], server: false, gateway_hello: Map.get(context, :hello, true), dashboard_writable: true, dashboard_auth_required: true, secret_key_base: String.duplicate("s", 64))
     )
 
     Aiur.TestSupport.start_owned_endpoint!()
-    GatewayEnrollController.reset_failures({127, 0, 0, 1})
+    if is_nil(Process.whereis(AiurWeb.DashboardAuthRateLimit.Store)), do: start_supervised!(AiurWeb.DashboardAuthRateLimit.Store)
+    # The limiter keys on the caller address, so each test gets its own.
+    n = System.unique_integer([:positive])
+    Process.put(:caller_ip, {10, rem(n, 250), rem(div(n, 250), 250), rem(div(n, 62_500), 250)})
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, config)
       for {k, v} <- previous, do: if(is_nil(v), do: Application.delete_env(:aiur, k), else: Application.put_env(:aiur, k, v))
       for {k, v} <- machine_previous, do: if(v == :absent, do: :persistent_term.erase(k), else: :persistent_term.put(k, v))
-      GatewayEnrollController.reset_failures({127, 0, 0, 1})
+      File.chmod(Path.join(dir, "invites"), 0o700)
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
@@ -48,7 +51,8 @@ defmodule AiurWeb.GatewayEnrollControllerTest do
   end
 
   defp invite(grants \\ ["read"], ttl \\ 600), do: elem(Invites.create(grants, ttl), 1)
-  defp enroll(invite, over \\ %{}), do: post(build_conn(), @path, Map.merge(%{"id" => invite.id, "secret" => invite.secret, "gateway_id" => @peer, "label" => "Nook"}, over))
+  defp conn, do: %{build_conn() | remote_ip: Process.get(:caller_ip)}
+  defp enroll(invite, over \\ %{}), do: post(conn(), @path, Map.merge(%{"id" => invite.id, "secret" => invite.secret, "gateway_id" => @peer, "label" => "Nook"}, over))
   defp peers, do: elem(Registry.get(), 1).peers
   defp tokens, do: elem(ClientTokens.list(), 1)
 
@@ -104,7 +108,35 @@ defmodule AiurWeb.GatewayEnrollControllerTest do
     assert json_response(enroll(second, %{"gateway_id" => "cccccccccccccccccccccccccc", "label" => "Other"}), 200)
   end
 
-  test "the sixth refusal inside a minute is 429, even for a correct secret" do
+  test "a token minted for an unconfirmed write category cannot use a REST write route until the grant is confirmed" do
+    token = json_response(enroll(invite(["read", "message"])), 200)["token"]
+
+    messages = fn ->
+      conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> put_req_header("origin", "http://127.0.0.1")
+      |> put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/AIUR-1/messages", %{"message" => "hi"})
+    end
+
+    # The token's own scope allows messages; only the unconfirmed registry entry stops it.
+    assert response(messages.(), 403) == "forbidden"
+
+    # What GrantConfirmation writes once a signed-in human approves.
+    :ok = Registry.write(fn instances -> put_in(instances, ["Nook", "allows", "categories"], ["read", "message"]) end, "test_confirmation")
+    after_grant = messages.()
+    refute after_grant.status in [401, 403], "got #{after_grant.status} #{inspect(after_grant.resp_body)} #{inspect(Registry.get())}"
+  end
+
+  test "an invite whose burn cannot be written is taken back: no peer, no token, and the answer is 503" do
+    invite = invite()
+    File.chmod!(Path.dirname(Application.get_env(:aiur, :gateway_invites_path)), 0o500)
+
+    assert %{"error" => "unavailable"} = json_response(enroll(invite), 503)
+    assert peers() == %{} and tokens() == []
+  end
+
+  test "the sixth attempt inside a minute is 429, even for a correct secret" do
     invite = invite()
     for _ <- 1..5, do: json_response(enroll(invite, %{"secret" => "nope"}), 401)
     assert %{"error" => "rate_limited"} = json_response(enroll(invite), 429)
@@ -112,7 +144,7 @@ defmodule AiurWeb.GatewayEnrollControllerTest do
   end
 
   test "missing fields are 400 and a bad gateway id is refused" do
-    assert json_response(post(build_conn(), @path, %{}), 400)
+    assert json_response(post(conn(), @path, %{}), 400)
     assert json_response(enroll(invite(), %{"gateway_id" => "../x"}), 400)
   end
 

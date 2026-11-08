@@ -3,6 +3,8 @@ defmodule AiurWeb.ClientTokenAuth do
   @behaviour Plug
   import Plug.Conn
 
+  alias Aiur.Gateway.Grants
+
   @impl Plug
   def init(opts), do: opts
 
@@ -72,8 +74,15 @@ defmodule AiurWeb.ClientTokenAuth do
 
   defp full?(cats), do: Enum.all?(Aiur.ClientTokens.categories(), &(&1 in cats))
 
+  # A peer-bound token never exceeds its registry entry: a category the peer's `allows` has not (yet) confirmed is dropped.
+  defp narrow_to_registry({:ok, %{peer: peer} = t}) when is_binary(peer) do
+    {:ok, %{t | categories: Enum.filter(t.categories, &(Grants.allowed?(peer, t.name, &1) == :ok))}}
+  end
+
+  defp narrow_to_registry(other), do: other
+
   defp authenticate(conn, token, write?) when is_binary(token) do
-    case Aiur.ClientTokens.authenticate_full(token) do
+    case token |> Aiur.ClientTokens.authenticate_full() |> narrow_to_registry() do
       {:ok, %{scope: "write"} = t} ->
         # Only REST write pipelines gate; reads and the control endpoint (write? false) do not.
         if not write? or rest_write_allowed?(conn, t.categories) do

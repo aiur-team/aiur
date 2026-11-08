@@ -46,11 +46,18 @@ defmodule Aiur.Gateway.Invites do
       with {:ok, records} <- read(),
            {:ok, record} <- find(records, id, secret),
            :ok <- usable(record, now),
-           {:ok, result} <- fun.(record["grants"]),
-           :ok <- write(prune(Enum.map(records, &burn(&1, id, now)), now)) do
-        {:ok, result}
+           {:ok, result} <- fun.(record["grants"]) do
+        burn_all(records, id, now, result)
       end
     end)
+  end
+
+  # A burn that fails after the caller's writes leaves the caller to undo them.
+  defp burn_all(records, id, now, result) do
+    case write(prune(Enum.map(records, &burn(&1, id, now)), now)) do
+      :ok -> {:ok, result}
+      {:error, _reason} -> {:error, {:burn_failed, result}}
+    end
   end
 
   @doc "True when at least one invite is unused and unexpired; hello reports this as `enrollment: open`."

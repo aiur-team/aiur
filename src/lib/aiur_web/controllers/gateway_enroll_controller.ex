@@ -5,34 +5,41 @@ defmodule AiurWeb.GatewayEnrollController do
   The invite secret is the credential, so the route has no auth pipeline. In one locked step the invite is
   burned, a peer-bound client token is minted and the joiner gets a registry entry with `read`. Invited
   write categories are not written here: they become a human-required `gateway_grant` Decision.
-  Every refusal writes nothing and leaves one audit line. Five refusals per minute per remote IP
-  block that IP, even for a correct secret.
+  Every refusal writes nothing and leaves one audit line. A remote IP gets 5 attempts a minute, then 429
+  even for a correct secret; behind a proxy or tunnel every caller shares one address.
   """
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.ClientTokens
   alias Aiur.ControlCall.Audit
   alias Aiur.Gateway.{GrantRequest, Identity, Invites, Registry}
+  alias AiurWeb.DashboardAuthRateLimit.Store
 
   require Logger
 
-  @window 60
-  @max_failures 5
+  @window_ms 60_000
+  @limit 5
   @id ~r/\A[A-Za-z0-9]{8,64}\z/
 
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
     cond do
       not AiurWeb.EndpointConfig.get(:gateway_hello, false) -> AiurWeb.ObservabilityApiController.not_found(conn, params)
-      blocked?(ip(conn)) -> refuse(conn, 429, :rate_limited)
+      not allowed?(ip(conn)) -> refuse(conn, 429, :rate_limited)
       true -> enroll(conn, params)
     end
+  end
+
+  # Bounded by the store's own client cap and pruning; with no store (no dashboard listener) the route is not served either.
+  defp allowed?(ip) do
+    if Process.whereis(Store), do: Store.allow({:enroll, ip}, System.monotonic_time(:millisecond), @window_ms, @limit), else: true
   end
 
   defp enroll(conn, %{"id" => id, "secret" => secret, "gateway_id" => peer_id} = params) when is_binary(id) and is_binary(secret) do
     if Regex.match?(@id, peer_id) do
       case Invites.redeem(id, secret, System.os_time(:second), &register(&1, peer_id, params["label"])) do
-        {:ok, body} -> succeed(conn, peer_id, body)
+        {:ok, body} -> succeed(conn, peer_id, Map.delete(body, :undo))
+        {:error, {:burn_failed, %{undo: undo}}} -> undo_enrol(conn, undo)
         {:error, reason} -> refuse(conn, reason)
       end
     else
@@ -41,6 +48,13 @@ defmodule AiurWeb.GatewayEnrollController do
   end
 
   defp enroll(conn, _params), do: refuse(conn, :invalid_request)
+
+  # The invite could not be burned, so it must not stay usable for another gateway id: take the enrolment back.
+  defp undo_enrol(conn, {name, token_name}) do
+    ClientTokens.revoke(token_name)
+    Registry.write(&Map.delete(&1, name), "invite_enrol_rollback")
+    refuse(conn, :unavailable)
+  end
 
   defp register(grants, peer_id, label) do
     with %{gateway_id: own} when is_binary(own) <- Identity.current(),
@@ -53,7 +67,7 @@ defmodule AiurWeb.GatewayEnrollController do
          :ok <- write_entry(name, label, peer_id, token_name) do
       pending = grants -- ["read"]
       request_pending(%{name: name, label: label, gateway_id: peer_id}, pending)
-      {:ok, %{gateway_id: own, label: Identity.current().gateway_label, token: token, granted: ["read"], pending: pending}}
+      {:ok, %{gateway_id: own, label: Identity.current().gateway_label, token: token, granted: ["read"], pending: pending, undo: {name, token_name}}}
     else
       {:error, _reason} = error -> error
       _unavailable -> {:error, :unavailable}
@@ -95,10 +109,7 @@ defmodule AiurWeb.GatewayEnrollController do
     conn |> no_store() |> json(body)
   end
 
-  defp refuse(conn, reason) do
-    record_failure(ip(conn))
-    refuse(conn, status(reason), reason)
-  end
+  defp refuse(conn, reason), do: refuse(conn, status(reason), reason)
 
   defp refuse(conn, status, reason) do
     Audit.append(%{at: now(), event: "enroll_refused", outcome: "refused", reason: reason, remote_ip: format(ip(conn))})
@@ -120,24 +131,4 @@ defmodule AiurWeb.GatewayEnrollController do
   defp now, do: DateTime.utc_now() |> DateTime.to_iso8601()
   defp ip(conn), do: conn.remote_ip
   defp format(ip), do: ip |> :inet.ntoa() |> to_string()
-
-  # ponytail: failures live in :persistent_term, so they reset on restart and only suit this low-rate route.
-  defp key(ip), do: {__MODULE__, :failures, ip}
-
-  defp recent(ip, at \\ System.monotonic_time(:second)), do: :persistent_term.get(key(ip), []) |> Enum.filter(&(at - &1 < @window))
-
-  defp blocked?(ip), do: length(recent(ip)) >= @max_failures
-
-  defp record_failure(ip) do
-    :global.trans({{__MODULE__, :failures}, self()}, fn ->
-      :persistent_term.put(key(ip), [System.monotonic_time(:second) | recent(ip)])
-    end)
-  end
-
-  @doc false
-  @spec reset_failures(:inet.ip_address()) :: :ok
-  def reset_failures(ip) do
-    :persistent_term.erase(key(ip))
-    :ok
-  end
 end
