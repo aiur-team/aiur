@@ -24,6 +24,7 @@ defmodule AiurWeb.ProjectsHomeLive do
       |> assign(:tracker_kind, safe(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, safe(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> assign(:summary, local_summary())
+      |> assign(:peers, Peers.list())
       |> assign(:peers_json, Jason.encode!(Peers.list()))
 
     if connected?(socket), do: Process.send_after(self(), :projects_home_tick, @tick_ms)
@@ -56,6 +57,10 @@ defmodule AiurWeb.ProjectsHomeLive do
       <:banner><Overview.decisions_banner retained_counts={@retained_counts} navigate /></:banner>
       <section id="projects-home" class="section-card" aria-labelledby="projects-home-title">
         <h2 id="projects-home-title">Projects</h2>
+        <nav data-gateway-filter aria-label="Gateways">
+          <a href="/gateways">All gateways</a>
+          <a :for={peer <- @peers} href={"/gateways?gateway=" <> URI.encode_www_form(peer.name)} data-gateway-filter-link={peer.name}>{peer.label}</a>
+        </nav>
         <%= case @summary do %>
           <% {:ok, summary} -> %>
             <div id="projects-home-local" class="bo-state-card" data-gateway-card="local" data-connectivity="online" data-running={summary.capacity.running} data-max={summary.capacity.max}>

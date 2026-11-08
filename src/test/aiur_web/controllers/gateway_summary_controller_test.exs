@@ -69,7 +69,7 @@ defmodule AiurWeb.GatewaySummaryControllerTest do
              ~w(age_ms capacity connectivity executor_present gateway_id gateway_identity gateway_label observed_at projects workload)
   end
 
-  test "write routes stay same-origin: a listed Origin does not unlock them" do
+  test "other write routes stay same-origin: a listed Origin does not unlock them" do
     conn = build_conn() |> origin(@listed) |> post("/api/v1/refresh")
     assert conn.status in [401, 403]
     assert get_resp_header(conn, "access-control-allow-origin") == []

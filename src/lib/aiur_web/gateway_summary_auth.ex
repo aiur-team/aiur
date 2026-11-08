@@ -11,20 +11,22 @@ defmodule AiurWeb.GatewaySummaryAuth do
   import Plug.Conn
 
   @impl Plug
-  def init(opts), do: opts
+  def init(opts), do: Keyword.take(opts, [:write?])
 
   @impl Plug
-  def call(conn, _opts) do
+  def call(conn, opts) do
     case get_req_header(conn, "authorization") do
       [] -> session(conn)
-      [header] -> bearer(conn, header)
+      [header] -> bearer(conn, header, Keyword.get(opts, :write?, false))
       _ -> deny(conn, "unauthorized")
     end
   end
 
-  defp bearer(conn, header) do
+  # Pause and resume are the `agents` category: a read or read,message token must not pause a gateway.
+  defp bearer(conn, header, write?) do
     with ["bearer", token] <- header |> String.split(~r/\s+/, parts: 2, trim: true) |> lower_scheme(),
-         {:ok, name, _scope} <- Aiur.ClientTokens.authenticate(token) do
+         {:ok, %{name: name, categories: cats}} <- Aiur.ClientTokens.authenticate_full(token),
+         true <- not write? or "agents" in cats do
       assign(conn, :token_name, name)
     else
       _ -> deny(conn, "unauthorized")
