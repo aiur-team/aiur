@@ -155,7 +155,7 @@
         if (s.reason === "signed out") {
           card.appendChild(el("a", "Sign in", { href: peer.url + "/auth/google?return_to=" + encodeURIComponent(root.location.href) }));
         }
-        card.appendChild(el("a", "Open ›", { href: peer.url }));
+        card.appendChild(el("a", "Open ›", { href: peer.url + "/build" }));
         cards.appendChild(card);
       });
       this.el.querySelector("[data-totals]").textContent = totals(all).text;
