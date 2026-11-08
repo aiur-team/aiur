@@ -81,9 +81,9 @@ cmd_pause_resume() {
   [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
   local fleet_arg
   for fleet_arg in "$@"; do
-    if [ "$fleet_arg" = --all-gateways ]; then
+    if [ "$fleet_arg" = "--all-gateways" ]; then
       [ "$command" != park ] || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
-      [ "$1" = --all-gateways ] || { echo "aiur: --all-gateways is its own command" >&2; exit 64; }
+      [ "$1" = "--all-gateways" ] || { echo "aiur: --all-gateways is its own command" >&2; exit 64; }
       shift
       cmd_fleet_pause "$command" "$@"
       return

@@ -33,6 +33,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
 
         IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
         if match?({:ok, %{pause_scope: :both}}, result), do: IO.puts("paused (fleet) — also held by the fleet pause")
+        :ok
 
       {:ok, _} ->
         :ok
