@@ -1,6 +1,7 @@
 defmodule Aiur.Workspace.HooksTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentEnvironment.GitIdentity
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.Workflow
   alias Aiur.Workspace.Hooks
@@ -279,8 +280,10 @@ defmodule Aiur.Workspace.HooksTest do
 
     command = Hooks.remote_hook_command("git checkout \"$AIUR_TICKET_BRANCH\"", workspace, issue_context)
 
+    {git_name, git_email} = GitIdentity.identity()
+
     assert command =~
-             "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases' AIUR_HOOK_TICKET_ID='1' AIUR_HOOK_TICKET_IDENTIFIER='123' AIUR_HOOK_RUNNER_PID='#{inspect(self())}';"
+             "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases' AIUR_GIT_NAME='#{git_name}' AIUR_GIT_EMAIL='#{git_email}' AIUR_HOOK_TICKET_ID='1' AIUR_HOOK_TICKET_IDENTIFIER='123' AIUR_HOOK_RUNNER_PID='#{inspect(self())}';"
 
     assert command =~ "cd '#{workspace}' && unset "
     assert command =~ "git checkout \"$AIUR_TICKET_BRANCH\""
