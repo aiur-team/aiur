@@ -74,20 +74,23 @@ defmodule Aiur.Ownership.GitHubRefTest do
       if fail == div(page, 100) + 1 do
         {:ok, %{status: 502, headers: %{}, body: %{"message" => "bad gateway"}}}
       else
-        all =
-          Agent.get(agent, fn s ->
-            for {name, sha} <- Enum.sort(s.refs), String.starts_with?(name, prefix) do
-              text = s.objects[s.objects[sha].tree].blob |> then(&s.objects[&1].content)
-              entries = [%{"name" => "owner.json", "object" => %{"text" => text}}]
-              %{"name" => String.replace_prefix(name, prefix, ""), "target" => %{"oid" => sha, "tree" => %{"entries" => entries}}}
-            end
-          end)
+        all = ref_nodes(agent, prefix)
 
         nodes = all |> Enum.drop(page) |> Enum.take(100)
         more = length(all) > page + 100
         info = %{"hasNextPage" => more, "endCursor" => if(more, do: Integer.to_string(page + 100))}
         {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"refs" => %{"pageInfo" => info, "nodes" => nodes}}}}}}
       end
+    end
+
+    defp ref_nodes(agent, prefix) do
+      Agent.get(agent, fn s ->
+        for {name, sha} <- Enum.sort(s.refs), String.starts_with?(name, prefix) do
+          text = s.objects[s.objects[sha].tree].blob |> then(&s.objects[&1].content)
+          entries = [%{"name" => "owner.json", "object" => %{"text" => text}}]
+          %{"name" => String.replace_prefix(name, prefix, ""), "target" => %{"oid" => sha, "tree" => %{"entries" => entries}}}
+        end
+      end)
     end
 
     defp read(agent, %{"qualified" => name}) do
