@@ -101,25 +101,12 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   test "a duration-capped paused registry entry is not an orphan claim" do
     issue = issue("2076", "in-progress")
-    {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
-    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
-
-    state = %State{
-      running: %{
-        "runtime-key" => %{
-          identifier: issue.identifier,
-          issue: issue,
-          pid: dead_pid,
-          control: %{status: :paused},
-          paused_reason: :max_agent_duration
-        }
-      }
-    }
+    entry = %{identifier: issue.identifier, issue: issue, pid: dead_pid(), control: %{status: :paused}, paused_reason: :max_agent_duration}
 
     {result, [retained]} =
-      reconcile(state, [issue],
-        update_issue_state_fun: fn _identifier, _state_name, _expected_state -> flunk("paused ownership must retain the claim") end,
-        emit_alert_fun: fn _topic, _opts -> flunk("paused ownership must not alert") end
+      reconcile(%State{running: %{"runtime-key" => entry}}, [issue],
+        update_issue_state_fun: fn _, _, _ -> flunk("paused ownership must retain the claim") end,
+        emit_alert_fun: fn _, _ -> flunk("paused ownership must not alert") end
       )
 
     assert retained == issue
@@ -179,20 +166,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   test "a non-paused registry entry with a dead pid keeps its claim" do
     issue = issue("2076", "in-progress")
-    {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
-    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
-    refute State.alive?(dead_pid)
-
-    state = %State{
-      running: %{"runtime-key" => %{identifier: issue.identifier, issue: issue, pid: dead_pid}}
-    }
+    pid = dead_pid()
+    refute State.alive?(pid)
 
     {result, [retained]} =
-      reconcile(state, [issue],
-        update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
-          flunk("an orchestrator entry owns the claim even when its pid is dead")
-        end,
-        emit_alert_fun: fn _topic, _opts -> flunk("an owned claim must not alert") end
+      reconcile(%State{running: %{"runtime-key" => %{identifier: issue.identifier, issue: issue, pid: pid}}}, [issue],
+        update_issue_state_fun: fn _, _, _ -> flunk("an orchestrator entry owns the claim even when its pid is dead") end,
+        emit_alert_fun: fn _, _ -> flunk("an owned claim must not alert") end
       )
 
     assert retained == issue
@@ -498,6 +478,12 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
   defp reconcile(state, issues, opts \\ []) do
     defaults = [grace_ms: 0, open_pr_fetcher: fn _ -> {:ok, nil} end, create_comment_fun: fn _, _ -> :ok end, emit_alert_fun: fn _, _ -> :ok end]
     StartupClaimReconciler.reconcile(state, issues, Keyword.merge(defaults, opts))
+  end
+
+  defp dead_pid do
+    {pid, monitor} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+    pid
   end
 
   defp issue(identifier, state) do
