@@ -9,15 +9,11 @@ defmodule Aiur.Gateway.GrantConfirmation do
   """
 
   alias Aiur.Commands.Answering
+  alias Aiur.DecisionStore.HumanConfirmation
   alias Aiur.ControlCall.Audit
   alias Aiur.Gateway.{GrantRequest, Identity, Registry}
 
   @fresh_seconds 900
-
-  defmodule Proof do
-    @moduledoc "A verified human sign-in. Only `Aiur.Gateway.GrantConfirmation` builds one."
-    defstruct [:method, :subject, :authenticated_at]
-  end
 
   @type error :: :human_session_required | :session_not_fresh | :stale_grant | :not_a_grant | term()
 
@@ -39,7 +35,7 @@ defmodule Aiur.Gateway.GrantConfirmation do
 
   defp verify(%{method: method, subject: subject, authenticated_at: at}, now) when method in [:google, :passkey] and is_binary(subject) and is_integer(at) do
     if at <= now and now - at <= @fresh_seconds,
-      do: {:ok, %Proof{method: method, subject: subject, authenticated_at: at}},
+      do: {:ok, %HumanConfirmation{method: method, subject: subject, authenticated_at: at}},
       else: {:error, :session_not_fresh}
   end
 

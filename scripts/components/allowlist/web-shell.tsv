@@ -7,4 +7,3 @@ R-private	Aiur.Claude.HookEvents	MP-R1-C6-T01 register the Claude lifecycle-hook
 R-private	Aiur.Commands.ComponentState	#7487 the scoped Commands controller returns the shared component contract
 R-private	Aiur.Commands.HostApi	#7487 the scoped Commands controller delegates reads and answers to the host API facade
 R-private	Aiur.Commands.Scope	#7487 the scope bearer plug verifies ticket grants before a scoped request
-R-declared	Aiur.Gateway.Grants	#7642 gateway grant and inspect edges; declare or move in a follow-up

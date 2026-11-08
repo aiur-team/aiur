@@ -19,5 +19,3 @@ R-private	AiurWeb.BuildOrder.PlanningSource.PackLoader	#5998 the build index rea
 R-private	AiurWeb.BuildOrderViewModel	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex:114 (AiurWeb.OperatorControlCenter.BuildOrderBreakdown); facade tightening preserves current callers
 R-private	AiurWeb.BuildOrderViewModel.Edge	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex:334 (AiurWeb.OperatorControlCenter.BuildOrderGridModel); facade tightening preserves current callers
 R-private	AiurWeb.BuildOrderViewModel.Node	MP-R1-C8-T08: existing cross-component reference at src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex:280 (AiurWeb.OperatorControlCenter.BuildOrderBreakdown); facade tightening preserves current callers
-R-declared	AiurWeb.OperatorControlCenter.GatewayGrantCommands	#7642 gateway grant and inspect edges; declare or move in a follow-up
-R-private	AiurWeb.OperatorControlCenter.GatewayGrantCommands	#7642 gateway grant and inspect edges; declare or move in a follow-up

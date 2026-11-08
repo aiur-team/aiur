@@ -86,7 +86,7 @@ defmodule Aiur.DecisionStore.Calls do
   # A gateway grant is answered only through Aiur.Gateway.GrantConfirmation, which carries a verified human proof.
   def handle_call({op, id, payload, opts}, _from, %{writable?: true, current: current} = state)
       when op in [:answer, :override, :supersede] and is_map_key(current, id) and :erlang.map_get(:kind, :erlang.map_get(id, current)) == "gateway_grant" do
-    if op == :answer and match?(%Aiur.Gateway.GrantConfirmation.Proof{}, opts[:grant_confirmation]),
+    if op == :answer and match?(%Aiur.DecisionStore.HumanConfirmation{}, opts[:grant_confirmation]),
       do: Answers.handle_answer(id, payload, opts, state),
       else: {:reply, {:error, :grant_requires_session_confirmation}, state}
   end

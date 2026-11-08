@@ -70,6 +70,7 @@
     "components/experiment-stats.json",
     "components/experiments-page.json",
     "components/experiments.json",
+    "components/gateway-registry.json",
     "components/gateway-trust.json",
     "components/github-access.json",
     "components/github-listeners.json",
