@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   @moduledoc false
 
+  alias Aiur.AgentRunner.ReworkHandoffGuard
   alias Aiur.{Config, Issue, Signal, Tracker}
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
@@ -35,7 +36,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
   defp release(issue, opts) do
     case target(issue, opts) do
-      {:ok, slug} -> write_release(issue, lifecycle_state_name(slug, opts), opts)
+      {:ok, slug} -> write_release(issue, lifecycle_state_name(body_gated_slug(issue, slug, opts), opts), opts)
       {:error, reason} -> {:defer, reason}
     end
   end
@@ -65,6 +66,21 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
         error
     end
   end
+
+  # A discovered ci-wait/human-review target passes the same PR body gate as an agent handback; a refused body goes
+  # to rework so an owner fixes it. A forced target (approved, armed orphan) already passed review.
+  defp body_gated_slug(issue, slug, opts) when slug in ["ci-wait", "human-review"] do
+    if Keyword.has_key?(opts, :forced_target) do
+      slug
+    else
+      case ReworkHandoffGuard.evidence_blockers(issue, slug, nil, opts) do
+        :allow -> slug
+        {:refused, _reason, _message} -> "rework"
+      end
+    end
+  end
+
+  defp body_gated_slug(_issue, slug, _opts), do: slug
 
   defp target(issue, opts) do
     case Keyword.get(opts, :forced_target) do
