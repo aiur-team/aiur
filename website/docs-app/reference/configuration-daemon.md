@@ -44,6 +44,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | `instance.ignore.labels` | array of strings | `[]` | Exact labels marking tickets another instance owns. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.ignore.tickets` | array of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.mode` | string | `local` | `hosted` adds static startup, reload, and dispatch checks for permission, network, credentials, the effective API-key-only fallback, Remote Control, local panes, and REPL isolation. Authentication for primary routes and account profiles is learned at runtime: unsafe first or later observations fail closed. Claude reauthorizes each action; Codex refuses an unsafe initial account read and later unsafe notifications before subsequent progress, tool calls, or success. Current production backends remain ineligible until #5701. Read once at daemon start; restart to change. |
+| `instance.ownership` | string | `off` | `github` makes every agent start, including recycles and PR-anchored units, require a durable ownership ref (`refs/aiur/owners/<ticket>`, `pr-<N>` for PRs): this gateway and daemon must already own it or win its claim, otherwise dispatch is declined and retried next poll. Enable on a drained or quiet gateway. Read at each dispatch, so a config reload applies without a restart. |
 | `instance.owns` | array of maps | `[]` | Ticket rules reserved for this live instance. Each entry has exactly one `label` or positive `ticket`; matching rules apply only while this instance is dispatching. Requires the shared lease store to coordinate live instances. Hot-reloadable. |
 | `instance.pool` | boolean | `true` | Whether this instance may dispatch tickets that no live, dispatching instance reserves with `instance.owns`. Hot-reloadable. |
 | `instance.role` | string | `primary` | `secondary` never claims the repository leader lease; `primary` is eligible to lead on equal terms with other eligible instances when `AIUR_LEASE_DATABASE_URL` is configured. Only the lease holder runs repository-wide landing, quarantine, merge-queue, and main-branch work. Label heals remain scoped to each instance's tracker view. Without a shared store, primary retains single-instance behavior. Read once at daemon start; change it with a restart. |
@@ -366,6 +367,11 @@ The target probe is a bounded liveness check, not proof of daemon identity or ro
 A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
 
 The durable repository Executor state also records every daemon start and stop in `<repo>.control-lifecycle.json`, with the invoking process's OS pid, parent pid, and hostname. All runs for that repository share the journal, so a second instance or a crash is identifiable after the fact even when each run has a different log directory.
+
+## dashboard
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-25 -->
+| --- | --- | --- | --- |
+| `dashboard.projects_home` | boolean | false | Serves the all-projects home at `/projects` and redirects a bare `/` to it. `/build` stays the Build page. |
 
 ## dashboard_auth
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-22 -->

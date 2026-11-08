@@ -61,12 +61,31 @@ defmodule AiurWeb.ClientTokenAuth do
     end
   end
 
-  defp authenticate(conn, token, write?) when is_binary(token) do
-    case Aiur.ClientTokens.authenticate(token) do
-      {:ok, name, scope} when not write? or scope == "write" ->
-        conn |> assign(:token_name, name) |> assign(:token_scope, scope)
+  defp assign_token(conn, t) do
+    conn |> assign(:token_name, t.name) |> assign(:token_scope, t.scope) |> assign(:token_peer, t.peer) |> assign(:token_categories, t.categories)
+  end
 
-      {:ok, _name, _scope} ->
+  # REST write routes carry no category of their own: only a token holding every category
+  # (legacy write) passes, except the messages route, which maps to `message`.
+  defp rest_write_allowed?(%Plug.Conn{path_info: ["api", "v1", _, "messages"]}, cats), do: "message" in cats or full?(cats)
+  defp rest_write_allowed?(_conn, cats), do: full?(cats)
+
+  defp full?(cats), do: Enum.all?(Aiur.ClientTokens.categories(), &(&1 in cats))
+
+  defp authenticate(conn, token, write?) when is_binary(token) do
+    case Aiur.ClientTokens.authenticate_full(token) do
+      {:ok, %{scope: "write"} = t} ->
+        # Only REST write pipelines gate; reads and the control endpoint (write? false) do not.
+        if not write? or rest_write_allowed?(conn, t.categories) do
+          assign_token(conn, t)
+        else
+          conn |> send_resp(403, "forbidden") |> halt()
+        end
+
+      {:ok, t} when not write? ->
+        assign_token(conn, t)
+
+      {:ok, _} ->
         conn |> send_resp(403, "forbidden") |> halt()
 
       :error ->

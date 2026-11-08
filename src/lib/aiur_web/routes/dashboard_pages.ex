@@ -11,6 +11,7 @@ defmodule AiurWeb.Routes.DashboardPages do
         get("/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook)
         get("/time-brush-hook.js", AiurWeb.StaticAssetController, :time_brush_hook)
         get("/decision-questions-validation.js", AiurWeb.StaticAssetController, :decision_questions_validation)
+        get("/projects-home-hook.js", AiurWeb.StaticAssetController, :projects_home_hook)
         get("/sortable-table-hook.js", AiurWeb.StaticAssetController, :sortable_table_hook)
         get("/streamdeck-emulator-hook.js", AiurWeb.StaticAssetController, :streamdeck_emulator_hook)
         get("/streamdeck-emulator-knob.js", AiurWeb.StaticAssetController, :streamdeck_emulator_knob)
@@ -43,8 +44,9 @@ defmodule AiurWeb.Routes.DashboardPages do
         get("/build-orders", AiurWeb.BuildOrderRedirectController, :catalog)
         get("/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root)
 
-        live_session :dashboard, session: {AiurWeb.Conversation.Access, :session, []}, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
+        live_session :dashboard, session: {AiurWeb.Conversation.Access, :session, []}, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess, AiurWeb.ProjectsHome.Gate] do
           live("/", AiurWeb.BuildLive, :build)
+          live("/projects", AiurWeb.ProjectsHomeLive, :projects)
           live("/conversations/:conversation_id", AiurWeb.ConversationLive, :show)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
