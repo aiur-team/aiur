@@ -3,6 +3,8 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
   Orchestrator call handlers for per-ticket pause, control requests, and control expiry.
   """
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.PauseResume
@@ -108,8 +110,8 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
           {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
   # Global pause blocks individual resumes, but operators can still pause a
   # running worker as an explicit containment action.
-  def request_control_call(%State{globally_paused: true} = state, issue_identifier, :resume, request_id)
-      when is_binary(issue_identifier) and is_integer(request_id) and request_id > 0 do
+  def request_control_call(%State{} = state, issue_identifier, :resume, request_id)
+      when effective_paused?(state) and is_binary(issue_identifier) and is_integer(request_id) and request_id > 0 do
     {:reply, {:error, :globally_paused}, state}
   end
 

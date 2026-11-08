@@ -74,7 +74,7 @@ defmodule Aiur.Config.Paths do
   @doc "Resolves the build queue directory beneath the instance- and project-qualified state root."
   @spec build_queue_dir() :: {:ok, Path.t()} | {:error, atom()}
   def build_queue_dir do
-    with {:ok, root} <- decision_state_dir() do
+    with {:ok, root} <- Aiur.Project.state_dir() do
       {:ok, Path.join(root, "build-queue")}
     end
   end
@@ -154,7 +154,7 @@ defmodule Aiur.Config.Paths do
   def build_features_state_dir do
     case Application.get_env(:aiur, :build_features_state_dir) do
       path when is_binary(path) and path != "" -> {:ok, path}
-      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "build-features")}
+      _ -> with {:ok, root} <- Aiur.Project.state_dir(), do: {:ok, Path.join(root, "build-features")}
     end
   end
 
@@ -163,7 +163,7 @@ defmodule Aiur.Config.Paths do
   def epic_overrides_state_dir do
     case Application.get_env(:aiur, :epic_overrides_state_dir) do
       path when is_binary(path) and path != "" -> {:ok, path}
-      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "epic-overrides")}
+      _ -> with {:ok, root} <- Aiur.Project.state_dir(), do: {:ok, Path.join(root, "epic-overrides")}
     end
   end
 

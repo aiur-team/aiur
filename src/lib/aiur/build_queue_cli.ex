@@ -24,7 +24,7 @@ defmodule Aiur.BuildQueueCLI do
 
   defp show(opts) do
     with :ok <- validate(opts),
-         envelope <- BuildQueue.show(Keyword.get(opts, :server, Aiur.BuildQueue.Server)),
+         envelope <- BuildQueue.show(Keyword.get(opts, :server, Aiur.Project.via(Aiur.BuildQueue.Server))),
          {:ok, envelope} <- select(envelope, Keyword.get(opts, :queue)) do
       envelope = envelope |> select_next(opts) |> JSONSafe.normalize()
 

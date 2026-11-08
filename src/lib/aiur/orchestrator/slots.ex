@@ -3,6 +3,8 @@ defmodule Aiur.Orchestrator.Slots do
   Computes global dispatch capacity and issue-specific worker-host eligibility.
   """
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.{CodingAgent, Config, Issue}
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
@@ -322,7 +324,7 @@ defmodule Aiur.Orchestrator.Slots do
   # A worker that replaces the issue's own entry (backend or account swap)
   # inherits whatever slot that entry holds and needs a free one otherwise.
   @spec replacement_slot_available?(State.t(), term()) :: boolean()
-  def replacement_slot_available?(%State{globally_paused: true}, _issue_id), do: false
+  def replacement_slot_available?(%State{} = s, _issue_id) when effective_paused?(s), do: false
 
   def replacement_slot_available?(%State{} = state, issue_id),
     do: effective_concurrent_agent_limit(state) > used_slots(state, Map.delete(state.running, issue_id))
@@ -346,7 +348,7 @@ defmodule Aiur.Orchestrator.Slots do
   defp holds_paused_reservation?(_running_entry), do: false
 
   @spec available_slots(State.t()) :: non_neg_integer()
-  def available_slots(%State{globally_paused: true}), do: 0
+  def available_slots(%State{} = s) when effective_paused?(s), do: 0
 
   def available_slots(%State{} = state) do
     max(effective_concurrent_agent_limit(state) - used_slots(state), 0)

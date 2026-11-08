@@ -151,7 +151,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
     path = Path.join([workspace, ".aiur-runtime", "tmp", "pr.md"])
 
     with {:ok, %{type: :regular, size: size}} when size <= 1_000_000 <- File.lstat(path),
-         {:ok, staged_body} <- File.read(path),
+         {:ok, raw_body} <- File.read(path),
+         staged_body = LocalTestEvidence.Bullets.normalize(raw_body),
          :ok <- evidence_error(staged_body, head, workspace, pr, opts),
          number when is_integer(number) and number > 0 <- pr["number"],
          {:ok, _updated} <- update_body(number, staged_body, opts),
