@@ -11,12 +11,15 @@ import { NP, colKey, tstate } from './match.js';
 import { syncAst } from './band.js';
 export { syncAst } from './band.js';
 
-export const rowOk = (state, t) => (!state.f.lane.length || state.f.lane.includes(colKey(t))) && (tstate(t) !== NP || state.f.tstate.includes(NP));
-export const layoutKey = state => state.f.lane.join(',') + (state.f.tstate.includes(NP) ? '|np' : '');
+export const rowOk = (state, t) => (!state.f.lane.length || state.f.lane.includes(colKey(t))) && (tstate(t) !== NP || state.f.tstate.includes(NP)) && featureOk(state, t);
+// An epic row's click fills the feature filter with the epic's features, so the graph and the
+// ticket list lay out only their tickets. A single-feature focus stays separate (`S.feature`).
+const featureOk = (state, t) => { const want = state.f.feature || []; return !want.length || want.includes(t.feature) || (t.also || []).some(f => want.includes(f)); };
+export const layoutKey = state => state.f.lane.join(',') + (state.f.tstate.includes(NP) ? '|np' : '') + '|f:' + (state.f.feature || []).join(',');
 let lastKey = '';
 export const setLastKey = key => { lastKey = key; };
 onReset(() => { lastKey = ''; });
-const selected = k => k === 'feature' ? (S.feature ? [S.feature] : []) : S.f[k];
+const selected = k => k === 'feature' ? (S.feature ? [S.feature] : S.f.feature) : S.f[k];
 const ticketOptions = [['merged', 'Merged', 'merged'], ['failed', 'Failed', 'failed'], ['in progress', 'In progress', 'active'], ['queued', 'Queued', 'queued'], ['held', 'Held', 'held'], ['blocked', 'Blocked', 'blocked'], ['open', 'Not queued', 'open']];
 // Same merged/total source as the Features list rows.
 function featureOption(f, bars) {
@@ -53,7 +56,7 @@ export function renderFilters() {
   const attr = active?.hasAttribute('data-o') ? 'data-o' : 'data-g', value = active?.getAttribute(attr), group = active?.dataset.g || S.pop;
   let html = I.filter;
   FKEYS.forEach(k => {
-    const n = k === 'feature' ? (fx.activeFeature() ? 1 : 0) : selected(k).length;
+    const n = k === 'feature' ? (fx.activeFeature() ? 1 : S.f.feature.length) : selected(k).length;
     html += '<button class="bd-fg' + (n ? ' has' : '') + (S.pop === k ? ' open' : '') + '" type="button" data-g="' + k + '" aria-expanded="' + (S.pop === k) + '"' + (S.pop === k ? ' aria-controls="bd-pop"' : '') + '>' + O[k].label + (n ? ' <b>' + n + '</b>' : '') + I.chev + '</button>';
   });
   if (FKEYS.some(k => selected(k).length)) html += '<button class="bd-fclear" type="button" id="bd-fclr">Clear</button>';
@@ -87,7 +90,7 @@ export function filtersChanged() {
 }
 export function setFeature(k) {
   const wasCompact = S.feature && S.fmode === 'compact';
-  S.feature = k; if (!k) S.fmode = 'focus';
+  S.feature = k; S.f.feature = []; if (!k) S.fmode = 'focus';
   writeURL(); fx.renderFeatures(); renderFilters();
   if (S.loading || !ctx.D) return;
   const changed = changedLayout();
