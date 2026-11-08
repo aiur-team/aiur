@@ -390,3 +390,13 @@ A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub 
 
 ## Offline experiment statistics
 `analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes frozen experiment JSON. `--check` verifies the result; `--now` overrides its timestamp. See [Experiment statistics](./experiment-statistics).
+
+## Ownership migration
+
+| Command | Behavior | Example |
+|---------|----------|---------|
+| `aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]` | Plan (default, zero writes) or with `--apply` write ownership records for open tickets whose state labels name exactly one mapped prefix. Repeat `--map` per prefix; `--apply` prints `writes: <n>` and a re-run writes nothing. | `aiur ownership migrate --map agent=PC` |
+
+`aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]` writes an ownership record for each open ticket whose *state* labels (`agent:todo`, `nuc:in-progress`, ...) name exactly one mapped prefix. Parked, queued and other non-state labels never count. Tickets with state labels from two mapped prefixes are reported `ambiguous` and left alone; a ticket already owned by another gateway is a `conflict` and is never overwritten.
+
+Without `--apply` it only prints the plan and `writes: 0`. With `--apply` it claims one ticket at a time (each write paced by the GitHub budget broker) and prints `writes: <n>`; running it again writes nothing. Labels are not changed. Today `<gateway>` must be the gateway the command runs on (label or id); a peer name exits 64. An unknown claim outcome exits 75.
