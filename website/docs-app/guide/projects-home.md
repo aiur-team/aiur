@@ -31,6 +31,30 @@ An unreachable peer is never shown as `0 agents` or idle, and its cached numbers
 
 Each gateway card links to its own dashboard, and the local card links to [Build](/guide/dashboard-and-telemetry).
 
+## Gateways and pause
+
+`/gateways` shows one card per gateway; `/gateways?gateway=nook` shows one (a registry name, or `local`). The Projects page links each peer there.
+
+Each card has `connectivity` (`online`, `unreachable`, `offline`, `unknown`, `error`) and `workload` (`idle`, `active`, `saturated`) as **two separate fields**. An online gateway can be idle.
+
+A gateway that does not answer has no workload, only the last one this browser saw, marked `last known`. `offline` means the shared roster has had no heartbeat from it for `coordination.offline_after_seconds`.
+
+`Pause <gateway>` pauses that gateway. `Pause all` asks for confirmation, writes the shared `fleet.pause` intent through this gateway, then pauses every gateway it can reach directly, and lists one line each:
+
+| Line | Meaning |
+|---|---|
+| `paused ✓` | The gateway answered and is paused. |
+| `will pause on reconnect` | It did not answer, but the pause is in the shared intent and applies when it syncs. |
+| `not paused: unreachable and no shared store` | It did not answer and the intent could not be stored. |
+| `not paused: signed out` | It answered 401 or 403. |
+| `not paused: off tailnet, pause it from its own dashboard ↗` | Its URL is not `https`, so the browser does not call it. |
+
+The buttons call `POST /api/v1/gateway/pause` and `/resume` (this gateway) and `POST /api/v1/fleet/pause` and `/resume` (shared intent plus this gateway).
+
+They need a dashboard session or a `write` client token, the `X-Aiur-Request: 1` header, and a same-origin or `server.dashboard_origins` `Origin`. `observability.dashboard_writable: false` blocks them.
+
+Each call sets an absolute state, so a retry is harmless, and `request_id` is echoed. The fleet response carries `intent_written`.
+
 ## Not here yet
 
-The server summary does not yet carry current agents, queue entries or pending Decisions, so the page says so rather than showing empty lists. Pause-all and cross-gateway queue order are not part of this page.
+The server summary does not yet carry current agents, queue entries or pending Decisions, so both pages say so rather than showing empty lists. There is no per-project pause or resume-all button yet (the endpoints exist), and no cross-gateway queue order.

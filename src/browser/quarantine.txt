@@ -10,4 +10,3 @@ BrowserSpec	src/browser/tests/command-answer.browser.spec.mjs	override timeline 
 BrowserSpec	src/browser/tests/command-answer.browser.spec.mjs	override timeline and form fit desktop and mobile after an answer	221	#7393
 BrowserSpec	src/browser/tests/shell-chrome.browser.spec.mjs	B-2 drag clamps to boolean rails, click toggles and resize follows release	51	#7395	2026-11-15
 BrowserSpec	src/browser/tests/shell-chrome.browser.spec.mjs	future regression guard: overlapping navigation choices survive older acknowledgements	231	#7397	2026-11-15
-BrowserSpec	src/browser/tests/build-home-estimate.browser.spec.mjs	hostile override reasons stay escaped in cards and modal	19	#7826	2026-11-22

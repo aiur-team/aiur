@@ -108,7 +108,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.GitHub.CodeOwners,
     Aiur.GitHub.LabelCatalogue,
     {Registry, [keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry]},
-    Aiur.Events.SubscriptionStoreSupervisor,
+    {Aiur.Events.SubscriptionStoreSupervisor, [name: Aiur.Events.subscription_store_supervisor()]},
     {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
     Aiur.OperatorWaitLog,
     Aiur.Orchestrator.OptimisticLedger,

@@ -175,7 +175,7 @@ defmodule Aiur.Application.Children do
       Aiur.Conversation.HeadTable,
       {Registry, keys: :unique, name: Aiur.Conversation.Registry},
       {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
-      {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      {Aiur.Events.Exchange, name: Aiur.Events.exchange_server()},
       Aiur.Conversation.ResolverSupervisor,
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
@@ -244,7 +244,7 @@ defmodule Aiur.Application.Children do
       # `:label_catalogue_refresh?`; the table is always there for tests to drive.
       Aiur.GitHub.LabelCatalogue,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
-      Aiur.Events.SubscriptionStoreSupervisor,
+      {Aiur.Events.SubscriptionStoreSupervisor, name: Aiur.Events.subscription_store_supervisor()},
       {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.OptimisticLedger,
