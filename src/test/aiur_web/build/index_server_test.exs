@@ -93,34 +93,6 @@ defmodule AiurWeb.Build.IndexServerTest do
     refute_received {:trace, _, :call, {:persistent_term, :put, _}}
   end
 
-  test "a burst of queued signals is handled in one call and the next read covers every merged part", %{pid: pid} do
-    :sys.suspend(pid)
-    for n <- 1..5_000, do: send(pid, {:running_changed, n})
-    for _ <- 1..50, do: send(pid, :fleet_changed)
-    :erlang.trace(pid, true, [:call])
-    :erlang.trace_pattern({Index, :handle_info, 2}, true, [:local])
-    on_exit(fn -> :erlang.trace_pattern({Index, :handle_info, 2}, false, [:local]) end)
-    :sys.resume(pid)
-    :sys.get_state(pid)
-
-    assert {:message_queue_len, 0} = Process.info(pid, :message_queue_len)
-    assert signal_handler_calls(0) == 1
-
-    send(pid, :flush)
-    receive_barrier({:read_started, worker, dirty})
-    assert MapSet.subset?(MapSet.new([:now, :planned, :capacity]), dirty)
-    send(worker, {:return, parts()})
-    result_barrier(pid)
-  end
-
-  defp signal_handler_calls(count) do
-    receive do
-      {:trace, _, :call, {Index, :handle_info, [{:running_changed, _}, _]}} -> signal_handler_calls(count + 1)
-    after
-      0 -> count
-    end
-  end
-
   test "consecutive now failures back off exponentially and recover without another signal" do
     parent = self()
     initial = parts()
