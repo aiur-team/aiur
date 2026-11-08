@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator do
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def read_held_messages(identifier, max \\ 50),
-    do: HeldReads.read(__MODULE__, identifier, max)
+    do: HeldReads.read(Aiur.Project.whereis(__MODULE__), identifier, max)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -49,7 +49,7 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec has_live_owner?(String.t()) :: boolean() | :unknown
   def has_live_owner?(identifier),
-    do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
+    do: StatusReport.has_live_owner_api(Aiur.Project.whereis(__MODULE__), identifier, 1_000)
 
   @doc false
   @spec tracker_identity(String.t()) :: Aiur.TrackerIdentity.t() | nil
@@ -461,7 +461,7 @@ defmodule Aiur.Orchestrator do
 
   @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
   @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
-  def note_agent_activity(server \\ __MODULE__, identifier) when is_binary(identifier) do
+  def note_agent_activity(server \\ Aiur.Project.whereis(__MODULE__), identifier) when is_binary(identifier) do
     GenServer.cast(server, {:note_agent_activity, identifier})
   end
 

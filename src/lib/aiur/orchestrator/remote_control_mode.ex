@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
   def set_remote_control(issue_identifier, on?),
-    do: set_remote_control(Aiur.Orchestrator, issue_identifier, on?)
+    do: set_remote_control(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, on?)
 
   @spec set_remote_control(GenServer.server(), String.t(), boolean()) ::
           {:ok, :on | :off} | {:error, term()}
@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   @doc false
   @spec redispatch(String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
-  def redispatch(identifier, backend \\ nil), do: redispatch(Aiur.Orchestrator, identifier, backend)
+  def redispatch(identifier, backend \\ nil), do: redispatch(Aiur.Project.whereis(Aiur.Orchestrator), identifier, backend)
 
   @spec redispatch(GenServer.server(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
   def redispatch(server, identifier, backend)
@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
   def ensure_remote_control_trust(workspace),
-    do: ensure_remote_control_trust(Aiur.Orchestrator, workspace)
+    do: ensure_remote_control_trust(Aiur.Project.whereis(Aiur.Orchestrator), workspace)
 
   @spec ensure_remote_control_trust(GenServer.server(), Path.t()) ::
           :ok | {:error, term()}

@@ -156,7 +156,7 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   end
 
   defp enqueue_bootstrap_batch(identifier, events) do
-    case Process.whereis(Aiur.Orchestrator) do
+    case GenServer.whereis(Aiur.Project.whereis(Aiur.Orchestrator)) do
       nil -> {:error, :no_orchestrator}
       pid -> GenServer.cast(pid, {:enqueue_event_digest_batch_async, identifier, events})
     end

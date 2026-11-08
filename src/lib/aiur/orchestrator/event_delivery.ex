@@ -9,7 +9,8 @@ defmodule Aiur.Orchestrator.EventDelivery do
 
   @impl true
   def enqueue(identifier, event, context) do
-    server = Application.get_env(:aiur, :event_delivery_orchestrator, Aiur.Orchestrator)
+    server =
+      Application.get_env(:aiur, :event_delivery_orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
 
     case GenServer.whereis(server) do
       nil ->

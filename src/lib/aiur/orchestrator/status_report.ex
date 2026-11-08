@@ -40,7 +40,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   that does not render them (`agents`) does not pay for them.
   """
   @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
-  def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []) do
+  def fleet_view(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout, opts \\ []) do
     case SnapshotStore.read(server, timeout, opts) do
       {:current, snapshot, freshness} -> {:ok, snapshot, freshness}
       {:stale, snapshot, freshness} -> {:ok, snapshot, freshness}
@@ -77,13 +77,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
-  def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
+  def snapshot_api, do: snapshot_api(Aiur.Project.whereis(Aiur.Orchestrator), 15_000)
 
   @spec snapshot_api(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot_api(server, timeout), do: status_api_call(server, :snapshot, timeout, true)
 
   @spec status_api() :: [map()] | :timeout | :unavailable
-  def status_api, do: status_api(Aiur.Orchestrator, 5_000)
+  def status_api, do: status_api(Aiur.Project.whereis(Aiur.Orchestrator), 5_000)
 
   @spec status_api(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
   def status_api(server, timeout), do: status_api_call(server, :status, timeout, true)
@@ -92,7 +92,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   def status_with_capacity_api(server, timeout), do: status_api_call(server, :status_with_capacity, timeout, true)
 
   @spec poll_status_api() :: map() | :unavailable
-  def poll_status_api, do: poll_status_api(Aiur.Orchestrator, 1_000)
+  def poll_status_api, do: poll_status_api(Aiur.Project.whereis(Aiur.Orchestrator), 1_000)
 
   @spec poll_status_api(GenServer.server(), timeout()) :: map() | :unavailable
   def poll_status_api(server, timeout),
