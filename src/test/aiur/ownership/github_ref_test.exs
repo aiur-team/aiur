@@ -17,7 +17,7 @@ defmodule Aiur.Ownership.GitHubRefTest do
 
     @zero String.duplicate("0", 40)
 
-    def start, do: Agent.start_link(fn -> %{refs: %{}, objects: %{}, log: [], inject: [], n: 0, fail_page: nil, refs_cap: nil, barrier: nil, arrived: 0} end)
+    def start, do: Agent.start_link(fn -> %{refs: %{}, objects: %{}, log: [], inject: [], n: 0, fail_page: nil, refs_cap: nil, barrier: nil, arrived: 0, waiting: []} end)
 
     def fail_page(agent, n), do: Agent.update(agent, &%{&1 | fail_page: n})
 
@@ -143,15 +143,27 @@ defmodule Aiur.Ownership.GitHubRefTest do
 
     defp errors(list), do: {:ok, %{status: 200, body: %{"errors" => list}}}
 
+    # Event barrier: the nth arrival releases every parked caller; no polling.
     defp wait_at_barrier(agent) do
-      case Agent.get_and_update(agent, fn s -> {s.barrier, %{s | arrived: s.arrived + 1}} end) do
-        nil -> :ok
-        n -> wait_until(agent, n)
-      end
-    end
+      me = self()
 
-    defp wait_until(agent, n) do
-      if Agent.get(agent, & &1.arrived) >= n, do: :ok, else: Process.sleep(5) && wait_until(agent, n)
+      release =
+        Agent.get_and_update(agent, fn s ->
+          arrived = s.arrived + 1
+          waiting = [me | s.waiting]
+
+          cond do
+            is_nil(s.barrier) -> {:pass, %{s | arrived: arrived}}
+            arrived >= s.barrier -> {{:release, waiting -- [me]}, %{s | arrived: arrived, waiting: []}}
+            true -> {:wait, %{s | arrived: arrived, waiting: waiting}}
+          end
+        end)
+
+      case release do
+        :pass -> :ok
+        {:release, pids} -> Enum.each(pids, &send(&1, {:barrier_open, agent}))
+        :wait -> receive do: ({:barrier_open, ^agent} -> :ok)
+      end
     end
   end
 
