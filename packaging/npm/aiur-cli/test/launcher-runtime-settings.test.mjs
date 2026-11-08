@@ -5,6 +5,18 @@ import { captureFile, useTempRoot } from "./launcher-support.mjs";
 
 useTempRoot();
 
+test("set help explains runtime overrides and config hot reload without contacting the daemon", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {}, ["set", "--help"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("Store or remove an allowlisted runtime setting for this Aiur instance.");
+  expect(result.stdout).toContain("edit the file directly");
+  expect(result.stdout).toContain("about once a second");
+  expect(result.stdout).toContain("CONFIG RELOAD REJECTED");
+  expect(existsSync(captureFile)).toBe(false);
+});
+
 test("set runtime settings safely forwards values, list modes, and unset", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const env = {

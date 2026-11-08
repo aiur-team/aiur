@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionApi.PublicProjection do
   @moduledoc false
 
-  alias Aiur.Commands.Projection
+  alias Aiur.Commands.{Media, Projection}
   alias Aiur.Decision
   alias Aiur.DecisionApi.PublicLifecycleProjection
   alias Aiur.DecisionSanitizer
@@ -23,6 +23,7 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "question" => decision.question,
       "context" => context(decision.context),
       "options" => Enum.map(decision.options, &option/1),
+      "media" => Media.public(decision.media),
       "recommendation" => recommendation(decision.recommendation),
       "consequence_of_delay" => decision.consequence_of_delay,
       "artifacts" => artifacts(decision.artifacts),
@@ -73,7 +74,8 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "description" => value(option, :description),
       "benefits" => value(option, :benefits),
       "drawbacks" => value(option, :drawbacks),
-      "risk" => value(option, :risk)
+      "risk" => value(option, :risk),
+      "media" => Media.public(Map.get(option, :media) || Map.get(option, "media"))
     }
   end
 

@@ -12,10 +12,10 @@ defmodule Aiur.CodingAgent.Routing do
   alias Aiur.CodingAgent.ModelLabel
   alias Aiur.CodingAgent.ProvidersView
   alias Aiur.CodingAgent.RouteCredentials
+  alias Aiur.CodingAgent.Routing.FloorChain
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
-  alias Aiur.ModelAvailability
   alias Aiur.ModelDiscovery
   alias Aiur.Usage.PriceTable.Data
   alias Aiur.Usage.PriceTable.Window
@@ -34,8 +34,8 @@ defmodule Aiur.CodingAgent.Routing do
 
   @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [backend()]}
   def select_for_dispatch(%Issue{} = issue, opts \\ []) do
-    # `account_selection: headroom` scores every allowed backend and account by
-    # remaining usage (#3960). A pin still pins; headroom picks its account.
+    # `account_selection: headroom` follows backend priority, then scores the
+    # selected backend's accounts by remaining usage (#7429). A pin still pins.
     if HeadroomDispatch.enabled?(opts),
       do: HeadroomDispatch.select(issue, &eligible_routes(Keyword.put(opts, :backends, &1)), opts),
       else: select_in_priority_order(issue, opts)
@@ -44,38 +44,19 @@ defmodule Aiur.CodingAgent.Routing do
   defp select_in_priority_order(issue, opts) do
     cond do
       # A pin is intent: an operator's `model:` label, or the backend a
-      # rate-limit fallback has already moved this claim onto.
+      # rate-limit fallback has already moved this claim onto. A pin keeps its
+      # route even when the usage floor holds it (#7504).
       is_binary(issue.selected_backend) or override_backend(issue) ->
         {:ok, issue}
 
-      # A routed backend is a default, not a pin: a default onto an exhausted account can only refuse.
+      # A routed backend is a default, not a pin: a default held at the usage
+      # floor falls through to the next allowed route in `agent.priority`.
       backend = Keyword.get_lazy(opts, :routing_backend, fn -> routing_backend(issue) end) ->
-        if ModelAvailability.available?(backend, opts),
-          do: {:ok, issue},
-          else: {:all_limited, [backend]}
+        FloorChain.routed(issue, opts, backend, &eligible_routes/1, &select_route/2)
 
       true ->
-        candidates = eligible_routes(opts)
-
-        cond do
-          candidates == [] ->
-            default_backend_decision(issue, opts)
-
-          route = ModelAvailability.first_available(candidates, opts) ->
-            {:ok, select_route(issue, route)}
-
-          true ->
-            {:all_limited, candidates}
-        end
+        FloorChain.chain(issue, opts, &eligible_routes/1, &select_route/2)
     end
-  end
-
-  defp default_backend_decision(issue, opts) do
-    backend = Keyword.get_lazy(opts, :default_backend, &Config.agent_kind/0)
-
-    if ModelAvailability.available?(backend, opts),
-      do: {:ok, issue},
-      else: {:all_limited, [backend]}
   end
 
   # The candidate routes for one claim. `agent.priority` is read **fresh per

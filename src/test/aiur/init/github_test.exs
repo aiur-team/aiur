@@ -402,7 +402,8 @@ defmodule Aiur.Init.GitHubTest do
       System.delete_env("GITHUB_TOKEN")
       on_exit(fn -> System.delete_env("GITHUB_TOKEN") end)
       {:error, msg} = GitHub.require_github_token()
-      assert msg =~ ".env"
+      assert msg =~ "~/.aiur/.env (machine-wide) or ./.env"
+      assert :binary.match(msg, "~/.aiur/.env") < :binary.match(msg, "./.env")
     end
 
     @tag :not_async

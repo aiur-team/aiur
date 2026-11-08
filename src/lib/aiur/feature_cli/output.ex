@@ -99,7 +99,8 @@ defmodule Aiur.FeatureCLI.Output do
     rows = Enum.map_join(result.results, ", ", fn row -> "##{row.id} #{row.outcome}" <> if(row[:label], do: " label #{row.label}", else: "") end)
     outcome = if result[:outcome], do: " #{result.outcome}", else: ""
     previous = if result[:previous_baseline], do: "\nreplaced #{baseline_text(result.previous_baseline)} (#{time(result.previous_baseline.at)})", else: ""
-    "#{result.command} #{result.feature}#{outcome}: #{rows}" <> previous
+    epic = if result[:epic], do: " in epic #{result.epic}", else: ""
+    "#{result.command} #{result.feature}#{outcome}#{epic}: #{rows}" <> previous
   end
 
   defp render_detail(%{members: members, feature: feature} = result, confirmation) do
@@ -113,6 +114,10 @@ defmodule Aiur.FeatureCLI.Output do
 
   @spec error(term()) :: String.t()
   def error({:unknown_feature, slug}), do: "unknown feature #{slug}; create it first"
+  def error({:unknown_epic, slug}), do: "unknown epic #{slug}; create it with aiur epic create first"
+  def error({:epic_exists, slug}), do: "epic #{slug} exists with different values; use aiur epic edit"
+  def error({:feature_in_epic, feature, epic}), do: "feature #{feature} already belongs to epic #{epic}; remove it first"
+  def error({:not_in_epic, features}), do: "not in this epic: #{Enum.join(List.wrap(features), ", ")}"
   def error({:feature_exists, slug}), do: "feature #{slug} exists with different values; use aiur feature edit"
   def error({:owned_elsewhere, pairs}), do: "batch refused; owned elsewhere: " <> Enum.map_join(pairs, ", ", fn {id, slug} -> "#{id} (#{slug})" end)
   def error({:owner_cannot_also, ids}), do: "owners cannot also affect their feature: #{Enum.join(ids, ", ")}"

@@ -105,6 +105,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
      ]},
     Aiur.Webhooks.DeliveryLog,
     Aiur.GitHub.CodeOwners,
+    Aiur.GitHub.LabelCatalogue,
     {Registry, [keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry]},
     Aiur.Events.SubscriptionStoreSupervisor,
     {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
@@ -117,6 +118,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.CurrentRunMembership.Store,
     Aiur.LiveConversation,
     Aiur.ProgressRetention,
+    Aiur.ControlCall.ReplayStore,
     Aiur.TicketActivity,
     Aiur.Claude.Telemetry,
     Aiur.BuildOrder.History,
@@ -181,6 +183,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
     Aiur.BuildOrder.TicketTimelineCache,
+    Aiur.Intent.Hlc,
+    Aiur.Intent.Store,
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     Aiur.Netlify.Usage,
@@ -209,9 +213,12 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {early, final} = Enum.split_while(@foreground, &(&1 != AiurWeb.DashboardAuth.ChallengeStore))
     assert {:ok, voice_config} = Aiur.VoiceConversation.config()
 
+    # Start this independent observer before the dashboard and optional
+    # backfill/Executor tails, whose final child positions are pinned.
     expected =
       early ++
         [{Registry, keys: :unique, name: Aiur.VoiceConverse.Host.AgentChannel.Registry}, Aiur.VoiceConverse.Host.Telemetry, {VoiceConverse, voice_config}] ++
+        [{Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}] ++
         final ++
         [
           Aiur.BuildOrder.History.LabelBackfill,

@@ -266,6 +266,7 @@ defmodule Aiur.Config do
   defdelegate backend_config(backend), to: Aiur.Config.AgentSettings
   defdelegate agent_backend_configs(), to: Aiur.Config.AgentSettings
   defdelegate agent_routing(), to: Aiur.Config.AgentSettings
+  defdelegate agent_routing_candidates(), to: Aiur.Config.AgentSettings
   defdelegate switch_model_on_ratelimit(), to: Aiur.Config.AgentSettings
   defdelegate rate_limit_fallback_backend(), to: Aiur.Config.AgentSettings
   defdelegate rate_limit_primary_backend(), to: Aiur.Config.AgentSettings
@@ -274,6 +275,7 @@ defmodule Aiur.Config do
   defdelegate agent_prior_work_continuation?(), to: Aiur.Config.AgentSettings
   defdelegate agent_complexity_prompts(), to: Aiur.Config.AgentSettings
   defdelegate agent_max_turns_by_complexity(), to: Aiur.Config.AgentSettings
+  defdelegate agent_skills(), to: Aiur.Config.AgentSettings
   defdelegate alerts_settings(), to: Aiur.Config.AgentSettings
   defdelegate executor_takeover_first_alert_hours(), to: Aiur.Config.AgentSettings
   defdelegate executor_takeover_continuous_alert_hours(), to: Aiur.Config.AgentSettings
@@ -291,6 +293,9 @@ defmodule Aiur.Config do
   defdelegate ci_recovery_enabled?(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_poll(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_hour(), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent(), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent(settings), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent_for(backend), to: Aiur.Config.AgentSettings
   defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
   defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings

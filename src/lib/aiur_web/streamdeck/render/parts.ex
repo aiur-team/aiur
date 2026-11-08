@@ -61,13 +61,15 @@ defmodule AiurWeb.Streamdeck.Render.Parts do
     reading =
       if is_number(percent) and to_string(freshness) != "unknown",
         do: "#{percent}%#{field(part, :suffix, "")}",
-        else: "Unknown"
+        else: field(part, :unknown_label, "Unknown")
 
     compact = field(part, :compact, false)
     age = field(part, :age_label, "")
 
     element("g", ["data-provider": field(part, :provider, "")], [
-      line("#{label} #{reading}", if(compact, do: width - 100, else: width), y, 10),
+      if(field(part, :tip), do: element("title", [], Svg.escape(field(part, :tip))), else: []),
+      # Reserve only what the right-aligned age needs (8 px monospace, 0.6 em per char).
+      line("#{label} #{reading}", if(compact, do: width - ceil(String.length(age) * 4.8) - 10, else: width), y, 10),
       bar(percent, freshness, 10, y + 5, width - 20),
       if(compact and age != "",
         do: text(age, width - 10, y, 8, "text-anchor": "end"),

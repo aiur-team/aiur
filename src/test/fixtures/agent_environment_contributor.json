@@ -93,7 +93,8 @@
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
     "ZDOTDIR": "/dev/null",
     "npm_config_cache": "<root>/repo/owner/name/.aiur-npm-cache",
-    "AIUR_GITHUB_BUDGET_SOCKET": false
+    "AIUR_GITHUB_BUDGET_SOCKET": false,
+    "AIUR_MCP_SOCKET_DIR": "<mcp-socket>"
   },
   "github_shell": {
     "AIUR_AGENT_BIN": "<workspace>/.aiur-runtime/bin",
@@ -132,7 +133,8 @@
     "TMP": "<workspace>/.aiur-runtime/tmp",
     "TMPDIR": "<workspace>/.aiur-runtime/tmp",
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
-    "npm_config_cache": "<home>/.aiur/repo/owner/name/.aiur-npm-cache"
+    "npm_config_cache": "<home>/.aiur/repo/owner/name/.aiur-npm-cache",
+    "AIUR_MCP_SOCKET_DIR": "<mcp-socket>"
   },
   "linear_port": {
     "AIUR_AGENT_BIN": "<workspace>/.aiur-runtime/bin",
@@ -227,7 +229,8 @@
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
     "ZDOTDIR": "/dev/null",
     "npm_config_cache": "<root>/repo/aiur-team/aiur/.aiur-npm-cache",
-    "AIUR_GITHUB_BUDGET_SOCKET": false
+    "AIUR_GITHUB_BUDGET_SOCKET": false,
+    "AIUR_MCP_SOCKET_DIR": "<mcp-socket>"
   },
   "linear_shell": {
     "AIUR_AGENT_BIN": "<workspace>/.aiur-runtime/bin",
@@ -266,6 +269,7 @@
     "TMP": "<workspace>/.aiur-runtime/tmp",
     "TMPDIR": "<workspace>/.aiur-runtime/tmp",
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
-    "npm_config_cache": "<home>/.aiur/repo/aiur-team/aiur/.aiur-npm-cache"
+    "npm_config_cache": "<home>/.aiur/repo/aiur-team/aiur/.aiur-npm-cache",
+    "AIUR_MCP_SOCKET_DIR": "<mcp-socket>"
   }
 }

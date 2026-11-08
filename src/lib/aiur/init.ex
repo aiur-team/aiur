@@ -20,7 +20,6 @@ defmodule Aiur.Init do
   alias Aiur.Init.Templates
 
   @prompt_basename "prompt.md"
-  @env_file_name ".env"
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
@@ -341,9 +340,9 @@ defmodule Aiur.Init do
     io.puts.("       • Click `Generate new token (classic)`")
     io.puts.("       • Check `repo` (broad access that includes Administration)")
     io.puts.("     For the one-shot CI readiness preflight, use an operator-only #{Aiur.GitHub.CiReadiness.operator_token_env()} with Contents, Actions, and Administration: Read-only.")
-    io.puts.("     Do not add that operator token to #{@env_file_name} or the daemon environment.")
+    io.puts.("     Do not add that operator token to ~/.aiur/.env, ./.env, or the daemon environment.")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
-    io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
+    io.puts.("  2. Set GITHUB_TOKEN in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
   end
 

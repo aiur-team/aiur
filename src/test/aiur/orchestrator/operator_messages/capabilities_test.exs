@@ -67,6 +67,19 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
            } = Capabilities.issue_control_capabilities(state, "42")
   end
 
+  test "a corrupt control value projects as missing metadata instead of raising" do
+    state = state_with_running_entry("42", "corrupt")
+
+    assert %{
+             accepts_operator_messages: true,
+             can_interrupt: false,
+             immediate_delivery: false,
+             safe_checkpoints: [],
+             status: :working,
+             unit_control: :request_only
+           } = Capabilities.issue_control_capabilities(state, "42")
+  end
+
   test "projects visible operator messages without using Access on queue structs" do
     {store, first_item} =
       AgentQueueStore.new()

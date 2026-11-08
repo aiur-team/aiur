@@ -28,7 +28,7 @@ CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), changed p
 
 Landing-watch degraded-runner classification reads failed Actions job logs. When a job has a compile step, it also reads up to five recent successful main push runs and their steps to compare against that job's median. These bounded reads use `landing_watch_runner_degradation` and are memoized per poll; they claim no quota saving.
 
-Cancelled runs and drafts are not rerun; changes-requested PRs get one attention. Failed CI leaves queued or auto-merging approved heads in `ci-wait`. New heads wait with blocking attention until review.
+Cancelled runs and drafts are not rerun; changes-requested PRs get one attention. An approved head whose runs Aiur itself cancelled for rework is the exception: recovery reruns those runs once so auto-merge can queue. Failed CI leaves queued or auto-merging approved heads in `ci-wait`. New heads wait with blocking attention until review.
 
 Reruns default on; limits: `agent.ci_recovery_max_per_poll` (5) and `agent.ci_recovery_max_per_hour` (20). Disable with `agent.ci_recovery_enabled: false`. Hourly cap shared across tickets and restarts.
 
@@ -100,6 +100,10 @@ A merge-queue rule routes the pinned head through GraphQL enqueueing; it never a
 
 The daemon independently verifies the configured repository, PR head, base and merge SHA against GitHub before publishing `system.pr.merged`; caller-supplied actor data is replaced with GitHub's merge attribution. See [the command reference](/reference/cli#pr-merge).
 
+
+## Label catalogue
+
+`label_catalogue_refresh` lists the repository's labels (`GET /repos/{owner}/{repo}/labels`, 100 per page) once at boot and hourly after that. Features rows take their names from these descriptions, including features whose tickets have all closed. That costs about one Core point an hour for repositories with up to 100 labels.
 
 ## Measured feature epics
 

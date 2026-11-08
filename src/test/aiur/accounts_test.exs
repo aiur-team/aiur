@@ -1,5 +1,6 @@
 defmodule Aiur.AccountsTest do
   use Aiur.TestSupport
+  import ExUnit.CaptureIO
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude
@@ -387,6 +388,19 @@ defmodule Aiur.AccountsTest do
     assert Keyword.fetch!(session_opts, :env) == [{"CLAUDE_CONFIG_DIR", Path.join([home, ".aiur/accounts/claude/max"])}]
   end
 
+  test "a fresh usage reading clears the account's recent headroom exploration" do
+    now = ~U[2026-10-10 06:00:00Z]
+    UsageReadings.mark_explored("claude", "default", now)
+
+    assert UsageReadings.recently_explored?("claude", "default", DateTime.add(now, 119, :second))
+    refute UsageReadings.recently_explored?("claude", "default", DateTime.add(now, 120, :second))
+
+    UsageReadings.mark_explored("claude", "default", now)
+
+    assert :ok = UsageReadings.record("claude", "default", {:ok, %{windows: [%{window: "seven_day", used_percent: 25}]}}, now)
+    refute UsageReadings.recently_explored?("claude", "default", now)
+  end
+
   test "profile setup links shared files and memory but never account transcripts or secrets", %{home: home} do
     source = Path.join(home, ".claude")
     File.mkdir_p!(Path.join(source, "projects/demo/memory"))
@@ -420,5 +434,42 @@ defmodule Aiur.AccountsTest do
     profile = Path.join([home, ".aiur/accounts/claude/purged"])
     assert :ok = Accounts.logout("purged", true)
     refute File.exists?(profile)
+  end
+
+  test "login decision skips the harness when an adopted Claude or Codex profile has an identity", %{home: home} do
+    claude_dir = Path.join(home, "signed-in-claude")
+    codex_dir = Path.join(home, "signed-in-codex")
+    File.mkdir_p!(claude_dir)
+    File.mkdir_p!(codex_dir)
+    File.write!(Path.join(claude_dir, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"claude@example.com"}}))
+    File.write!(Path.join(codex_dir, "auth.json"), Jason.encode!(%{"tokens" => %{"account_id" => "acct-codex"}}))
+    :ok = Accounts.register("claude", "adopted-claude", claude_dir)
+    :ok = Accounts.register("codex", "adopted-codex", codex_dir)
+    signed_out_dir = Path.join(home, "signed-out")
+    File.mkdir_p!(signed_out_dir)
+    :ok = Accounts.register("claude", "signed-out", signed_out_dir)
+
+    assert {:ok, ^claude_dir, false} = AccountsCLI.login_decision("claude", "adopted-claude")
+    assert {:ok, ^codex_dir, false} = AccountsCLI.login_decision("codex", "adopted-codex")
+    assert {:ok, _dir, true} = AccountsCLI.login_decision("claude", "signed-out")
+    assert {:ok, ^claude_dir, false} = AccountsCLI.prepare_login_result("claude", "prepared-claude", claude_dir)
+    assert {:ok, ^signed_out_dir, true} = AccountsCLI.prepare_login_result("claude", "prepared-signed-out", signed_out_dir)
+
+    env_path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(env_path))
+    File.write!(env_path, "DEEPSEEK_API_KEY__WORK=test-key\n")
+    assert {:ok, nil, false} = AccountsCLI.prepare_login_result("deepseek", "work", nil)
+    assert Aiur.CLI.login_prepare_output(nil, false) == "\nregistered\n"
+  end
+
+  test "a signed-out profile refuses login when stdin is not a terminal", %{home: home} do
+    signed_out_dir = Path.join(home, "signed-out-login")
+    File.mkdir_p!(signed_out_dir)
+
+    capture_io(fn ->
+      assert {:error, message} = AccountsCLI.login("claude", "signed-out-login", signed_out_dir)
+      assert message =~ "profile is not signed in"
+      assert message =~ "interactive terminal"
+    end)
   end
 end

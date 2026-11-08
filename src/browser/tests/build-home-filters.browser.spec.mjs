@@ -29,23 +29,23 @@ test.afterEach(() => expect(errors).toEqual([]))
 
 test('F1 bar renders five groups before and after data', async ({ page }) => {
   await open(page, 'live')
-  await expect(page.locator('.bd-fg')).toHaveText(['Epic', 'Feature', 'Model', 'Ticket', 'Agent'])
+  await expect(page.locator('.bd-fg')).toHaveText(['Lane', 'Feature', 'Model', 'Ticket', 'Agent'])
   await expect(page.locator('#bd-filters > svg')).toHaveCount(1)
   await expect(page.locator('.bd-fg.has, .bd-pop, .bd-fclear')).toHaveCount(0)
 })
-test('unknown live counts preserve epic options without page errors', async ({ page }) => {
+test('unknown live counts preserve lane options without page errors', async ({ page }) => {
   expect(await page.request.get('/build-control/stream?key=w' + test.info().workerIndex).then(r => r.status())).toBe(200)
   await open(page, 'live')
   expect(await page.request.get('/build-control/diff?name=counts-unknown').then(r => r.status())).toBe(200)
   await expect.poll(() => page.evaluate(() => m.ctx.D.counts)).toBeNull()
-  await group(page, 'epic').click()
+  await group(page, 'lane').click()
   expect(await page.locator('#bd-pop [data-o]').evaluateAll(nodes => nodes.map(node => node.dataset.o))).toEqual(['bugs', 'design', 'infra', 'docs', 'f-khala-srv', 'f-khala-ui', 'f-pag-api', 'f-pag-ui', 'unsorted'])
   expect(errors).toEqual([])
 })
 test('loading filter bar accepts selections before a snapshot', async ({ page }) => {
   await page.goto('/build-fixture/hold')
   await expect(page.locator('.bd-loading')).toBeVisible()
-  await expect(page.locator('.bd-fg')).toHaveText(['Epic', 'Feature', 'Model', 'Ticket', 'Agent'])
+  await expect(page.locator('.bd-fg')).toHaveText(['Lane', 'Feature', 'Model', 'Ticket', 'Agent'])
   await group(page, 'model').click(); await option(page, 'claude').click()
   await expect(option(page, 'claude')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.bd-loading')).toBeVisible()
@@ -75,18 +75,17 @@ test('F2 F3 not planned removes layout space, toggles via URL and hides incoming
   expect(await page.evaluate(() => m.ctx.L.secs.hist.items.some(i => ['9010', '9020', '9021'].includes(i.t.id)))).toBe(false)
   await expect(option(page, 'not planned')).toBeVisible()
 })
-test('F4 F8 features sort by date, retain selection and show unknown percentages', async ({ page }) => {
+test('F4 F8 features sort by date, retain selection and show merged percentages from the Features bars', async ({ page }) => {
   await open(page, 'dense', '?feature=d0')
   await page.evaluate(() => {
     m.ctx.D.features = Object.fromEntries(Object.entries(m.ctx.D.features).reverse())
-    m.ctx.D.features.d9.stats = { ...m.ctx.D.features.d9.stats, pct: null, pct_min: 40, reasons: ['progress'] }
-    m.ctx.D.features.d8.stats = null
+    m.ctx.D.feature_progress = { bars: [{ key: 'd9', label: 'Notifications', merged: 2, total: 5 }] }
   })
   await group(page, 'feature').click()
   expect(await page.locator('.bd-opt').evaluateAll(els => els.map(e => e.dataset.o))).toEqual(['d6', 'd7', 'd8', 'd9', 'khala', 'pag', 'd0'])
   await expect(option(page, 'd0')).toHaveAttribute('aria-pressed', 'true')
-  await expect(option(page, 'd9')).toContainText('  —')
-  await expect(option(page, 'd9')).toHaveAttribute('title', 'at least 40% weighted · unknown: progress')
+  await expect(option(page, 'd9')).toContainText('  40%')
+  await expect(option(page, 'd9')).toHaveAttribute('title', '2 of 5 merged')
   await expect(option(page, 'd8')).toContainText('  —')
   await option(page, 'd9').click()
   await expect(group(page, 'feature')).toBeFocused()
@@ -122,24 +121,24 @@ test('F6 F7 unknown status, cue and agent never match plausible defaults', async
   await expect(page.locator('.bd-now-st [data-ast="active"]')).not.toHaveClass(/\bon\b/)
 })
 test('F9 unknown slugs remain clearable with no feature count', async ({ page }) => {
-  await open(page, 'live', '?feature=ghost&epic=ghost-epic')
+  await open(page, 'live', '?feature=ghost&lane=ghost-epic')
   await expect(group(page, 'feature')).not.toHaveClass(/has/)
-  await expect(group(page, 'epic').locator('b')).toHaveText('1')
+  await expect(group(page, 'lane').locator('b')).toHaveText('1')
   await group(page, 'feature').click(); await expect(option(page, 'ghost')).toHaveAttribute('aria-pressed', 'true')
-  await group(page, 'epic').click(); await expect(option(page, 'ghost-epic')).toHaveAttribute('aria-pressed', 'true')
+  await group(page, 'lane').click(); await expect(option(page, 'ghost-epic')).toHaveAttribute('aria-pressed', 'true')
   expect(await page.evaluate(() => Object.values(m.ctx.L.secs).flatMap(s => s.items).length)).toBe(0)
   await page.locator('#bd-fclr').click()
-  await expect(page).not.toHaveURL(/feature|epic/)
+  await expect(page).not.toHaveURL(/feature|lane/)
   await expect(page.locator('.bd-card').first()).toBeAttached()
 })
 test('F10 filters survive reload, navigation and history without URL echo', async ({ page }) => {
   await open(page, 'live')
-  for (const [k, v] of [['epic', 'bugs'], ['model', 'claude'], ['astate', 'error']]) {
+  for (const [k, v] of [['lane', 'bugs'], ['model', 'claude'], ['astate', 'error']]) {
     await group(page, k).click(); await option(page, v).click()
   }
-  await expect(page).toHaveURL(/epic=bugs&model=claude&astate=error/)
+  await expect(page).toHaveURL(/lane=bugs&model=claude&astate=error/)
   await page.reload()
-  for (const [k, v] of [['epic', 'bugs'], ['model', 'claude'], ['astate', 'error']]) {
+  for (const [k, v] of [['lane', 'bugs'], ['model', 'claude'], ['astate', 'error']]) {
     await group(page, k).click(); await expect(option(page, v)).toHaveAttribute('aria-pressed', 'true')
   }
   await page.locator('a[href="/commands"]').first().click()
@@ -166,15 +165,15 @@ for (const width of [1440, 390]) test(`F11 F15 popover position, outside click a
 test('F13 option labels and hue cannot inject markup or styles', async ({ page }) => {
   await open(page, 'live')
   const label = '<img src=x onerror="window.__xss=1">\'&'
-  await page.evaluate(label => { m.ctx.D.epics.bugs.label = label; m.ctx.D.epics.bugs.hue = '0);background:url(x' }, label)
-  await group(page, 'epic').click(); await expect(option(page, 'bugs')).toHaveText(label)
+  await page.evaluate(label => { m.ctx.D.lanes.bugs.label = label; m.ctx.D.lanes.bugs.hue = '0);background:url(x' }, label)
+  await group(page, 'lane').click(); await expect(option(page, 'bugs')).toHaveText(label)
   await expect(option(page, 'bugs').locator('i, img')).toHaveCount(0)
   expect(await page.evaluate(() => window.__xss)).toBeUndefined()
 })
-test('F14 epic removes rows, other groups dim; list uses the same visibility rule', async ({ page }) => {
+test('F14 lane removes rows, other groups dim; list uses the same visibility rule', async ({ page }) => {
   await open(page, 'live')
   const before = await page.evaluate(() => Object.values(m.ctx.L.secs).flatMap(s => s.items).length)
-  await group(page, 'epic').click(); await option(page, 'docs').click()
+  await group(page, 'lane').click(); await option(page, 'docs').click()
   const epics = await page.evaluate(() => Object.values(m.ctx.L.secs).flatMap(s => s.items).map(i => i.t.epic))
   expect(epics.length).toBeLessThan(before); expect(epics.every(e => e === 'docs')).toBe(true)
   await page.locator('#bd-fclr').click(); await group(page, 'tstate').click(); await option(page, 'merged').click()
@@ -187,7 +186,7 @@ test('F14 epic removes rows, other groups dim; list uses the same visibility rul
 })
 for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'unknowns']) test(`F16 every group opens without errors: ${dataset}`, async ({ page }) => {
   await open(page, dataset)
-  for (const key of ['epic', 'feature', 'model', 'tstate', 'astate']) { await group(page, key).click(); await expect(page.locator('#bd-pop')).toBeVisible() }
+  for (const key of ['lane', 'feature', 'model', 'tstate', 'astate']) { await group(page, key).click(); await expect(page.locator('#bd-pop')).toBeVisible() }
 })
 
 test('Feature selection and Clear redraw direct list view without graph columns', async ({ page }) => {
@@ -207,7 +206,7 @@ test('phone filter row scrolls internally and keeps every group reachable', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   const filters = page.locator('#bd-filters')
   expect(await filters.evaluate(el => ({ client: el.clientWidth, scroll: el.scrollWidth })).then(s => s.scroll > s.client)).toBe(true)
-  for (const key of ['epic', 'feature', 'model', 'tstate', 'astate']) {
+  for (const key of ['lane', 'feature', 'model', 'tstate', 'astate']) {
     await group(page, key).click()
     const box = await group(page, key).boundingBox()
     expect(box.x).toBeGreaterThanOrEqual(0)

@@ -13,7 +13,7 @@ test('index-live serves a real store join through the connected build hook', asy
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-state', 'ready')
   await expect.poll(() => page.evaluate(async () => (await import('/build-home/state.js')).ctx.snap?.sources?.index?.state)).toBe('ok')
   const snapshot = await page.evaluate(async () => (await import('/build-home/state.js')).ctx.snap)
-  // Some frozen demo feature owners use a general epic, which the real registry rejects.
+  // Some frozen demo feature owners use a general lane, which the real registry rejects.
   const expectedCounts = { ...fixture.counts }
   for (const row of Object.values(fixture.sections).flat()) {
     if (!row.feature || fixture.features[row.feature].epics.includes(row.epic)) continue

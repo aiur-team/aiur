@@ -22,7 +22,7 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
 
     slugs =
       (ordered ++ Enum.sort(Map.keys(entries) -- ordered))
-      |> Enum.map(fn key -> field(entries[key], :feature) || field(Map.get(field(window, :epics, %{}), key), :feature) end)
+      |> Enum.map(fn key -> field(entries[key], :feature) || field(Map.get(field(window, :lanes, %{}), key), :feature) end)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
@@ -32,9 +32,9 @@ defmodule AiurWeb.Streamdeck.Deck.Features do
 
   defp key(slug, catalogue, entries, window, block, now) do
     feature = Map.get(catalogue, slug, %{})
-    epics = field(window, :epics, %{})
-    lanes = feature |> field(:epics, []) |> Enum.filter(&Map.has_key?(epics, &1)) |> Enum.map(&Map.get(entries, &1, %{}))
-    entry = aggregate(lanes)
+    lanes = field(window, :lanes, %{})
+    lane_entries = feature |> field(:epics, []) |> Enum.filter(&Map.has_key?(lanes, &1)) |> Enum.map(&Map.get(entries, &1, %{}))
+    entry = aggregate(lane_entries)
     key = slug
     known = Enum.all?([:closed, :open, :ci_wait, :unpublished, :total], &is_integer(field(entry, &1)))
     observed_at = field(entry, :observed_at) || field(block, :observed_at)

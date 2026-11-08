@@ -46,17 +46,51 @@ test('all six item branches render; hostile text stays text and unknown times/mo
   await scenario(page, 'kinds')
   for (const kind of ['sys', 'say', 'op', 'tool', 'diff', 'ev']) await expect(page.locator('#cv-log [data-k=' + kind + ']')).toHaveCount(1)
   await expect(page.locator('.cv-say img')).toHaveCount(1)
-  await expect(page.locator('.cv-op time')).toHaveText('You · 14:20')
-  await expect(page.locator('.cv-tool.bad .cv-tr')).toHaveText('✗ exit 2')
+  await expect(page.locator('.cv-op .cv-meta')).toContainText('You')
+  await expect(page.locator('.cv-op .cv-time')).toHaveText('14:20')
+  await expect(page.locator('.cv-tool-row.bad .cv-tool-status')).toHaveText('Failed')
   await scenario(page, 'hostile'); await expect(page.locator('.cv-say p')).toHaveText(states.hostile.entries[0].text)
   expect(await page.evaluate(() => window.__xss)).toBeUndefined()
   await scenario(page, 'unknown_time'); await expect(page.locator('#cv-log [title="Time unknown"]')).toHaveCount(2)
-  await expect(page.locator('.cv-op time')).toHaveText('You')
+  await expect(page.locator('.cv-op .cv-meta')).toHaveText('You')
   await expect(page.locator('#cv-log')).not.toContainText(/00:00|Jan 1|NaN|Invalid/)
   await proof(page, 'conversation-unknown-time')
   await scenario(page, 'unknown_model', { ticket: { agent: { model: 'muse', state: 'active' } } })
   await expect(page.locator('.cv-say .ax-mono')).toHaveText('M'); await expect(page.locator('.cv-say img')).toHaveCount(0)
   await proof(page, 'conversation-unknown-model')
+})
+
+test('tool rows share one clipped result style beside the minimap in every theme and viewport', async ({ page }) => {
+  const entries = [
+    { id: 'tool:bash', k: 'tool', name: 'bash', arg: 'git status', res: 'working tree clean', summary: 'working tree clean', bad: false, at: 1791408000000 },
+    { id: 'tool:edit', k: 'tool', name: 'edit', arg: 'lib/agent.ex', res: '@@ -1,2 +1,3 @@\n-old\n+new\n+extra', summary: 'lib/agent.ex · +2 −1', bad: false, at: 1791408001000 },
+    { id: 'tool:read', k: 'tool', name: 'read', arg: 'lib/agent.ex', res: 'source excerpt', summary: 'lib/agent.ex · source excerpt', bad: false, at: 1791408002000 },
+    { id: 'tool:write', k: 'tool', name: 'write', arg: 'lib/new.ex', res: 'created', summary: 'lib/new.ex · created', bad: false, at: 1791408003000 },
+    { id: 'tool:search', k: 'tool', name: 'search', arg: 'rg pattern', res: 'match', summary: 'A very long search result '.repeat(30), bad: false, at: 1791408004000 },
+    { id: 'tool:failure', k: 'tool', name: 'bash', arg: 'mix test', res: 'failed', summary: 'test suite failed', status: 'Exit 2', bad: true, at: 1791408005000 },
+    { id: 'tool:diff', k: 'diff', file: 'lib/another.ex', lines: [['+', '+added'], ['-', '-removed']], add: 1, del: 1, summary: 'lib/another.ex · +1 −1', at: 1791408006000 },
+  ]
+  for (const width of [390, 1440]) for (const theme of ['dark', 'light']) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)
+    await scenario(page, 'kinds', { entries })
+    const rows = page.locator('#cv-log > .cv-tool-row')
+    await expect(rows).toHaveCount(entries.length)
+    const fontSizes = await page.locator('.cv-tool-summary').evaluateAll(items => [...new Set(items.map(item => getComputedStyle(item).fontSize))])
+    expect(fontSizes).toHaveLength(1)
+    expect(fontSizes[0]).toBe('11.52px')
+    expect(await rows.evaluateAll(items => items.every(item => item.getBoundingClientRect().right <= document.querySelector('#cv-map').getBoundingClientRect().left))).toBe(true)
+    const long = page.locator('[data-eid="tool:search"] .cv-tool-summary')
+    await expect(long).toHaveCSS('text-overflow', 'ellipsis')
+    expect(await long.evaluate(item => item.scrollWidth > item.clientWidth)).toBe(true)
+    await expect(page.locator('[data-eid="tool:edit"] .cv-tool-detail')).toBeHidden()
+    await expect(page.locator('[data-eid="tool:edit"] .cv-tool-summary')).toContainText('lib/agent.ex · +2 −1')
+    await expect(page.locator('[data-eid="tool:failure"] .cv-tool-status')).toHaveText('Exit 2')
+    await expect(page.locator('#cv-log .cv-tool-row .cv-time')).toHaveCount(entries.length)
+    await expect(page.locator('[data-eid="tool:bash"] .cv-time')).toHaveText('14:20')
+    await page.locator('[data-eid="tool:edit"] summary').click()
+    await expect(page.locator('[data-eid="tool:edit"] .cv-tool-detail pre')).toContainText('@@ -1,2 +1,3 @@')
+  }
 })
 
 test('state cues, retained-history handoff and unknown dates render explicitly', async ({ page }) => {

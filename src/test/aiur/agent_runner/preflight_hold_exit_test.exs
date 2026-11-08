@@ -9,6 +9,13 @@ defmodule Aiur.AgentRunner.PreflightHoldExitTest do
   @issue %Issue{id: "issue-4679", identifier: "MT-4679", title: "preflight hold"}
 
   describe "workspace auth preflight failure exit (#4679)" do
+    test "a deterministic MCP socket listen failure exits with its structured cause" do
+      details = %{"error" => "Error: listen EINVAL: invalid argument /tmp/aiur-mcp-12345-1.sock"}
+
+      assert catch_exit(AgentRunner.handle_run_error(@issue, {:error, {:turn_failed, details}})) ==
+               {:mcp_socket_launch_failed, details}
+    end
+
     test "a local budget hold defers until reset_at without consuming a retry" do
       hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
 

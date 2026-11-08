@@ -24,6 +24,8 @@ defmodule AiurWeb.Build.PayloadSchema do
       "created" => nullable(:integer),
       "status" => enum(~w(done failed not_planned closed running queued open)),
       "pct" => nullable({:range, 0, 100}),
+      "progress_observed_at" => nullable(:integer),
+      "progress_freshness" => enum(~w(fresh stale unknown)),
       "agent" =>
         nullable(
           object(
@@ -58,6 +60,9 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
   end
 
+  @spec row_optional() :: [String.t()]
+  def row_optional, do: ["progress_observed_at", "progress_freshness"]
+
   @spec history() :: map()
   def history, do: %{"from" => nullable(:integer), "more" => :boolean, "total" => nullable(:nonnegative), "undated" => nullable(:nonnegative), "tz" => :string}
 
@@ -68,8 +73,8 @@ defmodule AiurWeb.Build.PayloadSchema do
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
       "icons" => {:dictionary, :string},
-      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted svg summary wave))},
-      "epic_progress" =>
+      "lanes" => {:dictionary, object(lane(), ~w(general feature temp unsorted svg summary wave))},
+      "lane_progress" =>
         {:dictionary,
          object(%{
            "closed" => nullable(:nonnegative),
@@ -78,7 +83,7 @@ defmodule AiurWeb.Build.PayloadSchema do
            "observed_at" => nullable(:integer),
            "reason" => nullable(:string)
          })},
-      "epic_progress_meta" => object(%{"unmatched" => nullable(:nonnegative), "observed_at" => nullable(:integer), "reason" => nullable(:string)}),
+      "lane_progress_meta" => object(%{"unmatched" => nullable(:nonnegative), "observed_at" => nullable(:integer), "reason" => nullable(:string)}),
       "features" =>
         {:dictionary,
          object(
@@ -101,37 +106,41 @@ defmodule AiurWeb.Build.PayloadSchema do
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
       "feature_progress" =>
-        object(%{
-          "features" =>
-            {:dictionary,
-             object(
-               %{
-                 "feature" => :string,
-                 "label" => nullable(:string),
-                 "closed" => nullable(:nonnegative),
-                 "open" => nullable(:nonnegative),
-                 "ci_wait" => nullable(:nonnegative),
-                 "unpublished" => nullable(:nonnegative),
-                 "total" => nullable(:nonnegative),
-                 "observed_at" => nullable(:integer),
-                 "wave" => nullable(:string),
-                 "summary" => nullable(:string),
-                 "icon" => nullable(:string),
-                 "code" => nullable(:string),
-                 "plan_version" => nullable(:string),
-                 "extras" => nullable(:nonnegative),
-                 "root_number" => nullable(:positive),
-                 "root_title" => nullable(:string),
-                 "start_date" => nullable(:string),
-                 "reason" => nullable(:string)
-               },
-               ~w(feature label observed_at plan_version icon summary wave)
-             )},
-          "observed_at" => nullable(:integer),
-          "plan_version" => nullable(:string),
-          "extras" => nullable(:nonnegative),
-          "reason" => nullable(:string)
-        }),
+        object(
+          %{
+            "features" =>
+              {:dictionary,
+               object(
+                 %{
+                   "feature" => :string,
+                   "label" => nullable(:string),
+                   "closed" => nullable(:nonnegative),
+                   "open" => nullable(:nonnegative),
+                   "ci_wait" => nullable(:nonnegative),
+                   "unpublished" => nullable(:nonnegative),
+                   "total" => nullable(:nonnegative),
+                   "observed_at" => nullable(:integer),
+                   "wave" => nullable(:string),
+                   "summary" => nullable(:string),
+                   "icon" => nullable(:string),
+                   "code" => nullable(:string),
+                   "plan_version" => nullable(:string),
+                   "extras" => nullable(:nonnegative),
+                   "root_number" => nullable(:positive),
+                   "root_title" => nullable(:string),
+                   "start_date" => nullable(:string),
+                   "reason" => nullable(:string)
+                 },
+                 ~w(feature label observed_at plan_version icon summary wave)
+               )},
+            "bars" => nullable(list(object(%{"key" => :string, "label" => :string, "merged" => :nonnegative, "total" => :positive}))),
+            "observed_at" => nullable(:integer),
+            "plan_version" => nullable(:string),
+            "extras" => nullable(:nonnegative),
+            "reason" => nullable(:string)
+          },
+          ["bars"]
+        ),
       "history" => object(history()),
       "sources" => object(sources()),
       "usage" => :usage,
@@ -227,7 +236,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   defp line, do: Map.merge(window(), %{"tag" => :string, "tip" => list({:pair, :string}), "hold_until" => nullable(:integer)})
   defp envelope, do: %{"v" => {:literal, 1}, "kind" => enum(~w(snapshot diff earlier ticket)), "epoch" => :string, "generation" => :nonnegative, "now" => :integer}
 
-  defp epic,
+  defp lane,
     do: %{
       "key" => :string,
       "label" => :string,

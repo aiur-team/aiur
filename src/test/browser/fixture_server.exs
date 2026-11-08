@@ -159,7 +159,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
+  alias Aiur.BrowserHarness.{DashboardEndpoint, ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
@@ -220,6 +220,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         ] ++ List.wrap(Experiments.child(true)),
         strategy: :one_for_one
       )
+
+    DashboardEndpoint.record_bound_port()
 
     conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}")
     Application.put_env(:aiur, :conversation_state_dir, conversation_root)
@@ -443,10 +445,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   defp configure_forwarded_dashboard do
     config =
-      :aiur
-      |> Application.get_env(AiurWeb.Endpoint, [])
+      DashboardEndpoint.forwarded_config()
       |> Keyword.merge(
-        server: false,
         dashboard_auth_required: true,
         # Stays read-only by default so incidental key presses in other specs
         # cannot mutate the shared fixture fleet. The operator-flow spec opts its

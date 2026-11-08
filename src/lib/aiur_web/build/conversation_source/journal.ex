@@ -86,7 +86,7 @@ defmodule AiurWeb.Build.ConversationSource.Journal do
        %{
          state: state,
          reason: reason,
-         entries: JournalEntries.map_entries(page.entries, ref.journal_id),
+         entries: JournalEntries.map_entries(page.entries, ref.journal_id, ref[:workspace]),
          before: cursor(ref.journal_id, page.prev_cursor),
          last: cursor(ref.journal_id, last),
          more?: if(direction == :tail and not is_nil(selection[:after]), do: page.next_cursor != nil, else: page.prev_cursor != nil),

@@ -32,6 +32,8 @@ defmodule AiurWeb.Routes.DashboardPages do
     quote do
       scope "/" do
         pipe_through([:browser_dashboard_auth, :dashboard_pages, :browser])
+        alias AiurWeb.Routes.Experiments, as: ExperimentsRoutes
+        require ExperimentsRoutes
 
         get("/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show)
         get("/units", AiurWeb.UnitsRedirectController, :legacy)
@@ -49,6 +51,7 @@ defmodule AiurWeb.Routes.DashboardPages do
           live("/voice", AiurWeb.DashboardLive, :voice)
           live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
+          ExperimentsRoutes.pages()
           live("/instances", AiurWeb.InstanceRosterLive, :instances)
           live("/post-deploy", AiurWeb.PostDeployLive, :index)
           live("/streamdeck", AiurWeb.StreamdeckLive, :streamdeck)
@@ -59,6 +62,11 @@ defmodule AiurWeb.Routes.DashboardPages do
         pipe_through([:browser_dashboard_auth, :dashboard_pages, :secure_document])
 
         get("/build-order-documents/:owner/:repository/:root_number/:member_number", AiurWeb.PlanningDocumentController, :show)
+        # Command media for the dashboard surfaces. The Decision API route needs
+        # a supervisor bearer token a browser `<img>` cannot present, so the
+        # dashboard renders the same attachment through the credential the page
+        # itself was loaded with.
+        get("/commands/:decision_id/media/:attachment_id", AiurWeb.DecisionMediaController, :show)
       end
     end
   end

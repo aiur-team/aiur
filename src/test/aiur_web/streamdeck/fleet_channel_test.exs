@@ -23,7 +23,7 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     receive_barrier(:window_read)
     assert_push("frame", _initial)
 
-    for expected <- ["feature", "epic"] do
+    for expected <- ["feature", "lane"] do
       ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
       assert_reply(ref, :ok, %{"view" => ^expected})
       flush_frame(socket)

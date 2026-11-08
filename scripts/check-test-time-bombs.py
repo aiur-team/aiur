@@ -46,7 +46,6 @@ FIXED_DATE_FILES = {
     'test/aiur/claude/telemetry_ingest_test.exs',
     'test/aiur/codex/rate_limit_adapter_test.exs',
     'test/aiur/codex/reset_time_test.exs',
-    'test/aiur/codex/usage_limit_test.exs',
     'test/aiur/config/priority_routes_test.exs',
     'test/aiur/events/github_keys_test.exs',
     'test/aiur/experiments/auto/creator_test.exs',

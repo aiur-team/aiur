@@ -30,7 +30,8 @@
   "requires": [
     "config",
     "kernel",
-    "signal"
+    "signal",
+    "workspace"
   ],
   "optional": [],
   "owns": {
@@ -38,7 +39,9 @@
     "env": [
       "AIUR_AGENT_IR_SANDBOX",
       "AIUR_AGENT_WORKSPACE",
-      "PATH"
+      "AIUR_MCP_SOCKET_DIR",
+      "PATH",
+      "XDG_RUNTIME_DIR"
     ],
     "state": [],
     "capabilities": []
@@ -59,7 +62,9 @@
   "env": [
     "AIUR_AGENT_IR_SANDBOX",
     "AIUR_AGENT_WORKSPACE",
-    "PATH"
+    "AIUR_MCP_SOCKET_DIR",
+    "PATH",
+    "XDG_RUNTIME_DIR"
   ],
   "capabilities": [],
   "goal": "run-agents"

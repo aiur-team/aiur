@@ -5,6 +5,7 @@ defmodule AiurWeb.DashboardLive.Conversation do
 
   alias Aiur.Agent.UsageSnapshotService
   alias Aiur.Conversation.History, as: ConversationHistory
+  alias Aiur.Conversation.Ref
   alias Aiur.TrackerIdentity
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.AgentLogModal
@@ -266,11 +267,26 @@ defmodule AiurWeb.DashboardLive.Conversation do
     catalog = Map.get(socket.assigns.payload, :units, %{})
 
     with {:ok, row} <- UnitsPresenter.lookup(catalog, token),
-         handle when is_binary(handle) <- conversation_handle(row),
-         {:ok, snapshot} <- resolve_conversation(handle) do
+         {:ok, handle, snapshot} <- conversation_snapshot(row) do
       {:noreply, open_conversation(socket, row, token, handle, snapshot)}
     else
       _not_available -> {:noreply, socket}
+    end
+  end
+
+  defp conversation_snapshot(row) do
+    case conversation_handle(row) do
+      handle when is_binary(handle) ->
+        with {:ok, snapshot} <- resolve_conversation(handle), do: {:ok, handle, snapshot}
+
+      _not_running ->
+        with %TrackerIdentity{} = identity <- Map.get(row, :identity),
+             {:ok, ref} <- Ref.worker(identity),
+             {:ok, snapshot} <- ConversationHistory.snapshot(ref) do
+          {:ok, ref.id, snapshot}
+        else
+          _unavailable -> {:error, :not_found}
+        end
     end
   end
 

@@ -73,6 +73,10 @@ On `/voice`, the worker conversation drawer offers **Steer · interrupts**,
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
+The worker list includes conversations that are running or have stored history;
+unavailable tickets are omitted, with a count of how many were hidden. Use
+**Previous** and **Next** to page through large lists.
+
 The selector is disabled on read-only dashboards. Conversation input defaults to
 Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
@@ -109,8 +113,13 @@ List (`?view=list`) shows Live, Planned, Not queued and newest-first History as 
 Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
 Unknown values stay explicit, and degraded section headings show their source state and read age.
 
-The Now band shows active agents between history and the plan. It settles at
-the nearest viewport edge; **Live** returns to it. Minimize keeps state counts
+Build order (`?view=build-order`) renders the published `build-order.v1` document — the review and the
+dependency graph — through the `aiur-build-order` package. A `bo-<root>` feature focuses one root;
+otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
+
+The Now band shows active agents between history and the plan, using the same
+card style as the other tickets. It scrolls with the board, so you can stop
+anywhere; **Live** scrolls to it. Minimize keeps state counts
 visible (`live=min`), and a state preset expands it. The clock shows cached
 observation time when stale and `—` when unknown.
 
@@ -330,6 +339,12 @@ Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, t
 Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` to be configured for browser sign-in.
 
 After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. Machine API clients can use individually revocable bearer tokens created with `aiur token create`; browser routes continue to use sign-in sessions.
+
+### iPhone Home Screen
+
+Use an HTTPS dashboard URL, sign in with Google or a registered passkey, then in Safari choose **Share → Add to Home Screen**. Open Aiur from its icon. The HttpOnly, SameSite=Lax session cookie survives relaunches until sign-out or expiry; its default lifetime is 30 days, controlled by `dashboard_auth.session_max_age_days`.
+
+For standalone use, disable the browser Basic Auth prompt with `dashboard_auth.browser_basic_auth: false` after confirming cookie sign-in. Basic Auth remains available to CLI and API clients. Home and Reload controls stay visible in standalone mode and appear after a LiveView disconnect.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 

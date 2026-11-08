@@ -1,8 +1,29 @@
 defmodule Aiur.Accounts.UsageReadings do
+  require Logger
+
   @moduledoc "Small read model for per-account provider usage observations."
 
   @key {__MODULE__, :readings}
+  @explored_key {__MODULE__, :headroom_explorations}
   @default_max_reading_age_seconds 1800
+  @headroom_exploration_window_seconds 120
+  @failure_warning_threshold 3
+  # Probe failures a fresh `aiur login` fixes, as opposed to a broken endpoint.
+  @signed_out_reasons [:no_oauth_token, :token_expired, :unauthorized, :no_credentials]
+
+  @doc "Whether a probe failure means the profile is not signed in."
+  @spec signed_out?(term()) :: boolean()
+  def signed_out?(reason), do: reason in @signed_out_reasons
+
+  @doc "Operator-facing description of a probe failure, naming the fix for a signed-out profile."
+  @spec failure_text(String.t(), term()) :: String.t()
+  def failure_text(name, reason) do
+    cond do
+      signed_out?(reason) -> "not signed in; run `aiur login claude #{name}`"
+      is_atom(reason) -> Atom.to_string(reason)
+      true -> inspect(reason)
+    end
+  end
 
   @doc """
   Whether an observation is too old to treat as current.
@@ -46,11 +67,78 @@ defmodule Aiur.Accounts.UsageReadings do
   def observed_at(%{reading: nil} = entry), do: Map.get(entry, :last_observed_at)
   def observed_at(entry), do: Map.get(entry, :observed_at)
 
+  @doc "One line per account whose latest usage probe failed: the failure, its time, and the fix (#7449)."
+  @spec failure_lines() :: [String.t()]
+  def failure_lines do
+    for {{harness, name}, %{reading: nil, reason: reason} = entry} <- Enum.sort(snapshot()), not is_nil(reason) do
+      "ACCOUNT #{harness}/#{name} usage probe failing: #{failure_text(name, reason)} " <>
+        "(last failed #{DateTime.to_iso8601(entry.observed_at)}, #{Map.get(entry, :consecutive_failures, 1)} in a row)"
+    end
+  end
+
+  @doc false
+  @spec alert_if_failing(String.t(), (String.t(), String.t(), keyword() -> term())) :: :ok | term()
+  def alert_if_failing(name, alert_fun) do
+    topic = "system.claude_account.#{name}.usage_probe_failing"
+    entry = snapshot("claude", [name])[name]
+
+    case entry do
+      %{consecutive_failures: failures, previous_consecutive_failures: previous, reason: reason} = current
+      when failures == @failure_warning_threshold and previous < @failure_warning_threshold ->
+        Logger.warning("claude usage probe failing account=#{name} failures=#{failures} reason=#{inspect(reason)} last_observed_at=#{inspect(current[:last_observed_at])}")
+        alert_fun.(topic, "Claude account #{name} usage probe failed #{failures} times in a row (#{failure_text(name, reason)}).", needs_attention: true, severity: "warning")
+        mark_alert_open(name)
+
+      %{consecutive_failures: 0, recovery_alert_open?: true} ->
+        alert_fun.(topic <> ".resolved", "Claude account #{name} usage probe recovered.", needs_attention: false, severity: "info")
+        mark_alert_closed(name)
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp mark_alert_open(name), do: update_alert_state(name, true)
+  defp mark_alert_closed(name), do: update_alert_state(name, false)
+
+  defp update_alert_state(name, open?) do
+    readings = snapshot()
+    key = {"claude", name}
+    entry = Map.fetch!(readings, key)
+    :persistent_term.put(@key, Map.put(readings, key, Map.put(entry, :recovery_alert_open?, open?)))
+    :ok
+  end
+
   @spec snapshot() :: %{{String.t(), String.t()} => map()}
   def snapshot, do: :persistent_term.get(@key, %{})
 
   @spec reset() :: :ok
-  def reset, do: :persistent_term.erase(@key) && :ok
+  def reset do
+    :persistent_term.erase(@key)
+    :persistent_term.erase(@explored_key)
+    :ok
+  end
+
+  @doc "Whether an unknown or stale account was dispatched recently while awaiting a fresh usage observation."
+  @spec recently_explored?(String.t(), String.t(), DateTime.t()) :: boolean()
+  def recently_explored?(harness, name, now \\ DateTime.utc_now()) do
+    case Map.get(:persistent_term.get(@explored_key, %{}), {harness, name}) do
+      %DateTime{} = explored_at ->
+        age = DateTime.diff(now, explored_at, :second)
+        age >= 0 and age < @headroom_exploration_window_seconds
+
+      _missing ->
+        false
+    end
+  end
+
+  @doc "Mark an account as explored so an unknown reading does not attract a dispatch burst."
+  @spec mark_explored(String.t(), String.t(), DateTime.t()) :: :ok
+  def mark_explored(harness, name, now \\ DateTime.utc_now()) do
+    explored = :persistent_term.get(@explored_key, %{})
+    :persistent_term.put(@explored_key, Map.put(explored, {harness, name}, now))
+    :ok
+  end
 
   @spec snapshot(String.t(), [String.t()]) :: %{String.t() => map()}
   def snapshot(harness, names) do
@@ -61,6 +149,15 @@ defmodule Aiur.Accounts.UsageReadings do
         {:ok, reading} -> Map.put(acc, name, reading)
         :error -> acc
       end
+    end)
+  end
+
+  @doc "Snapshot for account rows, carrying precomputed operator-facing fix text across the CLI component boundary."
+  @spec snapshot_for_accounts([String.t()]) :: %{String.t() => map()}
+  def snapshot_for_accounts(names) do
+    Map.new(snapshot("claude", names), fn {name, entry} ->
+      fix = if signed_out?(entry[:reason]), do: failure_text(name, entry.reason), else: nil
+      {name, if(fix, do: Map.put(entry, :fix, fix), else: entry)}
     end)
   end
 
@@ -78,15 +175,32 @@ defmodule Aiur.Accounts.UsageReadings do
     previous = Map.get(readings, {harness, name}, %{})
     entry = entry(result, observed_at, freshness, previous)
 
+    if match?({:ok, _reading}, result) and freshness == :fresh do
+      clear_explored(harness, name)
+    end
+
     :persistent_term.put(@key, Map.put(readings, {harness, name}, entry))
     :ok
+  end
+
+  defp clear_explored(harness, name) do
+    explored = :persistent_term.get(@explored_key, %{})
+    :persistent_term.put(@explored_key, Map.delete(explored, {harness, name}))
   end
 
   # Only a fresh read is a new observation, so only it ends a failure streak.
   # A cached read re-serves the last good value, usually because the endpoint
   # just refused (#5747), so it keeps the error that made it cached.
-  defp entry({:ok, reading}, observed_at, :fresh, _previous),
-    do: %{reading: reading, observed_at: observed_at, freshness: :fresh, reason: nil, consecutive_failures: 0}
+  defp entry({:ok, reading}, observed_at, :fresh, previous) do
+    %{
+      reading: reading,
+      observed_at: observed_at,
+      freshness: :fresh,
+      reason: nil,
+      consecutive_failures: 0,
+      recovery_alert_open?: Map.get(previous, :recovery_alert_open?, false)
+    }
+  end
 
   defp entry({:ok, reading}, observed_at, freshness, previous) do
     %{reading: reading, observed_at: observed_at, freshness: freshness, reason: Map.get(previous, :reason), consecutive_failures: Map.get(previous, :consecutive_failures, 0)}
@@ -101,6 +215,8 @@ defmodule Aiur.Accounts.UsageReadings do
       freshness: :unavailable,
       reason: reason,
       consecutive_failures: Map.get(previous, :consecutive_failures, 0) + 1,
+      previous_consecutive_failures: Map.get(previous, :consecutive_failures, 0),
+      recovery_alert_open?: Map.get(previous, :recovery_alert_open?, false),
       last_observed_at: last_observed_at(previous)
     }
   end
