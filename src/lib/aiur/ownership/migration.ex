@@ -9,7 +9,7 @@ defmodule Aiur.Ownership.Migration do
   retried or inferred.
   """
 
-  alias Aiur.GitHub.StateLabels
+  alias Aiur.GitHub.StatePolicy
 
   @type owner :: %{state: String.t(), gateway_id: String.t(), gateway_label: String.t()} | nil
   @type ticket :: %{ticket: String.t(), labels: [String.t()], owner: owner()}
@@ -46,7 +46,7 @@ defmodule Aiur.Ownership.Migration do
 
   defp state_prefix(label) do
     case label |> norm() |> String.split(":", parts: 2) do
-      [prefix, state] -> if state in StateLabels.known_states(), do: [prefix], else: []
+      [prefix, state] -> if state in StatePolicy.known_states(), do: [prefix], else: []
       _ -> []
     end
   end

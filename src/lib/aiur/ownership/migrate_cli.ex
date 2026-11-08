@@ -9,7 +9,7 @@ defmodule Aiur.Ownership.MigrateCLI do
   """
 
   alias Aiur.Gateway.Identity, as: GatewayIdentity
-  alias Aiur.GitHub.{Access, Config, Issues.LabelPages}
+  alias Aiur.GitHub.{Config, Issues}
   alias Aiur.Ownership.{GitHubRef, Migration}
 
   @spec run(keyword()) :: 0 | 64 | 75
@@ -82,14 +82,7 @@ defmodule Aiur.Ownership.MigrateCLI do
   end
 
   defp list_open do
-    with {:ok, {owner, repo}} <- Access.parse_repo(),
-         {:ok, token} <- Access.require_token() do
-      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
-
-      with {:ok, issues} <- LabelPages.fetch_label_issue_pages(&Access.default_request_fun/1, url, token, owner, repo, Config.label_prefix(), []) do
-        {:ok, Enum.map(issues, &%{ticket: &1.identifier, labels: &1.labels || []})}
-      end
-    end
+    with {:ok, issues} <- Issues.list_open_issues(), do: {:ok, Enum.map(issues, &%{ticket: &1.identifier, labels: &1.labels || []})}
   end
 
   defp owners(opts) do
