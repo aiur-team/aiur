@@ -1,6 +1,5 @@
 # Shared launcher `gateway` namespace parser. Sourced by aiur-engine.sh.
 # permissions, grant, revoke and trust edit the receiving gateway's own registry grants; they never go over --gateway.
-source "$(dirname "${BASH_SOURCE[0]}")/engine/gateway_enroll.sh"
 gateway_usage_error() { echo "aiur: $*" >&2; exit 64; }
 gateway_ttl_seconds() {
   local n="${1%[smhd]}"

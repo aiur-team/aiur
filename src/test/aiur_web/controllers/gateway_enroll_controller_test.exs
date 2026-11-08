@@ -85,8 +85,7 @@ defmodule AiurWeb.GatewayEnrollControllerTest do
   end
 
   test "an expired invite is 410 expired and writes nothing" do
-    invite = invite(["read"], 1)
-    Process.sleep(1_100)
+    invite = elem(Invites.create(["read"], 1, System.os_time(:second) - 10), 1)
     assert %{"error" => "expired"} = json_response(enroll(invite), 410)
     assert peers() == %{} and tokens() == []
   end

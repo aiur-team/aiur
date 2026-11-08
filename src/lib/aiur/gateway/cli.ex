@@ -45,7 +45,7 @@ defmodule Aiur.Gateway.Cli do
     with :ok <- check_categories(grants),
          {:ok, url} <- invite_url(opts[:url] || public_url()),
          :ok <- check_pin(pin),
-         %{gateway_id: id} when is_binary(id) <- Identity.current() || {:error, {1, "this gateway has no identity yet"}},
+         %{gateway_id: id} when is_binary(id) <- Identity.current(),
          {:ok, invite} <- Invites.create(grants, Keyword.get(opts, :ttl, Invites.default_ttl())) do
       if is_nil(pin), do: control_error("warning: no TLS pin; the joiner will trust whatever certificate answers at #{url}")
       payload = %{v: 1, url: url, gateway_id: id, fp: pin, id: invite.id, secret: invite.secret, exp: invite.exp}

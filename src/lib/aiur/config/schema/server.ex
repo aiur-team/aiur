@@ -42,7 +42,7 @@ defmodule Aiur.Config.Schema.Server do
     field(:gateway_hello, :boolean)
     # @config-reference config-configuration-18 server.tls_pin_sha256
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail server.tls_pin_sha256 | string | unset | SHA-256 of the SPKI of the TLS certificate peers see in front of this gateway, 64 lowercase hex characters. Reported in `GET /api/v1/gateway/hello` and written into gateway invites so a joiner pins it. Unset means invites carry no pin. |
+    # @config-detail server.tls_pin_sha256 | string | nil | SHA-256 of the SPKI of the TLS certificate peers see in front of this gateway, 64 lowercase hex characters. Reported in `GET /api/v1/gateway/hello` and written into gateway invites so a joiner pins it. Unset means invites carry no pin. |
     field(:tls_pin_sha256, :string)
   end
 

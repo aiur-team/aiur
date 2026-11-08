@@ -349,7 +349,7 @@ These policy keys never grant transport access by themselves. The supervisor API
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
 | `server.public_url` | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
 | `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
-| `server.tls_pin_sha256` | string | unset | SHA-256 of the SPKI of the TLS certificate peers see in front of this gateway, 64 lowercase hex characters. Reported in `GET /api/v1/gateway/hello` and written into gateway invites so a joiner pins it. Unset means invites carry no pin. |
+| `server.tls_pin_sha256` | string | nil | SHA-256 of the SPKI of the TLS certificate peers see in front of this gateway, 64 lowercase hex characters. Reported in `GET /api/v1/gateway/hello` and written into gateway invites so a joiner pins it. Unset means invites carry no pin. |
 | `server.trusted_proxies` | array | `[]` | CIDRs allowed to set X-Forwarded-* request metadata; `platform` trusts private proxy-network peers. |
 
 Unset `server.host` binds `127.0.0.1` (or `AIUR_DEFAULT_DASHBOARD_HOST`); explicit config/`--host` override. `0.0.0.0` exposes LAN. Loopback permits `*.ts.net` Hosts and HTTPS origins while loopback-bound. For Tailscale, build and restart, set `server.public_url` (e.g. `https://<host>.ts.net:4001`), then restart again. `server.allowed_hosts` adds hosts.
