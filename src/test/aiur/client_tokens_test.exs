@@ -52,4 +52,29 @@ defmodule Aiur.ClientTokensTest do
     assert {:error, :corrupt_store} = Aiur.ClientTokens.list()
     assert :error = Aiur.ClientTokens.authenticate("untrusted-token")
   end
+
+  test "legacy tokens map to categories and category tokens store a derived scope", %{path: path} do
+    {:ok, read} = Aiur.ClientTokens.create("old-read", "read")
+    {:ok, write} = Aiur.ClientTokens.create("old-write", "write")
+    assert {:ok, %{categories: ["read"], peer: nil}} = Aiur.ClientTokens.authenticate_full(read)
+    assert {:ok, %{categories: all}} = Aiur.ClientTokens.authenticate_full(write)
+    assert Enum.sort(all) == Enum.sort(~w(read message executor agents tickets config))
+    refute "trust" in all
+
+    {:ok, peer} = Aiur.ClientTokens.create("peer", "write", peer: "gw-1", categories: ["read", "message"])
+    assert {:ok, %{scope: "write", peer: "gw-1", categories: ["read", "message"]}} = Aiur.ClientTokens.authenticate_full(peer)
+    {:ok, ro} = Aiur.ClientTokens.create("peer-ro", "write", peer: "gw-1", categories: ["read"])
+    assert {:ok, %{scope: "read"}} = Aiur.ClientTokens.authenticate_full(ro)
+    assert {:ok, "peer", "write"} = Aiur.ClientTokens.authenticate(peer)
+    assert File.read!(path) =~ "gw-1"
+  end
+
+  test "rejects trust, unknown categories, empty lists and read scope with write categories" do
+    for bad <- [["trust"], ["bogus"], []] do
+      assert {:error, :invalid_categories} = Aiur.ClientTokens.create("bad", "write", categories: bad)
+    end
+
+    assert {:error, :scope_conflicts_with_categories} = Aiur.ClientTokens.create("bad", "read", categories: ["agents"])
+    assert {:error, :invalid_peer} = Aiur.ClientTokens.create("bad", "write", peer: "../x")
+  end
 end
