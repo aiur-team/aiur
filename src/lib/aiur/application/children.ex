@@ -8,10 +8,11 @@ defmodule Aiur.Application.Children do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Executor.Roster
   alias Aiur.Experiments.Auto
-  alias Aiur.GitHub.{Access, BlockerProgress, Config}
+  alias Aiur.GitHub.{Access, AgentBudgetSocket, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata
-  alias Aiur.Ownership.Fence
+  alias Aiur.Ownership
+  alias Aiur.Ownership.{Fence, FenceCommand}
 
   @doc """
   Build the supervision children for the given run shape.
@@ -357,7 +358,7 @@ defmodule Aiur.Application.Children do
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
-      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
+      List.wrap(if(LeaseStore.configured?(), do: AgentBudgetSocket)) ++
       Fence.child_specs() ++
       fence_socket_child() ++
       BuildOrders.child_specs(:estimates, opts) ++
@@ -365,11 +366,11 @@ defmodule Aiur.Application.Children do
   end
 
   defp fence_socket_child do
-    if Aiur.Ownership.enabled?() do
+    if Ownership.enabled?() do
       [
         Supervisor.child_spec(
-          {Aiur.GitHub.AgentBudgetSocket, name: Aiur.Ownership.FenceSocket, socket_path: Aiur.GitHub.AgentBudgetSocket.fence_socket_path(), command_fun: &Aiur.Ownership.FenceCommand.execute/1},
-          id: Aiur.Ownership.FenceSocket
+          {AgentBudgetSocket, name: Ownership.FenceSocket, socket_path: AgentBudgetSocket.fence_socket_path(), command_fun: &FenceCommand.execute/1},
+          id: Ownership.FenceSocket
         )
       ]
     else
