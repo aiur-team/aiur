@@ -331,7 +331,7 @@ defmodule Aiur.AgentRunner.Handoff do
           recipient,
           opts,
           Keyword.get(opts, :issue_state_fetcher, &Aiur.Tracker.fetch_issue_states_by_ids/1),
-          Keyword.get(opts, :orchestrator, Aiur.Orchestrator),
+          Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator)),
           nil,
           context.turn_number,
           context.max_turns

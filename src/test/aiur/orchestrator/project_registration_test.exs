@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.ProjectRegistrationTest do
   use Aiur.TestSupport
 
+  alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.Project
   alias Aiur.Project.Context
@@ -40,6 +41,15 @@ defmodule Aiur.Orchestrator.ProjectRegistrationTest do
 
     assert %{max: 7} = in_project(a, &Slots.max_concurrent_agents/0)
     refute match?(%{max: 7}, in_project(b, &Slots.max_concurrent_agents/0))
+  end
+
+  test "a default orchestrator argument follows the caller's project" do
+    a = project("o/a")
+    start_orchestrator(a)
+
+    assert {:ok, %{}} = in_project(a, fn -> GlobalPause.sync_fleet_pause() end)
+    # A project with no orchestrator must not fall through to the legacy one.
+    assert {:error, :orchestrator_unavailable} = in_project(project("o/none"), fn -> GlobalPause.sync_fleet_pause() end)
   end
 
   test "a caller with no project does not reach a project orchestrator" do

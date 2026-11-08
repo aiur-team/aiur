@@ -117,7 +117,7 @@ defmodule Aiur.CurrentRunProjections.State do
 
   defp readers(opts) do
     snapshot_store_read_fun = Keyword.get(opts, :snapshot_store_read_fun, &SnapshotStore.read/3)
-    status_orchestrator = Keyword.get(opts, :status_orchestrator, Aiur.Orchestrator)
+    status_orchestrator = Keyword.get(opts, :status_orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
 
     %{
       run: Keyword.get(opts, :run_snapshot_fun, &run_snapshot/0),
