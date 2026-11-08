@@ -111,3 +111,26 @@ test("aiurdev --gateway local refuses a following selector with exit 64", () => 
     expect(r.stderr).toContain("use one of --gateway or --instance");
   }
 });
+
+const grantReg = (s) => `version: 1\ninstances:\n${entry("nook", s.url, ID.a, "Nook")}`;
+
+test("grant-changing gateway commands are refused over --gateway and --instance with exit 64 and no request", () => {
+  withServers(1, "ok\n__AIUR_CONTROL_EXIT__:0\n", ([s1]) => {
+    for (const sel of [["--gateway", "nook"], ["--instance", "nook"], ["--gateway", "all"]]) {
+      for (const verb of [["grant", "nook", "agents"], ["revoke", "nook"], ["trust", "nook", "--full"]]) {
+        const r = run(grantReg(s1), [...sel, "gateway", ...verb]);
+        expect(r.status).toBe(64);
+        expect(r.stderr).toContain("grant changes are local to the receiving gateway");
+      }
+    }
+    expect(total([s1])).toBe(0);
+  });
+});
+
+test("gateway usage errors exit 64", () => {
+  withServers(1, "ok\n__AIUR_CONTROL_EXIT__:0\n", ([s1]) => {
+    for (const args of [["grant", "nook"], ["grant"], ["trust", "nook"], ["revoke"], ["bogus"], ["grant", "nook", "Agents"]]) {
+      expect(run(grantReg(s1), ["--gateway", "local", "gateway", ...args]).status).toBe(64);
+    }
+  });
+});

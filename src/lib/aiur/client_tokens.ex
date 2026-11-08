@@ -44,6 +44,12 @@ defmodule Aiur.ClientTokens do
     end
   end
 
+  @doc "Names of the client tokens bound to one peer gateway id."
+  @spec list_for_peer(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_for_peer(peer) do
+    with {:ok, tokens} <- list(), do: {:ok, for(%{"peer" => ^peer, "name" => name} <- tokens, do: name)}
+  end
+
   @spec revoke(String.t()) :: :ok | {:error, term()}
   def revoke(name) do
     with :ok <- validate_name(name),

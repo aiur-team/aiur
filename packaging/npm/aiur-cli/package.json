@@ -26,6 +26,7 @@
     "libexec/aiur-queue.sh",
     "libexec/aiur-epic.sh",
     "libexec/aiur-feature.sh",
+    "libexec/aiur-gateway.sh",
     "libexec/aiur-lane.sh",
     "libexec/aiur-capabilities.sh",
     "libexec/aiur-executor-session.sh",
