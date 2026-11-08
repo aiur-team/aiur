@@ -346,6 +346,22 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 
 `queue show` exits 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, `read_timeout` or a refused selection; 64 for invalid arguments; 124 for RPC timeout. On timeout, it returns the last read with stale sources, or `read_timeout` if none exists. Refusals still print their read model.
 
+## Ticket ownership
+
+`aiur ticket owner <n> [--json]` reads the ownership record (uncached) and prints the owner gateway and daemon, `epoch`, actor, reason, the record's age, and whether the owner is `online`, `offline` or `unknown`, with the source of that verdict (`self`, `heartbeat`, `hello`). A failed read prints `ownership unknown` with no owner fields and exits 75; it is never shown as unowned. `--json` is schema `aiur.ticket-owner/v1`. `owner` needs only the `read` grant.
+
+`aiur ticket assign <n> --to <gateway> --reason <text> [--force] [--as <id>] [--json]` transfers an owned ticket with compare-and-set (`epoch + 1`) and then disables auto-merge on the old owner's open PR. `--to` names the target; `--gateway` still selects where the command runs. It needs the `tickets` grant. Today `--to` accepts only the gateway the command runs on (label or id), so run it on the gateway taking the ticket; naming a peer needs the gateway registry and exits 64.
+
+| Owner liveness | Result |
+|---|---|
+| `offline`: last heartbeat older than `coordination.offline_after_seconds` and no answering hello | transfer proceeds |
+| `online` (fresh heartbeat, answering hello, or this daemon) | exit 64 `owner is online; ask it to release` |
+| `unknown`: store down, no heartbeat row, no hello | exit 64 `owner liveness unknown; treat as online` |
+
+`--force` overrides a live or unknown owner, is recorded as `forced: ` in the record's `note`, and is local and human only: it is refused with `--gateway`/`--instance` or `--as` (exit 64). The actor is derived, never supplied: `human` (`cli:$USER`) locally, `executor` with `--as <id>`, `executor` `remote` over `--gateway`. Heartbeats match by gateway id, so a live second daemon on the owner's machine keeps it `online`.
+
+Exit codes: 64 refusal or a lost compare-and-set (`ownership changed to <label> at epoch <n>`; re-read, do not blindly retry); 75 unknown outcome, including a transfer that stands but whose auto-merge disable failed (`auto_merge: "failed: ..."`). Retrying the same `assign` is safe: an already-owned target skips the write and retries the auto-merge disable.
+
 ## `pr merge`
 
 `aiur pr merge <N> --reviewed-sha <full-sha>` uses a stored, allowlisted human `gh` identity without a daemon; agents and Apps refuse. `--dry-run` writes nothing.
