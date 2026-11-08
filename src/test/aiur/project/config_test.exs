@@ -3,9 +3,9 @@ defmodule Aiur.Project.ConfigTest do
 
   alias Aiur.Application.Children
   alias Aiur.Project
+  alias Aiur.Project.Children, as: ProjectChildren
   alias Aiur.Project.Config
   alias Aiur.Project.Config.ConfigError
-  alias Aiur.Project.Children, as: ProjectChildren
   alias Aiur.Project.{Registry, Supervisors, Table, Watcher}
   alias Aiur.TestSupport.WorkflowFiles
 

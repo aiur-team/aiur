@@ -269,10 +269,11 @@ Executor attention and retains the claim until intervention or a new daemon boot
 
 With `projects:` set in `~/.aiur/machine` (see [machine settings](/reference/configuration#machine-settings-aiur-machine)),
 one daemon serves several repositories. Machine-level services (dashboard, GitHub budget, providers,
-Executor plumbing) start once, configured by the daemon's own `.aiur/config`. Then each entry gets its
-own project tree: its `.aiur/config`, orchestrator, event exchange, snapshot and queue, and a state
-directory beside today's (`<state root>/<instance>/<repo name>`). With `projects:` empty or absent the
-daemon starts exactly the single-project tree it always has.
+Executor plumbing) start once, configured by the daemon's own `.aiur/config`.
+
+Each entry then gets its own project tree: its `.aiur/config`, orchestrator, event exchange, snapshot
+and queue, and a state directory beside today's (`<state root>/<instance>/<repo name>`). With
+`projects:` empty or absent the daemon starts exactly the single-project tree it always has.
 
 - **Failure stays in one project.** A project whose config does not parse, or whose tree restarts more
   than three times in five seconds, stops alone and raises `system.project.boot_failed`. The other
