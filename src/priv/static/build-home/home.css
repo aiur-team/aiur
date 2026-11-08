@@ -114,6 +114,7 @@ html .lr.completed :is(.c-id, .c-tt, .c-ep, .lr-mu, .c-ag) { color: var(--fg) !i
 
 .bd-card .bd-status > span:has(.bd-hold) { white-space: normal; overflow: visible; }
 .bd-hold { color: inherit; text-decoration: underline; }
+.ax-ln.acct { margin-top: 3px; }
 
 /* #7763 experiment: compact APIS / MODELS meters pinned under the desktop nav links. */
 .aiur-shell__rail { display: contents; }

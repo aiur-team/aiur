@@ -99,6 +99,51 @@ audio use native `controls` and take their `aria-label` from the alt text or
 caption. Option media renders beside the option, outside its `<label>`, so a
 playback control is never swallowed by the label's click target.
 
+## Theming
+
+Every element a host may style carries a stable `data-part` attribute (and the
+matching `aiur-command-*` class). Both are a public contract.
+
+| `data-part` | Element |
+| --- | --- |
+| `list` | the `renderList` wrapper |
+| `list-status` | the loading / empty / unavailable / error line |
+| `command` | one Command (`<article>`) |
+| `header`, `state` | header row and its state label |
+| `question` | the question heading |
+| `ticket` | the ticket line |
+| `recommendation` | the "Recommended: …" line |
+| `notice`, `conflict` | state notices |
+| `answer-form` | the answer `<form>` |
+| `options`, `legend` | the option fieldset and its legend |
+| `option`, `option-copy`, `chip` | one option, its text, its "Recommended" chip |
+| `option-media` | media beside an option |
+| `response`, `response-label` | the free-response field and its label |
+| `actions`, `submit` | the footer and its submit button |
+| `answer`, `answer-label` | the recorded answer and its label |
+| `media-list`, `media`, `media-item`, `media-caption`, `media-kind`, `media-unavailable` | Command media |
+
+Import the optional stylesheet, `@aiur/commands/theme.css`, and set custom
+properties on any ancestor. All have defaults:
+
+| Property | Controls |
+| --- | --- |
+| `--aiur-command-accent` | accent: submit button, chip, recommended option |
+| `--aiur-command-radius` | corner radius |
+| `--aiur-command-font` | font family |
+| `--aiur-command-fg` | text colour |
+| `--aiur-command-muted` | secondary text colour |
+| `--aiur-command-bg` | Command background |
+| `--aiur-command-border` | border colour |
+| `--aiur-command-gap` | spacing |
+
+User-visible copy is set with the `labels` render option (escaped like all
+other text): `submit`, `legend`, `recommended`, `recorded`, `revised`.
+
+```js
+renderCommand(command, { labels: { submit: 'Send', legend: 'Pick one' } });
+```
+
 ## Answering
 
 Answers go through Aiur's canonical human-answer path, so the host does not
