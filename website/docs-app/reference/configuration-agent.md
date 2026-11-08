@@ -171,6 +171,7 @@ Claude clock hints with an IANA timezone are converted to UTC; unknown reset tim
 | `agent.backend_configs.<backend>.management_api_key_env` | string or nil | backend registry value | Names the environment variable containing a provider's usage-management API key. |
 | `agent.backend_configs.<backend>.max_output_tokens` | integer | 16000 | Output-token cap sent as `max_tokens`; OpenRouter reserves credit for it. |
 | `agent.backend_configs.<backend>.model` | string or nil | nil | Selects the backend's default model where the backend accepts a configured model. |
+| `agent.backend_configs.<backend>.quirks.image_input` | boolean | false | Offers the `view_image` tool, which attaches a workspace PNG, JPEG, GIF or WebP (up to 5 MiB) to the next request. Set it only when the routed model accepts image input. |
 | `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | backend registry value | Applies aiur's local concurrency slot around backend requests. |
 | `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
 | `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
