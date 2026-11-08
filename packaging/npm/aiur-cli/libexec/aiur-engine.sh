@@ -107,6 +107,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
+       aiur ticket owner <id> [--json]  show owner, epoch, actor, age and liveness
+       aiur ticket assign <id> --to <gateway> --reason <text> [--force] [--as <id>] [--json]  transfer ownership
        aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur lane clear <ids...> [--as <who>] [--json]
        aiur lane confirm <ids...> [--lane <key>] [--as <who>] [--json]
