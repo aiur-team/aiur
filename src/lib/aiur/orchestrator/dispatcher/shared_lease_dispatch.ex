@@ -66,10 +66,16 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
     case ownership_eligibility(selected_issue, opts) do
       :eligible ->
-        if is_binary(issue.pr_head_ref) do
-          dispatch.()
-        else
-          dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
+        case Aiur.Ownership.ensure_owned(selected_issue, opts) do
+          {:declined, :not_owner, _} ->
+            Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_not_owner, false)
+
+          {:declined, :unknown, why} ->
+            Logger.warning("Ownership unknown (#{inspect(why)}) for #{State.issue_context(issue)}; holding dispatch")
+            Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_unknown, true)
+
+          _owned_or_disabled ->
+            dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
         end
 
       {:ineligible, _reason} ->

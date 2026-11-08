@@ -24,12 +24,7 @@ defmodule Aiur.AgentRunner do
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     lease_watch = Keyword.get(opts, :lease_watch_fun, &LeaseStore.watch/1)
 
-    lease =
-      if is_binary(issue.pr_head_ref),
-        do: :disabled,
-        else: lease_watch.(issue)
-
-    case lease do
+    case lease_watch.(issue) do
       result when result in [:ok, :disabled] ->
         run_with_ticket_lease(issue, codex_update_recipient, opts)
 
