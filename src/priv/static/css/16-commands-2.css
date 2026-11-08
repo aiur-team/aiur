@@ -405,11 +405,12 @@
 .fleet-overrides p { margin: 0; }
 
 /* The dismiss × sits in the card's top-right corner, not in the action row. */
-.decision-card .decision-dismiss {
+.decision-card .btn.decision-dismiss {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
   z-index: 1;
+  width: 2rem;
   min-width: 2rem;
   min-height: 2rem;
   padding: 0;

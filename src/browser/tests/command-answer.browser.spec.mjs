@@ -79,7 +79,9 @@ for (const width of [1440, 390]) {
       const box = el.getBoundingClientRect()
       const top = own.top - box.top
       const right = box.right - own.right
-      return top >= 0 && top <= 16 && right >= 0 && right <= 16 ? 'corner' : `top ${top}, right ${right}`
+      // A full-width × also ends near the corner, so bound its width too.
+      const fits = top >= 0 && top <= 16 && right >= 0 && right <= 16 && own.width <= 48
+      return fits ? 'corner' : `top ${top}, right ${right}, width ${own.width}`
     })).toBe('corner')
 
     // Clicking it closes the blocking Command, which also leaves the shared fixture store clean.
@@ -345,7 +347,13 @@ async function openCommandCard(page, theme = 'dark') {
   const decisionId = new URL(page.url()).pathname.split('/').pop()
   await expect.poll(async () => (await (await page.request.get('/command-answer-join-state')).json()).state, { timeout: 10_000 }).toBe('joined')
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
-  await page.getByRole('link', { name: 'Collapse details' }).click()
+  // The answer form shows in both states, so wait for the collapse patch itself; a click
+  // landing while the socket settles can be dropped, so retry it until the detail closes.
+  const detail = page.locator(`#decision-detail-${decisionId}`)
+  await expect(async () => {
+    if (await detail.count()) await page.getByRole('link', { name: 'Collapse details' }).click()
+    await expect(detail).toHaveCount(0, { timeout: 2_000 })
+  }).toPass({ timeout: 20_000 })
   const card = page.locator(`#decision-${decisionId}`)
   await expect(card.locator('.decision-answer-form')).toBeVisible()
   return { card, decisionId }
@@ -392,6 +400,7 @@ for (const theme of ['light', 'dark']) {
       await page.mouse.move(0, 0)
       // The age is masked, but its width still moves the Blocking pill beside it.
       await card.locator('.decision-card-head .decision-age').evaluate((el) => { el.textContent = 'asked just now' })
+      await expect(card.locator('.decision-detail')).toHaveCount(0)
       await expect(card).toHaveScreenshot(`commands-card-${theme}-${width}.png`, { mask: [card.locator('.decision-age')] })
     })
   }
