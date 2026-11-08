@@ -45,10 +45,33 @@ defmodule Aiur.Orchestrator.OwnershipLeaseOptionalTest do
     Dispatcher.do_dispatch_issue(%State{max_concurrent_agents: 1, effective_concurrent_agents: 1}, issue, nil, nil, opts)
   end
 
-  test "owned by self with no lease store: dispatch proceeds" do
+  # `owns` must be configured or the store-unset branch is never reached.
+  defp configure_owns! do
+    path = Aiur.Workflow.workflow_file_path()
+    write_workflow_file!(path)
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  owns:\n    - label: gateway:pc\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+    assert Aiur.Instance.ownership_configured?()
+  end
+
+  test "owned by self with no lease store and an owns rule: dispatch proceeds" do
+    configure_owns!()
     state = dispatch(owned_issue("own-1"), ownership_live_instances_fun: fn -> {:error, :store_not_configured} end)
 
     assert MapSet.member?(state.claimed, "own-1")
+  end
+
+  test "store up, a peer's owns-rule matches, this gateway owns the ref: dispatch proceeds" do
+    peer = %{instance_id: "peer", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "gateway:pc"}], "pool" => false, "dispatching" => true}}}
+    me = %{instance_id: "me", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => false, "dispatching" => true}}}
+
+    state =
+      dispatch(owned_issue("own-6"),
+        ownership_instance_id: "me",
+        ownership_live_instances_fun: fn -> {:ok, [peer, me]} end
+      )
+
+    assert MapSet.member?(state.claimed, "own-6")
   end
 
   test "store down: the GitHub claim decides, no roster hold" do

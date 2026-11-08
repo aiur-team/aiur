@@ -108,7 +108,17 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     case live_instances_fun.() do
       {:ok, live_instances} when is_list(live_instances) ->
         instance_id = Keyword.get_lazy(opts, :ownership_instance_id, &Identity.current/0)
-        Instance.eligible?(issue, instance_id, live_instances)
+
+        case Instance.eligible?(issue, instance_id, live_instances) do
+          # A peer's owns-rule must not beat a durable claim this gateway holds.
+          {:ineligible, :peer_owns_ticket} = peer ->
+            if ownership_on?(opts),
+              do: Instance.eligible?(issue, instance_id, live_instances, Aiur.Ownership.owner(issue, opts)),
+              else: peer
+
+          other ->
+            other
+        end
 
       {:error, :store_not_configured} ->
         if not ownership_on?(opts) and Instance.ownership_configured?(),
