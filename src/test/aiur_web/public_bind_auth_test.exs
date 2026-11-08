@@ -45,13 +45,15 @@ defmodule AiurWeb.PublicBindAuthTest do
           {"GET", ["auth", "login"]},
           {"GET", ["auth", "google", "callback"]},
           {"POST", ["auth", "passkeys", "authentication", "finish"]},
-          {"POST", ["api", "v1", "github", "webhook"]}
+          {"POST", ["api", "v1", "github", "webhook"]},
+          {"GET", ["api", "v1", "gateway", "hello"]}
         ] do
       assert PublicBindGuard.public_path?(%Plug.Conn{method: method, path_info: path})
     end
 
     refute PublicBindGuard.public_path?(%Plug.Conn{method: "GET", path_info: ["api", "v1", "state"]})
     refute PublicBindGuard.public_path?(%Plug.Conn{method: "POST", path_info: ["auth", "logout"]})
+    refute PublicBindGuard.public_path?(%Plug.Conn{method: "POST", path_info: ["api", "v1", "gateway", "hello"]})
     refute PublicBindGuard.public_path?(%Plug.Conn{method: "POST", path_info: ["api", "v1", "github", "webhook", "extra"]})
   end
 

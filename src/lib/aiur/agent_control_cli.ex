@@ -53,6 +53,9 @@ defmodule Aiur.AgentControlCLI do
   defdelegate epic(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate build_orders(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  defdelegate ticket_owner(opts), to: Aiur.ControlCLI.EntryPoints
+  defdelegate ticket_assign(opts), to: Aiur.ControlCLI.EntryPoints
+  defdelegate ownership_migrate(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate queue(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate analytics(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   @spec history_label_writes(keyword()) :: :ok

@@ -10,7 +10,6 @@
     "src/lib/aiur/affected_tests/**",
     "src/lib/aiur/agent_control_cli/**",
     "src/lib/aiur/agent_control_cli_freshness.ex",
-    "src/lib/aiur/gateway/cli.ex",
     "src/lib/aiur/application/**",
     "src/lib/aiur/project/children.ex",
     "src/lib/aiur/project/status_rows.ex",

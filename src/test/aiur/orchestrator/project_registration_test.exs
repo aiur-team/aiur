@@ -1,14 +1,31 @@
 defmodule Aiur.Orchestrator.ProjectRegistrationTest do
   use Aiur.TestSupport
 
+  alias Aiur.Orchestrator.Client
+  alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.Project
   alias Aiur.Project.Context
 
-  defp project(repo), do: Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
+  # The orchestrator adopts its project, so each project needs a readable config.
+  defp project(repo, max_agents \\ 10) do
+    dir = Path.join(System.tmp_dir!(), "project-registration-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    path = Path.join(dir, "config.yaml")
+    write_workflow_file!(path, tracker_kind: "github", tracker_repo: repo, max_concurrent_agents: max_agents)
+    Project.from_machine_entry(%{repo: repo, config: path}, dir)
+  end
 
-  defp start_orchestrator(%Project{id: id}) do
-    {:ok, pid} = Aiur.Orchestrator.start_link(name: Project.name(Aiur.Orchestrator, id), initial_poll?: false)
+  # Started from inside the project, as its supervisor will: start_link carries the context.
+  defp start_orchestrator(%Project{} = project) do
+    pid =
+      in_project(project, fn ->
+        {:ok, pid} = Aiur.Orchestrator.start_link(name: Project.via(Aiur.Orchestrator), initial_poll?: false)
+        Process.unlink(pid)
+        pid
+      end)
+
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     pid
   end
@@ -40,6 +57,24 @@ defmodule Aiur.Orchestrator.ProjectRegistrationTest do
 
     assert %{max: 7} = in_project(a, &Slots.max_concurrent_agents/0)
     refute match?(%{max: 7}, in_project(b, &Slots.max_concurrent_agents/0))
+  end
+
+  test "Client.snapshot/0 from each project's process returns that project's snapshot" do
+    {a, b} = {project("o/a", 3), project("o/b", 5)}
+    start_orchestrator(a)
+    start_orchestrator(b)
+
+    assert %{capacity: %{max: 3}} = in_project(a, &Client.snapshot/0)
+    assert %{capacity: %{max: 5}} = in_project(b, &Client.snapshot/0)
+  end
+
+  test "a default orchestrator argument follows the caller's project" do
+    a = project("o/a")
+    start_orchestrator(a)
+
+    assert {:ok, %{}} = in_project(a, fn -> GlobalPause.sync_fleet_pause() end)
+    # A project with no orchestrator must not fall through to the legacy one.
+    assert {:error, :orchestrator_unavailable} = in_project(project("o/none"), fn -> GlobalPause.sync_fleet_pause() end)
   end
 
   test "a caller with no project does not reach a project orchestrator" do

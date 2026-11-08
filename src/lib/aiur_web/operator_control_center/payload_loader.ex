@@ -268,7 +268,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   defp providers do
     {
-      EndpointConfig.get(:orchestrator) || Aiur.Orchestrator,
+      EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server(),
       EndpointConfig.get(:decision_store) || Commands.default_store(),
       EndpointConfig.get(:decision_metrics) || Commands.default_metrics(),
       EndpointConfig.get(:recent_merge_store) || Aiur.RecentMergeStore,

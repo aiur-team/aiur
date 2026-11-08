@@ -37,7 +37,7 @@ defmodule AiurWeb.VoiceConverse.Join do
   def target(%{kind: :executor}), do: {:ok, :executor}
 
   def target(%{kind: :worker, ticket: ticket}) do
-    snapshot = (EndpointConfig.get(:voice_converse_snapshot_fun) || fn -> StatusReport.snapshot_api(Aiur.Orchestrator, 2_000) end).()
+    snapshot = (EndpointConfig.get(:voice_converse_snapshot_fun) || fn -> StatusReport.snapshot_api(Aiur.Orchestrator.server(), 2_000) end).()
 
     case snapshot do
       %{running: rows} -> worker(Enum.filter(rows, &(&1[:identifier] == ticket)))

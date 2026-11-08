@@ -24,13 +24,17 @@ test("gateway reload calls the daemon; anything else is a usage error", () => {
   const { launcher, releaseDir } = setupControlRpc();
 
   expect(runControl(launcher, releaseDir, env, ["gateway", "reload"]).status).toBe(0);
-  expect(readFileSync(captureFile, "utf8")).toContain("RPC_EXPR:Aiur.Gateway.CLI.reload()");
+  expect(readFileSync(captureFile, "utf8")).toContain("RPC_EXPR:Aiur.Gateway.Cli.reload([])");
 
-  for (const args of [["gateway"], ["gateway", "restart"], ["gateway", "reload", "extra"]]) {
+  for (const [args, message] of [
+    [["gateway", "restart"], "gateway requires permissions"],
+    [["gateway", "reload", "extra"], "unexpected argument extra"],
+    [["gateway", "reload", "--json"], "--json requires gateway"],
+  ]) {
     rmSync(captureFile, { force: true });
     const result = runControl(launcher, releaseDir, env, args);
     expect(result.status).toBe(64);
-    expect(result.stderr).toContain("gateway accepts: reload");
+    expect(result.stderr).toContain(message);
     expect(existsSync(captureFile)).toBe(false);
   }
 });

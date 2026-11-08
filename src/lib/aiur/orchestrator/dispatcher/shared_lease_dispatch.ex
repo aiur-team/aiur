@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
+  alias Aiur.Ownership.Fence
   alias Aiur.Signal
   alias Aiur.Toolchain
 
@@ -74,6 +75,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         with :admit <- admit.(selected_issue),
              owned when owned == :disabled or elem(owned, 0) == :ok <-
                Aiur.Ownership.ensure_owned(selected_issue, opts) do
+          register_fence(selected_issue, owned)
           dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
         else
           {:deny, reason} ->
@@ -81,6 +83,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
           {:declined, :not_owner, _} ->
             Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_not_owner, false)
+
+          {:declined, :ambiguous, _} ->
+            Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_ambiguous, false)
 
           {:declined, :unknown, why} ->
             Logger.warning("Ownership unknown (#{inspect(why)}) for #{State.issue_context(issue)}; holding dispatch")
@@ -102,40 +107,65 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     end
   end
 
+  defp register_fence(issue, {:ok, record}), do: Fence.register(issue, record)
+  defp register_fence(_issue, :disabled), do: :ok
+
   defp ownership_eligibility(issue, opts) do
     live_instances_fun = Keyword.get(opts, :ownership_live_instances_fun, &LeaseStore.list_live/0)
 
     case live_instances_fun.() do
       {:ok, live_instances} when is_list(live_instances) ->
         instance_id = Keyword.get_lazy(opts, :ownership_instance_id, &Identity.current/0)
-        Instance.eligible?(issue, instance_id, live_instances)
+
+        issue
+        |> Instance.eligible?(instance_id, live_instances)
+        |> recheck_peer_owner(issue, instance_id, live_instances, opts)
 
       {:error, :store_not_configured} ->
-        if Instance.ownership_configured?(),
+        if not ownership_on?(opts) and Instance.ownership_configured?(),
           do: {:unavailable, :store_not_configured},
           else: :eligible
 
       _ ->
-        {:unavailable, :live_roster_unknown}
+        roster_unreadable(opts)
     end
   rescue
-    _ -> {:unavailable, :live_roster_unknown}
+    _ -> roster_unreadable(opts)
   end
+
+  # A peer's owns-rule must not beat a durable claim this gateway holds.
+  defp recheck_peer_owner({:ineligible, :peer_owns_ticket} = peer, issue, id, live, opts) do
+    if ownership_on?(opts),
+      do: Instance.eligible?(issue, id, live, Aiur.Ownership.owner(issue, opts)),
+      else: peer
+  end
+
+  defp recheck_peer_owner(other, _issue, _id, _live, _opts), do: other
+
+  # Under durable ownership the roster is advisory: the GitHub claim decides.
+  defp roster_unreadable(opts), do: if(ownership_on?(opts), do: :eligible, else: {:unavailable, :live_roster_unknown})
+
+  defp ownership_on?(opts), do: Keyword.get_lazy(opts, :ownership_enabled, &Aiur.Ownership.enabled?/0)
 
   defp dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts) do
     claim_fun = Keyword.get(opts, :lease_claim_fun, &LeaseStore.claim/1)
 
-    case DispatchClaim.call(selected_issue, dispatch, claim_fun: claim_fun) do
-      {:ok, :disabled, next_state} ->
+    case DispatchClaim.call(selected_issue, dispatch,
+           claim_fun: claim_fun,
+           degrade_on_store_error: ownership_on?(opts)
+         ) do
+      {:ok, status, next_state} when status in [:disabled, :degraded] ->
         next_state
 
       {:ok, :acquired, next_state} ->
         release_if_unstarted(next_state, selected_issue, opts)
 
       {:error, :shared_lease_held} ->
+        Fence.unregister(selected_issue.identifier)
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_held, false)
 
       {:error, {:shared_lease_unavailable, reason}} ->
+        Fence.unregister(selected_issue.identifier)
         Logger.warning("Shared ticket lease unavailable for #{State.issue_context(issue)}: #{inspect(reason)}; holding dispatch")
 
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_unavailable, true)
@@ -146,6 +176,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     if MapSet.member?(state.claimed, issue.id) do
       state
     else
+      Fence.unregister(issue.identifier)
       release_fun = Keyword.get(opts, :lease_release_fun, &LeaseStore.release/1)
       _ = release_fun.(issue)
       state

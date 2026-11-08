@@ -79,7 +79,7 @@ defmodule Aiur.VoiceConverse.Host.BriefingSource do
   end
 
   defp snapshot(opts) do
-    StatusReport.snapshot_api(Keyword.get(opts, :orchestrator, Aiur.Orchestrator), 2_000)
+    StatusReport.snapshot_api(Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator)), 2_000)
   catch
     :exit, _ -> :unavailable
   end

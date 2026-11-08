@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TicketTransition, TokenAccounting, TrackedSet, TrackerTasks, WorkspaceCleanup}
+  alias Aiur.Ownership.Fence
   alias Aiur.ProcessTree
   alias Aiur.Tmux.Socket
 
@@ -107,6 +108,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         end
 
         state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
+        Fence.unregister(identifier)
 
         %{
           state

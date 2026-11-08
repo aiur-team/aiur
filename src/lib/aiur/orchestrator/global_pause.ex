@@ -220,7 +220,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @doc "Recompute the fleet switch from the folded register (after a local write, direct delivery, or pull)."
   @spec sync_fleet_pause(GenServer.server()) :: {:ok, map()} | {:error, :orchestrator_unavailable}
-  def sync_fleet_pause(server \\ Aiur.Orchestrator) do
+  def sync_fleet_pause(server \\ Aiur.Project.whereis(Aiur.Orchestrator)) do
     if GenServer.whereis(server), do: {:ok, GenServer.call(server, :sync_fleet_pause, @call_timeout)}, else: {:error, :orchestrator_unavailable}
   catch
     :exit, _ -> {:error, :orchestrator_unavailable}
