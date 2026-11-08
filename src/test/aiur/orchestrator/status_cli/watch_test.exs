@@ -48,7 +48,7 @@ defmodule Aiur.OrchestratorStatusCliWatchTest do
         output = capture_io(fn -> AgentControlCLI.watch(status_timeout_ms: 1) end)
 
         assert output =~
-                 "__AIUR_CONTROL_ERROR__:aiur: watch query timed out after 1ms; daemon is alive but busy or not reachable. Outcome is unknown."
+                 "__AIUR_CONTROL_ERROR__:aiur: watch query timed out after 1ms. Outcome is unknown."
 
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after

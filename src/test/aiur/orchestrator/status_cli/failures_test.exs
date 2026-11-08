@@ -37,7 +37,10 @@ defmodule Aiur.OrchestratorStatusCliFailuresTest do
                  "(local host sample; over fallback load threshold, PSI governs dispatch when available)"
 
       assert output =~
-               "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; daemon is alive but busy or not reachable. Outcome is unknown."
+               "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms. Outcome is unknown. " <>
+                 "The daemon is alive; the orchestrator did not answer in time."
+
+      refute output =~ "down or still starting"
 
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
 
@@ -70,7 +73,7 @@ defmodule Aiur.OrchestratorStatusCliFailuresTest do
       end)
 
     assert output =~
-             "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; daemon is alive but busy or not reachable. Outcome is unknown."
+             "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s. Outcome is unknown."
 
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
@@ -129,7 +132,7 @@ defmodule Aiur.OrchestratorStatusCliFailuresTest do
       output = capture_io(fn -> AgentControlCLI.status() end)
 
       assert output =~
-               "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s; daemon is alive but busy or not reachable. Outcome is unknown."
+               "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s. Outcome is unknown."
 
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end

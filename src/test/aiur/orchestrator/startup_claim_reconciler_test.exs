@@ -165,20 +165,37 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert result.startup_claim_reconciliation_complete?
   end
 
-  test "releases a claim whose matching registry entry is no longer alive" do
+  test "releases a claim with no orchestrator entry" do
     issue = issue("2076", "in-progress")
-    {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
-    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
-
-    state = %State{}
-    assert not State.alive?(dead_pid)
 
     {result, [%Issue{state: "todo"}]} =
-      reconcile(state, [issue],
+      reconcile(%State{}, [issue],
         update_issue_state_fun: fn "2076", "todo", "in-progress" -> :ok end,
         emit_alert_fun: fn _topic, _opts -> :ok end
       )
 
+    assert result.startup_claim_reconciliation_complete?
+  end
+
+  test "a non-paused registry entry with a dead pid keeps its claim" do
+    issue = issue("2076", "in-progress")
+    {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
+    refute State.alive?(dead_pid)
+
+    state = %State{
+      running: %{"runtime-key" => %{identifier: issue.identifier, issue: issue, pid: dead_pid}}
+    }
+
+    {result, [retained]} =
+      reconcile(state, [issue],
+        update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
+          flunk("an orchestrator entry owns the claim even when its pid is dead")
+        end,
+        emit_alert_fun: fn _topic, _opts -> flunk("an owned claim must not alert") end
+      )
+
+    assert retained == issue
     assert result.startup_claim_reconciliation_complete?
   end
 
