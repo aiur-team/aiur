@@ -51,6 +51,16 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.GatewaySummaryAuth)
   end
 
+  # Browser writes from this gateway's own pages or a listed peer's page: preflighted, `X-Aiur-Request`, a session.
+  pipeline :gateway_write do
+    plug(AiurWeb.DashboardCors)
+    plug(:fetch_session)
+    plug(AiurWeb.GatewaySummaryAuth, write?: true)
+    plug(:require_custom_header)
+    plug(:require_dashboard_writable)
+    plug(:verify_gateway_write_origin)
+  end
+
   pipeline :control_token do
     plug(:fetch_session)
     plug(AiurWeb.ControlTokenAuth)
@@ -121,9 +131,9 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewaySummary, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewayPause, GatewaySummary, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewaySummary, GithubWebhook, Events, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewayPause, GatewaySummary, GithubWebhook, Events, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
@@ -179,6 +189,8 @@ defmodule AiurWeb.Router do
 
   DashboardPages.static_assets()
   DashboardPages.pages()
+  # Before Api.agent_writes(): `/api/v1/:issue_identifier/pause` would capture `gateway`.
+  GatewayPause.writes()
   Api.agent_writes()
   Api.machine_writes()
   Events.session()
@@ -230,6 +242,19 @@ defmodule AiurWeb.Router do
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
   # dashboard host or loopback equivalents Executors typically use.
+  defp verify_gateway_write_origin(conn, _opts) do
+    listed? = match?([origin] when is_binary(origin), Plug.Conn.get_req_header(conn, "origin")) and AiurWeb.DashboardCors.listed_origin?(hd(Plug.Conn.get_req_header(conn, "origin")))
+
+    if listed? or origin_allowed?(conn) do
+      conn
+    else
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(403, ~s({"error":"origin not allowed"}))
+      |> Plug.Conn.halt()
+    end
+  end
+
   defp verify_same_origin(conn, _opts) do
     if origin_allowed?(conn) do
       conn

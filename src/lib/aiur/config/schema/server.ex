@@ -27,7 +27,7 @@ defmodule Aiur.Config.Schema.Server do
     field(:allowed_hosts, {:array, :string})
     # @config-reference config-configuration-18 server.dashboard_origins
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail server.dashboard_origins | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` cross-origin with credentials; `http` only on loopback. Writes stay same-origin. |
+    # @config-detail server.dashboard_origins | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` and to `POST` the four gateway/fleet pause routes cross-origin with credentials; `http` only on loopback. Every other write stays same-origin. |
     field(:dashboard_origins, {:array, :string}, default: [])
     # @config-reference config-configuration-18 server.trusted_proxies
     # @config-detail server.trusted_proxies | array | `[]` | CIDRs allowed to set X-Forwarded-* request metadata; `platform` trusts private proxy-network peers. |
