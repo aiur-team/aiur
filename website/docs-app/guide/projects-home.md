@@ -33,7 +33,11 @@ Each gateway card links to its own dashboard, and the local card links to [Build
 
 ## Gateways and pause
 
-`/gateways` shows one card per gateway; `/gateways?gateway=nook` shows one (a registry name, or `local`). The Projects page links each peer there. Each card has `connectivity` (`online`, `unreachable`, `offline`, `unknown`, `error`) and `workload` (`idle`, `active`, `saturated`) as **two separate fields**: an online gateway can be idle, and one that does not answer has no workload, only the last one this browser saw, marked `last known`. `offline` means the shared roster has had no heartbeat from that gateway for `coordination.offline_after_seconds`.
+`/gateways` shows one card per gateway; `/gateways?gateway=nook` shows one (a registry name, or `local`). The Projects page links each peer there.
+
+Each card has `connectivity` (`online`, `unreachable`, `offline`, `unknown`, `error`) and `workload` (`idle`, `active`, `saturated`) as **two separate fields**. An online gateway can be idle.
+
+A gateway that does not answer has no workload, only the last one this browser saw, marked `last known`. `offline` means the shared roster has had no heartbeat from it for `coordination.offline_after_seconds`.
 
 `Pause <gateway>` pauses that gateway. `Pause all` asks for confirmation, writes the shared `fleet.pause` intent through this gateway, then pauses every gateway it can reach directly, and lists one line each:
 
@@ -45,7 +49,11 @@ Each gateway card links to its own dashboard, and the local card links to [Build
 | `not paused: signed out` | It answered 401 or 403. |
 | `not paused: off tailnet, pause it from its own dashboard ↗` | Its URL is not `https`, so the browser does not call it. |
 
-The buttons call `POST /api/v1/gateway/pause` and `/resume` (this gateway) and `POST /api/v1/fleet/pause` and `/resume` (shared intent plus this gateway). They need a dashboard session or a `write` client token, the `X-Aiur-Request: 1` header, and a same-origin or `server.dashboard_origins` `Origin`; `observability.dashboard_writable: false` blocks them. Each pair sets an absolute state, so a retry is harmless; `request_id` is echoed. The fleet response carries `intent_written`.
+The buttons call `POST /api/v1/gateway/pause` and `/resume` (this gateway) and `POST /api/v1/fleet/pause` and `/resume` (shared intent plus this gateway).
+
+They need a dashboard session or a `write` client token, the `X-Aiur-Request: 1` header, and a same-origin or `server.dashboard_origins` `Origin`. `observability.dashboard_writable: false` blocks them.
+
+Each call sets an absolute state, so a retry is harmless, and `request_id` is echoed. The fleet response carries `intent_written`.
 
 ## Not here yet
 
