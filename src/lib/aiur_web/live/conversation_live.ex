@@ -81,14 +81,11 @@ defmodule AiurWeb.ConversationLive do
 
   @impl true
   def render(assigns) do
-    assigns = assign_new(assigns, :executor_frame, fn -> nil end)
-
     ~H"""
     <section id="conversation" class="conversation-page">
       <a href="/">Build</a>
-      <AiurWeb.ExecutorView.header :if={@executor_frame} view={@executor_frame} writable={@writable} />
-      <Components.status :if={is_nil(@executor_frame)} state={@state} age={@age} reason={@reason} last_entry={@last_entry} />
-      <div :if={@state == :loading and is_nil(@executor_frame)} role="status" aria-busy="true" class="conversation-skeleton">Loading conversation…</div>
+      <Components.status state={@state} age={@age} reason={@reason} last_entry={@last_entry} />
+      <div :if={@state == :loading} role="status" aria-busy="true" class="conversation-skeleton">Loading conversation…</div>
       <p :if={@page && not @page.complete_from_start} role="note">Earlier history is not available</p>
       <nav :if={@page} aria-label="Conversation paging">
         <button phx-click="jump_start">Jump to start</button>
@@ -103,7 +100,7 @@ defmodule AiurWeb.ConversationLive do
       <CommandCards.cards rows={@decision_page.decisions} slots={@command_slots} actions={@decision_actions} writable={@writable} slot={:pinned_top} />
       <p :if={@position_notice} id="conversation-position-notice" role="status">{@position_notice}</p>
       <div class="conversation-layout">
-        <EventComponents.event_nav path={if @executor_frame, do: "/executor"} streams={@streams} id={@id} visible_kinds={@visible_kinds} event_start={@event_start} event_has_newer={@event_has_newer} error={@anchor_error} />
+        <EventComponents.event_nav streams={@streams} id={@id} visible_kinds={@visible_kinds} event_start={@event_start} event_has_newer={@event_has_newer} error={@anchor_error} />
         <div id="conversation-scroll" phx-hook="ConversationScroll" class="conversation-scroll" data-highlight={@highlight_pos} data-mode={if is_tuple(@mode), do: "around", else: @mode} data-head={@page && @page.head_pos}>
           <div id="conversation-entries" phx-update="stream">
             <div :for={{id, entry} <- @streams.entries} id={id}

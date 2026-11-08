@@ -302,3 +302,72 @@ test('override timeline and form fit desktop and mobile after an answer', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await badge.evaluate((el, value) => { el.textContent = value }, text)
 })
+
+// The card list is reached by patching from the seeded Command's detail URL:
+// only that URL mounts the real dashboard on the shared fixture server.
+async function openCommandCard(page, theme = 'dark') {
+  await openFixture(page, 'writable')
+  await page.evaluate((value) => localStorage.setItem('aiur-theme', value), theme)
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.dataset.theme = localStorage.getItem('aiur-theme') ?? 'dark'
+    }, { once: true })
+  })
+  // Earlier specs configure voice; configure it here too so the card's dictation copy is the same in any order.
+  await page.goto('/voice-input-fixture?command=true')
+  await expect(page.locator('#standalone-voice')).toBeVisible()
+  await page.goto('/command-answer-control/answerable')
+  const decisionId = new URL(page.url()).pathname.split('/').pop()
+  await expect.poll(async () => (await (await page.request.get('/command-answer-join-state')).json()).state, { timeout: 10_000 }).toBe('joined')
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await page.getByRole('link', { name: 'Collapse details' }).click()
+  const card = page.locator(`#decision-${decisionId}`)
+  await expect(card.locator('.decision-answer-form')).toBeVisible()
+  return { card, decisionId }
+}
+
+test('a compact Command card shows the question once, two pills, one option style, and answers', async ({ page }) => {
+  const { card, decisionId } = await openCommandCard(page)
+  await expect(card.getByText('Should the browser fixture record this operator decision?', { exact: true })).toHaveCount(1)
+  await expect(card.locator('.decision-card-head .chip')).toHaveText(['Blocking', /^asked /])
+  await expect(card.locator('.decision-option-preview')).toHaveCount(0)
+  await expect(card.locator('.decision-more')).not.toHaveAttribute('open', '')
+  const labels = await page.locator('.filter-row .filter-chip').evaluateAll((chips) => chips.map((chip) => chip.dataset.countLabel))
+  expect(new Set(labels).size).toBe(labels.length)
+  expect(labels.length).toBeLessThanOrEqual(5)
+
+  await card.getByRole('button', { name: 'Decision', exact: true }).click()
+  await expect.poll(async () => (await (await page.request.get('/command-answer-state')).json()).decision_status).toBe('decided')
+  await expect(page.locator(`#history-${decisionId}`)).toBeVisible()
+})
+
+for (const theme of ['light', 'dark']) {
+  for (const width of [1440, 390]) {
+    test(`Commands card baseline ${theme} ${width}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      const { card } = await openCommandCard(page, theme)
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await page.evaluate(() => document.fonts.ready)
+      // Sticky chrome and Commands left open by earlier specs (their shadows) would make the image order-dependent.
+      const others = `.decision-card:not(#${await card.getAttribute('id')})`
+      await page.addStyleTag({ content: `.ax-top, #ax-title, .sidenav { visibility: hidden !important; } ${others} { display: none !important; } * { overflow-anchor: none !important; }` })
+      // Content above the list (daemon banner, fleet error) varies by run and leaves the card on a sub-pixel offset,
+      // which shifts the crop by a row; reset every scroller and snap the card to a whole pixel until it holds.
+      await expect.poll(() => card.evaluate((el) => {
+        el.style.top = ''
+        for (let n = el.parentElement; n; n = n.parentElement) n.scrollTop = 0
+        window.scrollTo(0, 0)
+        const top = el.getBoundingClientRect().top
+        el.style.position = 'relative'
+        el.style.top = `${Math.floor(top) - top}px`
+        const snapped = el.getBoundingClientRect().top
+        return snapped >= 0 && snapped === Math.round(snapped)
+      })).toBe(true)
+      // A pointer left over an option by an earlier spec renders its hover state.
+      await page.mouse.move(0, 0)
+      // The age is masked, but its width still moves the Blocking pill beside it.
+      await card.locator('.decision-card-head .decision-age').evaluate((el) => { el.textContent = 'asked just now' })
+      await expect(card).toHaveScreenshot(`commands-card-${theme}-${width}.png`, { mask: [card.locator('.decision-age')] })
+    })
+  }
+}

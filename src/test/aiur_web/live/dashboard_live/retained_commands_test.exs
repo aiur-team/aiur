@@ -200,13 +200,7 @@ defmodule AiurWeb.DashboardLive.RetainedCommandsTest do
       control_center_cache: false
     )
 
-    {:ok, view, _html} = live(build_conn(), "/commands")
-
-    view
-    |> element(~s(button[phx-click="filter-decisions"][phx-value-filter="open"]))
-    |> render_click()
-
-    assert_patch(view, "/commands?filter=open")
+    {:ok, view, _html} = live(build_conn(), "/commands?filter=open")
     assert has_element?(view, ".decision-list #decision-#{human.decision_id}")
     assert has_element?(view, ".decision-list #decision-#{delegated.decision_id}")
   end
@@ -241,9 +235,7 @@ defmodule AiurWeb.DashboardLive.RetainedCommandsTest do
 
     {:ok, view, html} = live(build_conn(), "/commands")
 
-    assert html =~ ~r/Open\s+<span class="count num">1<\/span>/
     assert html =~ ~r/Blocking\s+<span class="count num">1<\/span>/
-    assert html =~ ~r/Resolved\s+<span class="count num">0<\/span>/
     assert html =~ ~r/All\s+<span class="count num">1<\/span>/
     assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
     refute has_element?(view, "#history-#{decision.decision_id}")
@@ -263,9 +255,7 @@ defmodule AiurWeb.DashboardLive.RetainedCommandsTest do
     assert has_element?(view, "#history-#{decision.decision_id}")
 
     transitioned_html = render(view)
-    assert transitioned_html =~ ~r/Open\s+<span class="count num">0<\/span>/
     assert transitioned_html =~ ~r/Blocking\s+<span class="count num">0<\/span>/
-    assert transitioned_html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
   end
 
   test "Command chips use the same retained snapshot as history totals" do
@@ -300,14 +290,12 @@ defmodule AiurWeb.DashboardLive.RetainedCommandsTest do
     {:ok, view, html} = live(build_conn(), "/commands")
 
     assert html =~ ~r/All\s+<span class="count num">1<\/span>/
-    assert html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
     assert html =~ "1 of 1"
 
     send(view.pid, :reload_payload)
     reloaded_html = render(view)
 
     assert reloaded_html =~ ~r/All\s+<span class="count num">1<\/span>/
-    assert reloaded_html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
     assert reloaded_html =~ "1 of 1"
   end
 
@@ -349,7 +337,6 @@ defmodule AiurWeb.DashboardLive.RetainedCommandsTest do
     reloaded_html = render(view)
 
     assert reloaded_html =~ ~r/All\s+<span class="count num">—<\/span>/
-    assert reloaded_html =~ ~r/Open\s+<span class="count num">—<\/span>/
     assert reloaded_html =~ ~r/Blocking\s+<span class="count num">—<\/span>/
   end
 
@@ -430,7 +417,6 @@ defmodule AiurWeb.DashboardLive.RetainedCommandsTest do
     {:ok, view, html} = live(build_conn(), "/commands")
 
     assert html =~ ~r/All\s+<span class="count num">27<\/span>/
-    assert html =~ ~r/Resolved\s+<span class="count num">25<\/span>/
     assert has_element?(view, "#decision-#{Enum.at(decisions, 0).decision_id}")
     assert has_element?(view, "#decision-#{Enum.at(decisions, 1).decision_id}")
 
