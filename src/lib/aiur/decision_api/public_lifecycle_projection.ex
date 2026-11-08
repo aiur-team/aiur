@@ -20,6 +20,7 @@ defmodule Aiur.DecisionApi.PublicLifecycleProjection do
       "accepted_at" => timestamp(answer.accepted_at)
     }
     |> then(&if(answer.feedback == [], do: &1, else: Map.put(&1, "feedback", answer.feedback)))
+    |> then(&if(answer.rejected, do: Map.put(&1, "rejected", true), else: &1))
   end
 
   def answer(_answer), do: nil

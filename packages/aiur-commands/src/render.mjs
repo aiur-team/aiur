@@ -9,7 +9,7 @@
  */
 
 /** Every Command-level state the contract can carry. */
-export const COMMAND_STATES = ['pending', 'answered', 'revised', 'expired', 'unavailable', 'conflict', 'error'];
+export const COMMAND_STATES = ['pending', 'answered', 'revised', 'rejected', 'expired', 'unavailable', 'conflict', 'error'];
 
 /** Every list-level state the contract can carry. */
 export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error'];
@@ -18,6 +18,7 @@ const STATE_LABELS = {
   pending: 'Awaiting your answer',
   answered: 'Answered',
   revised: 'Answer revised',
+  rejected: 'Rejected',
   expired: 'No longer answerable',
   unavailable: 'Command state unavailable',
   conflict: 'Answer conflict',
@@ -31,7 +32,7 @@ const LIST_COPY = {
   error: 'Commands could not be loaded.',
 };
 
-const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'revised', 'answered', 'pending'];
+const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'rejected', 'revised', 'answered', 'pending'];
 
 /** The typed Command media kinds the contract can carry. */
 export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
@@ -136,7 +137,7 @@ function answerMarkup(command) {
     : escapeHtml(command.answer.custom_response ?? 'Answer recorded');
 
   return `<div class="aiur-command-answer" data-action-id="${escapeHtml(command.answer.action_id)}">
-  <span class="aiur-command-answer-label">${stateOf(command) === 'revised' ? 'Revised answer' : 'Recorded answer'}</span>
+  <span class="aiur-command-answer-label">${stateOf(command) === 'rejected' ? 'Rejection reason' : stateOf(command) === 'revised' ? 'Revised answer' : 'Recorded answer'}</span>
   <strong>${label}</strong>
 </div>`;
 }

@@ -1,6 +1,6 @@
 import { S, ctx, fx, onReset, LH, rmOn } from './state.js';
 
-// #7446: the live band scrolls with the content; nothing snaps it to an edge.
+// #7446: the live band scrolls with the content and nothing snaps it; CSS sticky pins it at the edges (#7758).
 
 let scrolling = false, animSeq = 0, jumping = false;
 onReset(() => {
