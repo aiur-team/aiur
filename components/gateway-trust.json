@@ -7,7 +7,10 @@
     "packaging/npm/aiur-cli/libexec/aiur-gateway.sh",
     "src/lib/aiur/gateway/cli.ex",
     "src/lib/aiur/gateway/grant_confirmation.ex",
-    "src/lib/aiur/gateway/grant_request.ex"
+    "src/lib/aiur/gateway/grant_request.ex",
+    "src/lib/aiur/gateway/status.ex",
+    "src/lib/aiur/gateway/status_cache.ex",
+    "src/lib/aiur/gateway/workload.ex"
   ],
   "facades": [
     "Aiur.Gateway.Cli",

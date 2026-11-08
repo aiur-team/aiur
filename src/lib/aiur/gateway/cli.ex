@@ -12,7 +12,7 @@ defmodule Aiur.Gateway.Cli do
 
   alias Aiur.ClientTokens
   alias Aiur.ControlCall.Audit
-  alias Aiur.Gateway.{Discovery, GrantRequest, Registry}
+  alias Aiur.Gateway.{Discovery, GrantRequest, Registry, Status}
 
   @actor "cli_local"
 
@@ -29,6 +29,13 @@ defmodule Aiur.Gateway.Cli do
       exit_marker(code)
     end)
   end
+
+  @doc "One row per registry entry from the launcher's `agents --json` results (`:data`); an unreachable entry shows its cached last answer with its age."
+  @spec list(keyword()) :: :ok
+  def list(opts \\ []), do: guarded("gateway list", fn -> opts |> Keyword.delete(:peer) |> Status.run() |> exit_marker() end)
+
+  @spec status(keyword()) :: :ok
+  def status(opts), do: guarded("gateway status", fn -> opts |> Status.run() |> exit_marker() end)
 
   @doc "Lists registry entries and tailnet peers that answer hello. Read-only; `--json` rows carry `observed_at`, `age_ms: 0`, `freshness`."
   @spec discover(keyword()) :: :ok
