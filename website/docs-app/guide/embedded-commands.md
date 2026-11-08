@@ -148,7 +148,7 @@ answer, reject, revise or escalate.
 |--------|-------|
 | `404` | The id is out of scope. |
 | `409` `command_conflict` | The version is stale, or policy will not defer the Command. |
-| `422` | The key or version is missing. |
+| `422` | The key or version is missing, or the note is over 2,000 characters or has control characters. |
 
 ## Command media
 

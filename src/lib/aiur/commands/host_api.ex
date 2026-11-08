@@ -40,6 +40,7 @@ defmodule Aiur.Commands.HostApi do
   @type answer_error ::
           :not_found
           | :store_unavailable
+          | :unknown
           | {:invalid_answer, term()}
           | {:conflict, term()}
 
@@ -215,7 +216,8 @@ defmodule Aiur.Commands.HostApi do
       {:error, {:conflict, _detail}} = conflict -> conflict
       {:error, reason} when reason in [:not_found, :store_unavailable] -> {:error, reason}
       {:error, {:invalid_answer, _detail}} = invalid -> invalid
-      {:error, _other} -> {:error, :store_unavailable}
+      # Cause-neutral: an unrecognised failure is not necessarily the store.
+      {:error, _other} -> {:error, :unknown}
     end
   catch
     :exit, _reason -> {:error, :store_unavailable}
@@ -227,7 +229,12 @@ defmodule Aiur.Commands.HostApi do
   defp bounded_note(note) when byte_size(note) > @note_max * 4, do: {:error, {:invalid_answer, {:note, :too_long}}}
 
   defp bounded_note(note) do
-    if String.length(note) > @note_max, do: {:error, {:invalid_answer, {:note, :too_long}}}, else: {:ok, note}
+    cond do
+      String.length(note) > @note_max -> {:error, {:invalid_answer, {:note, :too_long}}}
+      # Same set the event codec refuses, so it is a 422 here and not a failed write.
+      Regex.match?(~r/[\x00-\x08\x0B\x0C\x0E-\x1F]/, note) -> {:error, {:invalid_answer, {:note, :unsafe_characters}}}
+      true -> {:ok, note}
+    end
   end
 
   defp escalation_note(payload) do
