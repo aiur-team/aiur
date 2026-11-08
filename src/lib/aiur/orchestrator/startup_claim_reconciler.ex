@@ -114,7 +114,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp reconcile_owned(state, %Issue{identifier: identifier} = issue, live_identifiers, opts) do
     cond do
       approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) ->
-        release_orphaned_claim(state, issue, Keyword.put(opts, :forced_target, "ci-wait"))
+        release_orphaned_claim(state, issue, Keyword.merge(opts, forced_target: "ci-wait", body_gate: :skip))
 
       not recoverable_claim?(state, issue, identifier) ->
         {:ok, resolve_release_failure(state, issue, opts), issue}
