@@ -3,9 +3,7 @@ pageClass: cli-reference
 ---
 # CLI gateway permissions
 
-A gateway decides what each peer gateway may do **on itself**. The grants live in the `allows` block of that peer's entry in `~/.aiur/remote-instances.yaml`, and the receiving gateway enforces them. The commands below read and edit that file on the gateway where you run them. They are refused over `--gateway` or `--instance`: `aiur --gateway nook gateway grant …` exits 64 with `grant changes are local to the receiving gateway`.
-
-A peer starts read-only. A peer entry with no `allows` block permits `read` only.
+Each peer's `allows` block in `~/.aiur/remote-instances.yaml` sets what it may do on this gateway, which enforces it; a peer with no block gets `read` only. The commands edit that file locally and are refused over `--gateway` or `--instance` (exit 64).
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
@@ -16,11 +14,17 @@ A peer starts read-only. A peer entry with no `allows` block permits `read` only
 
 ## Categories
 
-`read`, `message`, `executor`, `agents`, `tickets` and `config`. `trust` is not a category and is rejected anywhere in the file. A call from a peer's token is allowed only when **both** the token's categories and the peer's `allows.categories` contain the call's category; otherwise the receiver answers 403 `category_not_granted: <category>`. Grant-changing calls arriving on `/api/v1/control` are refused with 403 `grants_are_local` and audited, whatever the token holds.
+`read`, `message`, `executor`, `agents`, `tickets` and `config`; `trust` is rejected anywhere in the file.
+
+A call needs its category in **both** the token and the peer's `allows.categories`, or the receiver answers 403 `category_not_granted: <category>`.
+
+Grant changes arriving on `/api/v1/control` get 403 `grants_are_local` and are audited.
 
 ## Confirming a write grant
 
-`gateway grant` prints the open Decision's id. Open this gateway's dashboard signed in with **Google or a passkey** and answer the Decision. A sign-in older than 15 minutes, a Basic Auth session, a client token, the Executor and a supervisor cannot confirm it, and a Decision raised on another gateway never matches this one. If neither Google nor passkeys are configured, edit the file by hand.
+`gateway grant` prints the open Decision's id. Answer it on this gateway's dashboard signed in with **Google or a passkey** within 15 minutes of sign-in.
+
+Basic Auth, client tokens, the Executor and supervisors cannot confirm, and a Decision from another gateway never matches. Without Google or passkeys, edit the file by hand.
 
 ## Editing the file by hand
 
@@ -40,4 +44,6 @@ A file with an inline `token`, `secret` or `password` key, an unknown category o
 
 ## Audit
 
-Every change appends a line to `control-audit.ndjson` under the daemon log root, naming the actor kind: `cli_local`, `dashboard_google`, `dashboard_passkey` or `unknown_local_editor` (a hand edit, event `file_edit_detected`). Events: `grant_requested`, `grant_confirmed`, `grant_denied`, `grant_written`, `grant_revoked`, `token_revoked`, `grants_are_local_refused`, `category_not_granted_refused`.
+Every change appends a line to `control-audit.ndjson` under the daemon log root, naming the actor: `cli_local`, `dashboard_google`, `dashboard_passkey` or `unknown_local_editor` (a hand edit).
+
+Events: `grant_requested`, `grant_confirmed`, `grant_denied`, `grant_written`, `grant_revoked`, `token_revoked`, `grants_are_local_refused`, `category_not_granted_refused`, `file_edit_detected`.

@@ -4,13 +4,13 @@
   "layer": 2,
   "kind": "in-app",
   "paths": [
+    "packaging/npm/aiur-cli/libexec/aiur-gateway.sh",
     "src/lib/aiur/gateway/cli.ex",
     "src/lib/aiur/gateway/grant_confirmation.ex",
     "src/lib/aiur/gateway/grant_request.ex",
     "src/lib/aiur/gateway/grants.ex",
     "src/lib/aiur/gateway/registry.ex",
-    "src/lib/aiur_web/operator_control_center/gateway_grant_commands.ex",
-    "packaging/npm/aiur-cli/libexec/aiur-gateway.sh"
+    "src/lib/aiur_web/operator_control_center/gateway_grant_commands.ex"
   ],
   "facades": [
     "Aiur.Gateway.Cli",
