@@ -306,12 +306,13 @@ defmodule Aiur.Commands.ComponentState do
       unavailable?(projection) -> {:unavailable, "store_unavailable"}
       rejected?(projection) -> {:rejected, rejection_reason(projection)}
       conflict?(projection) -> {:conflict, "stale_version"}
-      answered?(projection) and revised?(projection) -> {:revised, "superseded_answer"}
-      answered?(projection) -> {:answered, nil}
-      projection["decision_status"] in [:deferred, "deferred"] -> {:escalated, nil}
+      answered?(projection) -> if revised?(projection), do: {:revised, "superseded_answer"}, else: {:answered, nil}
+      deferred?(projection) -> {:escalated, nil}
       true -> {:pending, nil}
     end
   end
+
+  defp deferred?(projection), do: projection["decision_status"] in [:deferred, "deferred"]
 
   defp terminal_state(projection) do
     case projection["decision_status"] do
