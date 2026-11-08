@@ -146,7 +146,11 @@
         card.appendChild(el("p", d.connectivityText + (d.ageText ? " · " + d.ageText : ""), { "data-conn-text": "" }));
         card.appendChild(el("p", d.workloadText));
         if (s.connectivity === "online") {
-          s.summary.projects.forEach(function (p) { card.appendChild(el("p", String(p.repo) + " · running " + (p.running === null ? "unknown" : p.running), { "data-project-row": String(p.repo) })); });
+          s.summary.projects.forEach(function (p) {
+            var row = el("p", String(p.repo) + " · running " + (p.running === null ? "unknown" : p.running) + " ", { "data-project-row": String(p.repo) });
+            row.appendChild(el("a", "Build ›", { href: peer.url + "/build" }));
+            card.appendChild(row);
+          });
         }
         if (s.reason === "signed out") {
           card.appendChild(el("a", "Sign in", { href: peer.url + "/auth/google?return_to=" + encodeURIComponent(root.location.href) }));
