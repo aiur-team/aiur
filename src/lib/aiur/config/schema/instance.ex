@@ -51,7 +51,7 @@ defmodule Aiur.Config.Schema.Instance do
     field(:deployment_kind, :string, default: "operator")
 
     # @config-reference config-configuration-00 instance.id
-    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads, except under `instance.ownership: github`, where dispatch continues on the GitHub ownership claim. |
     field(:id, :string)
 
     # @config-reference config-configuration-00 instance.roster_stale_retention_ms
@@ -68,7 +68,7 @@ defmodule Aiur.Config.Schema.Instance do
 
     # @config-reference config-configuration-00 instance.ownership
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail instance.ownership | string | `off` | `github` makes every agent start, including recycles and PR-anchored units, require a durable ownership ref (`refs/aiur/owners/<ticket>`, `pr-<N>` for PRs): this gateway and daemon must already own it or win its claim, otherwise dispatch is declined and retried next poll. Enable on a drained or quiet gateway. Read at each dispatch, so a config reload applies without a restart. |
+    # @config-detail instance.ownership | string | `off` | `github` makes every agent start, including recycles and PR-anchored units, require a durable ownership ref (`refs/aiur/owners/<ticket>`, `pr-<N>` for PRs): this gateway and daemon must already own it or win its claim, otherwise dispatch is declined and retried next poll. Enable on a drained or quiet gateway. Read at each dispatch, so a config reload applies without a restart. The Postgres lease store becomes optional: with it unset or unreachable, dispatch proceeds on the ownership claim alone, and with it up the run lease still refuses a second concurrent run. |
     field(:ownership, :string, default: "off")
 
     # @config-reference config-configuration-00 instance.role
