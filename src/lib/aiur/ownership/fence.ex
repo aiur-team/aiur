@@ -11,14 +11,12 @@ defmodule Aiur.Ownership.Fence do
   """
   use GenServer
 
-  alias Aiur.Config.Paths
   alias Aiur.GitHub.AgentBudgetSocket
   alias Aiur.Ownership
   alias Aiur.Ownership.FenceCommand
   alias Aiur.Ownership.GitHubRef
 
   @max_age_ms 30_000
-  @socket_name "ownership-fence.sock"
 
   @type verdict :: {:ok, map()} | {:moved, map()} | {:unknown, term()}
 
@@ -26,12 +24,7 @@ defmodule Aiur.Ownership.Fence do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
   @spec socket_path() :: Path.t()
-  def socket_path do
-    case Paths.runtime_state_dir() do
-      {:ok, root} -> Path.join(root, @socket_name)
-      _ -> Path.join(System.user_home!(), ".aiur/instances/" <> @socket_name)
-    end
-  end
+  def socket_path, do: AgentBudgetSocket.fence_socket_path()
 
   @doc "The fence and its socket, only while `instance.ownership: github`."
   @spec child_specs() :: [Supervisor.child_spec()]

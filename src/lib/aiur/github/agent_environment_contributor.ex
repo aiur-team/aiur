@@ -8,7 +8,6 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   alias Aiur.GitHub.{Access, AgentBudgetSocket, AgentMarker}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Instance.LeaseStore
-  alias Aiur.Ownership.Fence
 
   @impl true
   def port_env(workspace, opts) do
@@ -172,8 +171,9 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   end
 
   defp fence_socket_env do
-    if Aiur.Ownership.enabled?(),
-      do: {~c"AIUR_OWNERSHIP_FENCE_SOCKET", Fence.socket_path() |> String.to_charlist()},
+    # Same condition as Aiur.Ownership.enabled?/0, restated because this layer cannot depend on orchestration.
+    if match?({:ok, %{instance: %{ownership: "github"}}}, Aiur.Config.settings()),
+      do: {~c"AIUR_OWNERSHIP_FENCE_SOCKET", AgentBudgetSocket.fence_socket_path() |> String.to_charlist()},
       else: {~c"AIUR_OWNERSHIP_FENCE_SOCKET", false}
   end
 
