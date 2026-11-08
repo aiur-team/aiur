@@ -1,6 +1,5 @@
 defmodule Aiur.ControlCLI.Protocol do
   @moduledoc false
-  alias Aiur.Orchestrator
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
   @error_marker "__AIUR_CONTROL_ERROR__:"
@@ -41,7 +40,7 @@ defmodule Aiur.ControlCLI.Protocol do
   @doc false
   @spec orchestrator_liveness() :: String.t()
   def orchestrator_liveness do
-    case Process.whereis(Orchestrator) do
+    case GenServer.whereis(Aiur.Project.whereis(Aiur.Project.whereis(Aiur.Orchestrator))) do
       nil ->
         "The orchestrator process is not registered, so the daemon is down or still starting."
 

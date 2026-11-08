@@ -46,7 +46,7 @@ defmodule AiurWeb.ExecutorHookDeliveryController do
     conn |> put_resp_content_type("application/json") |> send_resp(200, output)
   rescue
     error ->
-      ExecutorHookClaims.restore(Aiur.Orchestrator, attempt)
+      ExecutorHookClaims.restore(Aiur.Project.whereis(Aiur.Orchestrator), attempt)
       reraise error, __STACKTRACE__
   end
 end

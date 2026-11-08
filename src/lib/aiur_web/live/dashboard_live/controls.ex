@@ -28,5 +28,5 @@ defmodule AiurWeb.DashboardLive.Controls do
   def global_pause_state(_payload), do: nil
 
   @spec capacity_orchestrator() :: GenServer.server()
-  def capacity_orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
+  def capacity_orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Project.whereis(Aiur.Orchestrator)
 end

@@ -157,7 +157,7 @@ defmodule Aiur.AgentRunner.BootstrapDigest do
   end
 
   defp enqueue_bootstrap_batch(identifier, events) do
-    GenServer.call(Aiur.Orchestrator, {:enqueue_event_digest_batch, identifier, events}, 5_000)
+    GenServer.call(Aiur.Project.whereis(Aiur.Orchestrator), {:enqueue_event_digest_batch, identifier, events}, 5_000)
   catch
     :exit, reason -> {:error, reason}
   end

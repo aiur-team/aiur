@@ -106,7 +106,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Runtime do
       session: if(range == :full, do: :cross, else: :current),
       telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file),
       cores: Application.get_env(:aiur, :analytics_schedulers_online_fun, &System.schedulers_online/0).(),
-      orchestrator: AiurWeb.EndpointConfig.get(:orchestrator) || Aiur.Orchestrator,
+      orchestrator: AiurWeb.EndpointConfig.get(:orchestrator) || Aiur.Project.whereis(Aiur.Orchestrator),
       snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.EndpointConfig.get(:snapshot_timeout_ms) || 15_000)
     ] ++ scope_opts
   end

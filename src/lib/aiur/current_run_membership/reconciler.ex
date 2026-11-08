@@ -9,7 +9,6 @@ defmodule Aiur.CurrentRunMembership.Reconciler do
   alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunMembership.Reconciler.Snapshot
   alias Aiur.CurrentRunMembership.Store
-  alias Aiur.Orchestrator, as: Orchestrator
   alias Aiur.Orchestrator.{DispatchPolicy, SnapshotStore}
   alias Aiur.TrackerIdentity
 
@@ -166,7 +165,7 @@ defmodule Aiur.CurrentRunMembership.Reconciler do
   defp schedule_reconciliation_tick(state), do: state
 
   defp current_snapshot do
-    case SnapshotStore.read(Orchestrator, 15_000) do
+    case SnapshotStore.read(Aiur.Project.whereis(Aiur.Orchestrator), 15_000) do
       {:current, snapshot, _metadata} -> snapshot
       _result -> :unavailable
     end

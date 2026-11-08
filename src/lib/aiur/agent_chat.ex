@@ -59,7 +59,7 @@ defmodule Aiur.AgentChat do
   @spec delivery_status(integer(), timeout()) ::
           {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
   def delivery_status(request_id, timeout \\ 5_000) when is_integer(request_id) do
-    Orchestrator.operator_message_status(Orchestrator, request_id, timeout)
+    Orchestrator.operator_message_status(Aiur.Project.whereis(Aiur.Orchestrator), request_id, timeout)
   end
 
   @spec interrupt(String.t()) :: :ok | {:error, term()}

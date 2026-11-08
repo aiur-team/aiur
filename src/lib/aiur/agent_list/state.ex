@@ -4,7 +4,7 @@ defmodule Aiur.AgentList.State do
   """
 
   alias Aiur.AgentList.RenderState
-  alias Aiur.{Orchestrator, PaneManager}
+  alias Aiur.PaneManager
 
   @type t :: %{
           summaries: [map()],
@@ -24,7 +24,7 @@ defmodule Aiur.AgentList.State do
   def new(opts) do
     write_fun = Keyword.get(opts, :write_fun, &IO.write/1)
     pane_manager = Keyword.get(opts, :pane_manager, PaneManager)
-    orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+    orchestrator = Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
     tmux = Keyword.get(opts, :tmux, Aiur.Tmux)
     command_template = Keyword.fetch!(opts, :command_template)
     {cols, rows} = RenderState.terminal_geometry()

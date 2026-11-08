@@ -5,7 +5,7 @@ defmodule Aiur.HttpServer do
 
   require Logger
 
-  alias Aiur.{Commands, Config, Orchestrator}
+  alias Aiur.{Commands, Config}
   alias Aiur.Config.Paths
   alias Aiur.Executor.HookConfig
   alias AiurWeb.DashboardAuth.Passkeys
@@ -139,7 +139,7 @@ defmodule Aiur.HttpServer do
       server: true,
       http: [ip: ip, port: port],
       url: endpoint_url(public_url, host),
-      orchestrator: Keyword.get(opts, :orchestrator, Orchestrator),
+      orchestrator: Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator)),
       snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
       dashboard_writable: dashboard_writable,
       browser_basic_auth: Config.settings!().dashboard_auth.browser_basic_auth,

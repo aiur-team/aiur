@@ -15,7 +15,7 @@ defmodule Aiur.Handoff do
 
   @spec prepare(keyword()) :: {:ok, map()} | {:error, term()}
   def prepare(opts \\ []) do
-    server = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
+    server = Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
     owner = GenServer.whereis(server)
     :global.trans({{__MODULE__, owner}, self()}, fn -> prepare_once(owner, server, opts) end)
   catch

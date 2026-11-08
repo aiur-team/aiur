@@ -94,7 +94,7 @@ defmodule Aiur.VoiceConversation.BriefingSource do
   end
 
   defp read_section("agents", n) do
-    if Process.whereis(Aiur.Orchestrator) do
+    if GenServer.whereis(Aiur.Project.whereis(Aiur.Project.whereis(Aiur.Orchestrator))) do
       Aiur.Orchestrator.snapshot() |> agents_text(n)
     else
       "Agent status unavailable."

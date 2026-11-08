@@ -51,7 +51,7 @@ defmodule AiurWeb.Build.SeamTest do
     # MP-E8-C11-T03 confines workspace, snapshot and live-history reads to the
     # replaceable wave-0b adapter; controllers still use ConversationSource.
     conversation = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b.ex")
-    adapter_facades = ~w(Aiur.Conversation.History Aiur.Workspace.Layout Aiur.Config Aiur.Orchestrator Aiur.Tracker)
+    adapter_facades = ~w(Aiur.Conversation.History Aiur.Workspace.Layout Aiur.Config Aiur.Orchestrator Aiur.Project Aiur.Tracker)
     # MP-E4-C7-T01 confines durable history, identity and presentation reads to the replaceable journal adapter.
     journal = Path.join(@root, "lib/aiur_web/build/conversation_source/journal.ex")
     journal_facades = ~w(Aiur.Conversation.History Aiur.Conversation.Ref Aiur.Tracker AiurWeb.Conversation.Presenter)
@@ -73,7 +73,7 @@ defmodule AiurWeb.Build.SeamTest do
     assert offenders([conversation], &(allowed?(&1) or &1 in adapter_facades)) == []
     assert offenders([journal], &(allowed?(&1) or &1 in journal_facades)) == []
     assert offenders([events], &(allowed?(&1) or &1 in event_facades)) == []
-    assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence))) == []
+    assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence Aiur.Project))) == []
   end
 
   test "stores do not reference AiurWeb (future regression guard)" do

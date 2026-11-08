@@ -126,7 +126,7 @@ defmodule Aiur.Claude.HookEvents do
   # Best-effort liveness ping to the orchestrator's stall watchdog. Guarded so
   # a missing orchestrator (early boot / tests) can never crash the hook path.
   defp note_agent_liveness(identifier) do
-    if Process.whereis(Orchestrator), do: Orchestrator.note_agent_activity(identifier)
+    if GenServer.whereis(Aiur.Project.whereis(Aiur.Project.whereis(Aiur.Orchestrator))), do: Orchestrator.note_agent_activity(identifier)
     :ok
   catch
     :exit, _ -> :ok

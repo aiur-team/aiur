@@ -273,7 +273,7 @@ defmodule Aiur.Application.Children do
       # its initial dispatch.
       Aiur.Orchestrator.SpendCap.Store,
       Aiur.GitHub.Listeners,
-      {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Project.whereis(Aiur.Orchestrator)), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.Commands.Routing,
       Aiur.DecisionExpiry,

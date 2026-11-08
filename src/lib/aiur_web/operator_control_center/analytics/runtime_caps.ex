@@ -145,7 +145,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RuntimeCaps do
   # with it and is never discarded. Dropping `freshness` here is what turned an
   # hours-old cap into an unmarked current one.
   defp capacity_reading(opts) do
-    orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+    orchestrator = Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
     timeout = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
     snapshot_fun = Keyword.get(opts, :dashboard_snapshot_fun, &Orchestrator.dashboard_snapshot/2)
     snapshot_fun.(orchestrator, timeout)
