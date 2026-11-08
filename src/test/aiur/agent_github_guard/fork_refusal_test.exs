@@ -28,6 +28,11 @@ defmodule Aiur.AgentGitHubGuard.ForkRefusalTest do
     File.write!(fake, "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = push ] && { echo PUSHED; exit 0; }; done\nexec #{real_git()} \"$@\"\n")
     File.chmod!(fake, 0o755)
 
+    # The merge-queue push guard calls the installed gh; answer it locally so the test never reaches GitHub.
+    gh = Path.join(Path.dirname(context.git_wrapper), "gh")
+    File.write!(gh, "#!/bin/sh\ncase \"$*\" in *graphql*) echo 'false MERGEABLE APPROVED' ;; *issues/*) echo 'priority:2 agent:in-progress' | tr ' ' '\\n' ;; *) exit 1 ;; esac\n")
+    File.chmod!(gh, 0o755)
+
     env = [{"AIUR_REAL_GIT", fake}, {"AIUR_AGENT_WORKSPACE", context.workspace}, {"AIUR_GITHUB_REPO", @expected}]
     assert {"PUSHED\n", 0} = System.cmd(context.git_wrapper, ["push", "origin", "HEAD"], cd: context.workspace, env: env, stderr_to_stdout: true)
   end
