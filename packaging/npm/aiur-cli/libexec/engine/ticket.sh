@@ -90,3 +90,27 @@ cmd_ticket_ownership() {
   fi
   run_control_rpc "Aiur.AgentControlCLI.ticket_$sub([$opts])"
 }
+
+# `ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]`. Dry run unless --apply.
+cmd_ownership() {
+  [ "${1:-}" = migrate ] || { echo 'aiur: unknown ownership subcommand (expected migrate)' >&2; exit 64; }
+  shift
+  local maps="" apply=0 json=0 opts
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json) json=1 ;;
+      --apply) apply=1 ;;
+      --map)
+        [ "$#" -gt 1 ] || { echo 'aiur: --map requires a value' >&2; exit 64; }
+        shift
+        maps="$maps${maps:+, }Base.decode64!(\"$(encode_control_value "$1")\")" ;;
+      *) echo "aiur: unknown ownership migrate option: $1" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [ -n "$maps" ] || { echo 'aiur: ownership migrate requires --map <prefix>=<gateway>' >&2; exit 64; }
+  opts="maps: [$maps]"
+  [ "$apply" -eq 0 ] || opts="$opts, apply: true"
+  [ "$json" -eq 0 ] || opts="$opts, json: true"
+  run_control_rpc "Aiur.AgentControlCLI.ownership_migrate([$opts])"
+}

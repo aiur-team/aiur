@@ -56,6 +56,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:alerts, 1, &__MODULE__.alerts_category/1, [:keyword], %{argv: :literal_list, json: :boolean}},
     {:alerts, 0, :read, [], %{}},
     {:executor_sweep, 1, &__MODULE__.sweep_category/1, [:keyword], %{apply: :boolean, json: :boolean}},
+    {:ownership_migrate, 1, &__MODULE__.sweep_category/1, [:keyword], %{maps: :string_list, apply: :boolean, json: :boolean}},
     {:commands, 0, :read, [], %{}},
     {:commands, 1, :read, [:keyword],
      %{

@@ -51,6 +51,8 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"alerts", "cmd_alerts --needs-attention --limit 1", :read, []},
     {"executor sweep read", "cmd_executor_sweep --json", :read, []},
     {"executor sweep apply", "cmd_executor_sweep --apply", :write, []},
+    {"ownership migrate dry run", "cmd_ownership migrate --map a=b --json", :read, []},
+    {"ownership migrate apply", "cmd_ownership migrate --map a=b --apply", :write, []},
     {"watch full", "cmd_watch --full", :read, []},
     {"watch changes", "cmd_watch --changes", :write, []},
     {"ticket estimate", "cmd_ticket estimate 123 0.5 --reason test --by operator --json", :write, []},
