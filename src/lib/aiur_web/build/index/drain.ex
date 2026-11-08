@@ -3,12 +3,13 @@ defmodule AiurWeb.Build.Index.Drain do
 
   @doc "Dirty parts for `tag`, merged with those of every refresh signal already queued (consumed)."
   @spec keys(%{atom() => [atom()]}, atom()) :: [atom()]
-  def keys(signals, tag), do: collect(signals, Map.fetch!(signals, tag))
+  def keys(signals, tag), do: collect(signals, signals[:poll_state_changed], Map.fetch!(signals, tag))
 
-  defp collect(signals, acc) do
+  # `:fleet_changed` is the bare form of `:poll_state_changed`; its parts come from the same map entry.
+  defp collect(signals, fleet, acc) do
     receive do
-      {tag, _payload} when is_map_key(signals, tag) -> collect(signals, signals[tag] ++ acc)
-      :fleet_changed -> collect(signals, [:capacity | acc])
+      {tag, _payload} when is_map_key(signals, tag) -> collect(signals, fleet, signals[tag] ++ acc)
+      :fleet_changed -> collect(signals, fleet, fleet ++ acc)
     after
       0 -> Enum.uniq(acc)
     end
