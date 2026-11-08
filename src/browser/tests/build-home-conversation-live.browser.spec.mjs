@@ -52,6 +52,14 @@ async function scrollUp(page, distance) {
   await expect.poll(() => page.evaluate(() => window.liveAudit.frames.size)).toBe(0)
   await log(page).evaluate((el, d) => { el.scrollTop = el.scrollHeight - el.clientHeight - d; el.dispatchEvent(new Event('scroll')) }, distance)
 }
+// A late re-pin (resize delivery, media-query restyle) can still move the log; the offset must survive two frames (#7832).
+async function scrollUpStable(page, distance) {
+  await expect(async () => {
+    await scrollUp(page, distance)
+    await twoFrames(page)
+    expect(await log(page).evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(60)
+  }).toPass()
+}
 async function push(page, entries, fields = {}) {
   // Synchronous evaluate: an awaited dynamic import can be collected and reported as a navigation (#7426, #7832).
   await page.evaluate(({ entries, fields }) => {
@@ -349,7 +357,9 @@ test('L7: close cancels the pending map frame and late server/local appends leav
 for (const reducedMotion of ['reduce', 'no-preference']) {
   test('L21: pill and tick use ' + (reducedMotion === 'reduce' ? 'same-frame auto' : 'scrollend smooth') + ' scrolling', async ({ page }) => {
     await page.emulateMedia({ reducedMotion })
-    await scrollUp(page, 300); await push(page, [entry('motion')])
+    // The media-query handler restyles the page asynchronously; wait for it before scrolling (#7832).
+    await expect.poll(() => page.evaluate(() => !!document.querySelector('.rm'))).toBe(reducedMotion === 'reduce')
+    await scrollUpStable(page, 300); await push(page, [entry('motion')])
     await page.evaluate(() => {
       const log = document.querySelector('#cv-log'), scrollTo = log.scrollTo.bind(log)
       window.scrollCalls = []; window.scrollEnds = 0
