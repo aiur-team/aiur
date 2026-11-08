@@ -22,7 +22,8 @@ defmodule AiurWeb.RouteAuthCensusTest do
     :supervisor_auth,
     :executor_hook_auth,
     :executor_hook_delivery_auth,
-    :github_webhook
+    :github_webhook,
+    :gateway_summary
   ]
   @intentionally_public [{:get, "/healthz"}, {:get, "/readyz"}]
   @audited_sockets %{

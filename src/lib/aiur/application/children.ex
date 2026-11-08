@@ -373,7 +373,12 @@ defmodule Aiur.Application.Children do
     store_children =
       [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
         if(LeaseStore.configured?(),
-          do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}, Aiur.Intent.Sync],
+          do: [
+            LeaseStore,
+            {Heartbeat, metadata_fun: &heartbeat_metadata/0},
+            Aiur.Intent.Sync,
+            Aiur.Gateway.Liveness
+          ],
           else: []
         )
 

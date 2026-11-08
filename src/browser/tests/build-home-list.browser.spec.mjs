@@ -101,8 +101,8 @@ test('Lanes sort unknown last, expose overlap and unmatched count, and filter on
   expect(await page.locator('.ep-row').evaluateAll(rows => rows.map(row => row.dataset.lane))).toEqual(['bugs', 'infra', 'docs', 'design'])
   await expect(page.locator('.ep-row[data-lane="design"] .ep-count')).toContainText('—')
   await expect(page.locator('.ep-row[data-lane="design"] .ep-count')).toContainText('history incomplete')
-  await expect(page.locator('.epic-list footer')).toContainText('A ticket can count under more than one lane')
-  await expect(page.locator('.epic-list footer')).toContainText('3 tickets match no lane')
+  await expect(page.locator('.epic-list .lr-cap')).toContainText('A ticket can count under more than one lane')
+  await expect(page.locator('.epic-list .lr-cap')).toContainText('3 tickets match no lane')
   await page.locator('.ep-row[data-lane="infra"]').focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/view=list.*lane=infra|lane=infra.*view=list/)
@@ -141,14 +141,72 @@ test('Lanes phone rows fit and pass axe', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const widths = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, viewport: innerWidth }))
   expect(widths.page).toBeLessThanOrEqual(widths.viewport)
+  // The Done column collapses; name, bar and remaining stay on one row inside it.
   const placement = await page.locator('.ep-row').first().evaluate(row => {
-    const meter = row.querySelector('.ep-meter').getBoundingClientRect()
-    const count = row.querySelector('.ep-count').getBoundingClientRect()
-    return { meterTop: meter.top, countBottom: count.bottom }
+    const box = el => el.getBoundingClientRect(), r = box(row)
+    return { done: getComputedStyle(row.querySelector('.ep-count')).display, inside: ['.ep-name', '.ep-meter', '.ep-left'].every(s => { const b = box(row.querySelector(s)); return b.left >= r.left && b.right <= r.right + 0.5 && b.top >= r.top && b.bottom <= r.bottom + 0.5 }) }
   })
-  expect(placement.meterTop).toBeGreaterThanOrEqual(placement.countBottom)
+  expect(placement).toEqual({ done: 'none', inside: true })
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations).toEqual([])
+})
+// Each tab is read from the live DOM: the card, its frame, its header row and the first data row.
+async function listCard(page, list) {
+  await page.getByRole('tab', { name: list }).click()
+  if (list === 'Features') {
+    await page.evaluate(async () => {
+      const { ctx, fx } = await import('/build-home/state.js')
+      ctx.D.feature_progress = { ...ctx.D.feature_progress, bars: [{ key: 'pag', label: 'Pagination', merged: 3, total: 4 }, { key: 'x', label: 'X', merged: 2, total: 2 }] }
+      fx.renderList()
+    })
+  }
+  return page.evaluate(() => {
+    const vp = document.querySelector('#bd-vp'), card = vp.firstElementChild, rows = [...card.querySelectorAll(':scope > .lr:not(.lr-h)')]
+    const style = el => getComputedStyle(el), frame = style(vp.parentElement)
+    return {
+      card: [card.classList[0], card.getAttribute('role')],
+      viewport: [style(vp).backgroundImage, style(vp).boxShadow],
+      frame: [frame.backgroundImage, frame.borderRadius, frame.padding],
+      cardBackground: style(card).backgroundImage,
+      header: card.querySelector(':scope > .lr.lr-h')?.querySelectorAll('[role="columnheader"]').length ?? 0,
+      // Live ticket rows keep their state tint; no row may carry the dotted or checkered pattern.
+      rowBackgrounds: [...new Set(rows.filter(row => !row.classList.contains('now')).map(row => style(row).backgroundImage))],
+      patterned: rows.some(row => /radial-gradient|repeating/.test(style(row).backgroundImage)),
+      rowHeight: rows[0].getBoundingClientRect().height,
+      divider: [style(rows[0]).borderBottomStyle, style(rows[0]).borderBottomWidth],
+      barRadii: [...card.querySelectorAll('.fp-bar, .fp-bar i')].map(el => parseFloat(style(el).borderTopLeftRadius)),
+      overflow: document.documentElement.scrollWidth - innerWidth
+    }
+  })
+}
+for (const theme of ['dark', 'light']) test(`Tickets, Features and Lanes share one plain table card in ${theme} theme`, async ({ page }) => {
+  await page.evaluate(theme => { document.documentElement.dataset.theme = theme }, theme)
+  const tickets = await listCard(page, 'Tickets')
+  for (const list of ['Features', 'Lanes']) {
+    const tab = await listCard(page, list)
+    expect(tab.card).toEqual(['bd-list', 'table'])
+    expect(tab.viewport).toEqual(['none', 'none'])
+    expect(tab.frame).toEqual(tickets.frame)
+    expect(tab.cardBackground).toBe('none')
+    expect(tab.header).toBe(4)
+    expect(tab.rowBackgrounds).toEqual(['none'])
+    expect(tab.patterned).toBe(false)
+    expect(Math.abs(tab.rowHeight - tickets.rowHeight)).toBeLessThanOrEqual(1)
+    expect(tab.divider).toEqual(tickets.divider)
+    expect(tab.barRadii.length).toBeGreaterThan(0)
+    expect(tab.barRadii.every(radius => radius > 0)).toBe(true)
+  }
+  expect(tickets.card).toEqual(['bd-list', 'table'])
+  expect(tickets.viewport).toEqual(['none', 'none'])
+  expect(tickets.patterned).toBe(false)
+  await page.setViewportSize({ width: 390, height: 844 })
+  for (const list of ['Tickets', 'Features', 'Lanes']) {
+    const tab = await listCard(page, list)
+    expect(tab.overflow).toBeLessThanOrEqual(0)
+    expect(tab.viewport).toEqual(['none', 'none'])
+  }
+  expect((await new AxeBuilder({ page }).include('#bd-vp').analyze()).violations).toEqual([])
+  await page.screenshot({ path: test.info().outputPath(`list-lanes-390-${theme}.png`) })
 })
 test('Lanes with no configured rows show the configuration empty state', async ({ page }) => {
   await page.getByRole('tab', { name: 'Lanes' }).click()

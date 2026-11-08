@@ -18,7 +18,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
 
     assert Enum.map(RouteRegistry.routes(analytics), & &1.id) == [
              :build,
-             :executor,
              :commands,
              :analytics,
              :streamdeck
@@ -75,7 +74,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
 
   test "Experiments capability inserts a separate owner after Analytics" do
     runtime = %{experiments_available?: true}
-    assert Enum.map(RouteRegistry.routes(runtime), & &1.id) == [:build, :executor, :commands, :analytics, :experiments, :streamdeck]
+    assert Enum.map(RouteRegistry.routes(runtime), & &1.id) == [:build, :commands, :analytics, :experiments, :streamdeck]
     assert RouteRegistry.route(:experiments, %{}) == :error
     assert RouteRegistry.route(:experiments, %{experiments_available?: false}) == :error
     assert {:ok, route} = RouteRegistry.route(:experiments, runtime)
