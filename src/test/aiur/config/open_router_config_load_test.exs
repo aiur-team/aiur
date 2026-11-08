@@ -53,4 +53,28 @@ defmodule Aiur.Config.OpenRouterConfigLoadTest do
     assert {:error, {:invalid_workflow_config, message}} = openrouter.(%{"cheap" => %{"model" => "deepseek/deepseek-v4-flash"}})
     assert message =~ "routes.cheap has an unknown field"
   end
+
+  test "command_sandbox is validated at config load, not only in the validator module" do
+    load = fn sandbox ->
+      Schema.parse(%{
+        "agent" => %{
+          "priority" => ["openrouter:cheap"],
+          "backend_configs" => %{"openrouter" => %{"command_sandbox" => sandbox}}
+        }
+      })
+    end
+
+    assert {:ok, settings} = load.(%{"read_only_binds" => ["/opt/node"]})
+    assert settings.agent.backend_configs["openrouter"]["command_sandbox"]["read_only_binds"] == ["/opt/node"]
+
+    for {sandbox, fragment} <- [
+          {%{"read_only_binds" => ["relative/dir"]}, "must be absolute"},
+          {%{"writable_binds" => ["/"]}, "must not be /"},
+          {%{"path" => [Path.join(System.user_home!(), ".aiur/instances")]}, "~/.aiur"}
+        ] do
+      assert {:error, {:invalid_workflow_config, message}} = load.(sandbox)
+      assert message =~ "openrouter"
+      assert message =~ fragment
+    end
+  end
 end
