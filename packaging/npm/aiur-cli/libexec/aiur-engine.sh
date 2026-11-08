@@ -107,6 +107,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
+       aiur ticket owner <id> [--json]  show owner, epoch, actor, age and liveness
+       aiur ticket assign <id> --to <gateway> --reason <text> [--force] [--as <id>] [--json]  transfer ownership
        aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur lane clear <ids...> [--as <who>] [--json]
        aiur lane confirm <ids...> [--lane <key>] [--as <who>] [--json]
@@ -127,6 +129,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-lane <key>=<label>]... [--epic-hue <key>=<gruvbox-name or 0-359>]... [--lane-icon <key>=<heroicon>]... [--as <who>] [--json]
        aiur feature confirm <slug> <ids...> [--as <who>] [--json]
        aiur feature show [<slug>] [--unconfirmed] [--json]
+       aiur gateway permissions [<peer>] [--json] | grant <peer> <categories> | revoke <peer> [<categories>] | trust <peer> --full  local only
        aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
@@ -219,6 +222,7 @@ aiur_engine_main() {
   AIUR_CONTROL_COMMAND="${cmd:-run}"
   if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
     validate_remote_instance_name || return $?
+    ensure_gateway_grants_local "$@" || return $?
     [ "$AIUR_REMOTE_INSTANCE" != all ] || ensure_remote_all_read_command "$@" || return $?
     ensure_remote_command_allowed "$@" || return $?
   fi
@@ -269,6 +273,8 @@ aiur_engine_main() {
       ;;
     ask) run_ask "$@" ;;
     asks) run_asks "$@" ;;
+    # @cli-reference aiur --categories a,b | Limits a new client token to the named control-call categories. | aiur token create hub --categories read,message
+    # @cli-reference aiur --peer ID | Binds a new client token to a gateway id; categories default to `read`. | aiur token create hub --peer gw-hub
     # @cli-reference aiur --bg | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | aiur --bg
     --bg)
       dispatch_run "$@"
@@ -345,6 +351,7 @@ aiur_engine_main() {
     lane) shift; cmd_lane "$@" ;;
     epic) shift; cmd_epic "$@" ;;
     feature) shift; cmd_feature "$@" ;;
+    gateway) shift; cmd_gateway "$@" ;;
     build-orders)
       shift
       cmd_build_orders "$@"
@@ -481,6 +488,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-lane.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-gateway.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-executor-session.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-experiments.sh"

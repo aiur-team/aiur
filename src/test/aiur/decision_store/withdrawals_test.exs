@@ -3,11 +3,13 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.DecisionStore.WithdrawalsTest do
   use Aiur.DecisionStoreCase, async: false
 
+  alias Aiur.DecisionStore.Withdrawals
+
   test "dismiss is durable, idempotent, historic, and write-gated", %{dir: dir} do
     pid = start_store!(dir)
 
-    # Non-blocking: dismissal closes a notice outright. A blocking Command is
-    # covered separately — dismissal cannot release its agent.
+    # Non-blocking: dismissal closes a notice outright. Blocking Commands are
+    # covered separately below.
     assert {:ok, %{decision: decision}} =
              request(pid, %{
                "question" => "Use blue or green?",
@@ -93,36 +95,23 @@ defmodule Aiur.DecisionStore.WithdrawalsTest do
     assert durable.decision_status == :dismissed
   end
 
-  test "dismissal is refused for a blocking Command it cannot release", %{dir: dir} do
+  test "the operator can dismiss an open or deferred blocking Command, releasing its gate", %{dir: dir} do
     pid = start_store!(dir)
     opts = [actor: %{kind: :operator, id: "dashboard"}]
 
-    # Agent-filed: blocking, with no legacy attention to resolve alongside it.
-    # Dismissal delivers nothing to the agent, so closing it would hide a live
-    # block rather than clear it.
-    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Push or hold?", "blocking" => true})
+    # Agent-filed: blocking, with no legacy attention — every "Needs you" card.
+    assert {:ok, %{decision: open}} = request(pid, %{"question" => "Push or hold?", "blocking" => true})
+    assert Withdrawals.open_blocking_command?(open)
 
-    assert {:error, {:conflict, :blocking_requires_answer}} =
-             DecisionStore.dismiss(decision.decision_id, opts, pid)
+    assert {:ok, %{status: :accepted, decision: dismissed}} = DecisionStore.dismiss(open.decision_id, opts, pid)
+    assert dismissed.decision_status == :dismissed
+    refute Withdrawals.open_blocking_command?(dismissed)
 
-    assert {:ok, still_open} = DecisionStore.get(decision.decision_id, pid)
-    assert still_open.decision_status == :open
+    assert {:ok, %{decision: other}} = request(pid, %{"source_id" => "blocking-deferred", "question" => "Merge or wait?", "blocking" => true})
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(other.decision_id, opts, pid)
 
-    # Deferring first must not open a back door to the same hidden close.
-    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
-
-    assert {:error, {:conflict, :blocking_requires_answer}} =
+    assert {:ok, %{status: :accepted, decision: %{decision_status: :dismissed}}} =
              DecisionStore.dismiss(deferred.decision_id, opts, pid)
-
-    # Answering is the path that actually releases the agent.
-    assert {:ok, %{decision: answered}} =
-             answer(pid, decision.decision_id, %{
-               "idempotency_key" => "blocking-answer",
-               "expected_version" => 1,
-               "custom_response" => "Hold the push"
-             })
-
-    assert answered.decision_status == :decided
   end
 
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do

@@ -104,6 +104,7 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
   test "dispatch initializes and broadcasts the pending view", %{id: id, issue: issue} do
     state =
       Dispatcher.do_dispatch_issue(%State{}, issue, nil, nil,
+        dependency_checked: true,
         lease_claim_fun: fn _ -> :acquired end,
         start_runner_task_fun: fn _, _, _, _, _ -> {:ok, self()} end
       )

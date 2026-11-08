@@ -49,6 +49,16 @@ defmodule Aiur.OpenAICompat.ToolSpec do
       }
     },
     %{
+      "name" => "view_image",
+      "description" => "View a PNG, JPEG, GIF or WebP image inside the current workspace (max 5 MiB); it is attached to the next request.",
+      "parameters" => %{
+        "type" => "object",
+        "properties" => %{"path" => %{"type" => "string"}},
+        "required" => ["path"],
+        "additionalProperties" => false
+      }
+    },
+    %{
       "name" => "exec_command",
       "description" => "Run a shell command in the current workspace through the configured OS sandbox.",
       "parameters" => %{
@@ -67,15 +77,17 @@ defmodule Aiur.OpenAICompat.ToolSpec do
           | {:unexpected_arguments, [String.t()]}
           | {:unsupported_tool, String.t()}
 
-  @spec specs(:chat_completions | :responses) :: [map()]
-  def specs(:chat_completions) do
-    Enum.map(all(), fn spec ->
+  @spec specs(:chat_completions | :responses, map()) :: [map()]
+  def specs(transport, config \\ %{})
+
+  def specs(:chat_completions, config) do
+    Enum.map(offered(config), fn spec ->
       %{"type" => "function", "function" => Map.take(spec, ["name", "description", "parameters"])}
     end)
   end
 
-  def specs(:responses) do
-    Enum.map(all(), fn spec ->
+  def specs(:responses, config) do
+    Enum.map(offered(config), fn spec ->
       spec
       |> Map.take(["name", "description", "parameters"])
       |> Map.put("type", "function")
@@ -105,6 +117,13 @@ defmodule Aiur.OpenAICompat.ToolSpec do
 
   def format_validation_error({:invalid_argument_types, names}),
     do: "invalid arguments: #{Enum.join(names, ", ")}"
+
+  # view_image is offered only when the backend is configured as image-capable.
+  defp offered(config) do
+    if get_in(config, [:quirks, :image_input]) == true,
+      do: all(),
+      else: Enum.reject(all(), &(&1["name"] == "view_image"))
+  end
 
   defp all, do: @builtin ++ Catalog.specs()
 

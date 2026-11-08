@@ -19,6 +19,15 @@ defmodule Aiur.Project do
     %__MODULE__{id: String.downcase(repo), repo: repo, config_path: Path.expand(config), state_root: state_root}
   end
 
+  @doc "Scopes a machine-level key by the caller's project; the bare key with no context."
+  @spec scope_key(term()) :: term()
+  def scope_key(key) do
+    case Context.current_id() do
+      nil -> key
+      id -> {id, key}
+    end
+  end
+
   @doc """
   Name a project-scoped process registers under: `module` itself with no project,
   else a via tuple over `Aiur.ProjectRegistry` keyed by the downcased project id.
@@ -47,7 +56,7 @@ defmodule Aiur.Project do
 
   @doc """
   The GenServer name for `module` in the current project: a `Registry` via-tuple
-  with a project context, the bare module (today's `name: __MODULE__`) without.
+  with a project context, the bare module (today's bare name) without.
   """
   @spec via(module()) :: GenServer.server()
   def via(module), do: name(module)

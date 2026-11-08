@@ -74,7 +74,8 @@ defmodule Aiur.Commands.ComponentState do
       "conflict" => conflict(projection),
       "media" => media(projection),
       "actions" => actions(state, writable?),
-      "source" => text(projection, "source")
+      "source" => text(projection, "source"),
+      "tags" => List.wrap(Map.get(projection, "tags"))
     }
   end
 
@@ -424,6 +425,8 @@ defmodule Aiur.Commands.ComponentState do
       "rejected" => get_key(answer, "rejected") == true,
       "accepted_at" => get_key(answer, "accepted_at")
     }
+    # Text-only answers keep the old shape.
+    |> then(&if(match?([_ | _], get_key(answer, "feedback")), do: Map.put(&1, "feedback", get_key(answer, "feedback")), else: &1))
   end
 
   defp conflict(%{"state" => "conflict"} = projection), do: Map.get(projection, "conflict")

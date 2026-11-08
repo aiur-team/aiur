@@ -11,6 +11,7 @@ Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `
 - [CLI development commands](./cli-development)
 - [Global launch options](./cli-options)
 - [Build history commands](./build-history-commands)
+- [Gateway permissions](./cli-gateways)
 
 ## What the CLI does
 

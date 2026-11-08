@@ -49,6 +49,14 @@ defmodule Aiur.InstanceTest do
     end
   end
 
+  test "a durable owner decides eligibility before the roster is consulted" do
+    ticket = %Aiur.Issue{id: "42", labels: []}
+
+    assert :eligible = Instance.eligible?(ticket, "pc", [], {:owner, :self})
+    assert {:ineligible, :peer_owns_ticket} = Instance.eligible?(ticket, "pc", [], {:owner, :other})
+    assert {:unavailable, :self_missing_from_roster} = Instance.eligible?(ticket, "pc", [], :unknown)
+  end
+
   test "live ownership reserves matches, shares unmatched tickets, and releases on pause or expiry" do
     roster = [
       %{instance_id: "nuc", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "build-lane:voice"}, %{"ticket" => 73}], "pool" => true, "dispatching" => true}}},

@@ -38,6 +38,8 @@ defmodule Aiur.Workspace.AttributionHooksSetupTest do
           {"THIS_REPOSITORY_URL", origin},
           {"THIS_BASE_BRANCH", "main"},
           {"AIUR_TICKET_BRANCH", "aiur/test"},
+          {"AIUR_GIT_NAME", "Test User"},
+          {"AIUR_GIT_EMAIL", "test@example.com"},
           {"AIUR_REPO_STATE_PATH", Path.join(root, "state")}
         ]
       )

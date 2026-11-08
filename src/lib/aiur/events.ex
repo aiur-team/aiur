@@ -53,9 +53,13 @@ defmodule Aiur.Events do
   @spec publisher_available?() :: boolean()
   def publisher_available?, do: Process.whereis(Publisher) != nil
 
-  @doc false
+  @doc "The exchange a project's tree starts, and the default `Exchange` functions address; resolved per call from the caller's project."
   @spec exchange_server() :: GenServer.server()
-  def exchange_server, do: Exchange
+  def exchange_server, do: Aiur.Project.via(Exchange)
+
+  @doc false
+  @spec subscription_store_supervisor() :: GenServer.server()
+  def subscription_store_supervisor, do: Aiur.Project.via(Aiur.Events.SubscriptionStoreSupervisor)
 
   @doc false
   @spec any_subscriber_matches?(String.t()) :: boolean()

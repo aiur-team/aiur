@@ -36,7 +36,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
       search_match?(decision, Map.get(query, :search)) and
       optional_match?(decision.authority, Map.get(query, :authority)) and
       optional_match?(decision.blocking, Map.get(query, :blocking)) and
-      kind_match?(decision.kind, Map.get(query, :kind))
+      kind_match?(decision.kind, Map.get(query, :kind)) and
+      tag_match?(decision.tags, Map.get(query, :tag))
   end
 
   defp candidate(index, %{ticket: ticket} = query) when is_binary(ticket),
@@ -79,7 +80,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp scan_limited?(query) do
-    Enum.any?([:ticket, :tickets, :search, :authority, :blocking, :kind, :route], &(not is_nil(Map.get(query, &1))))
+    Enum.any?([:ticket, :tickets, :search, :authority, :blocking, :kind, :route, :tag], &(not is_nil(Map.get(query, &1))))
   end
 
   defp lifecycle_match?(_decision, nil), do: true
@@ -112,6 +113,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   defp optional_match?(_actual, nil), do: true
   defp optional_match?(actual, expected), do: actual == expected
+  defp tag_match?(_tags, nil), do: true
+  defp tag_match?(tags, tag), do: tag in (tags || [])
   defp kind_match?(_actual, nil), do: true
   defp kind_match?(nil, _expected), do: false
   defp kind_match?(actual, expected), do: String.downcase(String.trim(actual)) == expected

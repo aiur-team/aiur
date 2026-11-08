@@ -1,11 +1,11 @@
 import { ctx, fx, onReset } from './state.js';
 import { nowMs } from './clock.js';
 import { $, $$, esc } from './dom.js';
-import { stripHTML } from './usage-render.js';
-export { fmtLeft, avgKnown, stripHTML } from './usage-render.js';
+import { stripHTML, navHTML } from './usage-render.js';
+export { fmtLeft, avgKnown, stripHTML, navHTML } from './usage-render.js';
 
-let lastHTML = null, axPop = null, axOver = null, bound = false;
-onReset(() => { axPop?.remove(); axPop = axOver = lastHTML = null; bound = false; });
+let lastHTML = null, lastNav = null, axPop = null, axOver = null, bound = false;
+onReset(() => { axPop?.remove(); axPop = axOver = lastHTML = lastNav = null; bound = false; });
 function hide() { axPop?.classList.remove('show'); }
 function show(line) {
   axOver = line;
@@ -49,6 +49,9 @@ export function renderUsage() {
   const host = $('#bd-usage', ctx.root);
   if (!host) return;
   if (!bound) wireUsagePop(host);
+  // The sidebar host sits in the LiveView shell, outside #build-root.
+  const nav = document.getElementById('bd-usage-nav'), navH = navHTML(u, nowMs());
+  if (nav && navH !== lastNav) { lastNav = navH; nav.innerHTML = navH; }
   const html = stripHTML(u, nowMs());
   if (html === lastHTML) return;
   const key = axPop.classList.contains('show') ? axOver?.dataset.k : null;

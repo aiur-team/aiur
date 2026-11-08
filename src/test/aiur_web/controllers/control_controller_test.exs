@@ -35,15 +35,18 @@ defmodule AiurWeb.ControlControllerTest do
     audit_path = Path.join(root, "control-audit.ndjson")
     previous_token_path = Application.get_env(:aiur, :client_tokens_path)
     previous_audit_path = Application.get_env(:aiur, :control_audit_file)
+    previous_registry_path = Application.get_env(:aiur, :gateway_registry_path)
     previous_cap = Aiur.Orchestrator.max_concurrent_agents()
     Application.put_env(:aiur, :client_tokens_path, token_path)
     Application.put_env(:aiur, :control_audit_file, audit_path)
+    Application.put_env(:aiur, :gateway_registry_path, Path.join(root, "remote-instances.yaml"))
     assert {:ok, read_token} = Aiur.ClientTokens.create("control-read", "read")
     assert {:ok, write_token} = Aiur.ClientTokens.create("control-write", "write")
 
     on_exit(fn ->
       restore_env(:client_tokens_path, previous_token_path)
       restore_env(:control_audit_file, previous_audit_path)
+      restore_env(:gateway_registry_path, previous_registry_path)
       if is_map(previous_cap), do: Aiur.AgentControlCLI.set_max_agents(previous_cap.max)
       Aiur.TestCleanup.rm_rf!(root)
     end)
@@ -250,6 +253,22 @@ defmodule AiurWeb.ControlControllerTest do
 
     assert method.status == 405
     assert issue_route.plug == AiurWeb.ObservabilityApiController
+  end
+
+  test "a token without the agents category is refused pause and the audit names category and peer", %{audit_path: path} do
+    {:ok, token} = Aiur.ClientTokens.create("peer-token", "write", peer: "gw-peer", categories: ["read", "message"])
+    File.write!(Application.get_env(:aiur, :gateway_registry_path), "version: 1\ninstances:\n  nook:\n    gateway_id: gw-peer\n    allows:\n      categories: [read, message]\n")
+
+    refused = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.pause([\"1\"])"}))
+    assert refused.status == 403
+    assert Jason.decode!(refused.resp_body)["error"]["code"] == "category_not_granted: agents"
+
+    assert path |> File.read!() |> String.split("\n", trim: true) |> List.last() |> Jason.decode!() |> Map.take(["category", "peer", "outcome"]) ==
+             %{"category" => "agents", "peer" => "gw-peer", "outcome" => "refused"}
+
+    assert post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})).status == 200
+    granted = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.message(\"1\", \"hi\")"}))
+    refute granted.resp_body =~ "category_not_granted"
   end
 
   defp post_control(token, payload), do: request(:post, "Bearer " <> token, payload)

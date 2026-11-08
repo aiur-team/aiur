@@ -51,7 +51,7 @@ defmodule Aiur.Config.Schema.Instance do
     field(:deployment_kind, :string, default: "operator")
 
     # @config-reference config-configuration-00 instance.id
-    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads, except under `instance.ownership: github`, where dispatch continues on the GitHub ownership claim. |
     field(:id, :string)
 
     # @config-reference config-configuration-00 instance.roster_stale_retention_ms
@@ -66,6 +66,11 @@ defmodule Aiur.Config.Schema.Instance do
     # @config-detail instance.pool | boolean | `true` | Whether this instance may dispatch tickets that no live, dispatching instance reserves with `instance.owns`. Hot-reloadable. |
     field(:pool, :boolean, default: true)
 
+    # @config-reference config-configuration-00 instance.ownership
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail instance.ownership | string | `off` | `github` makes every agent start, including recycles and PR-anchored units, require a durable ownership ref (`refs/aiur/owners/<ticket>`, `pr-<N>` for PRs): this gateway and daemon must already own it or win its claim, otherwise dispatch is declined and retried next poll. Enable on a drained or quiet gateway. Read at each dispatch, so a config reload applies without a restart. The owner also gets a `gateway:<slug>` label (blue, created on first use); the ref stays authoritative. If the ref and the label disagree, the ticket is skipped and `system.ownership.ambiguous` fires once per ticket per hour. A `gateway:` label with no ref and no state label is logged as an assignment request, never dispatched. The Postgres lease store becomes optional: with it unset or unreachable, dispatch proceeds on the ownership claim alone, and with it up the run lease still refuses a second concurrent run. |
+    field(:ownership, :string, default: "off")
+
     # @config-reference config-configuration-00 instance.role
     # @config-detail instance.role | string | `primary` | `secondary` never claims the repository leader lease; `primary` is eligible to lead on equal terms with other eligible instances when `AIUR_LEASE_DATABASE_URL` is configured. Only the lease holder runs repository-wide landing, quarantine, merge-queue, and main-branch work. Label heals remain scoped to each instance's tracker view. Without a shared store, primary retains single-instance behavior. Read once at daemon start; change it with a restart. |
     field(:role, :string, default: "primary")
@@ -79,11 +84,12 @@ defmodule Aiur.Config.Schema.Instance do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:mode, :deployment_kind, :role, :id, :roster_stale_retention_ms, :owns, :pool], empty_values: [])
+    |> cast(attrs, [:mode, :deployment_kind, :role, :id, :roster_stale_retention_ms, :owns, :pool, :ownership], empty_values: [])
     |> validate_inclusion(:mode, ["local", "hosted"])
     |> validate_inclusion(:deployment_kind, ["operator", "consumer"])
     |> validate_number(:roster_stale_retention_ms, greater_than_or_equal_to: 0)
     |> validate_inclusion(:role, ["primary", "secondary"])
+    |> validate_inclusion(:ownership, ["off", "github"])
     |> validate_length(:id, min: 1, max: 200)
     |> validate_owns()
     |> cast_embed(:ignore, with: &Ignore.changeset/2)

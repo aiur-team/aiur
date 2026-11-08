@@ -8,6 +8,7 @@
     "src/lib/aiur/event_humanizer_helpers.ex",
     "src/lib/aiur/post_deploy_checklist.ex",
     "src/lib/aiur_web/**",
+    "src/lib/aiur_web/operator_control_center/gateway_grant_commands.ex",
     "src/lib/aiur_web/routes/dashboard_pages.ex",
     "src/lib/aiur_web/sockets/live_view.ex",
     "src/lib/aiur_web/voice_conversation_events.ex"
@@ -37,8 +38,10 @@
     "conversations",
     "executor-attention",
     "experiments-page",
+    "gateway-trust",
     "github",
     "github-access",
+    "intent",
     "streamdeck-server",
     "telemetry",
     "ticket-context",

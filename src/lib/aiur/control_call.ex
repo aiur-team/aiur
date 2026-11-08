@@ -41,20 +41,21 @@ defmodule Aiur.ControlCall do
 
     with {:ok, ast} <- parse_ast(expression),
          {:ok, segments, function, raw_args} <- call_ast(ast),
+         :ok <- grants_local(segments, function, opts),
          {:ok, entry} <- allowlisted(segments, function, length(raw_args)),
          :ok <- Literal.validate_raw_option_keys(entry, raw_args),
          {:ok, args} <- Literal.convert(raw_args),
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, opts),
-         scope when scope in [:read, :write, :deny] <- classify(entry.class, args),
+         category <- classify(entry.class, args),
+         scope when scope in [:read, :write, :deny] <- Allowlist.scope_of(category),
          :ok <- allow_remote(scope, opts),
          :ok <- max_scope(scope, Keyword.get(opts, :max_scope, :write)) do
       module = Module.concat(segments)
-      {:ok, %{module: module, function: function, args: args, scope: scope}}
+      {:ok, %{module: module, function: function, args: args, scope: scope, category: category}}
     else
       {:error, _} = error -> error
       {:unknown_atom, name} -> {:error, {:unknown_on_build, name}}
-      {:unsupported, reason} -> {:error, reason}
       _ -> {:error, :non_literal_argument}
     end
   rescue
@@ -96,6 +97,15 @@ defmodule Aiur.ControlCall do
 
   defp call_ast({{:., _, [{:__aliases__, _, segments}, function]}, _, args}) when is_atom(function) and is_list(args), do: {:ok, segments, function, args}
   defp call_ast(_ast), do: {:error, :not_allowlisted}
+
+  # Grant changes are local to the receiving gateway: named here so the refusal is explicit and audited.
+  @grants_local_module [:Aiur, :Gateway, :Cli]
+  @grants_local_functions [:grant, :revoke, :trust]
+  defp grants_local(@grants_local_module, function, opts) when function in @grants_local_functions do
+    if Keyword.get(opts, :remote, false), do: {:error, :grants_are_local}, else: :ok
+  end
+
+  defp grants_local(_segments, _function, _opts), do: :ok
 
   defp allowlisted(segments, function, arity) do
     case Allowlist.fetch(segments, function, arity) do
@@ -153,7 +163,7 @@ defmodule Aiur.ControlCall do
     with {:ok, entry} <- Allowlist.fetch(segments, function, length(args)),
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, remote: true),
-         true <- classify(entry.class, args) == scope and scope in [:read, :write] do
+         true <- Allowlist.scope_of(classify(entry.class, args)) == scope and scope in [:read, :write] do
       :ok
     else
       _ -> unauthorized_call()

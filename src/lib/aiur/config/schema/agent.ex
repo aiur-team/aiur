@@ -154,6 +154,8 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.text_tool_fallback | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.image_input | boolean | false | Offers the `view_image` tool, which attaches a workspace PNG, JPEG, GIF or WebP (up to 5 MiB) to the next request. Set it only when the routed model accepts image input. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.openrouter_metadata | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-01 agent.backend_configs.<backend>.quirks.local_concurrency_limit | boolean | backend registry value | Applies aiur's local concurrency slot around backend requests. |

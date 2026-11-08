@@ -14,8 +14,10 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.Candidates
+  alias Aiur.Orchestrator.Dispatcher.Prevalidated
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.ListenerModes
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.OptimisticDispatch
@@ -54,7 +56,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @spec dispatch_prevalidated_issue(State.t(), Issue.t()) ::
           {{:ok, :started} | {:error, term()}, State.t()}
   def dispatch_prevalidated_issue(%State{} = state, %Issue{} = issue) do
-    next_state = do_dispatch_issue(state, issue, nil, nil)
+    next_state = do_dispatch_issue(state, issue, nil, nil, dependency_checked: true)
 
     result =
       cond do
@@ -92,14 +94,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
-    SharedLeaseDispatch.dispatch(
-      state,
-      issue,
-      attempt,
-      preferred_worker_host,
-      opts,
-      &dispatch_to_worker/5
-    )
+    case Prevalidated.check(issue, opts) do
+      {:ok, checked} ->
+        SharedLeaseDispatch.dispatch(state, checked, attempt, preferred_worker_host, opts, &dispatch_to_worker/5)
+
+      {:error, :waiting_for_dependencies} ->
+        Logger.info("Skipping dispatch; open blocker: #{State.issue_context(issue)}")
+        Candidates.emit_dispatch_attempt_decline(state, issue, :dependency, false)
+
+      {:error, {:dependency_hydration_failed, reason}} ->
+        Logger.warning("Skipping dispatch; blocked-by read failed (fail-closed): #{State.issue_context(issue)}: #{inspect(reason)}")
+        decline = HoldDecline.classify(issue, {:error, reason}, :dependency_hydration_failed)
+        Candidates.emit_dispatch_attempt_decline(state, issue, decline, true)
+    end
   end
 
   @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t(), keyword()) ::

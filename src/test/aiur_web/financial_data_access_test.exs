@@ -218,6 +218,8 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert Enum.map(live_routes, & &1.path) == [
              "/",
+             "/projects",
+             "/gateways",
              "/conversations/:conversation_id",
              "/commands",
              "/commands/:decision_id",
@@ -232,7 +234,8 @@ defmodule AiurWeb.FinancialDataAccessTest do
            ]
 
     for route <- live_routes do
-      {_view, _action, _route_opts, %{name: session_name, extra: %{on_mount: [%{id: {AiurWeb.DashboardPagesGate, :default}}, %{id: {FinancialDataAccess, :default}}]}}} =
+      {_view, _action, _route_opts,
+       %{name: session_name, extra: %{on_mount: [%{id: {AiurWeb.DashboardPagesGate, :default}}, %{id: {FinancialDataAccess, :default}}, %{id: {AiurWeb.ProjectsHome.Gate, :default}}]}}} =
         route.metadata.phoenix_live_view
 
       assert session_name == :dashboard

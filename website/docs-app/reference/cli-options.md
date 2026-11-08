@@ -11,6 +11,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --blocking` | Marks a supported command as blocking. | `aiur --blocking` |
 | `aiur --body TEXT` | Uses the supplied text as a command body. | `aiur --body 'Investigate this issue'` |
 | `aiur --body-file PATH` | Reads a command body from a file. | `aiur --body-file request.md` |
+| `aiur --categories a,b` | Limits a new client token to the named control-call categories. | `aiur token create hub --categories read,message` |
 | `aiur --debug` | Enables debug logs and durable chat-pane recording for this run. Analytics capture does not depend on `--debug`. | `aiur --debug` |
 | `aiur --digest` | Prints the compact digest for the current run. | `aiur --digest` |
 | `aiur --dir PATH` | Selects a working directory for a supported command. | `aiur --dir ./project` |
@@ -29,6 +30,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --note TEXT` | Attaches a note to a supported command. | `aiur --note 'Follow up tomorrow'` |
 | `aiur --open` | Opens the selected result in the configured browser. | `aiur --open` |
 | `aiur --pause` | Cold-starts with the global provisioning switch paused. | `aiur --pause` |
+| `aiur --peer ID` | Binds a new client token to a gateway id; categories default to `read`. | `aiur token create hub --peer gw-hub` |
 | `aiur --port 4000` | Overrides the HTTP port. `0` lets the OS choose a free port. | `aiur --port 4000` |
 | `aiur --purge` | Removes persisted credentials for a supported account command. | `aiur accounts logout codex default --purge` |
 | `aiur --record PATH` | Writes a recording to the selected path. | `aiur --record run.jsonl` |
@@ -78,7 +80,7 @@ The client refuses commands that need local files, processes, or terminal stream
 - Local lifecycle and maintenance: bare `aiur`, `run`, `--bg`, `stop`, `restart`, `aiurdev build`, `cleanup-stale`, `doctor`, `upgrade`, and `pre-pr`.
 - Streaming, setup, and client-only commands: `listen`, `executor-listen`, `init`, `login`, `logout`, `pr`, `findings`, `ask`, `asks`, `answer`, `history export`, help, and `--version`.
 
-`redispatch`, `ticket estimate`, `operator-relay-answer`, and `history label-writes` work with `--instance`.
+`redispatch`, `ticket estimate`, `ticket owner`, `ticket assign`, `operator-relay-answer`, and `history label-writes` work with `--instance`.
 
 Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast-forward` require `--as <id>`.
 

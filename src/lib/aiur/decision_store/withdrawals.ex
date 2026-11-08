@@ -10,6 +10,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.DecisionStore.Siblings
   alias Aiur.Signal
 
   @spec handle_dismiss(term(), term(), term()) :: term()
@@ -23,9 +24,6 @@ defmodule Aiur.DecisionStore.Withdrawals do
         decision.decision_status not in [:open, :deferred] and not expired_unanswered_blocker?(decision) ->
           {:reply, {:error, {:conflict, decision.decision_status}}, state}
 
-        unresolvable_block?(decision) ->
-          {:reply, {:error, {:conflict, :blocking_requires_answer}}, state}
-
         true ->
           persist_dismissal(decision, actor, state)
       end
@@ -34,10 +32,10 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
-  # Dismissal records a status and stops: it delivers nothing to a waiting
-  # agent. Live blocking Commands remain protected because dismissal would hide
-  # a real gate. An expired blocker no longer holds dispatch, so an operator may
-  # retire that stale record without leaving an invisible block.
+  # The operator may always dismiss a Command: `:dismissed` releases the
+  # dispatch gate and the dashboard tells a live agent to proceed. System
+  # sweeps (`Dedup`) keep this guard so they never close a live agent-filed
+  # block, which nothing would then release.
   @spec unresolvable_block?(term()) :: term()
   def unresolvable_block?(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: false
   def unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true
@@ -105,7 +103,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
   defp persist_dismissal(decision, actor, state) do
     case Persistence.build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
-        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, Siblings.moot_after_rejection(next_state, updated)}
 
       {:error, reason} ->
         {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}

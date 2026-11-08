@@ -23,6 +23,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Dispatcher.Capacity
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
+  alias Aiur.Orchestrator.Dispatcher.Prevalidated
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.FeatureSupply
   alias Aiur.Orchestrator.FirehosePolling
@@ -93,7 +94,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   defdelegate auto_resume_admission(state), to: Capacity
   @doc false
-  defdelegate dispatch_prevalidated_issue(state, issue), to: Launch
+  defdelegate dispatch_prevalidated_issue(state, issue), to: Prevalidated
+  @doc false
+  defdelegate dispatch_prevalidated_issue(state, issue, opts), to: Prevalidated
   @doc false
   defdelegate dispatch_with_dependency_gate(state, refreshed_issue, attempt, preferred_worker_host, opts), to: Candidates
   @doc false
