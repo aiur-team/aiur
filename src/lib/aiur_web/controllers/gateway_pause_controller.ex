@@ -8,8 +8,7 @@ defmodule AiurWeb.GatewayPauseController do
   """
   use Phoenix.Controller, formats: [:json]
 
-  alias Aiur.ControlCLI.FleetPause
-  alias Aiur.Intent.Registers
+  alias Aiur.Intent.{Publish, Registers}
   alias Aiur.Orchestrator.{Client, GlobalPause}
 
   @source "dashboard gateway pause"
@@ -38,7 +37,7 @@ defmodule AiurWeb.GatewayPauseController do
   defp fleet(conn, params, on?) do
     case Registers.write_fleet_pause(on?, reason: @source) do
       {:ok, change} ->
-        stored = FleetPause.push(change) == :stored
+        stored = Publish.push(change) == :stored
         _ = GlobalPause.sync_fleet_pause()
         reply(conn, params, intent_written: stored)
 

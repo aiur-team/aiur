@@ -11,7 +11,7 @@ defmodule Aiur.ControlCLI.FleetPause do
 
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1]
 
-  alias Aiur.Intent.{Change, Registers, Store, Sync}
+  alias Aiur.Intent.{Change, Publish, Registers, Sync}
   alias Aiur.Orchestrator.GlobalPause
 
   @spec pause_all(keyword()) :: :ok
@@ -23,7 +23,7 @@ defmodule Aiur.ControlCLI.FleetPause do
   defp deliver(value, opts) do
     case Registers.write_fleet_pause(value, as: opts[:as], reason: opts[:reason]) do
       {:ok, change} ->
-        store = push(change)
+        store = Publish.push(change)
         _ = GlobalPause.sync_fleet_pause()
         report(value, change, store)
         exit_marker(0)
@@ -32,16 +32,6 @@ defmodule Aiur.ControlCLI.FleetPause do
         control_error("aiur: could not record the fleet pause (#{reason})")
         exit_marker(1)
     end
-  end
-
-  # Sync.sync_once pushes the outbox; whatever is still in it was not stored.
-  @doc false
-  @spec push(Change.t()) :: :stored | :outbox_only
-  def push(change) do
-    _ = Sync.sync_once()
-    if Enum.any?(Store.outbox(), &(&1.change_id == change.change_id)), do: :outbox_only, else: :stored
-  catch
-    :exit, _ -> :outbox_only
   end
 
   defp report(value, change, store) do
