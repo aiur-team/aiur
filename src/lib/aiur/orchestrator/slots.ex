@@ -3,11 +3,13 @@ defmodule Aiur.Orchestrator.Slots do
   Computes global dispatch capacity and issue-specific worker-host eligibility.
   """
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.{CodingAgent, Config, Issue}
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
-  def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
+  def max_concurrent_agents, do: max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec max_concurrent_agents(GenServer.server()) :: map() | :unavailable
   def max_concurrent_agents(server) do
@@ -22,7 +24,7 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec adjust_max_concurrent_agents(integer()) :: {:ok, map()} | {:error, term()}
   def adjust_max_concurrent_agents(delta),
-    do: adjust_max_concurrent_agents(Aiur.Orchestrator, delta)
+    do: adjust_max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator), delta)
 
   @spec adjust_max_concurrent_agents(GenServer.server(), integer()) ::
           {:ok, map()} | {:error, term()}
@@ -31,7 +33,7 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
   def set_max_concurrent_agents(next),
-    do: set_max_concurrent_agents(Aiur.Orchestrator, next)
+    do: set_max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator), next)
 
   @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) ::
           {:ok, map()} | {:error, term()}
@@ -322,7 +324,7 @@ defmodule Aiur.Orchestrator.Slots do
   # A worker that replaces the issue's own entry (backend or account swap)
   # inherits whatever slot that entry holds and needs a free one otherwise.
   @spec replacement_slot_available?(State.t(), term()) :: boolean()
-  def replacement_slot_available?(%State{globally_paused: true}, _issue_id), do: false
+  def replacement_slot_available?(%State{} = s, _issue_id) when effective_paused?(s), do: false
 
   def replacement_slot_available?(%State{} = state, issue_id),
     do: effective_concurrent_agent_limit(state) > used_slots(state, Map.delete(state.running, issue_id))
@@ -346,7 +348,7 @@ defmodule Aiur.Orchestrator.Slots do
   defp holds_paused_reservation?(_running_entry), do: false
 
   @spec available_slots(State.t()) :: non_neg_integer()
-  def available_slots(%State{globally_paused: true}), do: 0
+  def available_slots(%State{} = s) when effective_paused?(s), do: 0
 
   def available_slots(%State{} = state) do
     max(effective_concurrent_agent_limit(state) - used_slots(state), 0)

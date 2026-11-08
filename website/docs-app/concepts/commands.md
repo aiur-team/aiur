@@ -119,7 +119,7 @@ That line counts the same Commands as `aiur command --filter open`, including
 unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
 is older than 15 minutes.
 
-Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
+Deferred Commands stay on the dashboard and in its Blocking count until they are answered or retired. Their cards show the age of the outstanding Command; **Details** shows the deferred lifecycle.
 
 <span id="routing-and-escalation"></span>
 
@@ -128,7 +128,7 @@ Deferred Commands remain visible in the Open and Blocking dashboard counts until
 With `decisions.escalation.enabled` (default `true`), Commands use the live
 Executor roster to choose the first responder (a live Executor is active or idle).
 
-| Command and roster | First responder | Dashboard chip |
+| Command and roster | First responder | Dashboard routing label (card **Details**) |
 | --- | --- | --- |
 | Worker question the live Executor may answer | Executor | With Executor |
 | Human-required worker question, live Executor | You and the Executor; only you may answer | Needs you and Executor |
@@ -247,6 +247,8 @@ a rejection is recorded as the answer.
 
 The reason is stored verbatim, the agent receives a message naming the
 rejection and the reason, and a blocking Command unblocks. The component state is `rejected`.
+A rejected or dismissed Command also moots its open
+[`group:` siblings](../guide/embedded-commands.md#tags-and-sibling-commands).
 
 ## Overriding an answer
 

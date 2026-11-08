@@ -23,6 +23,8 @@ for (const width of [1440, 390]) for (const state of states) test(`product-only 
   await settleAnimations(page, '#bd-tree')
   // The phone shell can scroll the document past its fixed nav at the board end.
   await page.evaluate(() => window.scrollTo(0, 0))
+  // The fixed Executor footer overlaps the phone tree; these pixels pin the tree only.
+  await page.addStyleTag({ content: '#executor-footer { visibility: hidden }' })
   await expect(tree(page)).toHaveScreenshot(`${state.name}-${width}.png`)
 })
 

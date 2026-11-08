@@ -31,7 +31,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
 | **Units** | CLI fleet inspection; legacy /units URLs redirect to Build. | `aiur units` |
 | **Talk to Executor** | `/voice`, from Home’s Settings menu; provider comparison, delivery receipts and worker conversation voice. | none |
-| **Commands** | `/commands` is the durable decision inbox and each decision's detail. **From Executor** filters inbox rows (`?requester=executor`); Executor requests carry a badge. | `aiur commands` |
+| **Commands** | `/commands` is the durable decision inbox and each decision's detail. Executor requests read **From Executor**; `?requester=executor` limits the inbox to them. | `aiur commands` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
@@ -47,20 +47,24 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
-The Commands inbox keeps all open Commands visible. Routing chips read **With Executor**,
-**Needs you**, **Needs you and Executor**, or **From Executor**. Older Commands without
-routing facts show **Routing…**. Cards show when they were asked and, after human
-routing, how long they have needed you.
+The Commands inbox keeps all open Commands visible, one compact card each: the ticket
+and title, the question, a **Blocking** pill when it blocks work, and when it was asked.
+Options are radio cards with one primary action.
 
-Use **Needs you**, **With Executor**, **From Executor**, or **Resolved** to filter;
-links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and All
-include unrouted Commands. Resolved Commands appear in the history table.
+**Details** opens the rest: context, the recommendation and its rationale, lifecycle
+status, routing, how long it has needed you, the agent and model, and the version.
+Routing reads **With Executor**, **Needs you**, **Needs you and Executor**, **From
+Executor**, or **Routing…** for older Commands.
+
+Filter with **Needs you**, **With Executor**, **From Executor**, **Blocking** or **All**;
+links keep the filter in the URL. All includes unrouted Commands. Resolved Commands
+appear in the history table.
 
 Only Commands routed to you (including those shared with the Executor) count in the
 banner and navigation badge. Unknown counts display an
 unavailable notice or `—`; partial retained data is labelled partial.
 
-The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
+`?requester=executor` applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
 
 New worker journals recover conversation from the workspace transcript
 when it can be replayed, otherwise from this launch's IssueLog. Recovered
@@ -160,7 +164,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | --- | --- |
 | Build | [Sections, views, the ticket modal, usage, and unknown states](/concepts/build-history). |
 | Units | CLI fleet inspection; /units redirects to /. |
-| Executor | `/executor`: the attached Executor session, its history and message composer. |
+| Executor | A footer on every dashboard page: the Executor's state, latest events and conversation. `/executor` opens it. |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
@@ -189,15 +193,27 @@ forward, so measuring the gate never perturbs a real build acquisition.
 
 ### Executor
 
-Open **Executor** in desktop or tablet navigation, or **Settings → Executor conversation**
-on a phone, to read the instance's one Executor
-conversation at `/executor`. Attach with `aiur executor-attach --harness claude`
-or `aiur executor-attach --harness codex`.
+Every dashboard page ends in an **Executor** footer. On the left it shows the
+Executor's state: `attached`, `idle`, `not attached`, `waiting for session` or
+`ended`. An unknown, stale or unavailable state carries its age (`stale 12m`,
+`unknown · age unknown`) and is never shown as `idle`. On a phone the footer sits
+above the bottom navigation.
 
-Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-attach --check` hint for diagnosing attachment and hook failures.
+The circle button on the right expands the footer into a panel of about 38% of the
+viewport (at most 360px; half the screen on a phone). Press the button again or
+Esc to collapse it. Each browser remembers whether the panel was open.
 
-The distinct Executor frame wraps the same paging, event jumps and live history
-as worker conversations; `/executor?pos=N` highlights a recorded position.
+The panel lists the latest Executor events, then the conversation and its message
+form. **Open full history** opens the complete conversation page, with paging and event
+filters.
+
+Attach with `aiur executor-attach --harness claude` or
+`aiur executor-attach --harness codex`; until then the panel shows that command.
+Before the first hook arrives, it shows **Waiting for the Executor session** and an
+`aiur executor-attach --check` hint for diagnosing attachment and hook failures.
+
+The old `/executor` address opens the footer expanded on Build;
+`/executor?pos=N` opens the full conversation at that recorded position.
 
 Loading, unavailable history, an unreadable transcript and unsupported capture
 stay explicit. Ended or detached sessions keep their recorded history.
@@ -409,82 +425,4 @@ Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
 
-## Open a full conversation
-
-Select **Open in conversation** from a Command with a known conversation position,
-or navigate to `/conversations/:conversation_id`. The worker conversation drawer remains available from `/voice`; the legacy Units board has retired.
-
-A conversation without recorded messages shows **No messages yet**. Until its
-journal exists, it also says **Conversation not found**; storage failures show
-**Conversation unavailable** instead. The first recorded message appears without
-reloading the page.
-
-The event navigation lists progress, pushes, PRs and Commands. Select an event
-to jump to and highlight its transcript position. Filter chips include CI and
-reviews when needed. **Approximate position** means the event was observed near
-that entry; it does not claim an exact causal match.
-
-On phones the event list
-sits above the transcript and scrolls independently.
-
-`/conversations/:conversation_id` opens the durable conversation page. Read-only
-dashboards keep the transcript and event navigation available; sending requires
-writable access and an available listener.
-
-It starts with the latest 50 entries. **Load older**, **Jump to start**,
-and **Load newer** browse earlier history; **Latest entries** returns to the
-live tail.
-
-Agent prose uses Markdown. Executor reasoning rows are hidden; worker reasoning
-and command or tool output start collapsed. Select a summary to expand it.
-
-File edits show diffs. Operator bubbles, session dividers and gap rows keep the
-source and continuity visible. See
-[Reading entries](/concepts/conversations#reading-entries) for masking and
-truncation details.
-
-The page keeps up to 500 entries on screen. When you scroll up,
-new entries show a counter that returns you to the latest page.
-
-The status distinguishes live, idle, ended, continuity unknown and unavailable
-history. Journal failures keep the last readable content with a stale marker
-and observation age. Imported history shows **Earlier history is not available**.
-
-## Read a conversation over HTTP
-
-These read-only routes use dashboard authentication or a read client token,
-including when
-`dashboard_writable` is false. Responses set `Cache-Control: no-store`:
-
-- `GET /api/v1/conversations/resolve?subject=executor`
-- `GET /api/v1/conversations/resolve?subject=worker&owner=OWNER&repository=REPO&identifier=NUMBER`
-- `GET /api/v1/conversations/ID/entries`
-- `GET /api/v1/conversations/ID/sessions`
-- `GET /api/v1/conversations/ID/anchors`
-
-Resolve returns `conversation_id` and `subject`. Worker lookup uses the full
-repository and stored provider identity; multiple conversations matching a
-transferred issue return `409 ambiguous_subject` with `conversation_ids`.
-No matching subject returns `404 subject_not_found`.
-
-Entries default to the last 50 positions in ascending order. Choose one of
-`tail=true`, `from_start=true`, `before=POS`, `after=POS`, or `around=POS`,
-with `limit=1..200` and optional comma-separated `kinds`. Follow `prev_cursor`
-with `before` or `next_cursor` with `after`; null means that direction is
-complete.
-
-Pages include sessions, `head_pos`, `complete_from_start`, and
-`observed_at`. An existing empty conversation returns an empty page with
-`head_pos: 0`; an unknown ID returns `404 conversation_not_found`. Unreadable
-storage returns `503 conversation_unavailable`; invalid cursors or limits
-return 422.
-
-Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive).
-Sessions contain no local source paths.
-
-Conversation text can contain secrets. Body and output are masked by default;
-`reveal=true` is honored only for an authenticated operator connecting from
-loopback. Device principals and client tokens always remain masked. Basic Auth is refused
-on public binds. Treat revealed content as sensitive.
-
-Write verbs return 405; sends continue through the listener path.
+Conversation pages and their read-only HTTP routes are in [GUI conversations](/guide/gui-conversations).

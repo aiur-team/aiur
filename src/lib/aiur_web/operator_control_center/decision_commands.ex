@@ -299,9 +299,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp command_error({:conflict, :resolved}), do: "This Command is already resolved."
 
-  defp command_error({:conflict, :blocking_requires_answer}),
-    do: "This Command is still blocking its agent. Closing it would hide the block without releasing it — record an answer instead."
-
   defp command_error({:answer_invalid, {:option_id, :unknown}}), do: "That option is no longer available."
 
   defp command_error({:answer_invalid, {_field, :too_long}}),

@@ -54,7 +54,6 @@
 }
 
 .chip,
-.recommendation-chip,
 .risk-tag {
   display: inline-flex;
   align-items: center;
@@ -142,14 +141,6 @@
   color: var(--super-ink);
 }
 
-.recommendation-chip {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font-family: inherit;
-  font-size: 0.73rem;
-}
-
 .lifecycle {
   display: flex;
   align-items: center;
@@ -221,7 +212,7 @@
   gap: 1rem;
   padding: 1rem 1.05rem 1.15rem 1.25rem;
   border-top: 1px solid var(--hairline);
-  animation: detail-open 0.22s ease both;
+  animation: detail-open 0.22s ease backwards;
 }
 
 .decision-action {

@@ -16,9 +16,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
     ControlLifecycleStore,
     DispatchPolicy,
     EnvelopeResume,
+    GlobalPause,
     GlobalPauseStore,
     OperatorMessages.PendingStore,
     OrphanedWorkers,
+    PauseGuard,
     PauseResume,
     RemoteControlMode,
     Slots,
@@ -61,7 +63,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   }
 
   @spec request_refresh_api() :: map() | :unavailable
-  def request_refresh_api, do: request_refresh_api(Aiur.Orchestrator)
+  def request_refresh_api, do: request_refresh_api(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec request_refresh_api(GenServer.server()) :: map() | :unavailable
   def request_refresh_api(server) do
@@ -110,7 +112,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
     snapshot_key = Keyword.get(opts, :name) || self()
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
-    Application.put_env(:aiur, :instance_globally_paused, global_pause.globally_paused)
 
     # The dispatch tick's base is the `:dispatch` poll class, not the raw
     # `interval_seconds` scalar: since #2309 an operator can give the tracker
@@ -137,6 +138,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: global_pause.globally_paused,
+      fleet_paused: GlobalPause.boot_fleet_paused(),
       global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
       load_envelope_state: EnvelopeResume.boot(config.agent),
@@ -161,11 +163,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
       queue_store: PendingStore.load()
     }
 
+    GlobalPause.put_effective_env(state)
+
     :ok =
       SnapshotStore.publish_global_pause(
         snapshot_key,
         state.snapshot_generation,
-        Map.put(state.global_pause, :globally_paused, state.globally_paused)
+        Map.put(state.global_pause, :globally_paused, PauseGuard.paused?(state))
       )
 
     # Runner tasks survive an Orchestrator-only restart, but this generation
@@ -178,6 +182,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)
+    _ = Phoenix.PubSub.subscribe(Aiur.PubSub, "intent:registers")
     _ = LiveConversation.subscribe_restarts()
 
     state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
@@ -445,7 +450,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   defp subscribe_to_prewarm(opts) do
-    if Keyword.get(opts, :name) == Aiur.Orchestrator, do: AgentPubSub.subscribe_prewarm(), else: :ok
+    if Keyword.get(opts, :name) == Aiur.Project.name(Aiur.Orchestrator), do: AgentPubSub.subscribe_prewarm(), else: :ok
   end
 
   @doc false

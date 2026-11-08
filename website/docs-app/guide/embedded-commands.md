@@ -77,6 +77,10 @@ tickets currently carrying that label. Request labels only narrow: a label
 outside the grant lists nothing rather than widening its ticket set.
 `/api/v1/decisions` accepts the same filter.
 
+A list read also accepts one `tag=source:settings`, which keeps only Commands
+carrying that [tag](#tags-and-sibling-commands). Like
+`labels`, it narrows within the grant and never widens it.
+
 The answer body names one option or a free response, plus the version the user
 was looking at and an idempotency key:
 
@@ -114,6 +118,20 @@ unblocks and receives a message that names the rejection and quotes the reason.
 Scope, version checks and idempotency behave as for `answer`. A blank reason is
 a 422, and a Command outside the grant is the same 404.
 
+## Tags and sibling Commands
+
+A `decision.requested` payload may carry `tags`: up to 8 lowercase slugs such
+as `group:proposal-7` or `source:settings`, each at most 96 bytes, with at most
+one `group:` tag. An invalid list is refused as `{:decision_invalid, {:tags,
+reason}}`. Tags persist with the Command and appear in the component map and on
+its lifecycle events.
+
+Commands that share a `group:` tag on one ticket are siblings. When one is
+rejected or dismissed, every other open or deferred sibling is mooted with
+`reason_class: sibling_rejected`; its detail and actor name the rejected
+Command. An answered sibling keeps its answer, and other groups and tickets are
+untouched.
+
 ## Component states
 
 Every Command renders to one component map with a stable `state` that the
@@ -135,8 +153,8 @@ A collection carries its own status: `loading`, `empty`, `ready`,
 `unavailable`, or `error`.
 
 The component map also carries `options[]`, `recommendation`, `free_response`,
-`answer`, `conflict`, `media[]`, and `actions`, which says whether the caller may
-answer, reject or revise.
+`answer`, `conflict`, `media[]`, `tags[]`, and `actions`, which says whether the
+caller may answer, reject or revise.
 
 ## Command media
 
@@ -175,6 +193,10 @@ instead of a broken element. Pass the same option to `renderList`.
 The renderer covers all four kinds: images and animated images render with their
 alt text and caption, and video and audio use native `controls` with a poster
 where the item has one. A Command whose media cannot be resolved still renders.
+
+## Theme the component
+
+Every styled element carries a stable `data-part` attribute. Import `@aiur/commands/theme.css` and set `--aiur-command-*` custom properties on any ancestor; the `labels` render option replaces the visible copy. The package README lists every part and property.
 
 ## Answer outcomes
 

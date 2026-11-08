@@ -11,6 +11,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     Checkpoint,
     Config,
     Conversation,
+    ImageView,
     LiveTurn,
     MeterAdapter,
     Session,
@@ -216,7 +217,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   # preflight leaves the request ours to finish, so the turn continues with its
   # real completion.
   defp provider_request(session, state) do
-    request = Task.async(fn -> Transport.complete(state.config, state.messages, Tools.specs(state.config.transport)) end)
+    request = Task.async(fn -> Transport.complete(state.config, state.messages, Tools.specs(state.config.transport, state.config)) end)
     await_request(session, state, request)
   end
 
@@ -308,6 +309,8 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     end
   end
 
+  defp config_sandbox(state), do: Map.get(state.config, "command_sandbox", Map.get(state.config, :command_sandbox))
+
   defp execute_tools(state, calls, opts) do
     calls
     |> Enum.reduce({state, nil, []}, fn call, {current, pending_pause, deliveries} ->
@@ -322,8 +325,12 @@ defmodule Aiur.OpenAICompat.CodingAgent do
             Tools.execute(
               call.name,
               arguments,
-              %{workspace: current.workspace, tool_executor: Keyword.get(opts, :tool_executor)},
-              opts
+              %{
+                workspace: current.workspace,
+                tool_executor: Keyword.get(opts, :tool_executor),
+                image_input: get_in(current.config, [:quirks, :image_input]) == true
+              },
+              Keyword.put(opts, :command_sandbox, config_sandbox(current))
             )
 
           {:error, reason} ->
@@ -341,6 +348,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       current =
         current
         |> Conversation.append_tool_result(call, output)
+        |> queue_image(call, arguments_path(call), result["image"])
 
       {current, deliveries} =
         Checkpoint.defer(
@@ -361,12 +369,29 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     |> case do
       {current, pending_pause, deliveries} ->
         current = Checkpoint.flush(current, deliveries, opts)
+        current = flush_images(current)
 
         if is_nil(pending_pause),
           do: {:ok, current},
           else: {:paused, current, pending_pause}
     end
   end
+
+  # Images ride in a user message, which chat APIs only accept after every tool
+  # result of the round, so they queue on the state and flush at round end.
+  defp queue_image(state, _call, _path, nil), do: state
+
+  defp queue_image(state, _call, path, image),
+    do: Map.update(state, :pending_images, [{path, image}], &(&1 ++ [{path, image}]))
+
+  defp flush_images(%{pending_images: [_ | _] = images} = state) do
+    messages = Enum.map(images, fn {path, image} -> ImageView.message(state.config.transport, path, image) end)
+    %{state | messages: state.messages ++ messages} |> Map.delete(:pending_images)
+  end
+
+  defp flush_images(state), do: state
+
+  defp arguments_path(call), do: display_arguments(call.arguments)["path"]
 
   defp emit_completion(completion, state, opts) do
     if is_binary(completion.reasoning) and completion.reasoning != "" do

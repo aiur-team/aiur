@@ -188,6 +188,7 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | `emit_alert` | Lets agents raise milestone alerts for the Executor. |
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
+| Daemon memory watchdog | The daemon BEAM above `monitoring.daemon_memory_alert_fraction` of host memory (default half) raises `system.daemon.memory_high` once, naming the five processes that hold the most memory. The kernel OOM killer leaves no crash dump, so this alert is the evidence. |
 
 An idle ticket absent from the active poll is retained for at most five unresolved refresh attempts. Then `ticket.<id>.terminal_verification_abandoned` raises one attention with its identifier and cause. A returned ticket resets the counter; deferred batches and in-flight reads do not consume attempts. Restart resets these in-memory counters.
 
@@ -312,7 +313,7 @@ order does not change the result.
 | `accounting.meters` | The meter projection is running and at least one provider API or management key is configured. Credential presence does not prove upstream connectivity. |
 | `conversations.read` | HTTP is bound. A missing live conversation process is degraded because disk history remains readable. |
 | `executor.wakes` | The Executor wake inbox is running. |
-| `executor.conversation` | Links to `/executor`; reports `executor_not_managed` until managed conversation support is installed. |
+| `executor.conversation` | Links to `/executor`, which opens the dashboard's Executor footer; reports `executor_not_managed` until managed conversation support is installed. |
 
 Unavailable dependencies carry their capability IDs in `depends_on`. When settings
 cannot be read, writable-gated operations report `unknown/unknown` rather than assume

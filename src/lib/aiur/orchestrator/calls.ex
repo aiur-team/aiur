@@ -204,6 +204,8 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call(:globally_paused?, _from, state),
     do: GlobalPause.globally_paused_call(state)
 
+  def handle_call(:sync_fleet_pause, _from, state), do: GlobalPause.sync_fleet_pause_call(state)
+
   def handle_call(:global_pause_status, _from, state),
     do: {:reply, GlobalPause.global_pause_status(state), state}
 
@@ -292,6 +294,17 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:fail_delivered_queue_items, issue_identifier, reason}, _from, state)
       when is_binary(issue_identifier),
       do: OM.fail_delivered_queue_items_call(state, issue_identifier, reason)
+
+  @spec handle_cast(term(), Aiur.Orchestrator.State.t()) :: {:noreply, Aiur.Orchestrator.State.t()}
+  def handle_cast({:enqueue_event_digest_async, identifier, event, %{subscribed_to: subs}}, state)
+      when is_binary(identifier) and is_map(event) and is_list(subs) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, [event], event, subscribed_to: subs)}
+  end
+
+  def handle_cast({:enqueue_event_digest_batch_async, identifier, events}, state)
+      when is_binary(identifier) and is_list(events) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, events, %{events: events})}
+  end
 
   # Republish a collapsed timer wake so status shows its new countdown (#2640).
   # Coalesced requests do not change the countdown.

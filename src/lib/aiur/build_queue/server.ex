@@ -37,11 +37,12 @@ defmodule Aiur.BuildQueue.Server do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
   end
 
   @impl true
   def init(opts) do
+    Aiur.Project.adopt(opts)
     {:ok, settings} = Keyword.get_lazy(opts, :settings, &Aiur.Config.settings/0)
 
     state = %{
@@ -340,7 +341,7 @@ defmodule Aiur.BuildQueue.Server do
     if state.tracker.open_issue_labels(1) == {:error, :unsupported} do
       %{state | status: :unsupported_tracker}
     else
-      :ets.new(Hints.table_name(), [:named_table, :set, :protected, read_concurrency: true])
+      Hints.create_table()
       recover(state)
     end
   end

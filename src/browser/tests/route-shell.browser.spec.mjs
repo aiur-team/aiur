@@ -152,14 +152,10 @@ test('standalone session cookie survives launches and LiveView navigation across
     if (new URL(response.url()).origin === origin && response.status() === 401) authFailures.push(response.url())
   })
   await expect(page.locator('[data-dashboard-recovery]')).toBeVisible()
-  for (const [label, path] of [['Commands', '/commands'], ['Analytics', '/analytics'], ['Experiments', '/experiments'], ['Executor', '/executor']]) {
+  for (const [label, path] of [['Commands', '/commands'], ['Analytics', '/analytics'], ['Experiments', '/experiments']]) {
     await page.getByRole('link', { name: label, exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`${path === '/' ? '/?$' : `${path}$`}`))
-    if (label === 'Executor') {
-      await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible()
-    } else {
-      await expect(page.locator('#route-title')).toHaveText(label)
-    }
+    await expect(page.locator('#route-title')).toHaveText(label)
     await expect(page.locator('body')).not.toBeEmpty()
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
     expect(authFailures, `authentication failed while navigating to ${label}`).toEqual([])
