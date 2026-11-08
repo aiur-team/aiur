@@ -109,7 +109,7 @@ test('feature lanes lock and unsorted stays last; flow clears headers', async ({
   expect(result.locks.length, 'selected fixture feature has visible lanes').toBeGreaterThan(0)
   expect(result.locks.every(Boolean)).toBe(true)
   expect(result.cls).toContain('unsorted'); expect(result.label).toBe('Unsorted')
-  expect(result.lanes).toBe(0); expect(result.guides).toBe(0); expect(result.caption).toBe('Colour = lane'); expect(result.hidden).toBe(true)
+  expect(result.lanes).toBe(0); expect(result.guides).toBe(0); expect(result.caption).toBe('Colour = lane'); expect(result.hidden, 'flow keeps dependency lines visible (#7756)').toBe(false)
   // #7687: Now tiles planned-lane-wide columns (layout's band.cw/bg), not the old 230px/380px constants.
   const { bandCount, bandWidth, bandGap } = result
   expect(bandCount).toBeGreaterThanOrEqual(1); expect(Object.keys(result.bands)).toHaveLength(bandCount)

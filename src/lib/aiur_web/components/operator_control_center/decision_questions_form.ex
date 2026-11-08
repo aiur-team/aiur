@@ -15,13 +15,22 @@ defmodule AiurWeb.OperatorControlCenter.DecisionQuestionsForm do
   attr(:questions, :list, required: true)
   attr(:form, :map, default: %{})
   attr(:disabled, :boolean, default: false)
+  # When the card heading already shows this question, label the group by it instead of repeating the text.
+  attr(:heading, :string, default: nil)
+  attr(:heading_id, :string, default: nil)
 
   @spec decision_questions_form(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_questions_form(assigns) do
     ~H"""
     <div class="decision-questions">
-      <fieldset :for={question <- @questions} class="decision-choice-list" data-question-group disabled={@disabled}>
-        <legend>{get(question, :question)}</legend>
+      <fieldset
+        :for={question <- @questions}
+        class="decision-choice-list"
+        data-question-group
+        disabled={@disabled}
+        aria-labelledby={if heading?(question, @heading, @heading_id), do: @heading_id}
+      >
+        <legend :if={!heading?(question, @heading, @heading_id)}>{get(question, :question)}</legend>
         <p :if={get(question, :multi_select)}>Choose one or more answers.</p>
         <label :for={option <- get(question, :options)} class="decision-choice">
           <input
@@ -101,6 +110,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionQuestionsForm do
       _invalid -> nil
     end
   end
+
+  defp heading?(question, heading, heading_id),
+    do: is_binary(heading_id) and is_binary(heading) and String.trim(get(question, :question) || "") == String.trim(heading)
 
   defp get(map, key), do: Map.get(map, key, Map.get(map, to_string(key)))
 end

@@ -57,6 +57,8 @@ defmodule Aiur.Docs.ControlCenterFixture do
 
     Application.put_env(:aiur, :log_file, Path.join(tmp, "aiur.log"))
     Application.put_env(:aiur, :workflow_file_path, Path.join(tmp, "config"))
+    # The Executor footer on every page reads conversation state; keep it inside the fixture.
+    Application.put_env(:aiur, :conversation_state_dir, Path.join(tmp, "conversations"))
 
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
@@ -64,7 +66,13 @@ defmodule Aiur.Docs.ControlCenterFixture do
     # `SnapshotCache` owns the ETS table `SnapshotStore.publish/2` writes the fleet into.
     {:ok, _} =
       Supervisor.start_link(
-        [{Phoenix.PubSub, name: Aiur.PubSub}, {Task.Supervisor, name: Aiur.TaskSupervisor}, Aiur.Orchestrator.SnapshotCache],
+        [
+          {Phoenix.PubSub, name: Aiur.PubSub},
+          {Task.Supervisor, name: Aiur.TaskSupervisor},
+          Aiur.Orchestrator.SnapshotCache,
+          Aiur.Conversation.HeadTable,
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry}
+        ],
         strategy: :one_for_one
       )
 
