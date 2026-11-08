@@ -96,6 +96,9 @@ test("--gateway rejects two selectors, empty values, stop, and awk-special label
     expect(stop.status).toBe(64);
     expect(stop.stderr).toContain("stop is local to the gateway's host; run it there");
     expect(run(reg, ["--instance", "nook", "stop"]).stderr).toContain("stop is local to the instance's host\n");
+    const reload = run(reg, ["--gateway", "nook", "gateway", "reload"]);
+    expect(reload.status).toBe(64);
+    expect(reload.stderr).toContain("gateway is local to the gateway's host; run it there");
     expect(total([s1])).toBe(0);
     expect(run(reg, ["--gateway", 'a\\tb "q"', "status"]).status).toBe(0);
     expect(s1.requests()).toHaveLength(1);

@@ -3,10 +3,10 @@ defmodule Aiur.Project.Supervisors do
   The machine-level `DynamicSupervisor` holding one `Aiur.Project.Supervisor` per
   configured project.
 
-  Roots are `:temporary`, not `:transient`: a crash-looping project must not count
-  against this supervisor's own restart intensity, or one bad project would take
-  every other project down with it. `Aiur.Project.Watcher` alerts instead, and
-  `reload/1` (`aiur gateway reload`) retries.
+  Roots are `:temporary`: a root that exits is never restarted here, so a
+  crash-looping project cannot spend this supervisor's own restart intensity and
+  take every other project down with it. `Aiur.Project.Watcher` alerts instead,
+  and `reload/1` (`aiur gateway reload`) retries.
   """
   use DynamicSupervisor
 
