@@ -9,7 +9,7 @@ defmodule Aiur.Project.Children do
 
   @doc "Modules a projects-mode machine list drops: they poll or dispatch for one repository."
   @spec pollers() :: [module()]
-  def pollers, do: [Aiur.GitHub.Listeners, Aiur.Orchestrator, Aiur.BuildQueue.Server]
+  def pollers, do: [Aiur.GitHub.Listeners, Aiur.Orchestrator | List.wrap(Aiur.BuildQueue.child(true))]
 
   @doc "Called from the project root's `init/1`, so name helpers already see its context."
   @spec specs(Aiur.Project.t(), keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
@@ -20,9 +20,8 @@ defmodule Aiur.Project.Children do
       Aiur.AlertFeed.Backfill,
       Aiur.RepoBase,
       Aiur.Conversation.HeadTable,
-      {Aiur.Events.Exchange, name: Aiur.Events.exchange_server()},
+      Aiur.Events.project_children(),
       Aiur.GitHub.OpenIssueSnapshot,
-      {Aiur.Events.SubscriptionStoreSupervisor, name: Aiur.Events.subscription_store_supervisor()},
       Aiur.BuildOrder.Features,
       Aiur.Orchestrator.OptimisticLedger,
       Aiur.Orchestrator.TrackedSet,
@@ -35,6 +34,7 @@ defmodule Aiur.Project.Children do
       {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator, id), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(Keyword.get(opts, :recording?, true))
     ]
+    |> List.flatten()
     |> Enum.reject(&is_nil/1)
   end
 end
