@@ -111,22 +111,30 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         Instance.eligible?(issue, instance_id, live_instances)
 
       {:error, :store_not_configured} ->
-        if Instance.ownership_configured?(),
+        if not ownership_on?(opts) and Instance.ownership_configured?(),
           do: {:unavailable, :store_not_configured},
           else: :eligible
 
       _ ->
-        {:unavailable, :live_roster_unknown}
+        roster_unreadable(opts)
     end
   rescue
-    _ -> {:unavailable, :live_roster_unknown}
+    _ -> roster_unreadable(opts)
   end
+
+  # Under durable ownership the roster is advisory: the GitHub claim decides.
+  defp roster_unreadable(opts), do: if(ownership_on?(opts), do: :eligible, else: {:unavailable, :live_roster_unknown})
+
+  defp ownership_on?(opts), do: Keyword.get_lazy(opts, :ownership_enabled, &Aiur.Ownership.enabled?/0)
 
   defp dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts) do
     claim_fun = Keyword.get(opts, :lease_claim_fun, &LeaseStore.claim/1)
 
-    case DispatchClaim.call(selected_issue, dispatch, claim_fun: claim_fun) do
-      {:ok, :disabled, next_state} ->
+    case DispatchClaim.call(selected_issue, dispatch,
+           claim_fun: claim_fun,
+           degrade_on_store_error: ownership_on?(opts)
+         ) do
+      {:ok, status, next_state} when status in [:disabled, :degraded] ->
         next_state
 
       {:ok, :acquired, next_state} ->
