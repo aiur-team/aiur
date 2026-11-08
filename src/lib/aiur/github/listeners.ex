@@ -31,7 +31,8 @@ defmodule Aiur.GitHub.Listeners do
   def reconcile_hint(hint, input, opts \\ []), do: GenServer.cast(Keyword.get_lazy(opts, :server, fn -> Aiur.Project.whereis(Comments) end), {:reconcile, hint, input, opts})
 
   @spec update_backoff(non_neg_integer() | nil, keyword()) :: :ok
-  def update_backoff(delay, opts \\ []), do: GenServer.cast(Keyword.get_lazy(opts, :server, fn -> Aiur.Project.whereis(Comments) end), {:backoff, delay, Keyword.get(opts, :completion), Keyword.get(opts, :poll_opts)})
+  def update_backoff(delay, opts \\ []),
+    do: GenServer.cast(Keyword.get_lazy(opts, :server, fn -> Aiur.Project.whereis(Comments) end), {:backoff, delay, Keyword.get(opts, :completion), Keyword.get(opts, :poll_opts)})
 
   @spec scan_commands(keyword()) :: :ok | {:error, term()}
   def scan_commands(opts \\ []), do: GenServer.call(Keyword.get_lazy(opts, :server, fn -> Aiur.Project.whereis(CommandScan) end), {:poll, opts}, :infinity)

@@ -10,6 +10,8 @@ defmodule Aiur.Project.Supervisors do
   """
   use DynamicSupervisor
 
+  require Logger
+
   alias Aiur.Project
   alias Aiur.Project.{Registry, Watcher}
 
@@ -19,10 +21,18 @@ defmodule Aiur.Project.Supervisors do
   @impl true
   def init(_opts), do: DynamicSupervisor.init(strategy: :one_for_one)
 
-  @doc "Boot child: starts every configured project once, then exits."
-  @spec boot_child_spec([Project.t()], keyword()) :: Supervisor.child_spec()
-  def boot_child_spec(projects, opts) do
-    %{id: Aiur.Project.Boot, start: {Task, :start_link, [fn -> Enum.each(projects, &start_project(&1, opts)) end]}, restart: :temporary}
+  @doc """
+  Boot child: starts every project in `projects:`, then exits. `:transient`, so a
+  machine-child crash that cascades through the `:rest_for_one` tree runs it again
+  and the trees come back; it re-reads `projects:` so reloaded edits survive that.
+  """
+  @spec boot_child_spec(keyword()) :: Supervisor.child_spec()
+  def boot_child_spec(opts), do: %{id: Aiur.Project.Boot, start: {Task, :start_link, [fn -> boot(opts) end]}, restart: :transient}
+
+  defp boot(opts) do
+    Enum.each(Project.Config.configured(), &start_project(&1, opts))
+  rescue
+    error in Project.Config.ConfigError -> Logger.error("project trees not started: #{Exception.message(error)}")
   end
 
   @spec start_project(Project.t(), keyword()) :: {:ok, pid()} | {:error, term()}

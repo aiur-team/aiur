@@ -11,6 +11,8 @@ defmodule Aiur.Application.Children do
   alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata
+  alias Aiur.Project.Children, as: ProjectChildren
+  alias Aiur.Project.Supervisors, as: ProjectSupervisors
 
   @doc """
   Build the supervision children for the given run shape.
@@ -355,11 +357,11 @@ defmodule Aiur.Application.Children do
   # what polls or dispatches one repository, and one project tree per entry starts last.
   defp with_projects(children, [], _recording?), do: children
 
-  defp with_projects(children, projects, recording?) do
-    pollers = Aiur.Project.Children.pollers()
+  defp with_projects(children, _projects, recording?) do
+    pollers = ProjectChildren.pollers()
 
     Enum.reject(children, &(child_module(&1) in pollers)) ++
-      [Aiur.Project.Supervisors, Aiur.Project.Watcher, Aiur.Project.Supervisors.boot_child_spec(projects, recording?: recording?)]
+      [ProjectSupervisors, Aiur.Project.Watcher, ProjectSupervisors.boot_child_spec(recording?: recording?)]
   end
 
   defp child_module({module, _opts}), do: module

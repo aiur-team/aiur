@@ -66,6 +66,32 @@ defmodule Aiur.Project.ConfigTest do
     refute Enum.any?([Aiur.Project.Supervisors, Aiur.Project.Watcher, Aiur.Project.Boot], &(&1 in children))
   end
 
+  test "project trees come back after a machine child ahead of them crashes", %{dir: dir} do
+    config = Path.join([dir, "repo", ".aiur", "config"])
+    File.mkdir_p!(Path.dirname(config))
+    Aiur.TestSupport.WorkflowFiles.write_workflow_file!(config, tracker_kind: "memory")
+    write_machine(dir, "projects:\n  - repo: o/boot\n    config: #{config}\n")
+    on_exit(fn -> Aiur.Project.Table.drop("o/boot") end)
+
+    machine = %{id: :machine_child, start: {Agent, :start_link, [fn -> nil end]}}
+    tree = [machine, Aiur.Project.Supervisors, Aiur.Project.Watcher, Aiur.Project.Supervisors.boot_child_spec([])]
+    sup = start_supervised!(%{id: :machine, start: {Supervisor, :start_link, [tree, [strategy: :rest_for_one]]}, type: :supervisor})
+
+    first = wait_for_root("o/boot")
+    [{_, agent, _, _}] = Enum.filter(Supervisor.which_children(sup), &(elem(&1, 0) == :machine_child))
+    Process.exit(agent, :kill)
+
+    assert wait_for_root("o/boot", first) != first
+  end
+
+  defp wait_for_root(id, not_pid \\ nil, tries \\ 300) do
+    case Aiur.Project.Registry.root_pid(id) do
+      pid when is_pid(pid) and pid != not_pid -> pid
+      _ when tries > 0 -> Process.sleep(10) && wait_for_root(id, not_pid, tries - 1)
+      _ -> flunk("no project root for #{id}")
+    end
+  end
+
   test "projects drop the machine pollers and start one tree per project last" do
     project = Aiur.Project.from_machine_entry(%{repo: "o/a", config: "/x/config"}, "/x/state")
     children = modules(Children.child_specs(shape() ++ [projects: [project]]))

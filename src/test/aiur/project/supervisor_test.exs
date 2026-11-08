@@ -52,7 +52,7 @@ defmodule Aiur.Project.SupervisorTest do
     assert {:ok, _} = Supervisors.start_project(b)
     assert {:error, _} = Supervisors.start_project(a)
 
-    assert_receive {:alert, "system.project.boot_failed", message}
+    assert_receive {:alert, "system.project.boot_failed", message}, 1_000
     assert message =~ "o/a"
     refute message =~ a.config_path
     assert is_pid(orchestrator(b))
@@ -94,11 +94,11 @@ defmodule Aiur.Project.SupervisorTest do
   test "reload retries a failed project and resolves its alert", %{a: a, b: b} do
     break_config(a)
     {:error, _} = Supervisors.start_project(a)
-    assert_receive {:alert, "system.project.boot_failed", _}
+    assert_receive {:alert, "system.project.boot_failed", _}, 1_000
     WorkflowFiles.write_workflow_file!(a.config_path, tracker_kind: "memory", max_concurrent_agents: 3)
 
     assert %{started: ["o/a", "o/b"], stopped: []} = Supervisors.reload([a, b])
-    assert_receive {:alert, "system.project.boot_failed.resolved", message}
+    assert_receive {:alert, "system.project.boot_failed.resolved", message}, 1_000
     assert message =~ "o/a"
   end
 

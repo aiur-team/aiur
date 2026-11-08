@@ -153,4 +153,5 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 141 | `Aiur.Workspace.Ownership.Reconciler` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
 | 142 | `Aiur.Workspace.Ownership.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
 | 143 | `Aiur.Logs.Retention` | machine | Prunes log files on the machine. | — |
-
+| 144 | `Aiur.Project.Supervisors` | machine | Holds every project tree; one per daemon (MPG-306). | — |
+| 145 | `Aiur.Project.Watcher` | machine | Watches every project root and raises `system.project.boot_failed` (MPG-306). | — |
