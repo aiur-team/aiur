@@ -121,11 +121,13 @@ defmodule Aiur.Project.StoreIsolationTest do
     :ets.delete(name)
   end
 
-  test "with no project context and no publisher table, SnapshotPublisher write and clear are no-ops" do
-    if :ets.whereis(SnapshotPublisher) == :undefined do
-      assert SnapshotPublisher.write(:none, nil, %{}) == :ok
-      assert SnapshotPublisher.clear(:none) == :ok
-    end
+  test "with no project context and no publisher started, SnapshotPublisher write and clear are no-ops" do
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, SnapshotPublisher)
+    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, SnapshotPublisher) end)
+    assert :ets.whereis(SnapshotPublisher) == :undefined
+
+    assert SnapshotPublisher.write(:none, nil, %{}) == :ok
+    assert SnapshotPublisher.clear(:none) == :ok
   end
 
   test "Table.new reuses a live table and drop forgets only one project", %{a: a, b: b} do
