@@ -141,6 +141,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.outbound_events.queue.storage", "event-bus"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
+    # aiur/ownership/projection.ex
+    {"system.ownership.ambiguous", "config"},
     # aiur/landing_watch/pr_rerun.ex
     {"system.pr.ci_recovery.rerun_limit", "orchestration"},
     # aiur/landing_watch/conflict_update.ex

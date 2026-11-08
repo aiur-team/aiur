@@ -8,9 +8,10 @@ defmodule Aiur.Ownership do
 
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Ownership.GitHubRef
+  alias Aiur.Ownership.Projection
   alias Aiur.Ownership.Record
 
-  @type result :: {:ok, Record.t()} | :disabled | {:declined, :not_owner | :unknown, term()}
+  @type result :: {:ok, Record.t()} | :disabled | {:declined, :not_owner | :unknown | :ambiguous, term()}
 
   @spec enabled?() :: boolean()
   def enabled? do
@@ -43,14 +44,84 @@ defmodule Aiur.Ownership do
 
     with {:ok, self} <- self_identity(opts),
          {:ok, repo} <- repo(issue) do
-      case read.(repo, ticket, []) do
-        {:ok, %{record: %{state: "owned"} = record}} -> classify(record, self)
-        {:ok, _absent_or_released} -> claim_it(claim, repo, ticket, self)
-        {:unknown, why} -> {:declined, :unknown, why}
+      observed = read.(repo, ticket, [])
+
+      case Projection.reconcile(ref_read(observed), %{labels: issue.labels, self: self}) do
+        {:ambiguous, reason} -> ambiguous(issue, reason, observed, opts)
+        {:assignment_request, slugs} -> assignment_request(issue, slugs)
+        {:hint_other, slug} -> {:declined, :not_owner, {:label_hint, slug}}
+        decision -> proceed(decision, observed, issue, {claim, repo, ticket, self}, opts)
       end
     else
       {:error, why} -> {:declined, :unknown, why}
     end
+  end
+
+  @doc """
+  Per-poll pass for a ticket this daemon is already running. The ref is not re-read: a running
+  ticket was owned at dispatch, so the polled labels are reconciled against our own identity.
+  """
+  @spec poll_reconcile(Aiur.Issue.t(), keyword()) :: :ok
+  def poll_reconcile(issue, opts \\ []) do
+    with true <- Keyword.get_lazy(opts, :ownership_enabled, &enabled?/0),
+         {:ok, self} <- self_identity(opts) do
+      case Projection.reconcile({:owned, self}, %{labels: issue.labels, self: self}) do
+        {:project, slug} -> Keyword.get(opts, :ownership_label_fun, &Projection.project/2).(issue, slug)
+        {:ambiguous, reason} -> alert(issue, reason, opts)
+        _ -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp ref_gateway_id({:owned, record}), do: record.gateway_id
+  defp ref_gateway_id(_other), do: nil
+
+  defp ref_read({:ok, %{record: %{state: "owned"} = record}}), do: {:owned, record}
+  defp ref_read({:ok, _absent_or_released}), do: :unowned
+  defp ref_read({:unknown, why}), do: {:unreadable, why}
+
+  # An unreadable ref already holds dispatch; the alert is added only when a gateway label shows
+  # someone expects this ticket to be owned.
+  defp ambiguous(issue, :ref_unreadable, {:unknown, why}, opts) do
+    if Projection.gateway_labels(issue.labels) != [], do: alert(issue, :ref_unreadable, opts)
+    {:declined, :unknown, why}
+  end
+
+  defp ambiguous(issue, reason, observed, opts) do
+    alert(issue, reason, opts, observed |> ref_read() |> ref_gateway_id())
+    {:declined, :ambiguous, reason}
+  end
+
+  defp alert(issue, reason, opts, ref_gateway_id \\ nil) do
+    case Keyword.get(opts, :ownership_alert_fun) do
+      nil -> Projection.alert_ambiguous(issue, reason, ref_gateway_id: ref_gateway_id)
+      fun -> fun.(issue, reason)
+    end
+  end
+
+  defp assignment_request(issue, slugs) do
+    require Logger
+    Logger.info("Ticket ##{issue.identifier} has gateway label(s) #{inspect(slugs)} but no ownership ref or state label; treated as an assignment request, not dispatched")
+    {:declined, :not_owner, {:assignment_request, slugs}}
+  end
+
+  defp proceed(decision, observed, issue, {claim, repo, ticket, self}, opts) do
+    result =
+      case observed do
+        {:ok, %{record: %{state: "owned"} = record}} -> classify(record, self)
+        {:ok, _absent_or_released} -> claim_it(claim, repo, ticket, self)
+        {:unknown, why} -> {:declined, :unknown, why}
+      end
+
+    # Best effort: a failed label write never undoes a claim; the next poll retries.
+    with {:ok, _} <- result, true <- decision == :unlabelled or match?({:project, _}, decision) do
+      slug = Projection.slug(self.gateway_label, self.gateway_id)
+      Keyword.get(opts, :ownership_label_fun, &Projection.project/2).(issue, slug)
+    end
+
+    result
   end
 
   defp claim_it(claim, repo, ticket, self) do

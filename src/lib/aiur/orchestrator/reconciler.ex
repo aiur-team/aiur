@@ -197,9 +197,23 @@ defmodule Aiur.Orchestrator.Reconciler do
   def reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
 
   def reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
+    project_running_ownership(issue, state)
     {next, effects} = reconcile_issue_effects(issue, state, active_states, terminal_states, &MembershipLifecycle.observe/2, &CurrentRunMembership.mark_reconciled/1)
     reconcile_running_issue_states(rest, TicketTransition.apply_effects(next, effects), active_states, terminal_states)
   end
+
+  # Per-poll ownership projection for tickets this daemon is running: polled labels only, no extra
+  # GitHub read. Off the orchestrator process so a label write never stalls reconciliation.
+  defp project_running_ownership(%Issue{id: id} = issue, %State{running: running}) do
+    if Map.has_key?(running, id) do
+      poll = Application.get_env(:aiur, :ownership_poll_fun, &Aiur.Ownership.poll_reconcile/1)
+      Task.start(fn -> poll.(issue) end)
+    end
+
+    :ok
+  end
+
+  defp project_running_ownership(_issue, _state), do: :ok
 
   @spec reconcile_issue_state(Issue.t() | term(), State.t(), MapSet.t(), MapSet.t()) :: State.t()
   def reconcile_issue_state(issue, state, active_states, terminal_states) do

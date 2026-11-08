@@ -13,6 +13,7 @@ Aiur.GitHub.Budget.LedgerAndCeilingsTest	warn_metering_unavailable/0 stays silen
 Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no copy of the bodies on the store's heap	#6124	2027-01-22
 Aiur.GitHub.ResourceStore.MergeTest	merging into a held body concurrent merges lose nothing and the body never goes backwards	#6609	2026-11-10
 Aiur.LandingWatch.QuarantinePRTest	when only auto-merge fails, the retry reuses the committed branch and writes no new head	#7383	2026-11-15
+Aiur.Opencode.SlotSupervisorTest	acquire_slot_or_grow/0 with a consumed slot delegates growth to the globally registered slot policy	#7848	2026-11-22
 Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
 Aiur.Orchestrator.ListenerModeEventsTest	published mode changes create no target-agent digest item with default bindings	#7845	2026-11-22
 Aiur.Orchestrator.NonblockingQuestionTest	a non-blocking Command records the question without pausing the worker	#6571	2027-01-25

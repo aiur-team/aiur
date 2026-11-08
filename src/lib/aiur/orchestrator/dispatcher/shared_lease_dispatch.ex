@@ -84,6 +84,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
           {:declined, :not_owner, _} ->
             Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_not_owner, false)
 
+          {:declined, :ambiguous, _} ->
+            Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_ambiguous, false)
+
           {:declined, :unknown, why} ->
             Logger.warning("Ownership unknown (#{inspect(why)}) for #{State.issue_context(issue)}; holding dispatch")
             Candidates.emit_dispatch_attempt_decline(state, issue, :ownership_unknown, true)
