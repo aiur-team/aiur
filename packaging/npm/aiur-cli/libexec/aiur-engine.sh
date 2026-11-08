@@ -108,6 +108,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur ticket owner <id> [--json]  show owner, epoch, actor, age and liveness
+       aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]  claim tickets from state labels
        aiur ticket assign <id> --to <gateway> --reason <text> [--force] [--as <id>] [--json]  transfer ownership
        aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur lane clear <ids...> [--as <who>] [--json]
@@ -349,6 +350,7 @@ aiur_engine_main() {
       cmd_queue "$@"
       ;;
     ticket) shift; cmd_ticket "$@" ;;
+    ownership) shift; cmd_ownership "$@" ;;
     lane) shift; cmd_lane "$@" ;;
     epic) shift; cmd_epic "$@" ;;
     feature) shift; cmd_feature "$@" ;;
