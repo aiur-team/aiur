@@ -44,6 +44,13 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.ClientTokenAuth)
   end
 
+  # CORS runs first so the 401 for a signed-out page still carries CORS headers.
+  pipeline :gateway_summary do
+    plug(AiurWeb.DashboardCors)
+    plug(:fetch_session)
+    plug(AiurWeb.GatewaySummaryAuth)
+  end
+
   pipeline :control_token do
     plug(:fetch_session)
     plug(AiurWeb.ControlTokenAuth)
@@ -114,9 +121,9 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewaySummary, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GithubWebhook, Events, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewaySummary, GithubWebhook, Events, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
@@ -203,6 +210,8 @@ defmodule AiurWeb.Router do
     get("/api/v1/conversations/:conversation_id/anchors", ConversationApiController, :anchors)
     match(:*, "/api/v1/conversations/*path", ConversationApiController, :method_not_allowed_or_not_found)
   end
+
+  GatewaySummary.reads()
 
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
