@@ -70,6 +70,7 @@ defmodule Aiur.Project.ConfigTest do
     refute Enum.any?([Supervisors, Watcher, Aiur.Project.Boot], &(&1 in children))
   end
 
+  @tag capture_log: true
   test "project trees come back after a machine child ahead of them crashes", %{dir: dir} do
     config = Path.join([dir, "repo", ".aiur", "config"])
     File.mkdir_p!(Path.dirname(config))
@@ -78,7 +79,9 @@ defmodule Aiur.Project.ConfigTest do
     on_exit(fn -> Table.drop("o/boot") end)
 
     machine = %{id: :machine_child, start: {Agent, :start_link, [fn -> nil end]}}
-    tree = [machine, Supervisors, Watcher, Supervisors.boot_child_spec([])]
+    me = self()
+    watcher = {Watcher, alert_fun: fn name, opts -> send(me, {:alert, name, opts[:message]}) end}
+    tree = [machine, Supervisors, watcher, Supervisors.boot_child_spec([])]
     sup = start_supervised!(%{id: :machine, start: {Supervisor, :start_link, [tree, [strategy: :rest_for_one]]}, type: :supervisor})
 
     first = wait_for_root("o/boot")
@@ -90,9 +93,16 @@ defmodule Aiur.Project.ConfigTest do
 
   defp wait_for_root(id, not_pid \\ nil, tries \\ 300) do
     case Registry.root_pid(id) do
-      pid when is_pid(pid) and pid != not_pid -> pid
-      _ when tries > 0 -> Process.sleep(10) && wait_for_root(id, not_pid, tries - 1)
-      _ -> flunk("no project root for #{id}")
+      pid when is_pid(pid) and pid != not_pid ->
+        pid
+
+      _ when tries > 0 ->
+        Process.sleep(10) && wait_for_root(id, not_pid, tries - 1)
+
+      _ ->
+        flunk(
+          "no project root for #{id}; alerts: #{inspect(Process.info(self(), :messages))} trees: #{inspect(Process.whereis(Supervisors) && DynamicSupervisor.which_children(Supervisors))} log: #{inspect(Logger.metadata())}"
+        )
     end
   end
 

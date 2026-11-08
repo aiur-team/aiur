@@ -229,6 +229,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:prepare_handoff, 0, :deny, [], %{}},
     {:prepare_handoff, 1, :deny, [:keyword], %{}},
     {:main_watch_state, 0, :deny, [], %{}},
+    {:status_projects_json, 0, :deny, [], %{}},
     {:main_watch_inherited?, 2, :deny, [:any, :any], %{}},
     {:executor_listen, 0, :deny, [], %{}},
     {:executor_listen, 1, :deny, [:keyword], %{topic: :string}}
