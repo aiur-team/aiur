@@ -1,18 +1,19 @@
 defmodule Aiur.Project.Registry do
   @moduledoc """
   Lookups over `Aiur.ProjectRegistry`, the machine-level `Registry` every project
-  tree registers in. A project root registers `{id, Aiur.Project.Supervisor}` with
+  tree registers in. A project root registers `{id, :root}` with
   its `%Aiur.Project{}` as the value; ids are always the downcased repo.
   """
 
   @registry Aiur.ProjectRegistry
+  @root :root
 
   @spec via(Aiur.Project.id(), module()) :: GenServer.name()
   def via(project_id, module), do: {:via, Registry, {@registry, {String.downcase(project_id), module}}}
 
   @doc "Registers the calling process as the root of `project`."
   @spec register_root(Aiur.Project.t()) :: {:ok, pid()} | {:error, {:already_registered, pid()}}
-  def register_root(%Aiur.Project{id: id} = project), do: Registry.register(@registry, {id, Aiur.Project.Supervisor}, project)
+  def register_root(%Aiur.Project{id: id} = project), do: Registry.register(@registry, {id, @root}, project)
 
   @spec root_pid(Aiur.Project.id()) :: pid() | nil
   def root_pid(project_id) do
@@ -34,7 +35,7 @@ defmodule Aiur.Project.Registry do
   def project_ids do
     if Process.whereis(@registry) do
       @registry
-      |> Registry.select([{{{:"$1", Aiur.Project.Supervisor}, :_, :_}, [], [:"$1"]}])
+      |> Registry.select([{{{:"$1", @root}, :_, :_}, [], [:"$1"]}])
       |> Enum.sort()
     else
       []
@@ -42,6 +43,6 @@ defmodule Aiur.Project.Registry do
   end
 
   defp lookup(project_id) do
-    if Process.whereis(@registry), do: Registry.lookup(@registry, {String.downcase(project_id), Aiur.Project.Supervisor}), else: []
+    if Process.whereis(@registry), do: Registry.lookup(@registry, {String.downcase(project_id), @root}), else: []
   end
 end

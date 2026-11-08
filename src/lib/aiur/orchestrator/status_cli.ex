@@ -13,7 +13,6 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.StatusObservation
-  alias Aiur.Project.StatusRows
   alias Aiur.SystemLoad
   alias Aiur.WorkflowStore.ReloadRejection
   import Aiur.ControlCLI.Protocol, only: [control_query_timeout: 3, exit_marker: 1, guarded: 2, report_control_query_failure: 3]
@@ -31,10 +30,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   @section_timeout_ms 1_500
 
   @spec status(keyword()) :: :ok
-  def status(opts \\ [])
-  def status(json: true), do: StatusRows.print()
-
-  def status(opts) do
+  def status(opts \\ []) do
     guarded("status", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
       load_sample = Capacity.local_load_sample()

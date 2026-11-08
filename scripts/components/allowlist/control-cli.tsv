@@ -43,3 +43,11 @@ R-optional	AiurWeb.OperatorControlCenter.UnitsPresenter	baseline 22b2fa407c5d421
 R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.Claude.Repl.Reaper	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.LaneCLI	#7493 lane verbs are the canonical spelling and the control CLI delegates to the build-orders lane CLI
+R-optional	Aiur.AlertFeed.Backfill	#7653 a project tree boots the same per-project children the machine boot list starts
+R-optional	Aiur.BuildOrder.Features	#7653 a project tree boots the same per-project children the machine boot list starts
+R-optional	Aiur.BuildQueue	#7653 a project tree boots the same per-project children the machine boot list starts
+R-optional	Aiur.Conversation.HeadTable	#7653 a project tree boots the same per-project children the machine boot list starts
+R-optional	Aiur.GitHub.Listeners	#7653 a project tree boots the same per-project children the machine boot list starts
+R-optional	Aiur.GitHub.OpenIssueSnapshot	#7653 a project tree boots the same per-project children the machine boot list starts
+R-private	Aiur.AgentPubSub.FleetRefresh	#7653 a project tree boots the same per-project children the machine boot list starts
+R-optional	Aiur.Alerts	#7653 the project watcher raises system.project.boot_failed through the system alert path
