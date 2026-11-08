@@ -36,6 +36,10 @@ export interface CommandV2 {
    * At most 40 Unicode graphemes, matching the Command content validator.
    */
   short_label: string | null;
+  /**
+   * At most 8 caller-supplied slugs from decision.requested, such as group:<id> or source:<name>. A group: tag joins sibling Commands on one ticket.
+   */
+  tags?: string[];
   payload_version?: 2;
   route_policy?: "executor_first" | "simultaneous" | "human_only" | null;
   route_state?: "with_executor" | "with_both" | "with_human" | null;

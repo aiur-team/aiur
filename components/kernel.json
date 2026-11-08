@@ -18,6 +18,7 @@
     "src/lib/aiur/json_store.ex",
     "src/lib/aiur/jsonl.ex",
     "src/lib/aiur/local_test_evidence.ex",
+    "src/lib/aiur/local_test_evidence/bullets.ex",
     "src/lib/aiur/opaque_identifier.ex",
     "src/lib/aiur/os.ex",
     "src/lib/aiur/path_safety.ex",

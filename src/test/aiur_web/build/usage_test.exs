@@ -114,6 +114,49 @@ defmodule AiurWeb.Build.UsageTest do
     assert Usage.order_families([:codex, :claude, :deepseek, :kimi, :muse]) == [:claude, :codex, :kimi, :deepseek, :muse]
   end
 
+  test "#7757 APIS lists every API the daemon holds a key for" do
+    credit = I.window(nil, nil, %{kind: :credit, credits: %{status: :available, amount: 10.4}, remaining: 10.4})
+    window = %{used_percent: 10.0, remaining: 90_000, reset_at: DateTime.add(I.now(), 3600)}
+
+    inputs =
+      I.inputs(%{
+        api_keys: [:openrouter, :openrouter_management, :deepseek, :openai],
+        github: {:ok, I.quota()},
+        elevenlabs: %{state: :observed, window: window},
+        meters: %{openrouter: I.snapshot(:openrouter, %{"credits-remaining" => credit}), deepseek: I.snapshot(:deepseek, %{"balance" => credit})}
+      })
+
+    apis = block(inputs).apis
+    assert Enum.map(apis, & &1.name) == ["GitHub", "ElevenLabs", "OpenRouter", "DeepSeek", "OpenAI"]
+    assert Enum.find(apis, &(&1.name == "DeepSeek")).credits.left == "$10.40"
+    openai = Enum.find(apis, &(&1.name == "OpenAI"))
+    assert openai.none and openai.credits == nil and openai.note == "Configured · a project key cannot read billing"
+
+    [_, _, openrouter] = block(%{inputs | api_keys: [:openrouter]}).apis
+    assert openrouter.note == "Credits need OPENROUTER_MANAGEMENT_KEY"
+    assert openrouter.credits == nil
+  end
+
+  test "#7757 a configured API whose probe fails keeps an unavailable row with its age" do
+    observed = DateTime.add(I.now(), -600)
+    failed = I.snapshot(:deepseek, %{}, %{observed_at: observed, health: %{state: :stale, failure: :transport}})
+    [_github, row] = block(I.inputs(%{api_keys: [:deepseek], meters: %{deepseek: failed}})).apis
+
+    assert row.name == "DeepSeek"
+    assert row.none and row.stale
+    assert row.credits == nil
+    assert row.note == "Transport error"
+    assert row.observed_at == SourceFreshness.ms(observed)
+  end
+
+  test "#7757 a provider neither configured nor observed renders no MODELS row" do
+    inputs = I.inputs(%{families: [:codex, :muse], meters: %{codex: I.snapshot(:codex, %{"primary" => I.window(5)})}})
+    assert Enum.map(block(inputs).providers, & &1.name) == ["Codex"]
+    assert Enum.map(block(%{inputs | configured: [:codex, :muse]}).providers, & &1.name) == ["Codex", "Muse"]
+    durable = %{muse: %{percent: 40, observed_at: I.now()}}
+    assert Enum.map(block(%{inputs | durable: durable}).providers, & &1.name) == ["Codex", "Muse"]
+  end
+
   test "G1 budgets use core requests and gql points with integer percent" do
     row = block(I.inputs(%{github: {:ok, I.quota()}})).apis |> hd()
     assert row.icon == "github"

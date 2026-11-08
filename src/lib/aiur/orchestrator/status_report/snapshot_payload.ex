@@ -18,6 +18,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusObservation
@@ -84,9 +85,9 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       capacity_hold: capacity_hold_payload(state, now_ms),
       dispatch_hold: dispatch_hold_payload(state, now_ms),
       orphaned_agent_reap_count: state.orphaned_agent_reap_count,
-      globally_paused: state.globally_paused == true,
+      globally_paused: PauseGuard.paused?(state),
       global_pause: %{
-        globally_paused: state.globally_paused == true,
+        globally_paused: PauseGuard.paused?(state),
         paused_at: Map.get(state.global_pause, :paused_at),
         source: Map.get(state.global_pause, :source)
       },

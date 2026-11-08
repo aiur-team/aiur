@@ -1,7 +1,7 @@
 defmodule Aiur.Decision do
   @moduledoc """
   Optional v2 request attribution (`requester`, `origin`, `native`, `questions`,
-  `short_label`) is projected from a separate fact, never the v1 snapshot.
+  `short_label`, `tags`) is projected from a separate fact, never the v1 snapshot.
 
   Canonical, versioned Decision representation. `Aiur.DecisionValidation`
   normalizes an untrusted `decision.requested` payload into this struct;
@@ -144,6 +144,7 @@ defmodule Aiur.Decision do
           native: map() | nil,
           questions: [map()],
           short_label: String.t() | nil,
+          tags: [String.t()],
           route_policy: atom() | nil,
           route_state: atom() | nil,
           routed_at: DateTime.t() | nil,
@@ -207,6 +208,7 @@ defmodule Aiur.Decision do
                 native: nil,
                 questions: [],
                 short_label: nil,
+                tags: [],
                 route_policy: nil,
                 route_state: nil,
                 routed_at: nil,

@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   require Logger
   alias Aiur.GitHub.Access
   alias Aiur.{Issue, Signal}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PauseGuard, State, TicketTransition, TrackerTasks}
 
   @backoff_ms [120_000, 300_000, 900_000]
   @max_attempts 3
@@ -351,7 +351,7 @@ defmodule Aiur.Orchestrator.AutoResume do
       Map.get(state.auto_resume, issue.id) != entry ->
         state
 
-      state.globally_paused ->
+      PauseGuard.paused?(state) ->
         state
 
       TrackerTasks.issue_pending?(state, issue.id) ->

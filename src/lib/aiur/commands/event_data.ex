@@ -6,6 +6,7 @@ defmodule Aiur.Commands.EventData do
   alias Aiur.Commands.OverrideMerge
   alias Aiur.Commands.RequestContent
   alias Aiur.Commands.Routing.FactData
+  alias Aiur.Commands.Tags
   alias Aiur.DecisionEvent.Validation
 
   @routing_types FactData.types()
@@ -23,8 +24,9 @@ defmodule Aiur.Commands.EventData do
          {:ok, origin} <- enum(Validation.get(raw, :origin), [:emit_event, :attention, :native_question, :executor_cli, :supervisor_api], :origin, true),
          {:ok, native} <- normalize_native(Validation.get(raw, :native)),
          {:ok, questions} <- questions(Validation.get(raw, :questions)),
-         {:ok, short_label} <- Validation.bounded_optional(Validation.get(raw, :short_label), 40, :short_label) do
-      {:ok, %{requester: requester, origin: origin, native: native, questions: questions, short_label: short_label}}
+         {:ok, short_label} <- Validation.bounded_optional(Validation.get(raw, :short_label), 40, :short_label),
+         {:ok, tags} <- Tags.normalize(Validation.get(raw, :tags)) do
+      {:ok, %{requester: requester, origin: origin, native: native, questions: questions, short_label: short_label, tags: tags}}
     end
   end
 
