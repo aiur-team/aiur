@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   alias Aiur.GitHub.{Access, AgentBudgetSocket, AgentMarker}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Instance.LeaseStore
+  alias Aiur.Ownership.Fence
 
   @impl true
   def port_env(workspace, opts) do
@@ -40,6 +41,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       # other repository must not have its answers filed under this one.
       {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
       budget_socket_env(),
+      fence_socket_env(),
       {~c"AIUR_GITHUB_BUDGET_ROOT", Access.budget_state_dir() |> String.to_charlist()},
       # #2356: the path to the token file the daemon wrote for the `gh` guard.
       # This is a PATH, not a credential — the raw token lives on disk and the
@@ -169,11 +171,17 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
     end
   end
 
+  defp fence_socket_env do
+    if Aiur.Ownership.enabled?(),
+      do: {~c"AIUR_OWNERSHIP_FENCE_SOCKET", Fence.socket_path() |> String.to_charlist()},
+      else: {~c"AIUR_OWNERSHIP_FENCE_SOCKET", false}
+  end
+
   defp budget_socket_export(opts) do
     if Keyword.get(opts, :local_claude_repl, false) and LeaseStore.configured?() do
       "export AIUR_GITHUB_BUDGET_SOCKET=#{Aiur.Shell.escape(AgentBudgetSocket.socket_path())}\n"
     else
       "unset AIUR_GITHUB_BUDGET_SOCKET\n"
-    end
+    end <> "unset AIUR_OWNERSHIP_FENCE_SOCKET\n"
   end
 end

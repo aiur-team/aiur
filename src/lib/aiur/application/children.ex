@@ -11,6 +11,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata
+  alias Aiur.Ownership.Fence
 
   @doc """
   Build the supervision children for the given run shape.
@@ -357,6 +358,7 @@ defmodule Aiur.Application.Children do
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
       List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
+      Fence.child_specs() ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
