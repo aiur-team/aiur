@@ -1,6 +1,7 @@
 defmodule Aiur.Project.SingletonIsolationTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Events.Exchange
   alias Aiur.GitHub.OpenIssueSnapshot
   alias Aiur.Orchestrator.OptimisticLedger
   alias Aiur.Orchestrator.SpendCap.Store
@@ -38,6 +39,30 @@ defmodule Aiur.Project.SingletonIsolationTest do
       started_at_ms: 100,
       blockers: [%{"id" => "12", "pr_number" => 30, "pr_head_sha_at_start" => "s", "pr_head_ref_at_start" => "refs/heads/aiur/12-s", "pr_state" => "open"}]
     }
+  end
+
+  test "exchanges deliver only to their own project's subscribers", %{a: a, b: b} do
+    for p <- [a, b], do: as(p, fn -> start(Exchange, name: Exchange.name()) end)
+    me = self()
+
+    for {tag, p} <- [a: a, b: b] do
+      {:ok, _} =
+        Task.start_link(fn ->
+          as(p, fn -> Exchange.subscribe("ticket.12.#") end)
+          send(me, {:subscribed, tag})
+
+          receive do
+            {:event, e} -> send(me, {:got, tag, e})
+          end
+        end)
+
+      assert_receive {:subscribed, ^tag}
+    end
+
+    as(a, fn -> Exchange.publish("ticket.12.agent.x", :from_a) end)
+
+    assert_receive {:got, :a, :from_a}
+    refute_receive {:got, :b, _}, 100
   end
 
   test "open-issue snapshots are per project", %{a: a, b: b} do
