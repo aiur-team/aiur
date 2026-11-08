@@ -1,0 +1,51 @@
+{
+  "id": "gateway-trust",
+  "name": "Gateway trust",
+  "layer": 2,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/gateway/cli.ex",
+    "src/lib/aiur/gateway/grant_confirmation.ex",
+    "src/lib/aiur/gateway/grant_request.ex",
+    "src/lib/aiur/gateway/grants.ex",
+    "src/lib/aiur/gateway/registry.ex",
+    "src/lib/aiur_web/operator_control_center/gateway_grant_commands.ex",
+    "packaging/npm/aiur-cli/libexec/aiur-gateway.sh"
+  ],
+  "facades": [
+    "Aiur.Gateway.Cli",
+    "Aiur.Gateway.GrantConfirmation",
+    "Aiur.Gateway.GrantRequest",
+    "Aiur.Gateway.Grants",
+    "Aiur.Gateway.Registry"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "commands",
+    "config",
+    "control-cli",
+    "identity",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Lets a gateway grant, revoke and inspect what each peer gateway may do on it.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/cli-gateways.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
+}

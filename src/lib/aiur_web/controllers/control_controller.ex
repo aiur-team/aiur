@@ -6,6 +6,7 @@ defmodule AiurWeb.ControlController do
   alias Aiur.ControlCall
   alias Aiur.ControlCall.Audit
   alias Aiur.ControlCall.ReplayStore
+  alias Aiur.Gateway.Grants
   alias Plug.Conn
 
   require Logger
@@ -60,6 +61,9 @@ defmodule AiurWeb.ControlController do
           not category_granted?(conn, call) ->
             refusal_code(conn, expression, call, 403, "category_not_granted: #{call.category}", started)
 
+          reason = peer_refusal(conn, call) ->
+            grant_refusal(conn, expression, call, reason, started)
+
           call.scope == :write and not dashboard_writable?() ->
             refusal(conn, expression, call, :dashboard_read_only, 403, started)
 
@@ -67,13 +71,38 @@ defmodule AiurWeb.ControlController do
             execute_call(conn, params, expression, call, started)
         end
 
+      {:error, :grants_are_local} ->
+        grant_refusal(conn, expression, nil, :grants_are_local, started)
+
       {:error, reason} ->
         status = if reason == :scope_exceeds_max, do: 403, else: 422
         refusal(conn, expression, nil, reason, status, started)
     end
   end
 
-  # MPG-206 adds the peer's own grant as a second check here.
+  # A peer-bound token is also limited by what this gateway's registry lets that peer do.
+  defp peer_refusal(%{assigns: %{token_peer: peer}} = conn, call) when is_binary(peer) do
+    case Grants.allowed?(peer, conn.assigns[:token_name], call.category) do
+      :ok -> nil
+      {:error, reason} -> reason
+    end
+  end
+
+  defp peer_refusal(_conn, _call), do: nil
+
+  defp grant_refusal(conn, expression, call, reason, started) do
+    {code, event} = grant_code(reason)
+
+    case audit(conn, expression, call, "refused", nil, elapsed(started), %{event: event, reason: code}) do
+      :ok -> error(conn, 403, code, nil, nil)
+      {:error, _} -> error(conn, 503, "audit_unavailable", nil, nil)
+    end
+  end
+
+  defp grant_code(:grants_are_local), do: {"grants_are_local", "grants_are_local_refused"}
+  defp grant_code({:category_not_granted, category}), do: {"category_not_granted: #{category}", "category_not_granted_refused"}
+  defp grant_code(reason), do: {to_string(reason), "category_not_granted_refused"}
+
   defp category_granted?(conn, call), do: to_string(call.category) in (conn.assigns[:token_categories] || [])
 
   defp allowed_scope?(token_scope, requested_scope, :write), do: token_scope == "write" and requested_scope == :write
