@@ -85,6 +85,8 @@ defmodule Aiur.Application.ChildrenOrderTest do
       sync = idx.(configured, Aiur.Intent.Sync)
       assert is_integer(lease) and is_integer(heartbeat) and is_integer(sync)
       assert lease < heartbeat and heartbeat < sync
+      assert sync < idx.(configured, Aiur.Orchestrator), "boot pull needs Sync running before the Orchestrator"
+      assert idx.(configured, Aiur.Intent.Store) < idx.(configured, Aiur.Orchestrator)
 
       Application.delete_env(:aiur, :lease_database_url)
       System.delete_env("AIUR_LEASE_DATABASE_URL")
