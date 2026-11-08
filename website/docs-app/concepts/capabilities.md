@@ -139,6 +139,10 @@ machine id alone, shared by every instance on the machine) and `gateway_label`. 
 identity is unreadable both are `null` and `gateway_identity` is `"unavailable"`; an id is
 never invented. `instance_id` is unchanged.
 
+Each project in the gateway summary (`GET /api/v1/gateway/summary`) carries `agents`, `next_queue` and
+`pending_decisions`, each with `state`, `value`, `observed_at` and `age_ms`. A store that cannot be read gives
+`state: "unknown"` and a `null` value, never `0`. `next_queue` covers only the gateway's configured tracker repo.
+
 An unreadable or damaged identity is never silently replaced. To reset deliberately,
 stop all instances using this store, back up and remove its `identity.json`, then
 restart. This creates a new machine identity and invalidates existing pairings.

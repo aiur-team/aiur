@@ -3,8 +3,9 @@ defmodule Aiur.Gateway.Summary do
   The gateway summary (schema S6) served to the dashboard.
 
   Built from the same metadata the instance heartbeat publishes, so there is one grouping of projects.
-  A value that cannot be read is `nil` (JSON `null`), never zero. `ready`, `focus_features`, `paused` and
-  `pending_decisions` have no producer yet and are always `nil`.
+  A value that cannot be read is `nil` (JSON `null`), never zero. `ready`, `focus_features` and `paused`
+  have no producer yet and are always `nil`. `agents`, `next_queue` and `pending_decisions` are
+  `%{state, value, observed_at, age_ms}`: `state` is `"unknown"` with a `nil` value when the store behind them could not be read.
   """
 
   @spec build(keyword()) :: map()
@@ -52,8 +53,17 @@ defmodule Aiur.Gateway.Summary do
       ready: nil,
       owned_tickets: row["owned_tickets"],
       paused: nil,
-      pending_decisions: nil
+      agents: signal(row, "agents", observed_at),
+      next_queue: signal(row, "next_queue", observed_at),
+      pending_decisions: signal(row, "pending_decisions", observed_at)
     }
+  end
+
+  defp signal(row, key, observed_at) do
+    case row[key] do
+      nil -> %{state: "unknown", value: nil, observed_at: observed_at, age_ms: 0}
+      value -> %{state: "known", value: value, observed_at: observed_at, age_ms: 0}
+    end
   end
 
   defp workload(running, max) when is_integer(running) and is_integer(max) do
