@@ -168,9 +168,6 @@
   transition: transform 120ms ease;
 }
 
-.decision-card.open .expand-chevron {
-  transform: rotate(180deg);
-}
 
 .decision-age {
   color: var(--muted);

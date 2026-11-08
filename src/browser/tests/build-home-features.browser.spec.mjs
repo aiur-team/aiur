@@ -92,10 +92,11 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
     ctx.D.feature_progress = { ...ctx.D.feature_progress, bars }
     fx.renderList()
   }, bars)
-  const rows = page.locator('.fp-rows .fp-row')
+  const rows = page.locator('.fp-list > .fp-row:not(.fp-all)')
   await expect(rows).toHaveCount(7)
-  expect(await rows.evaluateAll(els => els.map(el => [...el.children].map(child => child.className)))).toEqual(bars.map(b => ['fp-name', b.merged === b.total ? 'fp-bar done' : 'fp-bar', 'fp-count']))
-  expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual(bars.map(b => `${b.label}${b.merged}/${b.total}`))
+  expect(await rows.evaluateAll(els => els.map(el => [...el.children].map(child => child.className)))).toEqual(bars.map(() => ['fp-name', 'fp-pg', 'fp-count', 'fp-left']))
+  expect(await rows.locator('.fp-bar').evaluateAll(els => els.map(el => el.className))).toEqual(bars.map(b => b.merged === b.total ? 'fp-bar done' : 'fp-bar'))
+  expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual(bars.map(b => `${b.label}${b.merged}/${b.total}${b.total - b.merged}`))
   const visibleNames = await rows.locator('.fp-name').allTextContents()
   expect(new Set(visibleNames).size).toBe(visibleNames.length)
   expect(visibleNames).not.toContain('mp-e2')
@@ -112,41 +113,29 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   await expect(page.locator('.fp-list h1')).toHaveCount(0)
   await expect(page.locator('.fp-sum')).toHaveText(/^57 of 89 tickets merged - \d{4}-\d{2}-\d{2}$/)
   await expect(page.locator('.fp-list [data-fsort]')).toHaveCount(0)
-  // The list starts right under the toolbar: no card box, no outer margins and no empty band.
+  // The table starts at the top of the card, under the Tickets-style column headers.
   const flushTop = await page.evaluate(() => {
     const vp = document.querySelector('#bd-vp').getBoundingClientRect()
-    const first = document.querySelector('.fp-rows .fp-row').getBoundingClientRect()
     return {
       list: Math.round(document.querySelector('.fp-list').getBoundingClientRect().top - vp.top),
-      first: Math.round(first.top - vp.top),
       toolbar: Math.round(vp.top - document.querySelector('.bd-toolbar').getBoundingClientRect().bottom)
     }
   })
   expect(flushTop.list).toBeLessThanOrEqual(1)
-  expect(flushTop.first).toBeLessThanOrEqual(32)
-  // The summary line shares the row grid's inset instead of hanging on the panel's left edge.
-  const summaryInset = await page.evaluate(() => {
-    const list = document.querySelector('.fp-list').getBoundingClientRect()
-    const summary = document.querySelector('.fp-sum').getBoundingClientRect()
-    const name = document.querySelector('.fp-rows .fp-row .fp-name').getBoundingClientRect()
-    return { fromList: summary.left - list.left, fromName: name.left - summary.left }
-  })
-  expect(summaryInset.fromList).toBeGreaterThanOrEqual(3)
-  expect(Math.abs(summaryInset.fromName)).toBeLessThanOrEqual(1)
-  // The only gap left above the list is the dashboard gutter every view shares; the card's own
-  // margins and padding are gone, so the band the operator saw is not there anymore.
   expect(flushTop.toolbar).toBeLessThanOrEqual(16)
-  await expect(page.locator('.fp-all')).toHaveText('All features57/89')
+  expect(await page.locator('.fp-list > .lr-h [role="columnheader"]').allTextContents()).toEqual(['Feature', 'Progress', 'Merged', 'Remaining'])
+  await expect(page.locator('.fp-all')).toHaveText('All features57/8932')
   await expect(page.locator('.fp-all .fp-bar i')).toHaveAttribute('style', /width:64\.04/)
   const colors = await page.evaluate(() => {
     const probe = token => { const el = document.createElement('i'); el.style.background = `var(${token})`; document.querySelector('.fp-list').append(el); const value = getComputedStyle(el).backgroundColor; el.remove(); return value }
     const fill = selector => getComputedStyle(document.querySelector(selector)).backgroundColor
-    return { done: [fill('.fp-bar.done i'), probe('--good')], partial: [fill('.fp-rows .fp-row .fp-bar:not(.done) i'), probe('--accent')], all: [fill('.fp-bar.all i'), probe('--attention')] }
+    return { done: [fill('.fp-bar.done i'), probe('--good')], partial: [fill('.fp-row:not(.fp-all) .fp-bar:not(.done):not(.all) i'), probe('--accent')], all: [fill('.fp-bar.all i'), probe('--attention')] }
   })
   for (const [actual, token] of Object.values(colors)) expect(actual).toBe(token)
   expect(new Set(Object.values(colors).map(([actual]) => actual)).size).toBe(3)
 
-  await expect(rows.nth(1)).not.toHaveJSProperty('tagName', 'BUTTON')
+  await expect(rows.first()).toHaveAttribute('tabindex', '0')
+  await expect(rows.nth(1)).not.toHaveAttribute('tabindex', /.*/)
   expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
   await page.emulateMedia({ colorScheme: 'light' })
   expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
@@ -182,7 +171,7 @@ test('Features list says progress is unavailable instead of inventing a zero tot
   await page.evaluate(() => { const { ctx, fx } = window.m; ctx.D.feature_progress = { ...ctx.D.feature_progress, bars: null }; fx.renderList() })
   await expect(page.locator('.fp-sum')).toHaveText(/^Feature progress unavailable - /)
   await expect(page.locator('.fp-all')).toHaveCount(0)
-  await expect(page.locator('.fp-rows .fp-row')).toHaveCount(0)
+  await expect(page.locator('.fp-list > .fp-row:not(.fp-all)')).toHaveCount(0)
 })
 for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} stays inactive in graph, compact and list`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))
@@ -209,7 +198,7 @@ test('first-paint feature focus loads oldest history, back/forward restores focu
   await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.khala.oldest)).toBe(true)
   expect(await page.evaluate(() => m.ctx.D.hist.filter(t => t.feature === 'khala').length)).toBeGreaterThan(0)
   expect(Math.abs(await bandTop() - before)).toBeLessThanOrEqual(1)
-  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.appendChild(a) })
+  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.prepend(a) })
   await page.locator('#feature-navigation').click()
   await expect(page.locator('.bd-fh-name')).toContainText('Events pagination')
   await page.goBack()
