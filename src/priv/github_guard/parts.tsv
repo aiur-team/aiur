@@ -10,6 +10,7 @@ aiur-policy	15-a-disposition-helper.sh
 core	15-b-positionals.sh
 aiur-policy	15-c-disposition.sh
 core	15-d-admission.sh
+aiur-policy	15-e-no-fork.sh
 aiur-policy	20-a-context.sh
 aiur-policy	20-b-merge-functions.sh
 aiur-policy	20-c1-handoff.sh
