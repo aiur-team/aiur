@@ -116,6 +116,7 @@ export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
  * @property {CommandMedia[]} media
  * @property {{answer: boolean, revise: boolean, enrich: boolean}} actions
  * @property {string | null} [source]
+ * @property {string[]} [tags] Caller tags from `decision.requested`, such as `group:<id>`.
  * @property {string} [message]
  */
 

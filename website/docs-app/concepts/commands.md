@@ -247,6 +247,8 @@ a rejection is recorded as the answer.
 
 The reason is stored verbatim, the agent receives a message naming the
 rejection and the reason, and a blocking Command unblocks. The component state is `rejected`.
+A rejected or dismissed Command also moots its open
+[`group:` siblings](../guide/embedded-commands.md#tags-and-sibling-commands).
 
 ## Overriding an answer
 
