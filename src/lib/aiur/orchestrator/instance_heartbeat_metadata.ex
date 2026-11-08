@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
   alias Aiur.Gateway.Identity
   alias Aiur.Instance.LeaseStore
   alias Aiur.Instance.LeaseStore.TicketKey
-  alias Aiur.Orchestrator.InstanceHeartbeatMetadata.SizeBudget
+  alias Aiur.Orchestrator.InstanceHeartbeatMetadata.{ProjectSignals, SizeBudget}
 
   @spec metadata(keyword()) :: map()
   def metadata(opts \\ []) do
@@ -31,7 +31,7 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
         "agent_capacity" => contained(Keyword.get(opts, :capacity_fun, &agent_capacity/0)),
         "held_tickets" => held,
         "executor_present" => contained(Keyword.get(opts, :executor_fun, fn -> nil end)),
-        "projects" => projects(statuses, held),
+        "projects" => projects(statuses, held, signals(opts)),
         "agents" => agent_rows(statuses)
       })
 
@@ -49,7 +49,14 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
 
   defp drop_nil(map), do: map |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
 
-  defp projects(statuses, held) when is_list(statuses) do
+  defp signals(opts) do
+    %{
+      next_queue: contained(Keyword.get(opts, :next_queue_fun, &ProjectSignals.next_queue/0)),
+      pending_decisions: contained(Keyword.get(opts, :pending_decisions_fun, &ProjectSignals.pending_decisions/0))
+    }
+  end
+
+  defp projects(statuses, held, signals) when is_list(statuses) do
     active = Enum.filter(statuses, &active_agent?/1)
     running = Enum.frequencies_by(active, &repo_of/1)
 
@@ -61,12 +68,19 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
       drop_nil(%{
         "repo" => repo,
         "running" => Map.get(running, repo, 0),
+        "agents" => Map.get(running, repo, 0),
+        "next_queue" => queue_entry(signals.next_queue, repo),
+        "pending_decisions" => signals.pending_decisions && Map.get(signals.pending_decisions, repo, 0),
         "owned_tickets" => if(is_list(held), do: Enum.count(held, &(repo_of(&1) == repo)))
       })
     end)
   end
 
-  defp projects(_, _), do: nil
+  defp projects(_, _, _), do: nil
+
+  # nil source or a repo the queue does not serve: omitted. A served repo with nothing ready is `%{"number" => nil}`.
+  defp queue_entry(%{} = by_repo, repo) when is_map_key(by_repo, repo), do: %{"number" => by_repo[repo]}
+  defp queue_entry(_, _), do: nil
 
   # Project id = downcased owner/name from the lease store's own ticket key, so running rows (bare-number
   # identifier + tracker_identity) and held keys (owner/repo#N) group under one key.

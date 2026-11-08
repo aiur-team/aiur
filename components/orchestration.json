@@ -23,6 +23,8 @@
     "src/lib/aiur/orchestrator/**",
     "src/lib/aiur/ownership/cli.ex",
     "src/lib/aiur/orchestrator/comment_polling_state.ex",
+    "src/lib/aiur/ownership.ex",
+    "src/lib/aiur/ownership/**",
     "src/lib/aiur/pr_ready_ledger_store.ex",
     "src/lib/aiur/recent_merge.ex",
     "src/lib/aiur/recent_merge/**",
@@ -58,7 +60,6 @@
     "conversations",
     "executor-attention",
     "github",
-    "github-access",
     "github-listeners"
   ],
   "owns": {
